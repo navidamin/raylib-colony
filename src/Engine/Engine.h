@@ -39,6 +39,9 @@ private:
     void SelectColony(Vector2 mousePosition);
     void SelectSect(Vector2 mousePosition);
     void SelectUnit(Vector2 mousePosition);
+    void DrawCellInfo(Vector2 mousePosition);
+    bool IsInfoKeyPressed() const { return IsKeyDown(KEY_TAB); }
+
 
     int screenWidth;
     int screenHeight;

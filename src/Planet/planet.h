@@ -33,8 +33,11 @@ public:
     void Draw(float scale);
     void DrawPlanetGrid();
     void UpdateActiveArea(const std::vector<Colony*>& colonies);
+    Vector2 GetRandomValidPosition() const;
+    void NotifyFirstSectPosition(Vector2 position);
     Vector2 GetActiveCentroid() const;
     float GetActiveRadius() const;
+    void DrawResourceDebug(float scale);
     Vector2 GetWorldPosition(Vector2 gridPos) const;
 
 

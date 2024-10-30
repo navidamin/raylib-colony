@@ -43,11 +43,11 @@ void Engine::InitGame() {
 
     // Create initial sect with a position near the center of the map
     Sect* firstSect = new Sect();
-    Vector2 initialPosition = {
-        static_cast<float>(screenWidth) / 2.0f,
-        static_cast<float>(screenHeight) / 2.0f
-    };
+    Vector2 initialPosition = planet->GetRandomValidPosition();
     firstSect->SetPosition(initialPosition);
+
+    // Notify planet about sect position to ensure resources
+    planet->NotifyFirstSectPosition(initialPosition);
 
     // Add sect to colony
     currentColony->AddSect(firstSect);
@@ -546,8 +546,18 @@ void Engine::Draw() {
                 }
             }
 
+            // Show the resource map if TAB is held
+            if (IsInfoKeyPressed()) {
+                planet->DrawResourceDebug(camera.zoom);
+            }
+
             // End camera transformation
             EndMode2D();
+
+            // Show the Cell info if Ctrl+I is held
+            if (IsInfoKeyPressed()) {
+                DrawCellInfo(GetMousePosition());
+            }
 
             DrawText("Colony View", 10, 10, 20, BLACK);
             DrawText("Press S for Sect View", 10, 40, 20, GRAY);
@@ -576,10 +586,107 @@ void Engine::Draw() {
 
 
     // Draw UI elements (not affected by camera)
-    DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
-    DrawText("Double-click to select", 10, GetScreenHeight() - 40, 20, DARKGRAY);
-
+    if (currentView != View::Menu) {
+        DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
+        if (currentView == View::Planet) {
+            DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
+        } else{
+            DrawText("Double-click to select", 10, GetScreenHeight() - 40, 20, DARKGRAY);
+        }
+    }
 
     EndDrawing();
 }
 
+// Draw information of each grid cell: resource available, the owner colony
+void Engine::DrawCellInfo(Vector2 mousePosition) {
+    // Convert screen coordinates to world coordinates
+    Vector2 worldPos = GetScreenToWorld2D(mousePosition, camera);
+
+    // Get grid coordinates
+    int gridX = static_cast<int>(worldPos.x / (SECT_CORE_RADIUS * 2));
+    int gridY = static_cast<int>(worldPos.y / (SECT_CORE_RADIUS * 2));
+
+    // Check if position is within planet bounds
+    if (gridX < 0 || gridX >= PLANET_SIZE || gridY < 0 || gridY >= PLANET_SIZE) {
+        return;
+    }
+
+    // Get resource information
+    Vector2 gridWorldPos = {
+        static_cast<float>(gridX) * SECT_CORE_RADIUS * 2,
+        static_cast<float>(gridY) * SECT_CORE_RADIUS * 2
+    };
+    auto resources = planet->GetResourceInfo(gridWorldPos);
+
+    // Build info text
+    std::vector<std::string> infoLines;
+
+    // Add coordinates
+    infoLines.push_back(TextFormat("Grid: %d, %d", gridX, gridY));
+
+    // Add resources
+    if (!resources.empty()) {
+        infoLines.push_back("Resources:");
+        for (const auto& [type, abundance] : resources) {
+            std::string resourceName = ResourceUtils::GetResourceName(type);
+            int percentage = static_cast<int>(abundance * 100);
+            infoLines.push_back(TextFormat("  %s: %d%%", resourceName.c_str(), percentage));
+        }
+    } else {
+        infoLines.push_back("No resources");
+    }
+
+    // Check jurisdiction
+    std::string jurisdiction = "Unclaimed";
+    for (const auto& colony : colonies) {
+        Vector2 colonyCenter = colony->GetCentroid();
+        float colonyRadius = colony->GetRadius();
+        if (CheckCollisionPointCircle(gridWorldPos, colonyCenter, colonyRadius)) {
+            jurisdiction = "Colony Territory";
+            break;
+        }
+    }
+    infoLines.push_back(TextFormat("Status: %s", jurisdiction.c_str()));
+
+    // Calculate popup dimensions
+    int padding = 10;
+    int lineHeight = 20;
+    int maxWidth = 0;
+    for (const auto& line : infoLines) {
+        int width = MeasureText(line.c_str(), lineHeight);
+        maxWidth = std::max(maxWidth, width);
+    }
+    int boxWidth = maxWidth + (padding * 2);
+    int boxHeight = (lineHeight * infoLines.size()) + (padding * 2);
+
+    // Adjust popup position to stay within screen bounds
+    int screenWidth = GetScreenWidth();
+    int screenHeight = GetScreenHeight();
+    Vector2 popupPos = mousePosition;
+    popupPos.x += 20; // Offset from cursor
+    popupPos.y += 20;
+
+    // Ensure popup stays within screen bounds
+    if (popupPos.x + boxWidth > screenWidth) {
+        popupPos.x = screenWidth - boxWidth;
+    }
+    if (popupPos.y + boxHeight > screenHeight) {
+        popupPos.y = screenHeight - boxHeight;
+    }
+
+    // Draw popup background
+    DrawRectangle(popupPos.x, popupPos.y, boxWidth, boxHeight, ColorAlpha(BLACK, 0.8f));
+    DrawRectangleLines(popupPos.x, popupPos.y, boxWidth, boxHeight, WHITE);
+
+    // Draw text
+    for (size_t i = 0; i < infoLines.size(); i++) {
+        DrawText(
+            infoLines[i].c_str(),
+            popupPos.x + padding,
+            popupPos.y + padding + (i * lineHeight),
+            lineHeight,
+            WHITE
+        );
+    }
+}

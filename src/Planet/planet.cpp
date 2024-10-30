@@ -99,6 +99,27 @@ void Planet::UpdateActiveArea(const std::vector<Colony*>& colonies) {
 }
 
 Vector2 Planet::GetRandomValidPosition() const {
+    // Random position in grid coordinates
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(3, PLANET_SIZE - 3);
+
+    int gridX = dist(gen);
+    int gridY = dist(gen);
+
+    // Convert to world coordinates
+    return GridToWorld(gridX, gridY);
+}
+
+void Planet::NotifyFirstSectPosition(Vector2 position) {
+    // Convert world position to grid position
+    int gridX = static_cast<int>(position.x / (SECT_CORE_RADIUS * 2.0f));
+    int gridY = static_cast<int>(position.y / (SECT_CORE_RADIUS * 2.0f));
+
+    // Ensure basic resources at this location
+    resourceManager->EnsureBasicResources(gridX, gridY);
+}
+
 Vector2 Planet::GetWorldPosition(Vector2 gridPos) const {
     return GridToWorld(gridPos.x, gridPos.y);
 }
@@ -133,3 +154,8 @@ void Planet::DrawPlanetGrid() {
         DrawLine(0, i * 10, GetScreenWidth(), i * 10, LIGHTGRAY);
     }*/
 }
+
+void Planet::DrawResourceDebug(float scale) {
+    resourceManager->DrawResourceDebug(scale);
+}
+
