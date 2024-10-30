@@ -20,8 +20,8 @@ Planet::~Planet() {
 }
 
 void Planet::GenerateMap() {
-    std::cout << "Generating planet map..." << std::endl;
-    // TODO: Implement map generation algorithm
+    resourceManager->GenerateResourceMap();
+    // Generate terrain, initialize other map features
 }
 
 void Planet::AddColony(Colony* colony) {
@@ -29,12 +29,8 @@ void Planet::AddColony(Colony* colony) {
     std::cout << "New colony added to the planet." << std::endl;
 }
 
-std::vector<std::string> Planet::GetResourceInfo(std::pair<int, int> location) const {
-    auto it = resources.find(location);
-    if (it != resources.end()) {
-        return it->second;
-    }
-    return std::vector<std::string>(); // Return empty vector if no resources found
+std::vector<std::pair<ResourceType, float>> Planet::GetResourceInfo(Vector2 location) const {
+    return resourceManager->GetResourcesAt(location);
 }
 
 void Planet::Update() {

@@ -33,6 +33,9 @@ Engine::~Engine() {
 }
 
 void Engine::InitGame() {
+    // Generate map/grid/resource map of the planet
+    planet->GenerateMap();
+
     // Create initial colony
     Colony* firstColony = new Colony();
     colonies.push_back(firstColony);
@@ -103,6 +106,7 @@ void Engine::SwitchToColonyView() {
 void Engine::SwitchToSectView() {
     if (currentColony && currentSect) {
         currentView = View::Sect;
+        ResetCameraForCurrentView();
     }
 }
 

@@ -50,8 +50,7 @@ void Sect::Update() {
 
 void Sect::CreateInitialUnits() {
     std::vector<std::string> unit_types = {
-        "Extraction", "Farming", "Energy", "Manufacture",
-        "Construction", "Transport", "Research", "Commerce"
+        "Extraction", "Farming", "Manufacture", "Transport", "Communication", "Research","Energy", "Construction"
     };
 
     for (const auto& type : unit_types) {

@@ -135,7 +135,7 @@ void Unit::SetInitialParameters() {
         parameters["ResearchSpeedMultiplier"] = 1.0;
         parameters["BreakthroughChance"] = 0.05;
         parameters["UpgradeEffect"] = 0.2;
-    } else if (unit_type == "Commerce") {
+    } else if (unit_type == "Communication") {
         parameters["TradeCapacity"] = 100;
         parameters["ExchangeRate"] = 1;
         parameters["EnergyConsumption"] = 3;

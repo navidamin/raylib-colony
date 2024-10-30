@@ -2,12 +2,16 @@
 #define PLANET_H
 
 #include "raylib.h"
+#include "raymath.h"
 #include <vector>
 #include <map>
 #include <utility>
 #include <optional>
 #include <memory>
+#include <random>
+
 #include "colony.h"
+#include "resource_manager.h"
 #include "game_constants.h"
 #include "game_structs.h"
 
@@ -24,7 +28,7 @@ public:
 
     void GenerateMap();
     void AddColony(Colony* colony);
-    std::vector<std::string> GetResourceInfo(std::pair<int, int> location) const;
+    std::vector<std::pair<ResourceType, float>> GetResourceInfo(Vector2 location) const;
     void Update();
     void Draw(float scale);
     void DrawPlanetGrid();
@@ -37,6 +41,7 @@ public:
 private:
     std::vector<std::vector<int>> map; // 2D grid representing the planet's surface
     std::vector<Colony*> colonies;
+    std::unique_ptr<ResourceManager> resourceManager;
     std::map<std::pair<int, int>, std::vector<std::string>> resources; // Resources at each location
     std::pair<int, int> size; // Planet dimensions
     int time; // Game time
