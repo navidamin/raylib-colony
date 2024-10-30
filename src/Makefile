@@ -39,7 +39,8 @@ SOURCES = main.cpp \
           Engine/Engine.cpp \
           Planet/planet.cpp \
           Sect/sect.cpp \
-          Unit/unit.cpp
+          Unit/unit.cpp \
+          Resources/resource_manager.cpp
 
 # raylib library variables
 RAYLIB_SRC_PATH       ?= C:/raylib/raylib/src
@@ -164,7 +165,7 @@ endif
 #  -Wno-missing-braces  ignore invalid warning (GCC bug 53119)
 #  -Wno-unused-value    ignore unused return values of some functions (i.e. fread())
 #  -D_DEFAULT_SOURCE    use with -std=c99 on Linux and PLATFORM_WEB, required for timespec
-CFLAGS = -std=c99 -Wall -Wno-missing-braces -Wno-unused-value -Wno-pointer-sign -D_DEFAULT_SOURCE $(PROJECT_CUSTOM_FLAGS)
+CFLAGS = -std=c++17 -Wall -Wno-missing-braces -Wno-unused-value -Wno-pointer-sign -D_DEFAULT_SOURCE $(PROJECT_CUSTOM_FLAGS)
 #CFLAGS += -Wextra -Wmissing-prototypes -Wstrict-prototypes
 
 ifeq ($(BUILD_MODE),DEBUG)
@@ -190,7 +191,7 @@ endif
 
 # Define include paths for required headers: INCLUDE_PATHS
 #------------------------------------------------------------------------------------------------
-INCLUDE_PATHS += -I. -Iexternal -I$(RAYLIB_INCLUDE_PATH) -IColony -IEngine -IPlanet -ISect -IUnit
+INCLUDE_PATHS += -I. -Iexternal -I$(RAYLIB_INCLUDE_PATH) -IColony -IEngine -IPlanet -ISect -IUnit -IResources
 	
 
 # Define additional directories containing required header files
@@ -243,7 +244,7 @@ ifeq ($(PLATFORM),PLATFORM_WEB)
     # --memory-init-file 0       # to avoid an external memory initialization code file (.mem)
     # --preload-file resources   # specify a resources folder for data compilation
     # --source-map-base          # allow debugging in browser with source map
-    LDFLAGS += -s USE_GLFW=3 -s TOTAL_MEMORY=$(BUILD_WEB_HEAP_SIZE) -s STACK_SIZE=$(BUILD_WEB_STACK_SIZE) -s FORCE_FILESYSTEM=1
+    LDFLAGS += -s USE_GLFW=3 -s TOTAL_MEMORY=$(BUILD_WEB_HEAP_SIZE) -s STACK_SIZE=$(BUILD_WEB_STACK_SIZE) -s FORCE_FILESYSTEM=1 -s USE_WEBGL2=1 -s ALLOW_MEMORY_GROWTH=1 -s ASYNCIFY
     
     # Build using asyncify
     ifeq ($(BUILD_WEB_ASYNCIFY),TRUE)
