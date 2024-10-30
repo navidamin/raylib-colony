@@ -6,7 +6,7 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
       currentView(View::Menu),
-      planet(nullptr),
+      planet(new Planet()),
       currentColony(nullptr),
       currentSect(nullptr),
       currentUnit(nullptr),
@@ -27,6 +27,8 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
 }
 
 Engine::~Engine() {
+    delete planet;  // Clean up in destructor
+
     CloseWindow();
 }
 
@@ -351,20 +353,32 @@ void Engine::Draw() {
         case View::Planet:{
             BeginMode2D(camera);
 
-            // Draw planet grid
-            float planetSize = SECT_CORE_RADIUS * PLANET_SIZE * 2;
-            for (int i = 0; i <= PLANET_SIZE; i++) {
-                float linePos = i * SECT_CORE_RADIUS * 2;
-                DrawLineV({linePos, 0}, {linePos, planetSize}, LIGHTGRAY);
-                DrawLineV({0, linePos}, {planetSize, linePos}, LIGHTGRAY);
+            if (planet) {  // Guard against null planet
+                // Draw grid
+                for (int i = 0; i <= PLANET_SIZE; i++) {
+                    float linePos = i * SECT_CORE_RADIUS * 2;
+                    DrawLineV({linePos, 0}, {linePos, PLANET_HEIGHT}, LIGHTGRAY);
+                    DrawLineV({0, linePos}, {PLANET_WIDTH, linePos}, LIGHTGRAY);
+                }
+
+                // Draw colonies if any
+                for (const auto& colony : colonies) {
+                    colony->Draw(camera.zoom);
+                }
+
             }
 
-            // Draw all colonies
-            for (const auto& colony : colonies) {
-                colony->Draw(camera.zoom);
+            // Show the resource map if TAB is held
+            if (IsInfoKeyPressed()) {
+                planet->DrawResourceDebug(camera.zoom);
             }
 
             EndMode2D();
+
+            // Show the Cell info if Ctrl+I is held
+            if (IsInfoKeyPressed()) {
+                DrawCellInfo(GetMousePosition());
+            }
 
             DrawText("Planet View", 10, 10, 20, BLACK);
             DrawText("Press C for Colony View", 10, 40, 20, GRAY);
