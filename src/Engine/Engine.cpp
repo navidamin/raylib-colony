@@ -50,6 +50,8 @@ void Engine::InitGame() {
     currentColony->AddSect(firstSect);
     currentSect = firstSect;
 
+    UpdatePlanetActiveArea();
+
     // Initialize camera to focus on the first sect
     camera.target = initialPosition;
     camera.offset = (Vector2){ screenWidth/2.0f, screenHeight/2.0f };
@@ -57,7 +59,7 @@ void Engine::InitGame() {
     camera.zoom = 1.0f;
 
     // Set initial view to Colony view to see the first sect
-    currentView = View::Colony;
+    currentView = View::Menu;
 }
 
 void Engine::Run() {
@@ -102,6 +104,7 @@ void Engine::SwitchToUnitView() {
 
 void Engine::SwitchToPlanetView() {
     currentView = View::Planet;
+    UpdatePlanetActiveArea();  // Make sure active area is updated when switching views
 }
 
 void Engine::SelectColony(Vector2 mousePosition) {
@@ -339,6 +342,12 @@ void Engine::Update() {
     if (currentUnit) {
         currentUnit->Update();
     }*/
+}
+
+void Engine::UpdatePlanetActiveArea() {
+    if (planet) {
+        planet->UpdateActiveArea(colonies);
+    }
 }
 
 void Engine::Draw() {

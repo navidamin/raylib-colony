@@ -3,11 +3,12 @@
 
 #include "raylib.h"
 #include "raymath.h"
+#include <vector>
 #include "planet.h"
 #include "colony.h"
 #include "sect.h"
 #include "unit.h"
-#include <vector>
+#include "game_constants.h"
 
 enum class View {
     Menu,
@@ -62,17 +63,15 @@ private:
     void HandleCameraControls();
     void ResetCameraForCurrentView();
     Vector2 GetWorldMousePosition();
+    void UpdatePlanetActiveArea();
 
-    // Constants for the world
-    const float SECT_CORE_RADIUS = 50.0f;
-    const int PLANET_SIZE = 20; // 20x20 grid of possible sect locations
-    const float PLANET_WIDTH = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f;  // Total width of planet
-    const float PLANET_HEIGHT = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f; // Total height of planet
+
 
     // Double-click detection
     double lastClickTime;
     Vector2 lastClickPosition;
 
+    void DrawDebugActiveArea();
 
 };
 

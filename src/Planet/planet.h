@@ -5,12 +5,22 @@
 #include <vector>
 #include <map>
 #include <utility>
+#include <optional>
+#include <memory>
 #include "colony.h"
+#include "game_constants.h"
+#include "game_structs.h"
+
 
 class Planet {
 public:
     Planet();
     ~Planet();
+
+    struct ActiveArea {
+        Vector2 centroid;
+        float radius;  // Distance from centroid to furthest colony
+    };
 
     void GenerateMap();
     void AddColony(Colony* colony);
@@ -18,6 +28,7 @@ public:
     void Update();
     void Draw(float scale);
     void DrawPlanetGrid();
+    void UpdateActiveArea(const std::vector<Colony*>& colonies);
 
 private:
     std::vector<std::vector<int>> map; // 2D grid representing the planet's surface
@@ -25,6 +36,11 @@ private:
     std::map<std::pair<int, int>, std::vector<std::string>> resources; // Resources at each location
     std::pair<int, int> size; // Planet dimensions
     int time; // Game time
+
+    std::optional<ActiveArea> activeArea;
+
+    ActiveArea CalculateActiveArea(const std::vector<Colony*>&) const;
+
 };
 
 #endif // PLANET_H
