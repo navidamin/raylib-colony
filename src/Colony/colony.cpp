@@ -36,13 +36,13 @@ void Colony::UnlockResearch() {
 
 void Colony::Draw(float scale) {
     // Translate the drawing to center the colony
-    Vector2 screenCenter = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
-    Vector2 translation = { screenCenter.x - centroid.x, screenCenter.y - centroid.y };
+//    Vector2 screenCenter = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
+//    Vector2 translation = { screenCenter.x - centroid.x, screenCenter.y - centroid.y };
 
     // Draw each sect inside the colony
     for (const auto& sect : sects) {
-        Vector2 sectPos = { sect->GetPosition().x + translation.x, sect->GetPosition().y + translation.y };
-        sect->DrawInColonyView(sectPos, scale);
+        Vector2 worldPos = sect->GetPosition();  // This should already be in world coordinates
+        sect->DrawInColonyView(worldPos, scale);
     }
 }
 

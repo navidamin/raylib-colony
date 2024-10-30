@@ -59,8 +59,10 @@ private:
 
     // Camera methods
     void UpdateCamera();
-    void ClampCamera();
     void HandleCameraControls();
+    void HandlePlanetViewCamera();
+    void HandleColonyViewCamera();
+    void ClampCameraColonyView();
     void ResetCameraForCurrentView();
     Vector2 GetWorldMousePosition();
     void UpdatePlanetActiveArea();

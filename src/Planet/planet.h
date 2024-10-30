@@ -29,6 +29,10 @@ public:
     void Draw(float scale);
     void DrawPlanetGrid();
     void UpdateActiveArea(const std::vector<Colony*>& colonies);
+    Vector2 GetActiveCentroid() const;
+    float GetActiveRadius() const;
+    Vector2 GetWorldPosition(Vector2 gridPos) const;
+
 
 private:
     std::vector<std::vector<int>> map; // 2D grid representing the planet's surface
@@ -40,6 +44,8 @@ private:
     std::optional<ActiveArea> activeArea;
 
     ActiveArea CalculateActiveArea(const std::vector<Colony*>&) const;
+    Vector2 GridToWorld(int gridX, int gridY) const;
+    Vector2 WorldToGrid(Vector2 worldPos) const;
 
 };
 

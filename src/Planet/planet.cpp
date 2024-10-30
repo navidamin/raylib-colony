@@ -2,9 +2,15 @@
 #include <iostream>
 
 Planet::Planet() : size(PLANET_SIZE, PLANET_SIZE), time(0) {
-Planet::Planet() : size(20, 20), time(0) {
     // Initialize the map with empty tiles
     map.resize(size.first, std::vector<int>(size.second, 0));
+
+    // Initialize ResourceManager with  grid size and cell size
+    // SECT_CORE_RADIUS * 2 matches existing grid cell size
+    resourceManager = std::make_unique<ResourceManager>(
+        PLANET_SIZE,      // 20x20 grid as default
+        SECT_CORE_RADIUS * 2.0f  // Cell size (100 units in default case)
+    );
 }
 
 Planet::~Planet() {
@@ -126,8 +132,8 @@ void Planet::Draw(float scale) {
 void Planet::DrawPlanetGrid() {
     // Implement planet grid drawing logic here
     // For example:
-    for (int i = 0; i < 100; i++) {
+    /*for (int i = 0; i < 20; i++) {
         DrawLine(i * 10, 0, i * 10, GetScreenHeight(), LIGHTGRAY);
         DrawLine(0, i * 10, GetScreenWidth(), i * 10, LIGHTGRAY);
-    }
+    }*/
 }
