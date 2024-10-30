@@ -157,33 +157,33 @@ void Engine::HandleInput() {
     switch (currentView) {
         case View::Menu:
             if (IsKeyPressed(KEY_ENTER)) {
-                currentView = View::Planet;
+                SwitchToColonyView();
             }
             break;
         case View::Planet:
             if (IsKeyPressed(KEY_C)) {
-                currentView = View::Colony;
+                SwitchToColonyView();
             }
             break;
         case View::Colony:
             if (IsKeyPressed(KEY_S)) {
-                currentView = View::Sect;
+                SwitchToSectView();
             }
             if (IsKeyPressed(KEY_P)) {
-                currentView = View::Planet;
+                SwitchToPlanetView();
             }
             break;
         case View::Sect:
             if (IsKeyPressed(KEY_U)) {
-                currentView = View::Unit;
+                SwitchToUnitView();
             }
             if (IsKeyPressed(KEY_C)) {
-                currentView = View::Colony;
+                SwitchToColonyView();
             }
             break;
         case View::Unit:
             if (IsKeyPressed(KEY_S)) {
-                currentView = View::Sect;
+                SwitchToSectView();
             }
             break;
     }
