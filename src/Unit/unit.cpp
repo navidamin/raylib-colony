@@ -251,8 +251,12 @@ void Unit::InitializeModules() {
 
     if (unit_type == "Extraction") {
         basicModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"];
-        // Production rates will be determined by available resources
-    }
+        // Set production rates based on extraction parameters
+        basicModule.productionRates[ResourceType::H2] = parameters["H2ExtractionRate"];
+        basicModule.productionRates[ResourceType::O2] = parameters["O2ExtractionRate"];
+        basicModule.productionRates[ResourceType::C]  = parameters["CExtractionRate"];
+        basicModule.productionRates[ResourceType::Fe] = parameters["FeExtractionRate"];
+        basicModule.productionRates[ResourceType::Si] = parameters["SiExtractionRate"];    }
     else if (unit_type == "Farming") {
         basicModule.consumptionRates[ResourceType::H2] = parameters["WaterConsumption"];
         basicModule.consumptionRates[ResourceType::O2] = 1.5f;
