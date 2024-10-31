@@ -38,6 +38,8 @@ public:
     void Update(float deltaTime);
     void DrawInSectView(Vector2 corePosition, float coreRadius, int index);
     void DrawInUnitView();
+    void DrawResourceStats();
+
     void SetInitialParameters();
 
     // Sect info functions
@@ -80,6 +82,7 @@ public:
     void DischargeAllResources(std::map<ResourceType, float>& collected);
 
 private:
+
     Vector2 parentSectPosition;
     ResourceManager& resourceManager;
     TimeManager& timeManager;
@@ -99,6 +102,7 @@ private:
     std::string status;
     std::vector<std::string> upgrades;
     float energy_cost;
+
 
 
     void InitializeStorage();

@@ -616,6 +616,8 @@ void Engine::Draw() {
             if (currentUnit) {
                 currentUnit->DrawInUnitView();
             }
+
+            timeManager.Draw(screenWidth, screenHeight);
             DrawText("Unit View", 10, 10, 20, BLACK);
             DrawText("Press S for Sect View", 10, 40, 20, GRAY);
             break;
@@ -623,7 +625,7 @@ void Engine::Draw() {
 
 
     // Draw UI elements (not affected by camera)
-    if (currentView != View::Menu) {
+    if (currentView != View::Menu &&  currentView != View::Unit) {
         DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
         if (currentView == View::Planet) {
             DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
@@ -667,8 +669,8 @@ void Engine::DrawCellInfo(Vector2 mousePosition) {
         infoLines.push_back("Resources:");
         for (const auto& [type, abundance] : resources) {
             std::string resourceName = ResourceUtils::GetResourceName(type);
-            int percentage = static_cast<int>(abundance * 100);
-            infoLines.push_back(TextFormat("  %s: %d%%", resourceName.c_str(), percentage));
+            int kiloTonnes = static_cast<int>(abundance * 100);
+            infoLines.push_back(TextFormat("  %s: %d kilo Tonnes", resourceName.c_str(), kiloTonnes));
         }
     } else {
         infoLines.push_back("No resources");
