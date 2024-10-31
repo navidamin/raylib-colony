@@ -489,6 +489,8 @@ void Engine::Draw() {
                 DrawCellInfo(GetMousePosition());
             }
 
+            // Draw UI elements including time
+            timeManager.Draw(screenWidth, screenHeight);
             DrawText("Planet View", 10, 10, 20, BLACK);
             DrawText("Press C for Colony View", 10, 40, 20, GRAY);
             break;
@@ -559,6 +561,8 @@ void Engine::Draw() {
                 DrawCellInfo(GetMousePosition());
             }
 
+            // Draw UI elements including time
+            timeManager.Draw(screenWidth, screenHeight);
             DrawText("Colony View", 10, 10, 20, BLACK);
             DrawText("Press S for Sect View", 10, 40, 20, GRAY);
             DrawText("Press P for Planet View", 10, 70, 20, GRAY);
@@ -571,6 +575,9 @@ void Engine::Draw() {
             if (currentSect) {
                 currentSect->DrawInSectView(Vector2{GetScreenWidth()/2.0f, GetScreenHeight()/2.0f});
             }
+
+            // Draw UI elements including time
+            timeManager.Draw(screenWidth, screenHeight);
             DrawText("Sect View", 10, 10, 20, BLACK);
             DrawText("Press U for Unit View", 10, 40, 20, GRAY);
             DrawText("Press C for Colony View", 10, 70, 20, GRAY);
