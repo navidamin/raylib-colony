@@ -7,8 +7,6 @@
 #include <map>
 #include "unit.h"
 #include <cmath>  // Add this for cosf, sinf, etc.
-#include "game_enums.h"
-
 
 class Sect {
 public:
@@ -33,18 +31,7 @@ public:
     const std::vector<Unit*>& GetUnits() const { return units; }
     float GetRadius() const { return coreRadius; }
 
-    // Transportation processing
-    void UpdateRoadConstruction(float deltaTime);
-
 private:
-    struct RoadConstruction {
-        Vector2 startPos;
-        Vector2 endPos;
-        float progress = 0.0f;
-        float totalTime = 30.0f; // 30 seconds to build a road
-    };
-
-    std::vector<RoadConstruction> roadsUnderConstruction;
     // Geometric/Visual properties (basic types first)
     float defaultCoreRadius;        // Constant value
     float coreRadius;               // Derived from default

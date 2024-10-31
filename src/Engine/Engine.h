@@ -11,6 +11,7 @@
 #include "game_constants.h"
 #include "time_manager.h"
 
+
 enum class View {
     Menu,
     Planet,
@@ -28,30 +29,6 @@ public:
     void Run();
 
 private:
-    int screenWidth;
-    int screenHeight;
-    View currentView;  // Changed from currentState to currentView
-
-    TimeManager timeManager;
-    float lastUpdateTime;
-
-    Planet* planet;
-    std::vector<Colony*> colonies;
-    Colony* currentColony;
-    Sect* currentSect;
-    Unit* currentUnit;
-
-    // Camera state
-    Camera2D camera;
-    float minZoom;
-    float maxZoom;
-    Vector2 dragStart;
-    bool isDragging;
-
-    // Double-click detection
-    double lastClickTime;
-    Vector2 lastClickPosition;
-
     void HandleInput();
     void Update();
     void Draw();
@@ -67,6 +44,24 @@ private:
     void DrawCellInfo(Vector2 mousePosition);
     bool IsInfoKeyPressed() const { return IsKeyDown(KEY_TAB); }
 
+
+    int screenWidth;
+    int screenHeight;
+    View currentView;  // Changed from currentState to currentView
+
+    Planet* planet;
+    std::vector<Colony*> colonies;
+    Colony* currentColony;
+    Sect* currentSect;
+    Unit* currentUnit;
+
+    // Camera state
+    Camera2D camera;
+    float minZoom;
+    float maxZoom;
+    Vector2 dragStart;
+    bool isDragging;
+
     // Camera methods
     void UpdateCamera();
     void HandleCameraControls();
@@ -76,6 +71,12 @@ private:
     void ResetCameraForCurrentView();
     Vector2 GetWorldMousePosition();
     void UpdatePlanetActiveArea();
+
+
+
+    // Double-click detection
+    double lastClickTime;
+    Vector2 lastClickPosition;
 
     void DrawDebugActiveArea();
 
