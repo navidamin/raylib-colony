@@ -18,12 +18,15 @@ public:
         bool isExploited;
     };
 
+    // Constructor
     ResourceManager(int gridSize, float cellSize);
+
     void GenerateResourceMap();
     std::vector<std::pair<ResourceType, float>> GetResourcesAt(Vector2 worldPos);
     std::vector<std::pair<ResourceType, float>> GetResourcesAtGrid(int gridX, int gridY);
     void DrawResourceDebug(float scale);  // For debugging resource distribution
     void EnsureBasicResources(int x, int y);  // Ensures starting location has basic resources
+    void UpdateResourceDepletion(int x, int y, ResourceType type, float amount);
 
 private:
     int gridSize;                    // Size of the grid (20x20)

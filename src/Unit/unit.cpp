@@ -7,7 +7,8 @@ Unit::Unit(std::string type, ResourceManager* resource) :
     status("inactive"),
     energy_cost(0),
     isUnderConstruction(false),
-    productionCycleTime(0)
+    productionCycleTime(0),
+    resourceManager(resource)
 {
     SetInitialParameters();
 }
@@ -50,9 +51,9 @@ void Unit::DisplayStats() const {
     }
 }
 
-void Unit::Update() {
-    // TODO: Implement unit update logic
-    std::cout << "Unit " << unit_type << " updated." << std::endl;
+void Unit::Update(float deltaTime) {
+    ProcessModuleEffects(deltaTime, *resourceManager);
+
 }
 
 void Unit::DrawInSectView(Vector2 corePosition, float coreRadius, int index) {
@@ -254,4 +255,135 @@ void Unit::OnConstructionComplete() {
     }
 
     std::cout << "Construction complete for " << unit_type << " unit!" << std::endl;
+}
+
+void Unit::InitializeModules() {
+    UnitModule basicModule;
+    basicModule.name = "Basic " + unit_type;
+    basicModule.level = 1;
+    basicModule.efficiency = parameters["Efficiency"];
+
+    if (unit_type == "Extraction") {
+        basicModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"];
+        // Production rates will be determined by available resources
+    }
+    else if (unit_type == "Farming") {
+        basicModule.consumptionRates[ResourceType::H2] = parameters["WaterConsumption"];
+        basicModule.consumptionRates[ResourceType::O2] = 1.5f;
+        basicModule.consumptionRates[ResourceType::C] = 1.0f;
+        basicModule.productionRates[ResourceType::FOOD] = parameters["FoodProductionRate"];
+        basicModule.productionRates[ResourceType::WATER] = 2.0f;
+    }
+    else if (unit_type == "Energy") {
+        basicModule.productionRates[ResourceType::ENERGY] = parameters["EnergyOutput"];
+    }
+
+    modules.push_back(basicModule);
+    activeModule = &modules[0];
+}
+
+bool Unit::UpgradeModule(int moduleIndex) {
+    if (moduleIndex >= modules.size() || modules[moduleIndex].level >= 5) {
+        return false;
+    }
+
+    UnitModule& module = modules[moduleIndex];
+
+    // Check if we have required resources for upgrade
+    const auto& costs = module.upgradeCosts[module.level + 1];
+    // TODO: Check if we have enough resources
+
+    module.level++;
+
+    // Update efficiency and rates based on level
+    float levelMultiplier = 1.0f + (module.level - 1) * 0.2f;
+
+    // Consumption rates decrease with level
+    for (auto& [type, rate] : module.consumptionRates) {
+        rate = rate * (2.0f - levelMultiplier);
+    }
+
+    // Production rates increase with level
+    for (auto& [type, rate] : module.productionRates) {
+        rate = rate * levelMultiplier;
+    }
+
+    return true;
+}
+
+void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManager) {
+    if (!IsActive() || !activeModule) return;
+
+    // Check if we have enough resources for consumption
+    bool canProcess = true;
+    for (const auto& [type, rate] : activeModule->consumptionRates) {
+        float required = rate * deltaTime;
+        if (resourceStorage[type] < required) {
+            canProcess = false;
+            break;
+        }
+    }
+
+    if (!canProcess) return;
+
+    // Consume resources
+    for (const auto& [type, rate] : activeModule->consumptionRates) {
+        resourceStorage[type] -= rate * deltaTime;
+    }
+
+    // Handle production based on unit type
+    if (unit_type == "Extraction") {
+        ProcessExtraction(deltaTime, resourceManager);
+    }
+    else {
+        // Normal production for other unit types
+        for (const auto& [type, rate] : activeModule->productionRates) {
+            resourceStorage[type] += rate * deltaTime;
+        }
+    }
+}
+
+void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) {
+
+    // Get available resources at this location
+    auto availableResources = resourceManager.GetResourcesAt(parentSectPosition);
+
+    int gridX = static_cast<int>(parentSectPosition.x);
+    int gridY = static_cast<int>(parentSectPosition.y);
+
+    // Calculate extraction parameters
+    float baseRate = parameters["ExtractionRate"];
+    float efficiency = activeModule->efficiency;
+    float levelMultiplier = 1.0f + (activeModule->level - 1) * 0.2f;
+
+    // Process each available resource
+    for (const auto& [resourceType, abundance] : availableResources) {
+        if (abundance < 0.1f) continue;  // Skip if resource is too depleted
+
+        float extractionAmount = baseRate * efficiency * levelMultiplier * abundance * deltaTime;
+
+        // Deplete the resource from the planet
+        resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, extractionAmount);
+
+        // Add the extracted resource to storage
+        resourceStorage[resourceType] += extractionAmount;
+    }
+}
+
+// Add getters/setters for resource storage
+float Unit::GetStoredResource(ResourceType type) const {
+    auto it = resourceStorage.find(type);
+    return it != resourceStorage.end() ? it->second : 0.0f;
+}
+
+void Unit::AddResource(ResourceType type, float amount) {
+    resourceStorage[type] += amount;
+}
+
+bool Unit::ConsumeResource(ResourceType type, float amount) {
+    if (resourceStorage[type] >= amount) {
+        resourceStorage[type] -= amount;
+        return true;
+    }
+    return false;
 }

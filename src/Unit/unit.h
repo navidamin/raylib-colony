@@ -6,12 +6,27 @@
 #include <map>
 #include <vector>
 
+#include "resource_manager.h"
+#include "game_constants.h"
+
 
 
 class Unit {
 public:
-    Unit(std::string type);
+    // Constructor
+    Unit(std::string type, ResourceManager* resource);
+
+    // Destrructor
     ~Unit();
+
+    struct UnitModule {
+        std::string name;
+        int level = 1;
+        float efficiency = 1.0f;
+        std::map<ResourceType, float> consumptionRates;
+        std::map<ResourceType, float> productionRates;
+        std::map<int, std::map<ResourceType, float>> upgradeCosts;
+    };
 
     void Start();
     void Stop();
@@ -19,10 +34,14 @@ public:
     std::map<std::string, float> CalculateConsumption() const;
     std::map<std::string, float> CalculateProduction() const;
     void DisplayStats() const;
-    void Update();
+    void Update(float deltaTime);
     void DrawInSectView(Vector2 corePosition, float coreRadius, int index);
     void DrawInUnitView();
     void SetInitialParameters();
+
+    // Sect info functions
+    Vector2 GetParentSectPosition() {return parentSectPosition;}
+    void SetParentSectPosition(Vector2 position) {parentSectPosition = position;}
 
     // State checking
     bool IsActive() const { return status == "active"; }
@@ -49,7 +68,23 @@ public:
     void UpdateConstruction(float deltaTime);
     void OnConstructionComplete();
 
+    // Module Processing functions
+    void InitializeModules();
+    bool UpgradeModule(int moduleIndex);
+    void ProcessModuleEffects(float deltaTime, ResourceManager& );
+    void ProcessExtraction(float deltaTime, ResourceManager& );
+    float GetStoredResource(ResourceType type) const;
+    void AddResource(ResourceType type, float amount);
+    bool ConsumeResource(ResourceType type, float amount);
+
 private:
+    Vector2 parentSectPosition;
+    ResourceManager* resourceManager;
+
+    std::vector<UnitModule> modules;
+    std::map<ResourceType, float> resourceStorage;
+    UnitModule* activeModule = nullptr;
+
     bool isUnderConstruction;
     float productionCycleTime;
     Vector2 positionInSectView;
@@ -61,6 +96,8 @@ private:
     std::string status;
     std::vector<std::string> upgrades;
     float energy_cost;
+
+
 };
 
 #endif // UNIT_H

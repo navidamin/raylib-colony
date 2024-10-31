@@ -148,6 +148,13 @@ Vector2 ResourceManager::WorldToGrid(Vector2 worldPos) const {
     };
 }
 
+void ResourceManager::UpdateResourceDepletion(int x, int y, ResourceType type, float amount) {
+    if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
+        resourceGrid[y][x].resources[type] =
+            std::max(0.0f, resourceGrid[y][x].resources[type] - amount);
+    }
+}
+
 void ResourceManager::DrawResourceDebug(float scale) {
     for (int y = 0; y < gridSize; y++) {
         for (int x = 0; x < gridSize; x++) {
