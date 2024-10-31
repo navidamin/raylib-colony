@@ -119,8 +119,7 @@ private:
     // Resource accumulation tracking
     std::unordered_map<Unit*, std::unordered_map<ResourceType, float>> accumulatedResources;
 */
-    // TICKS_PER_DAY
-    static const int TICKS_PER_DAY = 60;  // 60 seconds = 1 day
+
 };
 
 #endif // TIME_MANAGER_H

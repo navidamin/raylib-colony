@@ -45,31 +45,40 @@ void Sect::UpgradeUnit(Unit* unit) {
 }
 
 void Sect::Update(float deltaTime) {
+    static int lastCollectionDay = -1;
+    int currentDay = timeManager.GetCurrentDay();
 
     // Update all units
     for (Unit* unit : units) {
         if (unit) {
             unit->Update(deltaTime);
-
-            // Collect Resources from the unit
-            CollectResourcesFromUnit(*unit);
-
         }
-
-
-
     }
 
+    // Collect resources once per day
+    if (currentDay > lastCollectionDay) {
+        std::cout << "\nDay " << currentDay << ": Beginning resource collection" << std::endl;
 
+        // Collect from all units
+        for (Unit* unit : units) {
+            if (unit) {
+                CollectResourcesFromUnit(*unit);
+            }
+        }
+
+        lastCollectionDay = currentDay;
 /*
-    // Update construction if in progress
-    if (isUnderConstruction) {
-        constructionProgress += deltaTime;
-        if (constructionProgress >= constructionTime) {
-            CompleteConstruction();
+        // Debug print sect storage after collection
+        std::cout << "Sect storage after collection:" << std::endl;
+        for (const auto& [type, amount] : resourceStorage) {
+            if (amount > 0) {
+                std::cout << "Resource " << static_cast<int>(type)
+                         << ": " << amount << std::endl;
+            }
         }
+        */
     }
-*/
+
     // Update road construction if any are in progress
     UpdateRoadConstruction(deltaTime);
 }
@@ -92,41 +101,17 @@ void Sect::UpdateRoadConstruction(float deltaTime) {
 }
 
 void Sect::CollectResourcesFromUnit(Unit& unit) {
-    // Define all resource types we want to collect
-    std::vector<ResourceType> resourceTypes = {
-        ResourceType::H2,
-        ResourceType::O2,
-        ResourceType::C,
-        ResourceType::Fe,
-        ResourceType::Si,
-        ResourceType::ENERGY,
-        ResourceType::WATER,
-        ResourceType::FOOD
-    };
+    std::map<ResourceType, float> collectedResources;
 
+    unit.DischargeAllResources(collectedResources);
 
-    // Collect each type of resource from the unit
-    for (ResourceType type : resourceTypes) {
-        float collected = unit.DischargeResourcesToSect(type);
-
-        if (collected > 0) {
-            // Add to sect's storage
-            resourceStorage[type] += collected;
-
-            // Debug output
-            std::cout << "Collected " << collected << " of resource type "
-                     << static_cast<int>(type) << " from unit of type "
-                     << unit.GetUnitType() << std::endl;
-        }
-    }
-
-
-    // Optional: Print total resources after collection
-    std::cout << "\nSect total resources after collection:" << std::endl;
-    for (const auto& [type, amount] : resourceStorage) {
+    // Add collected resources to sect storage
+    for (const auto& [type, amount] : collectedResources) {
         if (amount > 0) {
-            std::cout << "Resource " << static_cast<int>(type)
-                     << ": " << amount << std::endl;
+            resourceStorage[type] += amount;
+            std::cout << "Sect collected " << amount << " of resource type "
+                     << static_cast<int>(type) << " from unit type "
+                     << unit.GetUnitType() << std::endl;
         }
     }
 }

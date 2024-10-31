@@ -151,7 +151,7 @@ void ResourceManager::UpdateResourceDepletion(int x , int y, ResourceType type, 
         resourceGrid[y][x].resources[type] =
             std::max(0.0f, resourceGrid[y][x].resources[type] - amount);
     }
-    std::cout << "Resource " << type << " was depleted " << amount << "units" << std::endl;
+    //std::cout << "Resource " << type << " was depleted " << amount << "units" << std::endl;
 }
 
 void ResourceManager::DrawResourceDebug(float scale) {

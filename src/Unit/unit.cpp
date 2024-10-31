@@ -417,29 +417,48 @@ bool Unit::ConsumeResource(ResourceType type, float amount) {
 
 
 // function for the sect to recollect generated resources at the end of the day
-float Unit::DischargeResourcesToSect(ResourceType type) {
-    float amount = 0;
+void Unit::DischargeAllResources(std::map<ResourceType, float>& collected) {
+    // First, calculate daily consumption needs for each resource
+    std::map<ResourceType, float> dailyNeeds;
 
-    // Store the current day value
-    static int lastDischargeDay = -1;  // Initialize to -1 to ensure first day collection
-    int currentDay = timeManager.GetCurrentDay();
+    if (activeModule && IsActive()) {
+        // Calculate 24 hours worth of consumption for each resource
+        float dayInSeconds = TICKS_PER_DAY * TICK_DURATION;  // or however your time system works
 
-    if (currentDay > lastDischargeDay) {
-        if (resourceStorage[type] >= 0) {
-            amount = resourceStorage[type];
-            resourceStorage[type] = 0;
-        } else {
-            std::cout << "Warning: Resource of type " << type << " has negative value" << std::endl;
+        // Get consumption rates from active module
+        for (const auto& [type, rate] : activeModule->consumptionRates) {
+            dailyNeeds[type] = rate * dayInSeconds * 1.5f;  // Keep 1.5x safety margin
+            std::cout << "Unit " << unit_type << " needs to keep "
+                     << dailyNeeds[type] << " of resource "
+                     << type << " for next day" << std::endl;
         }
-
-        // Update the last collection day
-        lastDischargeDay = currentDay;
-
-        std::cout << "Day " << currentDay << ": Unit discharged resources to parent Sect" << std::endl;
     }
 
-    return amount;
+    // Now process each resource
+    for (auto& [type, amount] : resourceStorage) {
+        if (amount > 0) {
+            float reserveAmount = dailyNeeds[type];  // Will be 0 if not in dailyNeeds
+            float excessAmount = amount - reserveAmount;
+
+            // Only discharge if we have excess
+            if (excessAmount > 0) {
+                collected[type] += excessAmount;
+                amount = reserveAmount;  // Keep the reserve amount
+
+                std::cout << "Unit " << unit_type
+                         << " discharged " << excessAmount
+                         << " of resource " << static_cast<int>(type)
+                         << " (keeping " << reserveAmount << " in reserve)" << std::endl;
+            } else {
+                std::cout << "Unit " << unit_type
+                         << " keeping all " << amount
+                         << " of resource " << static_cast<int>(type)
+                         << " for next day's operations" << std::endl;
+            }
+        }
+    }
 }
+
 
 void Unit::InitializeStorage() {
     resourceStorage[ResourceType::ENERGY] = INITIAL_UNIT_ENERGY;
@@ -447,6 +466,20 @@ void Unit::InitializeStorage() {
     resourceStorage[ResourceType::WATER] = INITIAL_UNIT_WATER;
     resourceStorage[ResourceType::SCIENCE] = INITIAL_UNIT_SCIENCE;
     resourceStorage[ResourceType::MANPOWER] = INITIAL_UNIT_MANPOWER;
+
+    // Initialize extraction resources
+    resourceStorage[ResourceType::H2] = 0.0f;
+    resourceStorage[ResourceType::O2] = 0.0f;
+    resourceStorage[ResourceType::C] = 0.0f;
+    resourceStorage[ResourceType::Fe] = 0.0f;
+    resourceStorage[ResourceType::Si] = 0.0f;
+
+    // Debug print to verify initialization
+    std::cout << "Unit storage initialized with values:" << std::endl;
+    for (const auto& [type, amount] : resourceStorage) {
+        std::cout << "Resource " << static_cast<int>(type) << ": " << amount << std::endl;
+    }
+
 }
 void Unit::UpdateStorage(){
     // Implement if needed

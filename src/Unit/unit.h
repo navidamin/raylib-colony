@@ -61,7 +61,6 @@ public:
     float GetProductionCycleTime() const { return productionCycleTime; }
 
     // Production processing
-    void ProcessExtraction(float deltaTime);
     void ProcessFarming(float deltaTime);
     void ProcessEnergy(float deltaTime);
 
@@ -78,8 +77,7 @@ public:
     void AddResource(ResourceType type, float amount);
     bool ConsumeResource(ResourceType type, float amount);
 
-    float DischargeResourcesToSect(ResourceType type);
-
+    void DischargeAllResources(std::map<ResourceType, float>& collected);
 
 private:
     Vector2 parentSectPosition;

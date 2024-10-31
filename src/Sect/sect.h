@@ -70,6 +70,7 @@ private:
     std::vector<std::string> production_priority;  // Order of production
     std::map<ResourceType, float> resourceStorage;
 
+
     // Private member functions
     void CreateInitialUnits(Vector2 &position);
     void DrawTransparentRightPanel();
