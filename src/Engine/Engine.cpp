@@ -14,7 +14,8 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
       lastClickPosition({0, 0}),
       minZoom(0.5f),
       maxZoom(2.0f),
-      isDragging(false)
+      isDragging(false),
+      lastUpdateTime(0.0f)
 {
     InitWindow(screenWidth, screenHeight, title);
     SetTargetFPS(60);
@@ -29,10 +30,21 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
 Engine::~Engine() {
     delete planet;  // Clean up in destructor
 
+    // Unregister all colonies from time manager before deletion
+    for (Colony* colony : colonies) {
+        timeManager.UnregisterColony(colony);
+        delete colony;
+    }
+    colonies.clear();
+
     CloseWindow();
 }
 
 void Engine::InitGame() {
+    // Initialize time manager
+    lastUpdateTime = GetTime();  // Set initial time
+    timeManager.Reset();         // Reset time manager to initial state
+
     // Generate map/grid/resource map of the planet
     planet->GenerateMap();
 
@@ -40,6 +52,9 @@ void Engine::InitGame() {
     Colony* firstColony = new Colony();
     colonies.push_back(firstColony);
     currentColony = firstColony;
+
+    // Register first colony with time manager
+    timeManager.RegisterColony(firstColony);
 
     // Create initial sect with a position near the center of the map
     Sect* firstSect = new Sect();
@@ -429,19 +444,32 @@ void Engine::ResetCameraForCurrentView() {
 }
 
 void Engine::Update() {
-    // For now, we can leave it empty or add basic update logic
-    /*
-    if (currentColony) {
-        currentColony->Update();
+
+    float currentTime = GetTime();
+    float deltaTime = currentTime - lastUpdateTime;
+    lastUpdateTime = currentTime;
+
+    timeManager.Update(deltaTime);
+
+    // Register colonies with time manager if needed
+    for (auto& colony : colonies) {
+        // Register the colony if note registered to timeManager
+        if (!timeManager.IsColonyRegistered(colony)) {
+         timeManager.RegisterColony(colony);
+        }
+
+        // Loop over sects to update the sects and units
+        for (auto& sect: colony->GetSects()) {
+            sect->Update(deltaTime);
+            for (auto& unit : sect->GetUnits()) {
+                if (unit->IsActive()) {
+                 unit->Update(deltaTime);
+                }
+            }
+        }
     }
 
-    if (currentSect) {
-        currentSect->Update();
-    }
 
-    if (currentUnit) {
-        currentUnit->Update();
-    }*/
 }
 
 void Engine::UpdatePlanetActiveArea() {

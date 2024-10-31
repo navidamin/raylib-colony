@@ -8,7 +8,8 @@
 #include <algorithm>
 #include "raylib.h"
 #include "raymath.h"
-#include "resource_types.h"
+
+#include "game_constants.h"
 
 class ResourceManager {
 public:
