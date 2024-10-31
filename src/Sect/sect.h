@@ -68,12 +68,13 @@ private:
 
     // Resource management
     std::vector<std::string> production_priority;  // Order of production
-    std::map<std::string, int> resources;         // Resource storage
+    std::map<ResourceType, float> resourceStorage;
 
     // Private member functions
-    void CreateInitialUnits();
+    void CreateInitialUnits(Vector2 &position);
     void DrawTransparentRightPanel();
     void DrawResourceStats(Vector2 position, float coreRadius);
+    void CollectResourcesFromUnit(Unit& unit);
 };
 
 #endif // SECT_H

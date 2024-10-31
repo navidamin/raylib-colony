@@ -8,9 +8,13 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource, TimeM
     energy_cost(0),
     isUnderConstruction(false),
     productionCycleTime(0),
-    resourceManager(resource)
+    resourceManager(resource),
+    timeManager(time),
+    parentSectPosition(position)
 {
     SetInitialParameters();
+    InitializeModules();
+    InitializeStorage();
 }
 
 Unit::~Unit() {
@@ -88,7 +92,11 @@ void Unit::DrawInUnitView() {
 
 void Unit::SetInitialParameters() {
     if (unit_type == "Extraction") {
-        parameters["ExtractionRate"] = 10;
+        parameters["H2ExtractionRate"] = .5;
+        parameters["O2ExtractionRate"] = .1;
+        parameters["CExtractionRate"] = .1;
+        parameters["FEExtractionRate"] = .3;
+        parameters["SIExtractionRate"] = .01;
         parameters["ResourceFocus"] = 1; // 1 could represent "Iron"
         parameters["EnergyConsumption"] = 5;
         parameters["WearAndTear"] = 0.2; // 1 Fe per 5 minutes
@@ -344,22 +352,41 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
 }
 
 void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) {
+    Vector2 gridPos = WorldToGrid(parentSectPosition);
+    int gridX = static_cast<int>(gridPos.x);
+    int gridY = static_cast<int>(gridPos.y);
 
     // Get available resources at this location
-    auto availableResources = resourceManager.GetResourcesAt(parentSectPosition);
+    auto availableResources = resourceManager.GetResourcesAtGrid(gridX, gridY);
 
-    int gridX = static_cast<int>(parentSectPosition.x);
-    int gridY = static_cast<int>(parentSectPosition.y);
+    int worldX = static_cast<int>(parentSectPosition.x);
+    int worldY = static_cast<int>(parentSectPosition.y);
 
-    // Calculate extraction parameters
-    float baseRate = parameters["ExtractionRate"];
     float efficiency = activeModule->efficiency;
     float levelMultiplier = 1.0f + (activeModule->level - 1) * 0.2f;
 
+    // Map for base extraction rates
+    std::map<ResourceType, float> extractionRates = {
+        {ResourceType::H2, parameters["H2ExtractionRate"]},
+        {ResourceType::O2, parameters["O2ExtractionRate"]},
+        {ResourceType::C,  parameters["CExtractionRate"]},
+        {ResourceType::Fe, parameters["FEExtractionRate"]},
+        {ResourceType::Si, parameters["SIExtractionRate"]}
+    };
+
+    // For Debugging resource variation at Sect
+    //resourceManager.DisplayResourceGrid(parentSectPosition);
+
+
     // Process each available resource
     for (const auto& [resourceType, abundance] : availableResources) {
+
+        std::cout << "resourceType:" << resourceType << "\t abundance:" << abundance << std::endl;
+
         if (abundance < 0.1f) continue;  // Skip if resource is too depleted
 
+        // Get the specific extraction rate for this resource type
+        float baseRate = extractionRates[resourceType];
         float extractionAmount = baseRate * efficiency * levelMultiplier * abundance * deltaTime;
 
         // Deplete the resource from the planet
@@ -386,4 +413,49 @@ bool Unit::ConsumeResource(ResourceType type, float amount) {
         return true;
     }
     return false;
+}
+
+
+// function for the sect to recollect generated resources at the end of the day
+float Unit::DischargeResourcesToSect(ResourceType type) {
+    float amount = 0;
+
+    // Store the current day value
+    static int lastDischargeDay = -1;  // Initialize to -1 to ensure first day collection
+    int currentDay = timeManager.GetCurrentDay();
+
+    if (currentDay > lastDischargeDay) {
+        if (resourceStorage[type] >= 0) {
+            amount = resourceStorage[type];
+            resourceStorage[type] = 0;
+        } else {
+            std::cout << "Warning: Resource of type " << type << " has negative value" << std::endl;
+        }
+
+        // Update the last collection day
+        lastDischargeDay = currentDay;
+
+        std::cout << "Day " << currentDay << ": Unit discharged resources to parent Sect" << std::endl;
+    }
+
+    return amount;
+}
+
+void Unit::InitializeStorage() {
+    resourceStorage[ResourceType::ENERGY] = INITIAL_UNIT_ENERGY;
+    resourceStorage[ResourceType::FOOD] = INITIAL_UNIT_FOOD;
+    resourceStorage[ResourceType::WATER] = INITIAL_UNIT_WATER;
+    resourceStorage[ResourceType::SCIENCE] = INITIAL_UNIT_SCIENCE;
+    resourceStorage[ResourceType::MANPOWER] = INITIAL_UNIT_MANPOWER;
+}
+void Unit::UpdateStorage(){
+    // Implement if needed
+}
+
+Vector2 Unit::WorldToGrid(Vector2 worldPos) const {
+    // Convert to grid coordinates
+    return {
+        std::floor(worldPos.x / (SECT_CORE_RADIUS * 2.0f)),
+        std::floor(worldPos.y / (SECT_CORE_RADIUS * 2.0f))
+    };
 }

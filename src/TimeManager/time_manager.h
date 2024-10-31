@@ -2,14 +2,15 @@
 #ifndef TIME_MANAGER_H
 #define TIME_MANAGER_H
 
+#include "raylib.h"
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
 #include <vector>
 #include <unordered_map>
 
-#include "colony.h"
-#include "unit.h"
+//#include "colony.h"
+//#include "unit.h"
 //#include "resource_types.h"
 #include "game_structs.h"
 #include "game_constants.h"
@@ -51,6 +52,7 @@ public:
     void Resume();
     void SetTimeScale(float scale);
 
+   /*
     // Production management
     void StartProduction(Unit* unit);
     void StopProduction(Unit* unit);
@@ -74,7 +76,7 @@ public:
     void UnregisterColony(Colony* colony);
     size_t GetRegisteredColonyCount() const;
     bool IsColonyRegistered(Colony* colony) const;
-
+*/
     // Getters/Utility functions (previously defined)
     int GetTicks() const { return currentTicks; }
     float GetGameTime() const { return gameTime; }
@@ -88,9 +90,12 @@ public:
     int GetCurrentDay() const;
 
 private:
+    /*
     void UpdateColonies();
+
     void UpdateColonyResources(Colony* colony);
     void UpdateColonyConstruction(Colony* colony);
+    */
     void UpdateProductionCycles();
     void UpdateConstructionTimers();
     void AccumulateResources();
@@ -104,8 +109,8 @@ private:
     bool isPaused;
 
     // Colony tracking
-    std::vector<Colony*> colonies;
-
+    //std::vector<Colony*> colonies;
+/*
     // Production tracking
     std::unordered_map<Unit*, ProductionCycle> productionCycles;
     std::unordered_map<Unit*, ConstructionTimer> constructionTimers;
@@ -113,7 +118,7 @@ private:
 
     // Resource accumulation tracking
     std::unordered_map<Unit*, std::unordered_map<ResourceType, float>> accumulatedResources;
-
+*/
     // TICKS_PER_DAY
     static const int TICKS_PER_DAY = 60;  // 60 seconds = 1 day
 };

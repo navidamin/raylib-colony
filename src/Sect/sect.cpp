@@ -12,8 +12,9 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
       core(nullptr),
       development_percentage(0.0f),
       production_priority(),
+      resourceStorage()
 {
-    CreateInitialUnits();
+    CreateInitialUnits(position);
 }
 
 Sect::~Sect() {
@@ -44,9 +45,35 @@ void Sect::UpgradeUnit(Unit* unit) {
 }
 
 void Sect::Update(float deltaTime) {
-    // TODO: Implement sect update logic
-    std::cout << "Sect updated." << std::endl;
+
+    // Update all units
+    for (Unit* unit : units) {
+        if (unit) {
+            unit->Update(deltaTime);
+
+            // Collect Resources from the unit
+            CollectResourcesFromUnit(*unit);
+
+        }
+
+
+
+    }
+
+
+/*
+    // Update construction if in progress
+    if (isUnderConstruction) {
+        constructionProgress += deltaTime;
+        if (constructionProgress >= constructionTime) {
+            CompleteConstruction();
+        }
+    }
+*/
+    // Update road construction if any are in progress
+    UpdateRoadConstruction(deltaTime);
 }
+
 
 void Sect::UpdateRoadConstruction(float deltaTime) {
     // Update each road under construction
@@ -64,13 +91,53 @@ void Sect::UpdateRoadConstruction(float deltaTime) {
     }
 }
 
-void Sect::CreateInitialUnits() {
+void Sect::CollectResourcesFromUnit(Unit& unit) {
+    // Define all resource types we want to collect
+    std::vector<ResourceType> resourceTypes = {
+        ResourceType::H2,
+        ResourceType::O2,
+        ResourceType::C,
+        ResourceType::Fe,
+        ResourceType::Si,
+        ResourceType::ENERGY,
+        ResourceType::WATER,
+        ResourceType::FOOD
+    };
+
+
+    // Collect each type of resource from the unit
+    for (ResourceType type : resourceTypes) {
+        float collected = unit.DischargeResourcesToSect(type);
+
+        if (collected > 0) {
+            // Add to sect's storage
+            resourceStorage[type] += collected;
+
+            // Debug output
+            std::cout << "Collected " << collected << " of resource type "
+                     << static_cast<int>(type) << " from unit of type "
+                     << unit.GetUnitType() << std::endl;
+        }
+    }
+
+
+    // Optional: Print total resources after collection
+    std::cout << "\nSect total resources after collection:" << std::endl;
+    for (const auto& [type, amount] : resourceStorage) {
+        if (amount > 0) {
+            std::cout << "Resource " << static_cast<int>(type)
+                     << ": " << amount << std::endl;
+        }
+    }
+}
+
+void Sect::CreateInitialUnits(Vector2& position) {
     std::vector<std::string> unit_types = {
         "Extraction", "Farming", "Manufacture", "Transport", "Communication", "Research","Energy", "Construction"
     };
 
     for (const auto& type : unit_types) {
-        Unit* unit = new Unit(type, resourceManager);
+        Unit* unit = new Unit(type, position, resourceManager, timeManager);
         if (type == "Extraction") {
             unit->Start();
             core = unit; // Set the Extraction unit as the core
@@ -82,6 +149,7 @@ void Sect::CreateInitialUnits() {
 
     std::cout << "All initial units created for the sect." << std::endl;
 }
+
 
 void Sect::DrawInColonyView(Vector2 pos, float scale) {
     coreRadius = defaultCoreRadius * scale; // Scale the radius based on zoom level
@@ -119,6 +187,7 @@ void Sect::DrawInColonyView(Vector2 pos, float scale) {
         );
     }
 }
+
 
 void Sect::DrawInSectView(Vector2 position) {
     float coreRadius = GetScreenHeight() * 0.28f;  // Core takes 60% of screen height

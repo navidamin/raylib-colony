@@ -9,20 +9,12 @@ TimeManager::TimeManager()
       isPaused(false)
 {
     // Initialize containers
-    colonies.clear();
-    productionCycles.clear();
-    constructionTimers.clear();
-    productionRates.clear();
-    accumulatedResources.clear();
+
 }
 
 TimeManager::~TimeManager() {
     // Clear all containers
-    colonies.clear();
-    productionCycles.clear();
-    constructionTimers.clear();
-    productionRates.clear();
-    accumulatedResources.clear();
+
 }
 
 //---------------------------------------------------------------------------------------------
@@ -41,6 +33,7 @@ void TimeManager::Update(float deltaTime) {
 
     // Process ticks if enough time has accumulated
     while (accumulatedTime >= TICK_DURATION) {
+        std::cout << "Game Time is: " << gameTime << std::endl;
         ProcessTick();
         accumulatedTime -= TICK_DURATION;
     }
@@ -55,11 +48,7 @@ void TimeManager::Reset() {
     isPaused = false;
 
     // Clear all tracking containers
-    colonies.clear();
-    productionCycles.clear();
-    constructionTimers.clear();
-    productionRates.clear();
-    accumulatedResources.clear();
+
 }
 
 void TimeManager::Pause() {
@@ -73,7 +62,7 @@ void TimeManager::Resume() {
 void TimeManager::SetTimeScale(float scale) {
     timeScale = scale > 0.0f ? scale : 1.0f;
 }
-
+/*
 //---------------------------------------------------------------------------------------------
 //            Production management
 //---------------------------------------------------------------------------------------------
@@ -236,7 +225,7 @@ void TimeManager::ClearAccumulatedResources(Unit* unit) {
 //---------------------------------------------------------------------------------------------
 //            Colony management functions definitions
 //---------------------------------------------------------------------------------------------
-
+/*
 void TimeManager::RegisterColony(Colony* colony) {
     // Only add if colony is valid and not already registered
     if (!colony || IsColonyRegistered(colony)) {
@@ -259,7 +248,7 @@ bool TimeManager::IsColonyRegistered(Colony* colony) const {
     return std::find(colonies.begin(), colonies.end(), colony) != colonies.end();
 }
 
-
+*/
 //---------------------------------------------------------------------------------------------
 //            Getters/Utility functions
 //---------------------------------------------------------------------------------------------
@@ -280,13 +269,13 @@ int TimeManager::SecondsToTicks(float seconds) const {
 //---------------------------------------------------------------------------------------------
 
 
-
+/*
 void TimeManager::UpdateColonies() {
     for (Colony* colony : colonies) {
         if (!colony) continue;
 
-        UpdateColonyResources(colony);
-        UpdateColonyConstruction(colony);
+        //UpdateColonyResources(colony);
+        //UpdateColonyConstruction(colony);
     }
 }
 
@@ -318,6 +307,7 @@ void TimeManager::UpdateColonyResources(Colony* colony) {
     }
 }
 
+
 void TimeManager::UpdateColonyConstruction(Colony* colony) {
     for (auto& sect : colony->GetSects()) {
         if (!sect) continue;
@@ -335,10 +325,10 @@ void TimeManager::UpdateColonyConstruction(Colony* colony) {
         sect->UpdateRoadConstruction(TICK_DURATION);
     }
 }
-
+*/
 void TimeManager::ProcessTick() {
+    std::cout << "current ticks is: " << currentTicks << std::endl;
     currentTicks++;
-    UpdateColonies();
 }
 
 void TimeManager::Draw(int screenWidth, int screenHeight) {

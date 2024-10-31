@@ -56,8 +56,6 @@ void ResourceManager::GenerateResourceMap() {
         GenerateResourceCluster(ResourceType::Si, center, radius, 0.75f);
     }
 
-    // Ensure starting area (center) has all basic resources
-    EnsureBasicResources(gridSize/2, gridSize/2);
 }
 
 void ResourceManager::GenerateResourceCluster(ResourceType type, Vector2 center, float radius, float maxAbundance) {
@@ -97,11 +95,11 @@ void ResourceManager::GenerateResourceCluster(ResourceType type, Vector2 center,
 void ResourceManager::EnsureBasicResources(int x, int y) {
     ResourceTile& tile = resourceGrid[y][x];
     std::map<ResourceType, float> minValues = {
-        {ResourceType::H2, 0.5f},
-        {ResourceType::O2, 0.5f},
-        {ResourceType::C, 0.4f},
-        {ResourceType::Fe, 0.4f},
-        {ResourceType::Si, 0.4f}
+        {ResourceType::H2, 0.3f},
+        {ResourceType::O2, 0.3f},
+        {ResourceType::C, 0.3f},
+        {ResourceType::Fe, 0.3f},
+        {ResourceType::Si, 0.2f}
     };
 
     for (const auto& [type, minValue] : minValues) {
@@ -148,11 +146,12 @@ Vector2 ResourceManager::WorldToGrid(Vector2 worldPos) const {
     };
 }
 
-void ResourceManager::UpdateResourceDepletion(int x, int y, ResourceType type, float amount) {
+void ResourceManager::UpdateResourceDepletion(int x , int y, ResourceType type, float amount) {
     if (x >= 0 && x < gridSize && y >= 0 && y < gridSize) {
         resourceGrid[y][x].resources[type] =
             std::max(0.0f, resourceGrid[y][x].resources[type] - amount);
     }
+    std::cout << "Resource " << type << " was depleted " << amount << "units" << std::endl;
 }
 
 void ResourceManager::DrawResourceDebug(float scale) {

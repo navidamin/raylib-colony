@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "resource_manager.h"
+#include "time_manager.h"
 #include "game_constants.h"
 
 
@@ -77,9 +78,13 @@ public:
     void AddResource(ResourceType type, float amount);
     bool ConsumeResource(ResourceType type, float amount);
 
+    float DischargeResourcesToSect(ResourceType type);
+
+
 private:
     Vector2 parentSectPosition;
-    ResourceManager* resourceManager;
+    ResourceManager& resourceManager;
+    TimeManager& timeManager;
 
     std::vector<UnitModule> modules;
     std::map<ResourceType, float> resourceStorage;
@@ -96,6 +101,12 @@ private:
     std::string status;
     std::vector<std::string> upgrades;
     float energy_cost;
+
+
+    void InitializeStorage();
+    void UpdateStorage();
+
+    Vector2 WorldToGrid(Vector2 worldPos) const;
 
 
 };
