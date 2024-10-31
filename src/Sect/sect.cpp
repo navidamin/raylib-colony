@@ -248,15 +248,16 @@ void Sect::DrawResourceStats(Vector2 position, float coreRadius) {
     const float statsSpacing = 25;
     int statIndex = 0;
 
-    // Example resource stats (replace with actual resource tracking)
-    std::vector<std::pair<const char*, int>> stats = {
-        {"Energy: ", 100},
-        {"Iron: ", 50},
-        {"Food: ", 75},
+    // Create stats array directly accessing resourceStorage
+    std::vector<std::pair<const char*, ResourceType>> statsToShow = {
+        {"Energy Production: ", ResourceType::ENERGY},
+        {"Iron Storage: ", ResourceType::Fe},
+        {"Food Storage: ", ResourceType::FOOD}
     };
 
-    for (const auto& stat : stats) {
-        const char* text = TextFormat("%s%d", stat.first, stat.second);
+    for (const auto& stat : statsToShow) {
+        float value = resourceStorage[stat.second];  // Direct access to storage
+        const char* text = TextFormat("%s%.1f", stat.first, value);
         DrawText(text,
                 position.x - MeasureText(text, 20)/2,
                 statsY + statIndex * statsSpacing,
