@@ -14,6 +14,16 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
       production_priority(),
       resourceStorage()
 {
+    // Initialize all resource types to 0
+    resourceStorage[ResourceType::H2] = 0.0f;
+    resourceStorage[ResourceType::O2] = 0.0f;
+    resourceStorage[ResourceType::C] = 0.0f;
+    resourceStorage[ResourceType::Fe] = 0.0f;
+    resourceStorage[ResourceType::Si] = 0.0f;
+    resourceStorage[ResourceType::ENERGY] = 0.0f;
+    resourceStorage[ResourceType::WATER] = 0.0f;
+    resourceStorage[ResourceType::FOOD] = 0.0f;
+
     CreateInitialUnits(position);
 }
 
