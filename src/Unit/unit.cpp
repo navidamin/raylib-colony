@@ -2,7 +2,7 @@
 #include <iostream>
 #include <cmath>
 
-Unit::Unit(std::string type) :
+Unit::Unit(std::string type, ResourceManager* resource) :
     unit_type(type),
     status("inactive"),
     energy_cost(0),

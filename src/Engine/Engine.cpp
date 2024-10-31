@@ -57,7 +57,7 @@ void Engine::InitGame() {
     timeManager.RegisterColony(firstColony);
 
     // Create initial sect with a position near the center of the map
-    Sect* firstSect = new Sect();
+    Sect* firstSect = new Sect(planet->GetResourceManager());
     Vector2 initialPosition = planet->GetRandomValidPosition();
     firstSect->SetPosition(initialPosition);
 

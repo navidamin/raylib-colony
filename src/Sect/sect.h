@@ -8,9 +8,15 @@
 #include "unit.h"
 #include <cmath>  // Add this for cosf, sinf, etc.
 
+#include "resource_manager.h"
+#include "game_enums.h"
+
 class Sect {
 public:
-    Sect();
+    // constructor
+    Sect(ResourceManager* resource);
+
+    // deconstructor
     ~Sect();
 
     void AddUnit(Unit* unit);
@@ -18,7 +24,7 @@ public:
     void ConsumeResources();
     void BuildUnit(std::string unit_type);
     void UpgradeUnit(Unit* unit);
-    void Update();
+    void Update(float deltaTime);
     void Draw(Vector2 position);
     void DrawInColonyView(Vector2 position, float scale);
     void DrawInSectView(Vector2 position);
@@ -31,7 +37,20 @@ public:
     const std::vector<Unit*>& GetUnits() const { return units; }
     float GetRadius() const { return coreRadius; }
 
+    // Transportation processing
+    void UpdateRoadConstruction(float deltaTime);
+
 private:
+    ResourceManager* resourceManager;
+
+    struct RoadConstruction {
+        Vector2 startPos;
+        Vector2 endPos;
+        float progress = 0.0f;
+        float totalTime = 30.0f; // 30 seconds to build a road
+    };
+
+    std::vector<RoadConstruction> roadsUnderConstruction;
     // Geometric/Visual properties (basic types first)
     float defaultCoreRadius;        // Constant value
     float coreRadius;               // Derived from default

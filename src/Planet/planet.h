@@ -39,6 +39,7 @@ public:
     float GetActiveRadius() const;
     void DrawResourceDebug(float scale);
     Vector2 GetWorldPosition(Vector2 gridPos) const;
+    ResourceManager* GetResourceManager() const { return resourceManager.get(); }
 
 
 private:

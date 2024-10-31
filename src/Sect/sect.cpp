@@ -1,7 +1,7 @@
 #include "sect.h"
 #include <iostream>
 
-Sect::Sect()
+Sect::Sect(ResourceManager *resource)
     : defaultCoreRadius(50.0f),
       coreRadius(defaultCoreRadius),
       color(GRAY),
@@ -11,7 +11,8 @@ Sect::Sect()
       core(nullptr),
       development_percentage(0.0f),
       production_priority(),
-      resources()
+      resources(),
+      resourceManager(resource)
 {
     CreateInitialUnits();
 }
@@ -43,9 +44,25 @@ void Sect::UpgradeUnit(Unit* unit) {
     std::cout << "Upgrading unit." << std::endl;
 }
 
-void Sect::Update() {
+void Sect::Update(float deltaTime) {
     // TODO: Implement sect update logic
     std::cout << "Sect updated." << std::endl;
+}
+
+void Sect::UpdateRoadConstruction(float deltaTime) {
+    // Update each road under construction
+    auto it = roadsUnderConstruction.begin();
+    while (it != roadsUnderConstruction.end()) {
+        it->progress += deltaTime;
+
+        if (it->progress >= it->totalTime) {
+            // Road construction complete
+            // Add to completed roads list (implementation depends on your road system)
+            it = roadsUnderConstruction.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void Sect::CreateInitialUnits() {
@@ -54,12 +71,12 @@ void Sect::CreateInitialUnits() {
     };
 
     for (const auto& type : unit_types) {
-        Unit* unit = new Unit(type);
+        Unit* unit = new Unit(type, resourceManager);
         if (type == "Extraction") {
-            unit->SetStatus("active");
+            unit->Start();
             core = unit; // Set the Extraction unit as the core
         } else {
-            unit->SetStatus("inactive");
+            unit->Stop();
         }
         AddUnit(unit);
     }
@@ -105,7 +122,7 @@ void Sect::DrawInColonyView(Vector2 pos, float scale) {
 }
 
 void Sect::DrawInSectView(Vector2 position) {
-    float coreRadius = GetScreenHeight() * 0.3f;  // Core takes 60% of screen height
+    float coreRadius = GetScreenHeight() * 0.28f;  // Core takes 60% of screen height
 
     // Draw the main core circle
     DrawCircle(position.x, position.y, coreRadius, LIGHTGRAY);
@@ -123,7 +140,7 @@ void Sect::DrawInSectView(Vector2 position) {
 
     // Draw the units around the core
     float unitRadius = coreRadius * 0.2f;  // Units are 20% the size of core
-    float orbitRadius = coreRadius * 1.4f; // Distance from core to units
+    float orbitRadius = coreRadius * 1.3f; // Distance from core to units
 
     for (size_t i = 0; i < units.size(); ++i) {
         // Start from 90 degrees (top) and go clockwise
