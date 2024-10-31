@@ -92,14 +92,14 @@ void Unit::DrawInUnitView() {
 
 void Unit::SetInitialParameters() {
     if (unit_type == "Extraction") {
-        parameters["H2ExtractionRate"] = .5;
+        parameters["H2ExtractionRate"] = .2;
         parameters["O2ExtractionRate"] = .1;
         parameters["CExtractionRate"] = .1;
-        parameters["FEExtractionRate"] = .3;
-        parameters["SIExtractionRate"] = .01;
-        parameters["ResourceFocus"] = 1; // 1 could represent "Iron"
+        parameters["FeExtractionRate"] = .3;
+        parameters["SiExtractionRate"] = .01;
+        parameters["ResourceFocus"] = 1;
         parameters["EnergyConsumption"] = 5;
-        parameters["WearAndTear"] = 0.2; // 1 Fe per 5 minutes
+        parameters["WearAndTear"] = 0.2;
         parameters["Efficiency"] = 0.8;
         parameters["StorageCapacity"] = 100;
         parameters["BreakdownChance"] = 0.02;
@@ -160,31 +160,6 @@ void Unit::SetInitialParameters() {
     }
 }
 
-void Unit::ProcessExtraction(float deltaTime) {
-    if (!IsActive()) return;
-
-    // Get relevant parameters
-    float extractionRate = parameters["ExtractionRate"];
-    float efficiency = parameters["Efficiency"];
-    float wearAndTear = parameters["WearAndTear"];
-
-    // Calculate actual resources extracted in this time step
-    float resourcesExtracted = extractionRate * efficiency * deltaTime;
-
-    // Apply wear and tear
-    parameters["Efficiency"] = std::max(0.1f, efficiency - (wearAndTear * deltaTime));
-
-    /*
-    // Check for random breakdowns
-    float breakdownChance = parameters["BreakdownChance"];
-    if (GetRandomValue(0, 100) < breakdownChance * 100) {
-        SetStatus("inactive");
-        std::cout << "Unit " << unit_type << " broke down!" << std::endl;
-    }*/
-
-    // TODO: Add extracted resources to storage
-    // This will need to interface with your resource management system
-}
 
 void Unit::ProcessFarming(float deltaTime) {
     if (!IsActive()) return;
@@ -370,8 +345,8 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
         {ResourceType::H2, parameters["H2ExtractionRate"]},
         {ResourceType::O2, parameters["O2ExtractionRate"]},
         {ResourceType::C,  parameters["CExtractionRate"]},
-        {ResourceType::Fe, parameters["FEExtractionRate"]},
-        {ResourceType::Si, parameters["SIExtractionRate"]}
+        {ResourceType::Fe, parameters["FeExtractionRate"]},
+        {ResourceType::Si, parameters["SiExtractionRate"]}
     };
 
     // For Debugging resource variation at Sect
