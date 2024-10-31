@@ -14,7 +14,7 @@
 class Unit {
 public:
     // Constructor
-    Unit(std::string type, ResourceManager* resource);
+    Unit(std::string type, Vector2& position, ResourceManager& resource, TimeManager &time);
 
     // Destrructor
     ~Unit();

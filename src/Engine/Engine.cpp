@@ -30,12 +30,14 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
 Engine::~Engine() {
     delete planet;  // Clean up in destructor
 
+    /*
     // Unregister all colonies from time manager before deletion
     for (Colony* colony : colonies) {
         timeManager.UnregisterColony(colony);
         delete colony;
     }
     colonies.clear();
+    */
 
     CloseWindow();
 }
@@ -53,13 +55,10 @@ void Engine::InitGame() {
     colonies.push_back(firstColony);
     currentColony = firstColony;
 
-    // Register first colony with time manager
-    timeManager.RegisterColony(firstColony);
-
     // Create initial sect with a position near the center of the map
-    Sect* firstSect = new Sect(planet->GetResourceManager());
     Vector2 initialPosition = planet->GetRandomValidPosition();
-    firstSect->SetPosition(initialPosition);
+    Sect* firstSect = new Sect(initialPosition, planet->GetResourceManager(), timeManager);
+
 
     // Notify planet about sect position to ensure resources
     planet->NotifyFirstSectPosition(initialPosition);
@@ -453,10 +452,12 @@ void Engine::Update() {
 
     // Register colonies with time manager if needed
     for (auto& colony : colonies) {
+        /*
         // Register the colony if note registered to timeManager
         if (!timeManager.IsColonyRegistered(colony)) {
          timeManager.RegisterColony(colony);
         }
+        */
 
         // Loop over sects to update the sects and units
         for (auto& sect: colony->GetSects()) {
@@ -464,6 +465,7 @@ void Engine::Update() {
             for (auto& unit : sect->GetUnits()) {
                 if (unit->IsActive()) {
                  unit->Update(deltaTime);
+
                 }
             }
         }

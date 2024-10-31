@@ -2,7 +2,7 @@
 #include <iostream>
 #include <cmath>
 
-Unit::Unit(std::string type, ResourceManager* resource) :
+Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource, TimeManager &time) :
     unit_type(type),
     status("inactive"),
     energy_cost(0),
@@ -52,7 +52,7 @@ void Unit::DisplayStats() const {
 }
 
 void Unit::Update(float deltaTime) {
-    ProcessModuleEffects(deltaTime, *resourceManager);
+    ProcessModuleEffects(deltaTime, resourceManager);
 
 }
 

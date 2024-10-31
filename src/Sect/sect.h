@@ -14,7 +14,7 @@
 class Sect {
 public:
     // constructor
-    Sect(ResourceManager* resource);
+    Sect(Vector2& position, ResourceManager& resource, TimeManager& time);
 
     // deconstructor
     ~Sect();
@@ -41,7 +41,8 @@ public:
     void UpdateRoadConstruction(float deltaTime);
 
 private:
-    ResourceManager* resourceManager;
+    ResourceManager& resourceManager;
+    TimeManager& timeManager;
 
     struct RoadConstruction {
         Vector2 startPos;

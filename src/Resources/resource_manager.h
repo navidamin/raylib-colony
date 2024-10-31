@@ -22,8 +22,8 @@ public:
     ResourceManager(int gridSize, float cellSize);
 
     void GenerateResourceMap();
-    std::vector<std::pair<ResourceType, float>> GetResourcesAt(Vector2 worldPos);
-    std::vector<std::pair<ResourceType, float>> GetResourcesAtGrid(int gridX, int gridY);
+    std::vector<std::pair<ResourceType, float>> GetResourcesAt(Vector2 worldPos) const;
+    std::vector<std::pair<ResourceType, float>> GetResourcesAtGrid(int gridX, int gridY) const;
     void DrawResourceDebug(float scale);  // For debugging resource distribution
     void EnsureBasicResources(int x, int y);  // Ensures starting location has basic resources
     void UpdateResourceDepletion(int x, int y, ResourceType type, float amount);

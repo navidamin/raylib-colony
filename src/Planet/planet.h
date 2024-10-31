@@ -39,13 +39,13 @@ public:
     float GetActiveRadius() const;
     void DrawResourceDebug(float scale);
     Vector2 GetWorldPosition(Vector2 gridPos) const;
-    ResourceManager* GetResourceManager() const { return resourceManager.get(); }
+    ResourceManager& GetResourceManager()  { return resourceManager; }
 
 
 private:
     std::vector<std::vector<int>> map; // 2D grid representing the planet's surface
     std::vector<Colony*> colonies;
-    std::unique_ptr<ResourceManager> resourceManager;
+    ResourceManager resourceManager;
     std::map<std::pair<int, int>, std::vector<std::string>> resources; // Resources at each location
     std::pair<int, int> size; // Planet dimensions
     int time; // Game time

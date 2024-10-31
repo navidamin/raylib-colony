@@ -1,16 +1,16 @@
 #include "planet.h"
 #include <iostream>
 
-Planet::Planet() : size(PLANET_SIZE, PLANET_SIZE), time(0) {
+Planet::Planet() :
+    size(PLANET_SIZE, PLANET_SIZE),
+    time(0),
+    resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2)  // Initialize in the initialization list
+{
     // Initialize the map with empty tiles
     map.resize(size.first, std::vector<int>(size.second, 0));
 
     // Initialize ResourceManager with  grid size and cell size
     // SECT_CORE_RADIUS * 2 matches existing grid cell size
-    resourceManager = std::make_unique<ResourceManager>(
-        PLANET_SIZE,      // 20x20 grid as default
-        SECT_CORE_RADIUS * 2.0f  // Cell size (100 units in default case)
-    );
 }
 
 Planet::~Planet() {
@@ -20,7 +20,7 @@ Planet::~Planet() {
 }
 
 void Planet::GenerateMap() {
-    resourceManager->GenerateResourceMap();
+    resourceManager.GenerateResourceMap();
     // Generate terrain, initialize other map features
 }
 
@@ -30,13 +30,12 @@ void Planet::AddColony(Colony* colony) {
 }
 
 std::vector<std::pair<ResourceType, float>> Planet::GetResourceInfo(Vector2 location) const {
-    return resourceManager->GetResourcesAt(location);
+    return resourceManager.GetResourcesAt(location);
 }
 
 void Planet::Update() {
     time++;
     // TODO: Implement update logic (e.g., trigger events, update colonies)
-    std::cout << "Planet updated. Current time: " << time << std::endl;
 }
 
 Planet::ActiveArea Planet::CalculateActiveArea(const std::vector<Colony*>& colonies) const {
@@ -116,13 +115,14 @@ Vector2 Planet::GetRandomValidPosition() const {
     };
 }
 
+// Notify first sect's position to preare required conditions (such as ensuring min resources)
 void Planet::NotifyFirstSectPosition(Vector2 position) {
     // Convert world position to grid position
     int gridX = static_cast<int>(position.x / (SECT_CORE_RADIUS * 2.0f));
     int gridY = static_cast<int>(position.y / (SECT_CORE_RADIUS * 2.0f));
 
     // Ensure basic resources at this location
-    resourceManager->EnsureBasicResources(gridX, gridY);
+    resourceManager.EnsureBasicResources(gridX, gridY);
 }
 
 Vector2 Planet::GetWorldPosition(Vector2 gridPos) const {
@@ -161,6 +161,6 @@ void Planet::DrawPlanetGrid() {
 }
 
 void Planet::DrawResourceDebug(float scale) {
-    resourceManager->DrawResourceDebug(scale);
+    resourceManager.DrawResourceDebug(scale);
 }
 

@@ -1,18 +1,17 @@
 #include "sect.h"
 #include <iostream>
 
-Sect::Sect(ResourceManager *resource)
-    : defaultCoreRadius(50.0f),
+Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
+    : resourceManager(resource),
+      timeManager(time),
+      defaultCoreRadius(50.0f),
       coreRadius(defaultCoreRadius),
       color(GRAY),
-      SectPosition({0, 0}),
-      location({0, 0}),
+      SectPosition(position),
       units(),
       core(nullptr),
       development_percentage(0.0f),
       production_priority(),
-      resources(),
-      resourceManager(resource)
 {
     CreateInitialUnits();
 }

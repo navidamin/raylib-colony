@@ -109,12 +109,12 @@ void ResourceManager::EnsureBasicResources(int x, int y) {
     }
 }
 
-std::vector<std::pair<ResourceType, float>> ResourceManager::GetResourcesAt(Vector2 worldPos) {
+std::vector<std::pair<ResourceType, float>> ResourceManager::GetResourcesAt(Vector2 worldPos) const{
     Vector2 gridPos = WorldToGrid(worldPos);
     return GetResourcesAtGrid(static_cast<int>(gridPos.x), static_cast<int>(gridPos.y));
 }
 
-std::vector<std::pair<ResourceType, float>> ResourceManager::GetResourcesAtGrid(int gridX, int gridY) {
+std::vector<std::pair<ResourceType, float>> ResourceManager::GetResourcesAtGrid(int gridX, int gridY) const {
     if (gridX < 0 || gridX >= gridSize || gridY < 0 || gridY >= gridSize) {
         return {};
     }
