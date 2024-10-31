@@ -99,16 +99,21 @@ void Planet::UpdateActiveArea(const std::vector<Colony*>& colonies) {
 }
 
 Vector2 Planet::GetRandomValidPosition() const {
-    // Random position in grid coordinates
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dist(3, PLANET_SIZE - 3);
 
+    // Use grid coordinates (0 to PLANET_SIZE-1) for the distribution
+    std::uniform_int_distribution<> dist(3, PLANET_SIZE - 4);  // Leave margin on edges
+
+    // Get random grid coordinates
     int gridX = dist(gen);
     int gridY = dist(gen);
 
-    // Convert to world coordinates
-    return GridToWorld(gridX, gridY);
+    // Convert to world coordinates and center in the cell
+    return Vector2{
+        (gridX * SECT_CORE_RADIUS * 2.0f) + SECT_CORE_RADIUS,  // Add SECT_CORE_RADIUS to center in cell
+        (gridY * SECT_CORE_RADIUS * 2.0f) + SECT_CORE_RADIUS
+    };
 }
 
 void Planet::NotifyFirstSectPosition(Vector2 position) {
