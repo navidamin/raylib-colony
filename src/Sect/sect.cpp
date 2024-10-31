@@ -94,6 +94,7 @@ void Sect::Update(float deltaTime) {
 }
 
 
+
 void Sect::UpdateRoadConstruction(float deltaTime) {
     // Update each road under construction
     auto it = roadsUnderConstruction.begin();
@@ -243,6 +244,12 @@ void Sect::DrawInSectView(Vector2 position) {
 }
 
 void Sect::DrawResourceStats(Vector2 position, float coreRadius) {
+    // Debug print to verify storage contents
+    //std::cout << "Current Resource Storage Status:" << std::endl;
+    for (const auto& [type, amount] : resourceStorage) {
+        std::cout << "Resource " << (type) << ": " << amount << std::endl;
+    }
+
     // Draw production/consumption stats in the core
     const float statsY = position.y - coreRadius * 0.5f;
     const float statsSpacing = 25;
@@ -266,6 +273,7 @@ void Sect::DrawResourceStats(Vector2 position, float coreRadius) {
         statIndex++;
     }
 }
+
 
 
 void Sect::DrawTransparentRightPanel() {

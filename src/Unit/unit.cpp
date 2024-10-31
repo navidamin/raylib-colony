@@ -308,6 +308,7 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
     }
 
     if (!canProcess) return;
+    std::cout << "\nIn the PrcoessModule" << std::endl;
 
     // Consume resources
     for (const auto& [type, rate] : activeModule->consumptionRates) {
@@ -352,13 +353,22 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     // For Debugging resource variation at Sect
     //resourceManager.DisplayResourceGrid(parentSectPosition);
 
+    // Debug print extraction rates
+    std::cout << "\nExtraction rates for each resource:" << std::endl;
+    for (const auto& [type, rate] : extractionRates) {
+        std::cout << "Resource " << static_cast<int>(type) << " rate: " << rate << std::endl;
+    }
 
     // Process each available resource
     for (const auto& [resourceType, abundance] : availableResources) {
 
         std::cout << "resourceType:" << resourceType << "\t abundance:" << abundance << std::endl;
 
-        if (abundance < 0.1f) continue;  // Skip if resource is too depleted
+        if (abundance < 0.1f) {
+            std::cout << "Resource " << static_cast<int>(resourceType)
+                     << " abundance too low: " << abundance << std::endl;
+            continue;
+        }
 
         // Get the specific extraction rate for this resource type
         float baseRate = extractionRates[resourceType];
@@ -369,6 +379,21 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
 
         // Add the extracted resource to storage
         resourceStorage[resourceType] += extractionAmount;
+
+
+        // Debug print for all resources
+        std::cout << "Resource " << static_cast<int>(resourceType)
+                 << " - Extracted: " << extractionAmount
+                 << " (Rate: " << baseRate
+                 << ", Efficiency: " << efficiency
+                 << ", Level Mult: " << levelMultiplier
+                 << ", Abundance: " << abundance << ")" << std::endl;
+
+        // Debug print for Fe
+        if (resourceType == ResourceType::Fe) {
+            std::cout << "Fe Extraction - Amount: " << extractionAmount
+                     << ", Current Storage: " << resourceStorage[ResourceType::Fe] << std::endl;
+        }
     }
 }
 
