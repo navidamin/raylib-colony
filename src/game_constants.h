@@ -7,5 +7,7 @@ const int PLANET_SIZE = 20;  // 20x20 grid of possible sect locations
 const float PLANET_WIDTH = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f;  // Total width of planet
 const float PLANET_HEIGHT = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f; // Total height of planet
 
+const float TICK_DURATION = 1.0f;
+
 
 #endif // GAME_CONSTANTS_H

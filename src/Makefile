@@ -40,7 +40,8 @@ SOURCES = main.cpp \
           Planet/planet.cpp \
           Sect/sect.cpp \
           Unit/unit.cpp \
-          Resources/resource_manager.cpp
+          Resources/resource_manager.cpp \
+	  TimeManager/time_manager.cpp
 
 # raylib library variables
 RAYLIB_SRC_PATH       ?= C:/raylib/raylib/src
@@ -191,7 +192,7 @@ endif
 
 # Define include paths for required headers: INCLUDE_PATHS
 #------------------------------------------------------------------------------------------------
-INCLUDE_PATHS += -I. -Iexternal -I$(RAYLIB_INCLUDE_PATH) -IColony -IEngine -IPlanet -ISect -IUnit -IResources
+INCLUDE_PATHS += -I. -Iexternal -I$(RAYLIB_INCLUDE_PATH) -IColony -IEngine -IPlanet -ISect -IUnit -IResources -ITimeManager
 	
 
 # Define additional directories containing required header files

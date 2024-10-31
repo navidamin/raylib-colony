@@ -2,7 +2,13 @@
 #include <iostream>
 #include <cmath>
 
-Unit::Unit(std::string type) : unit_type(type), status("inactive"), energy_cost(0) {
+Unit::Unit(std::string type) :
+    unit_type(type),
+    status("inactive"),
+    energy_cost(0),
+    isUnderConstruction(false),
+    productionCycleTime(0)
+{
     SetInitialParameters();
 }
 
@@ -145,3 +151,107 @@ void Unit::SetInitialParameters() {
     }
 }
 
+void Unit::ProcessExtraction(float deltaTime) {
+    if (!IsActive()) return;
+
+    // Get relevant parameters
+    float extractionRate = parameters["ExtractionRate"];
+    float efficiency = parameters["Efficiency"];
+    float wearAndTear = parameters["WearAndTear"];
+
+    // Calculate actual resources extracted in this time step
+    float resourcesExtracted = extractionRate * efficiency * deltaTime;
+
+    // Apply wear and tear
+    parameters["Efficiency"] = std::max(0.1f, efficiency - (wearAndTear * deltaTime));
+
+    /*
+    // Check for random breakdowns
+    float breakdownChance = parameters["BreakdownChance"];
+    if (GetRandomValue(0, 100) < breakdownChance * 100) {
+        SetStatus("inactive");
+        std::cout << "Unit " << unit_type << " broke down!" << std::endl;
+    }*/
+
+    // TODO: Add extracted resources to storage
+    // This will need to interface with your resource management system
+}
+
+void Unit::ProcessFarming(float deltaTime) {
+    if (!IsActive()) return;
+
+    // Get relevant parameters
+    float productionRate = parameters["FoodProductionRate"];
+    float fertility = parameters["FertilityLevel"];
+    float growthBoost = parameters["GrowthBoost"];
+    float waterConsumption = parameters["WaterConsumption"];
+
+    // Calculate food production for this time step
+    float foodProduced = productionRate * fertility * growthBoost * deltaTime;
+
+    // Consume water
+    float waterNeeded = waterConsumption * deltaTime;
+    // TODO: Check if enough water is available and subtract it
+
+    // Reduce fertility over time (soil degradation)
+    parameters["FertilityLevel"] = std::max(0.2f, fertility - (0.01f * deltaTime));
+
+    // TODO: Add produced food to storage
+    // This will need to interface with your resource management system
+}
+
+void Unit::ProcessEnergy(float deltaTime) {
+    if (!IsActive()) return;
+
+    // Get relevant parameters
+    float energyOutput = parameters["EnergyOutput"];
+    float efficiency = parameters["Efficiency"];
+    float weatherImpact = parameters["WeatherImpact"];
+    float fuelConsumption = parameters["FuelConsumption"];
+
+    // Calculate actual energy production for this time step
+    float energyProduced = energyOutput * efficiency * (1.0f + weatherImpact) * deltaTime;
+
+    // Consume fuel if needed
+    float fuelNeeded = fuelConsumption * deltaTime;
+    // TODO: Check if enough fuel is available and subtract it
+
+    // Apply maintenance degradation
+    float maintenanceCost = parameters["MaintenanceCost"];
+    parameters["Efficiency"] = std::max(0.2f, efficiency - (maintenanceCost * deltaTime));
+
+    // TODO: Add produced energy to storage
+    // This will need to interface with your resource management system
+}
+
+void Unit::UpdateConstruction(float deltaTime) {
+    if (!IsUnderConstruction()) return;
+
+    float buildTime = parameters["BuildTime"];
+    float currentProgress = parameters["ConstructionProgress"];
+
+    // Update construction progress
+    currentProgress += deltaTime;
+    parameters["ConstructionProgress"] = currentProgress;
+
+    // Check if construction is complete
+    if (currentProgress >= buildTime) {
+        OnConstructionComplete();
+    }
+}
+
+void Unit::OnConstructionComplete() {
+    SetStatus("active");
+    parameters["ConstructionProgress"] = parameters["BuildTime"];
+
+    // Initialize operational parameters based on unit type
+    if (unit_type == "Extraction") {
+        parameters["Efficiency"] = 0.8f;  // Start at 80% efficiency
+    } else if (unit_type == "Farming") {
+        parameters["FertilityLevel"] = 0.75f;  // Start with 75% fertility
+    } else if (unit_type == "Energy") {
+        parameters["Efficiency"] = 0.9f;  // Start at 90% efficiency
+    }
+
+    std::cout << "Construction complete for " << unit_type << " unit!" << std::endl;
+}

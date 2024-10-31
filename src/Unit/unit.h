@@ -6,6 +6,8 @@
 #include <map>
 #include <vector>
 
+
+
 class Unit {
 public:
     Unit(std::string type);
@@ -22,6 +24,10 @@ public:
     void DrawInUnitView();
     void SetInitialParameters();
 
+    // State checking
+    bool IsActive() const { return status == "active"; }
+    bool IsUnderConstruction() const { return isUnderConstruction; }
+
     // Getters
     std::string GetStatus() const { return status; }
     Vector2 GetUnitPosInSectView() const { return positionInSectView;}
@@ -32,9 +38,20 @@ public:
     void SetUnitPosInSectView(Vector2 position) {positionInSectView = position;}
     void SetUnitRadiusInSectView(float radius) {radiusInSectView = radius;}
     void SetStatus(const std::string& newStatus) { status = newStatus; }
+    float GetProductionCycleTime() const { return productionCycleTime; }
 
+    // Production processing
+    void ProcessExtraction(float deltaTime);
+    void ProcessFarming(float deltaTime);
+    void ProcessEnergy(float deltaTime);
+
+    // Construction processing
+    void UpdateConstruction(float deltaTime);
+    void OnConstructionComplete();
 
 private:
+    bool isUnderConstruction;
+    float productionCycleTime;
     Vector2 positionInSectView;
     float radiusInSectView;
     std::string unit_type;

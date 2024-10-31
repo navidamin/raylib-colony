@@ -14,7 +14,8 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
       lastClickPosition({0, 0}),
       minZoom(0.5f),
       maxZoom(2.0f),
-      isDragging(false)
+      isDragging(false),
+      lastUpdateTime(0.0f)
 {
     InitWindow(screenWidth, screenHeight, title);
     SetTargetFPS(60);
@@ -29,10 +30,21 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
 Engine::~Engine() {
     delete planet;  // Clean up in destructor
 
+    // Unregister all colonies from time manager before deletion
+    for (Colony* colony : colonies) {
+        timeManager.UnregisterColony(colony);
+        delete colony;
+    }
+    colonies.clear();
+
     CloseWindow();
 }
 
 void Engine::InitGame() {
+    // Initialize time manager
+    lastUpdateTime = GetTime();  // Set initial time
+    timeManager.Reset();         // Reset time manager to initial state
+
     // Generate map/grid/resource map of the planet
     planet->GenerateMap();
 
@@ -40,6 +52,9 @@ void Engine::InitGame() {
     Colony* firstColony = new Colony();
     colonies.push_back(firstColony);
     currentColony = firstColony;
+
+    // Register first colony with time manager
+    timeManager.RegisterColony(firstColony);
 
     // Create initial sect with a position near the center of the map
     Sect* firstSect = new Sect();
@@ -429,6 +444,18 @@ void Engine::ResetCameraForCurrentView() {
 }
 
 void Engine::Update() {
+
+    float currentTime = GetTime();
+    float deltaTime = currentTime - lastUpdateTime;
+    lastUpdateTime = currentTime;
+
+    timeManager.Update(deltaTime);
+
+    // Register colonies with time manager if needed
+    for (auto& colony : colonies) {
+     timeManager.RegisterColony(colony);
+    }
+
     // For now, we can leave it empty or add basic update logic
     /*
     if (currentColony) {
@@ -442,6 +469,8 @@ void Engine::Update() {
     if (currentUnit) {
         currentUnit->Update();
     }*/
+
+
 }
 
 void Engine::UpdatePlanetActiveArea() {
@@ -489,6 +518,8 @@ void Engine::Draw() {
                 DrawCellInfo(GetMousePosition());
             }
 
+            // Draw UI elements including time
+            timeManager.Draw(screenWidth, screenHeight);
             DrawText("Planet View", 10, 10, 20, BLACK);
             DrawText("Press C for Colony View", 10, 40, 20, GRAY);
             break;
@@ -559,6 +590,8 @@ void Engine::Draw() {
                 DrawCellInfo(GetMousePosition());
             }
 
+            // Draw UI elements including time
+            timeManager.Draw(screenWidth, screenHeight);
             DrawText("Colony View", 10, 10, 20, BLACK);
             DrawText("Press S for Sect View", 10, 40, 20, GRAY);
             DrawText("Press P for Planet View", 10, 70, 20, GRAY);
@@ -571,6 +604,9 @@ void Engine::Draw() {
             if (currentSect) {
                 currentSect->DrawInSectView(Vector2{GetScreenWidth()/2.0f, GetScreenHeight()/2.0f});
             }
+
+            // Draw UI elements including time
+            timeManager.Draw(screenWidth, screenHeight);
             DrawText("Sect View", 10, 10, 20, BLACK);
             DrawText("Press U for Unit View", 10, 40, 20, GRAY);
             DrawText("Press C for Colony View", 10, 70, 20, GRAY);
