@@ -23,10 +23,14 @@ public:
     struct UnitModule {
         std::string name;
         int level = 1;
+        bool isBuilt;
+        bool isActive;
         float efficiency = 1.0f;
+        std::string description;
         std::map<ResourceType, float> consumptionRates;
         std::map<ResourceType, float> productionRates;
         std::map<int, std::map<ResourceType, float>> upgradeCosts;
+        std::map<int, std::map<std::string, float>> enhancements;
     };
 
     void Start();

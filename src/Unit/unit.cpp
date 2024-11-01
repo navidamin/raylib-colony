@@ -95,13 +95,13 @@ void Unit::DrawInUnitView() {
 
 void Unit::SetInitialParameters() {
     if (unit_type == "Extraction") {
-        parameters["H2ExtractionRate"] = .2;
+        parameters["H2ExtractionRate"] = .1;
         parameters["O2ExtractionRate"] = .1;
         parameters["CExtractionRate"] = .1;
-        parameters["FeExtractionRate"] = .3;
+        parameters["FeExtractionRate"] = .1;
         parameters["SiExtractionRate"] = .01;
         parameters["ResourceFocus"] = 1;
-        parameters["EnergyConsumption"] = 5;
+        parameters["EnergyConsumption"] = 1;
         parameters["WearAndTear"] = 0.2;
         parameters["Efficiency"] = 0.8;
         parameters["StorageCapacity"] = 100;
@@ -247,30 +247,54 @@ void Unit::InitializeModules() {
     UnitModule basicModule;
     basicModule.name = "Basic " + unit_type;
     basicModule.level = 1;
+    basicModule.isBuilt = true;  // Changed from the original
+    basicModule.isActive = false;
     basicModule.efficiency = parameters["Efficiency"];
+    basicModule.description = "Basic module for " + unit_type;
 
+    // Initialize maps with empty maps (this ensures they exist)
+    basicModule.consumptionRates = std::map<ResourceType, float>();
+    basicModule.productionRates = std::map<ResourceType, float>();
+
+    // Initialize production costs based on unit type
+    if (unit_type == "Extraction") {
+        productionCosts = EXTRACTION_PRODUCTION_COSTS;
+    }
+    else if (unit_type == "Farming") {
+        productionCosts = FARMING_PRODUCTION_COSTS;
+    }
+
+    // Initialize upgrade costs for all levels (1-5)
+    for (int level = 1; level <= 5; level++) {
+        // Initialize empty maps for each level
+        basicModule.upgradeCosts[level] = std::map<ResourceType, float>();
+        basicModule.enhancements[level] = std::map<std::string, float>();
+
+        // Add some example costs and enhancements
+        if (level > 1) {  // Levels 2-5 have upgrade costs
+            basicModule.upgradeCosts[level][ResourceType::ENERGY] = 10.0f * level;
+            basicModule.upgradeCosts[level][ResourceType::Fe] = 5.0f * level;
+
+            basicModule.enhancements[level]["efficiency"] = 1.0f + (level * 0.1f);
+            basicModule.enhancements[level]["production"] = 1.0f + (level * 0.2f);
+        }
+    }
+
+    // Set type-specific rates
     if (unit_type == "Extraction") {
         basicModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"];
-        // Set production rates based on extraction parameters
         basicModule.productionRates[ResourceType::H2] = parameters["H2ExtractionRate"];
         basicModule.productionRates[ResourceType::O2] = parameters["O2ExtractionRate"];
         basicModule.productionRates[ResourceType::C]  = parameters["CExtractionRate"];
         basicModule.productionRates[ResourceType::Fe] = parameters["FeExtractionRate"];
-        basicModule.productionRates[ResourceType::Si] = parameters["SiExtractionRate"];    }
-    else if (unit_type == "Farming") {
-        basicModule.consumptionRates[ResourceType::H2] = parameters["WaterConsumption"];
-        basicModule.consumptionRates[ResourceType::O2] = 1.5f;
-        basicModule.consumptionRates[ResourceType::C] = 1.0f;
-        basicModule.productionRates[ResourceType::FOOD] = parameters["FoodProductionRate"];
-        basicModule.productionRates[ResourceType::WATER] = 2.0f;
+        basicModule.productionRates[ResourceType::Si] = parameters["SiExtractionRate"];
     }
-    else if (unit_type == "Energy") {
-        basicModule.productionRates[ResourceType::ENERGY] = parameters["EnergyOutput"];
-    }
+    // ... other unit types ...
 
     modules.push_back(basicModule);
     activeModule = &modules[0];
 }
+
 
 bool Unit::UpgradeModule(int moduleIndex) {
     if (moduleIndex >= modules.size() || modules[moduleIndex].level >= 5) {
