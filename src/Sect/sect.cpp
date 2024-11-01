@@ -55,7 +55,7 @@ void Sect::UpgradeUnit(Unit* unit) {
 }
 
 void Sect::Update(float deltaTime) {
-    static int lastCollectionDay = -1;
+    static int lastCollectionDay = 1;
     int currentDay = timeManager.GetCurrentDay();
 
     // Update all units

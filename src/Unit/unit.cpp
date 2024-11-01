@@ -559,10 +559,22 @@ void Unit::DischargeAllResources(std::map<ResourceType, float>& collected) {
                 collected[type] += excessAmount;
                 amount = reserveAmount;  // Keep the reserve amount
 
+                // Fixed ShowMessage call
+                try {
+                    std::string resourceName = ResourceUtils::GetResourceName(type);
+                    ShowMessage(TextFormat("Unit discharged %.2f of %s",
+                                         excessAmount, resourceName.c_str()));
+                } catch (...) {
+                    ShowMessage(TextFormat("Unit discharged %.2f of resource %d",
+                                         excessAmount, static_cast<int>(type)));
+                }
+
                 std::cout << "Unit " << unit_type
                          << " discharged " << excessAmount
                          << " of resource " << static_cast<int>(type)
                          << " (keeping " << reserveAmount << " in reserve)" << std::endl;
+
+
             } else {
                 std::cout << "Unit " << unit_type
                          << " keeping all " << amount
