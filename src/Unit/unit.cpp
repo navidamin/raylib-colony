@@ -41,10 +41,71 @@ void Unit::Upgrade(int level) {
     std::cout << "Unit " << unit_type << " upgraded to level " << level << std::endl;
 }
 
-std::map<std::string, float> Unit::CalculateConsumption() const {
-    // TODO: Implement consumption calculation
-    std::cout << "Unit " << unit_type << " consumption calculated." << std::endl;
-    return consumption;
+void Unit::CalculateConsumption() {
+    if (!activeModule) {
+        std::cout << "No active module, skipping consumption calculation" << std::endl;
+        return;
+    }
+
+    // Debug output before calculation
+    std::cout << "\nStarting consumption calculation for " << unit_type << std::endl;
+    std::cout << "Production rates:" << std::endl;
+    for (const auto& [res, rate] : activeModule->productionRates) {
+        std::cout << "Resource " << static_cast<int>(res) << ": " << rate << std::endl;
+    }
+
+    std::cout << "Production costs map size: " << productionCosts.size() << std::endl;
+
+    // Clear existing consumption rates
+    activeModule->consumptionRates.clear();
+
+    // For each production rate
+    for (const auto& [producedResource, productionRate] : activeModule->productionRates) {
+        // Skip if production rate is 0
+        if (productionRate <= 0) {
+            std::cout << "Skipping resource " << static_cast<int>(producedResource)
+                     << " due to zero production rate" << std::endl;
+            continue;
+        }
+
+        std::cout << "Checking costs for resource " << static_cast<int>(producedResource) << std::endl;
+
+        // Safely check if this resource has associated costs
+        if (productionCosts.count(producedResource) == 0) {
+            std::cout << "No production costs defined for resource "
+                     << static_cast<int>(producedResource) << std::endl;
+            continue;
+        }
+
+        // Get the cost map for this resource
+        const auto& resourceCosts = productionCosts.at(producedResource);
+        std::cout << "Found " << resourceCosts.size() << " cost entries for resource "
+                 << static_cast<int>(producedResource) << std::endl;
+
+        // For each resource consumed in production
+        for (const auto& [consumedResource, rate] : resourceCosts) {
+            // Calculate consumption based on production rate
+            float consumption = productionRate * rate;
+
+            std::cout << "Calculated consumption for resource "
+                     << static_cast<int>(consumedResource)
+                     << ": " << consumption << "/s" << std::endl;
+
+            // Add to module's consumption rates
+            activeModule->consumptionRates[consumedResource] += consumption;
+        }
+    }
+
+    // Debug output final consumption rates
+    std::cout << "Final consumption rates:" << std::endl;
+    for (const auto& [resource, rate] : activeModule->consumptionRates) {
+        try {
+            std::string resourceName = ResourceUtils::GetResourceName(resource);
+            std::cout << resourceName << ": " << rate << "/s" << std::endl;
+        } catch (...) {
+            std::cout << "Resource " << static_cast<int>(resource) << ": " << rate << "/s" << std::endl;
+        }
+    }
 }
 
 std::map<std::string, float> Unit::CalculateProduction() const {
@@ -344,6 +405,8 @@ bool Unit::UpgradeModule(int moduleIndex) {
 void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManager) {
     if (!IsActive() || !activeModule) return;
 
+    CalculateConsumption();  // Update consumption rates when module is activated
+
     // Check if we have enough resources for consumption
     bool canProcess = true;
     for (const auto& [type, rate] : activeModule->consumptionRates) {
@@ -360,10 +423,11 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
     if (!canProcess) return;
     std::cout << "\nIn the PrcoessModule" << std::endl;
 
+    /*
     // Consume resources
     for (const auto& [type, rate] : activeModule->consumptionRates) {
         resourceStorage[type] -= rate * deltaTime;
-    }
+    }*/
 
     // Handle production based on unit type
     if (unit_type == "Extraction") {

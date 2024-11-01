@@ -37,7 +37,7 @@ public:
     void Start();
     void Stop();
     void Upgrade(int level);
-    std::map<std::string, float> CalculateConsumption() const;
+    void CalculateConsumption();
     std::map<std::string, float> CalculateProduction() const;
     void DisplayStats() const;
     void Update(float deltaTime);
@@ -96,6 +96,7 @@ private:
     std::vector<UnitModule> modules;
     std::map<ResourceType, float> resourceStorage;
     UnitModule* activeModule = nullptr;
+    std::map<ResourceType, std::map<ResourceType, float>> productionCosts;
 
     bool isUnderConstruction;
     float productionCycleTime;
