@@ -41,7 +41,8 @@ SOURCES = main.cpp \
           Sect/sect.cpp \
           Unit/unit.cpp \
           Resources/resource_manager.cpp \
-	  TimeManager/time_manager.cpp
+	  TimeManager/time_manager.cpp \
+	  Unit/unit_ui.cpp
 
 # raylib library variables
 RAYLIB_SRC_PATH       ?= C:/raylib/raylib/src

@@ -617,7 +617,6 @@ void Engine::Draw() {
                 currentUnit->DrawInUnitView();
             }
 
-            timeManager.Draw(screenWidth, screenHeight);
             DrawText("Unit View", 10, 10, 20, BLACK);
             DrawText("Press S for Sect View", 10, 40, 20, GRAY);
             break;

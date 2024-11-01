@@ -10,7 +10,12 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource, TimeM
     productionCycleTime(0),
     resourceManager(resource),
     timeManager(time),
-    parentSectPosition(position)
+    parentSectPosition(position),
+    isInModuleView(false),
+    selectedModuleIndex(-1),
+    lastClickTime(0),
+    lastClickedModule(-1),
+    showingStats(false)
 {
     SetInitialParameters();
     InitializeModules();
@@ -77,20 +82,31 @@ void Unit::DrawInSectView(Vector2 corePosition, float coreRadius, int index) {
 }
 
 void Unit::DrawInUnitView() {
-    // Left section for resource stats
-    Rectangle statsPanel = { 0, 0, 600, (float)GetScreenHeight() };
-    DrawRectangleRec(statsPanel, Fade(RAYWHITE, 0.9f));
+    const int screenWidth = GetScreenWidth();
+    const int screenHeight = GetScreenHeight();
 
-    // Draw all resource stats
-    DrawResourceStats();
+    // Draw main background
+    DrawRectangle(0, 0, screenWidth, screenHeight, RAYWHITE);
 
-    // Right transparent panel for other info
-    Rectangle rightPanel = { (float)GetScreenWidth() - 300, 0, 300, (float)GetScreenHeight() };
-    DrawRectangleRec(rightPanel, Fade(GRAY, 0.5f));
+    // Draw UI sections
+    DrawTopBar();
+    DrawBottomBar();
 
-    // Draw additional UI elements in right panel
-    DrawText(("Unit Type: " + unit_type).c_str(),
-            (float)GetScreenWidth() - 280, 10, 20, BLACK);
+    // Draw three-panel layout
+    if (isInModuleView) {
+        DrawModuleList();
+        DrawModuleDetails();
+        DrawControlPanel();
+
+
+    } else {
+        DrawModuleList();
+        DrawResourcePanel();
+        DrawControlPanel();
+
+    }
+
+    UpdateMessage(GetFrameTime());
 }
 
 void Unit::SetInitialParameters() {
@@ -527,124 +543,3 @@ Vector2 Unit::WorldToGrid(Vector2 worldPos) const {
     };
 }
 
-void Unit::DrawResourceStats() {
-    float startX = 20.0f;
-    float startY = 100.0f;
-    float rowHeight = 25.0f;
-    float colWidth = 150.0f;
-    int fontSize = 20;
-    Color darkGreen = {34, 139, 34, 255};  // Forest Green
-
-    // First draw unit and module info
-    DrawText(TextFormat("Unit Type: %s", unit_type.c_str()),
-             startX, startY, fontSize + 5, BLACK);
-    startY += rowHeight * 1.5f;
-
-    if (activeModule) {
-        DrawText(TextFormat("Active Module: %s (Level %d)",
-                activeModule->name.c_str(),
-                activeModule->level),
-                startX, startY, fontSize, BLACK);
-        startY += rowHeight;
-
-        DrawText(TextFormat("Status: %s", status.c_str()),
-                startX, startY, fontSize,
-                status == "active" ? darkGreen : GRAY);
-        startY += rowHeight;
-
-        DrawText(TextFormat("Efficiency: %.1f%%", activeModule->efficiency * 100.0f),
-                startX, startY, fontSize, BLACK);
-        startY += rowHeight * 2;  // Extra space before rates
-
-        // Column headers for rates
-        DrawText("Resource", startX, startY, fontSize, BLACK);
-        DrawText("Production", startX + colWidth, startY, fontSize, BLACK);
-        DrawText("Consumption", startX + colWidth * 2, startY, fontSize, BLACK);
-
-        startY += rowHeight;
-
-        // List of all resource types with their names
-        std::vector<std::pair<ResourceType, const char*>> resources = {
-            {ResourceType::ENERGY, "Energy"},
-            {ResourceType::H2, "Hydrogen"},
-            {ResourceType::O2, "Oxygen"},
-            {ResourceType::C, "Carbon"},
-            {ResourceType::Fe, "Iron"},
-            {ResourceType::Si, "Silicon"},
-            {ResourceType::WATER, "Water"},
-            {ResourceType::FOOD, "Food"},
-            {ResourceType::SCIENCE, "Science"},
-            {ResourceType::MANPOWER, "Manpower"}
-        };
-
-        // Draw rates only for resources that have production or consumption
-        for (const auto& [type, name] : resources) {
-            bool hasActivity = false;
-            float prodRate = activeModule->productionRates[type];
-            float consRate = activeModule->consumptionRates[type];
-
-            if (prodRate > 0 || consRate > 0) {
-                hasActivity = true;
-                DrawText(name, startX, startY, fontSize, BLACK);
-
-                // Production rate
-                if (prodRate > 0) {
-                    DrawText(TextFormat("+%.2f/s", prodRate),
-                            startX + colWidth, startY, fontSize, darkGreen);
-                } else {
-                    DrawText("-", startX + colWidth, startY, fontSize, GRAY);
-                }
-
-                // Consumption rate
-                if (consRate > 0) {
-                    DrawText(TextFormat("-%.2f/s", consRate),
-                            startX + colWidth * 2, startY, fontSize, RED);
-                } else {
-                    DrawText("-", startX + colWidth * 2, startY, fontSize, GRAY);
-                }
-
-                if (hasActivity) {
-                    startY += rowHeight;
-                }
-            }
-        }
-    } else {
-        DrawText("No active module", startX, startY, fontSize, GRAY);
-    }
-
-    // Add Debug Storage Info section
-    startY += rowHeight * 2;  // Add some space before debug section
-
-    DrawText("Debug Info", startX, startY, fontSize, RED);
-    startY += rowHeight * 1.2f;
-
-    bool hasStoredResources = false;
-    std::vector<std::pair<ResourceType, const char*>> resources = {
-        {ResourceType::ENERGY, "Energy"},
-        {ResourceType::H2, "Hydrogen"},
-        {ResourceType::O2, "Oxygen"},
-        {ResourceType::C, "Carbon"},
-        {ResourceType::Fe, "Iron"},
-        {ResourceType::Si, "Silicon"},
-        {ResourceType::WATER, "Water"},
-        {ResourceType::FOOD, "Food"},
-        {ResourceType::SCIENCE, "Science"},
-        {ResourceType::MANPOWER, "Manpower"}
-    };
-
-    // Check for any stored resources
-    for (const auto& [type, name] : resources) {
-        float stored = GetStoredResource(type);
-        if (stored > 0) {
-            hasStoredResources = true;
-            DrawText(TextFormat("%s: %.2f", name, stored),
-                    startX, startY, fontSize, BLACK);
-            startY += rowHeight;
-        }
-    }
-
-    // If no resources are stored, show empty message
-    if (!hasStoredResources) {
-        DrawText("Unit storage is empty", startX, startY, fontSize, GRAY);
-    }
-}

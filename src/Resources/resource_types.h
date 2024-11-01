@@ -5,24 +5,46 @@
 #include <map>
 
 enum class ResourceType {
-    H2,     // Hydrogen
-    O2,     // Oxygen
-    C,      // Carbon
-    Fe,     // Iron
-    Si      // Silicon
+    ENERGY,
+    H2,
+    O2,
+    C,
+    Fe,
+    Si,
+    WATER,
+    FOOD,
+    SCIENCE,
+    MANPOWER
 };
 
 // Helper functions for ResourceType
-namespace ResourceUtils {
-    inline std::string GetResourceName(ResourceType type) {
-        static const std::map<ResourceType, std::string> names = {
-            {ResourceType::H2, "H₂"},
-            {ResourceType::O2, "O₂"},
-            {ResourceType::C, "C"},
-            {ResourceType::Fe, "Fe"},
-            {ResourceType::Si, "Si"}
-        };
-        return names.at(type);
+class ResourceUtils {
+public:
+    static std::string GetResourceName(ResourceType type) {
+        switch (type) {
+            case ResourceType::ENERGY:
+                return "Energy";
+            case ResourceType::H2:
+                return "Hydrogen";
+            case ResourceType::O2:
+                return "Oxygen";
+            case ResourceType::C:
+                return "Carbon";
+            case ResourceType::Fe:
+                return "Iron";
+            case ResourceType::Si:
+                return "Silicon";
+            case ResourceType::WATER:
+                return "Water";
+            case ResourceType::FOOD:
+                return "Food";
+            case ResourceType::SCIENCE:
+                return "Science";
+            case ResourceType::MANPOWER:
+                return "Manpower";
+            default:
+                throw std::runtime_error("Unknown resource type");
+        }
     }
 
     inline Color GetResourceColor(ResourceType type) {
@@ -36,5 +58,30 @@ namespace ResourceUtils {
         return colors.at(type);
     }
 }
+
+// First, create a function to convert ResourceType to string
+inline const char* ResourceTypeToString(ResourceType type) {
+    switch (type) {
+        case ResourceType::ENERGY:   return "ENERGY";
+        case ResourceType::SCIENCE:  return "SCIENCE";
+        case ResourceType::MANPOWER: return "MANPOWER";
+        case ResourceType::H2:       return "H2";
+        case ResourceType::O2:       return "O2";
+        case ResourceType::C:        return "C";
+        case ResourceType::Fe:       return "Fe";
+        case ResourceType::Si:       return "Si";
+        case ResourceType::WATER:    return "WATER";
+        case ResourceType::FOOD:     return "FOOD";
+        default:                     return "UNKNOWN";
+    }
+}
+
+// Then, create the stream operator overload
+inline std::ostream& operator<<(std::ostream& os, const ResourceType& type) {
+    os << ResourceTypeToString(type);
+    return os;
+}
+
+
 
 #endif // RESOURCE_TYPES_H

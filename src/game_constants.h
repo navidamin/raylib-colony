@@ -66,8 +66,14 @@ inline std::ostream& operator<<(std::ostream& os, const ResourceType& type) {
 namespace ResourceUtils {
     inline std::string GetResourceName(ResourceType type) {
         static const std::map<ResourceType, std::string> names = {
-            {ResourceType::H2, "H₂"},
-            {ResourceType::O2, "O₂"},
+            {ResourceType::ENERGY, "ENERGY"},
+            {ResourceType::SCIENCE, "SCIENCE"},
+            {ResourceType::MANPOWER, "MANPOWER"},
+            {ResourceType::WATER, "WATER"},
+            {ResourceType::FOOD, "FOOD"},
+
+            {ResourceType::H2, "H2"},
+            {ResourceType::O2, "O2"},
             {ResourceType::C, "C"},
             {ResourceType::Fe, "Fe"},
             {ResourceType::Si, "Si"}
@@ -86,6 +92,22 @@ namespace ResourceUtils {
         return colors.at(type);
     }
 }
+
+const std::map<ResourceType, std::map<ResourceType, float>> EXTRACTION_PRODUCTION_COSTS = {
+    {ResourceType::H2, {{ResourceType::ENERGY, 1.0f}}},
+    {ResourceType::O2, {{ResourceType::ENERGY, 1.0f}}},
+    {ResourceType::C,  {{ResourceType::ENERGY, 1.0f}}},
+    {ResourceType::Fe, {{ResourceType::ENERGY, 1.0f}}},
+    {ResourceType::Si, {{ResourceType::ENERGY, 1.0f}}}
+};
+
+// You can add more for other unit types:
+const std::map<ResourceType, std::map<ResourceType, float>> FARMING_PRODUCTION_COSTS = {
+    {ResourceType::FOOD, {
+        {ResourceType::WATER, 0.5f},
+        {ResourceType::ENERGY, 0.2f}
+    }}
+};
 
 struct ResourceRate {
     ResourceType type;

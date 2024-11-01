@@ -9,6 +9,7 @@
 #include "resource_manager.h"
 #include "time_manager.h"
 #include "game_constants.h"
+#include "unit_ui.h"
 
 
 
@@ -42,7 +43,6 @@ public:
     void Update(float deltaTime);
     void DrawInSectView(Vector2 corePosition, float coreRadius, int index);
     void DrawInUnitView();
-    void DrawResourceStats();
 
     void SetInitialParameters();
 
@@ -86,6 +86,8 @@ public:
     void DischargeAllResources(std::map<ResourceType, float>& collected);
 
 private:
+    // Include UI-related members
+    UNIT_UI_PRIVATE_MEMBERS
 
     Vector2 parentSectPosition;
     ResourceManager& resourceManager;
@@ -107,7 +109,8 @@ private:
     std::vector<std::string> upgrades;
     float energy_cost;
 
-
+    // Include UI-related methods
+    UNIT_UI_PRIVATE_METHODS
 
     void InitializeStorage();
     void UpdateStorage();
