@@ -296,80 +296,91 @@ void Unit::DrawControlPanel() {
                 20, BLACK);
         yPos += elementHeight + spaceBetween * 2;
 
-        // Get maximum rates from parameters
-        std::map<ResourceType, float> maxRates;
-        if (unit_type == "Extraction") {
-            maxRates[ResourceType::H2] = parameters["H2ExtractionRate"];
-            maxRates[ResourceType::O2] = parameters["O2ExtractionRate"];
-            maxRates[ResourceType::C]  = parameters["CExtractionRate"];
-            maxRates[ResourceType::Fe] = parameters["FeExtractionRate"];
-            maxRates[ResourceType::Si] = parameters["SiExtractionRate"];
-        }
-        // Add other unit types here as needed
+        // Draw controls for each resource that has a max production rate
 
-        // Draw control for each resource
-        for (const auto& [resource, maxRate] : maxRates) {
-            std::string resourceName;
-            try {
-                resourceName = ResourceUtils::GetResourceName(resource);
-            } catch (...) {
-                resourceName = "Unknown";
-                continue;
-            }
-
-            // Draw resource name
-            DrawText(resourceName.c_str(),
-                    panelPos.x + padding,
-                    yPos + 5,
-                    20, BLACK);
-
-            // Draw rate control buttons (0-4)
-            for (int rate = 0; rate <= 4; rate++) {
-                float buttonWidth = (controlWidth - spaceBetween * 4) / 5.0f;
-                Rectangle buttonRect = {
-                    panelPos.x + labelWidth + padding + (buttonWidth + spaceBetween) * rate,
-                    yPos,
-                    buttonWidth,
-                    elementHeight
-                };
-
-                // Calculate actual rate value
-                float actualRate = (rate == 0) ? 0.0f : (maxRate * rate / 4.0f);
-
-                // Check if this is the current rate
-                bool isCurrentRate = false;
-                if (const auto& module = activeModule) {
-                    float currentRate = module->productionRates[resource];
-                    isCurrentRate = std::abs(currentRate - actualRate) < 0.001f;
+        if (activeModule) {
+            for (const auto& [resource, maxRate] : activeModule->maxProductionRates) {
+                std::string resourceName;
+                try {
+                    resourceName = ResourceUtils::GetResourceName(resource);
+                } catch (...) {
+                    resourceName = "Unknown";
+                    continue;
                 }
 
-                // Draw button with appropriate color
-                Color buttonColor = isCurrentRate ? GREEN : GRAY;
-                if (CheckCollisionPointRec(GetMousePosition(), buttonRect)) {
-                    buttonColor = Fade(buttonColor, 0.7f);
-                    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                        if (activeModule) {
-                            activeModule->productionRates[resource] = actualRate;
-                            ShowMessage(TextFormat("%s production rate set to %.1f",
-                                                 resourceName.c_str(), actualRate));
+                // Draw resource name
+                DrawText(resourceName.c_str(),
+                        panelPos.x + padding,
+                        yPos + 5,
+                        20, BLACK);
+
+                // Get current production rate for this resource
+                float currentRate = activeModule->productionRates[resource];
+
+                // Draw rate control buttons (0-4)
+                for (int rate = 0; rate <= 4; rate++) {
+                    float buttonWidth = (controlWidth - spaceBetween * 4) / 5.0f;
+                    Rectangle buttonRect = {
+                        panelPos.x + labelWidth + padding + (buttonWidth + spaceBetween) * rate,
+                        yPos,
+                        buttonWidth,
+                        elementHeight
+                    };
+
+                    // Calculate what this button's rate should be
+                    float buttonRate = (rate == 0) ? 0.0f : (maxRate * rate / 4.0f);
+
+                    // Debug output
+                    /*
+                    std::cout << resourceName << " Button " << rate << ":\n";
+                    std::cout << "  Button Rate: " << buttonRate << "\n";
+                    std::cout << "  Current Rate: " << currentRate << "\n";
+                    std::cout << "  Max Rate: " << maxRate << "\n";
+                    */
+
+                    // Calculate which button should be active based on current production rate
+                    bool isCurrentRate = false;
+                    if (rate == 0 && currentRate == 0) {
+                        isCurrentRate = true;
+                    } else if (rate > 0) {
+                        // Calculate the rate ranges for this button
+                        float lowerBound = maxRate * (rate - 0.5f) / 4.0f;
+                        float upperBound = maxRate * (rate + 0.5f) / 4.0f;
+
+                        // Special case for max rate button
+                        if (rate == 4) {
+                            isCurrentRate = (currentRate >= lowerBound);
+                        } else {
+                            isCurrentRate = (currentRate >= lowerBound && currentRate < upperBound);
                         }
                     }
+
+                    // Draw button with appropriate color
+                    Color buttonColor = isCurrentRate ? GREEN : GRAY;
+                    if (CheckCollisionPointRec(GetMousePosition(), buttonRect)) {
+                        buttonColor = Fade(buttonColor, 0.7f);
+                        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                            activeModule->productionRates[resource] = buttonRate;
+                            ShowMessage(TextFormat("%s production rate set to %.1f",
+                                                 resourceName.c_str(), buttonRate));
+                            CalculateConsumption();  // Recalculate consumption when production changes
+                        }
+                    }
+
+                    DrawRectangleRec(buttonRect, buttonColor);
+
+                    // Draw rate value or "Off" for 0
+                    const char* rateText = (rate == 0) ? "Off" : TextFormat("%d", rate);
+                    int textWidth = MeasureText(rateText, 16);
+                    DrawText(rateText,
+                            buttonRect.x + (buttonRect.width - textWidth) / 2,
+                            buttonRect.y + 7,
+                            16, WHITE);
                 }
 
-                DrawRectangleRec(buttonRect, buttonColor);
-
-                // Draw rate value or "Off" for 0
-                const char* rateText = (rate == 0) ? "Off" : TextFormat("%d", rate);
-                int textWidth = MeasureText(rateText, 16);
-                DrawText(rateText,
-                        buttonRect.x + (buttonRect.width - textWidth) / 2,
-                        buttonRect.y + 7,
-                        16, WHITE);
+                yPos += elementHeight + spaceBetween * 2;
             }
-
-            yPos += elementHeight + spaceBetween * 2;
         }
-
     }
 }
 
@@ -672,6 +683,7 @@ void Unit::DrawMultilineText(const std::string& text, int x, int y, int fontSize
         DrawText(currentLine.c_str(), x, currentY, fontSize, color);
     }
 }
+
 void Unit::ShowMessage(const std::string& text) {
     currentMessage.text = text;
     currentMessage.opacity = 1.0f;
