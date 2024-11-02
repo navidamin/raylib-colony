@@ -1,0 +1,49 @@
+
+DONE- clony should also have inPlanet and Incolony draw
+
+
+DOUBT - sect() constructor should take in the position which is gotten from the mouse position when creating
+
+write in the fix draw claude chat to create a differnet class for UI
+
+in Planet view sects are not clickable ( then how can player swtich betwen colonies?)
+
+After developed activeness of more than 2 units:
+    try removing non-active unit indicator circles from colony and planet view
+    and, draw unit indicator circle proportionate to unit development
+
+
+Extract Unit Development
+    each resource type has a sldier with discrete values from 0 to 10 that shows the speed by which that resource is extracted/depleted
+
+Each unit has certain modules that has a definite function: consumes A[] consumptions
+                                                            generates B[] productions
+    each unit has a basic module. next modules are made by upgrades
+    each module has 5 levels. from level 1 to level 5 the resource consumption speed decreases nd product generation speed increases
+    each level of each module require certain amount of resources (other than the raw material:ENerGy, SCIenctific.breakthroug, MANpower, )
+
+DONE Define consumptions<Resource, rate> and productions<Resource, rate> for each unit
+for extraction: productions are the raw material and rates are depandant on efficiency of the extraction unit
+for farming consumptions are H2, O2, C and productions is food, water
+for energy consumptions are at basic module is nothing but at FuelCell module is H2
+
+30.10 23:46
+DONE only one module is active at time. however player can switch  back to an older module at anytime
+
+31.10 13:37
+the member Unit::Inquiry is a struct {resource, amount, process ("building" "upgardin"), requesterModule, requesterUnit } that contains the resources and the required amount.
+each (build, upgrade, ...) creats a struct of this sort and uses Unit::sendInquiry() to add to the Unit::Inquiries queue
+void Unit::sendInquiry() registers the inquiries in Unit::Inquiries one by one and adds to the  Unit::Inquiries queue .
+void SecT::recollectInquiries() reads Unit::Inquiries from units one by one and fills out a queue for inquiries of all
+units: sectInquiries( vector<unit, Inquiry> )
+void processInquiries()
+void answerInquiries()
+A set of function in Sect class to collecct inquiries for resources from units. then it takes some
+ticks to deliver and the deliver;
+map<resource, amount> Unit::Inquiries
+void calculateInquiries()
+a function for unit to calcualte the inquires for the next  day and save them in Inquiries to be read by Sect
+
+DONE DischargeResoources() : calcualte the consumptio nof the uit fo one day and keep it and discharge the rest
+
+DONE Debug: sect positions should not be around the edges!

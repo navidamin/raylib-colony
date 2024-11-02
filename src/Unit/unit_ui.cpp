@@ -715,24 +715,30 @@ void Unit::HandleModuleActivation(int moduleIndex) {
         return;
     }
 
-    // If this module is already active, deactivate it
+    // Toggle the selected module's active state
     if (module.isActive) {
         module.isActive = false;
+        module.efficiency *= 0.9f;  // Penalty for deactivating
         ShowMessage(module.name + " deactivated");
-        return;
-    }
-
-    // Deactivate current active module if any
-    for (auto& mod : modules) {
-        if (mod.isActive) {
-            mod.isActive = false;
-            mod.efficiency *= 0.9f;  // Penalty for switching
+    } else {
+        // Deactivate other modules before activating this one
+        for (auto& mod : modules) {
+            if (mod.isActive) {
+                mod.isActive = false;
+                mod.efficiency *= 0.9f;  // Penalty for switching
+            }
         }
+        module.isActive = true;
+        ShowMessage(module.name + " activated");
     }
 
-    // Activate selected module
-    module.isActive = true;
-    ShowMessage(module.name + " activated");
+    // Update unit status based on module states
+    UpdateUnitStatus();
+
+    // Recalculate consumption if we have an active module
+    if (activeModule) {
+        CalculateConsumption();
+    }
 }
 
 bool Unit::CanUpgradeModule(const UnitModule& module) {

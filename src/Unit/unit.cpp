@@ -371,7 +371,7 @@ void Unit::InitializeModules() {
         // Add some example costs and enhancements
         if (level > 1) {  // Levels 2-5 have upgrade costs
             basicModule.upgradeCosts[level][ResourceType::ENERGY] = 10.0f * level;
-            basicModule.upgradeCosts[level][ResourceType::Fe] = 5.0f * level;
+            basicModule.upgradeCosts[level][ResourceType::Fe] = 0.1f * level;
 
             basicModule.enhancements[level]["efficiency"] = 1.0f + (level * 0.1f);
             basicModule.enhancements[level]["production"] = 1.0f + (level * 0.2f);
@@ -407,6 +407,10 @@ void Unit::InitializeModules() {
 
     modules.push_back(basicModule);
     activeModule = &modules[0];
+
+    // Initialize future modules
+    InitializeFutureModules();
+
     // Update unit status based on module states
     UpdateUnitStatus();
 
@@ -428,6 +432,9 @@ bool Unit::UpgradeModule(int moduleIndex) {
     const auto& costs = module.upgradeCosts[module.level + 1];
     // TODO: Check if we have enough resources
 
+    for (auto& [resource, cost] : costs) {
+        ConsumeResource(resource, cost);
+    }
     module.level++;
 
     // Update efficiency and rates based on level
@@ -644,6 +651,156 @@ void Unit::DischargeAllResources(std::map<ResourceType, float>& collected) {
     }
 }
 
+void Unit::InitializeFutureModules() {
+    // Enhanced Module - Level 1 stats but better efficiency
+    UnitModule enhancedModule;
+    enhancedModule.name = "Enhanced " + unit_type;
+    enhancedModule.level = 1;
+    enhancedModule.isBuilt = false;
+    enhancedModule.isActive = false;
+    enhancedModule.efficiency = parameters["Efficiency"] * 1.2f;  // 20% better efficiency
+    enhancedModule.description = "Enhanced efficiency module for " + unit_type +
+                                "\nProvides better resource utilization.";
+
+    // Advanced Module - Higher base rates but more energy consumption
+    UnitModule advancedModule;
+    advancedModule.name = "Advanced " + unit_type;
+    advancedModule.level = 1;
+    advancedModule.isBuilt = false;
+    advancedModule.isActive = false;
+    advancedModule.efficiency = parameters["Efficiency"] * 1.1f;
+    advancedModule.description = "Advanced module for " + unit_type +
+                                "\nHigher production rates with increased energy cost.";
+
+    // Automated Module - Less energy consumption but lower base efficiency
+    UnitModule automatedModule;
+    automatedModule.name = "Automated " + unit_type;
+    automatedModule.level = 1;
+    automatedModule.isBuilt = false;
+    automatedModule.isActive = false;
+    automatedModule.efficiency = parameters["Efficiency"] * 0.9f;  // Lower base efficiency
+    automatedModule.description = "Automated module for " + unit_type +
+                                "\nLower energy consumption but requires maintenance.";
+
+    // Deep-Core Module - Highest rates but highest consumption
+    UnitModule deepCoreModule;
+    deepCoreModule.name = "Deep-Core " + unit_type;
+    deepCoreModule.level = 1;
+    deepCoreModule.isBuilt = false;
+    deepCoreModule.isActive = false;
+    deepCoreModule.efficiency = parameters["Efficiency"] * 1.3f;
+    deepCoreModule.description = "Deep-Core module for " + unit_type +
+                                "\nHighest production potential with maximum resource cost.";
+
+    // Initialize production and consumption rates based on unit type
+    if (unit_type == "Extraction") {
+        // Enhanced Module
+        enhancedModule.maxProductionRates = {
+            {ResourceType::H2, parameters["H2ExtractionRate"] * 1.2f},
+            {ResourceType::O2, parameters["O2ExtractionRate"] * 1.2f},
+            {ResourceType::C,  parameters["CExtractionRate"] * 1.2f},
+            {ResourceType::Fe, parameters["FeExtractionRate"] * 1.2f},
+            {ResourceType::Si, parameters["SiExtractionRate"] * 1.2f}
+        };
+        enhancedModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"] * 1.1f;
+
+        // Advanced Module
+        advancedModule.maxProductionRates = {
+            {ResourceType::H2, parameters["H2ExtractionRate"] * 1.5f},
+            {ResourceType::O2, parameters["O2ExtractionRate"] * 1.5f},
+            {ResourceType::C,  parameters["CExtractionRate"] * 1.5f},
+            {ResourceType::Fe, parameters["FeExtractionRate"] * 1.5f},
+            {ResourceType::Si, parameters["SiExtractionRate"] * 1.5f}
+        };
+        advancedModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"] * 1.4f;
+
+        // Automated Module
+        automatedModule.maxProductionRates = {
+            {ResourceType::H2, parameters["H2ExtractionRate"] * 1.1f},
+            {ResourceType::O2, parameters["O2ExtractionRate"] * 1.1f},
+            {ResourceType::C,  parameters["CExtractionRate"] * 1.1f},
+            {ResourceType::Fe, parameters["FeExtractionRate"] * 1.1f},
+            {ResourceType::Si, parameters["SiExtractionRate"] * 1.1f}
+        };
+        automatedModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"] * 0.8f;
+
+        // Deep-Core Module
+        deepCoreModule.maxProductionRates = {
+            {ResourceType::H2, parameters["H2ExtractionRate"] * 2.0f},
+            {ResourceType::O2, parameters["O2ExtractionRate"] * 2.0f},
+            {ResourceType::C,  parameters["CExtractionRate"] * 2.0f},
+            {ResourceType::Fe, parameters["FeExtractionRate"] * 2.0f},
+            {ResourceType::Si, parameters["SiExtractionRate"] * 2.0f}
+        };
+        deepCoreModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"] * 2.0f;
+    }
+    else if (unit_type == "Farming") {
+        // Enhanced Module
+        enhancedModule.maxProductionRates[ResourceType::FOOD] = parameters["FoodProductionRate"] * 1.2f;
+        enhancedModule.consumptionRates[ResourceType::WATER] = parameters["WaterConsumption"] * 1.1f;
+        enhancedModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"] * 1.1f;
+
+        // Advanced Module
+        advancedModule.maxProductionRates[ResourceType::FOOD] = parameters["FoodProductionRate"] * 1.5f;
+        advancedModule.consumptionRates[ResourceType::WATER] = parameters["WaterConsumption"] * 1.4f;
+        advancedModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"] * 1.4f;
+
+        // Automated Module
+        automatedModule.maxProductionRates[ResourceType::FOOD] = parameters["FoodProductionRate"] * 1.1f;
+        automatedModule.consumptionRates[ResourceType::WATER] = parameters["WaterConsumption"] * 0.9f;
+        automatedModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"] * 0.8f;
+
+        // Deep-Core Module
+        deepCoreModule.maxProductionRates[ResourceType::FOOD] = parameters["FoodProductionRate"] * 2.0f;
+        deepCoreModule.consumptionRates[ResourceType::WATER] = parameters["WaterConsumption"] * 1.8f;
+        deepCoreModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"] * 2.0f;
+    }
+    // ... Add other unit types here ...
+
+    // Initialize production rates to max for all modules
+    enhancedModule.productionRates = enhancedModule.maxProductionRates;
+    advancedModule.productionRates = advancedModule.maxProductionRates;
+    automatedModule.productionRates = automatedModule.maxProductionRates;
+    deepCoreModule.productionRates = deepCoreModule.maxProductionRates;
+
+    // Set upgrade costs for all modules (example costs, adjust as needed)
+    for (int level = 1; level <= 5; level++) {
+        float levelMultiplier = level * 1.5f;  // Costs increase with each level
+
+        // Enhanced Module costs
+        enhancedModule.upgradeCosts[level][ResourceType::ENERGY] = 20.0f * levelMultiplier;
+        enhancedModule.upgradeCosts[level][ResourceType::Fe] = 10.0f * levelMultiplier;
+        enhancedModule.enhancements[level]["efficiency"] = 1.0f + (level * 0.12f);
+        enhancedModule.enhancements[level]["production"] = 1.0f + (level * 0.15f);
+
+        // Advanced Module costs
+        advancedModule.upgradeCosts[level][ResourceType::ENERGY] = 30.0f * levelMultiplier;
+        advancedModule.upgradeCosts[level][ResourceType::Fe] = 15.0f * levelMultiplier;
+        advancedModule.upgradeCosts[level][ResourceType::Si] = 5.0f * levelMultiplier;
+        advancedModule.enhancements[level]["efficiency"] = 1.0f + (level * 0.15f);
+        advancedModule.enhancements[level]["production"] = 1.0f + (level * 0.2f);
+
+        // Automated Module costs
+        automatedModule.upgradeCosts[level][ResourceType::ENERGY] = 15.0f * levelMultiplier;
+        automatedModule.upgradeCosts[level][ResourceType::Fe] = 8.0f * levelMultiplier;
+        automatedModule.upgradeCosts[level][ResourceType::Si] = 3.0f * levelMultiplier;
+        automatedModule.enhancements[level]["efficiency"] = 1.0f + (level * 0.1f);
+        automatedModule.enhancements[level]["production"] = 1.0f + (level * 0.12f);
+
+        // Deep-Core Module costs
+        deepCoreModule.upgradeCosts[level][ResourceType::ENERGY] = 40.0f * levelMultiplier;
+        deepCoreModule.upgradeCosts[level][ResourceType::Fe] = 20.0f * levelMultiplier;
+        deepCoreModule.upgradeCosts[level][ResourceType::Si] = 10.0f * levelMultiplier;
+        deepCoreModule.enhancements[level]["efficiency"] = 1.0f + (level * 0.2f);
+        deepCoreModule.enhancements[level]["production"] = 1.0f + (level * 0.25f);
+    }
+
+    // Add all modules to the modules vector
+    modules.push_back(enhancedModule);
+    modules.push_back(advancedModule);
+    modules.push_back(automatedModule);
+    modules.push_back(deepCoreModule);
+}
 
 void Unit::InitializeStorage() {
     resourceStorage[ResourceType::ENERGY] = INITIAL_UNIT_ENERGY;

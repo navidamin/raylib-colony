@@ -13,7 +13,7 @@ const float PLANET_HEIGHT = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f; // Total heig
 
 const float TICK_DURATION = 1.0f;
 // TICKS_PER_DAY
-static const int TICKS_PER_DAY = 10;  // 60 seconds = 1 day
+static const int TICKS_PER_DAY = 20;  // 60 seconds = 1 day
 
 const float INITIAL_UNIT_ENERGY = 1000.0f;
 const float INITIAL_UNIT_FOOD = 1000.0f;

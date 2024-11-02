@@ -70,3 +70,16 @@ compile_commands.json
 # Android
 *apk*
 android.*
+
+#qtcreator files
+*.config
+*.creator
+*.files
+*.includes
+
+#my Notes
+notes
+
+#autosaves
+*.autosave
+

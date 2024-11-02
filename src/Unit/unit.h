@@ -12,7 +12,6 @@
 #include "unit_ui.h"
 
 
-
 class Unit {
 public:
     // Constructor
@@ -34,6 +33,7 @@ public:
         std::map<int, std::map<ResourceType, float>> upgradeCosts;
         std::map<int, std::map<std::string, float>> enhancements;
     };
+
 
     void Start();
     void Stop();
@@ -77,6 +77,7 @@ public:
 
     // Module Processing functions
     void InitializeModules();
+    void InitializeFutureModules();
     bool UpgradeModule(int moduleIndex);
     void ProcessModuleEffects(float deltaTime, ResourceManager& );
     void ProcessExtraction(float deltaTime, ResourceManager& );
