@@ -39,6 +39,23 @@ void Unit::Stop() {
     std::cout << "Unit " << unit_type << " stopped." << std::endl;
 }
 
+void Unit::UpdateUnitStatus() {
+    // Check if any module is active
+    bool anyModuleActive = false;
+    activeModule = nullptr;  // Reset active module pointer
+
+    for (auto& module : modules) {
+        if (module.isActive) {
+            anyModuleActive = true;
+            activeModule = &module;  // Set active module to the active one
+            break;
+        }
+    }
+
+    // Update unit status based on module state
+    status = anyModuleActive ? "active" : "inactive";
+}
+
 void Unit::Upgrade(int level) {
     // TODO: Implement upgrade logic
     std::cout << "Unit " << unit_type << " upgraded to level " << level << std::endl;
@@ -328,13 +345,14 @@ void Unit::InitializeModules() {
     basicModule.name = "Basic " + unit_type;
     basicModule.level = 1;
     basicModule.isBuilt = true;  // Changed from the original
-    basicModule.isActive = false;
+    basicModule.isActive = true;
     basicModule.efficiency = parameters["Efficiency"];
     basicModule.description = "Basic module for " + unit_type;
 
     // Initialize maps with empty maps (this ensures they exist)
     basicModule.consumptionRates = std::map<ResourceType, float>();
     basicModule.productionRates = std::map<ResourceType, float>();
+    basicModule.maxProductionRates = std::map<ResourceType, float>();
 
     // Initialize production costs based on unit type
     if (unit_type == "Extraction") {
@@ -362,12 +380,28 @@ void Unit::InitializeModules() {
 
     // Set type-specific rates
     if (unit_type == "Extraction") {
+        basicModule.maxProductionRates[ResourceType::H2] = parameters["H2ExtractionRate"];
+        basicModule.maxProductionRates[ResourceType::O2] = parameters["O2ExtractionRate"];
+        basicModule.maxProductionRates[ResourceType::C]  = parameters["CExtractionRate"];
+        basicModule.maxProductionRates[ResourceType::Fe] = parameters["FeExtractionRate"];
+        basicModule.maxProductionRates[ResourceType::Si] = parameters["SiExtractionRate"];
+
+        // Initialize production rates to maximum
+        basicModule.productionRates = basicModule.maxProductionRates;
+
+        // Set consumption rates
         basicModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"];
-        basicModule.productionRates[ResourceType::H2] = parameters["H2ExtractionRate"];
-        basicModule.productionRates[ResourceType::O2] = parameters["O2ExtractionRate"];
-        basicModule.productionRates[ResourceType::C]  = parameters["CExtractionRate"];
-        basicModule.productionRates[ResourceType::Fe] = parameters["FeExtractionRate"];
-        basicModule.productionRates[ResourceType::Si] = parameters["SiExtractionRate"];
+    }
+    else if (unit_type == "Farming") {
+            // Set maximum production rates for farming
+            basicModule.maxProductionRates[ResourceType::FOOD] = parameters["FoodProductionRate"];
+
+            // Initialize production rates to maximum
+            basicModule.productionRates = basicModule.maxProductionRates;
+
+            // Set consumption rates
+            basicModule.consumptionRates[ResourceType::WATER] = parameters["WaterConsumption"];
+            basicModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"];
     }
     // ... other unit types ...
 
@@ -404,11 +438,26 @@ bool Unit::UpgradeModule(int moduleIndex) {
         rate = rate * (2.0f - levelMultiplier);
     }
 
-    // Production rates increase with level
-    for (auto& [type, rate] : module.productionRates) {
-        rate = rate * levelMultiplier;
+    // Update maximum production rates
+    for (auto& [type, rate] : module.maxProductionRates) {
+        float baseRate = rate / (1.0f + (module.level - 2) * 0.2f);  // Get original base rate
+        rate = baseRate * levelMultiplier;  // Apply new level multiplier
     }
 
+    // Update actual production rates to maintain same proportion of max
+    for (auto& [type, rate] : module.productionRates) {
+        if (module.maxProductionRates.count(type) > 0) {
+            float proportion = rate / module.maxProductionRates[type];
+            rate = module.maxProductionRates[type] * proportion;
+        }
+    }
+
+    // Recalculate consumption rates if this is the active module
+    if (&module == activeModule) {
+        CalculateConsumption();
+    }
+
+    ShowMessage(TextFormat("Module upgraded to level %d - Production set to maximum", module.level));
     return true;
 }
 

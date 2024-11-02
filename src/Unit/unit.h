@@ -30,6 +30,7 @@ public:
         std::string description;
         std::map<ResourceType, float> consumptionRates;
         std::map<ResourceType, float> productionRates;
+        std::map<ResourceType, float> maxProductionRates;
         std::map<int, std::map<ResourceType, float>> upgradeCosts;
         std::map<int, std::map<std::string, float>> enhancements;
     };
@@ -115,6 +116,8 @@ private:
 
     void InitializeStorage();
     void UpdateStorage();
+
+    void UpdateUnitStatus();
 
     Vector2 WorldToGrid(Vector2 worldPos) const;
 
