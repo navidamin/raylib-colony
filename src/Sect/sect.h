@@ -11,6 +11,9 @@
 #include "resource_manager.h"
 #include "game_enums.h"
 
+#define CHINAROSE (Color){ 160, 70, 104, 255 }
+
+
 class Sect {
 public:
     // constructor

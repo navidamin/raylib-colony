@@ -490,9 +490,10 @@ void Unit::DrawModuleDetails() {
         safeDrawText(module.name.c_str(), leftMargin, yPos, 30, BLACK);
         yPos += 35;  // Reduced spacing after title
 
+        // Draw description using the new multiline function
         if (!module.description.empty()) {
-            safeDrawText(module.description.c_str(), leftMargin, yPos, 20, DARKGRAY);
-            yPos += lineSpacing;
+            DrawMultilineText(module.description, leftMargin, yPos, 20, DARKGRAY);
+            yPos += (20 + 5) * (std::count(module.description.begin(), module.description.end(), '\n') + 1);
         }
 
         // Draw current level info
@@ -651,6 +652,26 @@ void Unit::DrawModuleDetails() {
     }
 }
 
+void Unit::DrawMultilineText(const std::string& text, int x, int y, int fontSize, Color color, int lineSpacing) {
+    std::string currentLine;
+    int currentY = y;
+
+    for (size_t i = 0; i < text.length(); i++) {
+        if (text[i] == '\n') {
+            // Draw current line and move to next line
+            DrawText(currentLine.c_str(), x, currentY, fontSize, color);
+            currentY += fontSize + lineSpacing;
+            currentLine.clear();
+        } else {
+            currentLine += text[i];
+        }
+    }
+
+    // Draw the last line if any
+    if (!currentLine.empty()) {
+        DrawText(currentLine.c_str(), x, currentY, fontSize, color);
+    }
+}
 void Unit::ShowMessage(const std::string& text) {
     currentMessage.text = text;
     currentMessage.opacity = 1.0f;

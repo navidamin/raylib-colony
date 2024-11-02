@@ -42,7 +42,7 @@ struct UIMessage {
     bool CanUpgradeModule(const UnitModule& module); \
     bool CanBuildModule(const UnitModule& module); \
     void BuildModule(int moduleIndex); \
-
+    void DrawMultilineText(const std::string& text, int x, int y, int fontSize, Color color, int lineSpacing = 5);
 
 
 #endif // UNIT_UI_H
