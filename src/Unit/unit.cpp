@@ -27,8 +27,11 @@ Unit::~Unit() {
 }
 
 void Unit::Start() {
-    status = "active";
-    std::cout << "Unit " << unit_type << " started." << std::endl;
+    // Only start if we have an active module
+
+        status = "active";
+        std::cout << "Unit " << unit_type << " started." << std::endl;
+
 }
 
 void Unit::Stop() {
@@ -370,6 +373,13 @@ void Unit::InitializeModules() {
 
     modules.push_back(basicModule);
     activeModule = &modules[0];
+    // Update unit status based on module states
+    UpdateUnitStatus();
+
+    // Initialize production/consumption rates if we have an active module
+    if (activeModule) {
+        CalculateConsumption();
+    }
 }
 
 

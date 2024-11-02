@@ -7,6 +7,18 @@ void Unit::DrawTopBar() {
     // Draw title
     //DrawText(("Unit Type: " + unit_type).c_str(), 20, 20, 20, WHITE);
 
+    const UnitModule& module = modules[selectedModuleIndex];
+
+    const char* titleText;
+    if (isInModuleView) {
+        titleText = TextFormat("Module Control Panel");
+
+    } else {
+        titleText = TextFormat("Unit Control Panel");
+    }
+
+    DrawText(titleText, GetScreenWidth()/2 - MeasureText(titleText,26)/2, 20, 28, BLACK);
+
     // Draw day number
     const char* dayText = TextFormat("Day %d", timeManager.GetCurrentDay());
     DrawText(dayText, GetScreenWidth() - MeasureText(dayText, 20) - 20, 20, 20, WHITE);
@@ -30,10 +42,10 @@ void Unit::DrawBottomBar() {
 
 
 void Unit::DrawResourcePanel() {
-    const int leftPanelWidth = 280;
+    const int leftPanelWidth = 300;
     const int rightPanelWidth = 300;
     const int middlePanelWidth = GetScreenWidth() - leftPanelWidth - rightPanelWidth;
-    const int topMargin = 70;
+    const int topMargin = 80;
 
     // Calculate middle panel start X position
     const int middlePanelX = leftPanelWidth;
@@ -164,7 +176,7 @@ void Unit::DrawResourceStats(int startX, int startY, int panelWidth) {
 
 void Unit::DrawControlPanel() {
     const int rightPanelWidth = 300;
-    const int topMargin = 70;
+    const int topMargin = 60;
     const int padding = 10;
     const int elementHeight = 30;
     const int spaceBetween = 5;
@@ -211,7 +223,12 @@ void Unit::DrawControlPanel() {
             };
 
             bool canUpgrade = CanUpgradeModule(module);
-            Color buttonColor = canUpgrade ? BLUE : GRAY;
+            bool isHovered = CheckCollisionPointRec(GetMousePosition(), upgradeButton);
+
+            // Apply hover effect to button color
+            Color buttonColor = canUpgrade ?
+                (isHovered ? ColorBrightness(BLUE, 0.2f) : BLUE) :
+                (isHovered ? ColorBrightness(GRAY, 0.2f) : GRAY);
 
             DrawRectangleRec(upgradeButton, buttonColor);
             const char* upgradeText = TextFormat("Upgrade to Level %d", module.level + 1);
@@ -359,7 +376,7 @@ void Unit::DrawControlPanel() {
 
 void Unit::DrawModuleList() {
     const int leftPanelWidth = 270;
-    const int topMargin = 70;
+    const int topMargin = 80;
     const int buttonHeight = 60;
     const int padding = 10;
 
@@ -429,8 +446,8 @@ void Unit::DrawModuleDetails() {
     const UnitModule& module = modules[selectedModuleIndex];
     const int screenHeight = GetScreenHeight();
     const int bottomMargin = 80;  // Increased to make room for stats button
-    const int leftMargin = 280;
-    const int topMargin = 70;
+    const int leftMargin = 300;
+    const int topMargin = 80;
     const int padding = 20;
     const int lineSpacing = 22;  // Reduced spacing between lines
     int yPos = topMargin;
@@ -445,7 +462,7 @@ void Unit::DrawModuleDetails() {
     bool isBackHovered = CheckCollisionPointRec(GetMousePosition(), backButton);
     DrawRectangleRec(backButton, isBackHovered ? Fade(GRAY, 0.7f) : GRAY);
 
-    const char* backText = "< Back to Control Panel";
+    const char* backText = "< Back to Unit Panel";
     int textWidth = MeasureText(backText, 20);
     DrawText(backText,
              backButton.x + (backButton.width - textWidth) / 2,

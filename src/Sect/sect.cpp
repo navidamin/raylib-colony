@@ -6,7 +6,7 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
       timeManager(time),
       defaultCoreRadius(50.0f),
       coreRadius(defaultCoreRadius),
-      color(GRAY),
+      color(CHINAROSE),
       SectPosition(position),
       units(),
       core(nullptr),
@@ -167,7 +167,7 @@ void Sect::DrawInColonyView(Vector2 pos, float scale) {
         };
 
         if ( units[i]->GetStatus() == "active" ) {DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, GREEN);}
-        else {DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, GRAY);}
+        else {DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, CHINAROSE);}
     }
 
     // Draw development percentage as a progress arc
@@ -189,7 +189,7 @@ void Sect::DrawInSectView(Vector2 position) {
     float coreRadius = GetScreenHeight() * 0.28f;  // Core takes 60% of screen height
 
     // Draw the main core circle
-    DrawCircle(position.x, position.y, coreRadius, LIGHTGRAY);
+    DrawCircle(position.x, position.y, coreRadius, GRAY);
     DrawCircleLines(position.x, position.y, coreRadius, BLACK);
 
     // Draw core information
