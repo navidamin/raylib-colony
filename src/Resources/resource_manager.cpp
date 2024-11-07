@@ -95,11 +95,11 @@ void ResourceManager::GenerateResourceCluster(ResourceType type, Vector2 center,
 void ResourceManager::EnsureBasicResources(int x, int y) {
     ResourceTile& tile = resourceGrid[y][x];
     std::map<ResourceType, float> minValues = {
-        {ResourceType::H2, 0.3f},
-        {ResourceType::O2, 0.3f},
-        {ResourceType::C, 0.3f},
-        {ResourceType::Fe, 0.3f},
-        {ResourceType::Si, 0.2f}
+        {ResourceType::H2, 100.0f},
+        {ResourceType::O2, 100.0f},
+        {ResourceType::C, 100.0f},
+        {ResourceType::Fe, 100.0f},
+        {ResourceType::Si, 100.0f}
     };
 
     for (const auto& [type, minValue] : minValues) {
