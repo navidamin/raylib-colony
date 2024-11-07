@@ -790,10 +790,31 @@ void Unit::BuildModule(int moduleIndex) {
         return;
     }
 
-    // Consume resources
+    bool inquiryRequired = false;
+    std::map<ResourceType, float> requiredResources;
+    // Check resources
     for (const auto& [resource, amount] : costIter->second) {
-        resourceStorage[resource] -= amount;
+        if (amount < resourceStorage[resource]) {
+            inquiryRequired = true;
+            requiredResources[resource] = amount;
+        }
+
     }
+
+    if (!inquiryRequired) {
+        // Consume resources
+        for (const auto& [resource, amount] : costIter->second) {
+            resourceStorage[resource] -= amount;
+        }
+
+        module.isBuilt = true;
+        module.buildStatus = "built";
+        module.level = 1;
+        ShowMessage(module.name + "Module was built successfully!");
+    } else{
+        ShowMessage(module.name + "Anticipating resources from Sect!");
+    }
+
 
     module.isBuilt = true;
     module.level = 1;
