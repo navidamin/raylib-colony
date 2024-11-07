@@ -91,15 +91,21 @@ bool Engine::IsDoubleClick() {
     double currentTime = GetTime();
     Vector2 currentPosition = GetMousePosition();
 
-    bool isDoubleClick = (currentTime - lastClickTime <= 0.5) &&
-                         (Vector2Distance(lastClickPosition, currentPosition) <= 10);
+    bool isDoubleClick = (currentTime - lastClickTime <= 0.5) &&   // No more than 500ms between clicks
+                        (currentTime - lastClickTime > 0.1) &&      // At least 100ms between clicks
+                        (Vector2Distance(lastClickPosition, currentPosition) <= 10);
 
-    lastClickTime = currentTime;
-    lastClickPosition = currentPosition;
+    // Only update the last click time if this wasn't a double click
+    if (!isDoubleClick) {
+        lastClickTime = currentTime;
+        lastClickPosition = currentPosition;
+    }
+
+
+    std::cout << "Double click detected!\n";
 
     return isDoubleClick;
 }
-
 
 void Engine::SwitchToColonyView() {
     if (currentColony) {
