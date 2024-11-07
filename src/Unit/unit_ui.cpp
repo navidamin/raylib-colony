@@ -390,18 +390,55 @@ void Unit::DrawModuleList() {
     const int topMargin = 80;
     const int buttonHeight = 60;
     const int padding = 10;
+    const int moduleListMargin = 30; // Additional space between unit button and module list
+
+    const int normalBorderThickness = 1;
+    const int selectedBorderThickness = 3;
+
+    // Draw Unit button at the top
+    Rectangle unitButtonRect = {
+        static_cast<float>(padding),
+        static_cast<float>(topMargin),
+        static_cast<float>(leftPanelWidth - padding * 2),
+        static_cast<float>(buttonHeight)
+    };
+
+    bool isUnitHovered = CheckCollisionPointRec(GetMousePosition(), unitButtonRect);
+    Color unitButtonColor = isUnitHovered ? Fade(BLUE, 0.7f) : BLUE;
+
+    DrawRectangleRec(unitButtonRect, unitButtonColor);
+    DrawRectangleLinesEx(unitButtonRect, !isInModuleView ? selectedBorderThickness : normalBorderThickness,
+                        DARKGRAY);
+    // Draw unit name
+    std::string unitText = "Unit: " + unit_type;
+    const char* text = unitText.c_str();
+    int textWidth = MeasureText(text, 20);
+    Vector2 textPos = {
+        unitButtonRect.x + (unitButtonRect.width - textWidth) / 2,
+        unitButtonRect.y + (unitButtonRect.height - 20) / 2
+    };
+    DrawText(text, textPos.x, textPos.y, 20, WHITE);
+
+    // Handle unit button click
+    if (isUnitHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        isInModuleView = false;
+        showingStats = false;
+        ShowMessage("Switched to unit view");
+    }
+
 
     for (size_t i = 0; i < modules.size(); i++) {
         const UnitModule& module = modules[i];
         Rectangle buttonRect = {
             static_cast<float>(padding),
-            static_cast<float>(topMargin + (i * (buttonHeight + padding))),
+            static_cast<float>(topMargin + buttonHeight + moduleListMargin + (i * (buttonHeight + padding))),
             static_cast<float>(leftPanelWidth - padding * 2),
             static_cast<float>(buttonHeight)
         };
 
         // Check for hover
         bool isHovered = CheckCollisionPointRec(GetMousePosition(), buttonRect);
+        bool isSelected = isInModuleView && selectedModuleIndex == i;
 
         // Determine button color based on state
         Color buttonColor;
@@ -419,31 +456,27 @@ void Unit::DrawModuleList() {
 
         // Draw button with hover effect
         DrawRectangleRec(buttonRect, buttonColor);
-        DrawRectangleLinesEx(buttonRect, 1, DARKGRAY);
-
+        DrawRectangleLinesEx(buttonRect, isSelected ? selectedBorderThickness : normalBorderThickness,
+                            DARKGRAY);
         // Draw module name and level if built
         std::string displayText = module.name;
-        if (module.isBuilt) {
-            displayText += " (Lvl " + std::to_string(module.level) + ")";
-        }
 
-        const char* text = displayText.c_str();
-        int textWidth = MeasureText(text, 20);
-        Vector2 textPos = {
-            buttonRect.x + (buttonRect.width - textWidth) / 2,
+
+        const char* moduleText = displayText.c_str();
+        int moduleTextWidth = MeasureText(moduleText, 20);
+        Vector2 moduleTextPos = {
+            buttonRect.x + (buttonRect.width - moduleTextWidth) / 2,
             buttonRect.y + (buttonRect.height - 20) / 2
         };
-        DrawText(text, textPos.x, textPos.y, 20, textColor);
+        DrawText(moduleText, moduleTextPos.x, moduleTextPos.y, 20, textColor);
 
         // Handle click and double-click
         if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            float currentTime = GetTime();
             // click detected
             selectedModuleIndex = i;
             isInModuleView = true;
             ShowMessage("Switched to module view");
-
-            lastClickTime = currentTime;
+            lastClickTime = GetTime();
             lastClickedModule = i;
         }
     }
@@ -462,30 +495,6 @@ void Unit::DrawModuleDetails() {
     const int padding = 20;
     const int lineSpacing = 22;  // Reduced spacing between lines
     int yPos = topMargin;
-
-    // Back button (keep at fixed position)
-    Rectangle backButton = {
-        10,  // Left margin
-        static_cast<float>(screenHeight - bottomMargin + 10),  // Same Y as stats button
-        static_cast<float>(leftMargin - 20),  // Width of left panel minus margins
-        30
-    };
-    bool isBackHovered = CheckCollisionPointRec(GetMousePosition(), backButton);
-    DrawRectangleRec(backButton, isBackHovered ? Fade(GRAY, 0.7f) : GRAY);
-
-    const char* backText = "< Back to Unit Panel";
-    int textWidth = MeasureText(backText, 20);
-    DrawText(backText,
-             backButton.x + (backButton.width - textWidth) / 2,
-             backButton.y + 5,
-             20, WHITE);
-
-    if (isBackHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        isInModuleView = false;
-        showingStats = false;  // Reset stats view when leaving module view
-        ShowMessage("Returned to unit view");
-        return;
-    }
 
     // Helper function to safely draw text
     auto safeDrawText = [screenHeight, bottomMargin](const char* text, int x, int y, int fontSize, Color color) {
@@ -650,7 +659,7 @@ void Unit::DrawModuleDetails() {
 
     DrawRectangleRec(statsButton, buttonColor);
     const char* buttonText = showingStats ? "< Back" : "Stats >";
-    textWidth = MeasureText(buttonText, 20);
+    int textWidth = MeasureText(buttonText, 20);
     DrawText(buttonText,
              statsButton.x + (statsButton.width - textWidth) / 2,  // Center text
              statsButton.y + 5,
@@ -808,7 +817,6 @@ void Unit::BuildModule(int moduleIndex) {
         }
 
         module.isBuilt = true;
-        module.buildStatus = "built";
         module.level = 1;
         ShowMessage(module.name + "Module was built successfully!");
     } else{

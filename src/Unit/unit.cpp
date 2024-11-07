@@ -148,14 +148,6 @@ void Unit::Update(float deltaTime) {
 
 }
 
-void Unit::reprocessBuilds() {
-    for (size_t i = 0; i < modules.size(); i++) {
-        if (modules[i].buildStatus== "waiting") {
-            BuildModule(i);
-        }
-    }
-}
-
 void Unit::DrawInSectView(Vector2 corePosition, float coreRadius, int index) {
     float angle = (index * 45.0f) * DEG2RAD;  // 8 units evenly spaced (360/8 = 45 degrees)
     float radius = coreRadius * 1.2f;  // Distance from the core
