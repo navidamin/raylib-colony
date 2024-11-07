@@ -64,8 +64,9 @@ private:
     void SelectColony(Vector2 mousePosition);
     void SelectSect(Vector2 mousePosition);
     void SelectUnit(Vector2 mousePosition);
-    void DrawCellInfo(Vector2 mousePosition);
     bool IsInfoKeyPressed() const { return IsKeyDown(KEY_TAB); }
+    bool IsCommandPressed() const { return IsKeyDown(KEY_LEFT_CONTROL); }
+
 
     // Camera methods
     void UpdateCamera();
@@ -78,6 +79,8 @@ private:
     void UpdatePlanetActiveArea();
 
     void DrawDebugActiveArea();
+    void DrawCellInfo(Vector2 mousePosition);
+    void DrawPlusIndicator(Vector2 mousePosition);
 
 };
 

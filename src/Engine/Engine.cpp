@@ -519,6 +519,13 @@ void Engine::Draw() {
                 DrawCellInfo(GetMousePosition());
             }
 
+            // Draw Add Sect when Left_ctrl pressed
+            if (IsCommandPressed()) {
+                Vector2 mousePos = GetMousePosition();
+                DrawCellInfo(mousePos);
+                DrawPlusIndicator(mousePos);
+            }
+
             // Draw UI elements including time
             timeManager.Draw(screenWidth, screenHeight);
             DrawText("Planet View", 10, 10, 20, BLACK);
@@ -583,6 +590,8 @@ void Engine::Draw() {
                 planet->DrawResourceDebug(camera.zoom);
             }
 
+
+
             // End camera transformation
             EndMode2D();
 
@@ -591,6 +600,11 @@ void Engine::Draw() {
                 DrawCellInfo(GetMousePosition());
             }
 
+            if (IsCommandPressed()) {
+                Vector2 mousePos = GetMousePosition();
+                DrawCellInfo(GetMousePosition());
+                DrawPlusIndicator(mousePos);
+            }
             // Draw UI elements including time
             timeManager.Draw(screenWidth, screenHeight);
             DrawText("Colony View", 10, 10, 20, BLACK);
@@ -726,5 +740,64 @@ void Engine::DrawCellInfo(Vector2 mousePosition) {
             lineHeight,
             WHITE
         );
+    }
+}
+
+void Engine::DrawPlusIndicator(Vector2 mousePos) {
+    // Draw the + symbol
+    const int crossSize = 20;  // Size of the plus symbol
+    const int lineThickness = 2;  // Thickness of the lines
+    Color plusColor = BLACK;
+
+    // Draw vertical line of the +
+    DrawRectangle(
+        mousePos.x - lineThickness/2,
+        mousePos.y - crossSize/2,
+        lineThickness,
+        crossSize,
+        plusColor
+    );
+
+    // Draw horizontal line of the +
+    DrawRectangle(
+        mousePos.x - crossSize/2,
+        mousePos.y - lineThickness/2,
+        crossSize,
+        lineThickness,
+        plusColor
+    );
+
+    // Draw the text "add a new sect/colony" with transparency
+    const char* text = "add a new sect";
+    const int fontSize = 20;
+    const int textPadding = 5;  // Padding between plus and text
+    Color textColor = BLACK;
+    textColor.a = 128;  // 50% transparency
+
+
+    if (currentView == View::Planet) {
+        const char* text = "add a new colony";
+
+        // Calculate text dimensions
+        int textWidth = MeasureText(text, fontSize);
+        int textHeight = fontSize;
+
+        // Position text above the plus symbol
+        int textX = mousePos.x - textWidth/2;
+        int textY = mousePos.y - crossSize/2 - textHeight - textPadding;
+
+        DrawText(text, textX, textY, fontSize, textColor);
+    } else if (currentView == View :: Colony) {
+        const char* text = "add a new sect";
+
+        // Calculate text dimensions
+        int textWidth = MeasureText(text, fontSize);
+        int textHeight = fontSize;
+
+        // Position text above the plus symbol
+        int textX = mousePos.x - textWidth/2;
+        int textY = mousePos.y - crossSize/2 - textHeight - textPadding;
+
+        DrawText(text, textX, textY, fontSize, textColor);
     }
 }
