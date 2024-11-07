@@ -49,14 +49,19 @@ private:
     bool isDragging;
 
     // Double-click detection
-    double lastClickTime;
-    Vector2 lastClickPosition;
+    double lastClickTime = 0;
+    double lastDoubleClickTime = 0;  // Add this new member variable
+    Vector2 lastClickPosition = {0, 0};
 
     void HandleInput();
     void Update();
     void Draw();
 
-    bool IsDoubleClick();
+    // Operations
+    void BuildNewColony();
+    void BuildNewSect();
+
+
     void SwitchToColonyView();
     void SwitchToSectView();
     void SwitchToUnitView();
@@ -64,6 +69,9 @@ private:
     void SelectColony(Vector2 mousePosition);
     void SelectSect(Vector2 mousePosition);
     void SelectUnit(Vector2 mousePosition);
+
+    // Input Detection
+    bool IsDoubleClick();
     bool IsInfoKeyPressed() const { return IsKeyDown(KEY_TAB); }
     bool IsCommandPressed() const { return IsKeyDown(KEY_LEFT_CONTROL); }
 

@@ -70,13 +70,13 @@ void Unit::CalculateConsumption() {
     }
 
     // Debug output before calculation
-    std::cout << "\nStarting consumption calculation for " << unit_type << std::endl;
-    std::cout << "Production rates:" << std::endl;
+//    std::cout << "\nStarting consumption calculation for " << unit_type << std::endl;
+//    std::cout << "Production rates:" << std::endl;
     for (const auto& [res, rate] : activeModule->productionRates) {
-        std::cout << "Resource " << static_cast<int>(res) << ": " << rate << std::endl;
+//        std::cout << "Resource " << static_cast<int>(res) << ": " << rate << std::endl;
     }
 
-    std::cout << "Production costs map size: " << productionCosts.size() << std::endl;
+//    std::cout << "Production costs map size: " << productionCosts.size() << std::endl;
 
     // Clear existing consumption rates
     activeModule->consumptionRates.clear();
@@ -84,50 +84,50 @@ void Unit::CalculateConsumption() {
     // For each production rate
     for (const auto& [producedResource, productionRate] : activeModule->productionRates) {
         // Skip if production rate is 0
-        if (productionRate <= 0) {
-            std::cout << "Skipping resource " << static_cast<int>(producedResource)
-                     << " due to zero production rate" << std::endl;
-            continue;
-        }
+//        if (productionRate <= 0) {
+//            std::cout << "Skipping resource " << static_cast<int>(producedResource)
+//                     << " due to zero production rate" << std::endl;
+//            continue;
+//        }
 
-        std::cout << "Checking costs for resource " << static_cast<int>(producedResource) << std::endl;
+//        std::cout << "Checking costs for resource " << static_cast<int>(producedResource) << std::endl;
 
         // Safely check if this resource has associated costs
         if (productionCosts.count(producedResource) == 0) {
-            std::cout << "No production costs defined for resource "
-                     << static_cast<int>(producedResource) << std::endl;
+//            std::cout << "No production costs defined for resource "
+//                     << static_cast<int>(producedResource) << std::endl;
             continue;
         }
 
         // Get the cost map for this resource
         const auto& resourceCosts = productionCosts.at(producedResource);
-        std::cout << "Found " << resourceCosts.size() << " cost entries for resource "
-                 << static_cast<int>(producedResource) << std::endl;
+//        std::cout << "Found " << resourceCosts.size() << " cost entries for resource "
+//                 << static_cast<int>(producedResource) << std::endl;
 
         // For each resource consumed in production
         for (const auto& [consumedResource, rate] : resourceCosts) {
             // Calculate consumption based on production rate
             float consumption = productionRate * rate;
 
-            std::cout << "Calculated consumption for resource "
+/*            std::cout << "Calculated consumption for resource "
                      << static_cast<int>(consumedResource)
                      << ": " << consumption << "/s" << std::endl;
-
+*/
             // Add to module's consumption rates
             activeModule->consumptionRates[consumedResource] += consumption;
         }
     }
 
     // Debug output final consumption rates
-    std::cout << "Final consumption rates:" << std::endl;
-    for (const auto& [resource, rate] : activeModule->consumptionRates) {
-        try {
-            std::string resourceName = ResourceUtils::GetResourceName(resource);
-            std::cout << resourceName << ": " << rate << "/s" << std::endl;
-        } catch (...) {
-            std::cout << "Resource " << static_cast<int>(resource) << ": " << rate << "/s" << std::endl;
-        }
-    }
+//    std::cout << "Final consumption rates:" << std::endl;
+//    for (const auto& [resource, rate] : activeModule->consumptionRates) {
+//        try {
+//            std::string resourceName = ResourceUtils::GetResourceName(resource);
+//            std::cout << resourceName << ": " << rate << "/s" << std::endl;
+//        } catch (...) {
+//            std::cout << "Resource " << static_cast<int>(resource) << ": " << rate << "/s" << std::endl;
+//        }
+//    }
 }
 
 std::map<std::string, float> Unit::CalculateProduction() const {
@@ -489,7 +489,7 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
     }
 
     if (!canProcess) return;
-    std::cout << "\nIn the PrcoessModule" << std::endl;
+//    std::cout << "\nIn the PrcoessModule" << std::endl;
 
     /*
     // Consume resources
@@ -536,21 +536,21 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     //resourceManager.DisplayResourceGrid(parentSectPosition);
 
     // Debug print extraction rates
-    std::cout << "\nExtraction rates for each resource:" << std::endl;
+//    std::cout << "\nExtraction rates for each resource:" << std::endl;
     for (const auto& [type, rate] : extractionRates) {
-        std::cout << "Resource " << static_cast<int>(type) << " rate: " << rate << std::endl;
+//        std::cout << "Resource " << static_cast<int>(type) << " rate: " << rate << std::endl;
     }
 
     // Process each available resource
     for (const auto& [resourceType, abundance] : availableResources) {
 
-        std::cout << "resourceType:" << resourceType << "\t abundance:" << abundance << std::endl;
+//        std::cout << "resourceType:" << resourceType << "\t abundance:" << abundance << std::endl;
 
-        if (abundance < 0.1f) {
-            std::cout << "Resource " << static_cast<int>(resourceType)
-                     << " abundance too low: " << abundance << std::endl;
-            continue;
-        }
+//        if (abundance < 0.1f) {
+//            std::cout << "Resource " << static_cast<int>(resourceType)
+//                     << " abundance too low: " << abundance << std::endl;
+//           continue;
+//        }
 
         // Get the specific extraction rate for this resource type
         float baseRate = extractionRates[resourceType];
@@ -564,18 +564,18 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
 
 
         // Debug print for all resources
-        std::cout << "Resource " << static_cast<int>(resourceType)
-                 << " - Extracted: " << extractionAmount
-                 << " (Rate: " << baseRate
-                 << ", Efficiency: " << efficiency
-                 << ", Level Mult: " << levelMultiplier
-                 << ", Abundance: " << abundance << ")" << std::endl;
+//        std::cout << "Resource " << static_cast<int>(resourceType)
+//                 << " - Extracted: " << extractionAmount
+//                 << " (Rate: " << baseRate
+//                 << ", Efficiency: " << efficiency
+//                 << ", Level Mult: " << levelMultiplier
+//                 << ", Abundance: " << abundance << ")" << std::endl;
 
         // Debug print for Fe
-        if (resourceType == ResourceType::Fe) {
-            std::cout << "Fe Extraction - Amount: " << extractionAmount
-                     << ", Current Storage: " << resourceStorage[ResourceType::Fe] << std::endl;
-        }
+//        if (resourceType == ResourceType::Fe) {
+//            std::cout << "Fe Extraction - Amount: " << extractionAmount
+//                     << ", Current Storage: " << resourceStorage[ResourceType::Fe] << std::endl;
+//        }
     }
 }
 

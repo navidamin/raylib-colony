@@ -486,6 +486,67 @@ void Engine::UpdatePlanetActiveArea() {
     }
 }
 
+void Engine::BuildNewColony() {
+    bool doubleClick = IsDoubleClick();  // Store the result first
+    if (doubleClick) {
+        Vector2 mousePos = GetMousePosition();
+        Vector2 worldPos = GetScreenToWorld2D(mousePos, camera);
+
+        bool intrudingOtherColony = false;
+        for (Colony* colony : colonies) {
+            if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius()*2)) {
+                intrudingOtherColony = true;
+                break;
+            }
+        }
+
+        if (!intrudingOtherColony) {
+            Colony* colony = new Colony();
+            colonies.push_back(colony);
+            currentColony = colony;
+
+            Sect* sect = new Sect(worldPos, planet->GetResourceManager(), timeManager);
+            currentColony->AddSect(sect);
+            currentSect = sect;
+            std::cout << "Colony and sect created successfully\n";
+        } else {
+            std::cout << "Intruding the jurisdiction of another Colony!\n";
+        }
+    }
+}
+
+
+void Engine::BuildNewSect() {
+    bool doubleClick = IsDoubleClick();  // Store the result first
+    if (doubleClick) {
+        Vector2 mousePos = GetMousePosition();
+        Vector2 worldPos = GetScreenToWorld2D(mousePos, camera);
+
+        bool intrudingOtherColony = false;
+        for (Colony* colony : colonies) {
+            if (colony == currentColony) continue;
+            if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius()*2)) {
+                intrudingOtherColony = true;
+                break;
+            }
+        }
+
+        if (!intrudingOtherColony) {
+            if (currentColony) {
+                Sect* sect = new Sect(worldPos, planet->GetResourceManager(), timeManager);
+                currentColony->AddSect(sect);
+                currentSect = sect;
+                std::cout << "Colony and sect created successfully\n";
+            } else {
+                std::cout << "Current colony unknown!" << std::endl;
+            }
+
+        } else {
+            std::cout << "Intruding the jurisdiction of another Colony!\n";
+        }
+    }
+}
+
 void Engine::Draw() {
     BeginDrawing();
     ClearBackground(RAYWHITE);
@@ -530,6 +591,11 @@ void Engine::Draw() {
                 Vector2 mousePos = GetMousePosition();
                 DrawCellInfo(mousePos);
                 DrawPlusIndicator(mousePos);
+            }
+
+            // Only check for double click when mouse is pressed
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && IsCommandPressed()) {
+                BuildNewColony();
             }
 
             // Draw UI elements including time
@@ -611,6 +677,12 @@ void Engine::Draw() {
                 DrawCellInfo(GetMousePosition());
                 DrawPlusIndicator(mousePos);
             }
+
+            // Only check for double click when mouse is pressed
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && IsCommandPressed()) {
+                BuildNewSect();
+            }
+
             // Draw UI elements including time
             timeManager.Draw(screenWidth, screenHeight);
             DrawText("Colony View", 10, 10, 20, BLACK);
@@ -782,7 +854,7 @@ void Engine::DrawPlusIndicator(Vector2 mousePos) {
 
 
     if (currentView == View::Planet) {
-        const char* text = "add a new colony";
+        const char* text = "DOUBLE-CLICK to add a new colony";
 
         // Calculate text dimensions
         int textWidth = MeasureText(text, fontSize);
@@ -794,7 +866,7 @@ void Engine::DrawPlusIndicator(Vector2 mousePos) {
 
         DrawText(text, textX, textY, fontSize, textColor);
     } else if (currentView == View :: Colony) {
-        const char* text = "add a new sect";
+        const char* text = "DOUBLE-CLICK to add a new colony";
 
         // Calculate text dimensions
         int textWidth = MeasureText(text, fontSize);
