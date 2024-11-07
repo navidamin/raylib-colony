@@ -15,7 +15,7 @@
 class Unit {
 public:
     // Constructor
-    Unit(std::string type, Vector2& position, ResourceManager& resource, TimeManager &time);
+    Unit(std::string type, Vector2& position, ResourceManager& resource, TimeManager &time,  std::map<ResourceType, float> &storage);
 
     // Destrructor
     ~Unit();
@@ -85,8 +85,6 @@ public:
     void AddResource(ResourceType type, float amount);
     bool ConsumeResource(ResourceType type, float amount);
 
-    void DischargeAllResources(std::map<ResourceType, float>& collected);
-
 private:
     // Include UI-related members
     UNIT_UI_PRIVATE_MEMBERS
@@ -94,9 +92,9 @@ private:
     Vector2 parentSectPosition;
     ResourceManager& resourceManager;
     TimeManager& timeManager;
+    std::map<ResourceType, float>& resourceStorage;
 
     std::vector<UnitModule> modules;
-    std::map<ResourceType, float> resourceStorage;
     UnitModule* activeModule = nullptr;
     std::map<ResourceType, std::map<ResourceType, float>> productionCosts;
 

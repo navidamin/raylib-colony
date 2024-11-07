@@ -22,6 +22,8 @@ public:
     // deconstructor
     ~Sect();
 
+
+
     void AddUnit(Unit* unit);
     void CalculateProduction();
     void ConsumeResources();
@@ -73,12 +75,10 @@ private:
     std::vector<std::string> production_priority;  // Order of production
     std::map<ResourceType, float> resourceStorage;
 
-
     // Private member functions
     void CreateInitialUnits(Vector2 &position);
     void DrawTransparentRightPanel();
     void DrawResourceStats(Vector2 position, float coreRadius);
-    void CollectResourcesFromUnit(Unit& unit);
 };
 
 #endif // SECT_H

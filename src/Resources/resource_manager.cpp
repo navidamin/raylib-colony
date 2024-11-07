@@ -49,11 +49,11 @@ void ResourceManager::GenerateResourceMap() {
                   << ") with base radius " << radius << std::endl;
 
 
-        GenerateResourceCluster(ResourceType::H2, center, radius, 0.8f);
-        GenerateResourceCluster(ResourceType::O2, center, radius * 0.8f, 0.7f);
-        GenerateResourceCluster(ResourceType::C, center, radius * 1.2f, 0.6f);
-        GenerateResourceCluster(ResourceType::Fe, center, radius * 0.6f, 0.9f);
-        GenerateResourceCluster(ResourceType::Si, center, radius, 0.75f);
+        GenerateResourceCluster(ResourceType::H2, center, radius, 5000.0f);
+        GenerateResourceCluster(ResourceType::O2, center, radius * 0.8f, 4000.0f);
+        GenerateResourceCluster(ResourceType::C, center, radius * 1.2f, 3000.0f);
+        GenerateResourceCluster(ResourceType::Fe, center, radius * 0.6f, 6000.0f);
+        GenerateResourceCluster(ResourceType::Si, center, radius, 2000.0f);
     }
 
 }

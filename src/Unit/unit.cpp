@@ -2,7 +2,8 @@
 #include <iostream>
 #include <cmath>
 
-Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource, TimeManager &time) :
+Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
+           TimeManager &time, std::map<ResourceType, float> &storage) :
     unit_type(type),
     status("inactive"),
     energy_cost(0),
@@ -10,6 +11,7 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource, TimeM
     productionCycleTime(0),
     resourceManager(resource),
     timeManager(time),
+    resourceStorage(storage),
     parentSectPosition(position),
     isInModuleView(false),
     selectedModuleIndex(-1),
@@ -146,6 +148,14 @@ void Unit::Update(float deltaTime) {
 
 }
 
+void Unit::reprocessBuilds() {
+    for (size_t i = 0; i < modules.size(); i++) {
+        if (modules[i].buildStatus== "waiting") {
+            BuildModule(i);
+        }
+    }
+}
+
 void Unit::DrawInSectView(Vector2 corePosition, float coreRadius, int index) {
     float angle = (index * 45.0f) * DEG2RAD;  // 8 units evenly spaced (360/8 = 45 degrees)
     float radius = coreRadius * 1.2f;  // Distance from the core
@@ -192,17 +202,17 @@ void Unit::DrawInUnitView() {
 
 void Unit::SetInitialParameters() {
     if (unit_type == "Extraction") {
-        parameters["H2ExtractionRate"] = .1;
-        parameters["O2ExtractionRate"] = .1;
-        parameters["CExtractionRate"] = .1;
-        parameters["FeExtractionRate"] = .1;
-        parameters["SiExtractionRate"] = .01;
-        parameters["ResourceFocus"] = 1;
-        parameters["EnergyConsumption"] = 1;
-        parameters["WearAndTear"] = 0.2;
-        parameters["Efficiency"] = 0.8;
-        parameters["StorageCapacity"] = 100;
-        parameters["BreakdownChance"] = 0.02;
+        parameters["H2ExtractionRate"] = DEFAULT_H2ExtractionRate;
+        parameters["O2ExtractionRate"] = DEFAULT_O2ExtractionRate;
+        parameters["CExtractionRate"] = DEFAULT_CExtractionRate;
+        parameters["FeExtractionRate"] = DEFAULT_FeExtractionRate;
+        parameters["SiExtractionRate"] = DEFAULT_SiExtractionRate;
+        parameters["ResourceFocus"] = DEFAULT_ResourceFocus;
+        parameters["EnergyConsumption"] = DEFAULT_EnergyConsumption;
+        parameters["WearAndTear"] = DEFAULT_WearAndTear;
+        parameters["Efficiency"] = DEFAULT_Efficiency;
+        parameters["StorageCapacity"] = DEFAULT_StorageCapacity;
+        parameters["BreakdownChance"] = DEFAULT_BreakdownChance;
     } else if (unit_type == "Farming") {
         parameters["FoodProductionRate"] = 10;
         parameters["WaterConsumption"] = 3;
@@ -502,7 +512,7 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
     else {
         // Normal production for other unit types
         for (const auto& [type, rate] : activeModule->productionRates) {
-            resourceStorage[type] += rate * deltaTime;
+            AddResource(type, rate * deltaTime);
         }
     }
 }
@@ -558,7 +568,7 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
         resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, extractionAmount);
 
         // Add the extracted resource to storage
-        resourceStorage[resourceType] += extractionAmount;
+        AddResource(resourceType, extractionAmount);
 
 
         // Debug print for all resources
@@ -595,61 +605,6 @@ bool Unit::ConsumeResource(ResourceType type, float amount) {
     return false;
 }
 
-
-// function for the sect to recollect generated resources at the end of the day
-void Unit::DischargeAllResources(std::map<ResourceType, float>& collected) {
-    // First, calculate daily consumption needs for each resource
-    std::map<ResourceType, float> dailyNeeds;
-
-    if (activeModule && IsActive()) {
-        // Calculate 24 hours worth of consumption for each resource
-        float dayInSeconds = TICKS_PER_DAY * TICK_DURATION;  // or however your time system works
-
-        // Get consumption rates from active module
-        for (const auto& [type, rate] : activeModule->consumptionRates) {
-            dailyNeeds[type] = rate * dayInSeconds * 1.5f;  // Keep 1.5x safety margin
-            std::cout << "Unit " << unit_type << " needs to keep "
-                     << dailyNeeds[type] << " of resource "
-                     << type << " for next day" << std::endl;
-        }
-    }
-
-    // Now process each resource
-    for (auto& [type, amount] : resourceStorage) {
-        if (amount > 0) {
-            float reserveAmount = dailyNeeds[type];  // Will be 0 if not in dailyNeeds
-            float excessAmount = amount - reserveAmount;
-
-            // Only discharge if we have excess
-            if (excessAmount > 0) {
-                collected[type] += excessAmount;
-                amount = reserveAmount;  // Keep the reserve amount
-
-                // Fixed ShowMessage call
-                try {
-                    std::string resourceName = ResourceUtils::GetResourceName(type);
-                    ShowMessage(TextFormat("Unit discharged %.2f of %s",
-                                         excessAmount, resourceName.c_str()));
-                } catch (...) {
-                    ShowMessage(TextFormat("Unit discharged %.2f of resource %d",
-                                         excessAmount, static_cast<int>(type)));
-                }
-
-                std::cout << "Unit " << unit_type
-                         << " discharged " << excessAmount
-                         << " of resource " << static_cast<int>(type)
-                         << " (keeping " << reserveAmount << " in reserve)" << std::endl;
-
-
-            } else {
-                std::cout << "Unit " << unit_type
-                         << " keeping all " << amount
-                         << " of resource " << static_cast<int>(type)
-                         << " for next day's operations" << std::endl;
-            }
-        }
-    }
-}
 
 void Unit::InitializeFutureModules() {
     // Enhanced Module - Level 1 stats but better efficiency
@@ -834,4 +789,3 @@ Vector2 Unit::WorldToGrid(Vector2 worldPos) const {
         std::floor(worldPos.y / (SECT_CORE_RADIUS * 2.0f))
     };
 }
-

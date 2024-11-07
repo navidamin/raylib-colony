@@ -65,30 +65,6 @@ void Sect::Update(float deltaTime) {
         }
     }
 
-    // Collect resources once per day
-    if (currentDay > lastCollectionDay) {
-        std::cout << "\nDay " << currentDay << ": Beginning resource collection" << std::endl;
-
-        // Collect from all units
-        for (Unit* unit : units) {
-            if (unit) {
-                CollectResourcesFromUnit(*unit);
-            }
-        }
-
-        lastCollectionDay = currentDay;
-/*
-        // Debug print sect storage after collection
-        std::cout << "Sect storage after collection:" << std::endl;
-        for (const auto& [type, amount] : resourceStorage) {
-            if (amount > 0) {
-                std::cout << "Resource " << static_cast<int>(type)
-                         << ": " << amount << std::endl;
-            }
-        }
-        */
-    }
-
     // Update road construction if any are in progress
     UpdateRoadConstruction(deltaTime);
 }
@@ -111,29 +87,14 @@ void Sect::UpdateRoadConstruction(float deltaTime) {
     }
 }
 
-void Sect::CollectResourcesFromUnit(Unit& unit) {
-    std::map<ResourceType, float> collectedResources;
-
-    unit.DischargeAllResources(collectedResources);
-
-    // Add collected resources to sect storage
-    for (const auto& [type, amount] : collectedResources) {
-        if (amount > 0) {
-            resourceStorage[type] += amount;
-            std::cout << "Sect collected " << amount << " of resource type "
-                     << static_cast<int>(type) << " from unit type "
-                     << unit.GetUnitType() << std::endl;
-        }
-    }
-}
-
 void Sect::CreateInitialUnits(Vector2& position) {
     std::vector<std::string> unit_types = {
         "Extraction", "Farming", "Manufacture", "Transport", "Communication", "Research","Energy", "Construction"
     };
 
+    // Initialize and stary each unit
     for (const auto& type : unit_types) {
-        Unit* unit = new Unit(type, position, resourceManager, timeManager);
+        Unit* unit = new Unit(type, position, resourceManager, timeManager, resourceStorage);
         if (type == "Extraction") {
             unit->Start();
             core = unit; // Set the Extraction unit as the core
