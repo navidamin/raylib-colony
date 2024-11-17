@@ -58,7 +58,7 @@ private:
 
     std::vector<RoadConstruction> roadsUnderConstruction;
     // Geometric/Visual properties (basic types first)
-    float defaultCoreRadius;        // Constant value
+    float defaultCoreRadius = SECT_CORE_RADIUS;        // Constant value
     float coreRadius;               // Derived from default
     Color color;                    // Visual property
 

@@ -143,11 +143,11 @@ Vector2 Planet::WorldToGrid(Vector2 worldPos) const {
     };
 }
 
-void Planet::Draw(float scale) {
+void Planet::Draw(Camera2D& camera) {
     // Draw the planet background and grid
         DrawPlanetGrid();
         for (const auto& colony : colonies) {
-            colony->Draw(scale);  // Call Colony's Draw() for each colony
+            colony->Draw(camera);  // Call Colony's Draw() for each colony
         }
 }
 

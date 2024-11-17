@@ -15,8 +15,10 @@ public:
     void BuildRoad(Sect* sect_a, Sect* sect_b);
     void ManageResources();
     void UnlockResearch();
-    void Draw(float scale);
+    void Draw(Camera2D &camera);
     void CalculateCentroid();
+    void CalculateRadius();
+    void DrawJurisdiction();
 
     // Getters
     Vector2 GetCentroid() const {return centroid;}

@@ -30,7 +30,7 @@ public:
     void AddColony(Colony* colony);
     std::vector<std::pair<ResourceType, float>> GetResourceInfo(Vector2 location) const;
     void Update();
-    void Draw(float scale);
+    void Draw(Camera2D &camera);
     void DrawPlanetGrid();
     void UpdateActiveArea(const std::vector<Colony*>& colonies);
     Vector2 GetRandomValidPosition() const;
@@ -40,6 +40,7 @@ public:
     void DrawResourceDebug(float scale);
     Vector2 GetWorldPosition(Vector2 gridPos) const;
     ResourceManager& GetResourceManager()  { return resourceManager; }
+    std::vector<Colony*> GetColonies() const { return colonies;}
 
 
 private:

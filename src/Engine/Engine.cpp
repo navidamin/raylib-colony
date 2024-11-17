@@ -243,7 +243,9 @@ void Engine::HandleInput() {
         Vector2 mousePosition = GetMousePosition();
         switch (currentView) {
             case View::Planet:
-                SelectColony(mousePosition);
+                if (!IsCommandPressed()){
+                    SelectColony(mousePosition);
+                }
                 break;
             case View::Colony:
                 SelectSect(mousePosition);
@@ -494,7 +496,7 @@ void Engine::BuildNewColony() {
 
         bool intrudingOtherColony = false;
         for (Colony* colony : colonies) {
-            if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius()*2)) {
+            if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius())) {
                 intrudingOtherColony = true;
                 break;
             }
@@ -525,7 +527,7 @@ void Engine::BuildNewSect() {
         bool intrudingOtherColony = false;
         for (Colony* colony : colonies) {
             if (colony == currentColony) continue;
-            if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius()*2)) {
+            if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius())) {
                 intrudingOtherColony = true;
                 break;
             }
@@ -536,7 +538,7 @@ void Engine::BuildNewSect() {
                 Sect* sect = new Sect(worldPos, planet->GetResourceManager(), timeManager);
                 currentColony->AddSect(sect);
                 currentSect = sect;
-                std::cout << "Colony and sect created successfully\n";
+                std::cout << "New sect created successfully\n";
             } else {
                 std::cout << "Current colony unknown!" << std::endl;
             }
@@ -552,10 +554,22 @@ void Engine::Draw() {
     ClearBackground(RAYWHITE);
 
     switch (currentView) {
-        case View::Menu:
+        case View::Menu:{
+            Color IVORY = {249,246,231,255};
+            int fontSize = 60;
+            Texture2D image = LoadTexture("Logo.png");
+
+            int textX = GetScreenWidth()/2 - MeasureText("COLONY", 60)/2;
+            int textY = GetScreenHeight()/3;
+            int imageX = textX - image.width + 30 ;  // Position image 10 pixels to the left of the text
+            int imageY = GetScreenHeight()/2  ;  // Center the image vertically with the text
+
+            ClearBackground(IVORY);
+            DrawTexture(image, imageX, imageY, WHITE);  // Draw the image on the left
             DrawText("COLONY", GetScreenWidth()/2 - MeasureText("COLONY", 60)/2, GetScreenHeight()/3, 60, BLACK);
             DrawText("Press ENTER to start", GetScreenWidth()/2 - MeasureText("Press ENTER to start", 20)/2, GetScreenHeight()/2, 20, GRAY);
             break;
+        }
         case View::Planet:{
             BeginMode2D(camera);
 
@@ -569,7 +583,7 @@ void Engine::Draw() {
 
                 // Draw colonies if any
                 for (const auto& colony : colonies) {
-                    colony->Draw(camera.zoom);
+                    colony->Draw(camera);
                 }
 
             }

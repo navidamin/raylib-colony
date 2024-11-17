@@ -23,11 +23,11 @@ const float INITIAL_UNIT_SCIENCE = 20.0f;
 
 const float DEFAULT_SECT_SHARE = 0.2f;
 
-const float DEFAULT_H2ExtractionRate = 1.0;
-const float DEFAULT_O2ExtractionRate = 1.0;
-const float DEFAULT_CExtractionRate = 1.0;
-const float DEFAULT_FeExtractionRate= 1.0;
-const float DEFAULT_SiExtractionRate= 1.0;
+const float DEFAULT_H2ExtractionRate = 0.05;
+const float DEFAULT_O2ExtractionRate = 0.05;
+const float DEFAULT_CExtractionRate = 0.05;
+const float DEFAULT_FeExtractionRate= 0.05;
+const float DEFAULT_SiExtractionRate= 0.05;
 const float DEFAULT_ResourceFocus= 1;
 const float DEFAULT_EnergyConsumption= 1;
 const float DEFAULT_WearAndTear= 0.2;

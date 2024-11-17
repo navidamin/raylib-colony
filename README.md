@@ -40,13 +40,20 @@ _Copyright (c) 2022-2024 Ramon Santamaria ([@raysan5](https://twitter.com/raysan
 
 -----------------------------------
 
-## $(Game Title)
+## Colony
 
 ![$(Game Title)](screenshots/screenshot000.png "$(Game Title)")
 
 ### Description
 
-$(Your Project Description)
+**Colony** is a strategic resource management and expansion game set on an untamed, resource-rich planet. Players begin with a single **Sect** on a vast, alien landscape, using an **Extraction Unit** to gather essential resources and gradually build out their first colony. Over time, players unlock and build new **Units** like **Farming**, **Energy**, **Manufacturing**, and **Research**—each with unique parameters and upgrades. 
+
+The gameplay unfolds across multiple scales:
+- **Planet View** shows the broader environment, complete with resource maps and colony positions.
+- **Colony View** lets players oversee the entire operation, connecting **Sects** with roads and monitoring colony growth.
+- **Sect View** zooms in on a single Sect's **Core** and Units, where detailed management of each Unit's output and upgrades takes place.
+
+There is no endgame, only endless expansion. As players develop their technology, explore the planet, and establish connections between **Colonies**, they must strategize around resource depletion, efficient transport, and technological upgrades. Their ultimate goal is to grow from a single struggling **Sect** into a sprawling, interconnected network of Colonies thriving across the planet.
 
 ### Features
 
