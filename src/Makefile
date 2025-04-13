@@ -40,7 +40,7 @@ SOURCES = main.cpp \
           Planet/planet.cpp \
           Sect/sect.cpp \
           Unit/unit.cpp \
-          Resources/resource_manager.cpp \
+          ResourceManager/resource_manager.cpp \
 	  TimeManager/time_manager.cpp \
 	  Unit/unit_ui.cpp
 
@@ -65,7 +65,7 @@ BUILD_WEB_HEAP_SIZE   ?= 128MB
 BUILD_WEB_STACK_SIZE  ?= 1MB
 BUILD_WEB_ASYNCIFY_STACK_SIZE ?= 1048576
 BUILD_WEB_RESOURCES   ?= TRUE
-BUILD_WEB_RESOURCES_PATH  ?= resources
+BUILD_WEB_RESOURCES_PATH  ?= assets
 
 # Determine PLATFORM_OS in case PLATFORM_DESKTOP selected
 ifeq ($(PLATFORM),PLATFORM_DESKTOP)
@@ -193,7 +193,7 @@ endif
 
 # Define include paths for required headers: INCLUDE_PATHS
 #------------------------------------------------------------------------------------------------
-INCLUDE_PATHS += -I. -Iexternal -I$(RAYLIB_INCLUDE_PATH) -IColony -IEngine -IPlanet -ISect -IUnit -IResources -ITimeManager
+INCLUDE_PATHS += -I. -Iexternal -I$(RAYLIB_INCLUDE_PATH) -IColony -IEngine -IPlanet -ISect -IUnit -IResourceManager -ITimeManager
 	
 
 # Define additional directories containing required header files
@@ -244,7 +244,7 @@ ifeq ($(PLATFORM),PLATFORM_WEB)
     # -s ASSERTIONS=1            # enable runtime checks for common memory allocation errors (-O1 and above turn it off)
     # --profiling                # include information for code profiling
     # --memory-init-file 0       # to avoid an external memory initialization code file (.mem)
-    # --preload-file resources   # specify a resources folder for data compilation
+    # --preload-file assets   # specify a resources folder for data compilation
     # --source-map-base          # allow debugging in browser with source map
     LDFLAGS += -s USE_GLFW=3 -s TOTAL_MEMORY=$(BUILD_WEB_HEAP_SIZE) -s STACK_SIZE=$(BUILD_WEB_STACK_SIZE) -s FORCE_FILESYSTEM=1 -s USE_WEBGL2=1 -s ALLOW_MEMORY_GROWTH=1 -s ASYNCIFY
     
