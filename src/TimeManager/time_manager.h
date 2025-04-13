@@ -12,7 +12,7 @@
 //#include "colony.h"
 //#include "unit.h"
 //#include "resource_types.h"
-#include "game_structs.h"
+//#include "game_structs.h"
 #include "game_constants.h"
 
 

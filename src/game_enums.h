@@ -13,4 +13,14 @@ enum class UnitType {
     Commerce
 };
 
+
+enum class View {
+    Menu,
+    Planet,
+    Colony,
+    Sect,
+    Unit
+};
+
+
 #endif // GAME_ENUMS_H
