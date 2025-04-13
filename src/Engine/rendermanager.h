@@ -32,10 +32,27 @@ public:
     void DrawPlusIndicator(Vector2 mousePos, View currentView);
 
 private:
+
     int screenWidth;
     int screenHeight;
 
-    void DrawDebugActiveArea();
-};
+    // Global variables for the background
+    std::vector<BackgroundTile> backgroundTiles;
+    std::vector<Texture2D> tileTextures;
+    bool texturesLoaded;
+    bool bgGenerated;
 
+
+    void DrawDebugActiveArea();
+
+    // Function to load the tile textures
+    void LoadTileTextures();
+    // Function to generate the background with random tiles
+    void GenerateBackground(int screenWidth, int screenHeight, int tileSize);
+    // Function to render the background
+    void RenderBackground();
+    // Function to unload textures
+    void UnloadTileTextures();
+
+};
 #endif // RENDER_MANAGER_H

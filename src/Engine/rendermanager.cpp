@@ -1,14 +1,20 @@
 #include "rendermanager.h"
 #include <algorithm>
 #include <iostream>
+#include <random>
+#include <ctime>
 
 RenderManager::RenderManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
-      screenHeight(screenHeight)
+      screenHeight(screenHeight),
+      texturesLoaded(false),
+      bgGenerated(false)
 {
 }
 
 RenderManager::~RenderManager() {
+    // Unload textures when done
+    UnloadTileTextures();
 }
 
 void RenderManager::BeginDraw() {
@@ -47,6 +53,19 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
             DrawLineV({linePos, 0}, {linePos, PLANET_HEIGHT}, LIGHTGRAY);
             DrawLineV({0, linePos}, {PLANET_WIDTH, linePos}, LIGHTGRAY);
         }
+
+        ClearBackground(BLACK);
+
+        if (!bgGenerated) {
+            // Generate background with 64x64 tiles
+            GenerateBackground(screenWidth, screenHeight, 200);
+            bgGenerated = true;
+        }
+
+
+            // Render the background
+            RenderBackground();
+
 
         // Draw colonies if any
         for (const auto& colony : colonies) {
@@ -325,4 +344,82 @@ void RenderManager::DrawPlusIndicator(Vector2 mousePos, View currentView) {
     int textY = mousePos.y - crossSize/2 - textHeight - textPadding;
 
     DrawText(text, textX, textY, fontSize, textColor);
+}
+
+// Function to load the tile textures
+void RenderManager::LoadTileTextures() {
+
+    // Clear any existing textures first
+    tileTextures.clear();
+
+    // Try loading each texture with debug messages
+    Texture2D tex1 = LoadTexture("assets/moonsurface_tile1.png");
+    tileTextures.push_back(tex1);
+
+    Texture2D tex2 = LoadTexture("assets/moonsurface_tile2.png");
+    tileTextures.push_back(tex2);
+
+    Texture2D tex3 = LoadTexture("assets/moonsurface_tile3.png");
+    tileTextures.push_back(tex3);
+
+}
+
+// Function to generate the background with random tiles
+void RenderManager::GenerateBackground(int screenWidth, int screenHeight, int tileSize) {
+
+    // Make sure textures are loaded
+    if (!texturesLoaded || tileTextures.empty()) {
+        LoadTileTextures();
+        texturesLoaded = true;
+    }
+
+    // Clear any existing tiles
+    backgroundTiles.clear();
+
+    // Check again to make sure loading succeeded
+    if (tileTextures.empty()) {
+        std::cout << "ERROR: Failed to load textures!" << std::endl;
+        return;  // Don't proceed if textures aren't available
+    }
+
+    // Initialize random number generator with time-based seed
+    std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
+    std::uniform_int_distribution<int> dist(0, tileTextures.size() - 1);
+
+    // Calculate how many tiles we need to cover the screen
+    int tilesX = (PLANET_WIDTH / tileSize) + 1;
+    int tilesY = (PLANET_HEIGHT / tileSize) + 1;
+
+    // Create tiles
+    for (int y = 0; y < tilesY; y++) {
+        for (int x = 0; x < tilesX; x++) {
+            BackgroundTile tile;
+            // Select a random texture from our loaded textures
+            int randomIndex = dist(rng);
+            tile.texture = tileTextures[randomIndex];
+            tile.position = { static_cast<float>(x * tileSize), static_cast<float>(y * tileSize) };
+            backgroundTiles.push_back(tile);
+        }
+    }
+}
+
+// Function to render the background
+void RenderManager::RenderBackground() {
+    // Safety check before rendering
+    if (backgroundTiles.empty() || !texturesLoaded) {
+        return;
+    }
+
+    for (const auto& tile : backgroundTiles) {
+        DrawTexture(tile.texture, static_cast<int>(tile.position.x), static_cast<int>(tile.position.y), WHITE);
+    }
+}
+
+// Function to unload textures
+void RenderManager::UnloadTileTextures() {
+    for (auto& texture : tileTextures) {
+        UnloadTexture(texture);
+    }
+    tileTextures.clear();
+    backgroundTiles.clear();
 }
