@@ -208,3 +208,81 @@ bool Colony::ReceiveSurplus(ResourceType type, float amount) {
     return true;
 }
 
+// Typed resource methods
+bool Colony::AddTypedReserve(const TypedResource& resource) {
+    // Validate resource category
+    if (GetResourceCategory(resource.baseType) != ResourceCategory::TYPED) {
+        std::cout << "Error: Cannot add non-typed resource to typed reserves" << std::endl;
+        return false;
+    }
+
+    // Check capacity
+    auto& reserves = typedReserves[resource.baseType];
+    if (static_cast<int>(reserves.size()) >= TYPED_RESERVE_CAPACITY) {
+        std::cout << "Warning: Colony typed reserves full for "
+                 << ResourceTypeToString(resource.baseType) << std::endl;
+        return false;
+    }
+
+    reserves.push_back(resource);
+    std::cout << "Colony received " << resource.subType << " ("
+             << ResourceTypeToString(resource.baseType) << ")" << std::endl;
+    return true;
+}
+
+bool Colony::RemoveTypedReserve(ResourceType type, const std::string& subtype) {
+    auto it = typedReserves.find(type);
+    if (it == typedReserves.end()) {
+        return false;
+    }
+
+    auto& reserves = it->second;
+    for (auto resIt = reserves.begin(); resIt != reserves.end(); ++resIt) {
+        if (resIt->subType == subtype) {
+            reserves.erase(resIt);
+            std::cout << "Colony removed " << subtype << " from "
+                     << ResourceTypeToString(type) << " reserves" << std::endl;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Colony::HasTypedReserve(ResourceType type, const std::string& subtype) const {
+    auto it = typedReserves.find(type);
+    if (it == typedReserves.end()) {
+        return false;
+    }
+
+    for (const auto& res : it->second) {
+        if (res.subType == subtype) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int Colony::GetTypedReserveCount(ResourceType type, const std::string& subtype) const {
+    auto it = typedReserves.find(type);
+    if (it == typedReserves.end()) {
+        return 0;
+    }
+
+    int count = 0;
+    for (const auto& res : it->second) {
+        if (res.subType == subtype) {
+            count++;
+        }
+    }
+    return count;
+}
+
+int Colony::GetTotalTypedReserveCount(ResourceType type) const {
+    auto it = typedReserves.find(type);
+    if (it == typedReserves.end()) {
+        return 0;
+    }
+    return static_cast<int>(it->second.size());
+}
+

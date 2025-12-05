@@ -27,26 +27,124 @@ MANPOWER = { display_name = "Manpower", color = "#FFA500", category = "meta", ba
 
 [resource_types.typed]
 # Typed/Artifact Resources (have variants)
+# These resources are produced by Manufacture units and used for upgrades/construction
 
 [resource_types.typed.MACHINERY]
 display_name = "Machinery"
-variants = ["HeavyDrill", "Conveyor", "RoboticArm"]
+description = "Mechanical components for construction and upgrades"
+variants = ["HeavyDrill", "Conveyor", "Assembler"]
 asset_prefix = "assets/machinery/"
+color = "#B4B4B4"
 
 [resource_types.typed.MACHINERY.base_cost]
 Fe = 10.0
 Si = 5.0
 ENERGY = 20.0
 
+[resource_types.typed.MACHINERY.variant_costs.HeavyDrill]
+Fe = 15.0
+Si = 5.0
+ENERGY = 25.0
+
+[resource_types.typed.MACHINERY.variant_costs.Conveyor]
+Fe = 8.0
+Si = 3.0
+ENERGY = 15.0
+
+[resource_types.typed.MACHINERY.variant_costs.Assembler]
+Fe = 12.0
+Si = 8.0
+ENERGY = 30.0
+
 [resource_types.typed.ELECTRONICS]
 display_name = "Electronics"
-variants = ["BasicCircuit", "AdvancedProcessor", "QuantumCore"]
+description = "Electronic components for advanced systems"
+variants = ["Sensor", "Controller", "Computer"]
 asset_prefix = "assets/electronics/"
+color = "#00C8C8"
 
 [resource_types.typed.ELECTRONICS.base_cost]
 Si = 15.0
 C = 5.0
 ENERGY = 30.0
+
+[resource_types.typed.ELECTRONICS.variant_costs.Sensor]
+Si = 10.0
+C = 3.0
+ENERGY = 20.0
+
+[resource_types.typed.ELECTRONICS.variant_costs.Controller]
+Si = 15.0
+C = 5.0
+ENERGY = 35.0
+
+[resource_types.typed.ELECTRONICS.variant_costs.Computer]
+Si = 25.0
+C = 10.0
+ENERGY = 50.0
+
+[resource_types.typed.ALLOYS]
+display_name = "Alloys"
+description = "Processed metal alloys for durable construction"
+variants = ["Steel", "Bronze", "Aluminum", "Titanium"]
+asset_prefix = "assets/alloys/"
+color = "#C89632"
+
+[resource_types.typed.ALLOYS.base_cost]
+Fe = 8.0
+C = 2.0
+ENERGY = 15.0
+
+[resource_types.typed.ALLOYS.variant_costs.Steel]
+Fe = 10.0
+C = 3.0
+ENERGY = 18.0
+
+[resource_types.typed.ALLOYS.variant_costs.Bronze]
+Fe = 5.0
+C = 1.0
+Si = 3.0
+ENERGY = 12.0
+
+[resource_types.typed.ALLOYS.variant_costs.Aluminum]
+Si = 8.0
+ENERGY = 20.0
+
+[resource_types.typed.ALLOYS.variant_costs.Titanium]
+Fe = 15.0
+Si = 5.0
+ENERGY = 40.0
+
+[resource_types.typed.CONSTRUCTION_MATERIALS]
+display_name = "Construction Materials"
+description = "Prefabricated building components"
+variants = ["Beam", "Panel", "Pipe", "Cable"]
+asset_prefix = "assets/construction/"
+color = "#966446"
+
+[resource_types.typed.CONSTRUCTION_MATERIALS.base_cost]
+Fe = 5.0
+Si = 3.0
+ENERGY = 10.0
+
+[resource_types.typed.CONSTRUCTION_MATERIALS.variant_costs.Beam]
+Fe = 8.0
+ENERGY = 12.0
+
+[resource_types.typed.CONSTRUCTION_MATERIALS.variant_costs.Panel]
+Fe = 4.0
+Si = 4.0
+ENERGY = 10.0
+
+[resource_types.typed.CONSTRUCTION_MATERIALS.variant_costs.Pipe]
+Fe = 6.0
+ENERGY = 8.0
+
+[resource_types.typed.CONSTRUCTION_MATERIALS.variant_costs.Cable]
+Fe = 2.0
+Si = 5.0
+C = 2.0
+ENERGY = 15.0
 
 # =============================================================================
 # UNIT TYPES
@@ -106,7 +204,7 @@ ENERGY = 150.0
 [unit_types.Manufacture]
 display_name = "Manufacturing Plant"
 construction_time = 180.0
-modules = ["Refinery", "AssemblyLine", "Factory"]
+modules = ["Refinery", "AssemblyLine", "MachineryFab", "ElectronicsFab", "Smelter", "Prefabricator"]
 asset_directory = "assets/units/Manufacture/"
 unit_asset_file = "unit.png"
 strategy_class = "ManufactureStrategy"
@@ -325,3 +423,91 @@ Fe = 2.0
 Si = 1.0
 ENERGY = 3.0
 MANPOWER = 1.5
+
+# --- Typed Resource Manufacturing Modules ---
+
+[modules.MachineryFab]
+display_name = "Machinery Fabricator"
+description = "Produces machinery components (HeavyDrill, Conveyor, Assembler)"
+asset_file = "MachineryFab.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.6
+max_level = 10
+output_type = "MACHINERY"
+output_variants = ["HeavyDrill", "Conveyor", "Assembler"]
+
+[modules.MachineryFab.consumption]
+Fe = 10.0
+Si = 5.0
+ENERGY = 20.0
+MANPOWER = 1.0
+
+[modules.MachineryFab.production_time]
+HeavyDrill = 30.0
+Conveyor = 20.0
+Assembler = 25.0
+
+[modules.ElectronicsFab]
+display_name = "Electronics Fabricator"
+description = "Produces electronic components (Sensor, Controller, Computer)"
+asset_file = "ElectronicsFab.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.7
+max_level = 10
+output_type = "ELECTRONICS"
+output_variants = ["Sensor", "Controller", "Computer"]
+
+[modules.ElectronicsFab.consumption]
+Si = 15.0
+C = 5.0
+ENERGY = 30.0
+MANPOWER = 1.5
+
+[modules.ElectronicsFab.production_time]
+Sensor = 20.0
+Controller = 30.0
+Computer = 45.0
+
+[modules.Smelter]
+display_name = "Alloy Smelter"
+description = "Produces metal alloys (Steel, Bronze, Aluminum, Titanium)"
+asset_file = "Smelter.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.5
+max_level = 12
+output_type = "ALLOYS"
+output_variants = ["Steel", "Bronze", "Aluminum", "Titanium"]
+
+[modules.Smelter.consumption]
+Fe = 8.0
+C = 2.0
+ENERGY = 15.0
+MANPOWER = 0.8
+
+[modules.Smelter.production_time]
+Steel = 15.0
+Bronze = 12.0
+Aluminum = 18.0
+Titanium = 30.0
+
+[modules.Prefabricator]
+display_name = "Prefabricator"
+description = "Produces construction materials (Beam, Panel, Pipe, Cable)"
+asset_file = "Prefabricator.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.4
+max_level = 15
+output_type = "CONSTRUCTION_MATERIALS"
+output_variants = ["Beam", "Panel", "Pipe", "Cable"]
+
+[modules.Prefabricator.consumption]
+Fe = 5.0
+Si = 3.0
+ENERGY = 10.0
+MANPOWER = 0.5
+
+[modules.Prefabricator.production_time]
+Beam = 10.0
+Panel = 8.0
+Pipe = 6.0
+Cable = 12.0

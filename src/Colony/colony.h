@@ -30,9 +30,19 @@ public:
     const std::map<ResourceType, float>& GetReserveCapacity() const {return reserveCapacity;}
     float GetReserveUsage(ResourceType type) const;
 
-    // Resource management
+    // Typed resource getters
+    const std::map<ResourceType, std::vector<TypedResource>>& GetTypedReserves() const { return typedReserves; }
+    int GetTypedReserveCount(ResourceType type, const std::string& subtype) const;
+    int GetTotalTypedReserveCount(ResourceType type) const;
+
+    // Resource management (singular)
     bool ReceiveSurplus(ResourceType type, float amount);
     bool CanAcceptResource(ResourceType type, float amount) const;
+
+    // Typed resource management
+    bool AddTypedReserve(const TypedResource& resource);
+    bool RemoveTypedReserve(ResourceType type, const std::string& subtype);
+    bool HasTypedReserve(ResourceType type, const std::string& subtype) const;
 
 
 
@@ -44,9 +54,13 @@ private:
     std::vector<std::pair<Sect*, Sect*>> roads;
     int research_level;
 
-    // Strategic resource reserves
+    // Strategic resource reserves (singular resources)
     std::map<ResourceType, float> strategicReserves;
     std::map<ResourceType, float> reserveCapacity;
+
+    // Typed resource reserves (MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS)
+    std::map<ResourceType, std::vector<TypedResource>> typedReserves;
+    static const int TYPED_RESERVE_CAPACITY = 100;  // Max items per type at colony level
 
     // Add transport_network when implemented
 };

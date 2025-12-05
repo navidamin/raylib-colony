@@ -45,9 +45,22 @@ public:
     const std::map<ResourceType, float>& GetStorageCapacity() const { return storageCapacity; }
     float GetStorageUsage(ResourceType type) const;
 
+    // Typed resource getters
+    const std::map<ResourceType, std::vector<TypedResource>>& GetTypedResources() const { return typedResourceStorage; }
+    int GetTypedResourceCount(ResourceType type, const std::string& subtype) const;
+    int GetTotalTypedResourceCount(ResourceType type) const;
+
     // Resource management methods
     void PushSurplusToColony(class Colony* colony);
     bool CanAcceptResource(ResourceType type, float amount) const;
+
+    // Typed resource management
+    bool AddTypedResource(const TypedResource& resource);
+    bool RemoveTypedResource(ResourceType type, const std::string& subtype);
+    bool HasTypedResource(ResourceType type, const std::string& subtype) const;
+
+    // Ambient energy generation
+    void GenerateAmbientEnergy(float deltaTime, float timeOfDay);
 
     // Transportation processing
     void UpdateRoadConstruction(float deltaTime);
@@ -82,10 +95,14 @@ private:
     Unit* core;                     // Reference to core unit
     float development_percentage;    // Progress tracking
 
-    // Resource management
+    // Resource management (singular resources)
     std::vector<std::string> production_priority;  // Order of production
     std::map<ResourceType, float> resourceStorage;
     std::map<ResourceType, float> storageCapacity;
+
+    // Typed resource storage (MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS)
+    std::map<ResourceType, std::vector<TypedResource>> typedResourceStorage;
+    static const int TYPED_RESOURCE_CAPACITY = 50;  // Max items per type
 
     // Private member functions
     void CreateInitialUnits(Vector2 &position);

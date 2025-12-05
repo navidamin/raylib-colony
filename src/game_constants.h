@@ -28,6 +28,14 @@ const float SECT_BASE_STORAGE = 1000.0f;
 const float COLONY_BASE_RESERVES = 5000.0f;
 const float STORAGE_SURPLUS_THRESHOLD = 0.8f;  // Push to colony when 80% full
 
+// Manpower constants (constant per sect)
+const float SECT_BASE_MANPOWER = 10.0f;           // Fixed manpower available per sect
+
+// Ambient energy constants
+const float BASE_AMBIENT_ENERGY = 1.0f;           // Base energy from ambient sources per tick
+const float SOLAR_PEAK_MULTIPLIER = 2.0f;         // Multiplier at solar noon
+const float SOLAR_MIN_MULTIPLIER = 0.1f;          // Multiplier at night
+
 const float DEFAULT_H2ExtractionRate = 0.05;
 const float DEFAULT_O2ExtractionRate = 0.05;
 const float DEFAULT_CExtractionRate = 0.05;

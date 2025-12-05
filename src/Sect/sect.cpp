@@ -24,6 +24,7 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
     resourceStorage[ResourceType::ENERGY] = 0.0f;
     resourceStorage[ResourceType::WATER] = 0.0f;
     resourceStorage[ResourceType::FOOD] = 0.0f;
+    resourceStorage[ResourceType::MANPOWER] = SECT_BASE_MANPOWER;  // Constant manpower per sect
 
     // Initialize storage capacities
     storageCapacity[ResourceType::H2] = SECT_BASE_STORAGE;
@@ -469,4 +470,106 @@ void Sect::UnloadTextures() {
         }
     }
     unitTextures.clear();
+}
+
+// Typed resource methods
+bool Sect::AddTypedResource(const TypedResource& resource) {
+    // Validate resource category
+    if (GetResourceCategory(resource.baseType) != ResourceCategory::TYPED) {
+        std::cout << "Error: Cannot add non-typed resource to typed storage" << std::endl;
+        return false;
+    }
+
+    // Check capacity
+    auto& storage = typedResourceStorage[resource.baseType];
+    if (static_cast<int>(storage.size()) >= TYPED_RESOURCE_CAPACITY) {
+        std::cout << "Warning: Typed resource storage full for "
+                 << ResourceTypeToString(resource.baseType) << std::endl;
+        return false;
+    }
+
+    storage.push_back(resource);
+    std::cout << "Added " << resource.subType << " to "
+             << ResourceTypeToString(resource.baseType) << " storage" << std::endl;
+    return true;
+}
+
+bool Sect::RemoveTypedResource(ResourceType type, const std::string& subtype) {
+    auto it = typedResourceStorage.find(type);
+    if (it == typedResourceStorage.end()) {
+        return false;
+    }
+
+    auto& storage = it->second;
+    for (auto resIt = storage.begin(); resIt != storage.end(); ++resIt) {
+        if (resIt->subType == subtype) {
+            storage.erase(resIt);
+            std::cout << "Removed " << subtype << " from "
+                     << ResourceTypeToString(type) << " storage" << std::endl;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Sect::HasTypedResource(ResourceType type, const std::string& subtype) const {
+    auto it = typedResourceStorage.find(type);
+    if (it == typedResourceStorage.end()) {
+        return false;
+    }
+
+    for (const auto& res : it->second) {
+        if (res.subType == subtype) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int Sect::GetTypedResourceCount(ResourceType type, const std::string& subtype) const {
+    auto it = typedResourceStorage.find(type);
+    if (it == typedResourceStorage.end()) {
+        return 0;
+    }
+
+    int count = 0;
+    for (const auto& res : it->second) {
+        if (res.subType == subtype) {
+            count++;
+        }
+    }
+    return count;
+}
+
+int Sect::GetTotalTypedResourceCount(ResourceType type) const {
+    auto it = typedResourceStorage.find(type);
+    if (it == typedResourceStorage.end()) {
+        return 0;
+    }
+    return static_cast<int>(it->second.size());
+}
+
+void Sect::GenerateAmbientEnergy(float deltaTime, float timeOfDay) {
+    // timeOfDay is 0.0-1.0 where 0.5 is noon
+    // Calculate solar multiplier based on time of day (sine curve)
+    float solarPhase = timeOfDay * 2.0f * PI;
+    float solarMultiplier = (sinf(solarPhase - PI/2.0f) + 1.0f) / 2.0f;  // 0-1 range
+
+    // Scale between min and peak multipliers
+    float effectiveMultiplier = SOLAR_MIN_MULTIPLIER +
+        (SOLAR_PEAK_MULTIPLIER - SOLAR_MIN_MULTIPLIER) * solarMultiplier;
+
+    // Generate ambient energy
+    float energyGenerated = BASE_AMBIENT_ENERGY * effectiveMultiplier * deltaTime;
+
+    // Add to storage (respecting capacity)
+    float currentEnergy = resourceStorage[ResourceType::ENERGY];
+    float energyCapacity = storageCapacity[ResourceType::ENERGY];
+
+    if (currentEnergy + energyGenerated <= energyCapacity) {
+        resourceStorage[ResourceType::ENERGY] += energyGenerated;
+    } else {
+        resourceStorage[ResourceType::ENERGY] = energyCapacity;
+    }
 }
