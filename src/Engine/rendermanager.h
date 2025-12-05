@@ -32,27 +32,24 @@ public:
     void DrawPlusIndicator(Vector2 mousePos, View currentView);
 
 private:
-
     int screenWidth;
     int screenHeight;
 
-    // Global variables for the background
-    std::vector<BackgroundTile> backgroundTiles;
-    std::vector<Texture2D> tileTextures;
-    bool texturesLoaded;
-    bool bgGenerated;
-
+    // Moon surface tile textures
+    Texture2D moonTiles[3];
+    bool tilesLoaded;
+    std::vector<int> tilePattern;  // Store which tile to use for each grid cell
 
     void DrawDebugActiveArea();
 
-    // Function to load the tile textures
-    void LoadTileTextures();
-    // Function to generate the background with random tiles
-    void GenerateBackground(int screenWidth, int screenHeight, int tileSize);
-    // Function to render the background
-    void RenderBackground();
-    // Function to unload textures
-    void UnloadTileTextures();
-
+    // Function to load the moon surface tiles
+    void LoadMoonTiles();
+    // Function to render the tiled moon surface
+    void RenderMoonSurface();
+    // Function to unload moon surface tiles
+    void UnloadMoonTiles();
+    // Function to generate tile pattern
+    void GenerateTilePattern();
 };
+
 #endif // RENDER_MANAGER_H

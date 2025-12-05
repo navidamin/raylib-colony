@@ -1,11 +1,5 @@
 #include "Engine.h"
 
-// Include all implementation files directly
-#include "inputmanager.cpp"
-#include "viewmanager.cpp"
-#include "gamemanager.cpp"
-#include "rendermanager.cpp"
-
 Engine::Engine(int screenWidth, int screenHeight, const char* title)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
@@ -75,6 +69,7 @@ void Engine::HandleInput() {
         case View::Colony:
             if (IsKeyPressed(KEY_S)) {
                 viewManager.SwitchToSectView(gameManager.GetCurrentColony(), gameManager.GetCurrentSect());
+                gameManager.SelectDefaultUnit();  // Auto-select default unit
             }
             if (IsKeyPressed(KEY_P)) {
                 viewManager.SwitchToPlanetView(gameManager.GetCurrentColony());
@@ -86,16 +81,22 @@ void Engine::HandleInput() {
             break;
         case View::Sect:
             if (IsKeyPressed(KEY_U)) {
+                std::cout << "KEY_U pressed in Sect view!" << std::endl;
                 viewManager.SwitchToUnitView(gameManager.GetCurrentColony(),
                                            gameManager.GetCurrentSect(),
                                            gameManager.GetCurrentUnit());
             }
             if (IsKeyPressed(KEY_C)) {
+                std::cout << "KEY_C pressed in Sect view!" << std::endl;
                 viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
                 viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
                                                      gameManager.GetColonies(),
                                                      gameManager.GetCurrentColony(),
                                                      gameManager.GetPlanet());
+            }
+            // Test if mouse is working at all
+            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                std::cout << "LEFT MOUSE CLICKED in Sect view!" << std::endl;
             }
             break;
         case View::Unit:
@@ -106,31 +107,38 @@ void Engine::HandleInput() {
     }
 
     // Handle double-click selection of specific colonies, sects, and units
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && inputManager.IsDoubleClick()) {
-        Vector2 mousePosition = inputManager.GetMousePosition();
-        switch (viewManager.GetCurrentView()) {
-            case View::Planet:
-                if (!inputManager.IsCommandPressed()){
-                    gameManager.SelectColony(viewManager.GetWorldMousePosition());
-                    viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
-                    viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
-                                                         gameManager.GetColonies(),
-                                                         gameManager.GetCurrentColony(),
-                                                         gameManager.GetPlanet());
-                }
-                break;
-            case View::Colony:
-                gameManager.SelectSect(mousePosition, viewManager.GetCamera());
-                viewManager.SwitchToSectView(gameManager.GetCurrentColony(), gameManager.GetCurrentSect());
-                break;
-            case View::Sect:
-                gameManager.SelectUnit(mousePosition);
-                viewManager.SwitchToUnitView(gameManager.GetCurrentColony(),
-                                           gameManager.GetCurrentSect(),
-                                           gameManager.GetCurrentUnit());
-                break;
-            default:
-                break;
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        std::cout << "Mouse button pressed in view: " << static_cast<int>(viewManager.GetCurrentView()) << std::endl;
+        if (inputManager.IsDoubleClick()) {
+            std::cout << "Double-click confirmed!" << std::endl;
+            Vector2 mousePosition = inputManager.GetMousePosition();
+            switch (viewManager.GetCurrentView()) {
+                case View::Planet:
+                    if (!inputManager.IsCommandPressed()){
+                        gameManager.SelectColony(viewManager.GetWorldMousePosition());
+                        viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
+                        viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
+                                                             gameManager.GetColonies(),
+                                                             gameManager.GetCurrentColony(),
+                                                             gameManager.GetPlanet());
+                    }
+                    break;
+                case View::Colony:
+                    std::cout << "Colony view double-click handler" << std::endl;
+                    gameManager.SelectSect(mousePosition, viewManager.GetCamera());
+                    viewManager.SwitchToSectView(gameManager.GetCurrentColony(), gameManager.GetCurrentSect());
+                    gameManager.SelectDefaultUnit();  // Auto-select default unit
+                    break;
+                case View::Sect:
+                    std::cout << "Sect view double-click handler" << std::endl;
+                    gameManager.SelectUnit(mousePosition);
+                    viewManager.SwitchToUnitView(gameManager.GetCurrentColony(),
+                                               gameManager.GetCurrentSect(),
+                                               gameManager.GetCurrentUnit());
+                    break;
+                default:
+                    break;
+            }
         }
     }
 

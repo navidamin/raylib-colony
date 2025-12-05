@@ -209,12 +209,19 @@ void ViewManager::SwitchToColonyView(Colony* currentColony) {
 void ViewManager::SwitchToSectView(Colony* currentColony, Sect* currentSect) {
     if (currentColony && currentSect) {
         currentView = View::Sect;
+        std::cout << "Switched to Sect view. Sect has " << currentSect->GetUnits().size() << " units" << std::endl;
     }
 }
 
 void ViewManager::SwitchToUnitView(Colony* currentColony, Sect* currentSect, Unit* currentUnit) {
+    std::cout << "SwitchToUnitView called: colony=" << (currentColony ? "OK" : "NULL")
+              << " sect=" << (currentSect ? "OK" : "NULL")
+              << " unit=" << (currentUnit ? "OK" : "NULL") << std::endl;
     if (currentColony && currentSect && currentUnit) {
         currentView = View::Unit;
+        std::cout << "  -> Switched to Unit view successfully" << std::endl;
+    } else {
+        std::cout << "  -> FAILED to switch (one or more is NULL)" << std::endl;
     }
 }
 

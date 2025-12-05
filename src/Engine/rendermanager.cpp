@@ -1,20 +1,17 @@
 #include "rendermanager.h"
 #include <algorithm>
 #include <iostream>
-#include <random>
-#include <ctime>
 
 RenderManager::RenderManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
-      texturesLoaded(false),
-      bgGenerated(false)
+      tilesLoaded(false)
 {
 }
 
 RenderManager::~RenderManager() {
-    // Unload textures when done
-    UnloadTileTextures();
+    // Unload moon surface tiles when done
+    UnloadMoonTiles();
 }
 
 void RenderManager::BeginDraw() {
@@ -29,7 +26,7 @@ void RenderManager::EndDraw() {
 void RenderManager::DrawMenuView() {
     Color IVORY = {249,246,231,255};
     int fontSize = 60;
-    Texture2D image = LoadTexture("assets/Logo.png");
+    Texture2D image = LoadTexture("src/assets/Logo.png");
 
     int textX = GetScreenWidth()/2 - MeasureText("COLONY", 60)/2;
     int textY = GetScreenHeight()/3;
@@ -47,25 +44,24 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
     BeginMode2D(camera);
 
     if (planet) {  // Guard against null planet
+        ClearBackground(BLACK);
+
+        // Load and render moon tiles if not already loaded
+        if (!tilesLoaded) {
+            LoadMoonTiles();
+            GenerateTilePattern();
+            tilesLoaded = true;
+        }
+
+        // Render the tiled moon surface
+        RenderMoonSurface();
+/*
         // Draw grid
         for (int i = 0; i <= PLANET_SIZE; i++) {
             float linePos = i * SECT_CORE_RADIUS * 2;
             DrawLineV({linePos, 0}, {linePos, PLANET_HEIGHT}, LIGHTGRAY);
             DrawLineV({0, linePos}, {PLANET_WIDTH, linePos}, LIGHTGRAY);
-        }
-
-        ClearBackground(BLACK);
-
-        if (!bgGenerated) {
-            // Generate background with 64x64 tiles
-            GenerateBackground(screenWidth, screenHeight, 200);
-            bgGenerated = true;
-        }
-
-
-            // Render the background
-            RenderBackground();
-
+        }*/
 
         // Draw colonies if any
         for (const auto& colony : colonies) {
@@ -108,6 +104,16 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     BeginMode2D(camera);
 
     if (colony) {
+        // Load and render moon tiles if not already loaded
+        if (!tilesLoaded) {
+            LoadMoonTiles();
+            GenerateTilePattern();
+            tilesLoaded = true;
+        }
+
+        // Render the tiled moon surface
+        RenderMoonSurface();
+
         // Calculate visible area in world coordinates
         Vector2 topLeft = GetScreenToWorld2D({0, 0}, camera);
         Vector2 bottomRight = GetScreenToWorld2D(
@@ -120,7 +126,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         float cellSize = SECT_CORE_RADIUS * 2.0f;
         float planetWidth = PLANET_SIZE * cellSize;  // Total width of planet
         float planetHeight = PLANET_SIZE * cellSize; // Total height of planet
-
+/*
         // Draw vertical grid lines
         int startX = std::max(0, static_cast<int>(topLeft.x / cellSize));
         int endX = std::min(PLANET_SIZE, static_cast<int>(bottomRight.x / cellSize) + 1);
@@ -147,10 +153,10 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
                 Fade(LIGHTGRAY, 0.5f)
             );
         }
-
+*/
         // Draw all sects in the current colony
         for (const auto& sect : colony->GetSects()) {
-            sect->DrawInColonyView(sect->GetPosition(), camera.zoom);
+            sect->DrawInColonyView(sect->GetPosition());
         }
     }
 
@@ -179,7 +185,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     DrawText("Press P for Planet View", 10, 70, 20, GRAY);
 
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
-    DrawText("Double-click to select", 10, GetScreenHeight() - 40, 20, DARKGRAY);
+    DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
 }
 
 void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
@@ -346,80 +352,86 @@ void RenderManager::DrawPlusIndicator(Vector2 mousePos, View currentView) {
     DrawText(text, textX, textY, fontSize, textColor);
 }
 
-// Function to load the tile textures
-void RenderManager::LoadTileTextures() {
+// Function to load the moon surface tiles
+void RenderManager::LoadMoonTiles() {
+    const char* tileFiles[3] = {
+        "src/assets/moonsurface_tile1.png",
+        "src/assets/moonsurface_tile2.png",
+        "src/assets/moonsurface_tile3.png"
+    };
 
-    // Clear any existing textures first
-    tileTextures.clear();
+    for (int i = 0; i < 3; i++) {
+        moonTiles[i] = LoadTexture(tileFiles[i]);
 
-    // Try loading each texture with debug messages
-    Texture2D tex1 = LoadTexture("assets/moonsurface_tile1.png");
-    tileTextures.push_back(tex1);
-
-    Texture2D tex2 = LoadTexture("assets/moonsurface_tile2.png");
-    tileTextures.push_back(tex2);
-
-    Texture2D tex3 = LoadTexture("assets/moonsurface_tile3.png");
-    tileTextures.push_back(tex3);
-
-}
-
-// Function to generate the background with random tiles
-void RenderManager::GenerateBackground(int screenWidth, int screenHeight, int tileSize) {
-
-    // Make sure textures are loaded
-    if (!texturesLoaded || tileTextures.empty()) {
-        LoadTileTextures();
-        texturesLoaded = true;
-    }
-
-    // Clear any existing tiles
-    backgroundTiles.clear();
-
-    // Check again to make sure loading succeeded
-    if (tileTextures.empty()) {
-        std::cout << "ERROR: Failed to load textures!" << std::endl;
-        return;  // Don't proceed if textures aren't available
-    }
-
-    // Initialize random number generator with time-based seed
-    std::mt19937 rng(static_cast<unsigned int>(std::time(nullptr)));
-    std::uniform_int_distribution<int> dist(0, tileTextures.size() - 1);
-
-    // Calculate how many tiles we need to cover the screen
-    int tilesX = (PLANET_WIDTH / tileSize) + 1;
-    int tilesY = (PLANET_HEIGHT / tileSize) + 1;
-
-    // Create tiles
-    for (int y = 0; y < tilesY; y++) {
-        for (int x = 0; x < tilesX; x++) {
-            BackgroundTile tile;
-            // Select a random texture from our loaded textures
-            int randomIndex = dist(rng);
-            tile.texture = tileTextures[randomIndex];
-            tile.position = { static_cast<float>(x * tileSize), static_cast<float>(y * tileSize) };
-            backgroundTiles.push_back(tile);
+        if (moonTiles[i].id == 0) {
+            std::cout << "ERROR: Failed to load tile texture: " << tileFiles[i] << std::endl;
+        } else {
+            std::cout << "Loaded tile texture: " << tileFiles[i] << std::endl;
         }
     }
 }
 
-// Function to render the background
-void RenderManager::RenderBackground() {
-    // Safety check before rendering
-    if (backgroundTiles.empty() || !texturesLoaded) {
-        return;
-    }
+// Function to generate random tile pattern for the planet surface
+void RenderManager::GenerateTilePattern() {
+    // Calculate total number of tiles needed
+    int tilesX = (PLANET_WIDTH / 100) + 2;  // Add extra for coverage
+    int tilesY = (PLANET_HEIGHT / 100) + 2;
+    int totalTiles = tilesX * tilesY;
 
-    for (const auto& tile : backgroundTiles) {
-        DrawTexture(tile.texture, static_cast<int>(tile.position.x), static_cast<int>(tile.position.y), WHITE);
+    tilePattern.clear();
+    tilePattern.reserve(totalTiles);
+
+    // Use a fixed seed for consistent pattern
+    SetRandomSeed(12345);
+
+    // Generate random tile indices (0-2)
+    for (int i = 0; i < totalTiles; i++) {
+        tilePattern.push_back(GetRandomValue(0, 2));
     }
 }
 
-// Function to unload textures
-void RenderManager::UnloadTileTextures() {
-    for (auto& texture : tileTextures) {
-        UnloadTexture(texture);
+// Function to render the tiled moon surface
+void RenderManager::RenderMoonSurface() {
+    // Safety check before rendering
+    if (!tilesLoaded || moonTiles[0].id == 0) {
+        return;
     }
-    tileTextures.clear();
-    backgroundTiles.clear();
+
+    // Get tile size (assuming all tiles are same size)
+    int tileWidth = moonTiles[0].width;
+    int tileHeight = moonTiles[0].height;
+
+    // Calculate how many tiles we need
+    int tilesX = (PLANET_WIDTH / tileWidth) + 2;
+    int tilesY = (PLANET_HEIGHT / tileHeight) + 2;
+
+    // Draw tiles across the planet surface
+    int patternIndex = 0;
+    for (int y = -1; y < tilesY; y++) {
+        for (int x = -1; x < tilesX; x++) {
+            // Get which tile to use from pattern
+            int tileIndex = tilePattern[patternIndex % tilePattern.size()];
+            patternIndex++;
+
+            // Calculate position
+            Vector2 position = {
+                static_cast<float>(x * tileWidth),
+                static_cast<float>(y * tileHeight)
+            };
+
+            // Draw the tile
+            DrawTextureV(moonTiles[tileIndex], position, WHITE);
+        }
+    }
+}
+
+// Function to unload moon surface tiles
+void RenderManager::UnloadMoonTiles() {
+    for (int i = 0; i < 3; i++) {
+        if (moonTiles[i].id != 0) {
+            UnloadTexture(moonTiles[i]);
+            moonTiles[i].id = 0;
+        }
+    }
+    tilesLoaded = false;
 }

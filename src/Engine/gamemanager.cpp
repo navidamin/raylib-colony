@@ -71,6 +71,9 @@ void GameManager::Update(float deltaTime) {
                 }
             }
         }
+
+        // Manage colony resources (push surplus from sects to colony reserves)
+        colony->ManageResources();
     }
 }
 
@@ -105,13 +108,41 @@ void GameManager::SelectSect(Vector2 mousePosition, Camera2D camera) {
 
 void GameManager::SelectUnit(Vector2 mousePosition) {
     if (currentSect) {
+        std::cout << "SelectUnit called. Mouse pos: (" << mousePosition.x << ", " << mousePosition.y << ")" << std::endl;
         for (auto& unit : currentSect->GetUnits()) {
-            if (Vector2Distance(mousePosition, unit->GetUnitPosInSectView()) <= unit->GetUnitRadiusInSectView()) {
+            Vector2 unitPos = unit->GetUnitPosInSectView();
+            float unitRadius = unit->GetUnitRadiusInSectView();
+            float distance = Vector2Distance(mousePosition, unitPos);
+            std::cout << "  Unit " << unit->GetUnitType() << " at (" << unitPos.x << ", " << unitPos.y
+                      << ") radius: " << unitRadius << " distance: " << distance << std::endl;
+            if (distance <= unitRadius) {
                 currentUnit = unit;
+                std::cout << "  -> Unit selected: " << unit->GetUnitType() << std::endl;
                 break;
             }
         }
     }
+}
+
+void GameManager::SelectDefaultUnit() {
+    if (!currentSect || currentSect->GetUnits().empty()) {
+        currentUnit = nullptr;
+        std::cout << "No units available to select" << std::endl;
+        return;
+    }
+
+    // Try to find Extraction unit first
+    for (auto& unit : currentSect->GetUnits()) {
+        if (unit->GetUnitType() == "Extraction") {
+            currentUnit = unit;
+            std::cout << "Auto-selected Extraction unit as default" << std::endl;
+            return;
+        }
+    }
+
+    // If no Extraction unit, select the first available unit
+    currentUnit = currentSect->GetUnits()[0];
+    std::cout << "Auto-selected first unit: " << currentUnit->GetUnitType() << std::endl;
 }
 
 void GameManager::BuildNewColony(Vector2 worldPos) {

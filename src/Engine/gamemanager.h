@@ -29,6 +29,7 @@ public:
     void SelectColony(Vector2 mousePosition);
     void SelectSect(Vector2 mousePosition, Camera2D camera);
     void SelectUnit(Vector2 mousePosition);
+    void SelectDefaultUnit();  // Auto-select Extraction unit or first available
 
     void BuildNewColony(Vector2 worldPos);
     void BuildNewSect(Vector2 worldPos);
