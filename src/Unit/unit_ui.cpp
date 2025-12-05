@@ -88,21 +88,34 @@ void Unit::DrawResourceStats(int startX, int startY, int panelWidth) {
         {ResourceType::MANPOWER, "Manpower"}
     };
 
-    if (activeModule) {
-        DrawText(TextFormat("Active Module: %s (Level %d)",
-                activeModule->name.c_str(),
-                activeModule->level),
+    if (!activeModuleIndices.empty()) {
+        // Display active modules count
+        DrawText(TextFormat("Active Modules: %d", (int)activeModuleIndices.size()),
                 startX, startY, fontSize, BLACK);
         startY += rowHeight;
 
         DrawText(TextFormat("Status: %s", status.c_str()),
                 startX, startY, fontSize,
                 status == "active" ? darkGreen : GRAY);
-        startY += rowHeight;
+        startY += rowHeight * 2;
 
-        DrawText(TextFormat("Efficiency: %.1f%%", activeModule->efficiency * 100.0f),
-                startX, startY, fontSize, BLACK);
-        startY += rowHeight * 2;  // Extra space before rates
+        // Aggregate all rates from active modules
+        std::map<ResourceType, float> totalProduction;
+        std::map<ResourceType, float> totalConsumption;
+
+        for (int moduleIndex : activeModuleIndices) {
+            const UnitModule& module = modules[moduleIndex];
+
+            // Aggregate production rates
+            for (const auto& [type, rate] : module.productionRates) {
+                totalProduction[type] += rate;
+            }
+
+            // Aggregate consumption rates
+            for (const auto& [type, rate] : module.consumptionRates) {
+                totalConsumption[type] += rate;
+            }
+        }
 
         // Column headers for rates
         DrawText("Resource", startX, startY, fontSize, BLACK);
@@ -111,16 +124,12 @@ void Unit::DrawResourceStats(int startX, int startY, int panelWidth) {
 
         startY += rowHeight;
 
-
-
-        // Draw rates only for resources that have production or consumption
+        // Draw aggregated rates
         for (const auto& [type, name] : resources) {
-            bool hasActivity = false;
-            float prodRate = activeModule->productionRates[type];
-            float consRate = activeModule->consumptionRates[type];
+            float prodRate = totalProduction[type];
+            float consRate = totalConsumption[type];
 
             if (prodRate > 0 || consRate > 0) {
-                hasActivity = true;
                 DrawText(name, startX, startY, fontSize, BLACK);
 
                 // Production rate
@@ -139,9 +148,7 @@ void Unit::DrawResourceStats(int startX, int startY, int panelWidth) {
                     DrawText("-", startX + colWidth * 2, startY, fontSize, GRAY);
                 }
 
-                if (hasActivity) {
-                    startY += rowHeight;
-                }
+                startY += rowHeight;
             }
         }
     } else {
@@ -296,10 +303,22 @@ void Unit::DrawControlPanel() {
                 20, BLACK);
         yPos += elementHeight + spaceBetween * 2;
 
-        // Draw controls for each resource that has a max production rate
+        // Draw controls for each active module
+        if (!activeModuleIndices.empty()) {
+            // For now, show controls for the first active module
+            int firstActiveModule = *activeModuleIndices.begin();
+            UnitModule& module = modules[firstActiveModule];
 
-        if (activeModule) {
-            for (const auto& [resource, maxRate] : activeModule->maxProductionRates) {
+            // Show which module we're controlling
+            if (activeModuleIndices.size() > 1) {
+                DrawText(TextFormat("Module: %s", module.name.c_str()),
+                        panelPos.x + padding,
+                        yPos,
+                        16, DARKGRAY);
+                yPos += 20;
+            }
+
+            for (const auto& [resource, maxRate] : module.maxProductionRates) {
                 std::string resourceName;
                 try {
                     resourceName = ResourceUtils::GetResourceName(resource);
@@ -315,7 +334,7 @@ void Unit::DrawControlPanel() {
                         20, BLACK);
 
                 // Get current production rate for this resource
-                float currentRate = activeModule->productionRates[resource];
+                float currentRate = module.productionRates[resource];
 
                 // Draw rate control buttons (0-4)
                 for (int rate = 0; rate <= 4; rate++) {
@@ -360,7 +379,7 @@ void Unit::DrawControlPanel() {
                     if (CheckCollisionPointRec(GetMousePosition(), buttonRect)) {
                         buttonColor = Fade(buttonColor, 0.7f);
                         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                            activeModule->productionRates[resource] = buttonRate;
+                            module.productionRates[resource] = buttonRate;
                             ShowMessage(TextFormat("%s production rate set to %.1f",
                                                  resourceName.c_str(), buttonRate));
                             CalculateConsumption();  // Recalculate consumption when production changes
@@ -726,27 +745,15 @@ void Unit::HandleModuleActivation(int moduleIndex) {
 
     // Toggle the selected module's active state
     if (module.isActive) {
-        module.isActive = false;
-        module.efficiency *= 0.9f;  // Penalty for deactivating
-        ShowMessage(module.name + " deactivated");
-    } else {
-        // Deactivate other modules before activating this one
-        for (auto& mod : modules) {
-            if (mod.isActive) {
-                mod.isActive = false;
-                mod.efficiency *= 0.9f;  // Penalty for switching
-            }
+        // Deactivate the module
+        if (DeactivateModule(moduleIndex)) {
+            ShowMessage(module.name + " deactivated");
         }
-        module.isActive = true;
-        ShowMessage(module.name + " activated");
-    }
-
-    // Update unit status based on module states
-    UpdateUnitStatus();
-
-    // Recalculate consumption if we have an active module
-    if (activeModule) {
-        CalculateConsumption();
+    } else {
+        // Activate the module (allows multiple active modules now)
+        if (ActivateModule(moduleIndex)) {
+            ShowMessage(module.name + " activated");
+        }
     }
 }
 

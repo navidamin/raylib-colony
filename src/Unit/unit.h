@@ -5,6 +5,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <set>
 
 #include "resource_manager.h"
 #include "time_manager.h"
@@ -15,7 +16,8 @@
 class Unit {
 public:
     // Constructor
-    Unit(std::string type, Vector2& position, ResourceManager& resource, TimeManager &time,  std::map<ResourceType, float> &storage);
+    Unit(std::string type, Vector2& position, ResourceManager& resource, TimeManager &time,
+         std::map<ResourceType, float> &storage, std::map<ResourceType, float> &capacity);
 
     // Destrructor
     ~Unit();
@@ -85,6 +87,11 @@ public:
     void AddResource(ResourceType type, float amount);
     bool ConsumeResource(ResourceType type, float amount);
 
+    // Module activation/deactivation
+    bool ActivateModule(int moduleIndex);
+    bool DeactivateModule(int moduleIndex);
+    const std::set<int>& GetActiveModuleIndices() const { return activeModuleIndices; }
+
 private:
     // Include UI-related members
     UNIT_UI_PRIVATE_MEMBERS
@@ -93,9 +100,11 @@ private:
     ResourceManager& resourceManager;
     TimeManager& timeManager;
     std::map<ResourceType, float>& resourceStorage;
+    std::map<ResourceType, float>& storageCapacity;
+    std::map<ResourceType, float> overflowBuffer;  // Buffer for resources that exceed capacity
 
     std::vector<UnitModule> modules;
-    UnitModule* activeModule = nullptr;
+    std::set<int> activeModuleIndices;  // Indices of currently active modules
     std::map<ResourceType, std::map<ResourceType, float>> productionCosts;
 
     bool isUnderConstruction;

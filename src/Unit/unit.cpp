@@ -3,7 +3,8 @@
 #include <cmath>
 
 Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
-           TimeManager &time, std::map<ResourceType, float> &storage) :
+           TimeManager &time, std::map<ResourceType, float> &storage,
+           std::map<ResourceType, float> &capacity) :
     unit_type(type),
     status("inactive"),
     energy_cost(0),
@@ -12,6 +13,7 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
     resourceManager(resource),
     timeManager(time),
     resourceStorage(storage),
+    storageCapacity(capacity),
     parentSectPosition(position),
     isInModuleView(false),
     selectedModuleIndex(-1),
@@ -42,20 +44,17 @@ void Unit::Stop() {
 }
 
 void Unit::UpdateUnitStatus() {
-    // Check if any module is active
-    bool anyModuleActive = false;
-    activeModule = nullptr;  // Reset active module pointer
+    // Clear and rebuild active module indices
+    activeModuleIndices.clear();
 
-    for (auto& module : modules) {
-        if (module.isActive) {
-            anyModuleActive = true;
-            activeModule = &module;  // Set active module to the active one
-            break;
+    for (size_t i = 0; i < modules.size(); i++) {
+        if (modules[i].isActive) {
+            activeModuleIndices.insert(i);
         }
     }
 
     // Update unit status based on module state
-    status = anyModuleActive ? "active" : "inactive";
+    status = !activeModuleIndices.empty() ? "active" : "inactive";
 }
 
 void Unit::Upgrade(int level) {
@@ -64,70 +63,38 @@ void Unit::Upgrade(int level) {
 }
 
 void Unit::CalculateConsumption() {
-    if (!activeModule) {
-        std::cout << "No active module, skipping consumption calculation" << std::endl;
+    if (activeModuleIndices.empty()) {
+        std::cout << "No active modules, skipping consumption calculation" << std::endl;
         return;
     }
 
-    // Debug output before calculation
-//    std::cout << "\nStarting consumption calculation for " << unit_type << std::endl;
-//    std::cout << "Production rates:" << std::endl;
-    for (const auto& [res, rate] : activeModule->productionRates) {
-//        std::cout << "Resource " << static_cast<int>(res) << ": " << rate << std::endl;
-    }
+    // Calculate consumption for each active module
+    for (int moduleIndex : activeModuleIndices) {
+        UnitModule& module = modules[moduleIndex];
 
-//    std::cout << "Production costs map size: " << productionCosts.size() << std::endl;
+        // Clear existing consumption rates for this module
+        module.consumptionRates.clear();
 
-    // Clear existing consumption rates
-    activeModule->consumptionRates.clear();
+        // For each production rate in this module
+        for (const auto& [producedResource, productionRate] : module.productionRates) {
+            // Safely check if this resource has associated costs
+            if (productionCosts.count(producedResource) == 0) {
+                continue;
+            }
 
-    // For each production rate
-    for (const auto& [producedResource, productionRate] : activeModule->productionRates) {
-        // Skip if production rate is 0
-//        if (productionRate <= 0) {
-//            std::cout << "Skipping resource " << static_cast<int>(producedResource)
-//                     << " due to zero production rate" << std::endl;
-//            continue;
-//        }
+            // Get the cost map for this resource
+            const auto& resourceCosts = productionCosts.at(producedResource);
 
-//        std::cout << "Checking costs for resource " << static_cast<int>(producedResource) << std::endl;
+            // For each resource consumed in production
+            for (const auto& [consumedResource, rate] : resourceCosts) {
+                // Calculate consumption based on production rate
+                float consumption = productionRate * rate;
 
-        // Safely check if this resource has associated costs
-        if (productionCosts.count(producedResource) == 0) {
-//            std::cout << "No production costs defined for resource "
-//                     << static_cast<int>(producedResource) << std::endl;
-            continue;
-        }
-
-        // Get the cost map for this resource
-        const auto& resourceCosts = productionCosts.at(producedResource);
-//        std::cout << "Found " << resourceCosts.size() << " cost entries for resource "
-//                 << static_cast<int>(producedResource) << std::endl;
-
-        // For each resource consumed in production
-        for (const auto& [consumedResource, rate] : resourceCosts) {
-            // Calculate consumption based on production rate
-            float consumption = productionRate * rate;
-
-/*            std::cout << "Calculated consumption for resource "
-                     << static_cast<int>(consumedResource)
-                     << ": " << consumption << "/s" << std::endl;
-*/
-            // Add to module's consumption rates
-            activeModule->consumptionRates[consumedResource] += consumption;
+                // Add to module's consumption rates
+                module.consumptionRates[consumedResource] += consumption;
+            }
         }
     }
-
-    // Debug output final consumption rates
-//    std::cout << "Final consumption rates:" << std::endl;
-//    for (const auto& [resource, rate] : activeModule->consumptionRates) {
-//        try {
-//            std::string resourceName = ResourceUtils::GetResourceName(resource);
-//            std::cout << resourceName << ": " << rate << "/s" << std::endl;
-//        } catch (...) {
-//            std::cout << "Resource " << static_cast<int>(resource) << ": " << rate << "/s" << std::endl;
-//        }
-//    }
 }
 
 std::map<std::string, float> Unit::CalculateProduction() const {
@@ -408,7 +375,11 @@ void Unit::InitializeModules() {
     // ... other unit types ...
 
     modules.push_back(basicModule);
-    activeModule = &modules[0];
+
+    // Activate the first module by default
+    if (!modules.empty()) {
+        activeModuleIndices.insert(0);
+    }
 
     // Initialize future modules
     InitializeFutureModules();
@@ -416,8 +387,8 @@ void Unit::InitializeModules() {
     // Update unit status based on module states
     UpdateUnitStatus();
 
-    // Initialize production/consumption rates if we have an active module
-    if (activeModule) {
+    // Initialize production/consumption rates if we have active modules
+    if (!activeModuleIndices.empty()) {
         CalculateConsumption();
     }
 }
@@ -461,8 +432,8 @@ bool Unit::UpgradeModule(int moduleIndex) {
         }
     }
 
-    // Recalculate consumption rates if this is the active module
-    if (&module == activeModule) {
+    // Recalculate consumption rates if this is an active module
+    if (activeModuleIndices.count(moduleIndex) > 0) {
         CalculateConsumption();
     }
 
@@ -471,45 +442,58 @@ bool Unit::UpgradeModule(int moduleIndex) {
 }
 
 void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManager) {
-    if (!IsActive() || !activeModule) return;
+    if (!IsActive() || activeModuleIndices.empty()) return;
 
-    CalculateConsumption();  // Update consumption rates when module is activated
+    CalculateConsumption();  // Update consumption rates when modules are activated
 
-    // Check if we have enough resources for consumption
-    bool canProcess = true;
-    for (const auto& [type, rate] : activeModule->consumptionRates) {
-        float required = rate * deltaTime;
-        if (resourceStorage[type] < required) {
-            canProcess = false;
-            std::cout << "Not enough resource " << static_cast<int>(type)
-                     << " for processing. Required: " << required
-                     << ", Available: " << resourceStorage[type] << std::endl;
-            break;
+    // Process each active module
+    for (int moduleIndex : activeModuleIndices) {
+        UnitModule& module = modules[moduleIndex];
+
+        // Check if we have enough resources for this module's consumption
+        bool canProcess = true;
+        for (const auto& [type, rate] : module.consumptionRates) {
+            float required = rate * deltaTime;
+            if (resourceStorage[type] < required) {
+                canProcess = false;
+                std::cout << "Module " << moduleIndex << " (" << module.name
+                         << "): Not enough resource " << static_cast<int>(type)
+                         << ". Required: " << required
+                         << ", Available: " << resourceStorage[type] << std::endl;
+                break;
+            }
         }
-    }
 
-    if (!canProcess) return;
-//    std::cout << "\nIn the PrcoessModule" << std::endl;
+        if (!canProcess) {
+            // Skip this module if resources are insufficient
+            continue;
+        }
 
-    /*
-    // Consume resources
-    for (const auto& [type, rate] : activeModule->consumptionRates) {
-        resourceStorage[type] -= rate * deltaTime;
-    }*/
+        // Consume resources for this module
+        for (const auto& [type, rate] : module.consumptionRates) {
+            resourceStorage[type] -= rate * deltaTime;
+        }
 
-    // Handle production based on unit type
-    if (unit_type == "Extraction") {
-        ProcessExtraction(deltaTime, resourceManager);
-    }
-    else {
-        // Normal production for other unit types
-        for (const auto& [type, rate] : activeModule->productionRates) {
-            AddResource(type, rate * deltaTime);
+        // Handle production based on unit type
+        if (unit_type == "Extraction") {
+            ProcessExtraction(deltaTime, resourceManager);
+        }
+        else {
+            // Normal production for other unit types
+            for (const auto& [type, rate] : module.productionRates) {
+                AddResource(type, rate * deltaTime);
+            }
         }
     }
 }
 
 void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) {
+    // Use the first active module for extraction (in future, could have multiple extraction modules)
+    if (activeModuleIndices.empty()) return;
+
+    int firstActiveModule = *activeModuleIndices.begin();
+    UnitModule& module = modules[firstActiveModule];
+
     Vector2 gridPos = WorldToGrid(parentSectPosition);
     int gridX = static_cast<int>(gridPos.x);
     int gridY = static_cast<int>(gridPos.y);
@@ -520,8 +504,8 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     int worldX = static_cast<int>(parentSectPosition.x);
     int worldY = static_cast<int>(parentSectPosition.y);
 
-    float efficiency = activeModule->efficiency;
-    float levelMultiplier = 1.0f + (activeModule->level - 1) * 0.2f;
+    float efficiency = module.efficiency;
+    float levelMultiplier = 1.0f + (module.level - 1) * 0.2f;
 
     // Map for base extraction rates
     std::map<ResourceType, float> extractionRates = {
@@ -586,7 +570,40 @@ float Unit::GetStoredResource(ResourceType type) const {
 }
 
 void Unit::AddResource(ResourceType type, float amount) {
-    resourceStorage[type] += amount;
+    // Check if storage has capacity for this resource
+    auto capacityIt = storageCapacity.find(type);
+    if (capacityIt == storageCapacity.end()) {
+        // No capacity limit defined, add directly (shouldn't happen)
+        resourceStorage[type] += amount;
+        return;
+    }
+
+    float currentStorage = resourceStorage[type];
+    float maxCapacity = capacityIt->second;
+    float availableSpace = maxCapacity - currentStorage;
+
+    if (availableSpace >= amount) {
+        // Enough space, add all
+        resourceStorage[type] += amount;
+    } else if (availableSpace > 0.0f) {
+        // Partial space available
+        resourceStorage[type] += availableSpace;
+        float overflow = amount - availableSpace;
+
+        // Store overflow in buffer
+        overflowBuffer[type] += overflow;
+
+        std::cout << "Storage full! Buffered " << overflow << " of resource "
+                 << static_cast<int>(type) << " (Total buffer: "
+                 << overflowBuffer[type] << ")" << std::endl;
+    } else {
+        // No space available, all goes to buffer
+        overflowBuffer[type] += amount;
+
+        std::cout << "Storage completely full! Buffered " << amount << " of resource "
+                 << static_cast<int>(type) << " (Total buffer: "
+                 << overflowBuffer[type] << ")" << std::endl;
+    }
 }
 
 bool Unit::ConsumeResource(ResourceType type, float amount) {
@@ -780,4 +797,70 @@ Vector2 Unit::WorldToGrid(Vector2 worldPos) const {
         std::floor(worldPos.x / (SECT_CORE_RADIUS * 2.0f)),
         std::floor(worldPos.y / (SECT_CORE_RADIUS * 2.0f))
     };
+}
+
+bool Unit::ActivateModule(int moduleIndex) {
+    // Validate module index
+    if (moduleIndex < 0 || moduleIndex >= modules.size()) {
+        std::cout << "ERROR: Invalid module index " << moduleIndex << std::endl;
+        return false;
+    }
+
+    UnitModule& module = modules[moduleIndex];
+
+    // Check if module is built
+    if (!module.isBuilt) {
+        std::cout << "Cannot activate unbuilt module: " << module.name << std::endl;
+        return false;
+    }
+
+    // Check if already active
+    if (activeModuleIndices.count(moduleIndex) > 0) {
+        std::cout << "Module " << module.name << " is already active" << std::endl;
+        return false;
+    }
+
+    // Activate the module
+    module.isActive = true;
+    activeModuleIndices.insert(moduleIndex);
+
+    // Update unit status
+    UpdateUnitStatus();
+
+    // Recalculate consumption
+    CalculateConsumption();
+
+    std::cout << "Activated module: " << module.name << " (index " << moduleIndex << ")" << std::endl;
+    return true;
+}
+
+bool Unit::DeactivateModule(int moduleIndex) {
+    // Validate module index
+    if (moduleIndex < 0 || moduleIndex >= modules.size()) {
+        std::cout << "ERROR: Invalid module index " << moduleIndex << std::endl;
+        return false;
+    }
+
+    // Check if module is active
+    if (activeModuleIndices.count(moduleIndex) == 0) {
+        std::cout << "Module is not currently active" << std::endl;
+        return false;
+    }
+
+    UnitModule& module = modules[moduleIndex];
+
+    // Deactivate the module
+    module.isActive = false;
+    activeModuleIndices.erase(moduleIndex);
+
+    // Update unit status
+    UpdateUnitStatus();
+
+    // Recalculate consumption
+    if (!activeModuleIndices.empty()) {
+        CalculateConsumption();
+    }
+
+    std::cout << "Deactivated module: " << module.name << " (index " << moduleIndex << ")" << std::endl;
+    return true;
 }
