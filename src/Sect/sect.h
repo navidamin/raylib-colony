@@ -31,7 +31,7 @@ public:
     void UpgradeUnit(Unit* unit);
     void Update(float deltaTime);
     void Draw(Vector2 position);
-    void DrawInColonyView(Vector2 position, float scale);
+    void DrawInColonyView(Vector2 position);
     void DrawInSectView(Vector2 position);
 
     // Setters
@@ -41,6 +41,13 @@ public:
     Vector2 GetPosition() const {return SectPosition;}
     const std::vector<Unit*>& GetUnits() const { return units; }
     float GetRadius() const { return coreRadius; }
+    const std::map<ResourceType, float>& GetResourceStorage() const { return resourceStorage; }
+    const std::map<ResourceType, float>& GetStorageCapacity() const { return storageCapacity; }
+    float GetStorageUsage(ResourceType type) const;
+
+    // Resource management methods
+    void PushSurplusToColony(class Colony* colony);
+    bool CanAcceptResource(ResourceType type, float amount) const;
 
     // Transportation processing
     void UpdateRoadConstruction(float deltaTime);
@@ -62,6 +69,10 @@ private:
     float coreRadius;               // Derived from default
     Color color;                    // Visual property
 
+    // Texture assets for visual rendering
+    Texture2D domeTexture;                          // Central dome texture
+    std::map<std::string, Texture2D> unitTextures;  // Unit type -> texture mapping
+
     // Position/Location data
     Vector2 SectPosition;           // Position in world space
     std::pair<int, int> location;   // Grid location
@@ -74,11 +85,16 @@ private:
     // Resource management
     std::vector<std::string> production_priority;  // Order of production
     std::map<ResourceType, float> resourceStorage;
+    std::map<ResourceType, float> storageCapacity;
 
     // Private member functions
     void CreateInitialUnits(Vector2 &position);
     void DrawTransparentRightPanel();
     void DrawResourceStats(Vector2 position, float coreRadius);
+
+    // Texture management
+    void LoadTextures();    // Load dome and unit textures
+    void UnloadTextures();  // Free texture memory
 };
 
 #endif // SECT_H

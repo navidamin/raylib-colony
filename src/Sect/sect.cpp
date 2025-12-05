@@ -1,4 +1,5 @@
 #include "sect.h"
+#include "colony.h"
 #include <iostream>
 
 Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
@@ -24,10 +25,29 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
     resourceStorage[ResourceType::WATER] = 0.0f;
     resourceStorage[ResourceType::FOOD] = 0.0f;
 
+    // Initialize storage capacities
+    storageCapacity[ResourceType::H2] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::O2] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::C] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::Fe] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::Si] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::ENERGY] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::WATER] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::FOOD] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::SCIENCE] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::MANPOWER] = SECT_BASE_STORAGE;
+
     CreateInitialUnits(position);
+
+    // Load textures for visual rendering
+    LoadTextures();
 }
 
 Sect::~Sect() {
+    // Free texture memory
+    UnloadTextures();
+
+    // Delete all units
     for (auto unit : units) {
         delete unit;
     }
@@ -94,7 +114,7 @@ void Sect::CreateInitialUnits(Vector2& position) {
 
     // Initialize and stary each unit
     for (const auto& type : unit_types) {
-        Unit* unit = new Unit(type, position, resourceManager, timeManager, resourceStorage);
+        Unit* unit = new Unit(type, position, resourceManager, timeManager, resourceStorage, storageCapacity);
         if (type == "Extraction") {
             unit->Start();
             core = unit; // Set the Extraction unit as the core
@@ -108,27 +128,66 @@ void Sect::CreateInitialUnits(Vector2& position) {
 }
 
 
-void Sect::DrawInColonyView(Vector2 pos, float scale) {
-    coreRadius = defaultCoreRadius * scale; // Scale the radius based on zoom level
+void Sect::DrawInColonyView(Vector2 pos) {
+    coreRadius = defaultCoreRadius; // Use constant world-space radius
 
-    // Draw main sect circle (smaller in Colony view)
-    DrawCircle(pos.x, pos.y, coreRadius, color);
-    //DrawCircleLines(pos.x, pos.y, radius, BLACK);
+    // Draw main sect (dome texture or fallback circle)
+    if (domeTexture.id != 0) {
+        float textureDiameter = coreRadius * 2.0f;
+        Rectangle source = {0.0f, 0.0f, (float)domeTexture.width, (float)domeTexture.height};
+        Rectangle dest = {
+            pos.x - coreRadius,
+            pos.y - coreRadius,
+            textureDiameter,
+            textureDiameter
+        };
+        Vector2 origin = {0.0f, 0.0f};
+        DrawTexturePro(domeTexture, source, dest, origin, 0.0f, WHITE);
+    } else {
+        // Fallback to circle if texture not loaded
+        DrawCircle(pos.x, pos.y, coreRadius, color);
+    }
 
-
-
-    // Draw active units indicator as small dots around the sect
-    float indicatorRadius = coreRadius * 0.3f;
+    // Draw active units indicator as small images around the sect
+    float indicatorRadius = coreRadius * 0.35f;
+    float orbitRadius = coreRadius * 1.3f;
 
     for (size_t i = 0; i < units.size(); i++) {
         float angle = (90.0f - (i * 45.0f)) * DEG2RAD;  // 8 units, 45 degrees apart
         Vector2 indicatorPos = {
-            pos.x + (coreRadius * 1.4f) * cosf(angle),
-            pos.y - (coreRadius * 1.4f) * sinf(angle)
+            pos.x + orbitRadius * cosf(angle),
+            pos.y - orbitRadius * sinf(angle)
         };
 
-        if ( units[i]->GetStatus() == "active" ) {DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, GREEN);}
-        else {DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, CHINAROSE);}
+        // Get unit type for texture lookup
+        std::string unitType = units[i]->GetUnitType();
+        auto texIt = unitTextures.find(unitType);
+
+        // Draw unit (texture or fallback circle)
+        if (texIt != unitTextures.end() && texIt->second.id != 0) {
+            float textureDiameter = indicatorRadius * 2.0f;
+            Rectangle source = {0.0f, 0.0f, (float)texIt->second.width, (float)texIt->second.height};
+            Rectangle dest = {
+                indicatorPos.x - indicatorRadius,
+                indicatorPos.y - indicatorRadius,
+                textureDiameter,
+                textureDiameter
+            };
+            Vector2 origin = {0.0f, 0.0f};
+            DrawTexturePro(texIt->second, source, dest, origin, 0.0f, WHITE);
+
+            // Add green glow ring for active units
+            if (units[i]->GetStatus() == "active") {
+                DrawCircleLines(indicatorPos.x, indicatorPos.y, indicatorRadius * 1.15f, GREEN);
+            }
+        } else {
+            // Fallback to circle if texture not available
+            if (units[i]->GetStatus() == "active") {
+                DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, GREEN);
+            } else {
+                DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, CHINAROSE);
+            }
+        }
     }
 
     // Draw development percentage as a progress arc
@@ -147,11 +206,26 @@ void Sect::DrawInColonyView(Vector2 pos, float scale) {
 
 
 void Sect::DrawInSectView(Vector2 position) {
-    float coreRadius = GetScreenHeight() * 0.28f;  // Core takes 60% of screen height
+    float coreRadius = GetScreenHeight() * 0.38f;  // Core takes ~76% of screen height diameter
 
-    // Draw the main core circle
-    DrawCircle(position.x, position.y, coreRadius, GRAY);
-    DrawCircleLines(position.x, position.y, coreRadius, BLACK);
+    // Draw the main core (dome texture or fallback circle)
+    if (domeTexture.id != 0) {
+        // Draw dome texture centered on position, scaled to fit coreRadius
+        float textureDiameter = coreRadius * 2.0f;
+        Rectangle source = {0.0f, 0.0f, (float)domeTexture.width, (float)domeTexture.height};
+        Rectangle dest = {
+            position.x - coreRadius,
+            position.y - coreRadius,
+            textureDiameter,
+            textureDiameter
+        };
+        Vector2 origin = {0.0f, 0.0f};
+        DrawTexturePro(domeTexture, source, dest, origin, 0.0f, WHITE);
+    } else {
+        // Fallback to circle if texture not loaded
+        DrawCircle(position.x, position.y, coreRadius, GRAY);
+        DrawCircleLines(position.x, position.y, coreRadius, BLACK);
+    }
 
     // Draw core information
     DrawText(TextFormat("Development: %.1f%%", development_percentage * 100),
@@ -164,8 +238,8 @@ void Sect::DrawInSectView(Vector2 position) {
     DrawResourceStats(position, coreRadius);
 
     // Draw the units around the core
-    float unitRadius = coreRadius * 0.2f;  // Units are 20% the size of core
-    float orbitRadius = coreRadius * 1.3f; // Distance from core to units
+    float unitRadius = coreRadius * 0.32f;  // Units are 32% the size of core (larger)
+    float orbitRadius = coreRadius * 1.12f; // Distance from core center to unit center (closer)
 
     for (size_t i = 0; i < units.size(); ++i) {
         // Start from 90 degrees (top) and go clockwise
@@ -180,24 +254,51 @@ void Sect::DrawInSectView(Vector2 position) {
         units[i]->SetUnitPosInSectView(unitPos);
         units[i]->SetUnitRadiusInSectView(unitRadius);
 
-        // Draw the unit circle
-        Color fillColor = units[i]->GetStatus() == "active" ? GREEN : GRAY;
-        DrawCircle(unitPos.x, unitPos.y, unitRadius, fillColor);
-        DrawCircleLines(unitPos.x, unitPos.y, unitRadius, BLACK);
+        // Get unit type for texture lookup
+        std::string unitType = units[i]->GetUnitType();
+        auto texIt = unitTextures.find(unitType);
 
-        // Draw first letter of unit type (only in Sect view)
-        const char* unitType = units[i]->GetUnitType().c_str();
-        char firstLetter[2] = {unitType[0], '\0'};
+        // All units render at full brightness for now (no deactivated look)
+        Color tint = WHITE;
 
-        // Center the letter in the circle
-        int fontSize = (int)(unitRadius);
-        Vector2 textSize = MeasureTextEx(GetFontDefault(), firstLetter, fontSize, 1);
-        Vector2 textPos = {
-            unitPos.x - textSize.x/2,
-            unitPos.y - textSize.y/2
-        };
+        // Draw the unit (texture or fallback circle)
+        if (texIt != unitTextures.end() && texIt->second.id != 0) {
+            // Draw unit texture
+            float textureDiameter = unitRadius * 2.0f;
+            Rectangle source = {0.0f, 0.0f, (float)texIt->second.width, (float)texIt->second.height};
+            Rectangle dest = {
+                unitPos.x - unitRadius,
+                unitPos.y - unitRadius,
+                textureDiameter,
+                textureDiameter
+            };
+            Vector2 origin = {0.0f, 0.0f};
+            DrawTexturePro(texIt->second, source, dest, origin, 0.0f, tint);
 
-        DrawText(firstLetter, textPos.x, textPos.y, fontSize, BLACK);
+            // Add green glow ring for active units
+            if (units[i]->GetStatus() == "active") {
+                DrawCircleLines(unitPos.x, unitPos.y, unitRadius * 1.1f, GREEN);
+            }
+        } else {
+            // Fallback to circle if texture not available
+            Color fillColor = units[i]->GetStatus() == "active" ? GREEN : GRAY;
+            DrawCircle(unitPos.x, unitPos.y, unitRadius, fillColor);
+            DrawCircleLines(unitPos.x, unitPos.y, unitRadius, BLACK);
+
+            // Draw first letter of unit type (only for fallback)
+            const char* unitTypeStr = unitType.c_str();
+            char firstLetter[2] = {unitTypeStr[0], '\0'};
+
+            // Center the letter in the circle
+            int fontSize = (int)(unitRadius);
+            Vector2 textSize = MeasureTextEx(GetFontDefault(), firstLetter, fontSize, 1);
+            Vector2 textPos = {
+                unitPos.x - textSize.x/2,
+                unitPos.y - textSize.y/2
+            };
+
+            DrawText(firstLetter, textPos.x, textPos.y, fontSize, BLACK);
+        }
     }
 
     // Draw the transparent right panel
@@ -205,33 +306,45 @@ void Sect::DrawInSectView(Vector2 position) {
 }
 
 void Sect::DrawResourceStats(Vector2 position, float coreRadius) {
-    // Debug print to verify storage contents
-    //std::cout << "Current Resource Storage Status:" << std::endl;
-    for (const auto& [type, amount] : resourceStorage) {
-        std::cout << "Resource " << (type) << ": " << amount << std::endl;
-    }
+    // Draw storage bars showing capacity
+    const float barWidth = 120.0f;
+    const float barHeight = 15.0f;
+    const float barSpacing = 20.0f;
+    const float startY = position.y - coreRadius * 0.6f;
 
-    // Draw production/consumption stats in the core
-    const float statsY = position.y - coreRadius * 0.5f;
-    const float statsSpacing = 25;
-    int statIndex = 0;
-
-    // Create stats array directly accessing resourceStorage
+    // Resources to show with storage bars
     std::vector<std::pair<const char*, ResourceType>> statsToShow = {
-        {"Energy Production: ", ResourceType::ENERGY},
-        {"Iron Storage: ", ResourceType::Fe},
-        {"Food Storage: ", ResourceType::FOOD}
+        {"Energy", ResourceType::ENERGY},
+        {"Iron", ResourceType::Fe},
+        {"Food", ResourceType::FOOD},
+        {"Water", ResourceType::WATER}
     };
 
-    for (const auto& stat : statsToShow) {
-        float value = resourceStorage[stat.second];  // Direct access to storage
-        const char* text = TextFormat("%s%.1f", stat.first, value);
-        DrawText(text,
-                position.x - MeasureText(text, 20)/2,
-                statsY + statIndex * statsSpacing,
-                20,
-                BLACK);
-        statIndex++;
+    for (size_t i = 0; i < statsToShow.size(); i++) {
+        const char* name = statsToShow[i].first;
+        ResourceType type = statsToShow[i].second;
+
+        float stored = resourceStorage[type];
+        float capacity = storageCapacity[type];
+        float usage = (capacity > 0.0f) ? (stored / capacity) : 0.0f;
+
+        float barX = position.x - barWidth / 2.0f;
+        float barY = startY + i * barSpacing;
+
+        // Draw background bar (empty)
+        DrawRectangle(barX, barY, barWidth, barHeight, DARKGRAY);
+
+        // Draw filled portion (storage usage)
+        float filledWidth = barWidth * usage;
+        Color fillColor = usage > 0.8f ? RED : (usage > 0.5f ? ORANGE : GREEN);
+        DrawRectangle(barX, barY, filledWidth, barHeight, fillColor);
+
+        // Draw border
+        DrawRectangleLines(barX, barY, barWidth, barHeight, BLACK);
+
+        // Draw label and values
+        const char* label = TextFormat("%s: %.0f/%.0f", name, stored, capacity);
+        DrawText(label, barX, barY - 15, 12, BLACK);
     }
 }
 
@@ -253,4 +366,107 @@ void Sect::DrawTransparentRightPanel() {
             10,
             20,
             BLACK);
+}
+
+float Sect::GetStorageUsage(ResourceType type) const {
+    auto storageIt = resourceStorage.find(type);
+    auto capacityIt = storageCapacity.find(type);
+
+    if (storageIt == resourceStorage.end() || capacityIt == storageCapacity.end()) {
+        return 0.0f;
+    }
+
+    if (capacityIt->second <= 0.0f) {
+        return 0.0f;
+    }
+
+    return storageIt->second / capacityIt->second;
+}
+
+bool Sect::CanAcceptResource(ResourceType type, float amount) const {
+    auto storageIt = resourceStorage.find(type);
+    auto capacityIt = storageCapacity.find(type);
+
+    if (storageIt == resourceStorage.end() || capacityIt == storageCapacity.end()) {
+        return false;
+    }
+
+    return (storageIt->second + amount) <= capacityIt->second;
+}
+
+void Sect::PushSurplusToColony(class Colony* colony) {
+    if (!colony) return;
+
+    // Check each resource type for surplus
+    for (auto& [type, amount] : resourceStorage) {
+        float usage = GetStorageUsage(type);
+
+        // If storage is above threshold, push surplus to colony
+        if (usage > STORAGE_SURPLUS_THRESHOLD) {
+            auto capacityIt = storageCapacity.find(type);
+            if (capacityIt != storageCapacity.end()) {
+                // Calculate surplus amount (everything above 50% capacity)
+                float targetAmount = capacityIt->second * 0.5f;
+                float surplus = amount - targetAmount;
+
+                if (surplus > 0.0f) {
+                    // Try to send surplus to colony
+                    if (colony->ReceiveSurplus(type, surplus)) {
+                        // Successfully transferred, reduce local storage
+                        resourceStorage[type] -= surplus;
+                        std::cout << "Sect transferred " << surplus << " of resource "
+                                 << static_cast<int>(type) << " to colony reserves" << std::endl;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void Sect::LoadTextures() {
+    // Load dome texture for the central sect core
+    domeTexture = LoadTexture("src/assets/Unit_Thumbnails/Dome_off.png");
+    if (domeTexture.id == 0) {
+        std::cout << "Warning: Failed to load Dome_off.png, will use fallback rendering" << std::endl;
+    }
+
+    // Map unit type names to their texture file paths
+    std::map<std::string, std::string> textureFiles = {
+        {"Extraction", "src/assets/Unit_Thumbnails/extractionX256.png"},
+        {"Farming", "src/assets/Unit_Thumbnails/FarmX256.png"},
+        {"Energy", "src/assets/Unit_Thumbnails/powerX256.png"},
+        {"Manufacture", "src/assets/Unit_Thumbnails/manufacturingX256.png"},
+        {"Construction", "src/assets/Unit_Thumbnails/constructionUnitX256.png"},
+        {"Transport", "src/assets/Unit_Thumbnails/TransportX256.png"},
+        {"Research", "src/assets/Unit_Thumbnails/Researchx256.png"},
+        {"Communication", "src/assets/Unit_Thumbnails/commX256.png"}
+    };
+
+    // Load unit textures
+    for (const auto& pair : textureFiles) {
+        Texture2D tex = LoadTexture(pair.second.c_str());
+        if (tex.id == 0) {
+            std::cout << "Warning: Failed to load texture for " << pair.first
+                     << " from " << pair.second << ", will use fallback rendering" << std::endl;
+        } else {
+            unitTextures[pair.first] = tex;
+            std::cout << "Loaded texture for " << pair.first << std::endl;
+        }
+    }
+}
+
+void Sect::UnloadTextures() {
+    // Unload dome texture
+    if (domeTexture.id != 0) {
+        UnloadTexture(domeTexture);
+        domeTexture.id = 0;
+    }
+
+    // Unload all unit textures
+    for (auto& pair : unitTextures) {
+        if (pair.second.id != 0) {
+            UnloadTexture(pair.second);
+        }
+    }
+    unitTextures.clear();
 }

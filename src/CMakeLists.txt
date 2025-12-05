@@ -2,12 +2,20 @@ add_executable(colony_game)
 
 # Add all source files
 target_sources(colony_game PRIVATE
-    src/main.cpp
-    src/Colony/colony.cpp
-    src/Engine/Engine.cpp
-    src/Planet/planet.cpp
-    src/Sect/sect.cpp
-    src/Unit/unit.cpp
+    main.cpp
+    Colony/colony.cpp
+    Engine/Engine.cpp
+    Engine/inputmanager.cpp
+    Engine/viewmanager.cpp
+    Engine/gamemanager.cpp
+    Engine/rendermanager.cpp
+    Planet/planet.cpp
+    Sect/sect.cpp
+    Unit/unit.cpp
+    Unit/unit_ui.cpp
+    ResourceManager/resource_manager.cpp
+    TimeManager/time_manager.cpp
+    GameTypes/game_types_loader.cpp
 )
 
 # Set C++ standard
@@ -18,17 +26,20 @@ set_target_properties(colony_game PROPERTIES
 )
 
 # Include directories
-target_include_directories(colony_game PRIVATE 
+target_include_directories(colony_game PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/Colony"
     "${CMAKE_CURRENT_SOURCE_DIR}/Engine"
     "${CMAKE_CURRENT_SOURCE_DIR}/Planet"
     "${CMAKE_CURRENT_SOURCE_DIR}/Sect"
     "${CMAKE_CURRENT_SOURCE_DIR}/Unit"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
+    "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
 )
 
-# Link raylib
-target_link_libraries(colony_game raylib)
+# Link libraries
+target_link_libraries(colony_game raylib tomlplusplus::tomlplusplus)
 
 # Platform specific configurations
 if(NOT WIN32)

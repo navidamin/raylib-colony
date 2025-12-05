@@ -23,6 +23,11 @@ const float INITIAL_UNIT_SCIENCE = 20.0f;
 
 const float DEFAULT_SECT_SHARE = 0.2f;
 
+// Storage capacity constants
+const float SECT_BASE_STORAGE = 1000.0f;
+const float COLONY_BASE_RESERVES = 5000.0f;
+const float STORAGE_SURPLUS_THRESHOLD = 0.8f;  // Push to colony when 80% full
+
 const float DEFAULT_H2ExtractionRate = 0.05;
 const float DEFAULT_O2ExtractionRate = 0.05;
 const float DEFAULT_CExtractionRate = 0.05;
