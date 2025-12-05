@@ -44,6 +44,19 @@ cpmaddpackage(
         #5.5
         master # use up-to-date branch
 )
+
+## add tomlplusplus (3rd-party) https://github.com/marzer/tomlplusplus
+cpmaddpackage(
+        NAME
+        tomlplusplus
+        GITHUB_REPOSITORY
+        marzer/tomlplusplus
+        GIT_TAG
+        v3.4.0
+        OPTIONS
+        "BUILD_EXAMPLES OFF"
+        "BUILD_TESTS OFF"
+)
 target_compile_options(raylib PRIVATE $<$<C_COMPILER_ID:GNU,Clang>:-Wno-error=implicit-function-declaration>)
 target_compile_options(raylib PRIVATE $<$<C_COMPILER_ID:GNU,Clang>:-Wno-unused-result>)
 target_compile_options(raylib PRIVATE $<$<C_COMPILER_ID:GNU>:-Wno-stringop-overflow>)

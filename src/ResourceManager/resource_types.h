@@ -3,6 +3,8 @@
 
 #include <string>
 #include <map>
+#include <iostream>
+#include "raylib.h"
 
 enum class ResourceType {
     ENERGY,

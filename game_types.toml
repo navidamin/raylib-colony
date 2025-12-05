@@ -1,0 +1,327 @@
+# game_types.toml
+# Game Type Definitions for Colony Game
+# This file defines all resources, units, and modules used in the game
+# Last updated: 2025-11-09
+
+# =============================================================================
+# RESOURCE TYPES
+# =============================================================================
+
+[resource_types.singular]
+# Natural/Raw Resources
+H2 = { display_name = "Hydrogen", color = "#9696FF", category = "raw", base_value = 1.0 }
+O2 = { display_name = "Oxygen", color = "#FF9696", category = "raw", base_value = 1.0 }
+C = { display_name = "Carbon", color = "#646464", category = "raw", base_value = 1.0 }
+Fe = { display_name = "Iron", color = "#8B4513", category = "raw", base_value = 1.2 }
+Si = { display_name = "Silicon", color = "#90B494", category = "raw", base_value = 1.1 }
+
+# Processed Resources
+WATER = { display_name = "Water", color = "#0099FF", category = "processed", base_value = 3.0 }
+FOOD = { display_name = "Food", color = "#00FF00", category = "processed", base_value = 4.0 }
+BIOFUEL = { display_name = "Biofuel", color = "#AAFF00", category = "processed", base_value = 3.5 }
+
+# Meta Resources
+ENERGY = { display_name = "Energy", color = "#FFFF00", category = "meta", base_value = 2.0 }
+SCIENCE = { display_name = "Science", color = "#00FFFF", category = "meta", base_value = 5.0 }
+MANPOWER = { display_name = "Manpower", color = "#FFA500", category = "meta", base_value = 3.0 }
+
+[resource_types.typed]
+# Typed/Artifact Resources (have variants)
+
+[resource_types.typed.MACHINERY]
+display_name = "Machinery"
+variants = ["HeavyDrill", "Conveyor", "RoboticArm"]
+asset_prefix = "assets/machinery/"
+
+[resource_types.typed.MACHINERY.base_cost]
+Fe = 10.0
+Si = 5.0
+ENERGY = 20.0
+
+[resource_types.typed.ELECTRONICS]
+display_name = "Electronics"
+variants = ["BasicCircuit", "AdvancedProcessor", "QuantumCore"]
+asset_prefix = "assets/electronics/"
+
+[resource_types.typed.ELECTRONICS.base_cost]
+Si = 15.0
+C = 5.0
+ENERGY = 30.0
+
+# =============================================================================
+# UNIT TYPES
+# =============================================================================
+
+[unit_types.Extraction]
+display_name = "Extraction Facility"
+construction_time = 120.0
+modules = ["H2Extractor", "O2Extractor", "MiningDrill"]
+asset_directory = "assets/units/Extraction/"
+unit_asset_file = "unit.png"
+strategy_class = "ExtractionStrategy"
+
+[unit_types.Extraction.base_cost]
+Fe = 50.0
+ENERGY = 100.0
+
+[unit_types.Farming]
+display_name = "Agricultural Complex"
+construction_time = 90.0
+modules = ["Hydroponics", "Greenhouse", "BioreactorSystem"]
+asset_directory = "assets/units/Farming/"
+unit_asset_file = "unit.png"
+strategy_class = "FarmingStrategy"
+
+[unit_types.Farming.base_cost]
+C = 30.0
+WATER = 50.0
+ENERGY = 80.0
+
+[unit_types.Energy]
+display_name = "Power Generation"
+construction_time = 150.0
+modules = ["SolarArray", "NuclearReactor", "GeothermalPlant"]
+asset_directory = "assets/units/Energy/"
+unit_asset_file = "unit.png"
+strategy_class = "EnergyStrategy"
+
+[unit_types.Energy.base_cost]
+Fe = 60.0
+Si = 40.0
+ENERGY = 50.0
+
+[unit_types.Research]
+display_name = "Research Laboratory"
+construction_time = 200.0
+modules = ["BasicLab", "ComputingCenter", "ExperimentalFacility"]
+asset_directory = "assets/units/Research/"
+unit_asset_file = "unit.png"
+strategy_class = "ResearchStrategy"
+
+[unit_types.Research.base_cost]
+Si = 80.0
+C = 40.0
+ENERGY = 150.0
+
+[unit_types.Manufacture]
+display_name = "Manufacturing Plant"
+construction_time = 180.0
+modules = ["Refinery", "AssemblyLine", "Factory"]
+asset_directory = "assets/units/Manufacture/"
+unit_asset_file = "unit.png"
+strategy_class = "ManufactureStrategy"
+
+[unit_types.Manufacture.base_cost]
+Fe = 100.0
+Si = 50.0
+ENERGY = 120.0
+
+# =============================================================================
+# MODULE DEFINITIONS
+# =============================================================================
+
+# --- Extraction Modules ---
+
+[modules.H2Extractor]
+display_name = "H2 Extraction Module"
+description = "Extracts hydrogen from the planet surface"
+asset_file = "H2Extractor.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.5
+max_level = 10
+
+[modules.H2Extractor.production]
+H2 = 1.0
+
+[modules.H2Extractor.consumption]
+ENERGY = 1.0
+
+[modules.O2Extractor]
+display_name = "O2 Extraction Module"
+description = "Extracts oxygen from the atmosphere"
+asset_file = "O2Extractor.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.5
+max_level = 10
+
+[modules.O2Extractor.production]
+O2 = 1.0
+
+[modules.O2Extractor.consumption]
+ENERGY = 1.0
+
+[modules.MiningDrill]
+display_name = "Mining Drill Module"
+description = "Extracts solid minerals (Fe, Si, C)"
+asset_file = "MiningDrill.png"
+base_efficiency = 0.8
+upgrade_cost_multiplier = 1.6
+max_level = 15
+
+[modules.MiningDrill.production]
+Fe = 0.5
+Si = 0.3
+C = 0.4
+
+[modules.MiningDrill.consumption]
+ENERGY = 2.0
+MANPOWER = 0.5
+
+# --- Farming Modules ---
+
+[modules.Hydroponics]
+display_name = "Hydroponic Farm"
+description = "Produces food using water-based cultivation"
+asset_file = "Hydroponics.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.3
+max_level = 15
+
+[modules.Hydroponics.production]
+FOOD = 2.0
+
+[modules.Hydroponics.consumption]
+WATER = 0.5
+ENERGY = 0.2
+MANPOWER = 0.3
+
+[modules.Greenhouse]
+display_name = "Greenhouse"
+description = "Advanced agricultural facility"
+asset_file = "Greenhouse.png"
+base_efficiency = 1.2
+upgrade_cost_multiplier = 1.4
+max_level = 12
+
+[modules.Greenhouse.production]
+FOOD = 3.0
+
+[modules.Greenhouse.consumption]
+WATER = 0.8
+ENERGY = 0.5
+MANPOWER = 0.4
+
+[modules.BioreactorSystem]
+display_name = "Bioreactor System"
+description = "Converts organic matter to biofuel"
+asset_file = "BioreactorSystem.png"
+base_efficiency = 0.9
+upgrade_cost_multiplier = 1.5
+max_level = 10
+
+[modules.BioreactorSystem.production]
+BIOFUEL = 1.5
+
+[modules.BioreactorSystem.consumption]
+WATER = 0.5
+FOOD = 1.0
+ENERGY = 0.3
+
+# --- Energy Modules ---
+
+[modules.SolarArray]
+display_name = "Solar Array"
+description = "Generates energy from solar radiation"
+asset_file = "SolarArray.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.2
+max_level = 20
+
+[modules.SolarArray.production]
+ENERGY = 5.0
+
+[modules.SolarArray.consumption]
+MANPOWER = 0.1
+
+[modules.NuclearReactor]
+display_name = "Nuclear Reactor"
+description = "High-output nuclear power generation"
+asset_file = "NuclearReactor.png"
+base_efficiency = 1.5
+upgrade_cost_multiplier = 2.0
+max_level = 8
+
+[modules.NuclearReactor.production]
+ENERGY = 20.0
+
+[modules.NuclearReactor.consumption]
+MANPOWER = 1.0
+
+[modules.GeothermalPlant]
+display_name = "Geothermal Plant"
+description = "Extracts energy from planetary heat"
+asset_file = "GeothermalPlant.png"
+base_efficiency = 1.1
+upgrade_cost_multiplier = 1.7
+max_level = 12
+
+[modules.GeothermalPlant.production]
+ENERGY = 10.0
+
+[modules.GeothermalPlant.consumption]
+MANPOWER = 0.5
+
+# --- Research Modules ---
+
+[modules.BasicLab]
+display_name = "Basic Laboratory"
+description = "Conducts fundamental research"
+asset_file = "BasicLab.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.8
+max_level = 10
+
+[modules.BasicLab.production]
+SCIENCE = 1.0
+
+[modules.BasicLab.consumption]
+ENERGY = 2.0
+MANPOWER = 1.0
+
+[modules.ComputingCenter]
+display_name = "Computing Center"
+description = "Advanced computational research"
+asset_file = "ComputingCenter.png"
+base_efficiency = 1.3
+upgrade_cost_multiplier = 2.0
+max_level = 8
+
+[modules.ComputingCenter.production]
+SCIENCE = 3.0
+
+[modules.ComputingCenter.consumption]
+ENERGY = 5.0
+MANPOWER = 2.0
+
+# --- Manufacturing Modules ---
+
+[modules.Refinery]
+display_name = "Refinery"
+description = "Processes raw materials"
+asset_file = "Refinery.png"
+base_efficiency = 1.0
+upgrade_cost_multiplier = 1.5
+max_level = 12
+
+[modules.Refinery.production]
+WATER = 2.0
+
+[modules.Refinery.consumption]
+H2 = 1.0
+O2 = 0.5
+ENERGY = 1.5
+MANPOWER = 0.5
+
+[modules.AssemblyLine]
+display_name = "Assembly Line"
+description = "Manufactures complex goods"
+asset_file = "AssemblyLine.png"
+base_efficiency = 0.9
+upgrade_cost_multiplier = 1.8
+max_level = 10
+
+[modules.AssemblyLine.consumption]
+Fe = 2.0
+Si = 1.0
+ENERGY = 3.0
+MANPOWER = 1.5
