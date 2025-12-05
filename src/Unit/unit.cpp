@@ -450,38 +450,48 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
     for (int moduleIndex : activeModuleIndices) {
         UnitModule& module = modules[moduleIndex];
 
-        // Check if we have enough resources for this module's consumption
-        bool canProcess = true;
+        // Calculate efficiency based on resource availability (graceful degradation)
+        float efficiencyMultiplier = 1.0f;
+
         for (const auto& [type, rate] : module.consumptionRates) {
+            if (rate <= 0.0f) continue;
+
             float required = rate * deltaTime;
-            if (resourceStorage[type] < required) {
-                canProcess = false;
-                std::cout << "Module " << moduleIndex << " (" << module.name
-                         << "): Not enough resource " << static_cast<int>(type)
-                         << ". Required: " << required
-                         << ", Available: " << resourceStorage[type] << std::endl;
-                break;
+            float available = resourceStorage[type];
+
+            if (available < required) {
+                // Calculate what percentage we can operate at
+                float resourceRatio = available / required;
+                efficiencyMultiplier = std::min(efficiencyMultiplier, resourceRatio);
             }
         }
 
-        if (!canProcess) {
-            // Skip this module if resources are insufficient
+        // Apply minimum efficiency floor (50% when degraded, 0% if nothing available)
+        if (efficiencyMultiplier < 1.0f && efficiencyMultiplier > 0.0f) {
+            // Degraded mode: operate at reduced efficiency (minimum 50% of calculated)
+            efficiencyMultiplier = std::max(0.5f * efficiencyMultiplier + 0.5f * 1.0f, efficiencyMultiplier);
+            // This gives a smoother curve: 0% resources = 50% efficiency, 50% = 75%, 100% = 100%
+        }
+
+        if (efficiencyMultiplier <= 0.0f) {
+            // No resources at all - skip this module
             continue;
         }
 
-        // Consume resources for this module
+        // Consume resources proportional to efficiency
         for (const auto& [type, rate] : module.consumptionRates) {
-            resourceStorage[type] -= rate * deltaTime;
+            float consumption = rate * deltaTime * efficiencyMultiplier;
+            resourceStorage[type] = std::max(0.0f, resourceStorage[type] - consumption);
         }
 
-        // Handle production based on unit type
+        // Handle production based on unit type (scaled by efficiency)
         if (unit_type == "Extraction") {
-            ProcessExtraction(deltaTime, resourceManager);
+            ProcessExtraction(deltaTime * efficiencyMultiplier, resourceManager);
         }
         else {
-            // Normal production for other unit types
+            // Normal production for other unit types (scaled by efficiency)
             for (const auto& [type, rate] : module.productionRates) {
-                AddResource(type, rate * deltaTime);
+                AddResource(type, rate * deltaTime * efficiencyMultiplier);
             }
         }
     }

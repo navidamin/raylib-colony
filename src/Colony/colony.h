@@ -38,6 +38,7 @@ public:
     // Resource management (singular)
     bool ReceiveSurplus(ResourceType type, float amount);
     bool CanAcceptResource(ResourceType type, float amount) const;
+    float ProvideResource(ResourceType type, float requestedAmount);  // Returns actual amount provided
 
     // Typed resource management
     bool AddTypedReserve(const TypedResource& resource);

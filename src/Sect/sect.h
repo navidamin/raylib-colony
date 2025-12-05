@@ -52,7 +52,9 @@ public:
 
     // Resource management methods
     void PushSurplusToColony(class Colony* colony);
+    void PullDeficitFromColony(class Colony* colony);
     bool CanAcceptResource(ResourceType type, float amount) const;
+    bool IsDeficit(ResourceType type) const;
 
     // Typed resource management
     bool AddTypedResource(const TypedResource& resource);

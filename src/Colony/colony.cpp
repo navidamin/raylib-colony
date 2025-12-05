@@ -52,10 +52,17 @@ void Colony::BuildRoad(Sect* sect_a, Sect* sect_b) {
 }
 
 void Colony::ManageResources() {
-    // Push surplus from each sect to colony reserves
+    // First: sects push surplus to colony reserves
     for (auto* sect : sects) {
         if (sect) {
             sect->PushSurplusToColony(this);
+        }
+    }
+
+    // Second: sects pull deficit from colony reserves
+    for (auto* sect : sects) {
+        if (sect) {
+            sect->PullDeficitFromColony(this);
         }
     }
 }
@@ -206,6 +213,23 @@ bool Colony::ReceiveSurplus(ResourceType type, float amount) {
     std::cout << "Colony received " << amount << " of resource "
              << static_cast<int>(type) << " (Total: " << strategicReserves[type] << ")" << std::endl;
     return true;
+}
+
+float Colony::ProvideResource(ResourceType type, float requestedAmount) {
+    auto it = strategicReserves.find(type);
+    if (it == strategicReserves.end() || it->second <= 0.0f) {
+        return 0.0f;  // No reserves available
+    }
+
+    // Provide what we can (up to requested amount)
+    float available = it->second;
+    float provided = std::min(available, requestedAmount);
+
+    strategicReserves[type] -= provided;
+    std::cout << "Colony provided " << provided << " of "
+             << ResourceTypeToString(type) << " (Remaining: " << strategicReserves[type] << ")" << std::endl;
+
+    return provided;
 }
 
 // Typed resource methods

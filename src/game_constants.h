@@ -27,6 +27,8 @@ const float DEFAULT_SECT_SHARE = 0.2f;
 const float SECT_BASE_STORAGE = 1000.0f;
 const float COLONY_BASE_RESERVES = 5000.0f;
 const float STORAGE_SURPLUS_THRESHOLD = 0.8f;  // Push to colony when 80% full
+const float STORAGE_DEFICIT_THRESHOLD = 0.1f;  // Pull from colony when below 10%
+const float DEFICIT_REQUEST_AMOUNT = 0.3f;     // Request enough to fill to 30%
 
 // Manpower constants (constant per sect)
 const float SECT_BASE_MANPOWER = 10.0f;           // Fixed manpower available per sect

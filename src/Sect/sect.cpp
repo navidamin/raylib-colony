@@ -424,6 +424,36 @@ void Sect::PushSurplusToColony(class Colony* colony) {
     }
 }
 
+void Sect::PullDeficitFromColony(class Colony* colony) {
+    if (!colony) return;
+
+    // Check each resource type for deficit
+    for (auto& [type, amount] : resourceStorage) {
+        if (IsDeficit(type)) {
+            auto capacityIt = storageCapacity.find(type);
+            if (capacityIt != storageCapacity.end()) {
+                // Calculate how much we need to reach target (30%)
+                float targetAmount = capacityIt->second * DEFICIT_REQUEST_AMOUNT;
+                float needed = targetAmount - amount;
+
+                if (needed > 0.0f) {
+                    // Request from colony
+                    float received = colony->ProvideResource(type, needed);
+                    if (received > 0.0f) {
+                        resourceStorage[type] += received;
+                        std::cout << "Sect received " << received << " of "
+                                 << ResourceTypeToString(type) << " from colony" << std::endl;
+                    }
+                }
+            }
+        }
+    }
+}
+
+bool Sect::IsDeficit(ResourceType type) const {
+    return GetStorageUsage(type) < STORAGE_DEFICIT_THRESHOLD;
+}
+
 void Sect::LoadTextures() {
     // Load dome texture for the central sect core
     domeTexture = LoadTexture("src/assets/Unit_Thumbnails/Dome_off.png");
