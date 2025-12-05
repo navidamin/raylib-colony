@@ -4,7 +4,9 @@
 #include "raylib.h"
 #include <vector>
 #include <utility>
+#include <map>
 #include "sect.h"
+#include "resource_types.h"
 
 class Colony {
 public:
@@ -24,6 +26,13 @@ public:
     Vector2 GetCentroid() const {return centroid;}
     float GetRadius() const {return jurisdiction_radius;}
     const std::vector<Sect*>& GetSects() const {return sects;}
+    const std::map<ResourceType, float>& GetStrategicReserves() const {return strategicReserves;}
+    const std::map<ResourceType, float>& GetReserveCapacity() const {return reserveCapacity;}
+    float GetReserveUsage(ResourceType type) const;
+
+    // Resource management
+    bool ReceiveSurplus(ResourceType type, float amount);
+    bool CanAcceptResource(ResourceType type, float amount) const;
 
 
 
@@ -35,6 +44,9 @@ private:
     std::vector<std::pair<Sect*, Sect*>> roads;
     int research_level;
 
+    // Strategic resource reserves
+    std::map<ResourceType, float> strategicReserves;
+    std::map<ResourceType, float> reserveCapacity;
 
     // Add transport_network when implemented
 };

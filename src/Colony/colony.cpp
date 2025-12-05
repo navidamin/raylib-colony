@@ -4,6 +4,30 @@
 Colony::Colony() : jurisdiction_radius(SECT_CORE_RADIUS*4),
     research_level(0)
 {
+    // Initialize strategic reserves to 0
+    strategicReserves[ResourceType::H2] = 0.0f;
+    strategicReserves[ResourceType::O2] = 0.0f;
+    strategicReserves[ResourceType::C] = 0.0f;
+    strategicReserves[ResourceType::Fe] = 0.0f;
+    strategicReserves[ResourceType::Si] = 0.0f;
+    strategicReserves[ResourceType::ENERGY] = 0.0f;
+    strategicReserves[ResourceType::WATER] = 0.0f;
+    strategicReserves[ResourceType::FOOD] = 0.0f;
+    strategicReserves[ResourceType::SCIENCE] = 0.0f;
+    strategicReserves[ResourceType::MANPOWER] = 0.0f;
+
+    // Initialize reserve capacities
+    reserveCapacity[ResourceType::H2] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::O2] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::C] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::Fe] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::Si] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::ENERGY] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::WATER] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::FOOD] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::SCIENCE] = COLONY_BASE_RESERVES;
+    reserveCapacity[ResourceType::MANPOWER] = COLONY_BASE_RESERVES;
+
     CalculateCentroid();
     CalculateRadius();
 }
@@ -28,8 +52,12 @@ void Colony::BuildRoad(Sect* sect_a, Sect* sect_b) {
 }
 
 void Colony::ManageResources() {
-    // TODO: Implement resource management logic
-    std::cout << "Colony resources managed." << std::endl;
+    // Push surplus from each sect to colony reserves
+    for (auto* sect : sects) {
+        if (sect) {
+            sect->PushSurplusToColony(this);
+        }
+    }
 }
 
 void Colony::UnlockResearch() {
@@ -45,11 +73,10 @@ void Colony::Draw(Camera2D& camera) {
 //    Vector2 screenCenter = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
 //    Vector2 translation = { screenCenter.x - centroid.x, screenCenter.y - centroid.y };
 
-    float scale = camera.zoom;
     // Draw each sect inside the colony
     for (const auto& sect : sects) {
         Vector2 worldPos = sect->GetPosition();  // This should already be in world coordinates
-        sect->DrawInColonyView(worldPos, scale);
+        sect->DrawInColonyView(worldPos);
         DrawText(TextFormat("R_c: %f", GetRadius()), worldPos.x-10, worldPos.y-20, 20, GRAY);
 
     }
@@ -141,5 +168,43 @@ void Colony::CalculateRadius() {
         maxDistance = std::max(maxDistance, distance);
     }
     jurisdiction_radius = maxDistance + SECT_CORE_RADIUS * 2;
+}
+
+float Colony::GetReserveUsage(ResourceType type) const {
+    auto reserveIt = strategicReserves.find(type);
+    auto capacityIt = reserveCapacity.find(type);
+
+    if (reserveIt == strategicReserves.end() || capacityIt == reserveCapacity.end()) {
+        return 0.0f;
+    }
+
+    if (capacityIt->second <= 0.0f) {
+        return 0.0f;
+    }
+
+    return reserveIt->second / capacityIt->second;
+}
+
+bool Colony::CanAcceptResource(ResourceType type, float amount) const {
+    auto reserveIt = strategicReserves.find(type);
+    auto capacityIt = reserveCapacity.find(type);
+
+    if (reserveIt == strategicReserves.end() || capacityIt == reserveCapacity.end()) {
+        return false;
+    }
+
+    return (reserveIt->second + amount) <= capacityIt->second;
+}
+
+bool Colony::ReceiveSurplus(ResourceType type, float amount) {
+    if (!CanAcceptResource(type, amount)) {
+        std::cout << "Colony reserves full for resource " << static_cast<int>(type) << std::endl;
+        return false;
+    }
+
+    strategicReserves[type] += amount;
+    std::cout << "Colony received " << amount << " of resource "
+             << static_cast<int>(type) << " (Total: " << strategicReserves[type] << ")" << std::endl;
+    return true;
 }
 
