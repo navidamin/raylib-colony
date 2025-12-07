@@ -55,6 +55,11 @@ public:
     void PullDeficitFromColony(class Colony* colony);
     bool CanAcceptResource(ResourceType type, float amount) const;
     bool IsDeficit(ResourceType type) const;
+    bool IsSurplus(ResourceType type) const;
+    float GetResourceStorage(ResourceType type) const;
+    float GetStorageCapacity(ResourceType type) const;
+    void AddResource(ResourceType type, float amount);
+    void ConsumeResource(ResourceType type, float amount);
 
     // Typed resource management
     bool AddTypedResource(const TypedResource& resource);

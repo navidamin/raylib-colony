@@ -47,8 +47,9 @@ void Colony::AddSect(Sect* sect) {
 
 
 void Colony::BuildRoad(Sect* sect_a, Sect* sect_b) {
-    roads.push_back(std::make_pair(sect_a, sect_b));
-    std::cout << "New road built between sects." << std::endl;
+    roads.emplace_back(sect_a, sect_b);
+    std::cout << "New road built between sects. Length: " << roads.back().length
+              << ", Travel time: " << roads.back().travelTime << "s" << std::endl;
 }
 
 void Colony::ManageResources() {
@@ -308,5 +309,168 @@ int Colony::GetTotalTypedReserveCount(ResourceType type) const {
         return 0;
     }
     return static_cast<int>(it->second.size());
+}
+
+
+// Transport management methods
+
+Road* Colony::GetRoad(Sect* sectA, Sect* sectB) {
+    for (auto& road : roads) {
+        if ((road.sectA == sectA && road.sectB == sectB) ||
+            (road.sectA == sectB && road.sectB == sectA)) {
+            return &road;
+        }
+    }
+    return nullptr;
+}
+
+void Colony::SetRoadTransportMode(Road* road, TransportMode mode) {
+    if (road) {
+        road->mode = mode;
+        std::cout << "Road transport mode set to " << static_cast<int>(mode) << std::endl;
+    }
+}
+
+void Colony::CreateTransportJob(Sect* source, Sect* dest, ResourceType type, float amount) {
+    Road* road = GetRoad(source, dest);
+    if (!road) {
+        std::cout << "Error: No road exists between these sects" << std::endl;
+        return;
+    }
+
+    // Cap amount to packet size
+    float actualAmount = std::min(amount, TRANSPORT_PACKET_SIZE);
+
+    // Check if source has enough resources
+    float available = source->GetResourceStorage(type);
+    if (available < actualAmount) {
+        actualAmount = available;
+    }
+
+    if (actualAmount <= 0.0f) {
+        return;  // Nothing to transport
+    }
+
+    // Remove resources from source
+    source->ConsumeResource(type, actualAmount);
+
+    // Create the job
+    transportJobs.emplace_back(road, source, dest, type, actualAmount);
+    transportJobs.back().status = TransportStatus::IN_TRANSIT;
+
+    std::cout << "Transport job created: " << actualAmount << " of "
+              << ResourceTypeToString(type) << " from sect to sect" << std::endl;
+}
+
+void Colony::ProcessTransportJobs(float deltaTime) {
+    // Update all in-transit jobs
+    for (auto& job : transportJobs) {
+        job.Update(deltaTime);
+    }
+
+    // Process completed jobs and deliver resources
+    for (auto it = transportJobs.begin(); it != transportJobs.end(); ) {
+        if (it->status == TransportStatus::COMPLETED) {
+            // Deliver resources to destination
+            if (it->destination) {
+                it->destination->AddResource(it->resourceType, it->amount);
+                std::cout << "Transport completed: " << it->amount << " of "
+                          << ResourceTypeToString(it->resourceType) << " delivered" << std::endl;
+            }
+            it = transportJobs.erase(it);
+        }
+        else if (it->status == TransportStatus::CANCELLED) {
+            // Return resources to source on cancellation
+            if (it->source) {
+                it->source->AddResource(it->resourceType, it->amount);
+            }
+            it = transportJobs.erase(it);
+        }
+        else {
+            ++it;
+        }
+    }
+
+    // Process automatic transport modes
+    ProcessAutoBalance();
+    ProcessDeficitTriggered();
+}
+
+void Colony::ProcessAutoBalance() {
+    // For roads in AUTO_BALANCE mode, balance resources between connected sects
+    for (auto& road : roads) {
+        if (road.mode != TransportMode::AUTO_BALANCE || !road.sectA || !road.sectB) {
+            continue;
+        }
+
+        // Check each resource type
+        for (int i = 0; i < static_cast<int>(ResourceType::MANPOWER); ++i) {
+            ResourceType type = static_cast<ResourceType>(i);
+
+            float storageA = road.sectA->GetResourceStorage(type);
+            float storageB = road.sectB->GetResourceStorage(type);
+            float capacityA = road.sectA->GetStorageCapacity(type);
+            float capacityB = road.sectB->GetStorageCapacity(type);
+
+            if (capacityA <= 0.0f || capacityB <= 0.0f) continue;
+
+            float ratioA = storageA / capacityA;
+            float ratioB = storageB / capacityB;
+            float difference = ratioA - ratioB;
+
+            // Only balance if difference exceeds threshold
+            if (std::abs(difference) > AUTO_BALANCE_THRESHOLD) {
+                Sect* source = (difference > 0) ? road.sectA : road.sectB;
+                Sect* dest = (difference > 0) ? road.sectB : road.sectA;
+
+                // Calculate transfer amount to balance (simplified)
+                float avgRatio = (ratioA + ratioB) / 2.0f;
+                float targetA = capacityA * avgRatio;
+                float transferAmount = (storageA - targetA);
+
+                if (transferAmount > 0 && source == road.sectA) {
+                    CreateTransportJob(source, dest, type, std::min(transferAmount, TRANSPORT_PACKET_SIZE));
+                }
+                else if (transferAmount < 0 && source == road.sectB) {
+                    CreateTransportJob(source, dest, type, std::min(-transferAmount, TRANSPORT_PACKET_SIZE));
+                }
+            }
+        }
+    }
+}
+
+void Colony::ProcessDeficitTriggered() {
+    // For roads in DEFICIT_TRIGGERED mode, transport when destination is in deficit
+    for (auto& road : roads) {
+        if (road.mode != TransportMode::DEFICIT_TRIGGERED || !road.sectA || !road.sectB) {
+            continue;
+        }
+
+        // Check each resource type for deficits
+        for (int i = 0; i < static_cast<int>(ResourceType::MANPOWER); ++i) {
+            ResourceType type = static_cast<ResourceType>(i);
+
+            // Check if sectA is in deficit and sectB has surplus (or vice versa)
+            bool deficitA = road.sectA->IsDeficit(type);
+            bool deficitB = road.sectB->IsDeficit(type);
+            bool surplusA = road.sectA->IsSurplus(type);
+            bool surplusB = road.sectB->IsSurplus(type);
+
+            if (deficitA && surplusB) {
+                float needed = road.sectA->GetStorageCapacity(type) * DEFICIT_REQUEST_AMOUNT -
+                              road.sectA->GetResourceStorage(type);
+                if (needed > 0) {
+                    CreateTransportJob(road.sectB, road.sectA, type, std::min(needed, TRANSPORT_PACKET_SIZE));
+                }
+            }
+            else if (deficitB && surplusA) {
+                float needed = road.sectB->GetStorageCapacity(type) * DEFICIT_REQUEST_AMOUNT -
+                              road.sectB->GetResourceStorage(type);
+                if (needed > 0) {
+                    CreateTransportJob(road.sectA, road.sectB, type, std::min(needed, TRANSPORT_PACKET_SIZE));
+                }
+            }
+        }
+    }
 }
 

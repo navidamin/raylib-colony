@@ -7,6 +7,7 @@
 #include <map>
 #include "sect.h"
 #include "resource_types.h"
+#include "transport_types.h"
 
 class Colony {
 public:
@@ -45,6 +46,15 @@ public:
     bool RemoveTypedReserve(ResourceType type, const std::string& subtype);
     bool HasTypedReserve(ResourceType type, const std::string& subtype) const;
 
+    // Transport management
+    Road* GetRoad(Sect* sectA, Sect* sectB);
+    const std::vector<Road>& GetRoads() const { return roads; }
+    const std::vector<TransportJob>& GetTransportJobs() const { return transportJobs; }
+    void SetRoadTransportMode(Road* road, TransportMode mode);
+    void CreateTransportJob(Sect* source, Sect* dest, ResourceType type, float amount);
+    void ProcessTransportJobs(float deltaTime);
+    void ProcessAutoBalance();
+    void ProcessDeficitTriggered();
 
 
 private:
@@ -52,7 +62,8 @@ private:
     Vector2 centroid;
     float jurisdiction_radius;
     std::map<std::string, int> available_resources;
-    std::vector<std::pair<Sect*, Sect*>> roads;
+    std::vector<Road> roads;
+    std::vector<TransportJob> transportJobs;
     int research_level;
 
     // Strategic resource reserves (singular resources)
@@ -62,8 +73,6 @@ private:
     // Typed resource reserves (MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS)
     std::map<ResourceType, std::vector<TypedResource>> typedReserves;
     static const int TYPED_RESERVE_CAPACITY = 100;  // Max items per type at colony level
-
-    // Add transport_network when implemented
 };
 
 #endif // COLONY_H

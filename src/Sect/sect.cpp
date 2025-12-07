@@ -454,6 +454,37 @@ bool Sect::IsDeficit(ResourceType type) const {
     return GetStorageUsage(type) < STORAGE_DEFICIT_THRESHOLD;
 }
 
+bool Sect::IsSurplus(ResourceType type) const {
+    return GetStorageUsage(type) > STORAGE_SURPLUS_THRESHOLD;
+}
+
+float Sect::GetResourceStorage(ResourceType type) const {
+    auto it = resourceStorage.find(type);
+    return (it != resourceStorage.end()) ? it->second : 0.0f;
+}
+
+float Sect::GetStorageCapacity(ResourceType type) const {
+    auto it = storageCapacity.find(type);
+    return (it != storageCapacity.end()) ? it->second : 0.0f;
+}
+
+void Sect::AddResource(ResourceType type, float amount) {
+    auto storageIt = resourceStorage.find(type);
+    auto capacityIt = storageCapacity.find(type);
+
+    if (storageIt != resourceStorage.end() && capacityIt != storageCapacity.end()) {
+        float newAmount = storageIt->second + amount;
+        resourceStorage[type] = std::min(newAmount, capacityIt->second);
+    }
+}
+
+void Sect::ConsumeResource(ResourceType type, float amount) {
+    auto it = resourceStorage.find(type);
+    if (it != resourceStorage.end()) {
+        resourceStorage[type] = std::max(0.0f, it->second - amount);
+    }
+}
+
 void Sect::LoadTextures() {
     // Load dome texture for the central sect core
     domeTexture = LoadTexture("src/assets/Unit_Thumbnails/Dome_off.png");
