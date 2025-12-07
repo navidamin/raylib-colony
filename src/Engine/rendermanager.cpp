@@ -154,10 +154,16 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
             );
         }
 */
+        // Draw roads between sects (behind sects)
+        DrawRoads(colony);
+
         // Draw all sects in the current colony
         for (const auto& sect : colony->GetSects()) {
             sect->DrawInColonyView(sect->GetPosition());
         }
+
+        // Draw transport packets on roads (in front of sects)
+        DrawTransportPackets(colony);
     }
 
     // Show the resource map if TAB is held
@@ -434,4 +440,106 @@ void RenderManager::UnloadMoonTiles() {
         }
     }
     tilesLoaded = false;
+}
+
+
+// Transport visualization functions
+
+void RenderManager::DrawDashedLine(Vector2 start, Vector2 end, float dashLength, float gapLength,
+                                   float thickness, Color color) {
+    float dx = end.x - start.x;
+    float dy = end.y - start.y;
+    float distance = sqrtf(dx*dx + dy*dy);
+
+    if (distance < 0.001f) return;
+
+    // Normalize direction
+    float nx = dx / distance;
+    float ny = dy / distance;
+
+    float currentPos = 0.0f;
+    bool drawing = true;
+
+    while (currentPos < distance) {
+        float segmentLength = drawing ? dashLength : gapLength;
+        float endPos = std::min(currentPos + segmentLength, distance);
+
+        if (drawing) {
+            Vector2 segStart = {
+                start.x + nx * currentPos,
+                start.y + ny * currentPos
+            };
+            Vector2 segEnd = {
+                start.x + nx * endPos,
+                start.y + ny * endPos
+            };
+            DrawLineEx(segStart, segEnd, thickness, color);
+        }
+
+        currentPos = endPos;
+        drawing = !drawing;
+    }
+}
+
+void RenderManager::DrawRoads(Colony* colony) {
+    if (!colony) return;
+
+    const auto& roads = colony->GetRoads();
+
+    for (const auto& road : roads) {
+        if (!road.sectA || !road.sectB || !road.isConstructed) continue;
+
+        Vector2 posA = road.sectA->GetPosition();
+        Vector2 posB = road.sectB->GetPosition();
+
+        // Choose color based on transport mode
+        Color roadColor;
+        switch (road.mode) {
+            case TransportMode::AUTO_BALANCE:
+                roadColor = ColorAlpha(BLUE, 0.7f);
+                break;
+            case TransportMode::MANUAL:
+                roadColor = ColorAlpha(YELLOW, 0.7f);
+                break;
+            case TransportMode::DEFICIT_TRIGGERED:
+                roadColor = ColorAlpha(ORANGE, 0.7f);
+                break;
+            default:
+                roadColor = ColorAlpha(GRAY, 0.7f);
+        }
+
+        // Draw dashed road
+        DrawDashedLine(posA, posB, 15.0f, 8.0f, 3.0f, roadColor);
+
+        // Draw small indicators at road endpoints
+        DrawCircleV(posA, 5.0f, roadColor);
+        DrawCircleV(posB, 5.0f, roadColor);
+    }
+}
+
+void RenderManager::DrawTransportPackets(Colony* colony) {
+    if (!colony) return;
+
+    const auto& jobs = colony->GetTransportJobs();
+
+    for (const auto& job : jobs) {
+        if (job.status != TransportStatus::IN_TRANSIT) continue;
+
+        Vector2 packetPos = job.GetCurrentPosition();
+
+        // Get resource color for packet
+        Color packetColor = ResourceUtils::GetResourceColor(job.resourceType);
+
+        // Draw the packet as a colored circle with a ring
+        float packetRadius = 8.0f;
+        DrawCircleV(packetPos, packetRadius, packetColor);
+        DrawCircleLinesV(packetPos, packetRadius + 2.0f, WHITE);
+
+        // Draw small progress indicator
+        float progressWidth = 20.0f;
+        float progressHeight = 4.0f;
+        Vector2 progressPos = {packetPos.x - progressWidth/2.0f, packetPos.y - packetRadius - 8.0f};
+        DrawRectangle(progressPos.x, progressPos.y, progressWidth, progressHeight, DARKGRAY);
+        DrawRectangle(progressPos.x, progressPos.y, progressWidth * job.progress, progressHeight, GREEN);
+    }
 }

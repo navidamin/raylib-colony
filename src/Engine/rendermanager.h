@@ -9,6 +9,7 @@
 #include "unit.h"
 #include "time_manager.h"
 #include "inputmanager.h"
+#include "transport_types.h"
 #include <vector>
 #include <string>
 
@@ -31,6 +32,10 @@ public:
     void DrawCellInfo(Vector2 mousePosition, Camera2D camera, Planet* planet, std::vector<Colony*>& colonies);
     void DrawPlusIndicator(Vector2 mousePos, View currentView);
 
+    // Transport visualization
+    void DrawRoads(Colony* colony);
+    void DrawTransportPackets(Colony* colony);
+
 private:
     int screenWidth;
     int screenHeight;
@@ -41,6 +46,10 @@ private:
     std::vector<int> tilePattern;  // Store which tile to use for each grid cell
 
     void DrawDebugActiveArea();
+
+    // Helper for drawing styled roads
+    void DrawDashedLine(Vector2 start, Vector2 end, float dashLength, float gapLength,
+                        float thickness, Color color);
 
     // Function to load the moon surface tiles
     void LoadMoonTiles();
