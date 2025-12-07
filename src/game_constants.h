@@ -38,6 +38,11 @@ const float BASE_AMBIENT_ENERGY = 1.0f;           // Base energy from ambient so
 const float SOLAR_PEAK_MULTIPLIER = 2.0f;         // Multiplier at solar noon
 const float SOLAR_MIN_MULTIPLIER = 0.1f;          // Multiplier at night
 
+// Transport constants
+const float BASE_TRANSPORT_SPEED = 50.0f;         // Base units per second for transport packets
+const float TRANSPORT_PACKET_SIZE = 100.0f;       // Max resource amount per transport packet
+const float AUTO_BALANCE_THRESHOLD = 0.3f;        // Difference threshold to trigger auto-balance (30%)
+
 const float DEFAULT_H2ExtractionRate = 0.05;
 const float DEFAULT_O2ExtractionRate = 0.05;
 const float DEFAULT_CExtractionRate = 0.05;
