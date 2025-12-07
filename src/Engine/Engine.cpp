@@ -78,6 +78,14 @@ void Engine::HandleInput() {
                                                      gameManager.GetCurrentColony(),
                                                      gameManager.GetPlanet());
             }
+            // TEST: Press R to build roads between all sects
+            if (IsKeyPressed(KEY_R)) {
+                gameManager.BuildAllRoads();
+            }
+            // TEST: Press T to cycle transport mode on all roads
+            if (IsKeyPressed(KEY_T)) {
+                gameManager.CycleTransportModes();
+            }
             break;
         case View::Sect:
             if (IsKeyPressed(KEY_U)) {

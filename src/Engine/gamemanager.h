@@ -34,6 +34,10 @@ public:
     void BuildNewColony(Vector2 worldPos);
     void BuildNewSect(Vector2 worldPos);
 
+    // Test functions for transport
+    void BuildAllRoads();
+    void CycleTransportModes();
+
     void UpdatePlanetActiveArea();
     TimeManager& GetTimeManager() { return timeManager; }
 

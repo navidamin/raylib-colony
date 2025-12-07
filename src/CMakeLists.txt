@@ -16,6 +16,7 @@ target_sources(colony_game PRIVATE
     ResourceManager/resource_manager.cpp
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
+    transport_types.cpp
 )
 
 # Set C++ standard

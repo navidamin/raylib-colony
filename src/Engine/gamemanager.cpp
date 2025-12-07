@@ -74,6 +74,9 @@ void GameManager::Update(float deltaTime) {
 
         // Manage colony resources (push surplus from sects to colony reserves)
         colony->ManageResources();
+
+        // Process transport jobs
+        colony->ProcessTransportJobs(deltaTime);
     }
 }
 
@@ -195,5 +198,74 @@ void GameManager::BuildNewSect(Vector2 worldPos) {
 void GameManager::UpdatePlanetActiveArea() {
     if (planet) {
         planet->UpdateActiveArea(colonies);
+    }
+}
+
+void GameManager::BuildAllRoads() {
+    if (!currentColony) {
+        std::cout << "No current colony to build roads in" << std::endl;
+        return;
+    }
+
+    const auto& sects = currentColony->GetSects();
+    if (sects.size() < 2) {
+        std::cout << "Need at least 2 sects to build roads" << std::endl;
+        return;
+    }
+
+    // Build roads between all pairs of sects (fully connected graph)
+    int roadsBuilt = 0;
+    for (size_t i = 0; i < sects.size(); i++) {
+        for (size_t j = i + 1; j < sects.size(); j++) {
+            // Check if road already exists
+            if (currentColony->GetRoad(sects[i], sects[j]) == nullptr) {
+                currentColony->BuildRoad(sects[i], sects[j]);
+                roadsBuilt++;
+            }
+        }
+    }
+
+    std::cout << "Built " << roadsBuilt << " roads between "
+              << sects.size() << " sects" << std::endl;
+}
+
+void GameManager::CycleTransportModes() {
+    if (!currentColony) {
+        std::cout << "No current colony" << std::endl;
+        return;
+    }
+
+    // Get non-const reference to roads through BuildRoad workaround
+    // Actually we need to modify Colony to allow mode changes
+    // For now, just print the current modes
+    const auto& roads = currentColony->GetRoads();
+    if (roads.empty()) {
+        std::cout << "No roads to cycle modes on. Press R to build roads first." << std::endl;
+        return;
+    }
+
+    // Cycle through modes on first road (as a test)
+    for (auto& road : currentColony->GetRoads()) {
+        Road* roadPtr = currentColony->GetRoad(road.sectA, road.sectB);
+        if (roadPtr) {
+            TransportMode currentMode = roadPtr->mode;
+            TransportMode newMode;
+            switch (currentMode) {
+                case TransportMode::AUTO_BALANCE:
+                    newMode = TransportMode::MANUAL;
+                    std::cout << "Switched to MANUAL mode" << std::endl;
+                    break;
+                case TransportMode::MANUAL:
+                    newMode = TransportMode::DEFICIT_TRIGGERED;
+                    std::cout << "Switched to DEFICIT_TRIGGERED mode" << std::endl;
+                    break;
+                case TransportMode::DEFICIT_TRIGGERED:
+                    newMode = TransportMode::AUTO_BALANCE;
+                    std::cout << "Switched to AUTO_BALANCE mode" << std::endl;
+                    break;
+            }
+            currentColony->SetRoadTransportMode(roadPtr, newMode);
+        }
+        break;  // Only cycle first road for testing
     }
 }
