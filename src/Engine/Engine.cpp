@@ -94,9 +94,26 @@ void Engine::HandleInput() {
             if (IsKeyPressed(KEY_R)) {
                 gameManager.BuildAllRoads();
             }
-            // TEST: Press T to cycle transport mode on all roads
+            // TEST: Press T to cycle transport mode on selected/first road
             if (IsKeyPressed(KEY_T)) {
                 gameManager.CycleTransportModes();
+            }
+            // TEST INFRASTRUCTURE (Phase 2.5)
+            // KEY_0: Print transport state
+            if (IsKeyPressed(KEY_ZERO) || IsKeyPressed(KEY_KP_0)) {
+                gameManager.PrintTransportState();
+            }
+            // KEY_1: Test road construction
+            if (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_KP_1)) {
+                gameManager.TestRoadConstruction();
+            }
+            // KEY_2: Select nearest road at cursor
+            if (IsKeyPressed(KEY_TWO) || IsKeyPressed(KEY_KP_2)) {
+                gameManager.SelectNearestRoad(viewManager.GetWorldMousePosition());
+            }
+            // KEY_3: Run integration test
+            if (IsKeyPressed(KEY_THREE) || IsKeyPressed(KEY_KP_3)) {
+                gameManager.RunTransportIntegrationTest();
             }
             break;
         case View::Sect:

@@ -38,6 +38,13 @@ public:
     void BuildAllRoads();
     void CycleTransportModes();
 
+    // Test infrastructure (Phase 2.5)
+    void PrintTransportState();           // KEY_0: Print current transport state
+    void TestRoadConstruction();          // KEY_1: Build road between first two sects
+    void SelectNearestRoad(Vector2 worldPos); // KEY_2: Select road near position
+    void RunTransportIntegrationTest();   // KEY_3: Full integration test
+    Road* GetSelectedRoad() const { return selectedRoad; }
+
     void UpdatePlanetActiveArea();
     TimeManager& GetTimeManager() { return timeManager; }
 
@@ -47,6 +54,7 @@ private:
     Colony* currentColony;
     Sect* currentSect;
     Unit* currentUnit;
+    Road* selectedRoad;
 
     TimeManager timeManager;
     float lastUpdateTime;

@@ -6,6 +6,7 @@ GameManager::GameManager()
       currentColony(nullptr),
       currentSect(nullptr),
       currentUnit(nullptr),
+      selectedRoad(nullptr),
       lastUpdateTime(0.0f)
 {
 }
@@ -231,41 +232,265 @@ void GameManager::BuildAllRoads() {
 
 void GameManager::CycleTransportModes() {
     if (!currentColony) {
-        std::cout << "No current colony" << std::endl;
+        std::cout << "[TRANSPORT] No current colony" << std::endl;
         return;
     }
 
-    // Get non-const reference to roads through BuildRoad workaround
-    // Actually we need to modify Colony to allow mode changes
-    // For now, just print the current modes
     const auto& roads = currentColony->GetRoads();
     if (roads.empty()) {
-        std::cout << "No roads to cycle modes on. Press R to build roads first." << std::endl;
+        std::cout << "[TRANSPORT] No roads to cycle modes on. Press R to build roads first." << std::endl;
         return;
     }
 
-    // Cycle through modes on first road (as a test)
-    for (auto& road : currentColony->GetRoads()) {
+    // If a road is selected, cycle on that road; otherwise cycle first road
+    Road* roadToModify = selectedRoad;
+    if (!roadToModify) {
+        roadToModify = currentColony->GetRoad(roads[0].sectA, roads[0].sectB);
+        std::cout << "[TRANSPORT] No road selected, cycling first road" << std::endl;
+    }
+
+    if (roadToModify) {
+        TransportMode currentMode = roadToModify->mode;
+        TransportMode newMode;
+        switch (currentMode) {
+            case TransportMode::AUTO_BALANCE:
+                newMode = TransportMode::MANUAL;
+                std::cout << "[TRANSPORT] Switched to MANUAL mode" << std::endl;
+                break;
+            case TransportMode::MANUAL:
+                newMode = TransportMode::DEFICIT_TRIGGERED;
+                std::cout << "[TRANSPORT] Switched to DEFICIT_TRIGGERED mode" << std::endl;
+                break;
+            case TransportMode::DEFICIT_TRIGGERED:
+                newMode = TransportMode::AUTO_BALANCE;
+                std::cout << "[TRANSPORT] Switched to AUTO_BALANCE mode" << std::endl;
+                break;
+        }
+        currentColony->SetRoadTransportMode(roadToModify, newMode);
+    }
+}
+
+// ==========================================================================
+// TEST INFRASTRUCTURE (Phase 2.5)
+// ==========================================================================
+
+void GameManager::PrintTransportState() {
+    std::cout << "\n========== TRANSPORT STATE ==========" << std::endl;
+
+    if (!currentColony) {
+        std::cout << "[ERROR] No current colony" << std::endl;
+        return;
+    }
+
+    const auto& sects = currentColony->GetSects();
+    const auto& roads = currentColony->GetRoads();
+    const auto& jobs = currentColony->GetTransportJobs();
+
+    std::cout << "[COLONY] Sects: " << sects.size()
+              << " | Roads: " << roads.size()
+              << " | Active Jobs: " << jobs.size() << std::endl;
+
+    // Print roads info
+    std::cout << "\n[ROADS]" << std::endl;
+    int roadIndex = 0;
+    for (const auto& road : roads) {
+        std::string modeStr;
+        switch (road.mode) {
+            case TransportMode::AUTO_BALANCE: modeStr = "AUTO_BALANCE"; break;
+            case TransportMode::MANUAL: modeStr = "MANUAL"; break;
+            case TransportMode::DEFICIT_TRIGGERED: modeStr = "DEFICIT_TRIGGERED"; break;
+        }
+        std::cout << "  Road " << roadIndex++ << ": "
+                  << "Length=" << road.length
+                  << " | Travel=" << road.travelTime << "s"
+                  << " | Mode=" << modeStr;
+        if (&road == selectedRoad) {
+            std::cout << " [SELECTED]";
+        }
+        std::cout << std::endl;
+    }
+
+    // Print transport jobs
+    std::cout << "\n[TRANSPORT JOBS]" << std::endl;
+    if (jobs.empty()) {
+        std::cout << "  (no active jobs)" << std::endl;
+    } else {
+        for (const auto& job : jobs) {
+            std::string statusStr;
+            switch (job.status) {
+                case TransportStatus::PENDING: statusStr = "PENDING"; break;
+                case TransportStatus::IN_TRANSIT: statusStr = "IN_TRANSIT"; break;
+                case TransportStatus::COMPLETED: statusStr = "COMPLETED"; break;
+                case TransportStatus::CANCELLED: statusStr = "CANCELLED"; break;
+            }
+            std::cout << "  Job: Resource=" << static_cast<int>(job.resourceType)
+                      << " | Amount=" << job.amount
+                      << " | Progress=" << (job.progress * 100) << "%"
+                      << " | Status=" << statusStr << std::endl;
+        }
+    }
+
+    // Print sect storage summary
+    std::cout << "\n[SECT STORAGE SUMMARY]" << std::endl;
+    int sectIndex = 0;
+    for (const auto& sect : sects) {
+        float totalStorage = 0;
+        float totalCapacity = 0;
+        for (int i = 0; i < 11; i++) {
+            ResourceType type = static_cast<ResourceType>(i);
+            totalStorage += sect->GetResourceStorage(type);
+            totalCapacity += sect->GetStorageCapacity(type);
+        }
+        std::cout << "  Sect " << sectIndex++ << ": "
+                  << "Storage=" << totalStorage << "/" << totalCapacity << std::endl;
+    }
+
+    std::cout << "======================================\n" << std::endl;
+}
+
+void GameManager::TestRoadConstruction() {
+    std::cout << "\n[TEST] Road Construction Test" << std::endl;
+
+    if (!currentColony) {
+        std::cout << "[ERROR] No current colony" << std::endl;
+        return;
+    }
+
+    const auto& sects = currentColony->GetSects();
+    if (sects.size() < 2) {
+        std::cout << "[ERROR] Need at least 2 sects. Use Ctrl+Click in Colony view to add sects." << std::endl;
+        return;
+    }
+
+    Sect* sectA = sects[0];
+    Sect* sectB = sects[1];
+
+    // Check if road already exists
+    Road* existingRoad = currentColony->GetRoad(sectA, sectB);
+    if (existingRoad) {
+        std::cout << "[INFO] Road already exists between first two sects" << std::endl;
+        selectedRoad = existingRoad;
+        std::cout << "[INFO] Selected existing road" << std::endl;
+    } else {
+        currentColony->BuildRoad(sectA, sectB);
+        Road* newRoad = currentColony->GetRoad(sectA, sectB);
+        if (newRoad) {
+            std::cout << "[SUCCESS] Built road between sect 0 and sect 1" << std::endl;
+            std::cout << "[INFO] Road length: " << newRoad->length
+                      << " | Travel time: " << newRoad->travelTime << "s" << std::endl;
+            selectedRoad = newRoad;
+            std::cout << "[INFO] Selected new road" << std::endl;
+        } else {
+            std::cout << "[ERROR] Failed to build road" << std::endl;
+        }
+    }
+}
+
+void GameManager::SelectNearestRoad(Vector2 worldPos) {
+    std::cout << "\n[TEST] Select Nearest Road at (" << worldPos.x << ", " << worldPos.y << ")" << std::endl;
+
+    if (!currentColony) {
+        std::cout << "[ERROR] No current colony" << std::endl;
+        return;
+    }
+
+    const auto& roads = currentColony->GetRoads();
+    if (roads.empty()) {
+        std::cout << "[ERROR] No roads. Press R to build roads first." << std::endl;
+        return;
+    }
+
+    // Find nearest road by calculating distance to line segment
+    Road* nearestRoad = nullptr;
+    float nearestDistance = 999999.0f;
+    const float maxSelectDistance = 50.0f;  // Max distance to select a road
+
+    for (const auto& road : roads) {
+        if (!road.sectA || !road.sectB) continue;
+
+        Vector2 posA = road.sectA->GetPosition();
+        Vector2 posB = road.sectB->GetPosition();
+
+        // Calculate distance from point to line segment
+        Vector2 ab = Vector2Subtract(posB, posA);
+        Vector2 ap = Vector2Subtract(worldPos, posA);
+        float t = Vector2DotProduct(ap, ab) / Vector2DotProduct(ab, ab);
+        t = fmaxf(0.0f, fminf(1.0f, t));  // Clamp to segment
+
+        Vector2 closestPoint = Vector2Add(posA, Vector2Scale(ab, t));
+        float distance = Vector2Distance(worldPos, closestPoint);
+
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestRoad = currentColony->GetRoad(road.sectA, road.sectB);
+        }
+    }
+
+    if (nearestRoad && nearestDistance <= maxSelectDistance) {
+        selectedRoad = nearestRoad;
+        std::string modeStr;
+        switch (nearestRoad->mode) {
+            case TransportMode::AUTO_BALANCE: modeStr = "AUTO_BALANCE"; break;
+            case TransportMode::MANUAL: modeStr = "MANUAL"; break;
+            case TransportMode::DEFICIT_TRIGGERED: modeStr = "DEFICIT_TRIGGERED"; break;
+        }
+        std::cout << "[SUCCESS] Selected road (distance: " << nearestDistance << ")" << std::endl;
+        std::cout << "[INFO] Mode: " << modeStr
+                  << " | Length: " << nearestRoad->length
+                  << " | Travel: " << nearestRoad->travelTime << "s" << std::endl;
+    } else {
+        selectedRoad = nullptr;
+        std::cout << "[INFO] No road nearby (nearest: " << nearestDistance << " units)" << std::endl;
+    }
+}
+
+void GameManager::RunTransportIntegrationTest() {
+    std::cout << "\n========== TRANSPORT INTEGRATION TEST ==========" << std::endl;
+    std::cout << "[TEST] Starting integration test..." << std::endl;
+
+    if (!currentColony) {
+        std::cout << "[ERROR] No current colony" << std::endl;
+        return;
+    }
+
+    // Step 1: Print initial state
+    std::cout << "\n[STEP 1] Initial State:" << std::endl;
+    PrintTransportState();
+
+    // Step 2: Ensure roads exist
+    const auto& roads = currentColony->GetRoads();
+    if (roads.empty()) {
+        std::cout << "\n[STEP 2] Building roads..." << std::endl;
+        BuildAllRoads();
+    } else {
+        std::cout << "\n[STEP 2] Roads already exist: " << roads.size() << std::endl;
+    }
+
+    // Step 3: Set different modes on roads
+    std::cout << "\n[STEP 3] Setting transport modes..." << std::endl;
+    const auto& updatedRoads = currentColony->GetRoads();
+    int modeIndex = 0;
+    for (const auto& road : updatedRoads) {
         Road* roadPtr = currentColony->GetRoad(road.sectA, road.sectB);
         if (roadPtr) {
-            TransportMode currentMode = roadPtr->mode;
-            TransportMode newMode;
-            switch (currentMode) {
-                case TransportMode::AUTO_BALANCE:
-                    newMode = TransportMode::MANUAL;
-                    std::cout << "Switched to MANUAL mode" << std::endl;
-                    break;
-                case TransportMode::MANUAL:
-                    newMode = TransportMode::DEFICIT_TRIGGERED;
-                    std::cout << "Switched to DEFICIT_TRIGGERED mode" << std::endl;
-                    break;
-                case TransportMode::DEFICIT_TRIGGERED:
-                    newMode = TransportMode::AUTO_BALANCE;
-                    std::cout << "Switched to AUTO_BALANCE mode" << std::endl;
-                    break;
+            TransportMode mode;
+            switch (modeIndex % 3) {
+                case 0: mode = TransportMode::AUTO_BALANCE; break;
+                case 1: mode = TransportMode::MANUAL; break;
+                case 2: mode = TransportMode::DEFICIT_TRIGGERED; break;
             }
-            currentColony->SetRoadTransportMode(roadPtr, newMode);
+            currentColony->SetRoadTransportMode(roadPtr, mode);
+            modeIndex++;
         }
-        break;  // Only cycle first road for testing
     }
+    std::cout << "[INFO] Set varied modes on " << modeIndex << " roads" << std::endl;
+
+    // Step 4: Print final state
+    std::cout << "\n[STEP 4] Final State:" << std::endl;
+    PrintTransportState();
+
+    std::cout << "\n[TEST] Integration test complete!" << std::endl;
+    std::cout << "[INFO] Watch console for transport activity over time." << std::endl;
+    std::cout << "[INFO] Press 0 at any time to print current transport state." << std::endl;
+    std::cout << "=================================================\n" << std::endl;
 }
