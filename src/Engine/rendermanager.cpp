@@ -99,7 +99,7 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
 
 void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* planet,
                                    std::vector<Colony*>& colonies, InputManager& inputManager,
-                                   TimeManager& timeManager) {
+                                   TimeManager& timeManager, Road* selectedRoad) {
     // Start drawing with camera transformation
     BeginMode2D(camera);
 
@@ -155,7 +155,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         }
 */
         // Draw roads between sects (behind sects)
-        DrawRoads(colony);
+        DrawRoads(colony, selectedRoad);
 
         // Draw all sects in the current colony
         for (const auto& sect : colony->GetSects()) {
@@ -172,6 +172,11 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     }
 
     EndMode2D();
+
+    // Draw road info panel (screen-space, after EndMode2D)
+    if (selectedRoad) {
+        DrawRoadInfoPanel(selectedRoad, colony);
+    }
 
     // Show the Cell info if Ctrl+I is held
     if (inputManager.IsInfoKeyPressed()) {
@@ -481,7 +486,7 @@ void RenderManager::DrawDashedLine(Vector2 start, Vector2 end, float dashLength,
     }
 }
 
-void RenderManager::DrawRoads(Colony* colony) {
+void RenderManager::DrawRoads(Colony* colony, Road* selectedRoad) {
     if (!colony) return;
 
     const auto& roads = colony->GetRoads();
@@ -491,6 +496,11 @@ void RenderManager::DrawRoads(Colony* colony) {
 
         Vector2 posA = road.sectA->GetPosition();
         Vector2 posB = road.sectB->GetPosition();
+
+        // Check if this road is selected
+        bool isSelected = (selectedRoad != nullptr &&
+                          selectedRoad->sectA == road.sectA &&
+                          selectedRoad->sectB == road.sectB);
 
         // Choose color based on transport mode
         Color roadColor;
@@ -508,12 +518,27 @@ void RenderManager::DrawRoads(Colony* colony) {
                 roadColor = ColorAlpha(GRAY, 0.7f);
         }
 
+        // If selected, draw highlight first (thicker white line behind)
+        if (isSelected) {
+            DrawDashedLine(posA, posB, 15.0f, 8.0f, 8.0f, WHITE);  // Thicker white background
+            DrawCircleV(posA, 10.0f, WHITE);
+            DrawCircleV(posB, 10.0f, WHITE);
+        }
+
         // Draw dashed road
-        DrawDashedLine(posA, posB, 15.0f, 8.0f, 3.0f, roadColor);
+        float thickness = isSelected ? 5.0f : 3.0f;  // Thicker if selected
+        DrawDashedLine(posA, posB, 15.0f, 8.0f, thickness, roadColor);
 
         // Draw small indicators at road endpoints
-        DrawCircleV(posA, 5.0f, roadColor);
-        DrawCircleV(posB, 5.0f, roadColor);
+        float endpointRadius = isSelected ? 8.0f : 5.0f;
+        DrawCircleV(posA, endpointRadius, roadColor);
+        DrawCircleV(posB, endpointRadius, roadColor);
+
+        // Draw selection indicator text at midpoint
+        if (isSelected) {
+            Vector2 midpoint = {(posA.x + posB.x) / 2.0f, (posA.y + posB.y) / 2.0f - 20.0f};
+            DrawText("SELECTED", midpoint.x - 30, midpoint.y, 12, WHITE);
+        }
     }
 }
 
@@ -542,4 +567,69 @@ void RenderManager::DrawTransportPackets(Colony* colony) {
         DrawRectangle(progressPos.x, progressPos.y, progressWidth, progressHeight, DARKGRAY);
         DrawRectangle(progressPos.x, progressPos.y, progressWidth * job.progress, progressHeight, GREEN);
     }
+}
+
+void RenderManager::DrawRoadInfoPanel(Road* selectedRoad, Colony* colony) {
+    if (!selectedRoad || !colony) return;
+
+    // Panel dimensions and position (top-right corner)
+    int panelWidth = 250;
+    int panelHeight = 150;
+    int panelX = screenWidth - panelWidth - 10;
+    int panelY = 100;
+    int padding = 10;
+    int lineHeight = 20;
+
+    // Draw panel background
+    DrawRectangle(panelX, panelY, panelWidth, panelHeight, ColorAlpha(BLACK, 0.8f));
+    DrawRectangleLines(panelX, panelY, panelWidth, panelHeight, WHITE);
+
+    // Panel title
+    DrawText("SELECTED ROAD", panelX + padding, panelY + padding, 16, WHITE);
+
+    int y = panelY + padding + lineHeight + 5;
+
+    // Transport mode
+    const char* modeStr;
+    Color modeColor;
+    switch (selectedRoad->mode) {
+        case TransportMode::AUTO_BALANCE:
+            modeStr = "AUTO_BALANCE";
+            modeColor = BLUE;
+            break;
+        case TransportMode::MANUAL:
+            modeStr = "MANUAL";
+            modeColor = YELLOW;
+            break;
+        case TransportMode::DEFICIT_TRIGGERED:
+            modeStr = "DEFICIT_TRIGGERED";
+            modeColor = ORANGE;
+            break;
+        default:
+            modeStr = "UNKNOWN";
+            modeColor = GRAY;
+    }
+    DrawText(TextFormat("Mode: %s", modeStr), panelX + padding, y, 14, modeColor);
+    y += lineHeight;
+
+    // Road length and travel time
+    DrawText(TextFormat("Length: %.1f units", selectedRoad->length), panelX + padding, y, 14, LIGHTGRAY);
+    y += lineHeight;
+
+    DrawText(TextFormat("Travel Time: %.1f sec", selectedRoad->travelTime), panelX + padding, y, 14, LIGHTGRAY);
+    y += lineHeight;
+
+    // Count active jobs on this road
+    int activeJobs = 0;
+    const auto& jobs = colony->GetTransportJobs();
+    for (const auto& job : jobs) {
+        if (job.road == selectedRoad && job.status == TransportStatus::IN_TRANSIT) {
+            activeJobs++;
+        }
+    }
+    DrawText(TextFormat("Active Jobs: %d", activeJobs), panelX + padding, y, 14, GREEN);
+    y += lineHeight;
+
+    // Controls hint
+    DrawText("Press T to cycle mode", panelX + padding, y, 12, DARKGRAY);
 }

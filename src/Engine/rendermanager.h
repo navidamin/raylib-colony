@@ -25,7 +25,7 @@ public:
     void DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
                        InputManager& inputManager, TimeManager& timeManager);
     void DrawColonyView(Camera2D camera, Colony* colony, Planet* planet, std::vector<Colony *> &colonies,
-                        InputManager& inputManager, TimeManager& timeManager);
+                        InputManager& inputManager, TimeManager& timeManager, Road* selectedRoad = nullptr);
     void DrawSectView(Sect* sect, TimeManager& timeManager);
     void DrawUnitView(Unit* unit);
 
@@ -33,8 +33,9 @@ public:
     void DrawPlusIndicator(Vector2 mousePos, View currentView);
 
     // Transport visualization
-    void DrawRoads(Colony* colony);
+    void DrawRoads(Colony* colony, Road* selectedRoad = nullptr);
     void DrawTransportPackets(Colony* colony);
+    void DrawRoadInfoPanel(Road* selectedRoad, Colony* colony);
 
 private:
     int screenWidth;

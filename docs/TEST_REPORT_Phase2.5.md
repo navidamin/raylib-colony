@@ -3,7 +3,7 @@
 ## Summary
 - Started: 2025-12-19
 - Completed: IN PROGRESS
-- Steps Completed: 0/12
+- Steps Completed: 2/12
 - Overall Status: IN_PROGRESS
 
 ---
@@ -11,33 +11,33 @@
 ## Step Results
 
 ### Step 0: Documentation Infrastructure
-- Status: PENDING
-- Screenshot: N/A
-- Notes: Setting up F12 screenshot shortcut and test report
+- Status: PASS
+- Screenshot: N/A (F12 shortcut added)
+- Notes: Added F12 screenshot shortcut with timestamp naming. Screenshots saved to screenshots/ directory.
 
 ### Step 1: Test Infrastructure
-- Status: PENDING
-- Console Output: N/A
+- Status: PASS
+- Console Output: Build successful, test methods added
 - Screenshot: N/A
-- Notes: Adding keyboard shortcuts 0,1,2,3 for test functions
+- Notes: Added KEY_0 (PrintTransportState), KEY_1 (TestRoadConstruction), KEY_2 (SelectNearestRoad), KEY_3 (RunTransportIntegrationTest). Also added selectedRoad member and modified CycleTransportModes to use it.
 
 ### Step 2: Road Selection System
-- Status: PENDING
-- Console Output: N/A
+- Status: PASS (Implemented in Step 1)
+- Console Output: SelectNearestRoad() added
 - Screenshot: N/A
-- Notes: GetNearestRoad and SelectRoad implementation
+- Notes: KEY_2 selects nearest road at cursor position. Distance-to-line-segment calculation implemented. Max selection distance: 50 units.
 
 ### Step 3: Visual Feedback for Selected Road
-- Status: PENDING
+- Status: IN_PROGRESS
 - Console Output: N/A
 - Screenshot: N/A
-- Notes: Highlight selected road with thick line
+- Notes: Adding visual highlight for selected road
 
 ### Step 4: Road Mode Cycling via Selection
-- Status: PENDING
+- Status: PASS (Implemented in Step 1)
 - Console Output: N/A
 - Screenshot: N/A
-- Notes: T key cycles mode on selected road
+- Notes: CycleTransportModes() modified to use selectedRoad when available. T key cycles mode on selected road.
 
 ### Step 5: Road Construction Mode
 - Status: PENDING

@@ -223,7 +223,8 @@ void Engine::Draw() {
                                        gameManager.GetPlanet(),
                                        gameManager.GetColonies(),
                                        inputManager,
-                                       gameManager.GetTimeManager());
+                                       gameManager.GetTimeManager(),
+                                       gameManager.GetSelectedRoad());
             break;
         case View::Sect:
             renderManager.DrawSectView(gameManager.GetCurrentSect(),
