@@ -7,6 +7,8 @@ GameManager::GameManager()
       currentSect(nullptr),
       currentUnit(nullptr),
       selectedRoad(nullptr),
+      buildRoadMode(false),
+      roadBuildStartSect(nullptr),
       lastUpdateTime(0.0f)
 {
 }
@@ -493,4 +495,78 @@ void GameManager::RunTransportIntegrationTest() {
     std::cout << "[INFO] Watch console for transport activity over time." << std::endl;
     std::cout << "[INFO] Press 0 at any time to print current transport state." << std::endl;
     std::cout << "=================================================\n" << std::endl;
+}
+
+// ==========================================================================
+// ROAD CONSTRUCTION MODE (Phase 2.5)
+// ==========================================================================
+
+void GameManager::ToggleBuildRoadMode() {
+    buildRoadMode = !buildRoadMode;
+    roadBuildStartSect = nullptr;  // Reset start sect when toggling
+
+    if (buildRoadMode) {
+        std::cout << "\n[ROAD BUILD] Entered road construction mode" << std::endl;
+        std::cout << "[ROAD BUILD] Click on a sect to set as start point" << std::endl;
+        std::cout << "[ROAD BUILD] Press B again to exit mode" << std::endl;
+    } else {
+        std::cout << "\n[ROAD BUILD] Exited road construction mode" << std::endl;
+    }
+}
+
+void GameManager::SelectSectForRoadBuild(Vector2 worldPos) {
+    if (!buildRoadMode) return;
+    if (!currentColony) {
+        std::cout << "[ROAD BUILD] No current colony" << std::endl;
+        return;
+    }
+
+    // Find the sect at this position
+    Sect* selectedSect = nullptr;
+    for (auto& sect : currentColony->GetSects()) {
+        if (Vector2Distance(worldPos, sect->GetPosition()) <= sect->GetRadius()) {
+            selectedSect = sect;
+            break;
+        }
+    }
+
+    if (!selectedSect) {
+        std::cout << "[ROAD BUILD] No sect at this position" << std::endl;
+        return;
+    }
+
+    if (roadBuildStartSect == nullptr) {
+        // First click - set start sect
+        roadBuildStartSect = selectedSect;
+        std::cout << "[ROAD BUILD] Start sect selected. Click another sect to complete road." << std::endl;
+    } else {
+        // Second click - complete the road
+        if (selectedSect == roadBuildStartSect) {
+            std::cout << "[ROAD BUILD] Cannot build road to same sect" << std::endl;
+            return;
+        }
+
+        // Check if road already exists
+        Road* existingRoad = currentColony->GetRoad(roadBuildStartSect, selectedSect);
+        if (existingRoad) {
+            std::cout << "[ROAD BUILD] Road already exists between these sects" << std::endl;
+            selectedRoad = existingRoad;  // Select the existing road
+        } else {
+            // Build the road
+            currentColony->BuildRoad(roadBuildStartSect, selectedSect);
+            Road* newRoad = currentColony->GetRoad(roadBuildStartSect, selectedSect);
+            if (newRoad) {
+                std::cout << "[ROAD BUILD] Road built successfully!" << std::endl;
+                std::cout << "[ROAD BUILD] Length: " << newRoad->length
+                          << " | Travel time: " << newRoad->travelTime << "s" << std::endl;
+                selectedRoad = newRoad;  // Select the new road
+            } else {
+                std::cout << "[ROAD BUILD] Failed to build road" << std::endl;
+            }
+        }
+
+        // Reset for next road
+        roadBuildStartSect = nullptr;
+        std::cout << "[ROAD BUILD] Ready for next road. Click a sect or press B to exit." << std::endl;
+    }
 }

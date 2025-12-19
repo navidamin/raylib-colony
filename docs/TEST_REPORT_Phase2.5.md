@@ -3,7 +3,7 @@
 ## Summary
 - Started: 2025-12-19
 - Completed: IN PROGRESS
-- Steps Completed: 2/12
+- Steps Completed: 5/12
 - Overall Status: IN_PROGRESS
 
 ---
@@ -28,10 +28,10 @@
 - Notes: KEY_2 selects nearest road at cursor position. Distance-to-line-segment calculation implemented. Max selection distance: 50 units.
 
 ### Step 3: Visual Feedback for Selected Road
-- Status: IN_PROGRESS
-- Console Output: N/A
+- Status: PASS
+- Console Output: Build successful
 - Screenshot: N/A
-- Notes: Adding visual highlight for selected road
+- Notes: Selected road shows white highlight behind, "SELECTED" text at midpoint, and info panel in top-right showing mode, length, travel time, active jobs. Press T to cycle mode on selected road.
 
 ### Step 4: Road Mode Cycling via Selection
 - Status: PASS (Implemented in Step 1)

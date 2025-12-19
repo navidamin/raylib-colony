@@ -45,6 +45,12 @@ public:
     void RunTransportIntegrationTest();   // KEY_3: Full integration test
     Road* GetSelectedRoad() const { return selectedRoad; }
 
+    // Road construction mode (Phase 2.5)
+    void ToggleBuildRoadMode();           // KEY_B: Toggle road build mode
+    void SelectSectForRoadBuild(Vector2 worldPos);  // Select sect in build mode
+    bool IsBuildRoadMode() const { return buildRoadMode; }
+    Sect* GetRoadBuildStartSect() const { return roadBuildStartSect; }
+
     void UpdatePlanetActiveArea();
     TimeManager& GetTimeManager() { return timeManager; }
 
@@ -55,6 +61,10 @@ private:
     Sect* currentSect;
     Unit* currentUnit;
     Road* selectedRoad;
+
+    // Road construction mode
+    bool buildRoadMode;
+    Sect* roadBuildStartSect;
 
     TimeManager timeManager;
     float lastUpdateTime;

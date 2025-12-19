@@ -115,6 +115,14 @@ void Engine::HandleInput() {
             if (IsKeyPressed(KEY_THREE) || IsKeyPressed(KEY_KP_3)) {
                 gameManager.RunTransportIntegrationTest();
             }
+            // KEY_B: Toggle road build mode
+            if (IsKeyPressed(KEY_B)) {
+                gameManager.ToggleBuildRoadMode();
+            }
+            // In build mode, left click selects sect
+            if (gameManager.IsBuildRoadMode() && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                gameManager.SelectSectForRoadBuild(viewManager.GetWorldMousePosition());
+            }
             break;
         case View::Sect:
             if (IsKeyPressed(KEY_U)) {
@@ -224,7 +232,9 @@ void Engine::Draw() {
                                        gameManager.GetColonies(),
                                        inputManager,
                                        gameManager.GetTimeManager(),
-                                       gameManager.GetSelectedRoad());
+                                       gameManager.GetSelectedRoad(),
+                                       gameManager.IsBuildRoadMode(),
+                                       gameManager.GetRoadBuildStartSect());
             break;
         case View::Sect:
             renderManager.DrawSectView(gameManager.GetCurrentSect(),

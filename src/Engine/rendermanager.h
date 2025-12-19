@@ -25,7 +25,8 @@ public:
     void DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
                        InputManager& inputManager, TimeManager& timeManager);
     void DrawColonyView(Camera2D camera, Colony* colony, Planet* planet, std::vector<Colony *> &colonies,
-                        InputManager& inputManager, TimeManager& timeManager, Road* selectedRoad = nullptr);
+                        InputManager& inputManager, TimeManager& timeManager, Road* selectedRoad = nullptr,
+                        bool buildRoadMode = false, Sect* roadBuildStartSect = nullptr);
     void DrawSectView(Sect* sect, TimeManager& timeManager);
     void DrawUnitView(Unit* unit);
 

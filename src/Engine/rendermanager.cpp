@@ -99,7 +99,8 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
 
 void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* planet,
                                    std::vector<Colony*>& colonies, InputManager& inputManager,
-                                   TimeManager& timeManager, Road* selectedRoad) {
+                                   TimeManager& timeManager, Road* selectedRoad,
+                                   bool buildRoadMode, Sect* roadBuildStartSect) {
     // Start drawing with camera transformation
     BeginMode2D(camera);
 
@@ -160,6 +161,30 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         // Draw all sects in the current colony
         for (const auto& sect : colony->GetSects()) {
             sect->DrawInColonyView(sect->GetPosition());
+
+            // In build road mode, highlight sects
+            if (buildRoadMode) {
+                Vector2 sectPos = sect->GetPosition();
+                float sectRadius = sect->GetRadius();
+
+                if (sect == roadBuildStartSect) {
+                    // Highlight start sect in green
+                    DrawCircleLinesV(sectPos, sectRadius + 10.0f, GREEN);
+                    DrawCircleLinesV(sectPos, sectRadius + 12.0f, GREEN);
+                    DrawText("START", sectPos.x - 20, sectPos.y - sectRadius - 25, 12, GREEN);
+                } else {
+                    // Highlight other sects as potential targets
+                    DrawCircleLinesV(sectPos, sectRadius + 8.0f, ColorAlpha(YELLOW, 0.5f));
+                }
+            }
+        }
+
+        // In build mode with start sect selected, draw line to cursor
+        if (buildRoadMode && roadBuildStartSect) {
+            Vector2 startPos = roadBuildStartSect->GetPosition();
+            Vector2 cursorWorldPos = GetScreenToWorld2D(inputManager.GetMousePosition(), camera);
+            DrawLineEx(startPos, cursorWorldPos, 3.0f, ColorAlpha(GREEN, 0.6f));
+            DrawCircleV(cursorWorldPos, 8.0f, ColorAlpha(GREEN, 0.6f));
         }
 
         // Draw transport packets on roads (in front of sects)
@@ -176,6 +201,22 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     // Draw road info panel (screen-space, after EndMode2D)
     if (selectedRoad) {
         DrawRoadInfoPanel(selectedRoad, colony);
+    }
+
+    // Build road mode indicator (screen-space)
+    if (buildRoadMode) {
+        // Mode indicator at top center
+        const char* modeText = "ROAD BUILD MODE";
+        int textWidth = MeasureText(modeText, 24);
+        DrawRectangle(screenWidth/2 - textWidth/2 - 10, 5, textWidth + 20, 35, ColorAlpha(GREEN, 0.8f));
+        DrawText(modeText, screenWidth/2 - textWidth/2, 10, 24, WHITE);
+
+        // Instructions
+        const char* instructions = roadBuildStartSect ?
+            "Click another sect to complete road | B to exit" :
+            "Click a sect to start | B to exit";
+        int instrWidth = MeasureText(instructions, 16);
+        DrawText(instructions, screenWidth/2 - instrWidth/2, 45, 16, GREEN);
     }
 
     // Show the Cell info if Ctrl+I is held
