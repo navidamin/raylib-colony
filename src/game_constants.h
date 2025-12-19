@@ -42,6 +42,8 @@ const float SOLAR_MIN_MULTIPLIER = 0.1f;          // Multiplier at night
 const float BASE_TRANSPORT_SPEED = 50.0f;         // Base units per second for transport packets
 const float TRANSPORT_PACKET_SIZE = 100.0f;       // Max resource amount per transport packet
 const float AUTO_BALANCE_THRESHOLD = 0.3f;        // Difference threshold to trigger auto-balance (30%)
+const float MIN_TRANSPORT_INTERVAL = 3.0f;        // Minimum seconds between transport jobs on same road
+const int MAX_PACKETS_PER_ROAD = 3;               // Maximum concurrent packets on a road
 
 const float DEFAULT_H2ExtractionRate = 0.05;
 const float DEFAULT_O2ExtractionRate = 0.05;

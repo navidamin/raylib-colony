@@ -334,7 +334,14 @@ void Colony::SetRoadTransportMode(Road* road, TransportMode mode) {
 void Colony::CreateTransportJob(Sect* source, Sect* dest, ResourceType type, float amount) {
     Road* road = GetRoad(source, dest);
     if (!road) {
-        std::cout << "Error: No road exists between these sects" << std::endl;
+        std::cout << "[TRANSPORT] Error: No road exists between these sects" << std::endl;
+        return;
+    }
+
+    // Rate limiting check
+    float currentTime = GetTime();
+    if (!road->CanAcceptNewJob(currentTime)) {
+        // Rate limited - silently skip (don't spam console)
         return;
     }
 
@@ -358,8 +365,13 @@ void Colony::CreateTransportJob(Sect* source, Sect* dest, ResourceType type, flo
     transportJobs.emplace_back(road, source, dest, type, actualAmount);
     transportJobs.back().status = TransportStatus::IN_TRANSIT;
 
-    std::cout << "Transport job created: " << actualAmount << " of "
-              << ResourceTypeToString(type) << " from sect to sect" << std::endl;
+    // Update road tracking
+    road->lastTransportTime = currentTime;
+    road->activePacketCount++;
+
+    std::cout << "[TRANSPORT] Job created: " << actualAmount << " of "
+              << ResourceTypeToString(type) << " | Packets on road: "
+              << road->activePacketCount << "/" << MAX_PACKETS_PER_ROAD << std::endl;
 }
 
 void Colony::ProcessTransportJobs(float deltaTime) {
@@ -374,8 +386,12 @@ void Colony::ProcessTransportJobs(float deltaTime) {
             // Deliver resources to destination
             if (it->destination) {
                 it->destination->AddResource(it->resourceType, it->amount);
-                std::cout << "Transport completed: " << it->amount << " of "
+                std::cout << "[TRANSPORT] Completed: " << it->amount << " of "
                           << ResourceTypeToString(it->resourceType) << " delivered" << std::endl;
+            }
+            // Decrement road packet count
+            if (it->road) {
+                it->road->activePacketCount = std::max(0, it->road->activePacketCount - 1);
             }
             it = transportJobs.erase(it);
         }
@@ -383,6 +399,10 @@ void Colony::ProcessTransportJobs(float deltaTime) {
             // Return resources to source on cancellation
             if (it->source) {
                 it->source->AddResource(it->resourceType, it->amount);
+            }
+            // Decrement road packet count
+            if (it->road) {
+                it->road->activePacketCount = std::max(0, it->road->activePacketCount - 1);
             }
             it = transportJobs.erase(it);
         }

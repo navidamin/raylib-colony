@@ -19,12 +19,20 @@ struct Road {
     float travelTime;               // Time to traverse (length / speed)
     TransportMode mode;             // Current transport mode for this road
     bool isConstructed;             // False during construction phase
+    float lastTransportTime;        // Game time when last transport job was created
+    int activePacketCount;          // Current number of packets on this road
 
     Road(Sect* a, Sect* b);
 
     // Calculate travel time based on speed modifier
     float GetTravelTime(float speedModifier = 1.0f) const {
         return travelTime / speedModifier;
+    }
+
+    // Check if road can accept a new transport job (rate limiting)
+    bool CanAcceptNewJob(float currentTime) const {
+        return (currentTime - lastTransportTime >= MIN_TRANSPORT_INTERVAL) &&
+               (activePacketCount < MAX_PACKETS_PER_ROAD);
     }
 };
 

@@ -3,7 +3,8 @@
 
 
 Road::Road(Sect* a, Sect* b)
-    : sectA(a), sectB(b), mode(TransportMode::AUTO_BALANCE), isConstructed(true)
+    : sectA(a), sectB(b), mode(TransportMode::AUTO_BALANCE), isConstructed(true),
+      lastTransportTime(0.0f), activePacketCount(0)
 {
     // Calculate length from sect positions
     if (sectA && sectB) {
