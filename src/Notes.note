@@ -31,15 +31,25 @@ for energy consumptions are at basic module is nothing but at FuelCell module is
 DONE only one module is active at time. however player can switch  back to an older module at anytime
 
 31.10 13:37
-the member Unit::Inquiry is a struct {resource, amount, process ("building" "upgardin"), requesterModule, requesterUnit } that contains the resources and the required amount.
-each (build, upgrade, ...) creats a struct of this sort and uses Unit::sendInquiry() to add to the Unit::Inquiries queue
-void Unit::sendInquiry() registers the inquiries in Unit::Inquiries one by one and adds to the  Unit::Inquiries queue .
-void SecT::recollectInquiries() reads Unit::Inquiries from units one by one and fills out a queue for inquiries of all
-units: sectInquiries( vector<unit, Inquiry> )
-void processInquiries()
-void answerInquiries()
-A set of function in Sect class to collecct inquiries for resources from units. then it takes some
-ticks to deliver and the deliver;
+Inquiry is a class {resource, amount, process ("building" "upgardin" "Transport"),} defined included by InquiryManager, unit, sect and colony
+it has childs:
+unitInquiry {resource, amount, process ("building" "upgardin" "Transport"), isUnit(true), requesterModule, requesterUnit }
+sectInquiry {resource, amount, process ("building" "upgardin" "Transport"), isUnit(false)}
+that contains the resources and the required amount.
+each (build, upgrade, ...) creats a struct of this sort and uses Unit::sendInquiry() or Sect::sendInquiry() to add to the Unit::inquiryList or Sect::inquiryList queue (it could ,
+meanwhile the
+void Unit::sendInquiry(Unit::Inquiry) when it is called registed the inquiry in Unit::demandList queue one by one.
+void Unit::calculateInquiries() reads the demandList inquiry and if it can be covered by the local storage saves to the localResourceDemands map,
+and if not coverable by the local resources send it to Unit::inquiryRequestList queue
+Sect::sendInquiry() reigster the inquiry directly into the Sect::sectInquiries
+void Sect::recollectUnitInquiries() reads Unit::inquiryRequestList queues from units one by one and fills out a queue for inquiries of all units plus inquires of the sect itself:
+queue<Inquiry> allInquiries
+void Sect::processInquiries() reads the Sect::sectInquiries queue and for each Inquiry creates a InquiryResponse
+{resource, amount, process ("building" "upgardin"), requesterModule, requesterUnit, isAvailable } and registers it into responseList queue
+void Sect::answerInquiries() reads the responseList queue and
+    if isAvailable == true: uses Sect::allocateResourceToUnit(Inquiry) to subtract from the sect and call Unit::fulfillInquiry(Inquiry)
+    which just adds to rsource storage of the unit
+
 map<resource, amount> Unit::Inquiries
 void calculateInquiries()
 a function for unit to calcualte the inquires for the next  day and save them in Inquiries to be read by Sect
@@ -47,3 +57,9 @@ a function for unit to calcualte the inquires for the next  day and save them in
 DONE DischargeResoources() : calcualte the consumptio nof the uit fo one day and keep it and discharge the rest
 
 DONE Debug: sect positions should not be around the edges!
+
+!!! Implement a debug message system!
+
+Ultra level: when a unit is upgraded till last level a specific
+    animation or added graphics is shown in colony and planet views
+    for exmplae with farming a random green hanging trees from the colony core

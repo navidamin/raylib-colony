@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include <ctime>
 
 Engine::Engine(int screenWidth, int screenHeight, const char* title)
     : screenWidth(screenWidth),
@@ -46,6 +47,17 @@ void Engine::Run() {
 
 void Engine::HandleInput() {
     inputManager.Update();
+
+    // Screenshot functionality (F12) - works in all views
+    if (IsKeyPressed(KEY_F12)) {
+        // Generate timestamp-based filename
+        time_t now = time(nullptr);
+        struct tm* timeinfo = localtime(&now);
+        char filename[128];
+        strftime(filename, sizeof(filename), "screenshots/screenshot_%Y%m%d_%H%M%S.png", timeinfo);
+        TakeScreenshot(filename);
+        std::cout << "[SCREENSHOT] Saved: " << filename << std::endl;
+    }
 
     switch (viewManager.GetCurrentView()) {
         case View::Menu:
