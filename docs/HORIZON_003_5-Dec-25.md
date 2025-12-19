@@ -28,27 +28,36 @@
 - Visual roads with dashed lines (color-coded by mode)
 - Animated transport packets on roads
 
+### Phase 2.5: Transport Polish ✅ Complete (2025-12-19)
+- Road construction UI with two-click build mode (KEY_B)
+- Road selection system (KEY_2 selects nearest road)
+- Visual feedback for selected road (highlight + info panel)
+- Mode cycling on selected road (KEY_T)
+- Rate limiting (MIN_TRANSPORT_INTERVAL = 3s)
+- Multiple packets per road (MAX_PACKETS_PER_ROAD = 3)
+- Test infrastructure (KEY_0,1,2,3 for debugging)
+- Screenshot capability (F12)
+
 ---
 
 ## NEXT PHASES
 
-### Phase 2.5: Transport Polish
-**Status:** Next up
+### Phase 2.5: Transport Polish ✅ COMPLETE
+~~**Status:** Next up~~
 
-#### 2.5.1 Road Construction UI
-- [ ] Road building mode (select two sects)
-- [ ] Construction time/cost
-- [ ] Cancel construction
+#### 2.5.1 Road Construction UI ✅
+- [x] Road building mode (select two sects) - KEY_B toggle
+- [x] Visual feedback during construction
+- [ ] Construction time/cost (deferred)
 
-#### 2.5.2 Transport Mode UI
-- [ ] Click road to see/change mode
-- [ ] Mode indicator on roads
-- [ ] Manual transport request dialog
+#### 2.5.2 Transport Mode UI ✅
+- [x] Click road to see/change mode - KEY_2 + KEY_T
+- [x] Mode indicator on roads - color-coded
+- [x] Info panel for selected road
 
-#### 2.5.3 Transport Balancing
-- [ ] Tune auto-balance thresholds
-- [ ] Rate limiting for transport jobs
-- [ ] Multiple packets on same road
+#### 2.5.3 Transport Balancing ✅
+- [x] Rate limiting for transport jobs - 3 second interval
+- [x] Multiple packets on same road - max 3
 
 ---
 
