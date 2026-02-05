@@ -793,6 +793,29 @@ bool Unit::CanBuildModule(const UnitModule& module) {
     return true;
 }
 
+// Public wrapper methods for RenderManager access
+bool Unit::PublicCanUpgradeModule(int moduleIndex) const {
+    if (moduleIndex < 0 || moduleIndex >= static_cast<int>(modules.size())) return false;
+    return const_cast<Unit*>(this)->CanUpgradeModule(modules[moduleIndex]);
+}
+
+bool Unit::PublicCanBuildModule(int moduleIndex) const {
+    if (moduleIndex < 0 || moduleIndex >= static_cast<int>(modules.size())) return false;
+    return const_cast<Unit*>(this)->CanBuildModule(modules[moduleIndex]);
+}
+
+void Unit::PublicBuildModule(int moduleIndex) {
+    BuildModule(moduleIndex);
+}
+
+void Unit::PublicHandleModuleActivation(int moduleIndex) {
+    HandleModuleActivation(moduleIndex);
+}
+
+void Unit::PublicShowMessage(const std::string& text) {
+    ShowMessage(text);
+}
+
 void Unit::BuildModule(int moduleIndex) {
     if (moduleIndex < 0 || moduleIndex >= modules.size()) return;
 
