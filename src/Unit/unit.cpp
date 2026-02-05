@@ -114,6 +114,22 @@ void Unit::DisplayStats() const {
 void Unit::Update(float deltaTime) {
     ProcessModuleEffects(deltaTime, resourceManager);
 
+    // Update scan cooldown
+    if (scanCooldown > 0.0f)
+    {
+        scanCooldown -= deltaTime;
+        if (scanCooldown < 0.0f) scanCooldown = 0.0f;
+    }
+
+    // Update excavator wear
+    for (auto& exc : excavators)
+    {
+        if (exc.rate > 0.0f)
+        {
+            exc.wear += deltaTime * 0.001f * exc.rate / 30.0f;
+            exc.wear = std::min(exc.wear, 1.0f);
+        }
+    }
 }
 
 void Unit::DrawInSectView(Vector2 corePosition, float coreRadius, int index) {
@@ -1111,11 +1127,60 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     // Get available resources at this location
     auto availableResources = resourceManager.GetResourcesAtGrid(gridX, gridY);
 
-    int worldX = static_cast<int>(parentSectPosition.x);
-    int worldY = static_cast<int>(parentSectPosition.y);
+    // --- Apply Operations efficiency modifier ---
+    float opsModifier = GetOperationsEfficiencyModifier();
 
-    float efficiency = module.efficiency;
-    float levelMultiplier = 1.0f + (module.level - 1) * 0.2f;
+    // --- Apply Directive modifier ---
+    float directiveModifier = 1.0f;
+    ResourceType prioritizedResource = ResourceType::Fe;
+    if (activeDirective.type == DirectiveType::MAXIMIZE)
+    {
+        directiveModifier = 1.25f;  // +25% output, but more energy
+    }
+    else if (activeDirective.type == DirectiveType::CONSERVE)
+    {
+        directiveModifier = 0.7f;  // -30% output, less energy
+    }
+    else if (activeDirective.type == DirectiveType::EMERGENCY_HARVEST)
+    {
+        directiveModifier = 1.5f;  // +50% output at wear cost
+        for (auto& exc : excavators)
+        {
+            exc.wear += deltaTime * 0.005f;
+        }
+    }
+    else if (activeDirective.type == DirectiveType::EXPLORATION_MODE)
+    {
+        directiveModifier = 0.5f;  // -50% extraction
+    }
+    else if (activeDirective.type == DirectiveType::THERMAL_SYNC)
+    {
+        float dayFraction = fmodf(timeManager.GetTicks() /
+                                  static_cast<float>(TICKS_PER_DAY), 1.0f);
+        float thermalBonus = 0.9f + 0.3f * sinf(dayFraction * 2.0f * PI);
+        directiveModifier = thermalBonus;
+    }
+    else if (activeDirective.type == DirectiveType::PRIORITIZE)
+    {
+        prioritizedResource = activeDirective.targetResource;
+    }
+
+    // --- Find Excavation module for extraction rates ---
+    UnitModule* excavationMod = nullptr;
+    for (auto& mod : modules)
+    {
+        if (mod.moduleType == "EXCAVATION" && mod.isActive)
+        {
+            excavationMod = &mod;
+            break;
+        }
+    }
+
+    if (!excavationMod) return;
+
+    float efficiency = excavationMod->efficiency;
+    static const float tierMults[] = {1.0f, 1.4f, 1.9f, 2.5f};
+    float tierMultiplier = tierMults[std::min(excavationMod->tier, 3)];
 
     // Map for base extraction rates
     std::map<ResourceType, float> extractionRates = {
@@ -1126,50 +1191,87 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
         {ResourceType::Si, parameters["SiExtractionRate"]}
     };
 
-    // For Debugging resource variation at Sect
-    //resourceManager.DisplayResourceGrid(parentSectPosition);
+    // --- Stage 1: Excavation (raw regolith) ---
+    std::map<ResourceType, float> rawRegolith;
 
-    // Debug print extraction rates
-//    std::cout << "\nExtraction rates for each resource:" << std::endl;
-    for (const auto& [type, rate] : extractionRates) {
-//        std::cout << "Resource " << static_cast<int>(type) << " rate: " << rate << std::endl;
-    }
+    for (const auto& [resourceType, abundance] : availableResources)
+    {
+        float baseRate = extractionRates.count(resourceType) ?
+            extractionRates[resourceType] : 0.01f;
 
-    // Process each available resource
-    for (const auto& [resourceType, abundance] : availableResources) {
+        // Apply directive priority boost
+        float priorityBoost = 1.0f;
+        if (activeDirective.type == DirectiveType::PRIORITIZE &&
+            resourceType == prioritizedResource)
+        {
+            priorityBoost = 1.4f;  // +40% for prioritized resource
+        }
 
-//        std::cout << "resourceType:" << resourceType << "\t abundance:" << abundance << std::endl;
+        float extractionAmount = baseRate * efficiency * tierMultiplier *
+                                  abundance * opsModifier * directiveModifier *
+                                  priorityBoost * deltaTime;
 
-//        if (abundance < 0.1f) {
-//            std::cout << "Resource " << static_cast<int>(resourceType)
-//                     << " abundance too low: " << abundance << std::endl;
-//           continue;
-//        }
+        // Scale by number of active excavators
+        int activeExcavators = 0;
+        for (const auto& exc : excavators)
+        {
+            if (exc.wear < 1.0f) activeExcavators++;
+        }
+        extractionAmount *= std::max(1, activeExcavators);
 
-        // Get the specific extraction rate for this resource type
-        float baseRate = extractionRates[resourceType];
-        float extractionAmount = baseRate * efficiency * levelMultiplier * abundance * deltaTime;
-
-        // Deplete the resource from the planet
+        // Deplete from planet
         resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, extractionAmount);
 
-        // Add the extracted resource to storage
-        AddResource(resourceType, extractionAmount);
+        rawRegolith[resourceType] = extractionAmount;
+    }
 
+    // --- Stage 2: Beneficiation (separation chain) ---
+    std::map<ResourceType, float> processedOutput = rawRegolith;
 
-        // Debug print for all resources
-//        std::cout << "Resource " << static_cast<int>(resourceType)
-//                 << " - Extracted: " << extractionAmount
-//                 << " (Rate: " << baseRate
-//                 << ", Efficiency: " << efficiency
-//                 << ", Level Mult: " << levelMultiplier
-//                 << ", Abundance: " << abundance << ")" << std::endl;
+    // Find beneficiation module efficiency
+    float beneficiationEfficiency = 0.5f;
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "BENEFICIATION" && mod.isActive)
+        {
+            beneficiationEfficiency = mod.efficiency;
+            break;
+        }
+    }
 
-        // Debug print for Fe
-//        if (resourceType == ResourceType::Fe) {
-//            std::cout << "Fe Extraction - Amount: " << extractionAmount
-//                     << ", Current Storage: " << resourceStorage[ResourceType::Fe] << std::endl;
-//        }
+    // Process through each node in the separation chain
+    for (const auto& node : separationChain)
+    {
+        if (!node.isActive) continue;
+
+        auto nodeOutput = node.Process(processedOutput, 1.0f);
+
+        // Merge node output back (replace values for processed types)
+        for (const auto& [type, amount] : nodeOutput)
+        {
+            processedOutput[type] = amount;  // No per-node efficiency multiply
+        }
+    }
+
+    // Apply beneficiation module efficiency once after all nodes
+    for (auto& [type, amount] : processedOutput)
+    {
+        amount *= beneficiationEfficiency;
+    }
+
+    // --- Stage 3: Add to storage ---
+    for (const auto& [resourceType, amount] : processedOutput)
+    {
+        if (amount > 0.0f)
+        {
+            AddResource(resourceType, amount);
+        }
+    }
+
+    // Track total extracted
+    for (const auto& [type, amount] : rawRegolith)
+    {
+        totalRegolithExtracted += amount;
     }
 }
 
