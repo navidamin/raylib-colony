@@ -665,10 +665,390 @@ bool Unit::UpgradeModule(int moduleIndex) {
     return true;
 }
 
+bool Unit::UpgradeModuleTier(int moduleIndex) {
+    if (moduleIndex < 0 || moduleIndex >= static_cast<int>(modules.size()))
+    {
+        return false;
+    }
+
+    UnitModule& module = modules[moduleIndex];
+
+    if (module.tier >= 3)
+    {
+        ShowMessage("Module already at maximum tier (3).");
+        return false;
+    }
+
+    // Check tech dependencies for next tier
+    auto& registry = UnlockRegistry::Instance();
+    for (const auto& dep : module.tierDependencies)
+    {
+        if (!registry.IsUnlocked(dep))
+        {
+            ShowMessage(TextFormat("Requires tech: %s", dep.c_str()));
+            std::cout << "[TIER UPGRADE] Module " << module.name
+                      << " requires tech: " << dep << std::endl;
+            return false;
+        }
+    }
+
+    // Check upgrade resource costs (use tier+1 as key in upgradeCosts)
+    int nextTier = module.tier + 1;
+    if (module.upgradeCosts.count(nextTier) > 0)
+    {
+        const auto& costs = module.upgradeCosts[nextTier];
+        for (const auto& [resource, cost] : costs)
+        {
+            if (resourceStorage[resource] < cost)
+            {
+                ShowMessage(TextFormat("Not enough %s for tier upgrade.",
+                            ResourceTypeToString(resource)));
+                return false;
+            }
+        }
+
+        // Consume upgrade costs
+        for (const auto& [resource, cost] : costs)
+        {
+            ConsumeResource(resource, cost);
+        }
+    }
+
+    // Perform the upgrade
+    module.tier = nextTier;
+
+    // Scale efficiency and rates by tier
+    static const float tierMults[] = {1.0f, 1.4f, 1.9f, 2.5f};
+    float tierMultiplier = tierMults[std::min(module.tier, 3)];
+    module.efficiency = std::min(1.0f, 0.5f + module.tier * 0.18f);
+
+    // Scale production rates
+    for (auto& [type, rate] : module.maxProductionRates)
+    {
+        rate *= tierMultiplier / tierMults[std::min(module.tier - 1, 3)];  // Incremental increase
+    }
+    module.productionRates = module.maxProductionRates;
+
+    // Update description based on tier
+    if (module.moduleType == "PROSPECTING")
+    {
+        const char* tierDescs[] = {
+            "Visual estimation. ~40% accuracy.",
+            "LIBS Scanner. Click to scan cells.",
+            "Multi-Spectral Suite. LIBS + Raman + Neutron.",
+            "Deep Survey Array. GPR depth profiling."
+        };
+        module.description = tierDescs[module.tier];
+    }
+    else if (module.moduleType == "EXCAVATION")
+    {
+        const char* tierDescs[] = {
+            "Manual scoop. 1 excavator, 10cm depth.",
+            "Mechanized. 2 excavators, bucket wheel.",
+            "Heavy equipment. 4 excavators, percussive.",
+            "Autonomous fleet. 8 drones, zone painting."
+        };
+        module.description = tierDescs[module.tier];
+    }
+    else if (module.moduleType == "BENEFICIATION")
+    {
+        const char* tierDescs[] = {
+            "Direct output. Raw regolith passthrough.",
+            "Basic separation. Size sort + magnetic. ~60% Fe.",
+            "Processing chain. Drag-reorder nodes.",
+            "Refinery complex. MRE + purity control."
+        };
+        module.description = tierDescs[module.tier];
+
+        // Upgrade separation chain based on tier
+        separationChain.clear();
+        if (module.tier == 0)
+        {
+            separationChain.push_back(SeparationNodes::CreateDirectOutput());
+        }
+        else if (module.tier == 1)
+        {
+            separationChain.push_back(SeparationNodes::CreateSizeSort());
+            separationChain.push_back(SeparationNodes::CreateMagnetic());
+        }
+        else if (module.tier == 2)
+        {
+            separationChain.push_back(SeparationNodes::CreateSizeSort());
+            separationChain.push_back(SeparationNodes::CreateMagnetic());
+            separationChain.push_back(SeparationNodes::CreateElectrostatic());
+            separationChain.push_back(SeparationNodes::CreateThermal());
+        }
+        else if (module.tier == 3)
+        {
+            separationChain.push_back(SeparationNodes::CreateSizeSort());
+            separationChain.push_back(SeparationNodes::CreateMagnetic());
+            separationChain.push_back(SeparationNodes::CreateElectrostatic());
+            separationChain.push_back(SeparationNodes::CreateThermal());
+            separationChain.push_back(SeparationNodes::CreateMRE());
+        }
+    }
+    else if (module.moduleType == "EXCAVATION")
+    {
+        // Add excavators based on tier
+        int targetCount = 1;
+        if (module.tier == 1) targetCount = 2;
+        else if (module.tier == 2) targetCount = 4;
+        else if (module.tier == 3) targetCount = 8;
+
+        while (static_cast<int>(excavators.size()) < targetCount)
+        {
+            Excavator exc;
+            exc.id = static_cast<int>(excavators.size());
+            exc.gridPos = WorldToGrid(parentSectPosition);
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.depth = 0.0f;
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+            exc.wear = 0.0f;
+            excavators.push_back(exc);
+        }
+    }
+
+    // Update tier dependencies for the NEXT tier
+    if (module.moduleType == "PROSPECTING")
+    {
+        std::vector<std::vector<std::string>> deps = {
+            {"Spectroscopy"}, {"Geophysics"}, {"SwarmAI"}, {}
+        };
+        if (module.tier < 3) module.tierDependencies = deps[module.tier];
+        else module.tierDependencies.clear();
+    }
+    else if (module.moduleType == "EXCAVATION")
+    {
+        std::vector<std::vector<std::string>> deps = {
+            {"MechanizedDrilling"}, {"HeavyEquipment"}, {"AutonomousFleet"}, {}
+        };
+        if (module.tier < 3) module.tierDependencies = deps[module.tier];
+        else module.tierDependencies.clear();
+    }
+    else if (module.moduleType == "BENEFICIATION")
+    {
+        std::vector<std::vector<std::string>> deps = {
+            {"MagneticSeparation"}, {"ProcessingChain"}, {"RefineryComplex"}, {}
+        };
+        if (module.tier < 3) module.tierDependencies = deps[module.tier];
+        else module.tierDependencies.clear();
+    }
+
+    // Recalculate consumption
+    if (activeModuleIndices.count(moduleIndex) > 0)
+    {
+        CalculateConsumption();
+    }
+
+    ShowMessage(TextFormat("%s upgraded to Tier %d", module.name.c_str(), module.tier));
+    std::cout << "[TIER UPGRADE] " << module.name << " -> Tier " << module.tier << std::endl;
+    return true;
+}
+
+bool Unit::DebugUpgradeModuleTier(int moduleIndex)
+{
+    if (moduleIndex < 0 || moduleIndex >= static_cast<int>(modules.size()))
+    {
+        std::cout << "[DEBUG] Invalid module index: " << moduleIndex << std::endl;
+        return false;
+    }
+
+    UnitModule& module = modules[moduleIndex];
+
+    if (module.tier >= 3)
+    {
+        std::cout << "[DEBUG] " << module.name << " already at max tier (3)." << std::endl;
+        ShowMessage("Module already at maximum tier (3).");
+        return false;
+    }
+
+    // Perform the upgrade (same logic as UpgradeModuleTier, skipping tech/cost checks)
+    int nextTier = module.tier + 1;
+    module.tier = nextTier;
+
+    static const float tierMults[] = {1.0f, 1.4f, 1.9f, 2.5f};
+    float tierMultiplier = tierMults[std::min(module.tier, 3)];
+    module.efficiency = std::min(1.0f, 0.5f + module.tier * 0.18f);
+
+    for (auto& [type, rate] : module.maxProductionRates)
+    {
+        rate *= tierMultiplier / tierMults[std::min(module.tier - 1, 3)];
+    }
+    module.productionRates = module.maxProductionRates;
+
+    if (module.moduleType == "PROSPECTING")
+    {
+        const char* tierDescs[] = {
+            "Visual estimation. ~40% accuracy.",
+            "LIBS Scanner. Click to scan cells.",
+            "Multi-Spectral Suite. LIBS + Raman + Neutron.",
+            "Deep Survey Array. GPR depth profiling."
+        };
+        module.description = tierDescs[module.tier];
+    }
+    else if (module.moduleType == "EXCAVATION")
+    {
+        const char* tierDescs[] = {
+            "Manual scoop. 1 excavator, 10cm depth.",
+            "Mechanized. 2 excavators, bucket wheel.",
+            "Heavy equipment. 4 excavators, percussive.",
+            "Autonomous fleet. 8 drones, zone painting."
+        };
+        module.description = tierDescs[module.tier];
+    }
+    else if (module.moduleType == "BENEFICIATION")
+    {
+        const char* tierDescs[] = {
+            "Direct output. Raw regolith passthrough.",
+            "Basic separation. Size sort + magnetic. ~60% Fe.",
+            "Processing chain. Drag-reorder nodes.",
+            "Refinery complex. MRE + purity control."
+        };
+        module.description = tierDescs[module.tier];
+
+        separationChain.clear();
+        if (module.tier == 0)
+        {
+            separationChain.push_back(SeparationNodes::CreateDirectOutput());
+        }
+        else if (module.tier == 1)
+        {
+            separationChain.push_back(SeparationNodes::CreateSizeSort());
+            separationChain.push_back(SeparationNodes::CreateMagnetic());
+        }
+        else if (module.tier == 2)
+        {
+            separationChain.push_back(SeparationNodes::CreateSizeSort());
+            separationChain.push_back(SeparationNodes::CreateMagnetic());
+            separationChain.push_back(SeparationNodes::CreateElectrostatic());
+            separationChain.push_back(SeparationNodes::CreateThermal());
+        }
+        else if (module.tier == 3)
+        {
+            separationChain.push_back(SeparationNodes::CreateSizeSort());
+            separationChain.push_back(SeparationNodes::CreateMagnetic());
+            separationChain.push_back(SeparationNodes::CreateElectrostatic());
+            separationChain.push_back(SeparationNodes::CreateThermal());
+            separationChain.push_back(SeparationNodes::CreateMRE());
+        }
+    }
+    else if (module.moduleType == "EXCAVATION")
+    {
+        int targetCount = 1;
+        if (module.tier == 1) targetCount = 2;
+        else if (module.tier == 2) targetCount = 4;
+        else if (module.tier == 3) targetCount = 8;
+
+        while (static_cast<int>(excavators.size()) < targetCount)
+        {
+            Excavator exc;
+            exc.id = static_cast<int>(excavators.size());
+            exc.gridPos = WorldToGrid(parentSectPosition);
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.depth = 0.0f;
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+            exc.wear = 0.0f;
+            excavators.push_back(exc);
+        }
+    }
+
+    if (module.moduleType == "PROSPECTING")
+    {
+        std::vector<std::vector<std::string>> deps = {
+            {"Spectroscopy"}, {"Geophysics"}, {"SwarmAI"}, {}
+        };
+        if (module.tier < 3) module.tierDependencies = deps[module.tier];
+        else module.tierDependencies.clear();
+    }
+    else if (module.moduleType == "EXCAVATION")
+    {
+        std::vector<std::vector<std::string>> deps = {
+            {"MechanizedDrilling"}, {"HeavyEquipment"}, {"AutonomousFleet"}, {}
+        };
+        if (module.tier < 3) module.tierDependencies = deps[module.tier];
+        else module.tierDependencies.clear();
+    }
+    else if (module.moduleType == "BENEFICIATION")
+    {
+        std::vector<std::vector<std::string>> deps = {
+            {"MagneticSeparation"}, {"ProcessingChain"}, {"RefineryComplex"}, {}
+        };
+        if (module.tier < 3) module.tierDependencies = deps[module.tier];
+        else module.tierDependencies.clear();
+    }
+
+    if (activeModuleIndices.count(moduleIndex) > 0)
+    {
+        CalculateConsumption();
+    }
+
+    ShowMessage(TextFormat("[DEBUG] %s force-upgraded to Tier %d", module.name.c_str(), module.tier));
+    std::cout << "[DEBUG] Force upgraded " << module.name << " to tier " << module.tier << std::endl;
+    return true;
+}
+
 void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManager) {
     if (!IsActive() || activeModuleIndices.empty()) return;
 
     CalculateConsumption();  // Update consumption rates when modules are activated
+
+    // --- Dynamic energy consumption for extraction modules ---
+    if (unit_type == "Extraction")
+    {
+        for (int idx : activeModuleIndices)
+        {
+            UnitModule& mod = modules[idx];
+
+            if (mod.moduleType == "PROSPECTING")
+            {
+                mod.consumptionRates[ResourceType::ENERGY] = 0.2f;
+            }
+            else if (mod.moduleType == "EXCAVATION")
+            {
+                int activeExcavators = 0;
+                for (const auto& exc : excavators)
+                {
+                    if (exc.wear < 1.0f) activeExcavators++;
+                }
+                static const float tierEnergyCost[] = {0.8f, 1.0f, 1.2f, 1.5f};
+                float excavationEnergy = tierEnergyCost[std::min(mod.tier, 3)] *
+                                          std::max(1, activeExcavators);
+                mod.consumptionRates[ResourceType::ENERGY] = excavationEnergy;
+            }
+            else if (mod.moduleType == "BENEFICIATION")
+            {
+                float benefEnergy = 0.3f;  // Base overhead
+                for (const auto& node : separationChain)
+                {
+                    if (node.isActive)
+                    {
+                        benefEnergy += node.energyConsumption * 0.01f;
+                    }
+                }
+                mod.consumptionRates[ResourceType::ENERGY] = benefEnergy;
+            }
+            else if (mod.moduleType == "OPERATIONS")
+            {
+                static const float opsEnergy[] = {0.1f, 0.2f, 0.35f, 0.5f};
+                mod.consumptionRates[ResourceType::ENERGY] = opsEnergy[std::min(mod.tier, 3)];
+            }
+            else if (mod.moduleType == "DIRECTIVES")
+            {
+                float directiveEnergy = 0.15f;  // Base
+                if (activeDirective.type == DirectiveType::MAXIMIZE)
+                    directiveEnergy += 0.5f;
+                else if (activeDirective.type == DirectiveType::PRIORITIZE)
+                    directiveEnergy += 0.3f;
+                else if (activeDirective.type == DirectiveType::CONSERVE)
+                    directiveEnergy -= 0.1f;
+                mod.consumptionRates[ResourceType::ENERGY] = directiveEnergy;
+            }
+        }
+    }
 
     // Process each active module
     for (int moduleIndex : activeModuleIndices) {
