@@ -156,7 +156,7 @@ ENERGY = 15.0
 [unit_types.Extraction]
 display_name = "Extraction Facility"
 construction_time = 120.0
-modules = ["H2Extractor", "O2Extractor", "MiningDrill"]
+modules = ["Prospecting", "Excavation", "Beneficiation", "Operations", "Directives"]
 asset_directory = "assets/units/Extraction/"
 unit_asset_file = "unit.png"
 strategy_class = "ExtractionStrategy"
@@ -168,7 +168,7 @@ ENERGY = 100.0
 [unit_types.Farming]
 display_name = "Agricultural Complex"
 construction_time = 90.0
-modules = ["Hydroponics", "Greenhouse", "BioreactorSystem"]
+modules = ["Irrigation", "Greenhouse", "Hydroponics", "Harvest", "Storage"]
 asset_directory = "assets/units/Farming/"
 unit_asset_file = "unit.png"
 strategy_class = "FarmingStrategy"
@@ -181,7 +181,7 @@ ENERGY = 80.0
 [unit_types.Energy]
 display_name = "Power Generation"
 construction_time = 150.0
-modules = ["SolarArray", "NuclearReactor", "GeothermalPlant"]
+modules = ["SolarArray", "Battery", "Nuclear", "Grid", "Emergency"]
 asset_directory = "assets/units/Energy/"
 unit_asset_file = "unit.png"
 strategy_class = "EnergyStrategy"
@@ -194,7 +194,7 @@ ENERGY = 50.0
 [unit_types.Research]
 display_name = "Research Laboratory"
 construction_time = 200.0
-modules = ["BasicLab", "ComputingCenter", "ExperimentalFacility"]
+modules = ["Laboratory", "Analysis", "Simulation", "Archive", "Publication"]
 asset_directory = "assets/units/Research/"
 unit_asset_file = "unit.png"
 strategy_class = "ResearchStrategy"
@@ -207,7 +207,7 @@ ENERGY = 150.0
 [unit_types.Manufacture]
 display_name = "Manufacturing Plant"
 construction_time = 180.0
-modules = ["Refinery", "AssemblyLine", "MachineryFab", "ElectronicsFab", "Smelter", "Prefabricator"]
+modules = ["Fabrication", "Assembly", "Quality", "Logistics", "Automation"]
 asset_directory = "assets/units/Manufacture/"
 unit_asset_file = "unit.png"
 strategy_class = "ManufactureStrategy"
@@ -221,11 +221,193 @@ ENERGY = 120.0
 # MODULE DEFINITIONS
 # =============================================================================
 
-# --- Extraction Modules ---
+# --- Extraction Modules (5 specialized, Tier 0-3) ---
+
+[modules.Prospecting]
+display_name = "Prospecting Module"
+description = "Surveys and identifies surface resources"
+asset_file = "Prospecting.png"
+base_efficiency = 0.6
+max_tier = 3
+
+[modules.Prospecting.tier_data]
+# Tier 0: Visual estimation (~40% accuracy)
+# Tier 1: LIBS Scanner (accurate elemental, requires Spectroscopy)
+# Tier 2: Multi-Spectral Suite (LIBS+Raman+Neutron, requires Geophysics)
+# Tier 3: Deep Survey Array (GPR depth profiling, requires SwarmAI)
+energy_per_tier = [10.0, 50.0, 120.0, 250.0]
+dependencies = ["Spectroscopy", "Geophysics", "SwarmAI"]
+
+[modules.Prospecting.consumption]
+ENERGY = 0.2
+
+[modules.Prospecting.upgrade_costs.tier1]
+Fe = 20.0
+Si = 10.0
+ENERGY = 50.0
+
+[modules.Prospecting.upgrade_costs.tier2]
+Fe = 50.0
+Si = 30.0
+ENERGY = 120.0
+
+[modules.Prospecting.upgrade_costs.tier3]
+Fe = 100.0
+Si = 60.0
+ENERGY = 250.0
+
+[modules.Excavation]
+display_name = "Excavation Module"
+description = "Collects regolith from the surface"
+asset_file = "Excavation.png"
+base_efficiency = 0.8
+max_tier = 3
+
+[modules.Excavation.tier_data]
+# Tier 0: Manual scoop (1 excavator, 10cm, 30 kg/hr)
+# Tier 1: Mechanized (3 excavators, bucket wheel, requires MechanizedDrilling)
+# Tier 2: Heavy equipment (5 excavators, percussive, requires HeavyEquipment)
+# Tier 3: Autonomous fleet (12 drones, zone painting, requires AutonomousFleet)
+energy_per_tier = [30.0, 80.0, 200.0, 500.0]
+dependencies = ["MechanizedDrilling", "HeavyEquipment", "AutonomousFleet"]
+
+[modules.Excavation.production]
+H2 = 0.025
+O2 = 0.025
+C = 0.025
+Fe = 0.025
+Si = 0.025
+
+# Dynamic energy: per-excavator cost scales with tier
+# Tier 0: 0.8/exc * 1 exc = 0.8,  Tier 1: 1.0 * 2 = 2.0
+# Tier 2: 1.2 * 4 = 4.8,          Tier 3: 1.5 * 8 = 12.0
+[modules.Excavation.consumption]
+ENERGY = 0.8  # base (Tier 0, 1 excavator); actual cost is dynamic
+
+[modules.Excavation.upgrade_costs.tier1]
+Fe = 30.0
+ENERGY = 80.0
+
+[modules.Excavation.upgrade_costs.tier2]
+Fe = 80.0
+Si = 40.0
+ENERGY = 200.0
+
+[modules.Excavation.upgrade_costs.tier3]
+Fe = 150.0
+Si = 80.0
+ENERGY = 500.0
+
+[modules.Beneficiation]
+display_name = "Beneficiation Module"
+description = "Separates and processes extracted materials"
+asset_file = "Beneficiation.png"
+base_efficiency = 0.5
+max_tier = 3
+
+[modules.Beneficiation.tier_data]
+# Tier 0: Direct output (raw passthrough)
+# Tier 1: Basic separation (size sort + magnetic, ~60% Fe, requires MagneticSeparation)
+# Tier 2: Processing chain (drag-reorder nodes, requires ProcessingChain)
+# Tier 3: Refinery complex (MRE + purity control, requires RefineryComplex)
+energy_per_tier = [20.0, 60.0, 150.0, 400.0]
+dependencies = ["MagneticSeparation", "ProcessingChain", "RefineryComplex"]
+
+# Dynamic energy: 0.3 base + sum(node.energyConsumption * 0.01) for active nodes
+# Tier 0: 0.3 (direct),  Tier 1: 0.75 (size+mag)
+# Tier 2: 1.80 (4 nodes), Tier 3: 3.10 (5 nodes incl. MRE)
+[modules.Beneficiation.consumption]
+ENERGY = 0.3  # base overhead; actual cost is dynamic per separation chain
+
+[modules.Beneficiation.upgrade_costs.tier1]
+Fe = 30.0
+Si = 15.0
+ENERGY = 70.0
+
+[modules.Beneficiation.upgrade_costs.tier2]
+Fe = 70.0
+Si = 40.0
+ENERGY = 170.0
+
+[modules.Beneficiation.upgrade_costs.tier3]
+Fe = 130.0
+Si = 80.0
+ENERGY = 420.0
+
+[modules.Operations]
+display_name = "Operations Module"
+description = "Scheduling and operational efficiency"
+asset_file = "Operations.png"
+base_efficiency = 0.85
+max_tier = 3
+
+[modules.Operations.tier_data]
+# Tier 0: Continuous (-15% efficiency penalty)
+# Tier 1: Manual start/stop with lunar day/night (requires ShiftScheduling)
+# Tier 2: Drag-block shift scheduler (requires AIScheduling for tier 3)
+# Tier 3: AI-suggested schedules
+energy_per_tier = [5.0, 15.0, 40.0, 80.0]
+dependencies = ["ShiftScheduling", "AIScheduling", "AIGovernance"]
+
+# Dynamic energy: scales with tier (0.1, 0.2, 0.35, 0.5)
+[modules.Operations.consumption]
+ENERGY = 0.1  # Tier 0 base; actual cost scales with tier
+
+[modules.Operations.upgrade_costs.tier1]
+Fe = 15.0
+Si = 10.0
+ENERGY = 40.0
+
+[modules.Operations.upgrade_costs.tier2]
+Fe = 40.0
+Si = 25.0
+ENERGY = 100.0
+
+[modules.Operations.upgrade_costs.tier3]
+Fe = 80.0
+Si = 50.0
+ENERGY = 200.0
+
+[modules.Directives]
+display_name = "Directives Module"
+description = "Autonomous control and decision making"
+asset_file = "Directives.png"
+base_efficiency = 1.0
+max_tier = 3
+
+[modules.Directives.tier_data]
+# Tier 0: Manual only
+# Tier 1: Basic directive cards (PRIORITIZE, MAXIMIZE, CONSERVE, requires BasicDirectives)
+# Tier 2: Advanced directives (EXPLORATION, EMERGENCY, THERMAL, requires AdvancedDirectives)
+# Tier 3: AI governance (requires AIGovernance)
+energy_per_tier = [5.0, 20.0, 50.0, 120.0]
+dependencies = ["BasicDirectives", "AdvancedDirectives", "AIGovernance"]
+
+# Dynamic energy: 0.15 base + directive surcharge
+# MAXIMIZE +0.5, PRIORITIZE +0.3, CONSERVE -0.1
+[modules.Directives.consumption]
+ENERGY = 0.15  # base; actual cost depends on active directive
+
+[modules.Directives.upgrade_costs.tier1]
+Fe = 10.0
+Si = 15.0
+ENERGY = 30.0
+
+[modules.Directives.upgrade_costs.tier2]
+Fe = 30.0
+Si = 40.0
+ENERGY = 80.0
+
+[modules.Directives.upgrade_costs.tier3]
+Fe = 60.0
+Si = 80.0
+ENERGY = 200.0
+
+# --- Legacy Extraction Modules (kept for reference) ---
 
 [modules.H2Extractor]
 display_name = "H2 Extraction Module"
-description = "Extracts hydrogen from the planet surface"
+description = "Legacy: Extracts hydrogen from the planet surface"
 asset_file = "H2Extractor.png"
 base_efficiency = 1.0
 upgrade_cost_multiplier = 1.5
@@ -239,7 +421,7 @@ ENERGY = 1.0
 
 [modules.O2Extractor]
 display_name = "O2 Extraction Module"
-description = "Extracts oxygen from the atmosphere"
+description = "Legacy: Extracts oxygen from the atmosphere"
 asset_file = "O2Extractor.png"
 base_efficiency = 1.0
 upgrade_cost_multiplier = 1.5
@@ -253,7 +435,7 @@ ENERGY = 1.0
 
 [modules.MiningDrill]
 display_name = "Mining Drill Module"
-description = "Extracts solid minerals (Fe, Si, C)"
+description = "Legacy: Extracts solid minerals (Fe, Si, C)"
 asset_file = "MiningDrill.png"
 base_efficiency = 0.8
 upgrade_cost_multiplier = 1.6
