@@ -11,9 +11,29 @@
 #include "raymath.h"
 
 #include "game_constants.h"
+#include "game_enums.h"
 
 class ResourceManager {
 public:
+    struct OrbitalSurveyData {
+        // Elemental composition (percentages, 0.0 - 1.0)
+        float fePercent = 0.0f;
+        float tiPercent = 0.0f;
+        float siPercent = 0.0f;
+        float alPercent = 0.0f;
+        float caPercent = 0.0f;
+        float thPpm = 0.0f;      // Thorium in ppm (0-20)
+        float kPpm = 0.0f;       // Potassium in ppm (0-2000)
+        // Neutron spectrometer
+        float hydrogenSignal = 0.0f;    // 0-1, water proxy
+        // Thermal mapper
+        float solarIllumination = 0.0f; // 0-1, fraction of lunar day with sun
+        // Terrain
+        float terrainSlope = 0.0f;      // degrees (0-45)
+        // Communications
+        float earthVisibility = 0.0f;   // 0-1, line-of-sight fraction
+    };
+
     struct ResourceTile {
         std::map<ResourceType, float> resources;  // Resource type -> abundance (0.0 to 1.0)
         bool isExploited;
@@ -28,6 +48,11 @@ public:
     void DrawResourceDebug(float scale);  // For debugging resource distribution
     void EnsureBasicResources(int x, int y);  // Ensures starting location has basic resources
     void UpdateResourceDepletion(int gridX , int gridY, ResourceType type, float amount);
+
+    // Orbital survey system
+    OrbitalSurveyData GetOrbitalSurveyAt(int gridX, int gridY) const;
+    SiteArchetype GetSiteArchetype(int gridX, int gridY) const;
+    void GenerateOrbitalSurveyData();
 
 
     void DisplayResourceGrid(Vector2& wordlPos) {
@@ -87,6 +112,7 @@ private:
     int gridSize;                    // Size of the grid (20x20)
     float cellSize;                  // Size of each cell in world units
     std::vector<std::vector<ResourceTile>> resourceGrid;
+    std::vector<std::vector<OrbitalSurveyData>> surveyGrid;
 
     void GenerateResourceCluster(ResourceType type, Vector2 center, float radius, float maxAbundance);
     Vector2 GridToWorld(int x, int y) const;
