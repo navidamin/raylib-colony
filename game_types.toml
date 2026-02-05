@@ -14,6 +14,9 @@ O2 = { display_name = "Oxygen", color = "#FF9696", category = "raw", base_value 
 C = { display_name = "Carbon", color = "#646464", category = "raw", base_value = 1.0 }
 Fe = { display_name = "Iron", color = "#8B4513", category = "raw", base_value = 1.2 }
 Si = { display_name = "Silicon", color = "#90B494", category = "raw", base_value = 1.1 }
+Ti = { display_name = "Titanium", color = "#B4A0C8", category = "raw", base_value = 1.5 }
+Al = { display_name = "Aluminum", color = "#C8C8DC", category = "raw", base_value = 1.3 }
+Ca = { display_name = "Calcium", color = "#DCD2BE", category = "raw", base_value = 1.0 }
 
 # Processed Resources
 WATER = { display_name = "Water", color = "#0099FF", category = "processed", base_value = 3.0 }
