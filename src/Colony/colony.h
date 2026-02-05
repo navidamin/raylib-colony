@@ -8,6 +8,7 @@
 #include "sect.h"
 #include "resource_types.h"
 #include "transport_types.h"
+#include "game_enums.h"
 
 class Colony {
 public:
@@ -22,6 +23,11 @@ public:
     void CalculateCentroid();
     void CalculateRadius();
     void DrawJurisdiction();
+
+    // Archetype
+    void SetArchetype(SiteArchetype type) { archetype = type; }
+    SiteArchetype GetArchetype() const { return archetype; }
+    float GetArchetypeBonus(ResourceType resource) const;
 
     // Getters
     Vector2 GetCentroid() const {return centroid;}
@@ -58,6 +64,7 @@ public:
 
 
 private:
+    SiteArchetype archetype = SiteArchetype::MIXED;
     std::vector<Sect*> sects;
     Vector2 centroid;
     float jurisdiction_radius;

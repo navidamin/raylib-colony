@@ -494,3 +494,30 @@ void Colony::ProcessDeficitTriggered() {
     }
 }
 
+float Colony::GetArchetypeBonus(ResourceType resource) const {
+    switch (archetype)
+    {
+        case SiteArchetype::MARE_INDUSTRIAL:
+            if (resource == ResourceType::Fe || resource == ResourceType::Ti)
+                return 1.2f;  // +20% Fe/Ti extraction
+            break;
+        case SiteArchetype::HIGHLAND_CONSTRUCTION:
+            if (resource == ResourceType::Si || resource == ResourceType::Al)
+                return 1.2f;  // +20% Si/Al extraction
+            break;
+        case SiteArchetype::POLAR_VOLATILE:
+            if (resource == ResourceType::H2 || resource == ResourceType::WATER)
+                return 1.5f;  // +50% water-related extraction
+            break;
+        case SiteArchetype::KREEP_SCIENTIFIC:
+            if (resource == ResourceType::SCIENCE)
+                return 1.3f;  // +30% Science generation
+            break;
+        case SiteArchetype::LAVA_TUBE:
+            return 1.15f;     // +15% all (radiation protection bonus)
+        case SiteArchetype::MIXED:
+            break;
+    }
+    return 1.0f;  // No bonus
+}
+
