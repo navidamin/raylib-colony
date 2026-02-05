@@ -21,6 +21,9 @@ enum class ResourceType {
     C,
     Fe,
     Si,
+    Ti,
+    Al,
+    Ca,
     // Singular resources (Tier 2 - Processed)
     WATER,
     FOOD,
@@ -87,6 +90,9 @@ inline const char* ResourceTypeToString(ResourceType type) {
         case ResourceType::C:        return "C";
         case ResourceType::Fe:       return "Fe";
         case ResourceType::Si:       return "Si";
+        case ResourceType::Ti:       return "Ti";
+        case ResourceType::Al:       return "Al";
+        case ResourceType::Ca:       return "Ca";
         case ResourceType::WATER:    return "WATER";
         case ResourceType::FOOD:     return "FOOD";
         case ResourceType::BIOFUEL:  return "BIOFUEL";
@@ -134,6 +140,9 @@ namespace ResourceUtils {
             {ResourceType::C, "C"},
             {ResourceType::Fe, "Fe"},
             {ResourceType::Si, "Si"},
+            {ResourceType::Ti, "Ti"},
+            {ResourceType::Al, "Al"},
+            {ResourceType::Ca, "Ca"},
             {ResourceType::BIOFUEL, "BIOFUEL"},
             {ResourceType::MACHINERY, "MACHINERY"},
             {ResourceType::ELECTRONICS, "ELECTRONICS"},
@@ -150,6 +159,9 @@ namespace ResourceUtils {
             {ResourceType::C, {100, 100, 100, 255}},        // Dark Gray
             {ResourceType::Fe, {139, 69, 19, 255}},         // Brown
             {ResourceType::Si, {144, 180, 148, 255}},       // Greenish Gray
+            {ResourceType::Ti, {180, 160, 200, 255}},       // Lavender
+            {ResourceType::Al, {200, 200, 220, 255}},       // Light Silver
+            {ResourceType::Ca, {220, 210, 190, 255}},       // Cream
             {ResourceType::MACHINERY, {180, 180, 180, 255}},     // Silver
             {ResourceType::ELECTRONICS, {0, 200, 200, 255}},     // Cyan
             {ResourceType::ALLOYS, {200, 150, 50, 255}},         // Gold
