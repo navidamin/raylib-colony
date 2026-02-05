@@ -1576,3 +1576,276 @@ bool Unit::DeactivateModule(int moduleIndex) {
     std::cout << "Deactivated module: " << module.name << " (index " << moduleIndex << ")" << std::endl;
     return true;
 }
+
+// --- Prospecting Methods ---
+
+void Unit::PerformLIBSScan(int gridX, int gridY) {
+    // Check if prospecting module is at least tier 1
+    bool canScan = false;
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "PROSPECTING" && mod.tier >= 1 && mod.isActive)
+        {
+            canScan = true;
+            break;
+        }
+    }
+
+    if (!canScan)
+    {
+        ShowMessage("Requires Prospecting Tier 1+ (LIBS Scanner)");
+        return;
+    }
+
+    if (scanCooldown > 0.0f)
+    {
+        ShowMessage("Scanner on cooldown...");
+        return;
+    }
+
+    // Get accurate resource data from ResourceManager
+    auto resources = resourceManager.GetResourcesAtGrid(gridX, gridY);
+
+    ScanResult result;
+    result.isScanned = true;
+    for (const auto& [type, abundance] : resources)
+    {
+        result.elements[type] = abundance;
+    }
+
+    // Tier 2+: Add mineral identification
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "PROSPECTING" && mod.tier >= 2)
+        {
+            // Derive mineral percentages from elemental composition
+            float feAbundance = result.elements.count(ResourceType::Fe) ?
+                result.elements[ResourceType::Fe] : 0.0f;
+            float tiAbundance = result.elements.count(ResourceType::Ti) ?
+                result.elements[ResourceType::Ti] : 0.0f;
+            float siAbundance = result.elements.count(ResourceType::Si) ?
+                result.elements[ResourceType::Si] : 0.0f;
+
+            result.minerals["Ilmenite"] = (feAbundance + tiAbundance) * 0.01f;
+            result.minerals["Plagioclase"] = siAbundance * 0.015f;
+            result.minerals["Pyroxene"] = feAbundance * 0.01f;
+
+            // Hydrogen signal
+            auto survey = resourceManager.GetOrbitalSurveyAt(gridX, gridY);
+            result.hydrogenSignal = survey.hydrogenSignal;
+
+            // Quality rating (0-5 stars)
+            float totalValue = 0.0f;
+            for (const auto& [type, val] : result.elements)
+            {
+                totalValue += val;
+            }
+            result.qualityRating = std::min(5, static_cast<int>(totalValue / 2000.0f));
+            break;
+        }
+    }
+
+    scanHistory[{gridX, gridY}] = result;
+    scanCooldown = 3.0f;  // 3-second cooldown
+
+    // Consume energy for scan
+    ConsumeResource(ResourceType::ENERGY, 50.0f);
+
+    std::cout << "[PROSPECTING] LIBS scan at (" << gridX << "," << gridY << ") complete." << std::endl;
+}
+
+void Unit::MarkSiteForExcavation(int gridX, int gridY) {
+    auto key = std::make_pair(gridX, gridY);
+
+    // Check if already marked
+    for (const auto& site : markedSites)
+    {
+        if (site.first == gridX && site.second == gridY)
+        {
+            ShowMessage("Site already marked.");
+            return;
+        }
+    }
+
+    markedSites.push_back(key);
+    std::cout << "[PROSPECTING] Site (" << gridX << "," << gridY << ") marked for excavation." << std::endl;
+    ShowMessage(TextFormat("Site (%d,%d) marked for excavation.", gridX, gridY));
+}
+
+void Unit::UnmarkSite(int gridX, int gridY) {
+    for (auto it = markedSites.begin(); it != markedSites.end(); ++it)
+    {
+        if (it->first == gridX && it->second == gridY)
+        {
+            markedSites.erase(it);
+            ShowMessage(TextFormat("Site (%d,%d) unmarked.", gridX, gridY));
+            return;
+        }
+    }
+}
+
+// --- Excavation Methods ---
+
+void Unit::MoveExcavator(int excavatorId, int gridX, int gridY) {
+    for (auto& exc : excavators)
+    {
+        if (exc.id == excavatorId)
+        {
+            exc.gridPos = {static_cast<float>(gridX), static_cast<float>(gridY)};
+            std::cout << "[EXCAVATION] Excavator " << excavatorId
+                      << " moved to (" << gridX << "," << gridY << ")" << std::endl;
+            return;
+        }
+    }
+}
+
+void Unit::SetExcavatorDepth(int excavatorId, float depth) {
+    for (auto& exc : excavators)
+    {
+        if (exc.id == excavatorId)
+        {
+            // Max depth depends on excavation tier
+            float maxDepth = 10.0f;  // Tier 0 default
+            for (const auto& mod : modules)
+            {
+                if (mod.moduleType == "EXCAVATION")
+                {
+                    float tierMaxDepths[] = {10.0f, 30.0f, 100.0f, 300.0f};
+                    maxDepth = tierMaxDepths[std::min(mod.tier, 3)];
+                    break;
+                }
+            }
+            exc.depth = std::clamp(depth, 0.0f, maxDepth);
+            return;
+        }
+    }
+}
+
+void Unit::SetExcavatorRate(int excavatorId, float rate) {
+    for (auto& exc : excavators)
+    {
+        if (exc.id == excavatorId)
+        {
+            exc.rate = std::clamp(rate, 0.0f, 500.0f);
+            return;
+        }
+    }
+}
+
+// --- Beneficiation Methods ---
+
+void Unit::SwapSeparationNodes(int indexA, int indexB) {
+    if (indexA >= 0 && indexA < static_cast<int>(separationChain.size()) &&
+        indexB >= 0 && indexB < static_cast<int>(separationChain.size()) &&
+        indexA != indexB)
+    {
+        std::swap(separationChain[indexA], separationChain[indexB]);
+        std::cout << "[BENEFICIATION] Swapped nodes " << indexA << " and " << indexB << std::endl;
+    }
+}
+
+void Unit::ToggleSeparationNodeActive(int index) {
+    if (index >= 0 && index < static_cast<int>(separationChain.size()))
+    {
+        separationChain[index].isActive = !separationChain[index].isActive;
+    }
+}
+
+void Unit::AddSeparationNode(const SeparationNode& node) {
+    separationChain.push_back(node);
+    std::cout << "[BENEFICIATION] Added node: " << node.name << std::endl;
+}
+
+void Unit::RemoveSeparationNode(int index) {
+    if (index >= 0 && index < static_cast<int>(separationChain.size()))
+    {
+        std::cout << "[BENEFICIATION] Removed node: " << separationChain[index].name << std::endl;
+        separationChain.erase(separationChain.begin() + index);
+    }
+}
+
+// --- Operations & Directives Methods ---
+
+void Unit::SetDirective(const ActiveDirective& directive) {
+    // Check if Directives module is active and at sufficient tier
+    bool canSetDirective = false;
+    int directivesTier = 0;
+
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "DIRECTIVES" && mod.isActive)
+        {
+            canSetDirective = true;
+            directivesTier = mod.tier;
+            break;
+        }
+    }
+
+    if (!canSetDirective && directive.type != DirectiveType::NONE)
+    {
+        ShowMessage("Directives module not active.");
+        return;
+    }
+
+    // Tier 0: manual only (NONE)
+    if (directivesTier == 0 && directive.type != DirectiveType::NONE)
+    {
+        ShowMessage("Directives Tier 1+ required for automated directives.");
+        return;
+    }
+
+    // Tier 1: basic cards only
+    if (directivesTier == 1 && directive.type != DirectiveType::NONE &&
+        directive.type != DirectiveType::PRIORITIZE &&
+        directive.type != DirectiveType::MAXIMIZE &&
+        directive.type != DirectiveType::CONSERVE)
+    {
+        ShowMessage("Advanced directive requires Tier 2+.");
+        return;
+    }
+
+    activeDirective = directive;
+
+    const char* directiveNames[] = {
+        "NONE", "PRIORITIZE", "MAXIMIZE", "CONSERVE",
+        "EXPLORATION_MODE", "EMERGENCY_HARVEST", "THERMAL_SYNC"
+    };
+    std::cout << "[DIRECTIVES] Set directive: "
+              << directiveNames[static_cast<int>(directive.type)] << std::endl;
+}
+
+float Unit::GetOperationsEfficiencyModifier() const {
+    // Find operations module
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "OPERATIONS")
+        {
+            if (!mod.isBuilt || !mod.isActive)
+            {
+                // Operations not active: no penalty but no bonus
+                return 1.0f;
+            }
+
+            // Tier 0: continuous, -15% efficiency penalty
+            if (mod.tier == 0) return 0.85f;
+            // Tier 1: manual scheduling, neutral
+            if (mod.tier == 1) return 1.0f;
+            // Tier 2: optimized scheduling, +10%
+            if (mod.tier == 2) return 1.1f;
+            // Tier 3: AI scheduling, +20%
+            if (mod.tier == 3) return 1.20f;
+        }
+    }
+    return 1.0f;  // No operations module
+}
+
+bool Unit::IsOperationsActive() const {
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "OPERATIONS" && mod.isBuilt && mod.isActive)
+        {
+            return true;
+        }
+    }
+    return false;
+}
