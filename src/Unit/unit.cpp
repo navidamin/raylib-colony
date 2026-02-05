@@ -1,4 +1,5 @@
 #include "unit.h"
+#include "unlock_registry.h"
 #include <iostream>
 #include <cmath>
 
@@ -310,87 +311,310 @@ void Unit::OnConstructionComplete() {
 }
 
 void Unit::InitializeModules() {
-    UnitModule basicModule;
-    basicModule.name = "Basic " + unit_type;
-    basicModule.level = 1;
-    basicModule.isBuilt = true;  // Changed from the original
-    basicModule.isActive = true;
-    basicModule.efficiency = parameters["Efficiency"];
-    basicModule.description = "Basic module for " + unit_type;
-
-    // Initialize maps with empty maps (this ensures they exist)
-    basicModule.consumptionRates = std::map<ResourceType, float>();
-    basicModule.productionRates = std::map<ResourceType, float>();
-    basicModule.maxProductionRates = std::map<ResourceType, float>();
-
-    // Initialize production costs based on unit type
-    if (unit_type == "Extraction") {
-        productionCosts = EXTRACTION_PRODUCTION_COSTS;
+    if (unit_type == "Extraction")
+    {
+        InitializeExtractionModules();
     }
-    else if (unit_type == "Farming") {
-        productionCosts = FARMING_PRODUCTION_COSTS;
+    else if (unit_type == "Farming")
+    {
+        InitializeFarmingModules();
     }
-
-    // Initialize upgrade costs for all levels (1-5)
-    for (int level = 1; level <= 5; level++) {
-        // Initialize empty maps for each level
-        basicModule.upgradeCosts[level] = std::map<ResourceType, float>();
-        basicModule.enhancements[level] = std::map<std::string, float>();
-
-        // Add some example costs and enhancements
-        if (level > 1) {  // Levels 2-5 have upgrade costs
-            basicModule.upgradeCosts[level][ResourceType::ENERGY] = 10.0f * level;
-            basicModule.upgradeCosts[level][ResourceType::Fe] = 0.1f * level;
-
-            basicModule.enhancements[level]["efficiency"] = 1.0f + (level * 0.1f);
-            basicModule.enhancements[level]["production"] = 1.0f + (level * 0.2f);
-        }
+    else if (unit_type == "Energy")
+    {
+        InitializeEnergyModules();
     }
-
-    // Set type-specific rates
-    if (unit_type == "Extraction") {
-        basicModule.maxProductionRates[ResourceType::H2] = parameters["H2ExtractionRate"];
-        basicModule.maxProductionRates[ResourceType::O2] = parameters["O2ExtractionRate"];
-        basicModule.maxProductionRates[ResourceType::C]  = parameters["CExtractionRate"];
-        basicModule.maxProductionRates[ResourceType::Fe] = parameters["FeExtractionRate"];
-        basicModule.maxProductionRates[ResourceType::Si] = parameters["SiExtractionRate"];
-
-        // Initialize production rates to maximum
-        basicModule.productionRates = basicModule.maxProductionRates;
-
-        // Set consumption rates
-        basicModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"];
+    else if (unit_type == "Manufacture")
+    {
+        InitializeManufactureModules();
     }
-    else if (unit_type == "Farming") {
-            // Set maximum production rates for farming
-            basicModule.maxProductionRates[ResourceType::FOOD] = parameters["FoodProductionRate"];
-
-            // Initialize production rates to maximum
-            basicModule.productionRates = basicModule.maxProductionRates;
-
-            // Set consumption rates
-            basicModule.consumptionRates[ResourceType::WATER] = parameters["WaterConsumption"];
-            basicModule.consumptionRates[ResourceType::ENERGY] = parameters["EnergyConsumption"];
+    else if (unit_type == "Research")
+    {
+        InitializeResearchModules();
     }
-    // ... other unit types ...
-
-    modules.push_back(basicModule);
-
-    // Activate the first module by default
-    if (!modules.empty()) {
-        activeModuleIndices.insert(0);
+    else
+    {
+        // Generic fallback for other unit types
+        InitializeGenericModules();
     }
-
-    // Initialize future modules
-    InitializeFutureModules();
 
     // Update unit status based on module states
     UpdateUnitStatus();
 
     // Initialize production/consumption rates if we have active modules
-    if (!activeModuleIndices.empty()) {
+    if (!activeModuleIndices.empty())
+    {
         CalculateConsumption();
     }
+}
+
+void Unit::InitializeExtractionModules() {
+    productionCosts = EXTRACTION_PRODUCTION_COSTS;
+
+    // Initialize first excavator (Tier 0: 1 excavator)
+    Excavator firstExcavator;
+    firstExcavator.id = 0;
+    firstExcavator.gridPos = WorldToGrid(parentSectPosition);
+    firstExcavator.method = "scoop";
+    firstExcavator.depth = 0.0f;
+    firstExcavator.rate = 30.0f;
+    firstExcavator.wear = 0.0f;
+    excavators.push_back(firstExcavator);
+
+    // Module 0: PROSPECTING - surveys and identifies resources
+    {
+        UnitModule mod;
+        mod.name = "Prospecting";
+        mod.moduleType = "PROSPECTING";
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = true;
+        mod.isActive = true;
+        mod.efficiency = 0.6f;  // Tier 0: visual estimation, 40% noise
+        mod.energyRequired = 10.0f;
+        mod.description = "Visual estimation of surface resources.\n~40% accuracy at Tier 0.";
+        mod.tierDependencies = {"Spectroscopy"};  // Required for tier 1
+        mod.consumptionRates[ResourceType::ENERGY] = 0.2f;
+        modules.push_back(mod);
+        activeModuleIndices.insert(0);
+    }
+
+    // Module 1: EXCAVATION - collects regolith
+    {
+        UnitModule mod;
+        mod.name = "Excavation";
+        mod.moduleType = "EXCAVATION";
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = true;
+        mod.isActive = true;
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.75f;
+        mod.energyRequired = 30.0f;
+        mod.description = "Manual scoop extraction.\n1 excavator, max 10cm depth, 30 kg/hr.";
+        mod.tierDependencies = {"MechanizedDrilling"};
+        // Tier 0: basic extraction rates
+        mod.maxProductionRates[ResourceType::H2] = parameters["H2ExtractionRate"] * 0.5f;
+        mod.maxProductionRates[ResourceType::O2] = parameters["O2ExtractionRate"] * 0.5f;
+        mod.maxProductionRates[ResourceType::C]  = parameters["CExtractionRate"] * 0.5f;
+        mod.maxProductionRates[ResourceType::Fe] = parameters["FeExtractionRate"] * 0.5f;
+        mod.maxProductionRates[ResourceType::Si] = parameters["SiExtractionRate"] * 0.5f;
+        mod.productionRates = mod.maxProductionRates;
+        mod.consumptionRates[ResourceType::ENERGY] = 0.8f;
+        modules.push_back(mod);
+        activeModuleIndices.insert(1);
+    }
+
+    // Module 2: BENEFICIATION - separates extracted materials
+    {
+        UnitModule mod;
+        mod.name = "Beneficiation";
+        mod.moduleType = "BENEFICIATION";
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = true;
+        mod.isActive = true;
+        mod.efficiency = 0.5f;  // Tier 0: direct output, low separation efficiency
+        mod.energyRequired = 20.0f;
+        mod.description = "Direct regolith output.\nNo separation processing at Tier 0.";
+        mod.tierDependencies = {"MagneticSeparation"};
+        mod.consumptionRates[ResourceType::ENERGY] = 0.5f;
+        modules.push_back(mod);
+        activeModuleIndices.insert(2);
+    }
+
+    // Initialize Tier 0 separation chain (direct passthrough)
+    separationChain.push_back(SeparationNodes::CreateDirectOutput());
+
+    // Module 3: OPERATIONS - scheduling and efficiency
+    {
+        UnitModule mod;
+        mod.name = "Operations";
+        mod.moduleType = "OPERATIONS";
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = false;  // Requires tier 1 unlock
+        mod.isActive = false;
+        mod.efficiency = 0.85f;  // Tier 0: continuous, -15% efficiency penalty
+        mod.energyRequired = 5.0f;
+        mod.description = "Continuous operation mode.\n-15% efficiency penalty at Tier 0.";
+        mod.tierDependencies = {"ShiftScheduling"};
+        modules.push_back(mod);
+    }
+
+    // Module 4: DIRECTIVES - autonomous control
+    {
+        UnitModule mod;
+        mod.name = "Directives";
+        mod.moduleType = "DIRECTIVES";
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = false;  // Requires tier 1 unlock
+        mod.isActive = false;
+        mod.efficiency = 1.0f;
+        mod.energyRequired = 5.0f;
+        mod.description = "Manual control only.\nNo automated directives at Tier 0.";
+        mod.tierDependencies = {"BasicDirectives"};
+        modules.push_back(mod);
+    }
+}
+
+void Unit::InitializeFarmingModules() {
+    productionCosts = FARMING_PRODUCTION_COSTS;
+
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> farmModules = {
+        {"Irrigation", "IRRIGATION", "Water distribution and soil management."},
+        {"Greenhouse", "GREENHOUSE", "Controlled environment agriculture."},
+        {"Hydroponics", "HYDROPONICS", "Water-based soilless cultivation."},
+        {"Harvest", "HARVEST", "Automated crop collection and processing."},
+        {"Storage", "STORAGE", "Cold storage and preservation systems."}
+    };
+
+    for (size_t i = 0; i < farmModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = farmModules[i].name;
+        mod.moduleType = farmModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);   // First 3 built
+        mod.isActive = (i < 3);  // First 3 active
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.8f;
+        mod.description = farmModules[i].desc;
+
+        if (i == 0)  // Irrigation produces food
+        {
+            mod.maxProductionRates[ResourceType::FOOD] = parameters.count("FoodProductionRate") ?
+                parameters["FoodProductionRate"] : 10.0f;
+            mod.productionRates = mod.maxProductionRates;
+            mod.consumptionRates[ResourceType::WATER] = parameters.count("WaterConsumption") ?
+                parameters["WaterConsumption"] : 3.0f;
+            mod.consumptionRates[ResourceType::ENERGY] = parameters.count("EnergyConsumption") ?
+                parameters["EnergyConsumption"] : 2.0f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeEnergyModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> energyModules = {
+        {"Solar Array", "SOLAR_ARRAY", "Photovoltaic energy generation."},
+        {"Battery", "BATTERY", "Energy storage systems."},
+        {"Nuclear", "NUCLEAR", "Nuclear fission power generation."},
+        {"Grid", "GRID", "Power distribution network."},
+        {"Emergency", "EMERGENCY", "Backup power and emergency systems."}
+    };
+
+    for (size_t i = 0; i < energyModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = energyModules[i].name;
+        mod.moduleType = energyModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.9f;
+        mod.description = energyModules[i].desc;
+
+        if (i == 0)  // Solar Array produces energy
+        {
+            mod.maxProductionRates[ResourceType::ENERGY] = parameters.count("EnergyOutput") ?
+                parameters["EnergyOutput"] : 15.0f;
+            mod.productionRates = mod.maxProductionRates;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeManufactureModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> mfgModules = {
+        {"Fabrication", "FABRICATION", "Raw material processing and shaping."},
+        {"Assembly", "ASSEMBLY", "Component assembly line."},
+        {"Quality", "QUALITY", "Quality control and testing."},
+        {"Logistics", "LOGISTICS", "Material handling and routing."},
+        {"Automation", "AUTOMATION", "Automated production control."}
+    };
+
+    for (size_t i = 0; i < mfgModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = mfgModules[i].name;
+        mod.moduleType = mfgModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("ProductionEfficiency") ?
+            parameters["ProductionEfficiency"] : 0.85f;
+        mod.description = mfgModules[i].desc;
+
+        if (i == 0)  // Fabrication consumes raw materials
+        {
+            mod.consumptionRates[ResourceType::Fe] = 2.0f;
+            mod.consumptionRates[ResourceType::Si] = 1.0f;
+            mod.consumptionRates[ResourceType::ENERGY] = 3.0f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeResearchModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> resModules = {
+        {"Laboratory", "LABORATORY", "Fundamental research facility."},
+        {"Analysis", "ANALYSIS", "Data analysis and computation."},
+        {"Simulation", "SIMULATION", "Numerical simulation systems."},
+        {"Archive", "ARCHIVE", "Research data storage and retrieval."},
+        {"Publication", "PUBLICATION", "Research output and knowledge sharing."}
+    };
+
+    for (size_t i = 0; i < resModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = resModules[i].name;
+        mod.moduleType = resModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = 1.0f;
+        mod.description = resModules[i].desc;
+
+        if (i == 0)  // Laboratory produces science
+        {
+            mod.maxProductionRates[ResourceType::SCIENCE] = parameters.count("ResearchPointsPerTick") ?
+                parameters["ResearchPointsPerTick"] : 5.0f;
+            mod.productionRates = mod.maxProductionRates;
+            mod.consumptionRates[ResourceType::ENERGY] = parameters.count("EnergyConsumption") ?
+                parameters["EnergyConsumption"] : 10.0f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeGenericModules() {
+    UnitModule basicModule;
+    basicModule.name = "Basic " + unit_type;
+    basicModule.moduleType = "GENERIC";
+    basicModule.tier = 0;
+    basicModule.level = 1;
+    basicModule.isBuilt = true;
+    basicModule.isActive = true;
+    basicModule.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.8f;
+    basicModule.description = "Basic module for " + unit_type;
+
+    modules.push_back(basicModule);
+    activeModuleIndices.insert(0);
 }
 
 
