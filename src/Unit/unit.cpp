@@ -1102,11 +1102,7 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
 }
 
 void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) {
-    // Use the first active module for extraction (in future, could have multiple extraction modules)
     if (activeModuleIndices.empty()) return;
-
-    int firstActiveModule = *activeModuleIndices.begin();
-    UnitModule& module = modules[firstActiveModule];
 
     Vector2 gridPos = WorldToGrid(parentSectPosition);
     int gridX = static_cast<int>(gridPos.x);
