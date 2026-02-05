@@ -1,15 +1,42 @@
 #include "rendermanager.h"
+#include "resource_manager.h"
 #include <algorithm>
 #include <iostream>
+#include <cmath>
 
 RenderManager::RenderManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
+      fontsLoaded(false),
       tilesLoaded(false)
 {
 }
 
+void RenderManager::LoadFonts()
+{
+    uiFont = LoadFontEx("src/assets/fonts/Exo2-Regular.ttf", 32, nullptr, 0);
+    uiHeaderFont = LoadFontEx("src/assets/fonts/Exo2-Bold.ttf", 32, nullptr, 0);
+
+    if (uiFont.glyphCount > 0 && uiHeaderFont.glyphCount > 0)
+    {
+        SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
+        SetTextureFilter(uiHeaderFont.texture, TEXTURE_FILTER_BILINEAR);
+        fontsLoaded = true;
+    }
+    else
+    {
+        std::cout << "WARNING: Failed to load UI fonts, falling back to default" << std::endl;
+    }
+}
+
 RenderManager::~RenderManager() {
+    // Unload fonts
+    if (fontsLoaded)
+    {
+        UnloadFont(uiFont);
+        UnloadFont(uiHeaderFont);
+    }
+
     // Unload moon surface tiles when done
     UnloadMoonTiles();
 }
@@ -228,6 +255,81 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         Vector2 mousePos = inputManager.GetMousePosition();
         DrawCellInfo(mousePos, camera, planet, colonies);
         DrawPlusIndicator(mousePos, View::Colony);
+
+        // Resource preview overlay for sect placement
+        if (planet)
+        {
+            Vector2 worldPos = GetScreenToWorld2D(mousePos, camera);
+            float cellSize = SECT_CORE_RADIUS * 2.0f;
+            int gx = static_cast<int>(std::floor(worldPos.x / cellSize));
+            int gy = static_cast<int>(std::floor(worldPos.y / cellSize));
+
+            if (gx >= 0 && gx < PLANET_SIZE && gy >= 0 && gy < PLANET_SIZE)
+            {
+                auto survey = planet->GetResourceManager().GetOrbitalSurveyAt(gx, gy);
+                auto resources = planet->GetResourceManager().GetResourcesAtGrid(gx, gy);
+
+                // Draw tooltip near cursor
+                int tooltipX = static_cast<int>(mousePos.x) + 20;
+                int tooltipY = static_cast<int>(mousePos.y) - 120;
+                int tooltipW = 200;
+                int tooltipH = 140;
+
+                // Clamp to screen
+                if (tooltipX + tooltipW > screenWidth) tooltipX = static_cast<int>(mousePos.x) - tooltipW - 20;
+                if (tooltipY < 0) tooltipY = static_cast<int>(mousePos.y) + 20;
+
+                DrawRectangle(tooltipX, tooltipY, tooltipW, tooltipH, {20, 20, 40, 220});
+                DrawRectangleLines(tooltipX, tooltipY, tooltipW, tooltipH, {100, 100, 200, 200});
+
+                int ty = tooltipY + 5;
+                DrawText("RESOURCE PREVIEW", tooltipX + 5, ty, 12, {200, 255, 200, 255});
+                ty += 16;
+
+                // Show key resources
+                const ResourceType rawTypes[] = {
+                    ResourceType::Fe, ResourceType::Ti, ResourceType::Si,
+                    ResourceType::Al, ResourceType::Ca, ResourceType::H2
+                };
+                const char* rawNames[] = {"Fe", "Ti", "Si", "Al", "Ca", "H2"};
+
+                for (int i = 0; i < 6; i++)
+                {
+                    float abundance = 0.0f;
+                    for (const auto& [type, val] : resources)
+                    {
+                        if (type == rawTypes[i])
+                        {
+                            abundance = val;
+                            break;
+                        }
+                    }
+
+                    const char* level = abundance > 3000.0f ? "HIGH" :
+                                        abundance > 500.0f ? "MED" : "LOW";
+                    Color levelColor = abundance > 3000.0f ? GREEN :
+                                       abundance > 500.0f ? YELLOW : RED;
+
+                    DrawText(TextFormat("%-4s %.0f (%s)", rawNames[i], abundance, level),
+                             tooltipX + 5, ty, 11, levelColor);
+                    ty += 14;
+                }
+
+                // Resource score
+                float totalScore = 0.0f;
+                for (const auto& [type, val] : resources)
+                {
+                    totalScore += val;
+                }
+                const char* scoreLabel = totalScore > 15000.0f ? "HIGH" :
+                                         totalScore > 5000.0f ? "MED" : "LOW";
+                Color scoreColor = totalScore > 15000.0f ? GREEN :
+                                   totalScore > 5000.0f ? YELLOW : RED;
+
+                DrawText(TextFormat("Score: %s (%.0f)", scoreLabel, totalScore),
+                         tooltipX + 5, ty, 12, scoreColor);
+            }
+        }
     }
 
     // Draw UI elements including time
@@ -252,11 +354,18 @@ void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
     DrawText("Press C for Colony View", 10, 70, 20, GRAY);
 }
 
-void RenderManager::DrawUnitView(Unit* unit) {
-    if (unit) {
-        unit->DrawInUnitView();
+void RenderManager::DrawUnitView(Unit* unit, TimeManager& timeManager) {
+    if (!unit) return;
+
+    // Route extraction units to the new dark-themed UI
+    if (unit->GetUnitType() == "Extraction")
+    {
+        DrawExtractionUnitView(unit, timeManager);
+        return;
     }
 
+    // Non-extraction units use the old rendering path
+    unit->DrawInUnitView();
     DrawText("Unit View", 10, 10, 20, BLACK);
     DrawText("Press S for Sect View", 10, 40, 20, GRAY);
 }
