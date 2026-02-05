@@ -21,9 +21,13 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
     resourceStorage[ResourceType::C] = 0.0f;
     resourceStorage[ResourceType::Fe] = 0.0f;
     resourceStorage[ResourceType::Si] = 0.0f;
+    resourceStorage[ResourceType::Ti] = 0.0f;
+    resourceStorage[ResourceType::Al] = 0.0f;
+    resourceStorage[ResourceType::Ca] = 0.0f;
     resourceStorage[ResourceType::ENERGY] = 0.0f;
     resourceStorage[ResourceType::WATER] = 0.0f;
     resourceStorage[ResourceType::FOOD] = 0.0f;
+    resourceStorage[ResourceType::SCIENCE] = 0.0f;
     resourceStorage[ResourceType::MANPOWER] = SECT_BASE_MANPOWER;  // Constant manpower per sect
 
     // Initialize storage capacities
@@ -32,6 +36,9 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
     storageCapacity[ResourceType::C] = SECT_BASE_STORAGE;
     storageCapacity[ResourceType::Fe] = SECT_BASE_STORAGE;
     storageCapacity[ResourceType::Si] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::Ti] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::Al] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::Ca] = SECT_BASE_STORAGE;
     storageCapacity[ResourceType::ENERGY] = SECT_BASE_STORAGE;
     storageCapacity[ResourceType::WATER] = SECT_BASE_STORAGE;
     storageCapacity[ResourceType::FOOD] = SECT_BASE_STORAGE;
