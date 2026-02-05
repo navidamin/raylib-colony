@@ -45,15 +45,15 @@ const float AUTO_BALANCE_THRESHOLD = 0.3f;        // Difference threshold to tri
 const float MIN_TRANSPORT_INTERVAL = 3.0f;        // Minimum seconds between transport jobs on same road
 const int MAX_PACKETS_PER_ROAD = 3;               // Maximum concurrent packets on a road
 
-const float DEFAULT_H2ExtractionRate = 0.05;
-const float DEFAULT_O2ExtractionRate = 0.05;
-const float DEFAULT_CExtractionRate = 0.05;
-const float DEFAULT_FeExtractionRate= 0.05;
-const float DEFAULT_SiExtractionRate= 0.05;
+const float DEFAULT_H2ExtractionRate = 0.03;
+const float DEFAULT_O2ExtractionRate = 0.03;
+const float DEFAULT_CExtractionRate = 0.03;
+const float DEFAULT_FeExtractionRate= 0.03;
+const float DEFAULT_SiExtractionRate= 0.03;
 const float DEFAULT_ResourceFocus= 1;
 const float DEFAULT_EnergyConsumption= 1;
 const float DEFAULT_WearAndTear= 0.2;
-const float DEFAULT_Efficiency= 0.8;
+const float DEFAULT_Efficiency= 0.75;
 const float DEFAULT_StorageCapacity= 100;
 const float DEFAULT_BreakdownChance= 0.02;
 
