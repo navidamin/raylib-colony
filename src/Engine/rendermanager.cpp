@@ -783,3 +783,1614 @@ void RenderManager::DrawRoadInfoPanel(Road* selectedRoad, Colony* colony) {
     // Controls hint
     DrawText("Press T to cycle mode", panelX + padding, y, 12, DARKGRAY);
 }
+
+// ============================================================================
+// SITE SELECTION VIEW
+// ============================================================================
+
+void RenderManager::DrawSiteSelectionView(Camera2D camera, Planet* planet, Vector2 hoveredGridPos,
+                                          TimeManager& timeManager) {
+    if (!planet) return;
+
+    ResourceManager& rm = planet->GetResourceManager();
+    float cellSize = SECT_CORE_RADIUS * 2.0f;
+
+    // --- Draw world-space elements (orbital map with colored grid) ---
+    BeginMode2D(camera);
+
+    // Draw tiled moon surface background
+    if (tilesLoaded)
+    {
+        RenderMoonSurface();
+    }
+
+    // Draw colored overlay for each grid cell
+    for (int y = 0; y < PLANET_SIZE; y++)
+    {
+        for (int x = 0; x < PLANET_SIZE; x++)
+        {
+            auto survey = rm.GetOrbitalSurveyAt(x, y);
+
+            // Color based on composition: dark = mare (Fe/Ti), light = highland (Si/Al)
+            float mareIntensity = (survey.fePercent + survey.tiPercent) * 0.5f;
+            float highlandIntensity = (survey.siPercent + survey.alPercent) * 0.5f;
+            float hydrogenTint = survey.hydrogenSignal;
+
+            // Blend: dark grey for mare, light grey for highland, blue tint for hydrogen
+            unsigned char r = static_cast<unsigned char>(60.0f + highlandIntensity * 140.0f);
+            unsigned char g = static_cast<unsigned char>(50.0f + highlandIntensity * 130.0f);
+            unsigned char b = static_cast<unsigned char>(60.0f + highlandIntensity * 120.0f + hydrogenTint * 80.0f);
+
+            // Darken for mare regions
+            r = static_cast<unsigned char>(r * (1.0f - mareIntensity * 0.5f));
+            g = static_cast<unsigned char>(g * (1.0f - mareIntensity * 0.5f));
+
+            Color cellColor = {r, g, b, 140};
+
+            float worldX = x * cellSize;
+            float worldY = y * cellSize;
+            DrawRectangle(static_cast<int>(worldX), static_cast<int>(worldY),
+                         static_cast<int>(cellSize), static_cast<int>(cellSize), cellColor);
+
+            // Draw thin grid lines
+            DrawRectangleLines(static_cast<int>(worldX), static_cast<int>(worldY),
+                              static_cast<int>(cellSize), static_cast<int>(cellSize),
+                              {100, 100, 100, 80});
+        }
+    }
+
+    // Highlight hovered cell
+    int hx = static_cast<int>(hoveredGridPos.x);
+    int hy = static_cast<int>(hoveredGridPos.y);
+    if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE)
+    {
+        float worldX = hx * cellSize;
+        float worldY = hy * cellSize;
+        DrawRectangleLines(static_cast<int>(worldX), static_cast<int>(worldY),
+                          static_cast<int>(cellSize), static_cast<int>(cellSize),
+                          {255, 255, 0, 255});
+        DrawRectangleLinesEx(
+            {worldX + 1, worldY + 1, cellSize - 2, cellSize - 2},
+            2.0f, {255, 255, 0, 200});
+    }
+
+    EndMode2D();
+
+    // --- Draw screen-space UI panels ---
+
+    // Choose fonts (fall back to default if loading failed)
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    float sp = 1.0f;  // Letter spacing
+
+    // Title bar
+    DrawRectangle(0, 0, screenWidth, 40, {20, 20, 40, 230});
+    DrawTextEx(headerFont, "COLONY SITE SELECTION", {20.0f, 8.0f}, 22.0f, sp, WHITE);
+    DrawTextEx(bodyFont, "[ENTER] Confirm  [ESC] Cancel",
+               {(float)(screenWidth - 320), 12.0f}, 16.0f, sp, LIGHTGRAY);
+
+    // Get survey data for hovered cell
+    if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE)
+    {
+        auto survey = rm.GetOrbitalSurveyAt(hx, hy);
+        SiteArchetype archetype = rm.GetSiteArchetype(hx, hy);
+
+        const char* archetypeNames[] = {
+            "MARE INDUSTRIAL", "HIGHLAND CONSTRUCTION", "POLAR VOLATILE",
+            "KREEP SCIENTIFIC", "LAVA TUBE", "MIXED"
+        };
+
+        int panelX = screenWidth - 340;
+        int panelY = 50;
+        int panelW = 330;
+        int panelH = 530;
+
+        // Panel background
+        DrawRectangle(panelX, panelY, panelW, panelH, {20, 20, 40, 220});
+        DrawRectangleLines(panelX, panelY, panelW, panelH, {100, 100, 200, 200});
+
+        int padding = 10;
+        float yPos = static_cast<float>(panelY + padding);
+        float lineH = 20.0f;
+        float px = static_cast<float>(panelX + padding);
+
+        // Cell coordinates
+        DrawTextEx(headerFont, TextFormat("Grid Position: (%d, %d)", hx, hy),
+                   {px, yPos}, 16.0f, sp, WHITE);
+        yPos += lineH + 5.0f;
+
+        // --- Gamma-Ray Spectrometer ---
+        DrawTextEx(headerFont, "GAMMA-RAY SPECTROMETER", {px, yPos}, 14.0f, sp, {150, 150, 255, 255});
+        yPos += lineH;
+
+        // Bar charts for elemental composition
+        auto DrawBar = [&](const char* label, float value, Color color) {
+            DrawTextEx(bodyFont, TextFormat("%-4s", label), {px, yPos}, 13.0f, sp, LIGHTGRAY);
+            float barX = px + 40.0f;
+            int barW = 180;
+            int barH = 13;
+            DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 1.0f), barW, barH, {40, 40, 40, 200});
+            DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 1.0f), static_cast<int>(barW * value), barH, color);
+            DrawTextEx(bodyFont, TextFormat("%.0f%%", value * 100.0f),
+                       {barX + barW + 5.0f, yPos}, 13.0f, sp, LIGHTGRAY);
+            yPos += lineH;
+        };
+
+        DrawBar("Fe", survey.fePercent, {139, 69, 19, 255});
+        DrawBar("Ti", survey.tiPercent, {180, 160, 200, 255});
+        DrawBar("Si", survey.siPercent, {144, 180, 148, 255});
+        DrawBar("Al", survey.alPercent, {200, 200, 220, 255});
+        DrawBar("Ca", survey.caPercent, {220, 210, 190, 255});
+
+        DrawTextEx(bodyFont, TextFormat("Th: %.1f ppm", survey.thPpm), {px, yPos}, 13.0f, sp, LIGHTGRAY);
+        yPos += lineH;
+        DrawTextEx(bodyFont, TextFormat("K:  %.0f ppm", survey.kPpm), {px, yPos}, 13.0f, sp, LIGHTGRAY);
+        yPos += lineH + 8.0f;
+
+        // --- Neutron Spectrometer ---
+        DrawTextEx(headerFont, "NEUTRON SPECTROMETER", {px, yPos}, 14.0f, sp, {100, 200, 255, 255});
+        yPos += lineH;
+
+        DrawBar("H", survey.hydrogenSignal, {100, 200, 255, 255});
+
+        const char* iceLikelihood = survey.hydrogenSignal > 0.6f ? "HIGH" :
+                                    survey.hydrogenSignal > 0.3f ? "MODERATE" : "LOW";
+        Color iceColor = survey.hydrogenSignal > 0.6f ? GREEN :
+                         survey.hydrogenSignal > 0.3f ? YELLOW : RED;
+        DrawTextEx(bodyFont, TextFormat("Ice likelihood: %s", iceLikelihood), {px, yPos}, 13.0f, sp, iceColor);
+        yPos += lineH + 8.0f;
+
+        // --- Thermal Mapper ---
+        DrawTextEx(headerFont, "THERMAL MAPPER", {px, yPos}, 14.0f, sp, {255, 200, 100, 255});
+        yPos += lineH;
+
+        DrawBar("Solar", survey.solarIllumination, {255, 255, 100, 255});
+
+        float dayTemp = -173.0f + survey.solarIllumination * 300.0f;
+        float nightTemp = -173.0f + survey.solarIllumination * 20.0f;
+        DrawTextEx(bodyFont, TextFormat("Day: %+.0f C  Night: %+.0f C", dayTemp, nightTemp),
+                   {px, yPos}, 13.0f, sp, LIGHTGRAY);
+        yPos += lineH + 8.0f;
+
+        // --- Site Assessment ---
+        DrawTextEx(headerFont, "SITE ASSESSMENT", {px, yPos}, 14.0f, sp, {200, 255, 200, 255});
+        yPos += lineH;
+
+        // Terrain slope
+        const char* terrainDesc = survey.terrainSlope < 5.0f ? "Flat" :
+                                  survey.terrainSlope < 15.0f ? "Moderate" : "Steep";
+        Color terrainColor = survey.terrainSlope < 5.0f ? GREEN :
+                             survey.terrainSlope < 15.0f ? YELLOW : RED;
+        DrawTextEx(bodyFont, TextFormat("Terrain: %.0f deg (%s)", survey.terrainSlope, terrainDesc),
+                   {px, yPos}, 13.0f, sp, terrainColor);
+        yPos += lineH;
+
+        // Solar access
+        const char* solarDesc = survey.solarIllumination > 0.7f ? "Excellent" :
+                                survey.solarIllumination > 0.4f ? "Good" : "Poor";
+        Color solarColor = survey.solarIllumination > 0.7f ? GREEN :
+                           survey.solarIllumination > 0.4f ? YELLOW : RED;
+        DrawTextEx(bodyFont, TextFormat("Solar Access: %.0f%% (%s)", survey.solarIllumination * 100.0f, solarDesc),
+                   {px, yPos}, 13.0f, sp, solarColor);
+        yPos += lineH;
+
+        // Earth visibility
+        const char* earthDesc = survey.earthVisibility > 0.7f ? "Reliable" :
+                                survey.earthVisibility > 0.4f ? "Intermittent" : "Poor";
+        Color earthColor = survey.earthVisibility > 0.7f ? GREEN :
+                           survey.earthVisibility > 0.4f ? YELLOW : RED;
+        DrawTextEx(bodyFont, TextFormat("Earth Comms: %.0f%% (%s)", survey.earthVisibility * 100.0f, earthDesc),
+                   {px, yPos}, 13.0f, sp, earthColor);
+        yPos += lineH + 8.0f;
+
+        // Archetype recommendation
+        DrawRectangle(static_cast<int>(px) - 2, static_cast<int>(yPos) - 2,
+                      panelW - padding * 2 + 4, static_cast<int>(lineH) + 6, {40, 40, 80, 200});
+        DrawTextEx(headerFont, TextFormat("ARCHETYPE: %s", archetypeNames[static_cast<int>(archetype)]),
+                   {px, yPos}, 16.0f, sp, {255, 220, 100, 255});
+        yPos += lineH + 4.0f;
+
+        // Archetype bonus description
+        const char* bonusDesc[] = {
+            "+20% Fe/Ti extraction",
+            "+20% Si/Al extraction",
+            "+50% water extraction",
+            "+30% Science generation",
+            "+15% all production",
+            "No special bonus"
+        };
+        DrawTextEx(bodyFont, TextFormat("Bonus: %s", bonusDesc[static_cast<int>(archetype)]),
+                   {px, yPos}, 13.0f, sp, {180, 180, 255, 255});
+    }
+
+    // Bottom bar
+    int bottomY = screenHeight - 40;
+    DrawRectangle(0, bottomY, screenWidth, 40, {20, 20, 40, 230});
+    DrawTextEx(bodyFont, "Ctrl+Click to enter  |  Mouse: hover cells  |  Enter: confirm  |  Esc: cancel",
+               {20.0f, static_cast<float>(bottomY + 10)}, 14.0f, sp, LIGHTGRAY);
+
+    // Time display
+    DrawTextEx(bodyFont, TextFormat("Day %d", timeManager.GetCurrentDay()),
+               {static_cast<float>(screenWidth - 100), static_cast<float>(bottomY + 10)}, 14.0f, sp, WHITE);
+}
+
+// ============================================================================
+// EXTRACTION UNIT UI
+// ============================================================================
+
+// Color constants for extraction UI (reuse site selection aesthetic)
+static const Color EXT_PANEL_BG      = {20, 20, 40, 220};
+static const Color EXT_PANEL_BORDER  = {100, 100, 200, 200};
+static const Color EXT_SCREEN_BG     = {10, 10, 25, 255};
+static const Color EXT_HEADER_COLOR  = {150, 150, 255, 255};
+static const Color EXT_ACCENT_CYAN   = {100, 220, 255, 255};
+static const Color EXT_ACCENT_GREEN  = {100, 255, 150, 255};
+static const Color EXT_ACCENT_GOLD   = {255, 220, 100, 255};
+static const Color EXT_DIM_TEXT      = {140, 140, 160, 255};
+
+// Layout constants
+static const int EXT_TOP_BAR_H    = 50;
+static const int EXT_BOTTOM_BAR_H = 40;
+static const int EXT_LEFT_PANEL_W  = 280;
+static const int EXT_RIGHT_PANEL_W = 300;
+
+void RenderManager::DrawExtractionUnitView(Unit* unit, TimeManager& timeManager)
+{
+    // Full dark background
+    DrawRectangle(0, 0, screenWidth, screenHeight, EXT_SCREEN_BG);
+
+    DrawExtractionTopBar(unit, timeManager);
+    DrawExtractionBottomBar(unit);
+    DrawExtractionModuleList(unit);
+    DrawExtractionModuleCenter(unit);
+    DrawExtractionControlPanel(unit);
+
+    // Update message fade (done in unit since it owns the state)
+    // The unit still handles UpdateMessage in its own Update/Draw cycle
+}
+
+void RenderManager::DrawExtractionTopBar(Unit* unit, TimeManager& timeManager)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+
+    DrawRectangle(0, 0, screenWidth, EXT_TOP_BAR_H, EXT_PANEL_BG);
+    DrawLine(0, EXT_TOP_BAR_H, screenWidth, EXT_TOP_BAR_H, EXT_PANEL_BORDER);
+
+    // Unit title
+    DrawTextEx(headerFont, "EXTRACTION UNIT", {20.0f, 14.0f}, 22.0f, sp, WHITE);
+
+    // Status indicator
+    bool isActive = unit->IsActive();
+    Color statusColor = isActive ? EXT_ACCENT_GREEN : Color{255, 100, 100, 255};
+    const char* statusText = isActive ? "ONLINE" : "OFFLINE";
+    float statusX = 220.0f;
+    DrawCircle(static_cast<int>(statusX), 25, 5, statusColor);
+    DrawTextEx(bodyFont, statusText, {statusX + 12.0f, 16.0f}, 16.0f, sp, statusColor);
+
+    // Day counter
+    const char* dayText = TextFormat("Day %d", timeManager.GetCurrentDay());
+    float dayWidth = MeasureTextEx(bodyFont, dayText, 16.0f, sp).x;
+    DrawTextEx(bodyFont, dayText, {screenWidth - dayWidth - 20.0f, 16.0f}, 16.0f, sp, WHITE);
+
+    // Navigation hint
+    DrawTextEx(bodyFont, "Press S for Sect View",
+               {screenWidth - dayWidth - 200.0f, 16.0f}, 14.0f, sp, EXT_DIM_TEXT);
+}
+
+void RenderManager::DrawExtractionBottomBar(Unit* unit)
+{
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+
+    int startY = screenHeight - EXT_BOTTOM_BAR_H;
+    DrawRectangle(0, startY, screenWidth, EXT_BOTTOM_BAR_H, EXT_PANEL_BG);
+    DrawLine(0, startY, screenWidth, startY, EXT_PANEL_BORDER);
+
+    // Fade message
+    const UIMessage& msg = unit->GetCurrentMessage();
+    if (msg.opacity > 0)
+    {
+        Color msgColor = WHITE;
+        msgColor.a = static_cast<unsigned char>(255 * msg.opacity);
+        DrawTextEx(bodyFont, msg.text.c_str(), {20.0f, startY + 10.0f}, 16.0f, sp, msgColor);
+    }
+}
+
+// --- Shared Helpers ---
+
+void RenderManager::DrawStyledBar(float x, float y, float w, float h, float value, Color fillColor)
+{
+    value = Clamp(value, 0.0f, 1.0f);
+    DrawRectangle(static_cast<int>(x), static_cast<int>(y),
+                  static_cast<int>(w), static_cast<int>(h), {40, 40, 60, 200});
+    DrawRectangle(static_cast<int>(x), static_cast<int>(y),
+                  static_cast<int>(w * value), static_cast<int>(h), fillColor);
+    DrawRectangleLines(static_cast<int>(x), static_cast<int>(y),
+                       static_cast<int>(w), static_cast<int>(h), EXT_PANEL_BORDER);
+}
+
+void RenderManager::DrawWearBar(float x, float y, float w, float h, float wear)
+{
+    Color wearColor;
+    if (wear < 0.3f) wearColor = GREEN;
+    else if (wear < 0.7f) wearColor = YELLOW;
+    else wearColor = RED;
+    DrawStyledBar(x, y, w, h, wear, wearColor);
+}
+
+void RenderManager::DrawTierIndicator(float x, float y, int tier, int maxTier)
+{
+    Color tierColors[] = {GRAY, GREEN, BLUE, EXT_ACCENT_GOLD};
+    for (int i = 0; i <= maxTier; i++)
+    {
+        float cx = x + i * 18.0f;
+        float cy = y;
+        if (i <= tier)
+        {
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy), 6, tierColors[std::min(i, 3)]);
+        }
+        else
+        {
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), 6, EXT_DIM_TEXT);
+        }
+    }
+}
+
+// --- Left Panel: Module List ---
+
+void RenderManager::DrawExtractionModuleList(Unit* unit)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+
+    int panelY = EXT_TOP_BAR_H;
+    int panelH = screenHeight - EXT_TOP_BAR_H - EXT_BOTTOM_BAR_H;
+
+    // Panel background
+    DrawRectangle(0, panelY, EXT_LEFT_PANEL_W, panelH, EXT_PANEL_BG);
+    DrawLine(EXT_LEFT_PANEL_W, panelY, EXT_LEFT_PANEL_W, panelY + panelH, EXT_PANEL_BORDER);
+
+    int padding = 10;
+    float yPos = static_cast<float>(panelY + padding);
+
+    // "Unit Overview" button
+    Rectangle overviewBtn = {
+        static_cast<float>(padding),
+        yPos,
+        static_cast<float>(EXT_LEFT_PANEL_W - padding * 2),
+        40.0f
+    };
+
+    bool overviewHovered = CheckCollisionPointRec(GetMousePosition(), overviewBtn);
+    bool overviewSelected = !unit->IsInModuleView();
+
+    Color overviewBg = overviewSelected ? Color{40, 60, 100, 255} : Color{30, 30, 50, 255};
+    if (overviewHovered) overviewBg = Color{50, 70, 120, 255};
+
+    DrawRectangleRec(overviewBtn, overviewBg);
+    if (overviewSelected)
+        DrawRectangleLinesEx(overviewBtn, 2.0f, EXT_ACCENT_CYAN);
+    else
+        DrawRectangleLinesEx(overviewBtn, 1.0f, EXT_PANEL_BORDER);
+
+    DrawTextEx(headerFont, "UNIT OVERVIEW", {overviewBtn.x + 10.0f, overviewBtn.y + 10.0f},
+               16.0f, sp, overviewSelected ? WHITE : LIGHTGRAY);
+
+    if (overviewHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        unit->SetIsInModuleView(false);
+        unit->SetShowingStats(false);
+        unit->PublicShowMessage("Switched to unit overview");
+    }
+
+    yPos += 55.0f;
+
+    // Section label
+    DrawTextEx(bodyFont, "MODULES", {static_cast<float>(padding), yPos}, 12.0f, sp, EXT_DIM_TEXT);
+    yPos += 20.0f;
+
+    // Module buttons
+    const auto& modules = unit->GetModules();
+    int selectedIdx = unit->GetSelectedModuleIndex();
+
+    for (size_t i = 0; i < modules.size(); i++)
+    {
+        const auto& mod = modules[i];
+
+        Rectangle btn = {
+            static_cast<float>(padding),
+            yPos,
+            static_cast<float>(EXT_LEFT_PANEL_W - padding * 2),
+            50.0f
+        };
+
+        bool isHovered = CheckCollisionPointRec(GetMousePosition(), btn);
+        bool isSelected = unit->IsInModuleView() && selectedIdx == static_cast<int>(i);
+
+        // Background color based on state
+        Color btnBg;
+        if (!mod.isBuilt)
+            btnBg = {25, 25, 35, 255};
+        else if (isSelected)
+            btnBg = {40, 60, 100, 255};
+        else
+            btnBg = {30, 30, 50, 255};
+
+        if (isHovered) btnBg = Color{static_cast<unsigned char>(std::min(btnBg.r + 15, 255)),
+                                      static_cast<unsigned char>(std::min(btnBg.g + 15, 255)),
+                                      static_cast<unsigned char>(std::min(btnBg.b + 20, 255)),
+                                      255};
+
+        DrawRectangleRec(btn, btnBg);
+
+        // Border
+        if (isSelected)
+            DrawRectangleLinesEx(btn, 2.0f, EXT_ACCENT_CYAN);
+        else if (mod.isBuilt && mod.isActive)
+            DrawRectangleLinesEx(btn, 1.0f, EXT_ACCENT_GREEN);
+        else if (mod.isBuilt)
+            DrawRectangleLinesEx(btn, 1.0f, EXT_DIM_TEXT);
+        else
+            DrawRectangleLinesEx(btn, 1.0f, Color{60, 60, 80, 150});
+
+        // Module name
+        Color nameColor = mod.isBuilt ? WHITE : EXT_DIM_TEXT;
+        DrawTextEx(bodyFont, mod.name.c_str(), {btn.x + 10.0f, btn.y + 6.0f}, 15.0f, sp, nameColor);
+
+        // Tier indicator
+        DrawTierIndicator(btn.x + 10.0f, btn.y + 32.0f, mod.tier);
+
+        // Status text
+        const char* statusText = !mod.isBuilt ? "NOT BUILT" : (mod.isActive ? "ACTIVE" : "INACTIVE");
+        Color statusColor = !mod.isBuilt ? EXT_DIM_TEXT : (mod.isActive ? EXT_ACCENT_GREEN : YELLOW);
+        float statusWidth = MeasureTextEx(bodyFont, statusText, 11.0f, sp).x;
+        DrawTextEx(bodyFont, statusText,
+                   {btn.x + btn.width - statusWidth - 10.0f, btn.y + 32.0f}, 11.0f, sp, statusColor);
+
+        // Click handling
+        if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            unit->SetSelectedModuleIndex(static_cast<int>(i));
+            unit->SetIsInModuleView(true);
+            unit->SetShowingStats(false);
+            unit->PublicShowMessage("Viewing " + mod.name);
+        }
+
+        yPos += 55.0f;
+    }
+}
+
+// --- Center Panel Router ---
+
+void RenderManager::DrawExtractionModuleCenter(Unit* unit)
+{
+    int panelX = EXT_LEFT_PANEL_W;
+    int panelY = EXT_TOP_BAR_H;
+    int panelW = screenWidth - EXT_LEFT_PANEL_W - EXT_RIGHT_PANEL_W;
+    int panelH = screenHeight - EXT_TOP_BAR_H - EXT_BOTTOM_BAR_H;
+
+    if (!unit->IsInModuleView())
+    {
+        DrawExtractionResourceOverview(unit, panelX, panelY, panelW, panelH);
+        return;
+    }
+
+    int idx = unit->GetSelectedModuleIndex();
+    const auto& modules = unit->GetModules();
+    if (idx < 0 || idx >= static_cast<int>(modules.size())) return;
+
+    const std::string& moduleType = modules[idx].moduleType;
+
+    if (moduleType == "PROSPECTING")
+        DrawProspectingPanel(unit, panelX, panelY, panelW, panelH);
+    else if (moduleType == "EXCAVATION")
+        DrawExcavationPanel(unit, panelX, panelY, panelW, panelH);
+    else if (moduleType == "BENEFICIATION")
+        DrawBeneficiationPanel(unit, panelX, panelY, panelW, panelH);
+    else if (moduleType == "OPERATIONS")
+        DrawOperationsPanel(unit, panelX, panelY, panelW, panelH);
+    else if (moduleType == "DIRECTIVES")
+        DrawDirectivesPanel(unit, panelX, panelY, panelW, panelH);
+    else
+        DrawExtractionResourceOverview(unit, panelX, panelY, panelW, panelH);
+}
+
+// --- Right Panel: Controls ---
+
+void RenderManager::DrawExtractionControlPanel(Unit* unit)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+
+    int panelX = screenWidth - EXT_RIGHT_PANEL_W;
+    int panelY = EXT_TOP_BAR_H;
+    int panelH = screenHeight - EXT_TOP_BAR_H - EXT_BOTTOM_BAR_H;
+    int padding = 12;
+
+    // Panel background
+    DrawRectangle(panelX, panelY, EXT_RIGHT_PANEL_W, panelH, EXT_PANEL_BG);
+    DrawLine(panelX, panelY, panelX, panelY + panelH, EXT_PANEL_BORDER);
+
+    float yPos = static_cast<float>(panelY + padding);
+
+    if (!unit->IsInModuleView())
+    {
+        // Unit overview mode - production rate controls
+        DrawTextEx(headerFont, "PRODUCTION CONTROLS", {static_cast<float>(panelX + padding), yPos},
+                   16.0f, sp, EXT_HEADER_COLOR);
+        yPos += 30.0f;
+
+        const auto& modules = unit->GetModules();
+        const auto& activeIndices = unit->GetActiveModuleIndices();
+
+        if (activeIndices.empty())
+        {
+            DrawTextEx(bodyFont, "No active modules",
+                       {static_cast<float>(panelX + padding), yPos}, 14.0f, sp, EXT_DIM_TEXT);
+        }
+        return;
+    }
+
+    int idx = unit->GetSelectedModuleIndex();
+    const auto& modules = unit->GetModules();
+    if (idx < 0 || idx >= static_cast<int>(modules.size())) return;
+    const auto& mod = modules[idx];
+
+    DrawTextEx(headerFont, "CONTROLS", {static_cast<float>(panelX + padding), yPos},
+               16.0f, sp, EXT_HEADER_COLOR);
+    yPos += 30.0f;
+
+    float btnW = static_cast<float>(EXT_RIGHT_PANEL_W - padding * 2);
+    float btnH = 40.0f;
+
+    // Build button (if not built)
+    if (!mod.isBuilt)
+    {
+        Rectangle buildBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
+        bool canBuild = unit->PublicCanBuildModule(idx);
+        bool isHovered = CheckCollisionPointRec(GetMousePosition(), buildBtn);
+
+        Color btnColor = canBuild ? Color{40, 80, 180, 255} : Color{50, 50, 70, 255};
+        if (isHovered && canBuild) btnColor = Color{60, 100, 220, 255};
+
+        DrawRectangleRec(buildBtn, btnColor);
+        DrawRectangleLinesEx(buildBtn, 1.0f, canBuild ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+
+        const char* buildText = "BUILD MODULE";
+        float textW = MeasureTextEx(headerFont, buildText, 16.0f, sp).x;
+        DrawTextEx(headerFont, buildText,
+                   {buildBtn.x + (btnW - textW) / 2.0f, buildBtn.y + 12.0f}, 16.0f, sp,
+                   canBuild ? WHITE : EXT_DIM_TEXT);
+
+        if (isHovered && canBuild && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            unit->PublicBuildModule(idx);
+        }
+
+        yPos += btnH + 10.0f;
+
+        // Show build costs
+        auto costIter = mod.upgradeCosts.find(1);
+        if (costIter != mod.upgradeCosts.end())
+        {
+            DrawTextEx(bodyFont, "Build Cost:", {static_cast<float>(panelX + padding), yPos},
+                       13.0f, sp, EXT_DIM_TEXT);
+            yPos += 18.0f;
+
+            const auto& storage = unit->GetResourceStorage();
+            for (const auto& [resource, amount] : costIter->second)
+            {
+                std::string resName = ResourceUtils::GetResourceName(resource);
+                float stored = 0.0f;
+                auto it = storage.find(resource);
+                if (it != storage.end()) stored = it->second;
+
+                Color costColor = (stored >= amount) ? EXT_ACCENT_GREEN : Color{255, 100, 100, 255};
+                DrawTextEx(bodyFont, TextFormat("  %s: %.0f / %.0f", resName.c_str(), stored, amount),
+                           {static_cast<float>(panelX + padding), yPos}, 12.0f, sp, costColor);
+                yPos += 16.0f;
+            }
+        }
+        return;
+    }
+
+    // Tier upgrade button
+    if (mod.tier < 3)
+    {
+        Rectangle upgradeBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
+        bool canUpgrade = unit->PublicCanUpgradeModule(idx);
+        bool isHovered = CheckCollisionPointRec(GetMousePosition(), upgradeBtn);
+
+        Color btnColor = canUpgrade ? Color{40, 80, 180, 255} : Color{50, 50, 70, 255};
+        if (isHovered && canUpgrade) btnColor = Color{60, 100, 220, 255};
+
+        DrawRectangleRec(upgradeBtn, btnColor);
+        DrawRectangleLinesEx(upgradeBtn, 1.0f, canUpgrade ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+
+        const char* upgradeText = TextFormat("UPGRADE TO TIER %d", mod.tier + 1);
+        float textW = MeasureTextEx(headerFont, upgradeText, 14.0f, sp).x;
+        DrawTextEx(headerFont, upgradeText,
+                   {upgradeBtn.x + (btnW - textW) / 2.0f, upgradeBtn.y + 12.0f}, 14.0f, sp,
+                   canUpgrade ? WHITE : EXT_DIM_TEXT);
+
+        if (isHovered && canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            unit->UpgradeModuleTier(idx);
+        }
+
+        yPos += btnH + 10.0f;
+
+        // Show upgrade costs
+        auto costIter = mod.upgradeCosts.find(mod.tier + 1);
+        if (costIter != mod.upgradeCosts.end())
+        {
+            DrawTextEx(bodyFont, "Upgrade Cost:", {static_cast<float>(panelX + padding), yPos},
+                       13.0f, sp, EXT_DIM_TEXT);
+            yPos += 18.0f;
+
+            const auto& storage = unit->GetResourceStorage();
+            for (const auto& [resource, amount] : costIter->second)
+            {
+                std::string resName = ResourceUtils::GetResourceName(resource);
+                float stored = 0.0f;
+                auto it = storage.find(resource);
+                if (it != storage.end()) stored = it->second;
+
+                Color costColor = (stored >= amount) ? EXT_ACCENT_GREEN : Color{255, 100, 100, 255};
+                DrawTextEx(bodyFont, TextFormat("  %s: %.0f / %.0f", resName.c_str(), stored, amount),
+                           {static_cast<float>(panelX + padding), yPos}, 12.0f, sp, costColor);
+                yPos += 16.0f;
+            }
+        }
+    }
+    else
+    {
+        DrawTextEx(bodyFont, "MAX TIER REACHED", {static_cast<float>(panelX + padding), yPos},
+                   14.0f, sp, EXT_ACCENT_GOLD);
+        yPos += 25.0f;
+    }
+
+    yPos += 15.0f;
+
+    // Activate/Deactivate toggle
+    Rectangle toggleBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
+    bool isHovered = CheckCollisionPointRec(GetMousePosition(), toggleBtn);
+
+    Color toggleColor = mod.isActive ? Color{150, 40, 40, 255} : Color{40, 120, 60, 255};
+    if (isHovered) toggleColor = mod.isActive ? Color{180, 60, 60, 255} : Color{60, 150, 80, 255};
+
+    DrawRectangleRec(toggleBtn, toggleColor);
+    DrawRectangleLinesEx(toggleBtn, 1.0f, mod.isActive ? Color{255, 100, 100, 200} : EXT_ACCENT_GREEN);
+
+    const char* toggleText = mod.isActive ? "DEACTIVATE" : "ACTIVATE";
+    float textW = MeasureTextEx(headerFont, toggleText, 16.0f, sp).x;
+    DrawTextEx(headerFont, toggleText,
+               {toggleBtn.x + (btnW - textW) / 2.0f, toggleBtn.y + 12.0f}, 16.0f, sp, WHITE);
+
+    if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        unit->PublicHandleModuleActivation(idx);
+    }
+
+    yPos += btnH + 20.0f;
+
+    // Module info section
+    DrawTextEx(headerFont, "MODULE INFO", {static_cast<float>(panelX + padding), yPos},
+               14.0f, sp, EXT_HEADER_COLOR);
+    yPos += 22.0f;
+
+    DrawTextEx(bodyFont, TextFormat("Tier: %d / 3", mod.tier),
+               {static_cast<float>(panelX + padding), yPos}, 13.0f, sp, LIGHTGRAY);
+    yPos += 18.0f;
+
+    DrawTextEx(bodyFont, TextFormat("Efficiency: %.0f%%", mod.efficiency * 100.0f),
+               {static_cast<float>(panelX + padding), yPos}, 13.0f, sp, LIGHTGRAY);
+    yPos += 18.0f;
+
+    if (mod.energyRequired > 0)
+    {
+        DrawTextEx(bodyFont, TextFormat("Energy: %.1f kW", mod.energyRequired),
+                   {static_cast<float>(panelX + padding), yPos}, 13.0f, sp, LIGHTGRAY);
+        yPos += 18.0f;
+    }
+
+    // Tier dependencies
+    if (!mod.tierDependencies.empty())
+    {
+        yPos += 10.0f;
+        DrawTextEx(bodyFont, "Required Tech:",
+                   {static_cast<float>(panelX + padding), yPos}, 12.0f, sp, EXT_DIM_TEXT);
+        yPos += 16.0f;
+        for (const auto& dep : mod.tierDependencies)
+        {
+            DrawTextEx(bodyFont, TextFormat("  - %s", dep.c_str()),
+                       {static_cast<float>(panelX + padding), yPos}, 11.0f, sp, EXT_DIM_TEXT);
+            yPos += 14.0f;
+        }
+    }
+}
+
+// ============================================================================
+// CENTER PANELS (Module-Specific)
+// ============================================================================
+
+void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int w, int h)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+    int padding = 15;
+
+    float yPos = static_cast<float>(y + padding);
+    float px = static_cast<float>(x + padding);
+
+    DrawTextEx(headerFont, "RESOURCE OVERVIEW", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    yPos += 30.0f;
+
+    // Aggregate production/consumption from active modules
+    const auto& modules = unit->GetModules();
+    const auto& activeIndices = unit->GetActiveModuleIndices();
+
+    std::map<ResourceType, float> totalProduction;
+    std::map<ResourceType, float> totalConsumption;
+
+    for (int moduleIndex : activeIndices)
+    {
+        const auto& mod = modules[moduleIndex];
+        for (const auto& [type, rate] : mod.productionRates)
+            totalProduction[type] += rate;
+        for (const auto& [type, rate] : mod.consumptionRates)
+            totalConsumption[type] += rate;
+    }
+
+    // Status line
+    DrawTextEx(bodyFont, TextFormat("Active Modules: %d", static_cast<int>(activeIndices.size())),
+               {px, yPos}, 14.0f, sp, LIGHTGRAY);
+    yPos += 20.0f;
+
+    const char* statusText = unit->IsActive() ? "ACTIVE" : "IDLE";
+    Color statusColor = unit->IsActive() ? EXT_ACCENT_GREEN : YELLOW;
+    DrawTextEx(bodyFont, TextFormat("Status: %s", statusText), {px, yPos}, 14.0f, sp, statusColor);
+    yPos += 30.0f;
+
+    // Resource rates table
+    struct ResourceInfo {
+        ResourceType type;
+        const char* name;
+    };
+    ResourceInfo resources[] = {
+        {ResourceType::ENERGY, "Energy"}, {ResourceType::H2, "Hydrogen"},
+        {ResourceType::O2, "Oxygen"}, {ResourceType::C, "Carbon"},
+        {ResourceType::Fe, "Iron"}, {ResourceType::Si, "Silicon"},
+        {ResourceType::Ti, "Titanium"}, {ResourceType::Al, "Aluminum"},
+        {ResourceType::Ca, "Calcium"}, {ResourceType::WATER, "Water"},
+        {ResourceType::FOOD, "Food"}, {ResourceType::SCIENCE, "Science"},
+        {ResourceType::MANPOWER, "Manpower"}
+    };
+
+    // Column headers
+    DrawTextEx(bodyFont, "Resource", {px, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Production", {px + 120.0f, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Consumption", {px + 240.0f, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+    yPos += 20.0f;
+    DrawLine(static_cast<int>(px), static_cast<int>(yPos),
+             static_cast<int>(px + w - padding * 2), static_cast<int>(yPos), EXT_PANEL_BORDER);
+    yPos += 5.0f;
+
+    for (const auto& res : resources)
+    {
+        float prod = totalProduction[res.type];
+        float cons = totalConsumption[res.type];
+        if (prod <= 0 && cons <= 0) continue;
+
+        DrawTextEx(bodyFont, res.name, {px, yPos}, 13.0f, sp, LIGHTGRAY);
+
+        if (prod > 0)
+            DrawTextEx(bodyFont, TextFormat("+%.2f/s", prod), {px + 120.0f, yPos}, 13.0f, sp, EXT_ACCENT_GREEN);
+        else
+            DrawTextEx(bodyFont, "-", {px + 120.0f, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+
+        if (cons > 0)
+            DrawTextEx(bodyFont, TextFormat("-%.2f/s", cons), {px + 240.0f, yPos}, 13.0f, sp, Color{255, 100, 100, 255});
+        else
+            DrawTextEx(bodyFont, "-", {px + 240.0f, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+
+        yPos += 18.0f;
+    }
+
+    // Storage section
+    yPos += 20.0f;
+    DrawTextEx(headerFont, "STORAGE", {px, yPos}, 16.0f, sp, EXT_HEADER_COLOR);
+    yPos += 25.0f;
+
+    const auto& storage = unit->GetResourceStorage();
+    const auto& capacity = unit->GetStorageCapacity();
+    float barW = static_cast<float>(w - padding * 2 - 140);
+
+    bool hasStorage = false;
+    for (const auto& res : resources)
+    {
+        float stored = 0.0f;
+        float cap = 0.0f;
+        auto sIt = storage.find(res.type);
+        auto cIt = capacity.find(res.type);
+        if (sIt != storage.end()) stored = sIt->second;
+        if (cIt != capacity.end()) cap = cIt->second;
+
+        if (cap <= 0 && stored <= 0) continue;
+        hasStorage = true;
+
+        DrawTextEx(bodyFont, res.name, {px, yPos + 2.0f}, 12.0f, sp, LIGHTGRAY);
+
+        float fillFraction = cap > 0 ? stored / cap : 0.0f;
+        Color barColor;
+        if (fillFraction > 0.9f) barColor = Color{255, 100, 100, 255};
+        else if (fillFraction > 0.7f) barColor = YELLOW;
+        else barColor = EXT_ACCENT_CYAN;
+
+        DrawStyledBar(px + 90.0f, yPos, barW, 16.0f, fillFraction, barColor);
+        DrawTextEx(bodyFont, TextFormat("%.0f/%.0f", stored, cap),
+                   {px + 90.0f + barW + 5.0f, yPos + 1.0f}, 11.0f, sp, LIGHTGRAY);
+
+        yPos += 22.0f;
+    }
+
+    if (!hasStorage)
+    {
+        DrawTextEx(bodyFont, "Storage is empty", {px, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+    }
+}
+
+void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+    int padding = 15;
+
+    float yPos = static_cast<float>(y + padding);
+    float px = static_cast<float>(x + padding);
+
+    DrawTextEx(headerFont, "LIBS SCANNING SYSTEM", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    yPos += 28.0f;
+
+    int idx = unit->GetSelectedModuleIndex();
+    const auto& mod = unit->GetModules()[idx];
+
+    // Accuracy based on tier
+    float accuracy[] = {70.0f, 80.0f, 90.0f, 98.0f};
+    float acc = accuracy[std::min(mod.tier, 3)];
+    DrawTextEx(bodyFont, TextFormat("Scan Accuracy: %.0f%%", acc), {px, yPos}, 14.0f, sp, EXT_ACCENT_CYAN);
+    yPos += 22.0f;
+
+    // Scan history count
+    const auto& scanHistory = unit->GetScanHistory();
+    DrawTextEx(bodyFont, TextFormat("Scans Completed: %d", static_cast<int>(scanHistory.size())),
+               {px, yPos}, 13.0f, sp, LIGHTGRAY);
+    yPos += 25.0f;
+
+    // --- Interactive 5x5 Scan Grid ---
+    Vector2 unitGrid = unit->GetGridPosition();
+    int centerGX = static_cast<int>(unitGrid.x);
+    int centerGY = static_cast<int>(unitGrid.y);
+    float cellSz = 38.0f;
+    float gridStartX = px;
+    float gridStartY = yPos;
+    Vector2 mousePos = GetMousePosition();
+    bool canScan = (mod.tier >= 1);
+    float cooldown = unit->GetScanCooldown();
+
+    DrawTextEx(headerFont, "SCAN GRID", {px, yPos - 2.0f}, 14.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(bodyFont, "(5x5 around unit)", {px + 85.0f, yPos}, 11.0f, sp, EXT_DIM_TEXT);
+    yPos += 18.0f;
+    gridStartY = yPos;
+
+    for (int dy = -2; dy <= 2; dy++)
+    {
+        for (int dx = -2; dx <= 2; dx++)
+        {
+            int cellGX = centerGX + dx;
+            int cellGY = centerGY + dy;
+            float cx = gridStartX + static_cast<float>(dx + 2) * cellSz;
+            float cy = gridStartY + static_cast<float>(dy + 2) * cellSz;
+            Rectangle cellRect = {cx, cy, cellSz - 2.0f, cellSz - 2.0f};
+
+            // Background: scanned cells tinted by quality, unscanned dark
+            auto scanIt = scanHistory.find({cellGX, cellGY});
+            bool isScanned = (scanIt != scanHistory.end() && scanIt->second.isScanned);
+
+            Color bgColor = {20, 25, 35, 255};
+            if (isScanned)
+            {
+                int q = scanIt->second.qualityRating;
+                bgColor = {static_cast<unsigned char>(30 + q * 10),
+                           static_cast<unsigned char>(40 + q * 15),
+                           static_cast<unsigned char>(50 + q * 10), 255};
+            }
+            DrawRectangleRec(cellRect, bgColor);
+
+            // Unit's own cell: cyan border
+            if (dx == 0 && dy == 0)
+            {
+                DrawRectangleLinesEx(cellRect, 2.0f, EXT_ACCENT_CYAN);
+            }
+            else
+            {
+                DrawRectangleLinesEx(cellRect, 1.0f, EXT_PANEL_BORDER);
+            }
+
+            // Marked sites: small green dot
+            const auto& markedSites = unit->GetMarkedSites();
+            for (const auto& site : markedSites)
+            {
+                if (site.first == cellGX && site.second == cellGY)
+                {
+                    DrawCircle(static_cast<int>(cx + cellSz/2.0f - 1.0f),
+                               static_cast<int>(cy + cellSz/2.0f - 1.0f), 4.0f, EXT_ACCENT_GREEN);
+                    break;
+                }
+            }
+
+            // Coordinate label
+            DrawTextEx(bodyFont, TextFormat("%d,%d", cellGX, cellGY),
+                       {cx + 2.0f, cy + 2.0f}, 9.0f, sp, EXT_DIM_TEXT);
+
+            // Hover highlight
+            if (canScan && cooldown <= 0.0f &&
+                CheckCollisionPointRec(mousePos, cellRect))
+            {
+                DrawRectangleRec(cellRect, {255, 255, 255, 30});
+
+                // Left-click: perform scan
+                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                {
+                    unit->PerformLIBSScan(cellGX, cellGY);
+                }
+                // Right-click: toggle mark/unmark
+                if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+                {
+                    bool alreadyMarked = false;
+                    for (const auto& site : markedSites)
+                    {
+                        if (site.first == cellGX && site.second == cellGY)
+                        {
+                            alreadyMarked = true;
+                            break;
+                        }
+                    }
+                    if (alreadyMarked)
+                        unit->UnmarkSite(cellGX, cellGY);
+                    else
+                        unit->MarkSiteForExcavation(cellGX, cellGY);
+                }
+            }
+        }
+    }
+
+    // Cooldown overlay
+    if (cooldown > 0.0f)
+    {
+        float gridW = 5.0f * cellSz;
+        float gridH = 5.0f * cellSz;
+        DrawRectangle(static_cast<int>(gridStartX), static_cast<int>(gridStartY),
+                      static_cast<int>(gridW), static_cast<int>(gridH), {0, 0, 0, 150});
+        DrawTextEx(headerFont, "COOLDOWN",
+                   {gridStartX + gridW/2.0f - 40.0f, gridStartY + gridH/2.0f - 12.0f},
+                   16.0f, sp, EXT_ACCENT_GOLD);
+        // Progress bar
+        float barY = gridStartY + gridH/2.0f + 10.0f;
+        float progress = 1.0f - (cooldown / 3.0f);
+        DrawRectangle(static_cast<int>(gridStartX + 20.0f), static_cast<int>(barY),
+                      static_cast<int>((gridW - 40.0f) * progress), 6, EXT_ACCENT_CYAN);
+        DrawRectangleLines(static_cast<int>(gridStartX + 20.0f), static_cast<int>(barY),
+                           static_cast<int>(gridW - 40.0f), 6, EXT_PANEL_BORDER);
+    }
+
+    // Tier gate overlay
+    if (!canScan)
+    {
+        float gridW = 5.0f * cellSz;
+        float gridH = 5.0f * cellSz;
+        DrawRectangle(static_cast<int>(gridStartX), static_cast<int>(gridStartY),
+                      static_cast<int>(gridW), static_cast<int>(gridH), {0, 0, 0, 180});
+        DrawTextEx(headerFont, "Requires Tier 1+",
+                   {gridStartX + gridW/2.0f - 60.0f, gridStartY + gridH/2.0f - 8.0f},
+                   14.0f, sp, EXT_DIM_TEXT);
+    }
+
+    yPos = gridStartY + 5.0f * cellSz + 10.0f;
+
+    // --- Scan History (compact) ---
+    if (!scanHistory.empty())
+    {
+        DrawTextEx(headerFont, "RECENT SCANS", {px, yPos}, 14.0f, sp, EXT_HEADER_COLOR);
+        yPos += 20.0f;
+
+        int count = 0;
+        for (auto it = scanHistory.rbegin(); it != scanHistory.rend() && count < 4; ++it, ++count)
+        {
+            const auto& [coords, scan] = *it;
+            DrawTextEx(bodyFont, TextFormat("(%d, %d)", coords.first, coords.second),
+                       {px, yPos}, 12.0f, sp, LIGHTGRAY);
+
+            if (scan.qualityRating > 0)
+            {
+                std::string stars(scan.qualityRating, '*');
+                std::string empty(5 - scan.qualityRating, '.');
+                DrawTextEx(bodyFont, (stars + empty).c_str(),
+                           {px + 80.0f, yPos}, 12.0f, sp, EXT_ACCENT_GOLD);
+            }
+
+            float barX = px + 140.0f;
+            float maxBarW = static_cast<float>(w - padding * 2 - 160);
+            for (const auto& [resType, amount] : scan.elements)
+            {
+                float barW2 = (amount / 1000.0f) * maxBarW;
+                barW2 = Clamp(barW2, 2.0f, maxBarW * 0.3f);
+                Color barColor = ResourceUtils::GetResourceColor(resType);
+                DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2.0f),
+                              static_cast<int>(barW2), 10, barColor);
+                barX += barW2 + 2.0f;
+            }
+
+            yPos += 18.0f;
+        }
+    }
+
+    // Marked sites
+    yPos += 10.0f;
+    const auto& markedSites = unit->GetMarkedSites();
+    DrawTextEx(headerFont, TextFormat("MARKED SITES (%d)", static_cast<int>(markedSites.size())),
+               {px, yPos}, 14.0f, sp, EXT_HEADER_COLOR);
+    yPos += 20.0f;
+
+    for (size_t i = 0; i < markedSites.size() && i < 6; i++)
+    {
+        DrawTextEx(bodyFont, TextFormat("  Site %d: (%d, %d)", static_cast<int>(i + 1),
+                   markedSites[i].first, markedSites[i].second),
+                   {px, yPos}, 12.0f, sp, EXT_ACCENT_GREEN);
+        yPos += 16.0f;
+    }
+}
+
+void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+    int padding = 15;
+
+    float yPos = static_cast<float>(y + padding);
+    float px = static_cast<float>(x + padding);
+    Vector2 mousePos = GetMousePosition();
+
+    DrawTextEx(headerFont, "EXCAVATION FLEET", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    yPos += 28.0f;
+
+    // Total stats
+    DrawTextEx(bodyFont, TextFormat("Total Regolith Extracted: %.1f kg", unit->GetTotalRegolithExtracted()),
+               {px, yPos}, 14.0f, sp, EXT_ACCENT_CYAN);
+    yPos += 25.0f;
+
+    // Fleet table
+    const auto& excavators = unit->GetExcavators();
+    if (excavators.empty())
+    {
+        DrawTextEx(bodyFont, "No excavators deployed", {px, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+        return;
+    }
+
+    // Get excavation tier for depth step and max depth
+    int excTier = 0;
+    float maxDepth = 10.0f;
+    for (const auto& mod : unit->GetModules())
+    {
+        if (mod.moduleType == "EXCAVATION")
+        {
+            excTier = mod.tier;
+            float tierMaxDepths[] = {10.0f, 30.0f, 100.0f, 300.0f};
+            maxDepth = tierMaxDepths[std::min(excTier, 3)];
+            break;
+        }
+    }
+    float depthSteps[] = {1.0f, 5.0f, 10.0f, 30.0f};
+    float depthStep = depthSteps[std::min(excTier, 3)];
+    float rateStep = 5.0f;
+
+    // Table header
+    DrawTextEx(bodyFont, "ID", {px, yPos}, 12.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Method", {px + 40.0f, yPos}, 12.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Depth", {px + 140.0f, yPos}, 12.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Rate", {px + 270.0f, yPos}, 12.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Wear", {px + 380.0f, yPos}, 12.0f, sp, EXT_DIM_TEXT);
+    yPos += 18.0f;
+
+    DrawLine(static_cast<int>(px), static_cast<int>(yPos),
+             static_cast<int>(px + w - padding * 2), static_cast<int>(yPos), EXT_PANEL_BORDER);
+    yPos += 5.0f;
+
+    float totalRate = 0.0f;
+    float btnW = 20.0f;
+    float btnH = 18.0f;
+
+    for (const auto& exc : excavators)
+    {
+        DrawTextEx(bodyFont, TextFormat("#%d", exc.id), {px, yPos}, 12.0f, sp, LIGHTGRAY);
+        DrawTextEx(bodyFont, exc.method.c_str(), {px + 40.0f, yPos}, 12.0f, sp, LIGHTGRAY);
+
+        // --- Depth [-] value [+] ---
+        float depthX = px + 140.0f;
+        Rectangle depthMinus = {depthX, yPos - 1.0f, btnW, btnH};
+        Rectangle depthPlus = {depthX + 90.0f, yPos - 1.0f, btnW, btnH};
+
+        // [-] button
+        Color minusBg = CheckCollisionPointRec(mousePos, depthMinus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
+        DrawRectangleRec(depthMinus, minusBg);
+        DrawRectangleLinesEx(depthMinus, 1.0f, EXT_PANEL_BORDER);
+        DrawTextEx(bodyFont, "-", {depthX + 6.0f, yPos}, 12.0f, sp, WHITE);
+
+        if (CheckCollisionPointRec(mousePos, depthMinus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            unit->SetExcavatorDepth(exc.id, exc.depth - depthStep);
+        }
+
+        // Value
+        DrawTextEx(bodyFont, TextFormat("%.0f cm", exc.depth), {depthX + 24.0f, yPos}, 12.0f, sp, LIGHTGRAY);
+
+        // [+] button
+        Color plusBg = CheckCollisionPointRec(mousePos, depthPlus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
+        DrawRectangleRec(depthPlus, plusBg);
+        DrawRectangleLinesEx(depthPlus, 1.0f, EXT_PANEL_BORDER);
+        DrawTextEx(bodyFont, "+", {depthX + 96.0f, yPos}, 12.0f, sp, WHITE);
+
+        if (CheckCollisionPointRec(mousePos, depthPlus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            unit->SetExcavatorDepth(exc.id, exc.depth + depthStep);
+        }
+
+        // Max depth label
+        DrawTextEx(bodyFont, TextFormat("/ %.0f", maxDepth), {depthX + 114.0f, yPos}, 10.0f, sp, EXT_DIM_TEXT);
+
+        // --- Rate [-] value [+] ---
+        float rateX = px + 270.0f;
+        Rectangle rateMinus = {rateX, yPos - 1.0f, btnW, btnH};
+        Rectangle ratePlus = {rateX + 85.0f, yPos - 1.0f, btnW, btnH};
+
+        // [-] button
+        Color rMinBg = CheckCollisionPointRec(mousePos, rateMinus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
+        DrawRectangleRec(rateMinus, rMinBg);
+        DrawRectangleLinesEx(rateMinus, 1.0f, EXT_PANEL_BORDER);
+        DrawTextEx(bodyFont, "-", {rateX + 6.0f, yPos}, 12.0f, sp, WHITE);
+
+        if (CheckCollisionPointRec(mousePos, rateMinus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            unit->SetExcavatorRate(exc.id, exc.rate - rateStep);
+        }
+
+        // Value
+        DrawTextEx(bodyFont, TextFormat("%.0f", exc.rate), {rateX + 24.0f, yPos}, 12.0f, sp, LIGHTGRAY);
+
+        // [+] button
+        Color rPlsBg = CheckCollisionPointRec(mousePos, ratePlus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
+        DrawRectangleRec(ratePlus, rPlsBg);
+        DrawRectangleLinesEx(ratePlus, 1.0f, EXT_PANEL_BORDER);
+        DrawTextEx(bodyFont, "+", {rateX + 91.0f, yPos}, 12.0f, sp, WHITE);
+
+        if (CheckCollisionPointRec(mousePos, ratePlus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            unit->SetExcavatorRate(exc.id, exc.rate + rateStep);
+        }
+
+        // Wear bar
+        DrawWearBar(px + 380.0f, yPos + 1.0f, 60.0f, 12.0f, exc.wear);
+
+        totalRate += exc.rate;
+        yPos += 24.0f;
+    }
+
+    yPos += 10.0f;
+    DrawLine(static_cast<int>(px), static_cast<int>(yPos),
+             static_cast<int>(px + w - padding * 2), static_cast<int>(yPos), EXT_PANEL_BORDER);
+    yPos += 8.0f;
+
+    DrawTextEx(headerFont, TextFormat("Total Rate: %.1f kg/hr", totalRate),
+               {px, yPos}, 14.0f, sp, EXT_ACCENT_GREEN);
+    DrawTextEx(bodyFont, TextFormat("Fleet Size: %d", static_cast<int>(excavators.size())),
+               {px + 250.0f, yPos}, 13.0f, sp, LIGHTGRAY);
+}
+
+void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int h)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+    int padding = 15;
+
+    float yPos = static_cast<float>(y + padding);
+    float px = static_cast<float>(x + padding);
+    Vector2 mousePos = GetMousePosition();
+
+    DrawTextEx(headerFont, "SEPARATION CHAIN", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    yPos += 28.0f;
+
+    const auto& chain = unit->GetSeparationChain();
+    if (chain.empty())
+    {
+        DrawTextEx(bodyFont, "No separation nodes configured", {px, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+        return;
+    }
+
+    float nodeW = static_cast<float>(w - padding * 2);
+    float nodeH = 70.0f;
+    float arrowBtnW = 30.0f;
+    float arrowBtnH = 25.0f;
+
+    for (size_t i = 0; i < chain.size(); i++)
+    {
+        const auto& node = chain[i];
+
+        // Node background
+        Color nodeBg = node.isActive ? Color{30, 40, 60, 255} : Color{30, 30, 40, 200};
+        DrawRectangle(static_cast<int>(px), static_cast<int>(yPos),
+                      static_cast<int>(nodeW), static_cast<int>(nodeH), nodeBg);
+        DrawRectangleLines(static_cast<int>(px), static_cast<int>(yPos),
+                           static_cast<int>(nodeW), static_cast<int>(nodeH), EXT_PANEL_BORDER);
+
+        // --- Reorder buttons (left side) ---
+        float reorderX = px + nodeW - 80.0f;
+
+        // Up arrow (if not first)
+        if (i > 0)
+        {
+            Rectangle upBtn = {reorderX, yPos + 3.0f, arrowBtnW, arrowBtnH};
+            Color upBg = CheckCollisionPointRec(mousePos, upBtn) ? Color{60, 70, 90, 255} : Color{40, 45, 60, 255};
+            DrawRectangleRec(upBtn, upBg);
+            DrawRectangleLinesEx(upBtn, 1.0f, EXT_PANEL_BORDER);
+            // Up arrow triangle
+            DrawTriangle(
+                {reorderX + arrowBtnW/2.0f, yPos + 6.0f},
+                {reorderX + 5.0f, yPos + 22.0f},
+                {reorderX + arrowBtnW - 5.0f, yPos + 22.0f},
+                EXT_ACCENT_CYAN);
+
+            if (CheckCollisionPointRec(mousePos, upBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                unit->SwapSeparationNodes(static_cast<int>(i), static_cast<int>(i) - 1);
+            }
+        }
+
+        // Down arrow (if not last)
+        if (i < chain.size() - 1)
+        {
+            Rectangle downBtn = {reorderX + arrowBtnW + 4.0f, yPos + 3.0f, arrowBtnW, arrowBtnH};
+            Color downBg = CheckCollisionPointRec(mousePos, downBtn) ? Color{60, 70, 90, 255} : Color{40, 45, 60, 255};
+            DrawRectangleRec(downBtn, downBg);
+            DrawRectangleLinesEx(downBtn, 1.0f, EXT_PANEL_BORDER);
+            // Down arrow triangle
+            float dx2 = reorderX + arrowBtnW + 4.0f;
+            DrawTriangle(
+                {dx2 + 5.0f, yPos + 6.0f},
+                {dx2 + arrowBtnW - 5.0f, yPos + 6.0f},
+                {dx2 + arrowBtnW/2.0f, yPos + 22.0f},
+                EXT_ACCENT_CYAN);
+
+            if (CheckCollisionPointRec(mousePos, downBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                unit->SwapSeparationNodes(static_cast<int>(i), static_cast<int>(i) + 1);
+            }
+        }
+
+        // Node type name
+        const char* typeNames[] = {"SIZE SORT", "MAGNETIC", "ELECTROSTATIC", "THERMAL", "CHEMICAL", "MRE", "DIRECT OUTPUT"};
+        int typeIdx = static_cast<int>(node.type);
+        DrawTextEx(bodyFont, typeNames[typeIdx], {px + 10.0f, yPos + 5.0f}, 14.0f, sp, WHITE);
+
+        // --- Clickable ON/OFF toggle ---
+        Color activeColor = node.isActive ? EXT_ACCENT_GREEN : EXT_DIM_TEXT;
+        const char* statusText = node.isActive ? "ON" : "OFF";
+        float statusX = px + nodeW - 130.0f;
+        Rectangle toggleBtn = {statusX, yPos + 3.0f, 35.0f, 18.0f};
+        Color toggleBg = CheckCollisionPointRec(mousePos, toggleBtn) ? Color{50, 55, 70, 255} : Color{30, 35, 50, 255};
+        DrawRectangleRec(toggleBtn, toggleBg);
+        DrawRectangleLinesEx(toggleBtn, 1.0f, activeColor);
+        DrawTextEx(bodyFont, statusText, {statusX + 5.0f, yPos + 5.0f}, 12.0f, sp, activeColor);
+
+        if (CheckCollisionPointRec(mousePos, toggleBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            unit->ToggleSeparationNodeActive(static_cast<int>(i));
+        }
+
+        // Efficiency bar
+        DrawTextEx(bodyFont, "Eff:", {px + 10.0f, yPos + 25.0f}, 11.0f, sp, EXT_DIM_TEXT);
+        DrawStyledBar(px + 40.0f, yPos + 25.0f, 120.0f, 12.0f, node.efficiency, EXT_ACCENT_CYAN);
+        DrawTextEx(bodyFont, TextFormat("%.0f%%", node.efficiency * 100.0f),
+                   {px + 165.0f, yPos + 24.0f}, 11.0f, sp, LIGHTGRAY);
+
+        // Wear bar
+        DrawTextEx(bodyFont, "Wear:", {px + 210.0f, yPos + 25.0f}, 11.0f, sp, EXT_DIM_TEXT);
+        DrawWearBar(px + 250.0f, yPos + 25.0f, 80.0f, 12.0f, node.wear);
+        DrawTextEx(bodyFont, TextFormat("%.0f%%", node.wear * 100.0f),
+                   {px + 335.0f, yPos + 24.0f}, 11.0f, sp, LIGHTGRAY);
+
+        // Energy & temperature
+        DrawTextEx(bodyFont, TextFormat("Energy: %.0f kW", node.energyConsumption),
+                   {px + 10.0f, yPos + 45.0f}, 11.0f, sp, LIGHTGRAY);
+
+        if (node.temperature > 25.0f)
+        {
+            Color tempColor = node.temperature > 500.0f ? Color{255, 150, 50, 255} : LIGHTGRAY;
+            DrawTextEx(bodyFont, TextFormat("Temp: %.0f C", node.temperature),
+                       {px + 150.0f, yPos + 45.0f}, 11.0f, sp, tempColor);
+        }
+
+        // Waste ratio
+        if (node.wasteRatio > 0)
+        {
+            DrawTextEx(bodyFont, TextFormat("Waste: %.0f%%", node.wasteRatio * 100.0f),
+                       {px + 300.0f, yPos + 45.0f}, 11.0f, sp, Color{255, 100, 100, 255});
+        }
+
+        yPos += nodeH + 5.0f;
+
+        // Arrow connector between nodes
+        if (i < chain.size() - 1)
+        {
+            float arrowX = px + nodeW / 2.0f;
+            DrawLine(static_cast<int>(arrowX), static_cast<int>(yPos - 5.0f),
+                     static_cast<int>(arrowX), static_cast<int>(yPos + 8.0f), EXT_ACCENT_CYAN);
+            DrawTriangle(
+                {arrowX, yPos + 12.0f},
+                {arrowX - 5.0f, yPos + 5.0f},
+                {arrowX + 5.0f, yPos + 5.0f},
+                EXT_ACCENT_CYAN);
+            yPos += 15.0f;
+        }
+    }
+}
+
+void RenderManager::DrawOperationsPanel(Unit* unit, int x, int y, int w, int h)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+    int padding = 15;
+
+    float yPos = static_cast<float>(y + padding);
+    float px = static_cast<float>(x + padding);
+
+    DrawTextEx(headerFont, "OPERATIONS MANAGEMENT", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    yPos += 35.0f;
+
+    // Efficiency modifier display
+    float effMod = unit->GetOperationsEfficiencyModifier();
+    bool isOpsActive = unit->IsOperationsActive();
+
+    DrawTextEx(bodyFont, "Operations Status:", {px, yPos}, 14.0f, sp, LIGHTGRAY);
+    yPos += 22.0f;
+
+    Color activeColor = isOpsActive ? EXT_ACCENT_GREEN : EXT_DIM_TEXT;
+    DrawTextEx(headerFont, isOpsActive ? "ACTIVE" : "INACTIVE", {px, yPos}, 20.0f, sp, activeColor);
+    yPos += 35.0f;
+
+    // Large efficiency display
+    DrawTextEx(bodyFont, "Efficiency Modifier:", {px, yPos}, 14.0f, sp, LIGHTGRAY);
+    yPos += 22.0f;
+
+    Color effColor;
+    if (effMod < 1.0f) effColor = YELLOW;
+    else if (effMod > 1.0f) effColor = EXT_ACCENT_GREEN;
+    else effColor = WHITE;
+
+    DrawTextEx(headerFont, TextFormat("x%.2f", effMod), {px, yPos}, 36.0f, sp, effColor);
+    yPos += 50.0f;
+
+    // Tier description
+    int idx = unit->GetSelectedModuleIndex();
+    const auto& mod = unit->GetModules()[idx];
+
+    const char* tierDescs[] = {
+        "Tier 0: Basic operations\n  -15% efficiency penalty",
+        "Tier 1: Standard operations\n  No efficiency bonus",
+        "Tier 2: Optimized operations\n  +10% efficiency bonus",
+        "Tier 3: AI scheduling\n  +20% efficiency bonus"
+    };
+
+    DrawTextEx(bodyFont, tierDescs[std::min(mod.tier, 3)], {px, yPos}, 13.0f, sp, LIGHTGRAY);
+}
+
+void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    float sp = 1.0f;
+    int padding = 15;
+
+    float yPos = static_cast<float>(y + padding);
+    float px = static_cast<float>(x + padding);
+    Vector2 mousePos = GetMousePosition();
+
+    DrawTextEx(headerFont, "ACTIVE DIRECTIVES", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    yPos += 28.0f;
+
+    const auto& directive = unit->GetDirective();
+
+    const char* directiveNames[] = {
+        "NONE", "PRIORITIZE", "MAXIMIZE", "CONSERVE",
+        "EXPLORATION MODE", "EMERGENCY HARVEST", "THERMAL SYNC"
+    };
+    const char* directiveDescs[] = {
+        "Normal operation.",
+        "Focus on specific resource (+40%).",
+        "Max output (+25%), more energy.",
+        "Conserve energy (-30% output).",
+        "Prospecting focus (-50% extraction).",
+        "Emergency harvest (+50%, +wear).",
+        "Sync with thermal cycles."
+    };
+
+    // Current directive display
+    int dirIdx = static_cast<int>(directive.type);
+    DrawTextEx(bodyFont, "Current:", {px, yPos}, 13.0f, sp, LIGHTGRAY);
+    Color dirColor = (dirIdx == 0) ? EXT_DIM_TEXT : EXT_ACCENT_GOLD;
+    DrawTextEx(headerFont, directiveNames[dirIdx], {px + 65.0f, yPos - 2.0f}, 16.0f, sp, dirColor);
+    yPos += 22.0f;
+
+    // Target resource for PRIORITIZE
+    if (directive.type == Unit::DirectiveType::PRIORITIZE)
+    {
+        std::string resName = ResourceUtils::GetResourceName(directive.targetResource);
+        Color resColor = ResourceUtils::GetResourceColor(directive.targetResource);
+        DrawTextEx(bodyFont, TextFormat("Target: %s", resName.c_str()), {px, yPos}, 13.0f, sp, resColor);
+        yPos += 18.0f;
+    }
+
+    yPos += 10.0f;
+
+    // --- Get directives tier for gating ---
+    int directivesTier = 0;
+    bool directivesActive = false;
+    for (const auto& mod : unit->GetModules())
+    {
+        if (mod.moduleType == "DIRECTIVES" && mod.isActive)
+        {
+            directivesTier = mod.tier;
+            directivesActive = true;
+            break;
+        }
+    }
+
+    DrawTextEx(headerFont, "AVAILABLE DIRECTIVES", {px, yPos}, 14.0f, sp, EXT_HEADER_COLOR);
+    yPos += 20.0f;
+
+    // Directive cards
+    float cardH = 42.0f;
+    float cardW = static_cast<float>(w - padding * 2);
+
+    // Tier requirements: Tier 0 = NONE only, Tier 1 = +PRIORITIZE/MAXIMIZE/CONSERVE, Tier 2+ = all
+    int minTierRequired[] = {0, 1, 1, 1, 2, 2, 2};
+
+    for (int d = 0; d < 7; d++)
+    {
+        Unit::DirectiveType dType = static_cast<Unit::DirectiveType>(d);
+        bool isCurrentDirective = (directive.type == dType);
+        bool isUnlocked = directivesActive && directivesTier >= minTierRequired[d];
+        // NONE is always available
+        if (d == 0) isUnlocked = true;
+
+        Rectangle card = {px, yPos, cardW, cardH};
+
+        // Card background
+        Color cardBg;
+        if (isCurrentDirective)
+        {
+            cardBg = {50, 45, 20, 255};  // Gold-tinted active
+        }
+        else if (isUnlocked)
+        {
+            cardBg = CheckCollisionPointRec(mousePos, card) ? Color{40, 45, 60, 255} : Color{30, 35, 50, 255};
+        }
+        else
+        {
+            cardBg = {20, 20, 25, 200};  // Dim locked
+        }
+        DrawRectangleRec(card, cardBg);
+
+        // Border
+        if (isCurrentDirective)
+        {
+            DrawRectangleLinesEx(card, 2.0f, EXT_ACCENT_GOLD);
+        }
+        else
+        {
+            DrawRectangleLinesEx(card, 1.0f, EXT_PANEL_BORDER);
+        }
+
+        // Directive name
+        Color nameColor = isUnlocked ? WHITE : EXT_DIM_TEXT;
+        DrawTextEx(bodyFont, directiveNames[d], {px + 10.0f, yPos + 5.0f}, 13.0f, sp, nameColor);
+
+        // Description
+        Color descColor = isUnlocked ? LIGHTGRAY : Color{80, 80, 90, 255};
+        DrawTextEx(bodyFont, directiveDescs[d], {px + 10.0f, yPos + 22.0f}, 10.0f, sp, descColor);
+
+        // Tier requirement label for locked
+        if (!isUnlocked)
+        {
+            DrawTextEx(bodyFont, TextFormat("Tier %d", minTierRequired[d]),
+                       {px + cardW - 50.0f, yPos + 12.0f}, 11.0f, sp, EXT_DIM_TEXT);
+        }
+
+        // Click to select unlocked directive
+        if (isUnlocked && !isCurrentDirective &&
+            CheckCollisionPointRec(mousePos, card) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            Unit::ActiveDirective newDir;
+            newDir.type = dType;
+            newDir.targetResource = ResourceType::Fe;
+            newDir.strength = 1.0f;
+            unit->SetDirective(newDir);
+        }
+
+        yPos += cardH + 3.0f;
+    }
+
+    // --- PRIORITIZE resource selector ---
+    if (directive.type == Unit::DirectiveType::PRIORITIZE)
+    {
+        yPos += 8.0f;
+        DrawTextEx(headerFont, "TARGET RESOURCE", {px, yPos}, 13.0f, sp, EXT_HEADER_COLOR);
+        yPos += 18.0f;
+
+        ResourceType resources[] = {
+            ResourceType::Fe, ResourceType::Ti, ResourceType::Si, ResourceType::Al,
+            ResourceType::Ca, ResourceType::H2, ResourceType::O2, ResourceType::C
+        };
+        const char* resLabels[] = {"Fe", "Ti", "Si", "Al", "Ca", "H2", "O2", "C"};
+
+        float chipW = 42.0f;
+        float chipH = 24.0f;
+        float chipX = px;
+
+        for (int r = 0; r < 8; r++)
+        {
+            // Wrap to next row if needed
+            if (chipX + chipW > px + cardW)
+            {
+                chipX = px;
+                yPos += chipH + 4.0f;
+            }
+
+            Rectangle chip = {chipX, yPos, chipW, chipH};
+            bool isSelected = (directive.targetResource == resources[r]);
+            Color chipBg = isSelected ? Color{60, 50, 20, 255} : Color{35, 40, 55, 255};
+            if (!isSelected && CheckCollisionPointRec(mousePos, chip))
+            {
+                chipBg = {50, 55, 70, 255};
+            }
+
+            DrawRectangleRec(chip, chipBg);
+            Color chipBorder = isSelected ? EXT_ACCENT_GOLD :
+                               ResourceUtils::GetResourceColor(resources[r]);
+            DrawRectangleLinesEx(chip, isSelected ? 2.0f : 1.0f, chipBorder);
+
+            Color labelColor = isSelected ? EXT_ACCENT_GOLD :
+                               ResourceUtils::GetResourceColor(resources[r]);
+            DrawTextEx(bodyFont, resLabels[r], {chipX + 8.0f, yPos + 5.0f}, 12.0f, sp, labelColor);
+
+            if (CheckCollisionPointRec(mousePos, chip) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                Unit::ActiveDirective newDir;
+                newDir.type = Unit::DirectiveType::PRIORITIZE;
+                newDir.targetResource = resources[r];
+                newDir.strength = 1.0f;
+                unit->SetDirective(newDir);
+            }
+
+            chipX += chipW + 4.0f;
+        }
+    }
+}
