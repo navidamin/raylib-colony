@@ -9,6 +9,9 @@ GameManager::GameManager()
       selectedRoad(nullptr),
       buildRoadMode(false),
       roadBuildStartSect(nullptr),
+      inSiteSelection(false),
+      hoveredGridPos({0.0f, 0.0f}),
+      selectedSite({-1.0f, -1.0f}),
       lastUpdateTime(0.0f)
 {
 }
@@ -33,24 +36,7 @@ void GameManager::InitGame() {
 
     // Generate map/grid/resource map of the planet
     planet->GenerateMap();
-
-    // Create initial colony
-    Colony* firstColony = new Colony();
-    colonies.push_back(firstColony);
-    currentColony = firstColony;
-
-    // Create initial sect with a position near the center of the map
-    Vector2 initialPosition = planet->GetRandomValidPosition();
-    Sect* firstSect = new Sect(initialPosition, planet->GetResourceManager(), timeManager);
-
-    // Notify planet about sect position to ensure resources
-    planet->NotifyFirstSectPosition(initialPosition);
-
-    // Add sect to colony
-    currentColony->AddSect(firstSect);
-    currentSect = firstSect;
-
-    UpdatePlanetActiveArea();
+    // No colony created - player must use site selection
 }
 
 void GameManager::Update(float deltaTime) {
@@ -152,26 +138,9 @@ void GameManager::SelectDefaultUnit() {
 }
 
 void GameManager::BuildNewColony(Vector2 worldPos) {
-    bool intrudingOtherColony = false;
-    for (Colony* colony : colonies) {
-        if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius())) {
-            intrudingOtherColony = true;
-            break;
-        }
-    }
-
-    if (!intrudingOtherColony) {
-        Colony* colony = new Colony();
-        colonies.push_back(colony);
-        currentColony = colony;
-
-        Sect* sect = new Sect(worldPos, planet->GetResourceManager(), timeManager);
-        currentColony->AddSect(sect);
-        currentSect = sect;
-        std::cout << "Colony and sect created successfully\n";
-    } else {
-        std::cout << "Intruding the jurisdiction of another Colony!\n";
-    }
+    // Enter site selection mode instead of placing immediately
+    EnterSiteSelection();
+    UpdateSiteSelectionHover(worldPos);
 }
 
 void GameManager::BuildNewSect(Vector2 worldPos) {
@@ -569,4 +538,85 @@ void GameManager::SelectSectForRoadBuild(Vector2 worldPos) {
         roadBuildStartSect = nullptr;
         std::cout << "[ROAD BUILD] Ready for next road. Click a sect or press B to exit." << std::endl;
     }
+}
+
+// --- Site Selection Methods ---
+
+void GameManager::EnterSiteSelection() {
+    inSiteSelection = true;
+    selectedSite = {-1.0f, -1.0f};
+    std::cout << "[SITE SELECT] Entered site selection mode. Hover to inspect, click to select, Enter to confirm, Escape to cancel." << std::endl;
+}
+
+void GameManager::UpdateSiteSelectionHover(Vector2 worldPos) {
+    float cellSize = SECT_CORE_RADIUS * 2.0f;
+    hoveredGridPos = {
+        std::floor(worldPos.x / cellSize),
+        std::floor(worldPos.y / cellSize)
+    };
+
+    // Clamp to grid bounds
+    hoveredGridPos.x = Clamp(hoveredGridPos.x, 0.0f, static_cast<float>(PLANET_SIZE - 1));
+    hoveredGridPos.y = Clamp(hoveredGridPos.y, 0.0f, static_cast<float>(PLANET_SIZE - 1));
+}
+
+void GameManager::ConfirmSiteSelection() {
+    if (!inSiteSelection) return;
+
+    int gridX = static_cast<int>(hoveredGridPos.x);
+    int gridY = static_cast<int>(hoveredGridPos.y);
+
+    // Check for colony intrusion
+    float cellSize = SECT_CORE_RADIUS * 2.0f;
+    Vector2 worldPos = {
+        hoveredGridPos.x * cellSize + cellSize * 0.5f,
+        hoveredGridPos.y * cellSize + cellSize * 0.5f
+    };
+
+    bool intrudingOtherColony = false;
+    for (Colony* colony : colonies)
+    {
+        if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius()))
+        {
+            intrudingOtherColony = true;
+            break;
+        }
+    }
+
+    if (intrudingOtherColony)
+    {
+        std::cout << "[SITE SELECT] Cannot place colony - intruding another colony's jurisdiction!" << std::endl;
+        return;
+    }
+
+    // Get archetype for the selected site
+    SiteArchetype archetype = planet->GetResourceManager().GetSiteArchetype(gridX, gridY);
+
+    const char* archetypeNames[] = {
+        "MARE_INDUSTRIAL", "HIGHLAND_CONSTRUCTION", "POLAR_VOLATILE",
+        "KREEP_SCIENTIFIC", "LAVA_TUBE", "MIXED"
+    };
+
+    // Create colony with archetype
+    Colony* colony = new Colony();
+    colony->SetArchetype(archetype);
+    colonies.push_back(colony);
+    currentColony = colony;
+
+    // Create initial sect at the center of the selected grid cell
+    Sect* sect = new Sect(worldPos, planet->GetResourceManager(), timeManager);
+    currentColony->AddSect(sect);
+    currentSect = sect;
+
+    inSiteSelection = false;
+    selectedSite = hoveredGridPos;
+
+    std::cout << "[SITE SELECT] Colony created at grid (" << gridX << "," << gridY
+              << ") with archetype: " << archetypeNames[static_cast<int>(archetype)] << std::endl;
+}
+
+void GameManager::CancelSiteSelection() {
+    inSiteSelection = false;
+    selectedSite = {-1.0f, -1.0f};
+    std::cout << "[SITE SELECT] Site selection cancelled." << std::endl;
 }

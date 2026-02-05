@@ -22,7 +22,7 @@ void ViewManager::UpdateCamera(InputManager& inputManager, std::vector<Colony*>&
 }
 
 void ViewManager::HandleCameraControls(InputManager& inputManager, std::vector<Colony*>& colonies, Planet* planet) {
-    if (currentView == View::Planet) {
+    if (currentView == View::Planet || currentView == View::SITE_SELECTION) {
         HandlePlanetViewCamera(inputManager, planet);
     } else if (currentView == View::Colony) {
         HandleColonyViewCamera(inputManager);
@@ -180,6 +180,14 @@ void ViewManager::ResetCameraForCurrentView(View view, std::vector<Colony*>& col
                 );
                 ClampCameraColonyView();
             }
+            break;
+        }
+        case View::SITE_SELECTION: {
+            // Center on planet and zoom to fit entire grid
+            float zoomX = static_cast<float>(screenWidth) / PLANET_WIDTH;
+            float zoomY = static_cast<float>(screenHeight) / PLANET_HEIGHT;
+            camera.target = {PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f};
+            camera.zoom = std::min(zoomX, zoomY) * 0.9f;
             break;
         }
         default:

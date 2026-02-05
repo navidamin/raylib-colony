@@ -10,6 +10,7 @@
 #include "game_constants.h"
 #include "game_enums.h"
 #include "time_manager.h"
+#include "unlock_registry.h"
 
 class Engine {
 public:

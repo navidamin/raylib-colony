@@ -54,6 +54,15 @@ public:
     void UpdatePlanetActiveArea();
     TimeManager& GetTimeManager() { return timeManager; }
 
+    // Site selection
+    bool IsInSiteSelection() const { return inSiteSelection; }
+    Vector2 GetHoveredGridPos() const { return hoveredGridPos; }
+    Vector2 GetSelectedSite() const { return selectedSite; }
+    void EnterSiteSelection();
+    void UpdateSiteSelectionHover(Vector2 worldPos);
+    void ConfirmSiteSelection();
+    void CancelSiteSelection();
+
 private:
     Planet* planet;
     std::vector<Colony*> colonies;
@@ -65,6 +74,11 @@ private:
     // Road construction mode
     bool buildRoadMode;
     Sect* roadBuildStartSect;
+
+    // Site selection mode
+    bool inSiteSelection;
+    Vector2 hoveredGridPos;
+    Vector2 selectedSite;
 
     TimeManager timeManager;
     float lastUpdateTime;
