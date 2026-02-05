@@ -144,11 +144,21 @@ Each level can be viewed and interacted with by zooming in (double-click) or out
 The game operates in different views defined in `game_enums.h`:
 - **Menu** - Initial menu (not yet implemented)
 - **Planet** - Strategic view showing all colonies on the planet surface
+- **Site_Selection** - Orbital survey view for informed colony placement (instrument panels: GRS, Neutron, Thermal, Site Assessment)
 - **Colony** - Shows all sects within a colony and their connections
 - **Sect** - Shows individual units within a settlement
 - **Unit** - Detailed view of a specific production unit and its modules
 
 View transitions are handled by `ViewManager::SwitchTo*View()` methods which adjust camera zoom and target.
+
+### Site Selection System
+
+Colony placement uses an informed site selection flow (src/Engine/gamemanager.cpp):
+- Ctrl+click in Planet view enters `View::SITE_SELECTION` instead of placing immediately
+- `DrawSiteSelectionView()` renders orbital instrument panels (GRS bar charts, neutron spectrometer, thermal mapper)
+- Each grid cell is classified with a `SiteArchetype` (MARE_INDUSTRIAL, HIGHLAND_CONSTRUCTION, POLAR_VOLATILE, KREEP_SCIENTIFIC, LAVA_TUBE, MIXED)
+- Confirming a site creates a Colony with archetype-specific bonus multipliers
+- Sect placement within a Colony shows a resource preview tooltip (Ctrl+hover)
 
 ### Resource System
 
@@ -158,10 +168,12 @@ Resources are managed at multiple levels:
 - Generates procedural resource distribution across the planet grid using cluster-based generation
 - Each grid cell has resource abundances (0.0-1.0) for different ResourceTypes
 - Tracks resource depletion as units extract materials
-- ResourceTypes defined in `resource_types.h` include: H2, O2, C, Fe, Si, WATER, FOOD, ENERGY, SCIENCE, MANPOWER
+- ResourceTypes defined in `resource_types.h` include: H2, O2, C, Fe, Si, Ti, Al, Ca, WATER, FOOD, ENERGY, SCIENCE, MANPOWER
+- Generates `OrbitalSurveyData` per grid cell (elemental composition, hydrogen signal, solar illumination, terrain slope, earth visibility)
+- Classifies grid cells into `SiteArchetype` based on composition thresholds
 
 **Resource flow:**
-- Planet grid stores natural resources (H2, O2, C, Fe, Si)
+- Planet grid stores natural resources (H2, O2, C, Fe, Si, Ti, Al, Ca)
 - Sects have local storage for processed/extracted resources
 - Units consume resources from sect storage during production cycles
 - Production costs defined in `game_constants.h` (e.g., EXTRACTION_PRODUCTION_COSTS, FARMING_PRODUCTION_COSTS)
@@ -177,13 +189,31 @@ Resources are managed at multiple levels:
 
 ### Unit Module System
 
-Units have a modular upgrade system where each unit type can have multiple modules. Modules define:
-- Production/consumption rates for various resources
-- Efficiency and current level
-- Upgrade costs for next level
-- Special enhancements at different levels
+Units have a modular upgrade system where each unit type has specialized named modules. Each `UnitModule` defines:
+- `moduleType` (e.g., "PROSPECTING", "EXCAVATION", "BENEFICIATION")
+- `tier` (0-3) with tier-specific stats, dependencies, and energy requirements
+- `tierDependencies` (tech strings checked against `UnlockRegistry`)
+- Production/consumption rates, efficiency, upgrade costs per tier
 
-Production is processed per-module with costs deducted before outputs are generated.
+**Extraction unit modules** (5 specialized):
+1. **Prospecting** - LIBS scanning, site marking, scan history (`ScanResult` struct)
+2. **Excavation** - Excavator fleet management (`Excavator` struct), depth/rate control, wear
+3. **Beneficiation** - Separation chain (`SeparationNode` structs: SIZE_SORT, MAGNETIC, ELECTROSTATIC, THERMAL, MRE, DIRECT_OUTPUT)
+4. **Operations** - Efficiency modifier (tier 0=0.85 penalty, tier 3=1.2 bonus)
+5. **Directives** - Autonomous control (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, EMERGENCY_HARVEST, THERMAL_SYNC)
+
+**Other unit types** have 5 stub-named modules each (Farming, Energy, Manufacture, Research) using generic production logic.
+
+**Extraction pipeline** (`ProcessExtraction()`):
+1. Excavation stage: base rate * operations modifier * directive modifier * excavator count
+2. Beneficiation stage: raw regolith processed through separation chain nodes
+3. Storage stage: processed resources added to sect storage
+
+**Tier upgrades** (`UpgradeModuleTier()`): Check `UnlockRegistry` for required techs, deduct resource costs, increment tier.
+
+### Unlock Registry
+
+`UnlockRegistry` (src/UnlockRegistry/unlock_registry.h) is a header-only singleton that stubs the tech dependency system until Research units are fully implemented. Contains 14 available techs (Spectroscopy, Geophysics, SwarmAI, etc.). Debug key F5 cycles through unlocks.
 
 ## Coding Conventions
 
@@ -225,8 +255,10 @@ Production is processed per-module with costs deducted before outputs are genera
 - `src/` - Main source directory
 - `src/Engine/` - Core engine managers (Input, View, Game, Render)
 - `src/Colony/`, `src/Sect/`, `src/Unit/`, `src/Planet/` - Game entities
-- `src/ResourceManager/` - Resource generation and tracking
+- `src/ResourceManager/` - Resource generation, tracking, and orbital survey data
 - `src/TimeManager/` - Game time and production scheduling
+- `src/UnlockRegistry/` - Stub tech dependency system (header-only singleton)
+- `src/Unit/separation_node.h` - Beneficiation separation node types and processing
 - `src/InquiryManager/` - (Purpose unclear from headers, investigate if modifying)
 - `assets/` - Game assets (textures, etc.)
 - `game_*.h` - Shared definitions (enums, structs, constants)

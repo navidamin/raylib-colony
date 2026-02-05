@@ -7,10 +7,10 @@ Create a scalable, data-driven colony management game with deep resource logisti
 
 ## Overall Development Phases
 
-### **PHASE 0: Foundation & Architecture** ⚡ CURRENT
-**Status:** IN PROGRESS (75% complete)
+### **PHASE 0: Foundation & Architecture**
+**Status:** IN PROGRESS (85% complete)
 **Timeline:** Started - Week 6
-**Last Updated:** 2025-11-25
+**Last Updated:** 2026-01-31
 
 #### Completed ✅
 - ✅ Basic game loop and view system (Planet/Colony/Sect/Unit views)
@@ -33,31 +33,129 @@ Create a scalable, data-driven colony management game with deep resource logisti
   - ✅ All source files properly listed in CMakeLists.txt
   - ✅ Successful compilation and linking
 - ✅ Resource flow architecture design (planning completed, implementation pending in Phase 1)
+- ✅ **Transport system** (Phase 2.5) - *Completed 2025-12*
+  - ✅ Road construction mode with UI feedback
+  - ✅ Transport packets with visual rendering
+  - ✅ Rate limiting and multiple packets per road
+  - ✅ AUTO_BALANCE, MANUAL, DEFICIT_TRIGGERED modes
+- ✅ **Multiple simultaneous active modules** - *Completed 2026-01*
+  - ✅ std::set<int> activeModuleIndices tracking
+  - ✅ ActivateModule/DeactivateModule methods
+  - ✅ Per-module resource consumption and production
 
 #### In Progress 🔄
-- 🔄 **Graphics enhancement - texture-based rendering** (Checkpoint 0 - NEW 2025-11-25)
-  - Replace circle primitives with textures in Sect view
-  - Dome_off.png for central dome
-  - Unit-specific textures for buildings (Extraction, Farming, Energy, Water, Manufacturing)
-  - Proof of concept with graceful fallback for missing textures
-- 🔄 Storage capacity system (design completed, implementation in Phase 1)
-- 🔄 Production priority system (basic structure exists, needs enhancement in Phase 1)
+- 🔄 **Graphics enhancement** (Checkpoint 0 - ~95% complete, needs polish)
+- 🔄 Storage capacity system (basic implementation complete)
 
 #### Remaining Tasks 📋
-- 📋 Multiple simultaneous active modules per unit (next immediate task)
-- 📋 Strategy-based resource distribution (Energy/Manpower) - Phase 3
-- 📋 Production strategy pattern implementation - Phase 3
+- 📋 Graphics polish pass (texture scaling, active/inactive tint refinement)
 
 **Exit Criteria Progress:**
 - ✅ All manager subsystems fully functional
 - ✅ Data-driven type loading system operational
-- 📋 Multiple modules can run simultaneously (next task)
-- 📋 Basic resource flow working (Unit → Sect → Colony) - Phase 1
+- ✅ Multiple modules can run simultaneously
+- ✅ Transport network functional
+- 📋 Graphics polish pass
+
+---
+
+### **PHASE 1.5: Extraction Unit Overhaul** ⚡ CURRENT
+**Status:** IN PROGRESS (~99% complete)
+**Timeline:** Week 8-12
+**Last Updated:** 2026-02-01
+
+Based on `Prospecting_Extraction_Mechanics.md` design document.
+
+#### Completed ✅
+- ✅ **Phase A: Survey Data & Unlock Registry**
+  - ✅ OrbitalSurveyData struct (elemental composition, hydrogen, solar, slope, earth visibility)
+  - ✅ GetOrbitalSurveyAt() and GetSiteArchetype() methods
+  - ✅ New resource types: Ti, Al, Ca added to ResourceType enum
+  - ✅ UnlockRegistry singleton with 14 available techs
+  - ✅ Debug keys: F5 (unlock techs), F6 (print orbital survey)
+
+- ✅ **Phase B: Site Selection UI**
+  - ✅ View::SITE_SELECTION enum and state machine
+  - ✅ Full orbital survey instrument panels (GRS, Neutron, Thermal, Assessment)
+  - ✅ Color-coded grid overlay (mare/highland/hydrogen)
+  - ✅ Colony archetype system (5 types with production bonuses)
+  - ✅ Sect placement resource preview overlay (Ctrl+hover in Colony view)
+
+- ✅ **Phase C: Module Architecture Overhaul**
+  - ✅ UnitModule extended with moduleType, tier, tierDependencies, energyRequired
+  - ✅ 5 specialized extraction modules: PROSPECTING, EXCAVATION, BENEFICIATION, OPERATIONS, DIRECTIVES
+  - ✅ Stub specialized modules for Farming (5), Energy (5), Manufacturing (5), Research (5)
+  - ✅ UpgradeModuleTier() with tech dependency checking via UnlockRegistry
+  - ✅ game_types.toml updated with 5 extraction modules × 4 tiers
+
+- ✅ **Phase D: Prospecting Module (Tiers 0-3)**
+  - ✅ ScanResult struct with elements, minerals, hydrogen, quality rating
+  - ✅ PerformLIBSScan() with cooldown and energy cost
+  - ✅ MarkSiteForExcavation/UnmarkSite tracking
+  - ✅ Tier progression: Visual Estimation → LIBS → Multi-Spectral → Deep Survey
+
+- ✅ **Phase E: Excavation Module**
+  - ✅ Excavator struct (id, gridPos, method, depth, rate, wear)
+  - ✅ MoveExcavator, SetExcavatorDepth, SetExcavatorRate
+  - ✅ Tier-based max depth and excavator counts
+  - ✅ Wear accumulation per excavator
+
+- ✅ **Phase F: Beneficiation Separation Node System**
+  - ✅ SeparationNode struct with type, efficiency, wear, energy, input/output maps
+  - ✅ 7 node types: DIRECT_OUTPUT, SIZE_SORT, MAGNETIC, ELECTROSTATIC, THERMAL, CHEMICAL, MRE
+  - ✅ Tier upgrades rebuild separation chain (Tier 0→1→2→3)
+  - ✅ SwapSeparationNodes for node reordering
+
+- ✅ **Phase G: Operations & Directives**
+  - ✅ Operations efficiency modifier (Tier 0: -15%, Tier 3: +20%)
+  - ✅ DirectiveType enum (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, etc.)
+  - ✅ SetDirective with tier gating
+  - ✅ Directive modifiers applied in extraction pipeline
+
+- ✅ **Phase H: Integration**
+  - ✅ ProcessExtraction rewritten with full pipeline:
+    Excavation → Beneficiation → Storage
+  - ✅ Operations and Directives modifiers applied
+  - ✅ Excavator count scales extraction output
+
+- ✅ **Extraction Unit UI Rendering (Display Panels)**
+  - ✅ Dark-themed RenderManager-based UI for extraction units
+  - ✅ 5 module-specific center panels (Prospecting, Excavation, Beneficiation, Operations, Directives)
+  - ✅ Left panel module list with hover/selection, status borders
+  - ✅ Right panel controls (Build/Upgrade/Activate/Deactivate buttons, cost breakdown)
+  - ✅ Resource overview with production/consumption table and storage bars
+  - ✅ Bottom bar message fade system
+  - ✅ Non-extraction units fall back to old white UI
+
+- ✅ **Interactive Controls (2026-02-01)**
+  - ✅ Prospecting: 5x5 clickable scan grid with cooldown overlay, tier gate, mark/unmark sites
+  - ✅ Excavation: [-] value [+] buttons for depth (tier-dependent step) and rate per excavator
+  - ✅ Beneficiation: up/down reorder arrows, clickable ON/OFF toggle per node
+  - ✅ Directives: selectable directive cards with tier gating, PRIORITIZE resource chip selector
+
+- ✅ **Balance Pass (2026-02-01)**
+  - ✅ Fixed beneficiation double-multiply bug (efficiency was compounding per-node)
+  - ✅ Raised separation node efficiencies (SIZE_SORT→0.92, MAGNETIC→0.88, ELECTROSTATIC→0.85, THERMAL→0.82, MRE→0.90)
+  - ✅ Added missing directive handlers: EMERGENCY_HARVEST, EXPLORATION_MODE, THERMAL_SYNC
+  - ✅ Bumped Operations Tier 3 modifier: 1.15→1.20
+  - ✅ Dynamic energy consumption scaling
+  - ✅ Removed `energyRequired` dead code
+
+#### Remaining Tasks 📋
+- 📋 Tune upgrade costs per tier (resource amounts)
+- 📋 Manual playtesting: full pipeline throughput verification at each tier
+- 📋 Dependency validation with clear error messages
+
+**Design Decisions Recorded:**
+- Site selection: Full orbital survey for Colony, light preview for Sect
+- Module system: 5 specialized per Extraction, stub specialized names for other units
+- Dependencies: Stub UnlockRegistry until Research unit implemented
+- Checkpoint 0 (Graphics): ~95% complete, needs polish pass
 
 ---
 
 ### **PHASE 1: Core Resource System**
-**Status:** PLANNED
+**Status:** PARTIALLY ADDRESSED (by Phase 1.5)
 **Timeline:** Week 7-10
 
 #### Objectives
@@ -107,8 +205,8 @@ Create a scalable, data-driven colony management game with deep resource logisti
 ---
 
 ### **PHASE 2: Transport Network**
-**Status:** PLANNED
-**Timeline:** Week 11-14
+**Status:** LARGELY COMPLETE (~90%)
+**Timeline:** Week 11-14 (completed early)
 
 #### Objectives
 - Implement intersect transport via roads
@@ -407,35 +505,29 @@ Create a scalable, data-driven colony management game with deep resource logisti
 
 ## Current Status Summary
 
-**Current Phase:** PHASE 0 (Foundation & Architecture) - 75% complete
+**Current Phase:** PHASE 1.5 (Extraction Unit Overhaul) - ~99% complete
 **Next Phase:** PHASE 1 (Core Resource System)
 
-**Recent Updates (2025-11-25):**
-- 🔄 **NEW PRIORITY:** Graphics enhancement - texture-based rendering (Checkpoint 0)
-  - Goal: Replace circle primitives with custom textures
-  - Scope: Dome center + unit visuals in Sect view
-  - Assets: Dome_off.png + 5 unit textures ready
-  - Impact: Major visual improvement, establishes texture pipeline
-
-**Recent Completions (2025-11-09):**
-- ✅ Data-driven type system (game_types.toml) with tomlplusplus integration
-- ✅ GameTypesLoader singleton class implementation
-- ✅ Build system cleanup (fixed multiple definition errors)
-- ✅ All source files properly configured in CMakeLists.txt
-- ✅ Successful compilation (3.0 MB executable)
+**Recent Completions (2026-02-01):**
+- ✅ Interactive extraction controls - scan grid, excavator +/- buttons, beneficiation reorder/toggle, directive card selector
+- ✅ Balance pass - fixed beneficiation double-multiply bug, raised node efficiencies, added 3 missing directive handlers, bumped Ops Tier 3
+- ✅ Extraction Unit UI Overhaul - dark-themed display panels for all 5 modules
+- ✅ Extraction pipeline (Phases A-H) - data model, site selection, module architecture, integration
+- ✅ Transport network (~90%) - road construction, transport packets, rate limiting
+- ✅ Multiple simultaneous active modules
+- ✅ Data-driven type system (game_types.toml)
+- ✅ Graphics enhancement (~95%)
 
 **Previous Completions:**
 - Engine refactor into manager subsystems
 - Terrain rendering with tiles
 - BuildNewColony/BuildNewSect functionality
 
-**Immediate Priorities (Next 1-2 Weeks):**
-1. ✅ ~~Complete data-driven type system (game_types.toml)~~ DONE
-2. 🔄 **Graphics enhancement with texture rendering (Checkpoint 0)** IN PROGRESS
-3. Implement multiple simultaneous active modules (Checkpoint 2)
-4. Add storage capacity limits to Sect/Colony (Phase 1)
-5. Implement typed resources (Machinery, Electronics) (Phase 1)
-6. Create sect-level direct generation (population MANPOWER) (Phase 1)
+**Immediate Priorities:**
+1. 📋 Tune upgrade costs per tier (resource amounts)
+2. 📋 Manual playtesting: full pipeline throughput verification
+3. Phase 1: Core Resource System (storage capacity, resource flow, graceful degradation)
+4. Phase 3: Advanced Production (manufacturing chains, research trees)
 
 ---
 
@@ -477,6 +569,6 @@ Create a scalable, data-driven colony management game with deep resource logisti
 
 ---
 
-**Last Updated:** 2025-11-25
+**Last Updated:** 2026-02-01
 **Maintained By:** Development Team
 **Review Cycle:** Weekly updates, major revisions at phase boundaries
