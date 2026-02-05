@@ -37,6 +37,7 @@ target_include_directories(colony_game PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
+    "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
 )
 
 # Link libraries
