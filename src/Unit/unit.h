@@ -11,6 +11,9 @@
 #include "time_manager.h"
 #include "game_constants.h"
 #include "unit_ui.h"
+#include "separation_node.h"
+#include <utility>
+#include <cmath>
 
 
 class Unit {
@@ -24,11 +27,15 @@ public:
 
     struct UnitModule {
         std::string name;
-        int level = 1;
+        std::string moduleType;                           // e.g., "PROSPECTING", "EXCAVATION"
+        int level = 1;                                    // Legacy level for non-extraction units
+        int tier = 0;                                     // Tier 0-3 for extraction modules
         bool isBuilt;
         bool isActive;
         float efficiency = 1.0f;
+        float energyRequired = 0.0f;                      // kW required for this tier
         std::string description;
+        std::vector<std::string> tierDependencies;         // Tech names required for next tier
         std::map<ResourceType, float> consumptionRates;
         std::map<ResourceType, float> productionRates;
         std::map<ResourceType, float> maxProductionRates;
@@ -81,6 +88,8 @@ public:
     void InitializeModules();
     void InitializeFutureModules();
     bool UpgradeModule(int moduleIndex);
+    bool UpgradeModuleTier(int moduleIndex);
+    bool DebugUpgradeModuleTier(int moduleIndex);
     void ProcessModuleEffects(float deltaTime, ResourceManager& );
     void ProcessExtraction(float deltaTime, ResourceManager& );
     float GetStoredResource(ResourceType type) const;
@@ -91,6 +100,96 @@ public:
     bool ActivateModule(int moduleIndex);
     bool DeactivateModule(int moduleIndex);
     const std::set<int>& GetActiveModuleIndices() const { return activeModuleIndices; }
+
+    // Prospecting system
+    struct ScanResult {
+        std::map<ResourceType, float> elements;    // Accurate elemental composition
+        std::map<std::string, float> minerals;     // Mineral identification (tier 2+)
+        float hydrogenSignal = 0.0f;               // Neutron reading (tier 2+)
+        int qualityRating = 0;                     // 0-5 stars (tier 2+)
+        bool isScanned = false;
+    };
+
+    // Excavation system
+    struct Excavator {
+        int id;
+        Vector2 gridPos;
+        std::string method;    // "scoop", "bucket_wheel", "percussive", "drone"
+        float depth = 0.0f;    // Current excavation depth (cm)
+        float rate = 30.0f;    // kg/hr
+        float wear = 0.0f;    // 0-1, accumulated wear
+    };
+
+    // Prospecting getters
+    const std::map<std::pair<int,int>, ScanResult>& GetScanHistory() const { return scanHistory; }
+    const std::vector<std::pair<int,int>>& GetMarkedSites() const { return markedSites; }
+    void PerformLIBSScan(int gridX, int gridY);
+    void MarkSiteForExcavation(int gridX, int gridY);
+    void UnmarkSite(int gridX, int gridY);
+
+    // Excavation getters
+    const std::vector<Excavator>& GetExcavators() const { return excavators; }
+    void MoveExcavator(int excavatorId, int gridX, int gridY);
+    void SetExcavatorDepth(int excavatorId, float depth);
+    void SetExcavatorRate(int excavatorId, float rate);
+    const std::vector<UnitModule>& GetModules() const { return modules; }
+
+    // Grid position getter (derived from parentSectPosition)
+    Vector2 GetGridPosition() const {
+        return {
+            std::floor(parentSectPosition.x / (SECT_CORE_RADIUS * 2.0f)),
+            std::floor(parentSectPosition.y / (SECT_CORE_RADIUS * 2.0f))
+        };
+    }
+    float GetScanCooldown() const { return scanCooldown; }
+
+    // Beneficiation
+    const std::vector<SeparationNode>& GetSeparationChain() const { return separationChain; }
+    void SwapSeparationNodes(int indexA, int indexB);
+    void ToggleSeparationNodeActive(int index);
+    void AddSeparationNode(const SeparationNode& node);
+    void RemoveSeparationNode(int index);
+
+    // UI state accessors for RenderManager
+    int GetSelectedModuleIndex() const { return selectedModuleIndex; }
+    void SetSelectedModuleIndex(int index) { selectedModuleIndex = index; }
+    bool IsInModuleView() const { return isInModuleView; }
+    void SetIsInModuleView(bool val) { isInModuleView = val; }
+    bool IsShowingStats() const { return showingStats; }
+    void SetShowingStats(bool val) { showingStats = val; }
+    const UIMessage& GetCurrentMessage() const { return currentMessage; }
+    const std::map<ResourceType, float>& GetResourceStorage() const { return resourceStorage; }
+    const std::map<ResourceType, float>& GetStorageCapacity() const { return storageCapacity; }
+    float GetTotalRegolithExtracted() const { return totalRegolithExtracted; }
+
+    // Module action wrappers for RenderManager
+    bool PublicCanUpgradeModule(int moduleIndex) const;
+    bool PublicCanBuildModule(int moduleIndex) const;
+    void PublicBuildModule(int moduleIndex);
+    void PublicHandleModuleActivation(int moduleIndex);
+    void PublicShowMessage(const std::string& text);
+
+    // Operations & Directives
+    enum class DirectiveType {
+        NONE,
+        PRIORITIZE,      // Focus on a specific resource
+        MAXIMIZE,        // Maximum output regardless of cost
+        CONSERVE,        // Minimize energy consumption
+        EXPLORATION_MODE,// Focus prospecting over extraction
+        EMERGENCY_HARVEST,// Max extraction at wear cost
+        THERMAL_SYNC     // Sync with thermal cycles
+    };
+
+    struct ActiveDirective {
+        DirectiveType type = DirectiveType::NONE;
+        ResourceType targetResource = ResourceType::Fe;  // For PRIORITIZE
+        float strength = 1.0f;  // 0-1 modifier
+    };
+
+    void SetDirective(const ActiveDirective& directive);
+    const ActiveDirective& GetDirective() const { return activeDirective; }
+    float GetOperationsEfficiencyModifier() const;
+    bool IsOperationsActive() const;
 
 private:
     // Include UI-related members
@@ -106,6 +205,21 @@ private:
     std::vector<UnitModule> modules;
     std::set<int> activeModuleIndices;  // Indices of currently active modules
     std::map<ResourceType, std::map<ResourceType, float>> productionCosts;
+
+    // Prospecting data
+    std::map<std::pair<int,int>, ScanResult> scanHistory;
+    std::vector<std::pair<int,int>> markedSites;
+    float scanCooldown = 0.0f;
+
+    // Excavation data
+    std::vector<Excavator> excavators;
+    float totalRegolithExtracted = 0.0f;
+
+    // Beneficiation data
+    std::vector<SeparationNode> separationChain;
+
+    // Operations & Directives data
+    ActiveDirective activeDirective;
 
     bool isUnderConstruction;
     float productionCycleTime;
@@ -124,6 +238,14 @@ private:
 
     void InitializeStorage();
     void UpdateStorage();
+
+    // Specialized module initialization
+    void InitializeExtractionModules();
+    void InitializeFarmingModules();
+    void InitializeEnergyModules();
+    void InitializeManufactureModules();
+    void InitializeResearchModules();
+    void InitializeGenericModules();
 
     void UpdateUnitStatus();
 
