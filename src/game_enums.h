@@ -17,9 +17,21 @@ enum class UnitType {
 enum class View {
     Menu,
     Planet,
+    SITE_SELECTION,
     Colony,
     Sect,
     Unit
+};
+
+
+// Site archetypes for colony placement
+enum class SiteArchetype {
+    MARE_INDUSTRIAL,        // High Fe/Ti - industrial/manufacturing focus
+    HIGHLAND_CONSTRUCTION,  // High Si/Al/Ca - construction materials focus
+    POLAR_VOLATILE,         // High hydrogen signal - water/volatile extraction
+    KREEP_SCIENTIFIC,       // High Th/K - science generation focus
+    LAVA_TUBE,              // Protected site - general bonus
+    MIXED                   // No dominant archetype
 };
 
 
