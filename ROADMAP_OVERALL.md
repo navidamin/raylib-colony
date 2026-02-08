@@ -62,7 +62,7 @@ Create a scalable, data-driven colony management game with deep resource logisti
 ### **PHASE 1.5: Extraction Unit Overhaul** ⚡ CURRENT
 **Status:** IN PROGRESS (~99% complete)
 **Timeline:** Week 8-12
-**Last Updated:** 2026-02-01
+**Last Updated:** 2026-02-08
 
 Based on `Prospecting_Extraction_Mechanics.md` design document.
 
@@ -72,7 +72,7 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
   - ✅ GetOrbitalSurveyAt() and GetSiteArchetype() methods
   - ✅ New resource types: Ti, Al, Ca added to ResourceType enum
   - ✅ UnlockRegistry singleton with 14 available techs
-  - ✅ Debug keys: F5 (unlock techs), F6 (print orbital survey)
+  - ✅ Debug key: F5 (unlock techs)
 
 - ✅ **Phase B: Site Selection UI**
   - ✅ View::SITE_SELECTION enum and state machine
@@ -175,16 +175,16 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 - [ ] Add storage upgrade mechanics
 
 **1.2 Resource Classification** (Week 7-8)
-- [ ] Extend ResourceType enum with Tier 2/3 resources
-- [ ] Implement singular vs typed resource system
-- [ ] Create TypedResource struct with subtypes
-- [ ] Add resource category/priority enums
+- [x] Extend ResourceType enum with Tier 2/3 resources *(done in Phase 1.5 — MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS)*
+- [x] Implement singular vs typed resource system *(ResourceDescriptor table in resource_types.h)*
+- [x] Create TypedResource struct with subtypes *(descriptor-driven, subtypes in table)*
+- [x] Add resource category/priority enums *(ResourceCategory::SINGULAR / TYPED)*
 - [ ] Update resource visualization for new types
 
 **1.3 Flow Mechanisms** (Week 8-9)
 - [ ] Implement Unit→Sect production deposit
-- [ ] Implement Sect→Colony surplus push (dynamic timing)
-- [ ] Implement Colony→Sect deficit pull
+- [x] Implement Sect→Colony surplus push (dynamic timing) *(includes typed resources via ReceiveTypedSurplus)*
+- [x] Implement Colony→Sect deficit pull *(includes typed resources via ProvideTypedResource)*
 - [ ] Add transport time calculations
 - [ ] Create flow event system
 
@@ -508,9 +508,11 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 **Current Phase:** PHASE 1.5 (Extraction Unit Overhaul) - ~99% complete
 **Next Phase:** PHASE 1 (Core Resource System)
 
-**Recent Completions (2026-02-01):**
+**Recent Completions (2026-02-08):**
+- ✅ ResourceDescriptor table refactor — single source of truth for resource metadata; typed resource flow (Sect↔Colony push/pull) wired up
 - ✅ Interactive extraction controls - scan grid, excavator +/- buttons, beneficiation reorder/toggle, directive card selector
 - ✅ Balance pass - fixed beneficiation double-multiply bug, raised node efficiencies, added 3 missing directive handlers, bumped Ops Tier 3
+- ✅ Extraction UI font scaling - 48pt texture, FS() 1.30x multiplier on all extraction text, enlarged scan log bars with element percentages
 - ✅ Extraction Unit UI Overhaul - dark-themed display panels for all 5 modules
 - ✅ Extraction pipeline (Phases A-H) - data model, site selection, module architecture, integration
 - ✅ Transport network (~90%) - road construction, transport packets, rate limiting
@@ -569,6 +571,6 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 
 ---
 
-**Last Updated:** 2026-02-01
+**Last Updated:** 2026-02-08
 **Maintained By:** Development Team
 **Review Cycle:** Weekly updates, major revisions at phase boundaries

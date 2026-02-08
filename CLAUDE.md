@@ -168,15 +168,22 @@ Resources are managed at multiple levels:
 - Generates procedural resource distribution across the planet grid using cluster-based generation
 - Each grid cell has resource abundances (0.0-1.0) for different ResourceTypes
 - Tracks resource depletion as units extract materials
-- ResourceTypes defined in `resource_types.h` include: H2, O2, C, Fe, Si, Ti, Al, Ca, WATER, FOOD, ENERGY, SCIENCE, MANPOWER
+- ResourceTypes defined in `resource_types.h` include: ENERGY, H2, O2, C, Fe, Si, Ti, Al, Ca, WATER, FOOD, BIOFUEL, SCIENCE, MANPOWER, MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS
 - Generates `OrbitalSurveyData` per grid cell (elemental composition, hydrogen signal, solar illumination, terrain slope, earth visibility)
 - Classifies grid cells into `SiteArchetype` based on composition thresholds
+
+**ResourceDescriptor table** (`resource_types.h`):
+- `ResourceDescriptor` struct is the single source of truth for each resource's name, color, category (`SINGULAR` or `TYPED`), and subtypes
+- `GetResourceDescriptors()` returns the full table; `GetResourceDescriptor(type)` looks up one entry
+- `ResourceTypeToString`, `GetResourceCategory`, and `ResourceUtils::*` are thin wrappers around the descriptor lookup
 
 **Resource flow:**
 - Planet grid stores natural resources (H2, O2, C, Fe, Si, Ti, Al, Ca)
 - Sects have local storage for processed/extracted resources
 - Units consume resources from sect storage during production cycles
 - Production costs defined in `game_constants.h` (e.g., EXTRACTION_PRODUCTION_COSTS, FARMING_PRODUCTION_COSTS)
+- Sects push/pull typed resources to/from colony reserves via `Colony::ReceiveTypedSurplus()` / `Colony::ProvideTypedResource()`
+- Colony auto-balance and deficit transport iterate descriptors via `GetResourceDescriptors()` (not raw `static_cast<int>` loops)
 
 ### Time Management
 
@@ -215,6 +222,10 @@ Units have a modular upgrade system where each unit type has specialized named m
 
 `UnlockRegistry` (src/UnlockRegistry/unlock_registry.h) is a header-only singleton that stubs the tech dependency system until Research units are fully implemented. Contains 14 available techs (Spectroscopy, Geophysics, SwarmAI, etc.). Debug key F5 cycles through unlocks.
 
+### Extraction UI Font Scaling
+
+The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture size with bilinear filtering. All `DrawTextEx`/`MeasureTextEx` size parameters in extraction view methods are wrapped with `FS()` — a simple multiplier returning `baseSize * 1.30f` (XL preset). This keeps text comfortably readable at the dark-themed panel layout. `FS()` is defined in `RenderManager` and only applies to extraction view methods, not site selection or other views.
+
 ## Coding Conventions
 
 **Critical: Follow CONVENTIONS.md strictly.** This project uses C-style naming conventions:
@@ -243,6 +254,13 @@ Units have a modular upgrade system where each unit type has specialized named m
 2. Create `RenderManager::Draw*View()` method
 3. Add `ViewManager::SwitchTo*View()` method
 4. Handle camera setup and input in respective managers
+
+**Adding a new resource type:**
+1. Add enum value to `ResourceType` in `resource_types.h`
+2. Add a `ResourceDescriptor` entry in the `GetResourceDescriptors()` table (name, color, category, subtypes)
+3. If `TYPED`: populate the `subtypes` vector with valid subtype strings
+4. Initialize storage in `Sect` constructor and `Colony` constructor
+5. All wrapper functions (`ResourceTypeToString`, `GetResourceCategory`, `ResourceUtils::*`) automatically work via descriptor lookup
 
 **Working with the grid system:**
 - Planet uses a 20x20 grid (PLANET_SIZE)

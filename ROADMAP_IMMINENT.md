@@ -1,6 +1,6 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-02-01
+**Last Updated:** 2026-02-08
 **Current Sprint:** Prospecting & Extraction Unit Overhaul
 **Timeline:** Phase 1.5 - Extraction Unit Overhaul
 
@@ -30,7 +30,7 @@ PHASE 1.5: Extraction Unit Overhaul ██████████████�
 ├─ Module-specific UI rendering ✅ COMPLETE (display + interactive controls)
 └─ Balance pass ✅ MOSTLY COMPLETE (bug fix + efficiency rebalance)
 
-PHASE 1: Core Resource System ░░░░░░░░░░░░░░░░░░░░  0% NEXT
+PHASE 1: Core Resource System ██████░░░░░░░░░░░░░░ ~30% NEXT (1.2/1.3 partially addressed)
 PHASE 2: Transport Network █████████████████░░░ ~90% LARGELY COMPLETE
 PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░░░░  0% PLANNED
 ...
@@ -110,6 +110,20 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 - **Resource overview:** Production/consumption table and storage bars
 - **Bottom bar:** Message fade system (UpdateMessage called in Unit::Update)
 
+### Resource Model Split (2026-02-08) ✅ COMPLETE
+
+- **ResourceDescriptor table** - Single source of truth (`resource_types.h`) for name, color, category (SINGULAR/TYPED), and subtypes per resource
+- **Typed resource flow** - `Colony::ReceiveTypedSurplus()` / `Colony::ProvideTypedResource()` wired into Sect push/pull
+- **Auto-balance iteration fix** - Colony deficit transport and auto-balance now iterate descriptors via `GetResourceDescriptors()` instead of raw `static_cast<int>` loops
+- **New typed resources** - MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS added to enum with subtypes
+
+### Extraction UI Font Scaling (2026-02-08) ✅ COMPLETE
+
+- **Font texture size** - Increased from 32pt to 48pt for crisper rendering
+- **FS() size multiplier** - All extraction view `DrawTextEx`/`MeasureTextEx` calls wrapped with `FS()` returning `baseSize * 1.30f` (XL preset)
+- **Scan log improvements** - Prospecting scan history bars enlarged (10px → 16px), element labels now show name + percentage (e.g. "Fe 42%")
+- **Font choice** - Evaluated Orbitron, Rajdhani, Chakra Petch, Titillium Web; kept Exo 2 (Regular + Bold)
+
 ---
 
 ## Remaining Tasks
@@ -167,7 +181,7 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 1. **InitializeFutureModules() dead code** - Old function still exists but no longer called for Extraction units. Should be removed.
 2. **No save/load system** - Game state lost on exit.
 3. ~~**Module interactive controls not yet implemented**~~ ✅ RESOLVED 2026-02-01 - All four panels now interactive.
-4. **Debug keys (F5/F6)** - Should be removed or gated behind debug build flag before release.
+4. **Debug key (F5)** - Should be removed or gated behind debug build flag before release.
 5. **Message fade path split** - For extraction units, UpdateMessage is called in Unit::Update rather than DrawInUnitView. This works but is a different code path than non-extraction units.
 
 ---
@@ -177,5 +191,5 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 After completing remaining tasks, next priorities:
 1. **Tune upgrade costs** - Adjust resource costs per tier for engaging progression
 2. **Manual playtesting** - Full pipeline throughput verification at each tier
-3. **Phase 1: Core Resource System** - Resource flow, graceful degradation, allocator
+3. **Phase 1: Core Resource System** - Phase 1.2 (resource classification) and 1.3 (flow mechanisms) are partially addressed by the ResourceDescriptor refactor; remaining work: storage capacity (1.1), resource visualization (1.2), transport timing (1.3), consumption/distribution (1.4)
 4. **Phase 3: Advanced Production** - Manufacturing chains, research trees
