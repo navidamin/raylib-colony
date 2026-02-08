@@ -206,13 +206,13 @@ bool Colony::CanAcceptResource(ResourceType type, float amount) const {
 
 bool Colony::ReceiveSurplus(ResourceType type, float amount) {
     if (!CanAcceptResource(type, amount)) {
-        std::cout << "Colony reserves full for resource " << static_cast<int>(type) << std::endl;
+        // std::cout << "Colony reserves full for resource " << static_cast<int>(type) << std::endl;
         return false;
     }
 
     strategicReserves[type] += amount;
-    std::cout << "Colony received " << amount << " of resource "
-             << static_cast<int>(type) << " (Total: " << strategicReserves[type] << ")" << std::endl;
+    // std::cout << "Colony received " << amount << " of resource "
+    //          << static_cast<int>(type) << " (Total: " << strategicReserves[type] << ")" << std::endl;
     return true;
 }
 

@@ -1305,16 +1305,16 @@ void Unit::AddResource(ResourceType type, float amount) {
         // Store overflow in buffer
         overflowBuffer[type] += overflow;
 
-        std::cout << "Storage full! Buffered " << overflow << " of resource "
-                 << static_cast<int>(type) << " (Total buffer: "
-                 << overflowBuffer[type] << ")" << std::endl;
+        // std::cout << "Storage full! Buffered " << overflow << " of resource "
+        //          << static_cast<int>(type) << " (Total buffer: "
+        //          << overflowBuffer[type] << ")" << std::endl;
     } else {
         // No space available, all goes to buffer
         overflowBuffer[type] += amount;
 
-        std::cout << "Storage completely full! Buffered " << amount << " of resource "
-                 << static_cast<int>(type) << " (Total buffer: "
-                 << overflowBuffer[type] << ")" << std::endl;
+        // std::cout << "Storage completely full! Buffered " << amount << " of resource "
+        //          << static_cast<int>(type) << " (Total buffer: "
+        //          << overflowBuffer[type] << ")" << std::endl;
     }
 }
 

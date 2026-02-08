@@ -422,8 +422,8 @@ void Sect::PushSurplusToColony(class Colony* colony) {
                     if (colony->ReceiveSurplus(type, surplus)) {
                         // Successfully transferred, reduce local storage
                         resourceStorage[type] -= surplus;
-                        std::cout << "Sect transferred " << surplus << " of resource "
-                                 << static_cast<int>(type) << " to colony reserves" << std::endl;
+                        // std::cout << "Sect transferred " << surplus << " of resource "
+                        //          << static_cast<int>(type) << " to colony reserves" << std::endl;
                     }
                 }
             }
@@ -448,8 +448,8 @@ void Sect::PullDeficitFromColony(class Colony* colony) {
                     float received = colony->ProvideResource(type, needed);
                     if (received > 0.0f) {
                         resourceStorage[type] += received;
-                        std::cout << "Sect received " << received << " of "
-                                 << ResourceTypeToString(type) << " from colony" << std::endl;
+                        // std::cout << "Sect received " << received << " of "
+                        //          << ResourceTypeToString(type) << " from colony" << std::endl;
                     }
                 }
             }

@@ -29,7 +29,7 @@ bool InputManager::IsDoubleClick() {
     double timeDiff = currentTime - lastClickTime;
     float distance = Vector2Distance(lastClickPosition, currentPosition);
 
-    std::cout << "IsDoubleClick check: timeDiff=" << timeDiff << "s, distance=" << distance << "px" << std::endl;
+    // std::cout << "IsDoubleClick check: timeDiff=" << timeDiff << "s, distance=" << distance << "px" << std::endl;
 
     bool isDoubleClick = (timeDiff <= 0.6) &&   // No more than 600ms between clicks (more lenient)
                         (timeDiff > 0.05) &&     // At least 50ms between clicks (faster allows trackpad)
@@ -39,9 +39,9 @@ bool InputManager::IsDoubleClick() {
     if (!isDoubleClick) {
         lastClickTime = currentTime;
         lastClickPosition = currentPosition;
-        std::cout << "  -> NOT a double-click. Updated lastClickTime." << std::endl;
+        // std::cout << "  -> NOT a double-click. Updated lastClickTime." << std::endl;
     } else {
-        std::cout << "  -> DOUBLE CLICK DETECTED!" << std::endl;
+        // std::cout << "  -> DOUBLE CLICK DETECTED!" << std::endl;
     }
 
     return isDoubleClick;

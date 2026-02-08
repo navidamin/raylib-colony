@@ -33,7 +33,7 @@ void TimeManager::Update(float deltaTime) {
 
     // Process ticks if enough time has accumulated
     while (accumulatedTime >= TICK_DURATION) {
-        std::cout << "Game Time is: " << gameTime << std::endl;
+        // std::cout << "Game Time is: " << gameTime << std::endl;
         ProcessTick();
         accumulatedTime -= TICK_DURATION;
     }
@@ -327,7 +327,7 @@ void TimeManager::UpdateColonyConstruction(Colony* colony) {
 }
 */
 void TimeManager::ProcessTick() {
-    std::cout << "current ticks is: " << currentTicks << std::endl;
+    // std::cout << "current ticks is: " << currentTicks << std::endl;
     currentTicks++;
 }
 
