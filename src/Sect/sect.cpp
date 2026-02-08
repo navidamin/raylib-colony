@@ -405,7 +405,7 @@ bool Sect::CanAcceptResource(ResourceType type, float amount) const {
 void Sect::PushSurplusToColony(class Colony* colony) {
     if (!colony) return;
 
-    // Check each resource type for surplus
+    // Check each singular resource type for surplus
     for (auto& [type, amount] : resourceStorage) {
         float usage = GetStorageUsage(type);
 
@@ -422,10 +422,36 @@ void Sect::PushSurplusToColony(class Colony* colony) {
                     if (colony->ReceiveSurplus(type, surplus)) {
                         // Successfully transferred, reduce local storage
                         resourceStorage[type] -= surplus;
-                        // std::cout << "Sect transferred " << surplus << " of resource "
-                        //          << static_cast<int>(type) << " to colony reserves" << std::endl;
                     }
                 }
+            }
+        }
+    }
+
+    // Push typed resource surplus to colony
+    for (const auto& desc : GetResourceDescriptors())
+    {
+        if (desc.category != ResourceCategory::TYPED) continue;
+        ResourceType type = desc.type;
+
+        auto it = typedResourceStorage.find(type);
+        if (it == typedResourceStorage.end()) continue;
+
+        int count = static_cast<int>(it->second.size());
+        int threshold = TYPED_RESOURCE_CAPACITY / 2;  // 50% capacity
+
+        // Push excess items when above threshold
+        while (count > threshold)
+        {
+            TypedResource item = it->second.back();
+            if (colony->ReceiveTypedSurplus(item))
+            {
+                it->second.pop_back();
+                count--;
+            }
+            else
+            {
+                break;  // Colony can't accept more
             }
         }
     }
@@ -434,7 +460,7 @@ void Sect::PushSurplusToColony(class Colony* colony) {
 void Sect::PullDeficitFromColony(class Colony* colony) {
     if (!colony) return;
 
-    // Check each resource type for deficit
+    // Check each singular resource type for deficit
     for (auto& [type, amount] : resourceStorage) {
         if (IsDeficit(type)) {
             auto capacityIt = storageCapacity.find(type);
@@ -448,9 +474,36 @@ void Sect::PullDeficitFromColony(class Colony* colony) {
                     float received = colony->ProvideResource(type, needed);
                     if (received > 0.0f) {
                         resourceStorage[type] += received;
-                        // std::cout << "Sect received " << received << " of "
-                        //          << ResourceTypeToString(type) << " from colony" << std::endl;
                     }
+                }
+            }
+        }
+    }
+
+    // Pull typed resources when below deficit threshold
+    for (const auto& desc : GetResourceDescriptors())
+    {
+        if (desc.category != ResourceCategory::TYPED) continue;
+        ResourceType type = desc.type;
+
+        int count = GetTotalTypedResourceCount(type);
+        int deficitThreshold = TYPED_RESOURCE_CAPACITY / 10;  // 10% capacity
+        int targetCount = (TYPED_RESOURCE_CAPACITY * 3) / 10; // 30% capacity
+
+        if (count < deficitThreshold)
+        {
+            // Pull items until we reach the target
+            while (count < targetCount)
+            {
+                TypedResource item;
+                if (colony->ProvideTypedResource(type, item))
+                {
+                    AddTypedResource(item);
+                    count++;
+                }
+                else
+                {
+                    break;  // Colony has no more
                 }
             }
         }

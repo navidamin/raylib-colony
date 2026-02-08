@@ -38,33 +38,6 @@ enum class ResourceType {
     CONSTRUCTION_MATERIALS
 };
 
-// Subtypes for typed resources
-enum class MachinerySubtype {
-    HEAVY_DRILL,
-    CONVEYOR,
-    ASSEMBLER
-};
-
-enum class ElectronicsSubtype {
-    SENSOR,
-    CONTROLLER,
-    COMPUTER
-};
-
-enum class AlloysSubtype {
-    STEEL,
-    BRONZE,
-    ALUMINUM,
-    TITANIUM
-};
-
-enum class ConstructionSubtype {
-    BEAM,
-    PANEL,
-    PIPE,
-    CABLE
-};
-
 // Typed resource instance (no quality system)
 struct TypedResource {
     ResourceType baseType;      // MACHINERY, ELECTRONICS, ALLOYS, or CONSTRUCTION_MATERIALS
@@ -79,121 +52,101 @@ struct TypedResource {
     TypedResource() : baseType(ResourceType::MACHINERY), subType(""), efficiency(1.0f) {}
 };
 
-// Convert ResourceType to string
-inline const char* ResourceTypeToString(ResourceType type) {
-    switch (type) {
-        case ResourceType::ENERGY:   return "ENERGY";
-        case ResourceType::SCIENCE:  return "SCIENCE";
-        case ResourceType::MANPOWER: return "MANPOWER";
-        case ResourceType::H2:       return "H2";
-        case ResourceType::O2:       return "O2";
-        case ResourceType::C:        return "C";
-        case ResourceType::Fe:       return "Fe";
-        case ResourceType::Si:       return "Si";
-        case ResourceType::Ti:       return "Ti";
-        case ResourceType::Al:       return "Al";
-        case ResourceType::Ca:       return "Ca";
-        case ResourceType::WATER:    return "WATER";
-        case ResourceType::FOOD:     return "FOOD";
-        case ResourceType::BIOFUEL:  return "BIOFUEL";
-        case ResourceType::MACHINERY: return "MACHINERY";
-        case ResourceType::ELECTRONICS: return "ELECTRONICS";
-        case ResourceType::ALLOYS:   return "ALLOYS";
-        case ResourceType::CONSTRUCTION_MATERIALS: return "CONSTRUCTION_MATERIALS";
-        default:                     return "UNKNOWN";
+// Single source of truth for all per-resource metadata
+struct ResourceDescriptor
+{
+    ResourceType type;
+    ResourceCategory category;
+    const char* name;
+    Color color;
+    std::vector<std::string> subtypes;  // Empty for SINGULAR
+};
+
+inline const std::vector<ResourceDescriptor>& GetResourceDescriptors()
+{
+    static const std::vector<ResourceDescriptor> descriptors = {
+        // Tier 1 - Raw singular
+        {ResourceType::ENERGY,   ResourceCategory::SINGULAR, "ENERGY",   {128, 128, 128, 255}, {}},
+        {ResourceType::H2,       ResourceCategory::SINGULAR, "H2",       {150, 150, 255, 255}, {}},
+        {ResourceType::O2,       ResourceCategory::SINGULAR, "O2",       {255, 150, 150, 255}, {}},
+        {ResourceType::C,        ResourceCategory::SINGULAR, "C",        {100, 100, 100, 255}, {}},
+        {ResourceType::Fe,       ResourceCategory::SINGULAR, "Fe",       {139, 69, 19, 255},   {}},
+        {ResourceType::Si,       ResourceCategory::SINGULAR, "Si",       {144, 180, 148, 255}, {}},
+        {ResourceType::Ti,       ResourceCategory::SINGULAR, "Ti",       {180, 160, 200, 255}, {}},
+        {ResourceType::Al,       ResourceCategory::SINGULAR, "Al",       {200, 200, 220, 255}, {}},
+        {ResourceType::Ca,       ResourceCategory::SINGULAR, "Ca",       {220, 210, 190, 255}, {}},
+        // Tier 2 - Processed singular
+        {ResourceType::WATER,    ResourceCategory::SINGULAR, "WATER",    {128, 128, 128, 255}, {}},
+        {ResourceType::FOOD,     ResourceCategory::SINGULAR, "FOOD",     {128, 128, 128, 255}, {}},
+        {ResourceType::BIOFUEL,  ResourceCategory::SINGULAR, "BIOFUEL",  {128, 128, 128, 255}, {}},
+        // Tier 3 - Abstract singular
+        {ResourceType::SCIENCE,  ResourceCategory::SINGULAR, "SCIENCE",  {128, 128, 128, 255}, {}},
+        {ResourceType::MANPOWER, ResourceCategory::SINGULAR, "MANPOWER", {128, 128, 128, 255}, {}},
+        // Tier 2/3 - Manufactured typed
+        {ResourceType::MACHINERY,              ResourceCategory::TYPED, "MACHINERY",              {180, 180, 180, 255}, {"HeavyDrill", "Conveyor", "Assembler"}},
+        {ResourceType::ELECTRONICS,            ResourceCategory::TYPED, "ELECTRONICS",            {0, 200, 200, 255},   {"Sensor", "Controller", "Computer"}},
+        {ResourceType::ALLOYS,                 ResourceCategory::TYPED, "ALLOYS",                 {200, 150, 50, 255},  {"Steel", "Bronze", "Aluminum", "Titanium"}},
+        {ResourceType::CONSTRUCTION_MATERIALS, ResourceCategory::TYPED, "CONSTRUCTION_MATERIALS", {150, 100, 70, 255},  {"Beam", "Panel", "Pipe", "Cable"}},
+    };
+    return descriptors;
+}
+
+inline const ResourceDescriptor& GetResourceDescriptor(ResourceType type)
+{
+    const auto& descriptors = GetResourceDescriptors();
+    for (const auto& desc : descriptors)
+    {
+        if (desc.type == type) return desc;
     }
+    // Fallback - should never happen with valid enum values
+    static const ResourceDescriptor unknown = {
+        ResourceType::ENERGY, ResourceCategory::SINGULAR, "UNKNOWN", {128, 128, 128, 255}, {}
+    };
+    return unknown;
+}
+
+// Convert ResourceType to string
+inline const char* ResourceTypeToString(ResourceType type)
+{
+    return GetResourceDescriptor(type).name;
 }
 
 // Get resource category
-inline ResourceCategory GetResourceCategory(ResourceType type) {
-    switch (type) {
-        case ResourceType::MACHINERY:
-        case ResourceType::ELECTRONICS:
-        case ResourceType::ALLOYS:
-        case ResourceType::CONSTRUCTION_MATERIALS:
-            return ResourceCategory::TYPED;
-        default:
-            return ResourceCategory::SINGULAR;
-    }
+inline ResourceCategory GetResourceCategory(ResourceType type)
+{
+    return GetResourceDescriptor(type).category;
 }
 
-// Then, create the stream operator overload
-inline std::ostream& operator<<(std::ostream& os, const ResourceType& type) {
+// Stream operator overload
+inline std::ostream& operator<<(std::ostream& os, const ResourceType& type)
+{
     os << ResourceTypeToString(type);
     return os;
 }
 
-
-
-
 // Helper functions for ResourceType
 namespace ResourceUtils {
-    inline std::string GetResourceName(ResourceType type) {
-        static const std::map<ResourceType, std::string> names = {
-            {ResourceType::ENERGY, "ENERGY"},
-            {ResourceType::SCIENCE, "SCIENCE"},
-            {ResourceType::MANPOWER, "MANPOWER"},
-            {ResourceType::WATER, "WATER"},
-            {ResourceType::FOOD, "FOOD"},
-            {ResourceType::H2, "H2"},
-            {ResourceType::O2, "O2"},
-            {ResourceType::C, "C"},
-            {ResourceType::Fe, "Fe"},
-            {ResourceType::Si, "Si"},
-            {ResourceType::Ti, "Ti"},
-            {ResourceType::Al, "Al"},
-            {ResourceType::Ca, "Ca"},
-            {ResourceType::BIOFUEL, "BIOFUEL"},
-            {ResourceType::MACHINERY, "MACHINERY"},
-            {ResourceType::ELECTRONICS, "ELECTRONICS"},
-            {ResourceType::ALLOYS, "ALLOYS"},
-            {ResourceType::CONSTRUCTION_MATERIALS, "CONSTRUCTION_MATERIALS"}
-        };
-        return names.at(type);
+    inline std::string GetResourceName(ResourceType type)
+    {
+        return GetResourceDescriptor(type).name;
     }
 
-    inline Color GetResourceColor(ResourceType type) {
-        static const std::map<ResourceType, Color> colors = {
-            {ResourceType::H2, {150, 150, 255, 255}},       // Light Blue
-            {ResourceType::O2, {255, 150, 150, 255}},       // Light Red
-            {ResourceType::C, {100, 100, 100, 255}},        // Dark Gray
-            {ResourceType::Fe, {139, 69, 19, 255}},         // Brown
-            {ResourceType::Si, {144, 180, 148, 255}},       // Greenish Gray
-            {ResourceType::Ti, {180, 160, 200, 255}},       // Lavender
-            {ResourceType::Al, {200, 200, 220, 255}},       // Light Silver
-            {ResourceType::Ca, {220, 210, 190, 255}},       // Cream
-            {ResourceType::MACHINERY, {180, 180, 180, 255}},     // Silver
-            {ResourceType::ELECTRONICS, {0, 200, 200, 255}},     // Cyan
-            {ResourceType::ALLOYS, {200, 150, 50, 255}},         // Gold
-            {ResourceType::CONSTRUCTION_MATERIALS, {150, 100, 70, 255}} // Tan
-        };
-        auto it = colors.find(type);
-        if (it != colors.end()) {
-            return it->second;
-        }
-        return {128, 128, 128, 255}; // Default gray
+    inline Color GetResourceColor(ResourceType type)
+    {
+        return GetResourceDescriptor(type).color;
     }
 
-    // Get valid subtypes for a typed resource category
-    inline std::vector<std::string> GetSubtypes(ResourceType type) {
-        switch (type) {
-            case ResourceType::MACHINERY:
-                return {"HeavyDrill", "Conveyor", "Assembler"};
-            case ResourceType::ELECTRONICS:
-                return {"Sensor", "Controller", "Computer"};
-            case ResourceType::ALLOYS:
-                return {"Steel", "Bronze", "Aluminum", "Titanium"};
-            case ResourceType::CONSTRUCTION_MATERIALS:
-                return {"Beam", "Panel", "Pipe", "Cable"};
-            default:
-                return {};
-        }
+    inline std::vector<std::string> GetSubtypes(ResourceType type)
+    {
+        return GetResourceDescriptor(type).subtypes;
     }
 
     // Check if subtype is valid for a resource type
-    inline bool IsValidSubtype(ResourceType type, const std::string& subtype) {
-        auto subtypes = GetSubtypes(type);
-        for (const auto& s : subtypes) {
+    inline bool IsValidSubtype(ResourceType type, const std::string& subtype)
+    {
+        const auto& subtypes = GetSubtypes(type);
+        for (const auto& s : subtypes)
+        {
             if (s == subtype) return true;
         }
         return false;

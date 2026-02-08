@@ -311,6 +311,20 @@ int Colony::GetTotalTypedReserveCount(ResourceType type) const {
     return static_cast<int>(it->second.size());
 }
 
+bool Colony::ReceiveTypedSurplus(const TypedResource& resource) {
+    return AddTypedReserve(resource);
+}
+
+bool Colony::ProvideTypedResource(ResourceType type, TypedResource& outResource) {
+    auto it = typedReserves.find(type);
+    if (it == typedReserves.end() || it->second.empty()) {
+        return false;
+    }
+
+    outResource = it->second.back();
+    it->second.pop_back();
+    return true;
+}
 
 // Transport management methods
 
@@ -423,9 +437,11 @@ void Colony::ProcessAutoBalance() {
             continue;
         }
 
-        // Check each resource type
-        for (int i = 0; i < static_cast<int>(ResourceType::MANPOWER); ++i) {
-            ResourceType type = static_cast<ResourceType>(i);
+        // Check each singular resource type
+        for (const auto& desc : GetResourceDescriptors())
+        {
+            if (desc.category != ResourceCategory::SINGULAR) continue;
+            ResourceType type = desc.type;
 
             float storageA = road.sectA->GetResourceStorage(type);
             float storageB = road.sectB->GetResourceStorage(type);
@@ -466,9 +482,11 @@ void Colony::ProcessDeficitTriggered() {
             continue;
         }
 
-        // Check each resource type for deficits
-        for (int i = 0; i < static_cast<int>(ResourceType::MANPOWER); ++i) {
-            ResourceType type = static_cast<ResourceType>(i);
+        // Check each singular resource type for deficits
+        for (const auto& desc : GetResourceDescriptors())
+        {
+            if (desc.category != ResourceCategory::SINGULAR) continue;
+            ResourceType type = desc.type;
 
             // Check if sectA is in deficit and sectB has surplus (or vice versa)
             bool deficitA = road.sectA->IsDeficit(type);

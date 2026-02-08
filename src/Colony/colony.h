@@ -52,6 +52,10 @@ public:
     bool RemoveTypedReserve(ResourceType type, const std::string& subtype);
     bool HasTypedReserve(ResourceType type, const std::string& subtype) const;
 
+    // Typed resource flow (surplus/deficit between sects and colony)
+    bool ReceiveTypedSurplus(const TypedResource& resource);
+    bool ProvideTypedResource(ResourceType type, TypedResource& outResource);
+
     // Transport management
     Road* GetRoad(Sect* sectA, Sect* sectB);
     const std::vector<Road>& GetRoads() const { return roads; }
