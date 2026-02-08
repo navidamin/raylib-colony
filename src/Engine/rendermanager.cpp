@@ -1802,7 +1802,12 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                    14.0f, sp, EXT_DIM_TEXT);
     }
 
-    yPos = gridStartY + 5.0f * cellSz + 10.0f;
+    yPos = gridStartY + 5.0f * cellSz + 8.0f;
+
+    // Interaction hints
+    DrawTextEx(bodyFont, "Left-click: Scan cell   Right-click: Mark/unmark site",
+               {px, yPos}, 10.0f, sp, EXT_DIM_TEXT);
+    yPos += 18.0f;
 
     // --- Scan History (compact) ---
     if (!scanHistory.empty())
@@ -1810,11 +1815,13 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         DrawTextEx(headerFont, "RECENT SCANS", {px, yPos}, 14.0f, sp, EXT_HEADER_COLOR);
         yPos += 20.0f;
 
+        float maxBarW = static_cast<float>(w - padding * 2 - 140);
+
         int count = 0;
         for (auto it = scanHistory.rbegin(); it != scanHistory.rend() && count < 4; ++it, ++count)
         {
             const auto& [coords, scan] = *it;
-            DrawTextEx(bodyFont, TextFormat("(%d, %d)", coords.first, coords.second),
+            DrawTextEx(bodyFont, TextFormat("(%d,%d)", coords.first, coords.second),
                        {px, yPos}, 12.0f, sp, LIGHTGRAY);
 
             if (scan.qualityRating > 0)
@@ -1822,19 +1829,38 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 std::string stars(scan.qualityRating, '*');
                 std::string empty(5 - scan.qualityRating, '.');
                 DrawTextEx(bodyFont, (stars + empty).c_str(),
-                           {px + 80.0f, yPos}, 12.0f, sp, EXT_ACCENT_GOLD);
+                           {px + 55.0f, yPos}, 12.0f, sp, EXT_ACCENT_GOLD);
             }
 
-            float barX = px + 140.0f;
-            float maxBarW = static_cast<float>(w - padding * 2 - 160);
+            // Normalize bars: compute total so segments fit within maxBarW
+            float totalAmount = 0.0f;
             for (const auto& [resType, amount] : scan.elements)
             {
-                float barW2 = (amount / 1000.0f) * maxBarW;
-                barW2 = Clamp(barW2, 2.0f, maxBarW * 0.3f);
-                Color barColor = ResourceUtils::GetResourceColor(resType);
-                DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2.0f),
-                              static_cast<int>(barW2), 10, barColor);
-                barX += barW2 + 2.0f;
+                totalAmount += amount;
+            }
+
+            float barX = px + 100.0f;
+            float availBarW = maxBarW;
+            if (totalAmount > 0.0f)
+            {
+                for (const auto& [resType, amount] : scan.elements)
+                {
+                    float fraction = amount / totalAmount;
+                    float barW2 = fraction * availBarW;
+                    if (barW2 < 2.0f) barW2 = 2.0f;
+                    Color barColor = ResourceUtils::GetResourceColor(resType);
+                    DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2.0f),
+                                  static_cast<int>(barW2), 10, barColor);
+
+                    // Label on bar if wide enough
+                    std::string resName = ResourceUtils::GetResourceName(resType);
+                    if (barW2 > 18.0f)
+                    {
+                        DrawTextEx(bodyFont, resName.c_str(),
+                                   {barX + 2.0f, yPos + 1.0f}, 9.0f, sp, {0, 0, 0, 200});
+                    }
+                    barX += barW2 + 1.0f;
+                }
             }
 
             yPos += 18.0f;
