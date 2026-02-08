@@ -14,8 +14,8 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
 
 void RenderManager::LoadFonts()
 {
-    uiFont = LoadFontEx("src/assets/fonts/Exo2-Regular.ttf", 32, nullptr, 0);
-    uiHeaderFont = LoadFontEx("src/assets/fonts/Exo2-Bold.ttf", 32, nullptr, 0);
+    uiFont = LoadFontEx("src/assets/fonts/Exo2-Regular.ttf", 48, nullptr, 0);
+    uiHeaderFont = LoadFontEx("src/assets/fonts/Exo2-Bold.ttf", 48, nullptr, 0);
 
     if (uiFont.glyphCount > 0 && uiHeaderFont.glyphCount > 0)
     {
@@ -1034,6 +1034,13 @@ static const int EXT_BOTTOM_BAR_H = 40;
 static const int EXT_LEFT_PANEL_W  = 280;
 static const int EXT_RIGHT_PANEL_W = 300;
 
+float RenderManager::FS(float baseSize)
+{
+    return baseSize * 1.30f;
+}
+
+// ============================================================================
+
 void RenderManager::DrawExtractionUnitView(Unit* unit, TimeManager& timeManager)
 {
     // Full dark background
@@ -1059,7 +1066,7 @@ void RenderManager::DrawExtractionTopBar(Unit* unit, TimeManager& timeManager)
     DrawLine(0, EXT_TOP_BAR_H, screenWidth, EXT_TOP_BAR_H, EXT_PANEL_BORDER);
 
     // Unit title
-    DrawTextEx(headerFont, "EXTRACTION UNIT", {20.0f, 14.0f}, 22.0f, sp, WHITE);
+    DrawTextEx(headerFont, "EXTRACTION UNIT", {20.0f, 14.0f}, FS(22.0f), sp, WHITE);
 
     // Status indicator
     bool isActive = unit->IsActive();
@@ -1067,16 +1074,16 @@ void RenderManager::DrawExtractionTopBar(Unit* unit, TimeManager& timeManager)
     const char* statusText = isActive ? "ONLINE" : "OFFLINE";
     float statusX = 220.0f;
     DrawCircle(static_cast<int>(statusX), 25, 5, statusColor);
-    DrawTextEx(bodyFont, statusText, {statusX + 12.0f, 16.0f}, 16.0f, sp, statusColor);
+    DrawTextEx(bodyFont, statusText, {statusX + 12.0f, 16.0f}, FS(16.0f), sp, statusColor);
 
     // Day counter
     const char* dayText = TextFormat("Day %d", timeManager.GetCurrentDay());
-    float dayWidth = MeasureTextEx(bodyFont, dayText, 16.0f, sp).x;
-    DrawTextEx(bodyFont, dayText, {screenWidth - dayWidth - 20.0f, 16.0f}, 16.0f, sp, WHITE);
+    float dayWidth = MeasureTextEx(bodyFont, dayText, FS(16.0f), sp).x;
+    DrawTextEx(bodyFont, dayText, {screenWidth - dayWidth - 20.0f, 16.0f}, FS(16.0f), sp, WHITE);
 
     // Navigation hint
     DrawTextEx(bodyFont, "Press S for Sect View",
-               {screenWidth - dayWidth - 200.0f, 16.0f}, 14.0f, sp, EXT_DIM_TEXT);
+               {screenWidth - dayWidth - 200.0f, 16.0f}, FS(14.0f), sp, EXT_DIM_TEXT);
 }
 
 void RenderManager::DrawExtractionBottomBar(Unit* unit)
@@ -1094,7 +1101,7 @@ void RenderManager::DrawExtractionBottomBar(Unit* unit)
     {
         Color msgColor = WHITE;
         msgColor.a = static_cast<unsigned char>(255 * msg.opacity);
-        DrawTextEx(bodyFont, msg.text.c_str(), {20.0f, startY + 10.0f}, 16.0f, sp, msgColor);
+        DrawTextEx(bodyFont, msg.text.c_str(), {20.0f, startY + 10.0f}, FS(16.0f), sp, msgColor);
     }
 }
 
@@ -1177,7 +1184,7 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
         DrawRectangleLinesEx(overviewBtn, 1.0f, EXT_PANEL_BORDER);
 
     DrawTextEx(headerFont, "UNIT OVERVIEW", {overviewBtn.x + 10.0f, overviewBtn.y + 10.0f},
-               16.0f, sp, overviewSelected ? WHITE : LIGHTGRAY);
+               FS(16.0f), sp, overviewSelected ? WHITE : LIGHTGRAY);
 
     if (overviewHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
@@ -1189,7 +1196,7 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
     yPos += 55.0f;
 
     // Section label
-    DrawTextEx(bodyFont, "MODULES", {static_cast<float>(padding), yPos}, 12.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "MODULES", {static_cast<float>(padding), yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
     yPos += 20.0f;
 
     // Module buttons
@@ -1238,7 +1245,7 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
 
         // Module name
         Color nameColor = mod.isBuilt ? WHITE : EXT_DIM_TEXT;
-        DrawTextEx(bodyFont, mod.name.c_str(), {btn.x + 10.0f, btn.y + 6.0f}, 15.0f, sp, nameColor);
+        DrawTextEx(bodyFont, mod.name.c_str(), {btn.x + 10.0f, btn.y + 6.0f}, FS(15.0f), sp, nameColor);
 
         // Tier indicator
         DrawTierIndicator(btn.x + 10.0f, btn.y + 32.0f, mod.tier);
@@ -1246,9 +1253,9 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
         // Status text
         const char* statusText = !mod.isBuilt ? "NOT BUILT" : (mod.isActive ? "ACTIVE" : "INACTIVE");
         Color statusColor = !mod.isBuilt ? EXT_DIM_TEXT : (mod.isActive ? EXT_ACCENT_GREEN : YELLOW);
-        float statusWidth = MeasureTextEx(bodyFont, statusText, 11.0f, sp).x;
+        float statusWidth = MeasureTextEx(bodyFont, statusText, FS(11.0f), sp).x;
         DrawTextEx(bodyFont, statusText,
-                   {btn.x + btn.width - statusWidth - 10.0f, btn.y + 32.0f}, 11.0f, sp, statusColor);
+                   {btn.x + btn.width - statusWidth - 10.0f, btn.y + 32.0f}, FS(11.0f), sp, statusColor);
 
         // Click handling
         if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -1321,7 +1328,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     {
         // Unit overview mode - production rate controls
         DrawTextEx(headerFont, "PRODUCTION CONTROLS", {static_cast<float>(panelX + padding), yPos},
-                   16.0f, sp, EXT_HEADER_COLOR);
+                   FS(16.0f), sp, EXT_HEADER_COLOR);
         yPos += 30.0f;
 
         const auto& modules = unit->GetModules();
@@ -1330,7 +1337,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
         if (activeIndices.empty())
         {
             DrawTextEx(bodyFont, "No active modules",
-                       {static_cast<float>(panelX + padding), yPos}, 14.0f, sp, EXT_DIM_TEXT);
+                       {static_cast<float>(panelX + padding), yPos}, FS(14.0f), sp, EXT_DIM_TEXT);
         }
         return;
     }
@@ -1341,7 +1348,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     const auto& mod = modules[idx];
 
     DrawTextEx(headerFont, "CONTROLS", {static_cast<float>(panelX + padding), yPos},
-               16.0f, sp, EXT_HEADER_COLOR);
+               FS(16.0f), sp, EXT_HEADER_COLOR);
     yPos += 30.0f;
 
     float btnW = static_cast<float>(EXT_RIGHT_PANEL_W - padding * 2);
@@ -1361,9 +1368,9 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
         DrawRectangleLinesEx(buildBtn, 1.0f, canBuild ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
 
         const char* buildText = "BUILD MODULE";
-        float textW = MeasureTextEx(headerFont, buildText, 16.0f, sp).x;
+        float textW = MeasureTextEx(headerFont, buildText, FS(16.0f), sp).x;
         DrawTextEx(headerFont, buildText,
-                   {buildBtn.x + (btnW - textW) / 2.0f, buildBtn.y + 12.0f}, 16.0f, sp,
+                   {buildBtn.x + (btnW - textW) / 2.0f, buildBtn.y + 12.0f}, FS(16.0f), sp,
                    canBuild ? WHITE : EXT_DIM_TEXT);
 
         if (isHovered && canBuild && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -1378,7 +1385,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
         if (costIter != mod.upgradeCosts.end())
         {
             DrawTextEx(bodyFont, "Build Cost:", {static_cast<float>(panelX + padding), yPos},
-                       13.0f, sp, EXT_DIM_TEXT);
+                       FS(13.0f), sp, EXT_DIM_TEXT);
             yPos += 18.0f;
 
             const auto& storage = unit->GetResourceStorage();
@@ -1391,7 +1398,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
 
                 Color costColor = (stored >= amount) ? EXT_ACCENT_GREEN : Color{255, 100, 100, 255};
                 DrawTextEx(bodyFont, TextFormat("  %s: %.0f / %.0f", resName.c_str(), stored, amount),
-                           {static_cast<float>(panelX + padding), yPos}, 12.0f, sp, costColor);
+                           {static_cast<float>(panelX + padding), yPos}, FS(12.0f), sp, costColor);
                 yPos += 16.0f;
             }
         }
@@ -1412,9 +1419,9 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
         DrawRectangleLinesEx(upgradeBtn, 1.0f, canUpgrade ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
 
         const char* upgradeText = TextFormat("UPGRADE TO TIER %d", mod.tier + 1);
-        float textW = MeasureTextEx(headerFont, upgradeText, 14.0f, sp).x;
+        float textW = MeasureTextEx(headerFont, upgradeText, FS(14.0f), sp).x;
         DrawTextEx(headerFont, upgradeText,
-                   {upgradeBtn.x + (btnW - textW) / 2.0f, upgradeBtn.y + 12.0f}, 14.0f, sp,
+                   {upgradeBtn.x + (btnW - textW) / 2.0f, upgradeBtn.y + 12.0f}, FS(14.0f), sp,
                    canUpgrade ? WHITE : EXT_DIM_TEXT);
 
         if (isHovered && canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -1429,7 +1436,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
         if (costIter != mod.upgradeCosts.end())
         {
             DrawTextEx(bodyFont, "Upgrade Cost:", {static_cast<float>(panelX + padding), yPos},
-                       13.0f, sp, EXT_DIM_TEXT);
+                       FS(13.0f), sp, EXT_DIM_TEXT);
             yPos += 18.0f;
 
             const auto& storage = unit->GetResourceStorage();
@@ -1442,7 +1449,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
 
                 Color costColor = (stored >= amount) ? EXT_ACCENT_GREEN : Color{255, 100, 100, 255};
                 DrawTextEx(bodyFont, TextFormat("  %s: %.0f / %.0f", resName.c_str(), stored, amount),
-                           {static_cast<float>(panelX + padding), yPos}, 12.0f, sp, costColor);
+                           {static_cast<float>(panelX + padding), yPos}, FS(12.0f), sp, costColor);
                 yPos += 16.0f;
             }
         }
@@ -1450,7 +1457,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     else
     {
         DrawTextEx(bodyFont, "MAX TIER REACHED", {static_cast<float>(panelX + padding), yPos},
-                   14.0f, sp, EXT_ACCENT_GOLD);
+                   FS(14.0f), sp, EXT_ACCENT_GOLD);
         yPos += 25.0f;
     }
 
@@ -1467,9 +1474,9 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     DrawRectangleLinesEx(toggleBtn, 1.0f, mod.isActive ? Color{255, 100, 100, 200} : EXT_ACCENT_GREEN);
 
     const char* toggleText = mod.isActive ? "DEACTIVATE" : "ACTIVATE";
-    float textW = MeasureTextEx(headerFont, toggleText, 16.0f, sp).x;
+    float textW = MeasureTextEx(headerFont, toggleText, FS(16.0f), sp).x;
     DrawTextEx(headerFont, toggleText,
-               {toggleBtn.x + (btnW - textW) / 2.0f, toggleBtn.y + 12.0f}, 16.0f, sp, WHITE);
+               {toggleBtn.x + (btnW - textW) / 2.0f, toggleBtn.y + 12.0f}, FS(16.0f), sp, WHITE);
 
     if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
@@ -1480,21 +1487,21 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
 
     // Module info section
     DrawTextEx(headerFont, "MODULE INFO", {static_cast<float>(panelX + padding), yPos},
-               14.0f, sp, EXT_HEADER_COLOR);
+               FS(14.0f), sp, EXT_HEADER_COLOR);
     yPos += 22.0f;
 
     DrawTextEx(bodyFont, TextFormat("Tier: %d / 3", mod.tier),
-               {static_cast<float>(panelX + padding), yPos}, 13.0f, sp, LIGHTGRAY);
+               {static_cast<float>(panelX + padding), yPos}, FS(13.0f), sp, LIGHTGRAY);
     yPos += 18.0f;
 
     DrawTextEx(bodyFont, TextFormat("Efficiency: %.0f%%", mod.efficiency * 100.0f),
-               {static_cast<float>(panelX + padding), yPos}, 13.0f, sp, LIGHTGRAY);
+               {static_cast<float>(panelX + padding), yPos}, FS(13.0f), sp, LIGHTGRAY);
     yPos += 18.0f;
 
     if (mod.energyRequired > 0)
     {
         DrawTextEx(bodyFont, TextFormat("Energy: %.1f kW", mod.energyRequired),
-                   {static_cast<float>(panelX + padding), yPos}, 13.0f, sp, LIGHTGRAY);
+                   {static_cast<float>(panelX + padding), yPos}, FS(13.0f), sp, LIGHTGRAY);
         yPos += 18.0f;
     }
 
@@ -1503,12 +1510,12 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     {
         yPos += 10.0f;
         DrawTextEx(bodyFont, "Required Tech:",
-                   {static_cast<float>(panelX + padding), yPos}, 12.0f, sp, EXT_DIM_TEXT);
+                   {static_cast<float>(panelX + padding), yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
         yPos += 16.0f;
         for (const auto& dep : mod.tierDependencies)
         {
             DrawTextEx(bodyFont, TextFormat("  - %s", dep.c_str()),
-                       {static_cast<float>(panelX + padding), yPos}, 11.0f, sp, EXT_DIM_TEXT);
+                       {static_cast<float>(panelX + padding), yPos}, FS(11.0f), sp, EXT_DIM_TEXT);
             yPos += 14.0f;
         }
     }
@@ -1528,7 +1535,7 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
     float yPos = static_cast<float>(y + padding);
     float px = static_cast<float>(x + padding);
 
-    DrawTextEx(headerFont, "RESOURCE OVERVIEW", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "RESOURCE OVERVIEW", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 30.0f;
 
     // Aggregate production/consumption from active modules
@@ -1549,12 +1556,12 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
 
     // Status line
     DrawTextEx(bodyFont, TextFormat("Active Modules: %d", static_cast<int>(activeIndices.size())),
-               {px, yPos}, 14.0f, sp, LIGHTGRAY);
+               {px, yPos}, FS(14.0f), sp, LIGHTGRAY);
     yPos += 20.0f;
 
     const char* statusText = unit->IsActive() ? "ACTIVE" : "IDLE";
     Color statusColor = unit->IsActive() ? EXT_ACCENT_GREEN : YELLOW;
-    DrawTextEx(bodyFont, TextFormat("Status: %s", statusText), {px, yPos}, 14.0f, sp, statusColor);
+    DrawTextEx(bodyFont, TextFormat("Status: %s", statusText), {px, yPos}, FS(14.0f), sp, statusColor);
     yPos += 30.0f;
 
     // Resource rates table
@@ -1573,9 +1580,9 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
     };
 
     // Column headers
-    DrawTextEx(bodyFont, "Resource", {px, yPos}, 13.0f, sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Production", {px + 120.0f, yPos}, 13.0f, sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Consumption", {px + 240.0f, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Resource", {px, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Production", {px + 120.0f, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Consumption", {px + 240.0f, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
     yPos += 20.0f;
     DrawLine(static_cast<int>(px), static_cast<int>(yPos),
              static_cast<int>(px + w - padding * 2), static_cast<int>(yPos), EXT_PANEL_BORDER);
@@ -1587,24 +1594,24 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
         float cons = totalConsumption[res.type];
         if (prod <= 0 && cons <= 0) continue;
 
-        DrawTextEx(bodyFont, res.name, {px, yPos}, 13.0f, sp, LIGHTGRAY);
+        DrawTextEx(bodyFont, res.name, {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
 
         if (prod > 0)
-            DrawTextEx(bodyFont, TextFormat("+%.2f/s", prod), {px + 120.0f, yPos}, 13.0f, sp, EXT_ACCENT_GREEN);
+            DrawTextEx(bodyFont, TextFormat("+%.2f/s", prod), {px + 120.0f, yPos}, FS(13.0f), sp, EXT_ACCENT_GREEN);
         else
-            DrawTextEx(bodyFont, "-", {px + 120.0f, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+            DrawTextEx(bodyFont, "-", {px + 120.0f, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
 
         if (cons > 0)
-            DrawTextEx(bodyFont, TextFormat("-%.2f/s", cons), {px + 240.0f, yPos}, 13.0f, sp, Color{255, 100, 100, 255});
+            DrawTextEx(bodyFont, TextFormat("-%.2f/s", cons), {px + 240.0f, yPos}, FS(13.0f), sp, Color{255, 100, 100, 255});
         else
-            DrawTextEx(bodyFont, "-", {px + 240.0f, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+            DrawTextEx(bodyFont, "-", {px + 240.0f, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
 
         yPos += 18.0f;
     }
 
     // Storage section
     yPos += 20.0f;
-    DrawTextEx(headerFont, "STORAGE", {px, yPos}, 16.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "STORAGE", {px, yPos}, FS(16.0f), sp, EXT_HEADER_COLOR);
     yPos += 25.0f;
 
     const auto& storage = unit->GetResourceStorage();
@@ -1624,7 +1631,7 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
         if (cap <= 0 && stored <= 0) continue;
         hasStorage = true;
 
-        DrawTextEx(bodyFont, res.name, {px, yPos + 2.0f}, 12.0f, sp, LIGHTGRAY);
+        DrawTextEx(bodyFont, res.name, {px, yPos + 2.0f}, FS(12.0f), sp, LIGHTGRAY);
 
         float fillFraction = cap > 0 ? stored / cap : 0.0f;
         Color barColor;
@@ -1634,14 +1641,14 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
 
         DrawStyledBar(px + 90.0f, yPos, barW, 16.0f, fillFraction, barColor);
         DrawTextEx(bodyFont, TextFormat("%.0f/%.0f", stored, cap),
-                   {px + 90.0f + barW + 5.0f, yPos + 1.0f}, 11.0f, sp, LIGHTGRAY);
+                   {px + 90.0f + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, LIGHTGRAY);
 
         yPos += 22.0f;
     }
 
     if (!hasStorage)
     {
-        DrawTextEx(bodyFont, "Storage is empty", {px, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, "Storage is empty", {px, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
     }
 }
 
@@ -1655,7 +1662,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     float yPos = static_cast<float>(y + padding);
     float px = static_cast<float>(x + padding);
 
-    DrawTextEx(headerFont, "LIBS SCANNING SYSTEM", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "LIBS SCANNING SYSTEM", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 28.0f;
 
     int idx = unit->GetSelectedModuleIndex();
@@ -1664,13 +1671,13 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // Accuracy based on tier
     float accuracy[] = {70.0f, 80.0f, 90.0f, 98.0f};
     float acc = accuracy[std::min(mod.tier, 3)];
-    DrawTextEx(bodyFont, TextFormat("Scan Accuracy: %.0f%%", acc), {px, yPos}, 14.0f, sp, EXT_ACCENT_CYAN);
+    DrawTextEx(bodyFont, TextFormat("Scan Accuracy: %.0f%%", acc), {px, yPos}, FS(14.0f), sp, EXT_ACCENT_CYAN);
     yPos += 22.0f;
 
     // Scan history count
     const auto& scanHistory = unit->GetScanHistory();
     DrawTextEx(bodyFont, TextFormat("Scans Completed: %d", static_cast<int>(scanHistory.size())),
-               {px, yPos}, 13.0f, sp, LIGHTGRAY);
+               {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
     yPos += 25.0f;
 
     // --- Interactive 5x5 Scan Grid ---
@@ -1684,8 +1691,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     bool canScan = (mod.tier >= 1);
     float cooldown = unit->GetScanCooldown();
 
-    DrawTextEx(headerFont, "SCAN GRID", {px, yPos - 2.0f}, 14.0f, sp, EXT_HEADER_COLOR);
-    DrawTextEx(bodyFont, "(5x5 around unit)", {px + 85.0f, yPos}, 11.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(headerFont, "SCAN GRID", {px, yPos - 2.0f}, FS(14.0f), sp, EXT_HEADER_COLOR);
+    DrawTextEx(bodyFont, "(5x5 around unit)", {px + 85.0f, yPos}, FS(11.0f), sp, EXT_DIM_TEXT);
     yPos += 18.0f;
     gridStartY = yPos;
 
@@ -1737,7 +1744,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
             // Coordinate label
             DrawTextEx(bodyFont, TextFormat("%d,%d", cellGX, cellGY),
-                       {cx + 2.0f, cy + 2.0f}, 9.0f, sp, EXT_DIM_TEXT);
+                       {cx + 2.0f, cy + 2.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
 
             // Hover highlight
             if (canScan && cooldown <= 0.0f &&
@@ -1780,7 +1787,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                       static_cast<int>(gridW), static_cast<int>(gridH), {0, 0, 0, 150});
         DrawTextEx(headerFont, "COOLDOWN",
                    {gridStartX + gridW/2.0f - 40.0f, gridStartY + gridH/2.0f - 12.0f},
-                   16.0f, sp, EXT_ACCENT_GOLD);
+                   FS(16.0f), sp, EXT_ACCENT_GOLD);
         // Progress bar
         float barY = gridStartY + gridH/2.0f + 10.0f;
         float progress = 1.0f - (cooldown / 3.0f);
@@ -1799,20 +1806,20 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                       static_cast<int>(gridW), static_cast<int>(gridH), {0, 0, 0, 180});
         DrawTextEx(headerFont, "Requires Tier 1+",
                    {gridStartX + gridW/2.0f - 60.0f, gridStartY + gridH/2.0f - 8.0f},
-                   14.0f, sp, EXT_DIM_TEXT);
+                   FS(14.0f), sp, EXT_DIM_TEXT);
     }
 
     yPos = gridStartY + 5.0f * cellSz + 8.0f;
 
     // Interaction hints
     DrawTextEx(bodyFont, "Left-click: Scan cell   Right-click: Mark/unmark site",
-               {px, yPos}, 10.0f, sp, EXT_DIM_TEXT);
+               {px, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
     yPos += 18.0f;
 
     // --- Scan History (compact) ---
     if (!scanHistory.empty())
     {
-        DrawTextEx(headerFont, "RECENT SCANS", {px, yPos}, 14.0f, sp, EXT_HEADER_COLOR);
+        DrawTextEx(headerFont, "RECENT SCANS", {px, yPos}, FS(14.0f), sp, EXT_HEADER_COLOR);
         yPos += 20.0f;
 
         float maxBarW = static_cast<float>(w - padding * 2 - 140);
@@ -1822,14 +1829,14 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         {
             const auto& [coords, scan] = *it;
             DrawTextEx(bodyFont, TextFormat("(%d,%d)", coords.first, coords.second),
-                       {px, yPos}, 12.0f, sp, LIGHTGRAY);
+                       {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
             if (scan.qualityRating > 0)
             {
                 std::string stars(scan.qualityRating, '*');
                 std::string empty(5 - scan.qualityRating, '.');
                 DrawTextEx(bodyFont, (stars + empty).c_str(),
-                           {px + 55.0f, yPos}, 12.0f, sp, EXT_ACCENT_GOLD);
+                           {px + 55.0f, yPos}, FS(12.0f), sp, EXT_ACCENT_GOLD);
             }
 
             // Normalize bars: compute total so segments fit within maxBarW
@@ -1841,29 +1848,38 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
             float barX = px + 100.0f;
             float availBarW = maxBarW;
+            float barH = 16.0f;
             if (totalAmount > 0.0f)
             {
                 for (const auto& [resType, amount] : scan.elements)
                 {
                     float fraction = amount / totalAmount;
+                    float pct = fraction * 100.0f;
                     float barW2 = fraction * availBarW;
                     if (barW2 < 2.0f) barW2 = 2.0f;
                     Color barColor = ResourceUtils::GetResourceColor(resType);
-                    DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2.0f),
-                                  static_cast<int>(barW2), 10, barColor);
+                    DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos),
+                                  static_cast<int>(barW2), static_cast<int>(barH), barColor);
 
-                    // Label on bar if wide enough
+                    // Label on bar: name + percentage if wide enough
                     std::string resName = ResourceUtils::GetResourceName(resType);
-                    if (barW2 > 18.0f)
+                    std::string label = TextFormat("%s %.0f%%", resName.c_str(), pct);
+                    float labelW = MeasureTextEx(bodyFont, label.c_str(), FS(10.0f), sp).x;
+                    if (barW2 > labelW + 4.0f)
+                    {
+                        DrawTextEx(bodyFont, label.c_str(),
+                                   {barX + 2.0f, yPos + 1.0f}, FS(10.0f), sp, {0, 0, 0, 200});
+                    }
+                    else if (barW2 > 18.0f)
                     {
                         DrawTextEx(bodyFont, resName.c_str(),
-                                   {barX + 2.0f, yPos + 1.0f}, 9.0f, sp, {0, 0, 0, 200});
+                                   {barX + 2.0f, yPos + 1.0f}, FS(10.0f), sp, {0, 0, 0, 200});
                     }
                     barX += barW2 + 1.0f;
                 }
             }
 
-            yPos += 18.0f;
+            yPos += barH + 6.0f;
         }
     }
 
@@ -1871,14 +1887,14 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     yPos += 10.0f;
     const auto& markedSites = unit->GetMarkedSites();
     DrawTextEx(headerFont, TextFormat("MARKED SITES (%d)", static_cast<int>(markedSites.size())),
-               {px, yPos}, 14.0f, sp, EXT_HEADER_COLOR);
+               {px, yPos}, FS(14.0f), sp, EXT_HEADER_COLOR);
     yPos += 20.0f;
 
     for (size_t i = 0; i < markedSites.size() && i < 6; i++)
     {
         DrawTextEx(bodyFont, TextFormat("  Site %d: (%d, %d)", static_cast<int>(i + 1),
                    markedSites[i].first, markedSites[i].second),
-                   {px, yPos}, 12.0f, sp, EXT_ACCENT_GREEN);
+                   {px, yPos}, FS(12.0f), sp, EXT_ACCENT_GREEN);
         yPos += 16.0f;
     }
 }
@@ -1894,19 +1910,19 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     float px = static_cast<float>(x + padding);
     Vector2 mousePos = GetMousePosition();
 
-    DrawTextEx(headerFont, "EXCAVATION FLEET", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "EXCAVATION FLEET", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 28.0f;
 
     // Total stats
     DrawTextEx(bodyFont, TextFormat("Total Regolith Extracted: %.1f kg", unit->GetTotalRegolithExtracted()),
-               {px, yPos}, 14.0f, sp, EXT_ACCENT_CYAN);
+               {px, yPos}, FS(14.0f), sp, EXT_ACCENT_CYAN);
     yPos += 25.0f;
 
     // Fleet table
     const auto& excavators = unit->GetExcavators();
     if (excavators.empty())
     {
-        DrawTextEx(bodyFont, "No excavators deployed", {px, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, "No excavators deployed", {px, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
         return;
     }
 
@@ -1928,11 +1944,11 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     float rateStep = 5.0f;
 
     // Table header
-    DrawTextEx(bodyFont, "ID", {px, yPos}, 12.0f, sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Method", {px + 40.0f, yPos}, 12.0f, sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Depth", {px + 140.0f, yPos}, 12.0f, sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Rate", {px + 270.0f, yPos}, 12.0f, sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Wear", {px + 380.0f, yPos}, 12.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "ID", {px, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Method", {px + 40.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Depth", {px + 140.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Rate", {px + 270.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, "Wear", {px + 380.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
     yPos += 18.0f;
 
     DrawLine(static_cast<int>(px), static_cast<int>(yPos),
@@ -1945,8 +1961,8 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
 
     for (const auto& exc : excavators)
     {
-        DrawTextEx(bodyFont, TextFormat("#%d", exc.id), {px, yPos}, 12.0f, sp, LIGHTGRAY);
-        DrawTextEx(bodyFont, exc.method.c_str(), {px + 40.0f, yPos}, 12.0f, sp, LIGHTGRAY);
+        DrawTextEx(bodyFont, TextFormat("#%d", exc.id), {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
+        DrawTextEx(bodyFont, exc.method.c_str(), {px + 40.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
         // --- Depth [-] value [+] ---
         float depthX = px + 140.0f;
@@ -1957,7 +1973,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         Color minusBg = CheckCollisionPointRec(mousePos, depthMinus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
         DrawRectangleRec(depthMinus, minusBg);
         DrawRectangleLinesEx(depthMinus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "-", {depthX + 6.0f, yPos}, 12.0f, sp, WHITE);
+        DrawTextEx(bodyFont, "-", {depthX + 6.0f, yPos}, FS(12.0f), sp, WHITE);
 
         if (CheckCollisionPointRec(mousePos, depthMinus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -1965,13 +1981,13 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         }
 
         // Value
-        DrawTextEx(bodyFont, TextFormat("%.0f cm", exc.depth), {depthX + 24.0f, yPos}, 12.0f, sp, LIGHTGRAY);
+        DrawTextEx(bodyFont, TextFormat("%.0f cm", exc.depth), {depthX + 24.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
         // [+] button
         Color plusBg = CheckCollisionPointRec(mousePos, depthPlus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
         DrawRectangleRec(depthPlus, plusBg);
         DrawRectangleLinesEx(depthPlus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "+", {depthX + 96.0f, yPos}, 12.0f, sp, WHITE);
+        DrawTextEx(bodyFont, "+", {depthX + 96.0f, yPos}, FS(12.0f), sp, WHITE);
 
         if (CheckCollisionPointRec(mousePos, depthPlus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -1979,7 +1995,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         }
 
         // Max depth label
-        DrawTextEx(bodyFont, TextFormat("/ %.0f", maxDepth), {depthX + 114.0f, yPos}, 10.0f, sp, EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, TextFormat("/ %.0f", maxDepth), {depthX + 114.0f, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
 
         // --- Rate [-] value [+] ---
         float rateX = px + 270.0f;
@@ -1990,7 +2006,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         Color rMinBg = CheckCollisionPointRec(mousePos, rateMinus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
         DrawRectangleRec(rateMinus, rMinBg);
         DrawRectangleLinesEx(rateMinus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "-", {rateX + 6.0f, yPos}, 12.0f, sp, WHITE);
+        DrawTextEx(bodyFont, "-", {rateX + 6.0f, yPos}, FS(12.0f), sp, WHITE);
 
         if (CheckCollisionPointRec(mousePos, rateMinus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -1998,13 +2014,13 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         }
 
         // Value
-        DrawTextEx(bodyFont, TextFormat("%.0f", exc.rate), {rateX + 24.0f, yPos}, 12.0f, sp, LIGHTGRAY);
+        DrawTextEx(bodyFont, TextFormat("%.0f", exc.rate), {rateX + 24.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
         // [+] button
         Color rPlsBg = CheckCollisionPointRec(mousePos, ratePlus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
         DrawRectangleRec(ratePlus, rPlsBg);
         DrawRectangleLinesEx(ratePlus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "+", {rateX + 91.0f, yPos}, 12.0f, sp, WHITE);
+        DrawTextEx(bodyFont, "+", {rateX + 91.0f, yPos}, FS(12.0f), sp, WHITE);
 
         if (CheckCollisionPointRec(mousePos, ratePlus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -2024,9 +2040,9 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     yPos += 8.0f;
 
     DrawTextEx(headerFont, TextFormat("Total Rate: %.1f kg/hr", totalRate),
-               {px, yPos}, 14.0f, sp, EXT_ACCENT_GREEN);
+               {px, yPos}, FS(14.0f), sp, EXT_ACCENT_GREEN);
     DrawTextEx(bodyFont, TextFormat("Fleet Size: %d", static_cast<int>(excavators.size())),
-               {px + 250.0f, yPos}, 13.0f, sp, LIGHTGRAY);
+               {px + 250.0f, yPos}, FS(13.0f), sp, LIGHTGRAY);
 }
 
 void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int h)
@@ -2040,13 +2056,13 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
     float px = static_cast<float>(x + padding);
     Vector2 mousePos = GetMousePosition();
 
-    DrawTextEx(headerFont, "SEPARATION CHAIN", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "SEPARATION CHAIN", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 28.0f;
 
     const auto& chain = unit->GetSeparationChain();
     if (chain.empty())
     {
-        DrawTextEx(bodyFont, "No separation nodes configured", {px, yPos}, 13.0f, sp, EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, "No separation nodes configured", {px, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
         return;
     }
 
@@ -2113,7 +2129,7 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
         // Node type name
         const char* typeNames[] = {"SIZE SORT", "MAGNETIC", "ELECTROSTATIC", "THERMAL", "CHEMICAL", "MRE", "DIRECT OUTPUT"};
         int typeIdx = static_cast<int>(node.type);
-        DrawTextEx(bodyFont, typeNames[typeIdx], {px + 10.0f, yPos + 5.0f}, 14.0f, sp, WHITE);
+        DrawTextEx(bodyFont, typeNames[typeIdx], {px + 10.0f, yPos + 5.0f}, FS(14.0f), sp, WHITE);
 
         // --- Clickable ON/OFF toggle ---
         Color activeColor = node.isActive ? EXT_ACCENT_GREEN : EXT_DIM_TEXT;
@@ -2123,7 +2139,7 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
         Color toggleBg = CheckCollisionPointRec(mousePos, toggleBtn) ? Color{50, 55, 70, 255} : Color{30, 35, 50, 255};
         DrawRectangleRec(toggleBtn, toggleBg);
         DrawRectangleLinesEx(toggleBtn, 1.0f, activeColor);
-        DrawTextEx(bodyFont, statusText, {statusX + 5.0f, yPos + 5.0f}, 12.0f, sp, activeColor);
+        DrawTextEx(bodyFont, statusText, {statusX + 5.0f, yPos + 5.0f}, FS(12.0f), sp, activeColor);
 
         if (CheckCollisionPointRec(mousePos, toggleBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -2131,33 +2147,33 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
         }
 
         // Efficiency bar
-        DrawTextEx(bodyFont, "Eff:", {px + 10.0f, yPos + 25.0f}, 11.0f, sp, EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, "Eff:", {px + 10.0f, yPos + 25.0f}, FS(11.0f), sp, EXT_DIM_TEXT);
         DrawStyledBar(px + 40.0f, yPos + 25.0f, 120.0f, 12.0f, node.efficiency, EXT_ACCENT_CYAN);
         DrawTextEx(bodyFont, TextFormat("%.0f%%", node.efficiency * 100.0f),
-                   {px + 165.0f, yPos + 24.0f}, 11.0f, sp, LIGHTGRAY);
+                   {px + 165.0f, yPos + 24.0f}, FS(11.0f), sp, LIGHTGRAY);
 
         // Wear bar
-        DrawTextEx(bodyFont, "Wear:", {px + 210.0f, yPos + 25.0f}, 11.0f, sp, EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, "Wear:", {px + 210.0f, yPos + 25.0f}, FS(11.0f), sp, EXT_DIM_TEXT);
         DrawWearBar(px + 250.0f, yPos + 25.0f, 80.0f, 12.0f, node.wear);
         DrawTextEx(bodyFont, TextFormat("%.0f%%", node.wear * 100.0f),
-                   {px + 335.0f, yPos + 24.0f}, 11.0f, sp, LIGHTGRAY);
+                   {px + 335.0f, yPos + 24.0f}, FS(11.0f), sp, LIGHTGRAY);
 
         // Energy & temperature
         DrawTextEx(bodyFont, TextFormat("Energy: %.0f kW", node.energyConsumption),
-                   {px + 10.0f, yPos + 45.0f}, 11.0f, sp, LIGHTGRAY);
+                   {px + 10.0f, yPos + 45.0f}, FS(11.0f), sp, LIGHTGRAY);
 
         if (node.temperature > 25.0f)
         {
             Color tempColor = node.temperature > 500.0f ? Color{255, 150, 50, 255} : LIGHTGRAY;
             DrawTextEx(bodyFont, TextFormat("Temp: %.0f C", node.temperature),
-                       {px + 150.0f, yPos + 45.0f}, 11.0f, sp, tempColor);
+                       {px + 150.0f, yPos + 45.0f}, FS(11.0f), sp, tempColor);
         }
 
         // Waste ratio
         if (node.wasteRatio > 0)
         {
             DrawTextEx(bodyFont, TextFormat("Waste: %.0f%%", node.wasteRatio * 100.0f),
-                       {px + 300.0f, yPos + 45.0f}, 11.0f, sp, Color{255, 100, 100, 255});
+                       {px + 300.0f, yPos + 45.0f}, FS(11.0f), sp, Color{255, 100, 100, 255});
         }
 
         yPos += nodeH + 5.0f;
@@ -2188,22 +2204,22 @@ void RenderManager::DrawOperationsPanel(Unit* unit, int x, int y, int w, int h)
     float yPos = static_cast<float>(y + padding);
     float px = static_cast<float>(x + padding);
 
-    DrawTextEx(headerFont, "OPERATIONS MANAGEMENT", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "OPERATIONS MANAGEMENT", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 35.0f;
 
     // Efficiency modifier display
     float effMod = unit->GetOperationsEfficiencyModifier();
     bool isOpsActive = unit->IsOperationsActive();
 
-    DrawTextEx(bodyFont, "Operations Status:", {px, yPos}, 14.0f, sp, LIGHTGRAY);
+    DrawTextEx(bodyFont, "Operations Status:", {px, yPos}, FS(14.0f), sp, LIGHTGRAY);
     yPos += 22.0f;
 
     Color activeColor = isOpsActive ? EXT_ACCENT_GREEN : EXT_DIM_TEXT;
-    DrawTextEx(headerFont, isOpsActive ? "ACTIVE" : "INACTIVE", {px, yPos}, 20.0f, sp, activeColor);
+    DrawTextEx(headerFont, isOpsActive ? "ACTIVE" : "INACTIVE", {px, yPos}, FS(20.0f), sp, activeColor);
     yPos += 35.0f;
 
     // Large efficiency display
-    DrawTextEx(bodyFont, "Efficiency Modifier:", {px, yPos}, 14.0f, sp, LIGHTGRAY);
+    DrawTextEx(bodyFont, "Efficiency Modifier:", {px, yPos}, FS(14.0f), sp, LIGHTGRAY);
     yPos += 22.0f;
 
     Color effColor;
@@ -2211,7 +2227,7 @@ void RenderManager::DrawOperationsPanel(Unit* unit, int x, int y, int w, int h)
     else if (effMod > 1.0f) effColor = EXT_ACCENT_GREEN;
     else effColor = WHITE;
 
-    DrawTextEx(headerFont, TextFormat("x%.2f", effMod), {px, yPos}, 36.0f, sp, effColor);
+    DrawTextEx(headerFont, TextFormat("x%.2f", effMod), {px, yPos}, FS(36.0f), sp, effColor);
     yPos += 50.0f;
 
     // Tier description
@@ -2225,7 +2241,7 @@ void RenderManager::DrawOperationsPanel(Unit* unit, int x, int y, int w, int h)
         "Tier 3: AI scheduling\n  +20% efficiency bonus"
     };
 
-    DrawTextEx(bodyFont, tierDescs[std::min(mod.tier, 3)], {px, yPos}, 13.0f, sp, LIGHTGRAY);
+    DrawTextEx(bodyFont, tierDescs[std::min(mod.tier, 3)], {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
 }
 
 void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
@@ -2239,7 +2255,7 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
     float px = static_cast<float>(x + padding);
     Vector2 mousePos = GetMousePosition();
 
-    DrawTextEx(headerFont, "ACTIVE DIRECTIVES", {px, yPos}, 18.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "ACTIVE DIRECTIVES", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 28.0f;
 
     const auto& directive = unit->GetDirective();
@@ -2260,9 +2276,9 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
 
     // Current directive display
     int dirIdx = static_cast<int>(directive.type);
-    DrawTextEx(bodyFont, "Current:", {px, yPos}, 13.0f, sp, LIGHTGRAY);
+    DrawTextEx(bodyFont, "Current:", {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
     Color dirColor = (dirIdx == 0) ? EXT_DIM_TEXT : EXT_ACCENT_GOLD;
-    DrawTextEx(headerFont, directiveNames[dirIdx], {px + 65.0f, yPos - 2.0f}, 16.0f, sp, dirColor);
+    DrawTextEx(headerFont, directiveNames[dirIdx], {px + 65.0f, yPos - 2.0f}, FS(16.0f), sp, dirColor);
     yPos += 22.0f;
 
     // Target resource for PRIORITIZE
@@ -2270,7 +2286,7 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
     {
         std::string resName = ResourceUtils::GetResourceName(directive.targetResource);
         Color resColor = ResourceUtils::GetResourceColor(directive.targetResource);
-        DrawTextEx(bodyFont, TextFormat("Target: %s", resName.c_str()), {px, yPos}, 13.0f, sp, resColor);
+        DrawTextEx(bodyFont, TextFormat("Target: %s", resName.c_str()), {px, yPos}, FS(13.0f), sp, resColor);
         yPos += 18.0f;
     }
 
@@ -2289,7 +2305,7 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
         }
     }
 
-    DrawTextEx(headerFont, "AVAILABLE DIRECTIVES", {px, yPos}, 14.0f, sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "AVAILABLE DIRECTIVES", {px, yPos}, FS(14.0f), sp, EXT_HEADER_COLOR);
     yPos += 20.0f;
 
     // Directive cards
@@ -2337,17 +2353,17 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
 
         // Directive name
         Color nameColor = isUnlocked ? WHITE : EXT_DIM_TEXT;
-        DrawTextEx(bodyFont, directiveNames[d], {px + 10.0f, yPos + 5.0f}, 13.0f, sp, nameColor);
+        DrawTextEx(bodyFont, directiveNames[d], {px + 10.0f, yPos + 5.0f}, FS(13.0f), sp, nameColor);
 
         // Description
         Color descColor = isUnlocked ? LIGHTGRAY : Color{80, 80, 90, 255};
-        DrawTextEx(bodyFont, directiveDescs[d], {px + 10.0f, yPos + 22.0f}, 10.0f, sp, descColor);
+        DrawTextEx(bodyFont, directiveDescs[d], {px + 10.0f, yPos + 22.0f}, FS(10.0f), sp, descColor);
 
         // Tier requirement label for locked
         if (!isUnlocked)
         {
             DrawTextEx(bodyFont, TextFormat("Tier %d", minTierRequired[d]),
-                       {px + cardW - 50.0f, yPos + 12.0f}, 11.0f, sp, EXT_DIM_TEXT);
+                       {px + cardW - 50.0f, yPos + 12.0f}, FS(11.0f), sp, EXT_DIM_TEXT);
         }
 
         // Click to select unlocked directive
@@ -2368,7 +2384,7 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
     if (directive.type == Unit::DirectiveType::PRIORITIZE)
     {
         yPos += 8.0f;
-        DrawTextEx(headerFont, "TARGET RESOURCE", {px, yPos}, 13.0f, sp, EXT_HEADER_COLOR);
+        DrawTextEx(headerFont, "TARGET RESOURCE", {px, yPos}, FS(13.0f), sp, EXT_HEADER_COLOR);
         yPos += 18.0f;
 
         ResourceType resources[] = {
@@ -2405,7 +2421,7 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
 
             Color labelColor = isSelected ? EXT_ACCENT_GOLD :
                                ResourceUtils::GetResourceColor(resources[r]);
-            DrawTextEx(bodyFont, resLabels[r], {chipX + 8.0f, yPos + 5.0f}, 12.0f, sp, labelColor);
+            DrawTextEx(bodyFont, resLabels[r], {chipX + 8.0f, yPos + 5.0f}, FS(12.0f), sp, labelColor);
 
             if (CheckCollisionPointRec(mousePos, chip) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {

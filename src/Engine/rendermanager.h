@@ -54,6 +54,9 @@ private:
     Font uiHeaderFont;  // Exo 2 Bold - section headers
     bool fontsLoaded;
 
+    // Font size multiplier (XL preset: 1.30x)
+    float FS(float baseSize);
+
     // Moon surface tile textures
     Texture2D moonTiles[3];
     bool tilesLoaded;
