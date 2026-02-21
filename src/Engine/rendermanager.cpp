@@ -1101,9 +1101,8 @@ void RenderManager::DrawExtractionBottomBar(Unit* unit)
     const UIMessage& msg = unit->GetCurrentMessage();
     if (msg.opacity > 0)
     {
-        Color msgColor = WHITE;
-        msgColor.a = static_cast<unsigned char>(255 * msg.opacity);
-        DrawTextEx(bodyFont, msg.text.c_str(), {20.0f, startY + 10.0f}, FS(16.0f), sp, msgColor);
+        Color msgColor = {255, 200, 50, static_cast<unsigned char>(255 * msg.opacity)};
+        DrawTextEx(bodyFont, msg.text.c_str(), {20.0f, startY + 8.0f}, FS(18.0f), sp, msgColor);
     }
 }
 
@@ -2109,11 +2108,9 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             DrawTextEx(bodyFont, TextFormat("(%d,%d)", coords.first, coords.second),
                        {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
-            // Star rating + scan count
-            std::string stars(scan.qualityRating, '*');
-            std::string empty(5 - scan.qualityRating, '.');
-            DrawTextEx(bodyFont, (stars + empty).c_str(),
-                       {px + 55.0f, yPos}, FS(12.0f), sp, EXT_ACCENT_GOLD);
+            // Quality rating + scan count
+            DrawTextEx(bodyFont, TextFormat("Q%d %dx", scan.qualityRating, scan.scanCount),
+                       {px + 55.0f, yPos}, FS(11.0f), sp, EXT_ACCENT_GOLD);
 
             float barH = 16.0f;
 
