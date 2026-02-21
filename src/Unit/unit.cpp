@@ -121,6 +121,66 @@ void Unit::Update(float deltaTime) {
         if (scanCooldown < 0.0f) scanCooldown = 0.0f;
     }
 
+    // Update calibration timer
+    if (isCalibrating)
+    {
+        calibrationTimer -= deltaTime;
+        if (calibrationTimer <= 0.0f)
+        {
+            isCalibrating = false;
+            calibrationTimer = 0.0f;
+            calibrationQuality = 1.0f;
+            ShowMessage("Calibration complete.");
+            std::cout << "[PROSPECTING] Calibration complete. Quality restored to 100%." << std::endl;
+        }
+    }
+
+    // --- Campaign auto-advance ---
+    if (campaignActive && scanCooldown <= 0.0f && !isCalibrating &&
+        campaignCurrentIndex < static_cast<int>(scanCampaign.size()))
+    {
+        auto& entry = scanCampaign[campaignCurrentIndex];
+        if (!entry.completed)
+        {
+            // Set profile for this entry
+            if (entry.profileIndex >= 0 && entry.profileIndex < static_cast<int>(availableProfiles.size()))
+            {
+                activeScanProfileIndex = entry.profileIndex;
+                activeScanProfile = availableProfiles[entry.profileIndex];
+            }
+            PerformLIBSScan(entry.gridX, entry.gridY);
+            entry.completed = true;
+        }
+        campaignCurrentIndex++;
+
+        // Check if campaign is complete
+        if (campaignCurrentIndex >= static_cast<int>(scanCampaign.size()))
+        {
+            campaignActive = false;
+            campaignConfidenceBonus += CAMPAIGN_COMPLETION_CONFIDENCE;
+            ShowMessage("Campaign complete! +5% confidence bonus.");
+            std::cout << "[PROSPECTING] Campaign completed. Confidence bonus: "
+                      << static_cast<int>(campaignConfidenceBonus * 100.0f) << "%" << std::endl;
+        }
+    }
+
+    // --- Objective bonus expiry ---
+    if (objectiveBonusExpiry > 0.0f)
+    {
+        objectiveBonusExpiry -= deltaTime;
+        if (objectiveBonusExpiry <= 0.0f)
+        {
+            objectiveBonusMultiplier = 1.0f;
+            objectiveBonusExpiry = 0.0f;
+        }
+    }
+
+    // --- AI auto-management ---
+    if (unit_type == "Extraction")
+    {
+        UpdateProspectingAI(deltaTime);
+    }
+
     // Update excavator wear
     for (auto& exc : excavators)
     {
@@ -363,6 +423,46 @@ void Unit::InitializeModules() {
     }
 }
 
+void Unit::InitializeScanProfiles() {
+    availableProfiles.clear();
+
+    // Find prospecting tier
+    int prospectingTier = 0;
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "PROSPECTING")
+        {
+            prospectingTier = mod.tier;
+            break;
+        }
+    }
+
+    if (prospectingTier == 0)
+    {
+        // Tier 0: Visual only
+        availableProfiles.push_back({"Visual", 0.3f, 1, 5.0f, 10.0f});
+        activeScanProfileIndex = 0;
+    }
+    else
+    {
+        // T1+: Quick, Standard, Deep
+        availableProfiles.push_back({"Quick", 0.5f, 5, 2.0f, 20.0f});
+        availableProfiles.push_back({"Standard", 1.0f, 15, 3.0f, 50.0f});
+        availableProfiles.push_back({"Deep", 2.0f, 30, 8.0f, 100.0f});
+        activeScanProfileIndex = 1;  // Default to Standard
+    }
+
+    activeScanProfile = availableProfiles[activeScanProfileIndex];
+}
+
+void Unit::SetActiveScanProfile(int index) {
+    if (index >= 0 && index < static_cast<int>(availableProfiles.size()))
+    {
+        activeScanProfileIndex = index;
+        activeScanProfile = availableProfiles[index];
+    }
+}
+
 void Unit::InitializeExtractionModules() {
     productionCosts = EXTRACTION_PRODUCTION_COSTS;
 
@@ -471,6 +571,12 @@ void Unit::InitializeExtractionModules() {
         mod.tierDependencies = {"BasicDirectives"};
         modules.push_back(mod);
     }
+
+    // Initialize scan profiles based on prospecting tier
+    InitializeScanProfiles();
+
+    // Generate initial objectives (1 for T1, 2 for T2, 3 for T3)
+    GenerateObjectives();
 }
 
 void Unit::InitializeFarmingModules() {
@@ -858,6 +964,13 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
         CalculateConsumption();
     }
 
+    // Reinitialize scan profiles and objectives when prospecting module upgrades
+    if (module.moduleType == "PROSPECTING")
+    {
+        InitializeScanProfiles();
+        GenerateObjectives();
+    }
+
     ShowMessage(TextFormat("%s upgraded to Tier %d", module.name.c_str(), module.tier));
     std::cout << "[TIER UPGRADE] " << module.name << " -> Tier " << module.tier << std::endl;
     return true;
@@ -1002,6 +1115,13 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
         CalculateConsumption();
     }
 
+    // Reinitialize scan profiles and objectives when prospecting module upgrades
+    if (module.moduleType == "PROSPECTING")
+    {
+        InitializeScanProfiles();
+        GenerateObjectives();
+    }
+
     ShowMessage(TextFormat("[DEBUG] %s force-upgraded to Tier %d", module.name.c_str(), module.tier));
     std::cout << "[DEBUG] Force upgraded " << module.name << " to tier " << module.tier << std::endl;
     return true;
@@ -1124,26 +1244,41 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     int gridX = static_cast<int>(gridPos.x);
     int gridY = static_cast<int>(gridPos.y);
 
-    // Get available resources at this location
-    auto availableResources = resourceManager.GetResourcesAtGrid(gridX, gridY);
+    // --- Determine depth layer from first excavator ---
+    DepthLayer activeLayer = DepthLayer::SURFACE;
+    if (!excavators.empty())
+    {
+        float depth = excavators[0].depth;
+        if (depth >= 100.0f) activeLayer = DepthLayer::DEEP;
+        else if (depth >= 30.0f) activeLayer = DepthLayer::MID;
+        else if (depth >= 10.0f) activeLayer = DepthLayer::SHALLOW;
+    }
 
-    // --- Scan-gated extraction efficiency ---
+    // Get available resources at this location and depth layer
+    auto availableResources = resourceManager.GetResourcesAtGridLayer(gridX, gridY, activeLayer);
+
+    // --- Scan-gated extraction efficiency (smooth curve) ---
     float scanMultiplier = 0.35f;  // Unscanned: 35% efficiency
     auto scanIt = scanHistory.find({gridX, gridY});
     if (scanIt != scanHistory.end() && scanIt->second.isScanned)
     {
-        scanMultiplier = 1.0f;  // Scanned: 100% efficiency
+        int sc = scanIt->second.scanCount;
+        // Smooth curve: 0.35 + 0.65 * min(1.0, scanCount / 3.0)
+        scanMultiplier = 0.35f + 0.65f * std::min(1.0f, static_cast<float>(sc) / 3.0f);
 
-        // Check if site is marked for excavation: +15% bonus
+        // Check if site is marked for excavation: +15% bonus (additive)
         for (const auto& site : markedSites)
         {
             if (site.first == gridX && site.second == gridY)
             {
-                scanMultiplier = 1.15f;
+                scanMultiplier += 0.15f;
                 break;
             }
         }
     }
+
+    // Apply objective bonus multiplier
+    scanMultiplier *= objectiveBonusMultiplier;
 
     // --- Apply Operations efficiency modifier ---
     float opsModifier = GetOperationsEfficiencyModifier();
@@ -1615,18 +1750,105 @@ void Unit::PerformLIBSScan(int gridX, int gridY) {
         return;
     }
 
+    if (isCalibrating)
+    {
+        ShowMessage("Calibrating... scanning blocked.");
+        return;
+    }
+
     if (scanCooldown > 0.0f)
     {
         ShowMessage("Scanner on cooldown...");
         return;
     }
 
+    // --- AI auto-select profile ---
+    if (prospectingTier >= 1 && prospectingAI.autoSelectProfile)
+    {
+        auto existingScan = scanHistory.find({gridX, gridY});
+        bool alreadyScanned = (existingScan != scanHistory.end() && existingScan->second.isScanned);
+        bool isMarked = false;
+        for (const auto& site : markedSites)
+        {
+            if (site.first == gridX && site.second == gridY)
+            {
+                isMarked = true;
+                break;
+            }
+        }
+
+        int aiProfileIdx = 1;  // Default Standard
+        if (!alreadyScanned)
+        {
+            aiProfileIdx = 0;  // Quick for first scan
+            aiLastAction = "AI: Quick scan (first pass)";
+        }
+        else if (isMarked && existingScan->second.scanCount < 3)
+        {
+            aiProfileIdx = 2;  // Deep for marked sites needing more data
+            aiLastAction = "AI: Deep scan (marked site)";
+        }
+        else if (alreadyScanned && existingScan->second.qualityRating <= 2)
+        {
+            aiProfileIdx = 1;  // Standard for low quality
+            aiLastAction = "AI: Standard scan (improve data)";
+        }
+        else
+        {
+            aiProfileIdx = 0;  // Quick for already-good data
+            aiLastAction = "AI: Quick scan (good coverage)";
+        }
+
+        if (aiProfileIdx < static_cast<int>(availableProfiles.size()))
+        {
+            activeScanProfileIndex = aiProfileIdx;
+            activeScanProfile = availableProfiles[aiProfileIdx];
+        }
+    }
+
+    // --- Determine profile to use ---
+    const ScanProfile& profile = (prospectingTier == 0) ?
+        availableProfiles[0] : activeScanProfile;
+
     // Get accurate resource data from ResourceManager
     auto resources = resourceManager.GetResourcesAtGrid(gridX, gridY);
 
+    // Check for existing scan (confidence accumulation)
+    auto existingIt = scanHistory.find({gridX, gridY});
+    bool isRescan = (existingIt != scanHistory.end() && existingIt->second.isScanned);
+    int oldScanCount = isRescan ? existingIt->second.scanCount : 0;
+    int newScanCount = oldScanCount + 1;
+
+    // --- Calculate noise ---
+    // Base tier noise: T0=40%, T1=15%, T2=5%, T3=0%
+    float baseTierNoise[] = {0.40f, 0.15f, 0.05f, 0.0f};
+    float tierNoise = baseTierNoise[std::min(prospectingTier, 3)];
+
+    // Profile noise multiplier: 1.0 / (power * sqrt(pulses/15))
+    float profileNoiseMult = 1.0f;
+    if (prospectingTier >= 1)
+    {
+        float pulseFactor = std::sqrt(static_cast<float>(profile.pulseCount) / 15.0f);
+        profileNoiseMult = 1.0f / (profile.powerMultiplier * pulseFactor);
+    }
+
+    // Calibration effect: noise * (2.0 - calibrationQuality)
+    float calibrationNoiseMult = (prospectingTier >= 1) ? (2.0f - calibrationQuality) : 1.0f;
+
+    // Confidence accumulation: effective noise / sqrt(scanCount)
+    float accumulationMult = 1.0f / std::sqrt(static_cast<float>(newScanCount));
+
+    float effectiveNoise = tierNoise * profileNoiseMult * calibrationNoiseMult * accumulationMult;
+
     ScanResult result;
+    if (isRescan)
+    {
+        result = existingIt->second;  // Start from existing data
+    }
     result.isScanned = true;
-    result.scanTier = prospectingTier;
+    result.scanTier = std::max(result.scanTier, prospectingTier);  // Keep highest tier
+    result.scanCount = newScanCount;
+    result.scanProfileIndex = activeScanProfileIndex;
 
     // Quality rating (always computed, all tiers)
     float totalValue = 0.0f;
@@ -1645,30 +1867,32 @@ void Unit::PerformLIBSScan(int gridX, int gridY) {
                               abundance > 500.0f ? "MED" : "LOW";
             result.categories[type] = cat;
         }
-        // No elements stored — player sees only categories
     }
-    else if (prospectingTier == 1)
+    else if (prospectingTier >= 1)
     {
-        // Tier 1: LIBS scan — numeric values with ±15% noise
-        for (const auto& [type, abundance] : resources)
-        {
-            float noise = 1.0f + (GetRandomValue(-150, 150) / 1000.0f);  // ±15%
-            result.elements[type] = abundance * noise;
-
-            const char* cat = abundance > 3000.0f ? "HIGH" :
-                              abundance > 500.0f ? "MED" : "LOW";
-            result.categories[type] = cat;
-        }
-    }
-    else if (prospectingTier == 2)
-    {
-        // Tier 2: Multi-spectral — ±5% noise + minerals + hydrogen
+        // Tier 1+: Numeric values with noise
         float feAbundance = 0.0f, tiAbundance = 0.0f, siAbundance = 0.0f;
         for (const auto& [type, abundance] : resources)
         {
-            float noise = 1.0f + (GetRandomValue(-50, 50) / 1000.0f);  // ±5%
-            result.elements[type] = abundance * noise;
+            // Generate noisy measurement
+            float noiseRange = effectiveNoise * 1000.0f;
+            int noiseInt = (noiseRange > 0.0f) ?
+                GetRandomValue(static_cast<int>(-noiseRange), static_cast<int>(noiseRange)) : 0;
+            float noise = 1.0f + (noiseInt / 1000.0f);
+            float freshVal = abundance * noise;
 
+            // Weighted average with existing data (confidence accumulation)
+            if (isRescan && result.elements.count(type) > 0)
+            {
+                float oldVal = result.elements[type];
+                result.elements[type] = (oldVal * oldScanCount + freshVal) / static_cast<float>(newScanCount);
+            }
+            else
+            {
+                result.elements[type] = freshVal;
+            }
+
+            // Categories from real abundance (not noisy)
             const char* cat = abundance > 3000.0f ? "HIGH" :
                               abundance > 500.0f ? "MED" : "LOW";
             result.categories[type] = cat;
@@ -1678,56 +1902,82 @@ void Unit::PerformLIBSScan(int gridX, int gridY) {
             else if (type == ResourceType::Si) siAbundance = abundance;
         }
 
-        result.minerals["Ilmenite"] = (feAbundance + tiAbundance) * 0.01f;
-        result.minerals["Plagioclase"] = siAbundance * 0.015f;
-        result.minerals["Pyroxene"] = feAbundance * 0.01f;
-
-        auto survey = resourceManager.GetOrbitalSurveyAt(gridX, gridY);
-        result.hydrogenSignal = survey.hydrogenSignal;
-    }
-    else
-    {
-        // Tier 3: Deep survey — exact values, no noise
-        float feAbundance = 0.0f, tiAbundance = 0.0f, siAbundance = 0.0f;
-        for (const auto& [type, abundance] : resources)
+        // Tier 2+: Minerals and hydrogen
+        if (prospectingTier >= 2)
         {
-            result.elements[type] = abundance;
+            result.minerals["Ilmenite"] = (feAbundance + tiAbundance) * 0.01f;
+            result.minerals["Plagioclase"] = siAbundance * 0.015f;
+            result.minerals["Pyroxene"] = feAbundance * 0.01f;
 
-            const char* cat = abundance > 3000.0f ? "HIGH" :
-                              abundance > 500.0f ? "MED" : "LOW";
-            result.categories[type] = cat;
-
-            if (type == ResourceType::Fe) feAbundance = abundance;
-            else if (type == ResourceType::Ti) tiAbundance = abundance;
-            else if (type == ResourceType::Si) siAbundance = abundance;
+            auto survey = resourceManager.GetOrbitalSurveyAt(gridX, gridY);
+            result.hydrogenSignal = survey.hydrogenSignal;
         }
 
-        result.minerals["Ilmenite"] = (feAbundance + tiAbundance) * 0.01f;
-        result.minerals["Plagioclase"] = siAbundance * 0.015f;
-        result.minerals["Pyroxene"] = feAbundance * 0.01f;
-
-        auto survey = resourceManager.GetOrbitalSurveyAt(gridX, gridY);
-        result.hydrogenSignal = survey.hydrogenSignal;
+        // --- Depth layer scanning ---
+        if (prospectingTier >= 1)
+        {
+            // T1: Surface layer only
+            auto surfaceRes = resourceManager.GetResourcesAtGridLayer(gridX, gridY, DepthLayer::SURFACE);
+            for (const auto& [type, abundance] : surfaceRes)
+            {
+                float noiseRange2 = effectiveNoise * 1000.0f;
+                int noiseInt2 = (noiseRange2 > 0.0f) ?
+                    GetRandomValue(static_cast<int>(-noiseRange2), static_cast<int>(noiseRange2)) : 0;
+                result.layerElements[DepthLayer::SURFACE][type] = abundance * (1.0f + noiseInt2 / 1000.0f);
+            }
+            result.maxScannedDepthLayer = std::max(result.maxScannedDepthLayer, 0);
+        }
+        if (prospectingTier >= 2)
+        {
+            // T2: + Shallow layer
+            auto shallowRes = resourceManager.GetResourcesAtGridLayer(gridX, gridY, DepthLayer::SHALLOW);
+            for (const auto& [type, abundance] : shallowRes)
+            {
+                float noiseRange2 = effectiveNoise * 1000.0f;
+                int noiseInt2 = (noiseRange2 > 0.0f) ?
+                    GetRandomValue(static_cast<int>(-noiseRange2), static_cast<int>(noiseRange2)) : 0;
+                result.layerElements[DepthLayer::SHALLOW][type] = abundance * (1.0f + noiseInt2 / 1000.0f);
+            }
+            result.maxScannedDepthLayer = std::max(result.maxScannedDepthLayer, 1);
+        }
+        if (prospectingTier >= 3)
+        {
+            // T3: All 4 layers
+            for (int li = 2; li <= 3; li++)
+            {
+                DepthLayer dl = static_cast<DepthLayer>(li);
+                auto layerRes = resourceManager.GetResourcesAtGridLayer(gridX, gridY, dl);
+                for (const auto& [type, abundance] : layerRes)
+                {
+                    result.layerElements[dl][type] = abundance;  // T3 = no noise
+                }
+            }
+            result.maxScannedDepthLayer = 3;
+        }
     }
 
     result.scanOrder = nextScanOrder++;
     scanHistory[{gridX, gridY}] = result;
 
-    // Tier 0: longer cooldown, less energy
-    if (prospectingTier == 0)
+    // Apply profile cooldown and energy cost
+    scanCooldown = profile.cooldownTime;
+    ConsumeResource(ResourceType::ENERGY, profile.energyCost);
+
+    // --- Calibration drift ---
+    if (prospectingTier >= 1 && prospectingTier < 3)
     {
-        scanCooldown = 5.0f;
-        ConsumeResource(ResourceType::ENERGY, 10.0f);
+        calibrationQuality -= CALIBRATION_DRIFT_PER_SCAN;
+        calibrationQuality = std::max(calibrationQuality, CALIBRATION_MIN_QUALITY);
     }
-    else
-    {
-        scanCooldown = 3.0f;
-        ConsumeResource(ResourceType::ENERGY, 50.0f);
-    }
+
+    // --- Evaluate objectives ---
+    EvaluateObjectives(gridX, gridY);
 
     const char* tierLabels[] = {"Visual", "LIBS", "Multi-Spectral", "Deep Survey"};
     std::cout << "[PROSPECTING] " << tierLabels[std::min(prospectingTier, 3)]
-              << " scan at (" << gridX << "," << gridY << ") complete." << std::endl;
+              << " scan (" << profile.name << " profile) at (" << gridX << "," << gridY
+              << ") complete. Scan #" << newScanCount
+              << " Cal:" << static_cast<int>(calibrationQuality * 100.0f) << "%" << std::endl;
 }
 
 void Unit::MarkSiteForExcavation(int gridX, int gridY) {
@@ -1860,8 +2110,452 @@ float Unit::GetGeologicalConfidence() const {
         }
     }
 
-    // 25 cells in 5x5 grid, each contributes 4%
-    return std::min(1.0f, scannedCount / 25.0f);
+    // 25 cells in 5x5 grid, each contributes 4%, plus campaign bonus
+    return std::min(1.0f, scannedCount / 25.0f + campaignConfidenceBonus);
+}
+
+// --- Calibration Methods ---
+
+void Unit::StartCalibration() {
+    int prospectingTier = 0;
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "PROSPECTING")
+        {
+            prospectingTier = mod.tier;
+            break;
+        }
+    }
+
+    if (prospectingTier == 0)
+    {
+        ShowMessage("Calibration not available at Tier 0.");
+        return;
+    }
+
+    if (prospectingTier >= 3)
+    {
+        ShowMessage("Tier 3: Auto-calibration active.");
+        calibrationQuality = 1.0f;
+        return;
+    }
+
+    if (isCalibrating)
+    {
+        ShowMessage("Already calibrating...");
+        return;
+    }
+
+    isCalibrating = true;
+    calibrationTimer = CALIBRATION_DURATION;
+    ShowMessage("Calibration started...");
+    std::cout << "[PROSPECTING] Calibration started. Duration: "
+              << CALIBRATION_DURATION << "s" << std::endl;
+}
+
+// --- Campaign Methods ---
+
+void Unit::AddToCampaign(int gx, int gy) {
+    int prospectingTier = 0;
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "PROSPECTING")
+        {
+            prospectingTier = mod.tier;
+            break;
+        }
+    }
+
+    if (prospectingTier < 2)
+    {
+        ShowMessage("Campaign requires Tier 2+.");
+        return;
+    }
+
+    int cap = (prospectingTier >= 3) ? 999 : CAMPAIGN_QUEUE_CAP_T2;
+    if (static_cast<int>(scanCampaign.size()) >= cap)
+    {
+        ShowMessage(TextFormat("Campaign queue full (%d max).", cap));
+        return;
+    }
+
+    CampaignEntry entry;
+    entry.gridX = gx;
+    entry.gridY = gy;
+    entry.profileIndex = activeScanProfileIndex;
+    entry.completed = false;
+    scanCampaign.push_back(entry);
+}
+
+void Unit::RemoveFromCampaign(int index) {
+    if (index >= 0 && index < static_cast<int>(scanCampaign.size()))
+    {
+        scanCampaign.erase(scanCampaign.begin() + index);
+        if (campaignCurrentIndex > index)
+        {
+            campaignCurrentIndex--;
+        }
+    }
+}
+
+void Unit::StartCampaign() {
+    if (scanCampaign.empty())
+    {
+        ShowMessage("No cells queued for campaign.");
+        return;
+    }
+    campaignActive = true;
+    campaignCurrentIndex = 0;
+    ShowMessage(TextFormat("Campaign started: %d cells queued.", static_cast<int>(scanCampaign.size())));
+}
+
+void Unit::PauseCampaign() {
+    campaignActive = false;
+    ShowMessage("Campaign paused.");
+}
+
+void Unit::ClearCampaign() {
+    scanCampaign.clear();
+    campaignActive = false;
+    campaignCurrentIndex = 0;
+    ShowMessage("Campaign cleared.");
+}
+
+// --- Objective Methods ---
+
+void Unit::GenerateObjectives() {
+    int prospectingTier = 0;
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "PROSPECTING")
+        {
+            prospectingTier = mod.tier;
+            break;
+        }
+    }
+
+    if (prospectingTier < 1) return;
+
+    int count = std::min(prospectingTier, 3);
+    activeObjectives.clear();
+
+    // Resource types for threshold objectives
+    ResourceType targetTypes[] = {ResourceType::Fe, ResourceType::Ti, ResourceType::Si,
+                                   ResourceType::H2, ResourceType::Al, ResourceType::Ca};
+    int numTargets = 6;
+
+    for (int i = 0; i < count; i++)
+    {
+        ProspectingObjective obj;
+        int objType = GetRandomValue(0, 2);
+
+        if (objType == 0)
+        {
+            // THRESHOLD objective
+            ResourceType target = targetTypes[GetRandomValue(0, numTargets - 1)];
+            float threshold = 2000.0f + GetRandomValue(0, 3000);
+            obj.id = TextFormat("threshold_%d", i);
+            obj.description = TextFormat("Find cell with >%.0f %s",
+                threshold, ResourceTypeToString(target));
+            obj.hintText = "Orbital data suggests rich deposits nearby";
+            obj.conditionType = "THRESHOLD";
+            obj.conditionResource = target;
+            obj.conditionValue = threshold;
+            obj.rewardType = 0;  // Extraction bonus
+            obj.rewardValue = OBJECTIVE_THRESHOLD_BONUS;
+            obj.rewardDuration = OBJECTIVE_THRESHOLD_DURATION;
+        }
+        else if (objType == 1)
+        {
+            // COVERAGE objective
+            int coverageTarget = 5 + GetRandomValue(0, 10);
+            obj.id = TextFormat("coverage_%d", i);
+            obj.description = TextFormat("Scan %d cells in grid", coverageTarget);
+            obj.hintText = "Survey the area systematically";
+            obj.conditionType = "COVERAGE";
+            obj.conditionResource = ResourceType::ENERGY;  // Unused
+            obj.conditionValue = static_cast<float>(coverageTarget);
+            obj.rewardType = 1;  // Confidence bonus
+            obj.rewardValue = OBJECTIVE_COVERAGE_BONUS;
+            obj.rewardDuration = 0.0f;  // Permanent
+        }
+        else
+        {
+            // GRADIENT objective
+            obj.id = TextFormat("gradient_%d", i);
+            obj.description = "Find a resource gradient (>50% diff)";
+            obj.hintText = "Look for deposit boundaries";
+            obj.conditionType = "GRADIENT";
+            obj.conditionResource = ResourceType::Fe;
+            obj.conditionValue = OBJECTIVE_GRADIENT_THRESHOLD;
+            obj.rewardType = 0;  // Extraction bonus
+            obj.rewardValue = OBJECTIVE_GRADIENT_BONUS;
+            obj.rewardDuration = OBJECTIVE_GRADIENT_DURATION;
+        }
+
+        obj.revealed = (i == 0);  // First objective always revealed
+        activeObjectives.push_back(obj);
+    }
+}
+
+void Unit::EvaluateObjectives(int gridX, int gridY) {
+    std::vector<int> completedIndices;
+
+    for (size_t i = 0; i < activeObjectives.size(); i++)
+    {
+        auto& obj = activeObjectives[i];
+        if (obj.completed) continue;
+
+        // Reveal unrevealed objectives when scanning nearby
+        if (!obj.revealed)
+        {
+            obj.revealed = true;
+        }
+
+        bool satisfied = false;
+
+        if (obj.conditionType == "THRESHOLD")
+        {
+            auto scanIt = scanHistory.find({gridX, gridY});
+            if (scanIt != scanHistory.end())
+            {
+                auto elemIt = scanIt->second.elements.find(obj.conditionResource);
+                if (elemIt != scanIt->second.elements.end() && elemIt->second > obj.conditionValue)
+                {
+                    satisfied = true;
+                }
+            }
+        }
+        else if (obj.conditionType == "COVERAGE")
+        {
+            int scannedCount = 0;
+            for (const auto& [coords, scan] : scanHistory)
+            {
+                if (scan.isScanned) scannedCount++;
+            }
+            if (static_cast<float>(scannedCount) >= obj.conditionValue)
+            {
+                satisfied = true;
+            }
+        }
+        else if (obj.conditionType == "GRADIENT")
+        {
+            // Check if any adjacent scanned cell has >50% difference for any resource
+            auto scanIt = scanHistory.find({gridX, gridY});
+            if (scanIt != scanHistory.end())
+            {
+                int dirs[][2] = {{-1,0},{1,0},{0,-1},{0,1}};
+                for (auto& d : dirs)
+                {
+                    auto neighborIt = scanHistory.find({gridX + d[0], gridY + d[1]});
+                    if (neighborIt != scanHistory.end() && neighborIt->second.isScanned)
+                    {
+                        for (const auto& [type, val] : scanIt->second.elements)
+                        {
+                            auto nIt = neighborIt->second.elements.find(type);
+                            if (nIt != neighborIt->second.elements.end() && nIt->second > 0.0f)
+                            {
+                                float diff = std::abs(val - nIt->second) / std::max(val, nIt->second);
+                                if (diff > obj.conditionValue)
+                                {
+                                    satisfied = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (satisfied) break;
+                }
+            }
+        }
+
+        if (satisfied)
+        {
+            obj.completed = true;
+            completedIndices.push_back(static_cast<int>(i));
+        }
+    }
+
+    // Apply rewards and move completed objectives
+    for (int idx : completedIndices)
+    {
+        auto& obj = activeObjectives[idx];
+
+        if (obj.rewardType == 0)
+        {
+            // Extraction bonus
+            objectiveBonusMultiplier = 1.0f + obj.rewardValue;
+            objectiveBonusExpiry = obj.rewardDuration * TICKS_PER_DAY;
+            ShowMessage(TextFormat("Objective complete! +%.0f%% extraction for %.0f days.",
+                obj.rewardValue * 100.0f, obj.rewardDuration));
+        }
+        else if (obj.rewardType == 1)
+        {
+            // Confidence bonus (permanent)
+            campaignConfidenceBonus += obj.rewardValue;
+            ShowMessage(TextFormat("Objective complete! +%.0f%% confidence.",
+                obj.rewardValue * 100.0f));
+        }
+
+        completedObjectives.push_back(obj);
+        std::cout << "[OBJECTIVES] Completed: " << obj.description << std::endl;
+    }
+
+    // Remove completed from active list (reverse order)
+    for (int i = static_cast<int>(completedIndices.size()) - 1; i >= 0; i--)
+    {
+        activeObjectives.erase(activeObjectives.begin() + completedIndices[i]);
+    }
+
+    // Generate replacement objectives
+    if (!completedIndices.empty())
+    {
+        int prospectingTier = 0;
+        for (const auto& mod : modules)
+        {
+            if (mod.moduleType == "PROSPECTING")
+            {
+                prospectingTier = mod.tier;
+                break;
+            }
+        }
+        int maxObj = std::min(prospectingTier, 3);
+        while (static_cast<int>(activeObjectives.size()) < maxObj)
+        {
+            // Generate one new objective
+            ProspectingObjective obj;
+            int objType = GetRandomValue(0, 2);
+            ResourceType targetTypes2[] = {ResourceType::Fe, ResourceType::Ti, ResourceType::Si,
+                                            ResourceType::H2, ResourceType::Al, ResourceType::Ca};
+
+            if (objType == 0)
+            {
+                ResourceType target = targetTypes2[GetRandomValue(0, 5)];
+                float threshold = 2000.0f + GetRandomValue(0, 3000);
+                obj.id = TextFormat("threshold_%d", static_cast<int>(completedObjectives.size()));
+                obj.description = TextFormat("Find cell with >%.0f %s",
+                    threshold, ResourceTypeToString(target));
+                obj.hintText = "Rich deposits detected";
+                obj.conditionType = "THRESHOLD";
+                obj.conditionResource = target;
+                obj.conditionValue = threshold;
+                obj.rewardType = 0;
+                obj.rewardValue = OBJECTIVE_THRESHOLD_BONUS;
+                obj.rewardDuration = OBJECTIVE_THRESHOLD_DURATION;
+            }
+            else if (objType == 1)
+            {
+                int coverageTarget = static_cast<int>(scanHistory.size()) + 3 + GetRandomValue(0, 5);
+                obj.id = TextFormat("coverage_%d", static_cast<int>(completedObjectives.size()));
+                obj.description = TextFormat("Scan %d cells total", coverageTarget);
+                obj.hintText = "Expand survey coverage";
+                obj.conditionType = "COVERAGE";
+                obj.conditionResource = ResourceType::ENERGY;
+                obj.conditionValue = static_cast<float>(coverageTarget);
+                obj.rewardType = 1;
+                obj.rewardValue = OBJECTIVE_COVERAGE_BONUS;
+                obj.rewardDuration = 0.0f;
+            }
+            else
+            {
+                obj.id = TextFormat("gradient_%d", static_cast<int>(completedObjectives.size()));
+                obj.description = "Find a resource gradient (>50% diff)";
+                obj.hintText = "Deposit boundary nearby";
+                obj.conditionType = "GRADIENT";
+                obj.conditionResource = ResourceType::Fe;
+                obj.conditionValue = OBJECTIVE_GRADIENT_THRESHOLD;
+                obj.rewardType = 0;
+                obj.rewardValue = OBJECTIVE_GRADIENT_BONUS;
+                obj.rewardDuration = OBJECTIVE_GRADIENT_DURATION;
+            }
+            obj.revealed = true;
+            activeObjectives.push_back(obj);
+        }
+    }
+}
+
+// --- AI Auto-Management ---
+
+void Unit::UpdateProspectingAI(float deltaTime) {
+    int prospectingTier = 0;
+    for (const auto& mod : modules)
+    {
+        if (mod.moduleType == "PROSPECTING")
+        {
+            prospectingTier = mod.tier;
+            break;
+        }
+    }
+
+    if (prospectingTier < 1) return;
+
+    // Auto-calibration
+    if (prospectingAI.autoCalibrate && !isCalibrating &&
+        calibrationQuality < prospectingAI.calibrationThreshold &&
+        prospectingTier >= 1 && prospectingTier < 3)
+    {
+        StartCalibration();
+        aiLastAction = "AI: Auto-calibrating (quality low)";
+    }
+
+    // T3: Auto-calibration (drift eliminated)
+    if (prospectingTier >= 3)
+    {
+        calibrationQuality = 1.0f;
+    }
+
+    // Auto-campaign (T3 only)
+    if (prospectingAI.autoCampaign && prospectingTier >= 3 &&
+        !campaignActive && scanCampaign.empty())
+    {
+        // Generate a spiral campaign covering unscanned cells
+        Vector2 gridPos = GetGridPosition();
+        int cx = static_cast<int>(gridPos.x);
+        int cy = static_cast<int>(gridPos.y);
+
+        // Spiral outward from center
+        int dirs[][2] = {{1,0}, {0,1}, {-1,0}, {0,-1}};
+        int x = cx, y = cy;
+        int stepSize = 1, dirIdx = 0, stepsTaken = 0, stepsInDir = 0;
+
+        for (int i = 0; i < 25; i++)
+        {
+            if (x >= 0 && x < PLANET_SIZE && y >= 0 && y < PLANET_SIZE)
+            {
+                auto it = scanHistory.find({x, y});
+                if (it == scanHistory.end() || !it->second.isScanned)
+                {
+                    CampaignEntry entry;
+                    entry.gridX = x;
+                    entry.gridY = y;
+                    entry.profileIndex = 1;  // Standard
+                    entry.completed = false;
+                    scanCampaign.push_back(entry);
+                }
+            }
+
+            x += dirs[dirIdx][0];
+            y += dirs[dirIdx][1];
+            stepsInDir++;
+            if (stepsInDir >= stepSize)
+            {
+                stepsInDir = 0;
+                dirIdx = (dirIdx + 1) % 4;
+                stepsTaken++;
+                if (stepsTaken >= 2)
+                {
+                    stepsTaken = 0;
+                    stepSize++;
+                }
+            }
+        }
+
+        if (!scanCampaign.empty())
+        {
+            StartCampaign();
+            aiLastAction = "AI: Auto-campaign started";
+        }
+    }
 }
 
 // --- Operations & Directives Methods ---
