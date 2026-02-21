@@ -5,6 +5,7 @@ ResourceManager::ResourceManager(int gridSize, float cellSize)
     : gridSize(gridSize), cellSize(cellSize) {
     resourceGrid.resize(gridSize, std::vector<ResourceTile>(gridSize));
     surveyGrid.resize(gridSize, std::vector<OrbitalSurveyData>(gridSize));
+    layeredGrid.resize(gridSize, std::vector<LayeredResourceTile>(gridSize));
 }
 
 void ResourceManager::GenerateResourceMap() {
@@ -59,6 +60,9 @@ void ResourceManager::GenerateResourceMap() {
         GenerateResourceCluster(ResourceType::Al, center, radius * 0.9f, 3500.0f);
         GenerateResourceCluster(ResourceType::Ca, center, radius * 0.7f, 2500.0f);
     }
+
+    // Generate depth-layered resources from flat grid
+    GenerateLayeredResources();
 
     // Generate orbital survey data derived from resource clusters
     GenerateOrbitalSurveyData();
@@ -161,6 +165,68 @@ void ResourceManager::UpdateResourceDepletion(int x , int y, ResourceType type, 
             std::max(0.0f, resourceGrid[y][x].resources[type] - amount);
     }
     //std::cout << "Resource " << type << " was depleted " << amount << "units" << std::endl;
+}
+
+void ResourceManager::GenerateLayeredResources() {
+    // Depth bias multipliers per layer per resource
+    // Surface (0-10cm), Shallow (10-30cm), Mid (30-100cm), Deep (100-300cm)
+    struct DepthBias {
+        ResourceType type;
+        float bias[4]; // SURFACE, SHALLOW, MID, DEEP
+    };
+
+    static const DepthBias depthBiases[] = {
+        {ResourceType::H2, {1.5f, 1.0f, 0.5f, 0.3f}},
+        {ResourceType::O2, {1.3f, 1.0f, 0.8f, 0.6f}},
+        {ResourceType::C,  {1.4f, 1.0f, 0.7f, 0.5f}},
+        {ResourceType::Fe, {0.6f, 1.0f, 0.9f, 1.8f}},
+        {ResourceType::Si, {0.8f, 1.0f, 1.3f, 0.7f}},
+        {ResourceType::Ti, {0.4f, 1.0f, 1.0f, 2.0f}},
+        {ResourceType::Al, {0.8f, 1.0f, 1.2f, 0.9f}},
+        {ResourceType::Ca, {0.9f, 1.0f, 1.3f, 0.8f}},
+    };
+
+    for (int y = 0; y < gridSize; y++)
+    {
+        for (int x = 0; x < gridSize; x++)
+        {
+            const auto& tile = resourceGrid[y][x];
+            auto& layered = layeredGrid[y][x];
+
+            for (const auto& db : depthBiases)
+            {
+                auto it = tile.resources.find(db.type);
+                float baseAbundance = (it != tile.resources.end()) ? it->second : 0.0f;
+
+                for (int layer = 0; layer < 4; layer++)
+                {
+                    layered.layers[layer][db.type] = baseAbundance * db.bias[layer];
+                }
+            }
+        }
+    }
+
+    std::cout << "Layered resource data generated for " << gridSize << "x" << gridSize << " grid" << std::endl;
+}
+
+std::vector<std::pair<ResourceType, float>> ResourceManager::GetResourcesAtGridLayer(
+    int gridX, int gridY, DepthLayer layer) const
+{
+    if (gridX < 0 || gridX >= gridSize || gridY < 0 || gridY >= gridSize)
+    {
+        return {};
+    }
+
+    int layerIdx = static_cast<int>(layer);
+    std::vector<std::pair<ResourceType, float>> result;
+    for (const auto& [type, abundance] : layeredGrid[gridY][gridX].layers[layerIdx])
+    {
+        if (abundance > 0.0f)
+        {
+            result.push_back({type, abundance});
+        }
+    }
+    return result;
 }
 
 void ResourceManager::GenerateOrbitalSurveyData() {

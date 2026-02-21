@@ -45,6 +45,24 @@ const float AUTO_BALANCE_THRESHOLD = 0.3f;        // Difference threshold to tri
 const float MIN_TRANSPORT_INTERVAL = 3.0f;        // Minimum seconds between transport jobs on same road
 const int MAX_PACKETS_PER_ROAD = 3;               // Maximum concurrent packets on a road
 
+// Calibration constants
+const float CALIBRATION_DRIFT_PER_SCAN = 0.02f;     // Quality loss per scan
+const float CALIBRATION_MIN_QUALITY = 0.5f;          // Floor for calibration quality
+const float CALIBRATION_DURATION = 30.0f;            // Seconds to calibrate
+const float CALIBRATION_CUSTOM_NOISE_BONUS = 0.5f;   // 50% noise reduction for calibrated element
+
+// Campaign constants
+const int CAMPAIGN_QUEUE_CAP_T2 = 10;                // Max queued cells at T2
+const float CAMPAIGN_COMPLETION_CONFIDENCE = 0.05f;  // +5% confidence per completed campaign
+
+// Objective constants
+const float OBJECTIVE_THRESHOLD_BONUS = 0.25f;       // +25% extraction for Rich Vein
+const float OBJECTIVE_THRESHOLD_DURATION = 5.0f;     // Days for Rich Vein bonus
+const float OBJECTIVE_COVERAGE_BONUS = 0.05f;        // +5% permanent confidence
+const float OBJECTIVE_GRADIENT_BONUS = 0.15f;        // +15% for gradient discovery
+const float OBJECTIVE_GRADIENT_DURATION = 3.0f;      // Days for gradient bonus
+const float OBJECTIVE_GRADIENT_THRESHOLD = 0.5f;     // 50% difference for gradient detection
+
 const float DEFAULT_H2ExtractionRate = 0.03;
 const float DEFAULT_O2ExtractionRate = 0.03;
 const float DEFAULT_CExtractionRate = 0.03;

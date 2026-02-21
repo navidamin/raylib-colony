@@ -39,6 +39,11 @@ public:
         bool isExploited;
     };
 
+    // Depth layer system — 4 layers per cell
+    struct LayeredResourceTile {
+        std::map<ResourceType, float> layers[4];  // Indexed by DepthLayer
+    };
+
     // Constructor
     ResourceManager(int gridSize, float cellSize);
 
@@ -48,6 +53,9 @@ public:
     void DrawResourceDebug(float scale);  // For debugging resource distribution
     void EnsureBasicResources(int x, int y);  // Ensures starting location has basic resources
     void UpdateResourceDepletion(int gridX , int gridY, ResourceType type, float amount);
+
+    // Depth layer system
+    std::vector<std::pair<ResourceType, float>> GetResourcesAtGridLayer(int gridX, int gridY, DepthLayer layer) const;
 
     // Orbital survey system
     OrbitalSurveyData GetOrbitalSurveyAt(int gridX, int gridY) const;
@@ -113,8 +121,10 @@ private:
     float cellSize;                  // Size of each cell in world units
     std::vector<std::vector<ResourceTile>> resourceGrid;
     std::vector<std::vector<OrbitalSurveyData>> surveyGrid;
+    std::vector<std::vector<LayeredResourceTile>> layeredGrid;
 
     void GenerateResourceCluster(ResourceType type, Vector2 center, float radius, float maxAbundance);
+    void GenerateLayeredResources();
     Vector2 GridToWorld(int x, int y) const;
     Vector2 WorldToGrid(Vector2 worldPos) const;
 

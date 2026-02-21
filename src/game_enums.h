@@ -24,6 +24,9 @@ enum class View {
 };
 
 
+// Depth layers for resource profiling
+enum class DepthLayer { SURFACE = 0, SHALLOW = 1, MID = 2, DEEP = 3 };
+
 // Site archetypes for colony placement
 enum class SiteArchetype {
     MARE_INDUSTRIAL,        // High Fe/Ti - industrial/manufacturing focus
