@@ -1645,6 +1645,7 @@ void Unit::PerformLIBSScan(int gridX, int gridY) {
         }
     }
 
+    result.scanOrder = nextScanOrder++;
     scanHistory[{gridX, gridY}] = result;
     scanCooldown = 3.0f;  // 3-second cooldown
 

@@ -108,6 +108,7 @@ public:
         float hydrogenSignal = 0.0f;               // Neutron reading (tier 2+)
         int qualityRating = 0;                     // 0-5 stars (tier 2+)
         bool isScanned = false;
+        int scanOrder = 0;                         // Sequence number for recency sorting
     };
 
     // Excavation system
@@ -210,6 +211,7 @@ private:
     std::map<std::pair<int,int>, ScanResult> scanHistory;
     std::vector<std::pair<int,int>> markedSites;
     float scanCooldown = 0.0f;
+    int nextScanOrder = 1;
 
     // Excavation data
     std::vector<Excavator> excavators;

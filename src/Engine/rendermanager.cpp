@@ -1824,10 +1824,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
         float maxBarW = static_cast<float>(w - padding * 2 - 140);
 
+        // Sort by scan order (most recent first)
+        std::vector<std::pair<std::pair<int,int>, Unit::ScanResult>> sortedScans(
+            scanHistory.begin(), scanHistory.end());
+        std::sort(sortedScans.begin(), sortedScans.end(),
+                  [](const auto& a, const auto& b) { return a.second.scanOrder > b.second.scanOrder; });
+
         int count = 0;
-        for (auto it = scanHistory.rbegin(); it != scanHistory.rend() && count < 4; ++it, ++count)
+        for (const auto& [coords, scan] : sortedScans)
         {
-            const auto& [coords, scan] = *it;
+            if (count >= 4) break;
             DrawTextEx(bodyFont, TextFormat("(%d,%d)", coords.first, coords.second),
                        {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
@@ -1880,6 +1886,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             }
 
             yPos += barH + 6.0f;
+            count++;
         }
     }
 
