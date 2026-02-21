@@ -1,6 +1,6 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-02-08
+**Last Updated:** 2026-02-21
 **Current Sprint:** Prospecting & Extraction Unit Overhaul
 **Timeline:** Phase 1.5 - Extraction Unit Overhaul
 
@@ -22,13 +22,14 @@ PHASE 1.5: Extraction Unit Overhaul ██████████████�
 ├─ Phase A: Foundation (Survey Data & Unlock Registry) ✅ COMPLETE
 ├─ Phase B: Site Selection UI ✅ COMPLETE
 ├─ Phase C: Module Architecture Overhaul ✅ COMPLETE
-├─ Phase D: Prospecting Module (Tiers 0-3) ✅ COMPLETE (data model)
+├─ Phase D: Prospecting Module (Tiers 0-3) ✅ COMPLETE (data model + gameplay)
 ├─ Phase E: Excavation Module (Tiers 0-3) ✅ COMPLETE (data model)
 ├─ Phase F: Beneficiation Module (Tiers 0-3) ✅ COMPLETE (data model)
 ├─ Phase G: Operations & Directives ✅ COMPLETE (data model + handlers)
 ├─ Phase H: Integration & Pipeline ✅ COMPLETE
 ├─ Module-specific UI rendering ✅ COMPLETE (display + interactive controls)
-└─ Balance pass ✅ MOSTLY COMPLETE (bug fix + efficiency rebalance)
+├─ Balance pass ✅ MOSTLY COMPLETE (bug fix + efficiency rebalance)
+└─ Prospecting gameplay overhaul ✅ COMPLETE (scan-gated extraction, noise, confidence)
 
 PHASE 1: Core Resource System ██████░░░░░░░░░░░░░░ ~30% NEXT (1.2/1.3 partially addressed)
 PHASE 2: Transport Network █████████████████░░░ ~90% LARGELY COMPLETE
@@ -124,6 +125,20 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 - **Scan log improvements** - Prospecting scan history bars enlarged (10px → 16px), element labels now show name + percentage (e.g. "Fe 42%")
 - **Font choice** - Evaluated Orbitron, Rajdhani, Chakra Petch, Titillium Web; kept Exo 2 (Regular + Bold)
 
+### Prospecting Gameplay Overhaul (2026-02-21) ✅ COMPLETE
+
+- **Scan-gated extraction** - `ProcessExtraction()` applies `scanMultiplier`: 0.35 (unscanned), 1.0 (scanned), 1.15 (marked). Prospecting is now mandatory for efficient extraction.
+- **Tier-dependent scan noise** - `PerformLIBSScan()` rewritten:
+  - Tier 0: Visual estimation — quality stars + LOW/MED/HIGH categories only, no numbers. 5s cooldown, 10 energy.
+  - Tier 1: LIBS — numeric values with ±15% noise. 3s cooldown, 50 energy.
+  - Tier 2: Multi-spectral — ±5% noise + minerals + hydrogen.
+  - Tier 3: Deep survey — exact values, no noise.
+- **Tier 0 scanning enabled** - Previously blocked at `tier >= 1`; now all tiers can scan. Tier 0 provides extraction rate unlock but no precise data.
+- **Colony Ctrl overlay nerfed** - "RESOURCE PREVIEW" → "ORBITAL SURVEY". Removed exact abundance numbers. Shows only LOW/MED/HIGH categories with "(prospect for detail)" hint.
+- **Geological confidence system** - `GetGeologicalConfidence()` counts scanned cells in 5x5 grid (each = 4%). Up to +10% bonus added to `GetOperationsEfficiencyModifier()` when Operations module is active.
+- **UI updates** - Prospecting panel: tier-aware titles (VISUAL ESTIMATION / LIBS SCANNER / etc.), accuracy labels, confidence meter. Scan history: Tier 0 shows category tags, Tier 1+ shows composition bars. Operations panel: shows survey coverage bonus. Cooldown bar adjusts for 5s (T0) vs 3s (T1+).
+- **Data model** - `ScanResult` extended with `scanTier` (int) and `categories` (map<ResourceType, string>).
+
 ---
 
 ## Remaining Tasks
@@ -189,7 +204,8 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 ## Next Sprint Preview
 
 After completing remaining tasks, next priorities:
-1. **Tune upgrade costs** - Adjust resource costs per tier for engaging progression
-2. **Manual playtesting** - Full pipeline throughput verification at each tier
-3. **Phase 1: Core Resource System** - Phase 1.2 (resource classification) and 1.3 (flow mechanisms) are partially addressed by the ResourceDescriptor refactor; remaining work: storage capacity (1.1), resource visualization (1.2), transport timing (1.3), consumption/distribution (1.4)
-4. **Phase 3: Advanced Production** - Manufacturing chains, research trees
+1. **Prospecting Phase 2** - Depth layers (stratify resources by depth, excavator depth determines access), resource veins (hidden 2-5x concentrations discoverable via Tier 2+ scanning)
+2. **Tune upgrade costs** - Adjust resource costs per tier for engaging progression
+3. **Manual playtesting** - Full pipeline throughput verification at each tier, verify scan-gated extraction feels right
+4. **Phase 1: Core Resource System** - Phase 1.2 (resource classification) and 1.3 (flow mechanisms) are partially addressed by the ResourceDescriptor refactor; remaining work: storage capacity (1.1), resource visualization (1.2), transport timing (1.3), consumption/distribution (1.4)
+5. **Phase 3: Advanced Production** - Manufacturing chains, research trees

@@ -62,7 +62,7 @@ Create a scalable, data-driven colony management game with deep resource logisti
 ### **PHASE 1.5: Extraction Unit Overhaul** ⚡ CURRENT
 **Status:** IN PROGRESS (~99% complete)
 **Timeline:** Week 8-12
-**Last Updated:** 2026-02-08
+**Last Updated:** 2026-02-21
 
 Based on `Prospecting_Extraction_Mechanics.md` design document.
 
@@ -89,10 +89,11 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
   - ✅ game_types.toml updated with 5 extraction modules × 4 tiers
 
 - ✅ **Phase D: Prospecting Module (Tiers 0-3)**
-  - ✅ ScanResult struct with elements, minerals, hydrogen, quality rating
-  - ✅ PerformLIBSScan() with cooldown and energy cost
+  - ✅ ScanResult struct with elements, minerals, hydrogen, quality rating, scanTier, categories
+  - ✅ PerformLIBSScan() with tier-dependent noise (T0: categories, T1: ±15%, T2: ±5%, T3: exact)
   - ✅ MarkSiteForExcavation/UnmarkSite tracking
   - ✅ Tier progression: Visual Estimation → LIBS → Multi-Spectral → Deep Survey
+  - ✅ Tier 0 scanning enabled (categories only, 5s cooldown, 10 energy)
 
 - ✅ **Phase E: Excavation Module**
   - ✅ Excavator struct (id, gridPos, method, depth, rate, wear)
@@ -107,7 +108,7 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
   - ✅ SwapSeparationNodes for node reordering
 
 - ✅ **Phase G: Operations & Directives**
-  - ✅ Operations efficiency modifier (Tier 0: -15%, Tier 3: +20%)
+  - ✅ Operations efficiency modifier (Tier 0: -15%, Tier 3: +20%) + geological confidence bonus (+10% max)
   - ✅ DirectiveType enum (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, etc.)
   - ✅ SetDirective with tier gating
   - ✅ Directive modifiers applied in extraction pipeline
@@ -117,6 +118,7 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
     Excavation → Beneficiation → Storage
   - ✅ Operations and Directives modifiers applied
   - ✅ Excavator count scales extraction output
+  - ✅ Scan-gated extraction efficiency (0.35 unscanned, 1.0 scanned, 1.15 marked)
 
 - ✅ **Extraction Unit UI Rendering (Display Panels)**
   - ✅ Dark-themed RenderManager-based UI for extraction units
@@ -141,7 +143,16 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
   - ✅ Dynamic energy consumption scaling
   - ✅ Removed `energyRequired` dead code
 
+- ✅ **Prospecting Gameplay Overhaul (2026-02-21)**
+  - ✅ Scan-gated extraction: 35% unscanned / 100% scanned / 115% marked site
+  - ✅ Tier-dependent scan noise (T0: categories only, T1: ±15%, T2: ±5%, T3: exact)
+  - ✅ Tier 0 scanning enabled (was blocked at tier>=1)
+  - ✅ Colony Ctrl overlay nerfed — shows only LOW/MED/HIGH categories, no exact values
+  - ✅ Geological confidence: 5x5 scan coverage → up to +10% Operations bonus
+  - ✅ Tier-aware UI: panel titles, accuracy labels, category vs bar display, confidence meters
+
 #### Remaining Tasks 📋
+- 📋 Prospecting Phase 2: depth layers (stratify resources by excavator depth) and resource veins (hidden concentrations via Tier 2+ scanning)
 - 📋 Tune upgrade costs per tier (resource amounts)
 - 📋 Manual playtesting: full pipeline throughput verification at each tier
 - 📋 Dependency validation with clear error messages
@@ -508,7 +519,8 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 **Current Phase:** PHASE 1.5 (Extraction Unit Overhaul) - ~99% complete
 **Next Phase:** PHASE 1 (Core Resource System)
 
-**Recent Completions (2026-02-08):**
+**Recent Completions (2026-02-21):**
+- ✅ Prospecting gameplay overhaul — scan-gated extraction (35%/100%/115%), tier-dependent noise, Tier 0 enabled, Colony overlay nerfed, geological confidence system (+10% Operations bonus)
 - ✅ ResourceDescriptor table refactor — single source of truth for resource metadata; typed resource flow (Sect↔Colony push/pull) wired up
 - ✅ Interactive extraction controls - scan grid, excavator +/- buttons, beneficiation reorder/toggle, directive card selector
 - ✅ Balance pass - fixed beneficiation double-multiply bug, raised node efficiencies, added 3 missing directive handlers, bumped Ops Tier 3
@@ -526,10 +538,11 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 - BuildNewColony/BuildNewSect functionality
 
 **Immediate Priorities:**
-1. 📋 Tune upgrade costs per tier (resource amounts)
-2. 📋 Manual playtesting: full pipeline throughput verification
-3. Phase 1: Core Resource System (storage capacity, resource flow, graceful degradation)
-4. Phase 3: Advanced Production (manufacturing chains, research trees)
+1. 📋 Prospecting Phase 2: depth layers + resource veins
+2. 📋 Tune upgrade costs per tier (resource amounts)
+3. 📋 Manual playtesting: full pipeline throughput verification
+4. Phase 1: Core Resource System (storage capacity, resource flow, graceful degradation)
+5. Phase 3: Advanced Production (manufacturing chains, research trees)
 
 ---
 
@@ -571,6 +584,6 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 
 ---
 
-**Last Updated:** 2026-02-08
+**Last Updated:** 2026-02-21
 **Maintained By:** Development Team
 **Review Cycle:** Weekly updates, major revisions at phase boundaries
