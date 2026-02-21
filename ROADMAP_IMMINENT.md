@@ -18,7 +18,7 @@ PHASE 0: Foundation & Architecture ███████████████
 ├─ Graphics enhancement ~95% COMPLETE (needs polish pass)
 └─ Transport network ✅ COMPLETE (~90%)
 
-PHASE 1.5: Extraction Unit Overhaul ████████████████████ ~99% ⚡ CURRENT
+PHASE 1.5: Extraction Unit Overhaul ████████████████████ 100% ✅ COMPLETE
 ├─ Phase A: Foundation (Survey Data & Unlock Registry) ✅ COMPLETE
 ├─ Phase B: Site Selection UI ✅ COMPLETE
 ├─ Phase C: Module Architecture Overhaul ✅ COMPLETE
@@ -29,7 +29,8 @@ PHASE 1.5: Extraction Unit Overhaul ██████████████�
 ├─ Phase H: Integration & Pipeline ✅ COMPLETE
 ├─ Module-specific UI rendering ✅ COMPLETE (display + interactive controls)
 ├─ Balance pass ✅ MOSTLY COMPLETE (bug fix + efficiency rebalance)
-└─ Prospecting gameplay overhaul ✅ COMPLETE (scan-gated extraction, noise, confidence)
+├─ Prospecting gameplay overhaul ✅ COMPLETE (scan-gated extraction, noise, confidence)
+└─ Prospecting Phase 2 ✅ COMPLETE (profiles, accumulation, calibration, depth, campaigns, objectives, AI)
 
 PHASE 1: Core Resource System ██████░░░░░░░░░░░░░░ ~30% NEXT (1.2/1.3 partially addressed)
 PHASE 2: Transport Network █████████████████░░░ ~90% LARGELY COMPLETE
@@ -139,6 +140,20 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 - **UI updates** - Prospecting panel: tier-aware titles (VISUAL ESTIMATION / LIBS SCANNER / etc.), accuracy labels, confidence meter. Scan history: Tier 0 shows category tags, Tier 1+ shows composition bars. Operations panel: shows survey coverage bonus. Cooldown bar adjusts for 5s (T0) vs 3s (T1+).
 - **Data model** - `ScanResult` extended with `scanTier` (int) and `categories` (map<ResourceType, string>).
 
+### Prospecting Phase 2 Expansion (2026-02-21) ✅ COMPLETE
+
+Six new mechanics adding depth to the prospecting system, plus AI auto-management:
+
+- **Scan Profiles** - Three configurable presets (Quick/Standard/Deep) affecting power, pulse count, cooldown, energy cost, and noise. T0 locked to "Visual"; T1+ selects profiles. Noise formula: `tierNoise / (power × √(pulses/15)) × calibrationFactor / √(scanCount)`.
+- **Confidence Accumulation** - Rescanning a cell performs weighted averaging of results. Effective noise decreases as `1/√(scanCount)`. Extraction multiplier: smooth curve `0.35 + 0.65 × min(1.0, scanCount/3.0)` + 0.15 if marked. Scan count badges on grid cells.
+- **Calibration Drift & Standards** - `calibrationQuality` degrades 0.02 per scan (floor 0.5). Noise multiplied by `(2.0 - quality)`. Manual calibration (30s, blocks scanning) restores to 1.0. T3 auto-calibration eliminates drift. Colored gauge in UI.
+- **Depth Profiling** - `DepthLayer` enum (SURFACE/SHALLOW/MID/DEEP) with depth-biased resource generation. H2 concentrated on surface, Fe/Ti concentrated deep. Excavator depth determines which layer is extracted. T1 scans reveal surface, T2 adds shallow, T3 reveals all 4. Column visualization on hover.
+- **Adaptive Infill Campaign** - Queue cells for automated sequential scanning (T2+, cap 10; T3 unlimited). START/PAUSE/CLEAR controls. Completed campaigns award +5% geological confidence. Middle-click to queue.
+- **Prospecting Objectives** - Three objective types: THRESHOLD (find rich vein → +25% extraction for 5 days), COVERAGE (scan N cells → +5% permanent confidence), GRADIENT (find deposit edge → +15% for 3 days). Generated per tier (T1=1, T2=2, T3=3). Completed objectives replaced with new ones.
+- **AI Auto-Management** - `ProspectingAI` struct with auto profile selection (Quick for first scan, Deep for marked, Standard for low quality), auto calibration (triggers when quality < threshold), and T3 auto campaign (spiral survey of unscanned cells). Toggle checkboxes in UI. AI decisions displayed as messages.
+
+**Files modified:** `game_enums.h` (DepthLayer enum), `game_constants.h` (calibration/campaign/objective constants), `resource_manager.h/.cpp` (LayeredResourceTile, depth-biased generation, GetResourcesAtGridLayer), `unit.h` (4 structs, extended ScanResult, 20+ new methods), `unit.cpp` (all logic), `rendermanager.cpp` (full DrawProspectingPanel overhaul).
+
 ---
 
 ## Remaining Tasks
@@ -203,9 +218,16 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 
 ## Next Sprint Preview
 
-After completing remaining tasks, next priorities:
-1. **Prospecting Phase 2** - Depth layers (stratify resources by depth, excavator depth determines access), resource veins (hidden 2-5x concentrations discoverable via Tier 2+ scanning)
-2. **Tune upgrade costs** - Adjust resource costs per tier for engaging progression
-3. **Manual playtesting** - Full pipeline throughput verification at each tier, verify scan-gated extraction feels right
-4. **Phase 1: Core Resource System** - Phase 1.2 (resource classification) and 1.3 (flow mechanisms) are partially addressed by the ResourceDescriptor refactor; remaining work: storage capacity (1.1), resource visualization (1.2), transport timing (1.3), consumption/distribution (1.4)
-5. **Phase 3: Advanced Production** - Manufacturing chains, research trees
+Phase 1.5 is now fully complete. Next priorities:
+1. **Tune upgrade costs** - Adjust resource costs per tier for engaging progression
+2. **Manual playtesting** - Full pipeline throughput verification at each tier, verify scan-gated extraction and Phase 2 mechanics feel right
+3. **Phase 1: Core Resource System** - Phase 1.2 (resource classification) and 1.3 (flow mechanisms) are partially addressed by the ResourceDescriptor refactor; remaining work: storage capacity (1.1), resource visualization (1.2), transport timing (1.3), consumption/distribution (1.4)
+4. **Phase 3: Advanced Production** - Manufacturing chains, research trees
+
+### Future Prospecting Ideas (not this phase)
+- Global AI Manager that sets policies across all extraction units colony-wide
+- Resource Contour Map (heatmap interpolation) — pairs well with Campaign mode
+- Spectral Interference & Peak Resolution — adds challenge once core systems are solid
+- Subsurface Anomaly Detection (GPR structures: lava tubes, ice deposits)
+- Core Drill Sampling — definitive depth data via excavator commitment
+- Sample Collection & Assay Queue — timed lab analysis as alternative to field LIBS

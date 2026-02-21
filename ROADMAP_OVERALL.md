@@ -59,8 +59,8 @@ Create a scalable, data-driven colony management game with deep resource logisti
 
 ---
 
-### **PHASE 1.5: Extraction Unit Overhaul** ⚡ CURRENT
-**Status:** IN PROGRESS (~99% complete)
+### **PHASE 1.5: Extraction Unit Overhaul** ✅ COMPLETE
+**Status:** COMPLETE (100%)
 **Timeline:** Week 8-12
 **Last Updated:** 2026-02-21
 
@@ -151,8 +151,16 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
   - ✅ Geological confidence: 5x5 scan coverage → up to +10% Operations bonus
   - ✅ Tier-aware UI: panel titles, accuracy labels, category vs bar display, confidence meters
 
+- ✅ **Prospecting Phase 2 Expansion (2026-02-21)**
+  - ✅ Scan Profiles: Quick/Standard/Deep presets with configurable power, pulses, cooldown, energy, noise
+  - ✅ Confidence Accumulation: rescan weighted averaging, noise ∝ 1/√(scanCount), smooth extraction curve
+  - ✅ Calibration Drift: quality degrades per scan (floor 0.5), 30s recalibration, T3 auto-cal
+  - ✅ Depth Profiling: 4 depth layers (SURFACE/SHALLOW/MID/DEEP), depth-biased resource generation, layer-based extraction
+  - ✅ Adaptive Infill Campaign: queued auto-scanning (T2+ cap 10, T3 unlimited), +5% confidence on completion
+  - ✅ Prospecting Objectives: THRESHOLD/COVERAGE/GRADIENT conditions with timed extraction/confidence rewards
+  - ✅ AI Auto-Management: auto profile selection, auto calibration, T3 auto campaign; toggle UI
+
 #### Remaining Tasks 📋
-- 📋 Prospecting Phase 2: depth layers (stratify resources by excavator depth) and resource veins (hidden concentrations via Tier 2+ scanning)
 - 📋 Tune upgrade costs per tier (resource amounts)
 - 📋 Manual playtesting: full pipeline throughput verification at each tier
 - 📋 Dependency validation with clear error messages
@@ -516,10 +524,11 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 
 ## Current Status Summary
 
-**Current Phase:** PHASE 1.5 (Extraction Unit Overhaul) - ~99% complete
+**Current Phase:** PHASE 1.5 (Extraction Unit Overhaul) - 100% COMPLETE
 **Next Phase:** PHASE 1 (Core Resource System)
 
 **Recent Completions (2026-02-21):**
+- ✅ Prospecting Phase 2 expansion — scan profiles (Quick/Standard/Deep), confidence accumulation (rescan averaging), calibration drift & standards, depth profiling (4 layers), adaptive infill campaigns, prospecting objectives (threshold/coverage/gradient), AI auto-management
 - ✅ Prospecting gameplay overhaul — scan-gated extraction (35%/100%/115%), tier-dependent noise, Tier 0 enabled, Colony overlay nerfed, geological confidence system (+10% Operations bonus)
 - ✅ ResourceDescriptor table refactor — single source of truth for resource metadata; typed resource flow (Sect↔Colony push/pull) wired up
 - ✅ Interactive extraction controls - scan grid, excavator +/- buttons, beneficiation reorder/toggle, directive card selector
@@ -538,11 +547,10 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 - BuildNewColony/BuildNewSect functionality
 
 **Immediate Priorities:**
-1. 📋 Prospecting Phase 2: depth layers + resource veins
-2. 📋 Tune upgrade costs per tier (resource amounts)
-3. 📋 Manual playtesting: full pipeline throughput verification
-4. Phase 1: Core Resource System (storage capacity, resource flow, graceful degradation)
-5. Phase 3: Advanced Production (manufacturing chains, research trees)
+1. 📋 Tune upgrade costs per tier (resource amounts)
+2. 📋 Manual playtesting: full pipeline throughput verification (including Phase 2 mechanics)
+3. Phase 1: Core Resource System (storage capacity, resource flow, graceful degradation)
+4. Phase 3: Advanced Production (manufacturing chains, research trees)
 
 ---
 
