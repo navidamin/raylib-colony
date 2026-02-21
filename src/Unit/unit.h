@@ -103,10 +103,12 @@ public:
 
     // Prospecting system
     struct ScanResult {
-        std::map<ResourceType, float> elements;    // Accurate elemental composition
+        std::map<ResourceType, float> elements;    // Elemental composition (may be noisy)
         std::map<std::string, float> minerals;     // Mineral identification (tier 2+)
+        std::map<ResourceType, std::string> categories; // LOW/MED/HIGH per element (tier 0)
         float hydrogenSignal = 0.0f;               // Neutron reading (tier 2+)
-        int qualityRating = 0;                     // 0-5 stars (tier 2+)
+        int qualityRating = 0;                     // 0-5 stars
+        int scanTier = 0;                          // Tier of prospecting module when scanned
         bool isScanned = false;
         int scanOrder = 0;                         // Sequence number for recency sorting
     };
@@ -127,6 +129,7 @@ public:
     void PerformLIBSScan(int gridX, int gridY);
     void MarkSiteForExcavation(int gridX, int gridY);
     void UnmarkSite(int gridX, int gridY);
+    float GetGeologicalConfidence() const;
 
     // Excavation getters
     const std::vector<Excavator>& GetExcavators() const { return excavators; }

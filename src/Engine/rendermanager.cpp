@@ -283,10 +283,10 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
                 DrawRectangleLines(tooltipX, tooltipY, tooltipW, tooltipH, {100, 100, 200, 200});
 
                 int ty = tooltipY + 5;
-                DrawText("RESOURCE PREVIEW", tooltipX + 5, ty, 12, {200, 255, 200, 255});
+                DrawText("ORBITAL SURVEY", tooltipX + 5, ty, 12, {200, 255, 200, 255});
                 ty += 16;
 
-                // Show key resources
+                // Show key resources — categories only, no exact values
                 const ResourceType rawTypes[] = {
                     ResourceType::Fe, ResourceType::Ti, ResourceType::Si,
                     ResourceType::Al, ResourceType::Ca, ResourceType::H2
@@ -310,12 +310,12 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
                     Color levelColor = abundance > 3000.0f ? GREEN :
                                        abundance > 500.0f ? YELLOW : RED;
 
-                    DrawText(TextFormat("%-4s %.0f (%s)", rawNames[i], abundance, level),
+                    DrawText(TextFormat("%-4s %s", rawNames[i], level),
                              tooltipX + 5, ty, 11, levelColor);
                     ty += 14;
                 }
 
-                // Resource score
+                // Overall site rating
                 float totalScore = 0.0f;
                 for (const auto& [type, val] : resources)
                 {
@@ -326,8 +326,10 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
                 Color scoreColor = totalScore > 15000.0f ? GREEN :
                                    totalScore > 5000.0f ? YELLOW : RED;
 
-                DrawText(TextFormat("Score: %s (%.0f)", scoreLabel, totalScore),
+                DrawText(TextFormat("Overall: %s", scoreLabel),
                          tooltipX + 5, ty, 12, scoreColor);
+                ty += 16;
+                DrawText("(prospect for detail)", tooltipX + 5, ty, 10, {150, 150, 180, 200});
             }
         }
     }
@@ -1662,17 +1664,26 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     float yPos = static_cast<float>(y + padding);
     float px = static_cast<float>(x + padding);
 
-    DrawTextEx(headerFont, "LIBS SCANNING SYSTEM", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
-    yPos += 28.0f;
-
+    const char* scanTitles[] = {"VISUAL ESTIMATION", "LIBS SCANNER", "MULTI-SPECTRAL SUITE", "DEEP SURVEY ARRAY"};
     int idx = unit->GetSelectedModuleIndex();
     const auto& mod = unit->GetModules()[idx];
+    int tier = std::min(mod.tier, 3);
+
+    DrawTextEx(headerFont, scanTitles[tier], {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
+    yPos += 28.0f;
 
     // Accuracy based on tier
-    float accuracy[] = {70.0f, 80.0f, 90.0f, 98.0f};
-    float acc = accuracy[std::min(mod.tier, 3)];
-    DrawTextEx(bodyFont, TextFormat("Scan Accuracy: %.0f%%", acc), {px, yPos}, FS(14.0f), sp, EXT_ACCENT_CYAN);
+    const char* accLabels[] = {"Categories only", "+/-15% noise", "+/-5% noise", "Exact readings"};
+    DrawTextEx(bodyFont, TextFormat("Accuracy: %s", accLabels[tier]), {px, yPos}, FS(14.0f), sp, EXT_ACCENT_CYAN);
     yPos += 22.0f;
+
+    // Geological confidence
+    float confidence = unit->GetGeologicalConfidence();
+    Color confColor = confidence >= 0.8f ? EXT_ACCENT_GREEN :
+                      confidence >= 0.4f ? YELLOW : RED;
+    DrawTextEx(bodyFont, TextFormat("Geological Confidence: %.0f%%", confidence * 100.0f),
+               {px, yPos}, FS(13.0f), sp, confColor);
+    yPos += 20.0f;
 
     // Scan history count
     const auto& scanHistory = unit->GetScanHistory();
@@ -1688,7 +1699,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     float gridStartX = px;
     float gridStartY = yPos;
     Vector2 mousePos = GetMousePosition();
-    bool canScan = (mod.tier >= 1);
+    bool canScan = true;  // All tiers can scan (Tier 0 = visual estimation)
     float cooldown = unit->GetScanCooldown();
 
     DrawTextEx(headerFont, "SCAN GRID", {px, yPos - 2.0f}, FS(14.0f), sp, EXT_HEADER_COLOR);
@@ -1790,23 +1801,12 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                    FS(16.0f), sp, EXT_ACCENT_GOLD);
         // Progress bar
         float barY = gridStartY + gridH/2.0f + 10.0f;
-        float progress = 1.0f - (cooldown / 3.0f);
+        float maxCooldown = (mod.tier == 0) ? 5.0f : 3.0f;
+        float progress = 1.0f - (cooldown / maxCooldown);
         DrawRectangle(static_cast<int>(gridStartX + 20.0f), static_cast<int>(barY),
                       static_cast<int>((gridW - 40.0f) * progress), 6, EXT_ACCENT_CYAN);
         DrawRectangleLines(static_cast<int>(gridStartX + 20.0f), static_cast<int>(barY),
                            static_cast<int>(gridW - 40.0f), 6, EXT_PANEL_BORDER);
-    }
-
-    // Tier gate overlay
-    if (!canScan)
-    {
-        float gridW = 5.0f * cellSz;
-        float gridH = 5.0f * cellSz;
-        DrawRectangle(static_cast<int>(gridStartX), static_cast<int>(gridStartY),
-                      static_cast<int>(gridW), static_cast<int>(gridH), {0, 0, 0, 180});
-        DrawTextEx(headerFont, "Requires Tier 1+",
-                   {gridStartX + gridW/2.0f - 60.0f, gridStartY + gridH/2.0f - 8.0f},
-                   FS(14.0f), sp, EXT_DIM_TEXT);
     }
 
     yPos = gridStartY + 5.0f * cellSz + 8.0f;
@@ -1837,51 +1837,66 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             DrawTextEx(bodyFont, TextFormat("(%d,%d)", coords.first, coords.second),
                        {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
-            if (scan.qualityRating > 0)
-            {
-                std::string stars(scan.qualityRating, '*');
-                std::string empty(5 - scan.qualityRating, '.');
-                DrawTextEx(bodyFont, (stars + empty).c_str(),
-                           {px + 55.0f, yPos}, FS(12.0f), sp, EXT_ACCENT_GOLD);
-            }
+            // Star rating (all tiers)
+            std::string stars(scan.qualityRating, '*');
+            std::string empty(5 - scan.qualityRating, '.');
+            DrawTextEx(bodyFont, (stars + empty).c_str(),
+                       {px + 55.0f, yPos}, FS(12.0f), sp, EXT_ACCENT_GOLD);
 
-            // Normalize bars: compute total so segments fit within maxBarW
-            float totalAmount = 0.0f;
-            for (const auto& [resType, amount] : scan.elements)
-            {
-                totalAmount += amount;
-            }
-
-            float barX = px + 100.0f;
-            float availBarW = maxBarW;
             float barH = 16.0f;
-            if (totalAmount > 0.0f)
+
+            if (scan.scanTier == 0)
             {
+                // Tier 0: Show categories only (no bars)
+                float catX = px + 100.0f;
+                for (const auto& [resType, category] : scan.categories)
+                {
+                    std::string resName = ResourceUtils::GetResourceName(resType);
+                    Color catColor = (category == "HIGH") ? GREEN :
+                                     (category == "MED") ? YELLOW : RED;
+                    std::string label = resName.substr(0, 2) + ":" + category;
+                    DrawTextEx(bodyFont, label.c_str(), {catX, yPos + 1.0f},
+                               FS(9.0f), sp, catColor);
+                    catX += MeasureTextEx(bodyFont, label.c_str(), FS(9.0f), sp).x + 6.0f;
+                }
+            }
+            else
+            {
+                // Tier 1+: Show composition bars with values
+                float totalAmount = 0.0f;
                 for (const auto& [resType, amount] : scan.elements)
                 {
-                    float fraction = amount / totalAmount;
-                    float pct = fraction * 100.0f;
-                    float barW2 = fraction * availBarW;
-                    if (barW2 < 2.0f) barW2 = 2.0f;
-                    Color barColor = ResourceUtils::GetResourceColor(resType);
-                    DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos),
-                                  static_cast<int>(barW2), static_cast<int>(barH), barColor);
+                    totalAmount += amount;
+                }
+                float barX = px + 100.0f;
+                float availBarW = maxBarW;
+                if (totalAmount > 0.0f)
+                {
+                    for (const auto& [resType, amount] : scan.elements)
+                    {
+                        float fraction = amount / totalAmount;
+                        float pct = fraction * 100.0f;
+                        float barW2 = fraction * availBarW;
+                        if (barW2 < 2.0f) barW2 = 2.0f;
+                        Color barColor = ResourceUtils::GetResourceColor(resType);
+                        DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos),
+                                      static_cast<int>(barW2), static_cast<int>(barH), barColor);
 
-                    // Label on bar: name + percentage if wide enough
-                    std::string resName = ResourceUtils::GetResourceName(resType);
-                    std::string label = TextFormat("%s %.0f%%", resName.c_str(), pct);
-                    float labelW = MeasureTextEx(bodyFont, label.c_str(), FS(10.0f), sp).x;
-                    if (barW2 > labelW + 4.0f)
-                    {
-                        DrawTextEx(bodyFont, label.c_str(),
-                                   {barX + 2.0f, yPos + 1.0f}, FS(10.0f), sp, {0, 0, 0, 200});
+                        std::string resName = ResourceUtils::GetResourceName(resType);
+                        std::string label = TextFormat("%s %.0f%%", resName.c_str(), pct);
+                        float labelW = MeasureTextEx(bodyFont, label.c_str(), FS(10.0f), sp).x;
+                        if (barW2 > labelW + 4.0f)
+                        {
+                            DrawTextEx(bodyFont, label.c_str(),
+                                       {barX + 2.0f, yPos + 1.0f}, FS(10.0f), sp, {0, 0, 0, 200});
+                        }
+                        else if (barW2 > 18.0f)
+                        {
+                            DrawTextEx(bodyFont, resName.c_str(),
+                                       {barX + 2.0f, yPos + 1.0f}, FS(10.0f), sp, {0, 0, 0, 200});
+                        }
+                        barX += barW2 + 1.0f;
                     }
-                    else if (barW2 > 18.0f)
-                    {
-                        DrawTextEx(bodyFont, resName.c_str(),
-                                   {barX + 2.0f, yPos + 1.0f}, FS(10.0f), sp, {0, 0, 0, 200});
-                    }
-                    barX += barW2 + 1.0f;
                 }
             }
 
@@ -2249,6 +2264,19 @@ void RenderManager::DrawOperationsPanel(Unit* unit, int x, int y, int w, int h)
     };
 
     DrawTextEx(bodyFont, tierDescs[std::min(mod.tier, 3)], {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
+    yPos += 40.0f;
+
+    // Geological confidence bonus
+    float confidence = unit->GetGeologicalConfidence();
+    float confBonus = confidence * 0.10f;
+    Color confColor = confidence >= 0.8f ? EXT_ACCENT_GREEN :
+                      confidence >= 0.4f ? YELLOW : RED;
+
+    DrawTextEx(bodyFont, "Survey Coverage Bonus:", {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
+    yPos += 20.0f;
+    DrawTextEx(headerFont, TextFormat("+%.1f%%  (%.0f%% surveyed)",
+               confBonus * 100.0f, confidence * 100.0f),
+               {px, yPos}, FS(16.0f), sp, confColor);
 }
 
 void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)

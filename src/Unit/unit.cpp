@@ -1127,6 +1127,24 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     // Get available resources at this location
     auto availableResources = resourceManager.GetResourcesAtGrid(gridX, gridY);
 
+    // --- Scan-gated extraction efficiency ---
+    float scanMultiplier = 0.35f;  // Unscanned: 35% efficiency
+    auto scanIt = scanHistory.find({gridX, gridY});
+    if (scanIt != scanHistory.end() && scanIt->second.isScanned)
+    {
+        scanMultiplier = 1.0f;  // Scanned: 100% efficiency
+
+        // Check if site is marked for excavation: +15% bonus
+        for (const auto& site : markedSites)
+        {
+            if (site.first == gridX && site.second == gridY)
+            {
+                scanMultiplier = 1.15f;
+                break;
+            }
+        }
+    }
+
     // --- Apply Operations efficiency modifier ---
     float opsModifier = GetOperationsEfficiencyModifier();
 
@@ -1209,7 +1227,7 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
 
         float extractionAmount = baseRate * efficiency * tierMultiplier *
                                   abundance * opsModifier * directiveModifier *
-                                  priorityBoost * deltaTime;
+                                  scanMultiplier * priorityBoost * deltaTime;
 
         // Scale by number of active excavators
         int activeExcavators = 0;
@@ -1580,20 +1598,20 @@ bool Unit::DeactivateModule(int moduleIndex) {
 // --- Prospecting Methods ---
 
 void Unit::PerformLIBSScan(int gridX, int gridY) {
-    // Check if prospecting module is at least tier 1
-    bool canScan = false;
+    // Find prospecting module — Tier 0+ can scan
+    int prospectingTier = -1;
     for (const auto& mod : modules)
     {
-        if (mod.moduleType == "PROSPECTING" && mod.tier >= 1 && mod.isActive)
+        if (mod.moduleType == "PROSPECTING" && mod.isActive)
         {
-            canScan = true;
+            prospectingTier = mod.tier;
             break;
         }
     }
 
-    if (!canScan)
+    if (prospectingTier < 0)
     {
-        ShowMessage("Requires Prospecting Tier 1+ (LIBS Scanner)");
+        ShowMessage("Prospecting module not active.");
         return;
     }
 
@@ -1608,51 +1626,108 @@ void Unit::PerformLIBSScan(int gridX, int gridY) {
 
     ScanResult result;
     result.isScanned = true;
-    for (const auto& [type, abundance] : resources)
+    result.scanTier = prospectingTier;
+
+    // Quality rating (always computed, all tiers)
+    float totalValue = 0.0f;
+    for (const auto& [type, val] : resources)
     {
-        result.elements[type] = abundance;
+        totalValue += val;
     }
+    result.qualityRating = std::min(5, static_cast<int>(totalValue / 2000.0f));
 
-    // Tier 2+: Add mineral identification
-    for (const auto& mod : modules)
+    if (prospectingTier == 0)
     {
-        if (mod.moduleType == "PROSPECTING" && mod.tier >= 2)
+        // Tier 0: Visual estimation — categories only, no numeric data
+        for (const auto& [type, abundance] : resources)
         {
-            // Derive mineral percentages from elemental composition
-            float feAbundance = result.elements.count(ResourceType::Fe) ?
-                result.elements[ResourceType::Fe] : 0.0f;
-            float tiAbundance = result.elements.count(ResourceType::Ti) ?
-                result.elements[ResourceType::Ti] : 0.0f;
-            float siAbundance = result.elements.count(ResourceType::Si) ?
-                result.elements[ResourceType::Si] : 0.0f;
-
-            result.minerals["Ilmenite"] = (feAbundance + tiAbundance) * 0.01f;
-            result.minerals["Plagioclase"] = siAbundance * 0.015f;
-            result.minerals["Pyroxene"] = feAbundance * 0.01f;
-
-            // Hydrogen signal
-            auto survey = resourceManager.GetOrbitalSurveyAt(gridX, gridY);
-            result.hydrogenSignal = survey.hydrogenSignal;
-
-            // Quality rating (0-5 stars)
-            float totalValue = 0.0f;
-            for (const auto& [type, val] : result.elements)
-            {
-                totalValue += val;
-            }
-            result.qualityRating = std::min(5, static_cast<int>(totalValue / 2000.0f));
-            break;
+            const char* cat = abundance > 3000.0f ? "HIGH" :
+                              abundance > 500.0f ? "MED" : "LOW";
+            result.categories[type] = cat;
         }
+        // No elements stored — player sees only categories
+    }
+    else if (prospectingTier == 1)
+    {
+        // Tier 1: LIBS scan — numeric values with ±15% noise
+        for (const auto& [type, abundance] : resources)
+        {
+            float noise = 1.0f + (GetRandomValue(-150, 150) / 1000.0f);  // ±15%
+            result.elements[type] = abundance * noise;
+
+            const char* cat = abundance > 3000.0f ? "HIGH" :
+                              abundance > 500.0f ? "MED" : "LOW";
+            result.categories[type] = cat;
+        }
+    }
+    else if (prospectingTier == 2)
+    {
+        // Tier 2: Multi-spectral — ±5% noise + minerals + hydrogen
+        float feAbundance = 0.0f, tiAbundance = 0.0f, siAbundance = 0.0f;
+        for (const auto& [type, abundance] : resources)
+        {
+            float noise = 1.0f + (GetRandomValue(-50, 50) / 1000.0f);  // ±5%
+            result.elements[type] = abundance * noise;
+
+            const char* cat = abundance > 3000.0f ? "HIGH" :
+                              abundance > 500.0f ? "MED" : "LOW";
+            result.categories[type] = cat;
+
+            if (type == ResourceType::Fe) feAbundance = abundance;
+            else if (type == ResourceType::Ti) tiAbundance = abundance;
+            else if (type == ResourceType::Si) siAbundance = abundance;
+        }
+
+        result.minerals["Ilmenite"] = (feAbundance + tiAbundance) * 0.01f;
+        result.minerals["Plagioclase"] = siAbundance * 0.015f;
+        result.minerals["Pyroxene"] = feAbundance * 0.01f;
+
+        auto survey = resourceManager.GetOrbitalSurveyAt(gridX, gridY);
+        result.hydrogenSignal = survey.hydrogenSignal;
+    }
+    else
+    {
+        // Tier 3: Deep survey — exact values, no noise
+        float feAbundance = 0.0f, tiAbundance = 0.0f, siAbundance = 0.0f;
+        for (const auto& [type, abundance] : resources)
+        {
+            result.elements[type] = abundance;
+
+            const char* cat = abundance > 3000.0f ? "HIGH" :
+                              abundance > 500.0f ? "MED" : "LOW";
+            result.categories[type] = cat;
+
+            if (type == ResourceType::Fe) feAbundance = abundance;
+            else if (type == ResourceType::Ti) tiAbundance = abundance;
+            else if (type == ResourceType::Si) siAbundance = abundance;
+        }
+
+        result.minerals["Ilmenite"] = (feAbundance + tiAbundance) * 0.01f;
+        result.minerals["Plagioclase"] = siAbundance * 0.015f;
+        result.minerals["Pyroxene"] = feAbundance * 0.01f;
+
+        auto survey = resourceManager.GetOrbitalSurveyAt(gridX, gridY);
+        result.hydrogenSignal = survey.hydrogenSignal;
     }
 
     result.scanOrder = nextScanOrder++;
     scanHistory[{gridX, gridY}] = result;
-    scanCooldown = 3.0f;  // 3-second cooldown
 
-    // Consume energy for scan
-    ConsumeResource(ResourceType::ENERGY, 50.0f);
+    // Tier 0: longer cooldown, less energy
+    if (prospectingTier == 0)
+    {
+        scanCooldown = 5.0f;
+        ConsumeResource(ResourceType::ENERGY, 10.0f);
+    }
+    else
+    {
+        scanCooldown = 3.0f;
+        ConsumeResource(ResourceType::ENERGY, 50.0f);
+    }
 
-    std::cout << "[PROSPECTING] LIBS scan at (" << gridX << "," << gridY << ") complete." << std::endl;
+    const char* tierLabels[] = {"Visual", "LIBS", "Multi-Spectral", "Deep Survey"};
+    std::cout << "[PROSPECTING] " << tierLabels[std::min(prospectingTier, 3)]
+              << " scan at (" << gridX << "," << gridY << ") complete." << std::endl;
 }
 
 void Unit::MarkSiteForExcavation(int gridX, int gridY) {
@@ -1765,6 +1840,30 @@ void Unit::RemoveSeparationNode(int index) {
     }
 }
 
+// --- Geological Confidence ---
+
+float Unit::GetGeologicalConfidence() const {
+    Vector2 gridPos = WorldToGrid(parentSectPosition);
+    int centerGX = static_cast<int>(gridPos.x);
+    int centerGY = static_cast<int>(gridPos.y);
+
+    int scannedCount = 0;
+    for (int dy = -2; dy <= 2; dy++)
+    {
+        for (int dx = -2; dx <= 2; dx++)
+        {
+            auto it = scanHistory.find({centerGX + dx, centerGY + dy});
+            if (it != scanHistory.end() && it->second.isScanned)
+            {
+                scannedCount++;
+            }
+        }
+    }
+
+    // 25 cells in 5x5 grid, each contributes 4%
+    return std::min(1.0f, scannedCount / 25.0f);
+}
+
 // --- Operations & Directives Methods ---
 
 void Unit::SetDirective(const ActiveDirective& directive) {
@@ -1827,14 +1926,21 @@ float Unit::GetOperationsEfficiencyModifier() const {
                 return 1.0f;
             }
 
+            float baseMod = 1.0f;
             // Tier 0: continuous, -15% efficiency penalty
-            if (mod.tier == 0) return 0.85f;
+            if (mod.tier == 0) baseMod = 0.85f;
             // Tier 1: manual scheduling, neutral
-            if (mod.tier == 1) return 1.0f;
+            else if (mod.tier == 1) baseMod = 1.0f;
             // Tier 2: optimized scheduling, +10%
-            if (mod.tier == 2) return 1.1f;
+            else if (mod.tier == 2) baseMod = 1.1f;
             // Tier 3: AI scheduling, +20%
-            if (mod.tier == 3) return 1.20f;
+            else if (mod.tier == 3) baseMod = 1.20f;
+
+            // Geological confidence bonus: up to +10% at full coverage
+            float confidence = GetGeologicalConfidence();
+            float confidenceBonus = confidence * 0.10f;
+
+            return baseMod + confidenceBonus;
         }
     }
     return 1.0f;  // No operations module
