@@ -1,6 +1,6 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-02-21
+**Last Updated:** 2026-02-22
 **Current Sprint:** Prospecting & Extraction Unit Overhaul
 **Timeline:** Phase 1.5 - Extraction Unit Overhaul
 
@@ -144,15 +144,31 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 
 Six new mechanics adding depth to the prospecting system, plus AI auto-management:
 
-- **Scan Profiles** - Three configurable presets (Quick/Standard/Deep) affecting power, pulse count, cooldown, energy cost, and noise. T0 locked to "Visual"; T1+ selects profiles. Noise formula: `tierNoise / (power × √(pulses/15)) × calibrationFactor / √(scanCount)`.
-- **Confidence Accumulation** - Rescanning a cell performs weighted averaging of results. Effective noise decreases as `1/√(scanCount)`. Extraction multiplier: smooth curve `0.35 + 0.65 × min(1.0, scanCount/3.0)` + 0.15 if marked. Scan count badges on grid cells.
-- **Calibration Drift & Standards** - `calibrationQuality` degrades 0.02 per scan (floor 0.5). Noise multiplied by `(2.0 - quality)`. Manual calibration (30s, blocks scanning) restores to 1.0. T3 auto-calibration eliminates drift. Colored gauge in UI.
+- **Scan Profiles** - Three configurable presets (Quick/Standard/Deep) affecting power, pulse count, cooldown, energy cost, and survey progress multiplier (0.6×/1.0×/1.5×). T0 locked to "Visual" (0.8×); T1+ selects profiles.
+- **Survey Progress Model** - Each cell tracks `surveyProgress` (0-100%). Each scan adds `baseTierProgress × profileSurveyMult × calibrationQuality × √(1 - currentSurvey)`. Diminishing returns, every scan helps. T0→~25 scans to 100%, T1→~8, T2→~6, T3→~3. Extraction efficiency = `0.35 + 0.65 × surveyProgress`. Replaces old scanCount/3 hard cap.
+- **Calibration Drift & Standards** - `calibrationQuality` degrades 0.02 per scan (floor 0.5). Directly multiplies survey progress gain per scan. Manual calibration (30s, blocks scanning) restores to 1.0. T3 auto-calibration eliminates drift. Colored gauge in UI.
 - **Depth Profiling** - `DepthLayer` enum (SURFACE/SHALLOW/MID/DEEP) with depth-biased resource generation. H2 concentrated on surface, Fe/Ti concentrated deep. Excavator depth determines which layer is extracted. T1 scans reveal surface, T2 adds shallow, T3 reveals all 4. Column visualization on hover.
 - **Adaptive Infill Campaign** - Queue cells for automated sequential scanning (T2+, cap 10; T3 unlimited). START/PAUSE/CLEAR controls. Completed campaigns award +5% geological confidence. Middle-click to queue.
 - **Prospecting Objectives** - Three objective types: THRESHOLD (find rich vein → +25% extraction for 5 days), COVERAGE (scan N cells → +5% permanent confidence), GRADIENT (find deposit edge → +15% for 3 days). Generated per tier (T1=1, T2=2, T3=3). Completed objectives replaced with new ones.
 - **AI Auto-Management** - `ProspectingAI` struct with auto profile selection (Quick for first scan, Deep for marked, Standard for low quality), auto calibration (triggers when quality < threshold), and T3 auto campaign (spiral survey of unscanned cells). Toggle checkboxes in UI. AI decisions displayed as messages.
 
-**Files modified:** `game_enums.h` (DepthLayer enum), `game_constants.h` (calibration/campaign/objective constants), `resource_manager.h/.cpp` (LayeredResourceTile, depth-biased generation, GetResourcesAtGridLayer), `unit.h` (4 structs, extended ScanResult, 20+ new methods), `unit.cpp` (all logic), `rendermanager.cpp` (full DrawProspectingPanel overhaul).
+**Files modified:** `game_enums.h` (DepthLayer enum), `game_constants.h` (calibration/campaign/objective/survey constants), `resource_manager.h/.cpp` (LayeredResourceTile, depth-biased generation, GetResourcesAtGridLayer), `unit.h` (4 structs, extended ScanResult with surveyProgress, ScanProfile with surveyMultiplier, 20+ new methods), `unit.cpp` (all logic), `rendermanager.cpp` (full DrawProspectingPanel overhaul).
+
+### Survey Progress Rework + Panel UI Fixes (2026-02-22) ✅ COMPLETE
+
+Replaced opaque scanCount/3 extraction formula with transparent **Survey Progress** model, plus panel UI fixes:
+
+- **Survey Progress Model** - Per-cell `surveyProgress` (0.0-1.0) replaces scanCount-based extraction gating. Formula: `progressGain = baseTierProgress × profileSurveyMult × calQuality × √(1 - currentSurvey)`. Every scan always helps (diminishing returns, no hard cap). Base progress: T0=10%, T1=20%, T2=30%, T3=45%. Extraction efficiency: `0.35 + 0.65 × surveyProgress`.
+- **Profile survey multipliers** - Quick=0.6×, Standard=1.0×, Deep=1.5× directly multiply survey gain. Profile tooltip now shows "Survey: X.Xx" instead of "Noise: X.Xx".
+- **Calibration affects survey gain** - `calibrationQuality` now directly multiplies survey progress per scan (not just hidden noise). Player sees: low calibration → less survey % per scan → time to recalibrate.
+- **UI: Survey bars on grid cells** - Mini progress bar (3px, color-coded) at bottom of each scanned cell + percentage text, replacing old scan count badge.
+- **UI: Survey + Efficiency readout** - After interaction hints: progress bar with "Survey: XX%", then "Extraction Efficiency: XX%".
+- **UI: Deferred tooltip rendering** - Hover tooltip now draws AFTER depth profile (z-order fix).
+- **UI: Depth profile limited to tier** - Only shows bands the current tier can scan (T1→1 band, T2→2, T3→all) + upgrade hint.
+- **UI: AI management relocated** - Compact inline row near scan profile buttons instead of overflowing bottom section.
+- **Backward compat** - Old scans with scanCount>0 but surveyProgress=0 are migrated using old formula.
+
+**Files modified:** `game_constants.h` (7 SURVEY_* constants), `unit.h` (surveyProgress in ScanResult, surveyMultiplier in ScanProfile, GetSurveyProgress), `unit.cpp` (PerformLIBSScan survey calc, ProcessExtraction formula, AI logic, GetSurveyProgress), `rendermanager.cpp` (DrawProspectingPanel overhaul).
 
 ---
 

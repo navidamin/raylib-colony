@@ -152,13 +152,19 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
   - ✅ Tier-aware UI: panel titles, accuracy labels, category vs bar display, confidence meters
 
 - ✅ **Prospecting Phase 2 Expansion (2026-02-21)**
-  - ✅ Scan Profiles: Quick/Standard/Deep presets with configurable power, pulses, cooldown, energy, noise
-  - ✅ Confidence Accumulation: rescan weighted averaging, noise ∝ 1/√(scanCount), smooth extraction curve
-  - ✅ Calibration Drift: quality degrades per scan (floor 0.5), 30s recalibration, T3 auto-cal
+  - ✅ Scan Profiles: Quick/Standard/Deep presets with configurable power, pulses, cooldown, energy, survey multiplier
+  - ✅ Survey Progress Model: per-cell surveyProgress (0-100%) with diminishing returns, replaces scanCount/3 hard cap
+  - ✅ Calibration Drift: quality degrades per scan (floor 0.5), directly multiplies survey gain, 30s recalibration, T3 auto-cal
   - ✅ Depth Profiling: 4 depth layers (SURFACE/SHALLOW/MID/DEEP), depth-biased resource generation, layer-based extraction
   - ✅ Adaptive Infill Campaign: queued auto-scanning (T2+ cap 10, T3 unlimited), +5% confidence on completion
   - ✅ Prospecting Objectives: THRESHOLD/COVERAGE/GRADIENT conditions with timed extraction/confidence rewards
   - ✅ AI Auto-Management: auto profile selection, auto calibration, T3 auto campaign; toggle UI
+
+- ✅ **Survey Progress Rework + Panel UI Fixes (2026-02-22)**
+  - ✅ Replaced scanCount/3 hard cap with survey progress model (diminishing returns, every scan helps)
+  - ✅ Extraction efficiency = 0.35 + 0.65 × surveyProgress (+ 0.15 marked, × objective bonus)
+  - ✅ Calibration and profiles feed directly into survey progress instead of hidden noise multipliers
+  - ✅ Panel UI: deferred tooltip z-order fix, depth bands limited to tier, AI toggles relocated inline
 
 #### Remaining Tasks 📋
 - 📋 Tune upgrade costs per tier (resource amounts)
@@ -527,9 +533,10 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 **Current Phase:** PHASE 1.5 (Extraction Unit Overhaul) - 100% COMPLETE
 **Next Phase:** PHASE 1 (Core Resource System)
 
-**Recent Completions (2026-02-21):**
-- ✅ Prospecting Phase 2 expansion — scan profiles (Quick/Standard/Deep), confidence accumulation (rescan averaging), calibration drift & standards, depth profiling (4 layers), adaptive infill campaigns, prospecting objectives (threshold/coverage/gradient), AI auto-management
-- ✅ Prospecting gameplay overhaul — scan-gated extraction (35%/100%/115%), tier-dependent noise, Tier 0 enabled, Colony overlay nerfed, geological confidence system (+10% Operations bonus)
+**Recent Completions (2026-02-22):**
+- ✅ Survey progress rework — replaced scanCount/3 hard cap with survey progress model (0-100%, diminishing returns, every scan helps), calibration/profiles feed into survey gain, panel UI fixes (tooltip z-order, depth bands, AI relocation)
+- ✅ Prospecting Phase 2 expansion — scan profiles (Quick/Standard/Deep), survey progress, calibration drift & standards, depth profiling (4 layers), adaptive infill campaigns, prospecting objectives (threshold/coverage/gradient), AI auto-management
+- ✅ Prospecting gameplay overhaul — survey-gated extraction (35% unscanned to 100% fully surveyed + 15% marked), tier-dependent noise, Tier 0 enabled, Colony overlay nerfed, geological confidence system (+10% Operations bonus)
 - ✅ ResourceDescriptor table refactor — single source of truth for resource metadata; typed resource flow (Sect↔Colony push/pull) wired up
 - ✅ Interactive extraction controls - scan grid, excavator +/- buttons, beneficiation reorder/toggle, directive card selector
 - ✅ Balance pass - fixed beneficiation double-multiply bug, raised node efficiencies, added 3 missing directive handlers, bumped Ops Tier 3
@@ -592,6 +599,6 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 
 ---
 
-**Last Updated:** 2026-02-21
+**Last Updated:** 2026-02-22
 **Maintained By:** Development Team
 **Review Cycle:** Weekly updates, major revisions at phase boundaries

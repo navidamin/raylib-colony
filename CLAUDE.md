@@ -203,7 +203,7 @@ Units have a modular upgrade system where each unit type has specialized named m
 - Production/consumption rates, efficiency, upgrade costs per tier
 
 **Extraction unit modules** (5 specialized):
-1. **Prospecting** - LIBS scanning, site marking, scan history (`ScanResult` struct)
+1. **Prospecting** - LIBS scanning, site marking, scan history (`ScanResult` struct), survey progress (0-100%)
 2. **Excavation** - Excavator fleet management (`Excavator` struct), depth/rate control, wear
 3. **Beneficiation** - Separation chain (`SeparationNode` structs: SIZE_SORT, MAGNETIC, ELECTROSTATIC, THERMAL, MRE, DIRECT_OUTPUT)
 4. **Operations** - Efficiency modifier (tier 0=0.85 penalty, tier 3=1.2 bonus)
@@ -212,9 +212,10 @@ Units have a modular upgrade system where each unit type has specialized named m
 **Other unit types** have 5 stub-named modules each (Farming, Energy, Manufacture, Research) using generic production logic.
 
 **Extraction pipeline** (`ProcessExtraction()`):
-1. Excavation stage: base rate * operations modifier * directive modifier * excavator count
-2. Beneficiation stage: raw regolith processed through separation chain nodes
-3. Storage stage: processed resources added to sect storage
+1. Survey-gated efficiency: `scanMultiplier = 0.35 + 0.65 × surveyProgress` (+ 0.15 if marked, × objective bonus). Each scan adds progress via diminishing returns formula.
+2. Excavation stage: base rate × scanMultiplier × operations modifier × directive modifier × excavator count
+3. Beneficiation stage: raw regolith processed through separation chain nodes
+4. Storage stage: processed resources added to sect storage
 
 **Tier upgrades** (`UpgradeModuleTier()`): Check `UnlockRegistry` for required techs, deduct resource costs, increment tier.
 
