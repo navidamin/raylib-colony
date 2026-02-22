@@ -51,6 +51,15 @@ const float CALIBRATION_MIN_QUALITY = 0.5f;          // Floor for calibration qu
 const float CALIBRATION_DURATION = 30.0f;            // Seconds to calibrate
 const float CALIBRATION_CUSTOM_NOISE_BONUS = 0.5f;   // 50% noise reduction for calibrated element
 
+// Survey Progress constants
+const float SURVEY_BASE_PROGRESS_T0 = 0.10f;         // T0: +10% base per scan
+const float SURVEY_BASE_PROGRESS_T1 = 0.20f;         // T1: +20% base per scan
+const float SURVEY_BASE_PROGRESS_T2 = 0.30f;         // T2: +30% base per scan
+const float SURVEY_BASE_PROGRESS_T3 = 0.45f;         // T3: +45% base per scan
+const float SURVEY_UNSCANNED_EFFICIENCY = 0.35f;      // Extraction efficiency with 0% survey
+const float SURVEY_SCANNED_BONUS = 0.65f;             // Max additional efficiency from survey
+const float SURVEY_MARKED_SITE_BONUS = 0.15f;         // Additive bonus for marked sites
+
 // Campaign constants
 const int CAMPAIGN_QUEUE_CAP_T2 = 10;                // Max queued cells at T2
 const float CAMPAIGN_COMPLETION_CONFIDENCE = 0.05f;  // +5% confidence per completed campaign

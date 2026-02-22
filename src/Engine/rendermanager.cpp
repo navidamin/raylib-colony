@@ -1796,9 +1796,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 DrawTextEx(bodyFont, TextFormat("Cooldown: %.0fs  Cost: %.0f",
                     profiles[i].cooldownTime, profiles[i].energyCost),
                     {ttX + 4.0f, ttY + 16.0f}, FS(9.0f), sp, LIGHTGRAY);
-                float noiseMult = 1.0f / (profiles[i].powerMultiplier *
-                    std::sqrt(static_cast<float>(profiles[i].pulseCount) / 15.0f));
-                DrawTextEx(bodyFont, TextFormat("Noise: %.1fx", noiseMult),
+                DrawTextEx(bodyFont, TextFormat("Survey: %.1fx", profiles[i].surveyMultiplier),
                     {ttX + 4.0f, ttY + 29.0f}, FS(9.0f), sp, EXT_ACCENT_CYAN);
             }
         }
@@ -1811,6 +1809,67 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             DrawTextEx(bodyFont, "[AI]", {aiX, yPos + 3.0f}, FS(10.0f), sp, EXT_ACCENT_CYAN);
         }
         yPos += btnHeight + 4.0f;
+
+        // --- AI toggles (compact inline row) ---
+        {
+            auto& ai = unit->GetProspectingAI();
+            Vector2 mousePosAI = GetMousePosition();
+            float aiRowX = px;
+
+            DrawTextEx(bodyFont, "AI:", {aiRowX, yPos + 1.0f}, FS(10.0f), sp, EXT_HEADER_COLOR);
+            aiRowX += 22.0f;
+
+            // Auto Profile checkbox
+            {
+                const char* chk = ai.autoSelectProfile ? "[x] Profile" : "[ ] Profile";
+                float chkW = MeasureTextEx(bodyFont, chk, FS(10.0f), sp).x + 6.0f;
+                Rectangle chkRect = {aiRowX, yPos, chkW, 16.0f};
+                Color textCol = ai.autoSelectProfile ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
+                DrawTextEx(bodyFont, chk, {aiRowX, yPos + 1.0f}, FS(10.0f), sp, textCol);
+                if (CheckCollisionPointRec(mousePosAI, chkRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                {
+                    ai.autoSelectProfile = !ai.autoSelectProfile;
+                }
+                aiRowX += chkW;
+            }
+
+            // Auto Calibrate checkbox
+            {
+                const char* chk = ai.autoCalibrate ? "[x] Cal" : "[ ] Cal";
+                float chkW = MeasureTextEx(bodyFont, chk, FS(10.0f), sp).x + 6.0f;
+                Rectangle chkRect = {aiRowX, yPos, chkW, 16.0f};
+                Color textCol = ai.autoCalibrate ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
+                DrawTextEx(bodyFont, chk, {aiRowX, yPos + 1.0f}, FS(10.0f), sp, textCol);
+                if (CheckCollisionPointRec(mousePosAI, chkRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                {
+                    ai.autoCalibrate = !ai.autoCalibrate;
+                }
+                aiRowX += chkW;
+            }
+
+            // Auto Campaign checkbox (T3 only)
+            if (tier >= 3)
+            {
+                const char* chk = ai.autoCampaign ? "[x] Campaign" : "[ ] Campaign";
+                float chkW = MeasureTextEx(bodyFont, chk, FS(10.0f), sp).x + 6.0f;
+                Rectangle chkRect = {aiRowX, yPos, chkW, 16.0f};
+                Color textCol = ai.autoCampaign ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
+                DrawTextEx(bodyFont, chk, {aiRowX, yPos + 1.0f}, FS(10.0f), sp, textCol);
+                if (CheckCollisionPointRec(mousePosAI, chkRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                {
+                    ai.autoCampaign = !ai.autoCampaign;
+                }
+            }
+            yPos += 18.0f;
+
+            // AI last action message
+            const auto& lastAction = unit->GetAILastAction();
+            if (!lastAction.empty())
+            {
+                DrawTextEx(bodyFont, lastAction.c_str(), {px, yPos}, FS(9.0f), sp, EXT_ACCENT_CYAN);
+                yPos += 14.0f;
+            }
+        }
     }
 
     // --- Interactive 5x5 Scan Grid ---
@@ -1829,6 +1888,12 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     DrawTextEx(bodyFont, "(5x5 around unit)", {px + 85.0f, yPos}, FS(11.0f), sp, EXT_DIM_TEXT);
     yPos += 18.0f;
     gridStartY = yPos;
+
+    // Deferred tooltip state (drawn after depth profile to fix z-order)
+    bool deferredTooltip = false;
+    float deferredTTX = 0.0f, deferredTTY = 0.0f;
+    int deferredTTH = 0;
+    const Unit::ScanResult* deferredScan = nullptr;
 
     for (int dy = -2; dy <= 2; dy++)
     {
@@ -1893,14 +1958,28 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 }
             }
 
-            // Scan count badge (top-right corner)
-            if (isScanned && scanIt->second.scanCount > 0)
+            // Survey progress mini-bar + percentage
+            if (isScanned)
             {
-                int sc = scanIt->second.scanCount;
-                Color badgeColor = sc >= 3 ? EXT_ACCENT_GREEN :
-                                   sc >= 2 ? YELLOW : LIGHTGRAY;
-                DrawTextEx(bodyFont, TextFormat("%dx", sc),
-                           {cx + cellSz - 18.0f, cy + 2.0f}, FS(8.0f), sp, badgeColor);
+                float survey = scanIt->second.surveyProgress;
+                // Backward compat
+                if (survey <= 0.0f && scanIt->second.scanCount > 0)
+                    survey = std::min(1.0f, static_cast<float>(scanIt->second.scanCount) / 3.0f);
+
+                Color barColor = survey >= 0.9f ? EXT_ACCENT_GREEN :
+                                 survey >= 0.5f ? YELLOW : RED;
+                // Mini progress bar at bottom of cell
+                float barHeight = 3.0f;
+                float barY3 = cy + cellSz - 2.0f - barHeight - 1.0f;
+                float barW3 = (cellSz - 4.0f) * survey;
+                DrawRectangle(static_cast<int>(cx + 1.0f), static_cast<int>(barY3),
+                              static_cast<int>(cellSz - 4.0f), static_cast<int>(barHeight),
+                              {30, 30, 40, 255});
+                DrawRectangle(static_cast<int>(cx + 1.0f), static_cast<int>(barY3),
+                              static_cast<int>(barW3), static_cast<int>(barHeight), barColor);
+                // Percentage text (top-right)
+                DrawTextEx(bodyFont, TextFormat("%.0f%%", survey * 100.0f),
+                           {cx + cellSz - 28.0f, cy + 2.0f}, FS(8.0f), sp, barColor);
             }
 
             // Coordinate label
@@ -1941,32 +2020,15 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                     unit->AddToCampaign(cellGX, cellGY);
                 }
 
-                // Hover tooltip with confidence interval
+                // Capture tooltip state (drawn after depth profile for z-order)
                 if (isScanned && scanIt->second.scanCount > 0 && tier >= 1)
                 {
-                    float ttX = cx + cellSz;
-                    float ttY = cy;
-                    if (ttX + 160.0f > static_cast<float>(x + w)) ttX = cx - 162.0f;
-                    int ttH = 12 + static_cast<int>(scanIt->second.elements.size()) * 13;
-                    DrawRectangle(static_cast<int>(ttX), static_cast<int>(ttY),
-                                  160, ttH, {15, 20, 30, 240});
-                    DrawRectangleLines(static_cast<int>(ttX), static_cast<int>(ttY),
-                                      160, ttH, EXT_PANEL_BORDER);
-
-                    float ttYPos = ttY + 3.0f;
-                    int sc = scanIt->second.scanCount;
-                    for (const auto& [resType, amount] : scanIt->second.elements)
-                    {
-                        // Confidence interval: ±(noise% / sqrt(scanCount))
-                        float basePct = (tier == 1) ? 15.0f : (tier == 2) ? 5.0f : 0.0f;
-                        float interval = basePct / std::sqrt(static_cast<float>(sc));
-                        float absInterval = amount * interval / 100.0f;
-                        std::string resName = ResourceUtils::GetResourceName(resType);
-                        DrawTextEx(bodyFont, TextFormat("%s: %.0f +/-%.0f (%dx)",
-                            resName.c_str(), amount, absInterval, sc),
-                            {ttX + 4.0f, ttYPos}, FS(9.0f), sp, LIGHTGRAY);
-                        ttYPos += 13.0f;
-                    }
+                    deferredTooltip = true;
+                    deferredTTX = cx + cellSz;
+                    deferredTTY = cy;
+                    if (deferredTTX + 160.0f > static_cast<float>(x + w)) deferredTTX = cx - 162.0f;
+                    deferredTTH = 12 + static_cast<int>(scanIt->second.elements.size()) * 13 + 16;
+                    deferredScan = &scanIt->second;
                 }
             }
         }
@@ -2016,6 +2078,54 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         "Left-click: Scan cell   Right-click: Mark/unmark site";
     DrawTextEx(bodyFont, hints, {px, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
     yPos += 16.0f;
+
+    // --- Survey + Extraction Efficiency Readout ---
+    {
+        Vector2 unitGrid2 = unit->GetGridPosition();
+        int ugx = static_cast<int>(unitGrid2.x);
+        int ugy = static_cast<int>(unitGrid2.y);
+        float survey = unit->GetSurveyProgress(ugx, ugy);
+        bool hasMark = false;
+
+        // Survey progress bar
+        Color surveyBarColor = survey >= 0.9f ? EXT_ACCENT_GREEN :
+                               survey >= 0.5f ? YELLOW : RED;
+        DrawTextEx(bodyFont, TextFormat("Survey: %.0f%%", survey * 100.0f),
+                   {px, yPos}, FS(12.0f), sp, surveyBarColor);
+        float sBarX = px + 80.0f;
+        float sBarW = 120.0f;
+        float sBarH = 10.0f;
+        DrawRectangle(static_cast<int>(sBarX), static_cast<int>(yPos + 2.0f),
+                      static_cast<int>(sBarW), static_cast<int>(sBarH), {30, 30, 40, 255});
+        DrawRectangle(static_cast<int>(sBarX), static_cast<int>(yPos + 2.0f),
+                      static_cast<int>(sBarW * survey), static_cast<int>(sBarH), surveyBarColor);
+        DrawRectangleLines(static_cast<int>(sBarX), static_cast<int>(yPos + 2.0f),
+                           static_cast<int>(sBarW), static_cast<int>(sBarH), EXT_PANEL_BORDER);
+        yPos += 16.0f;
+
+        // Extraction efficiency from survey
+        float scanMult = SURVEY_UNSCANNED_EFFICIENCY + SURVEY_SCANNED_BONUS * survey;
+
+        const auto& markedSites2 = unit->GetMarkedSites();
+        for (const auto& site : markedSites2)
+        {
+            if (site.first == ugx && site.second == ugy)
+            {
+                scanMult += SURVEY_MARKED_SITE_BONUS;
+                hasMark = true;
+                break;
+            }
+        }
+        scanMult *= unit->GetObjectiveBonusMultiplier();
+        float pct = scanMult * 100.0f;
+
+        Color effColor = pct >= 100.0f ? EXT_ACCENT_GREEN :
+                         pct >= 70.0f  ? YELLOW : RED;
+        const char* source = hasMark ? "(survey + marked site)" : "(from survey data)";
+        DrawTextEx(bodyFont, TextFormat("Extraction Efficiency: %.0f%% %s", pct, source),
+                   {px, yPos}, FS(11.0f), sp, effColor);
+        yPos += 16.0f;
+    }
 
     // --- Campaign Controls (T2+) ---
     if (tier >= 2)
@@ -2108,8 +2218,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             DrawTextEx(bodyFont, TextFormat("(%d,%d)", coords.first, coords.second),
                        {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
-            // Quality rating + scan count
-            DrawTextEx(bodyFont, TextFormat("Q%d %dx", scan.qualityRating, scan.scanCount),
+            // Quality rating + survey progress
+            float entSurvey = scan.surveyProgress;
+            if (entSurvey <= 0.0f && scan.scanCount > 0)
+                entSurvey = std::min(1.0f, static_cast<float>(scan.scanCount) / 3.0f);
+            DrawTextEx(bodyFont, TextFormat("Q%d S:%.0f%%", scan.qualityRating, entSurvey * 100.0f),
                        {px + 55.0f, yPos}, FS(11.0f), sp, EXT_ACCENT_GOLD);
 
             float barH = 16.0f;
@@ -2121,12 +2234,13 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 for (const auto& [resType, category] : scan.categories)
                 {
                     std::string resName = ResourceUtils::GetResourceName(resType);
-                    Color catColor = (category == "HIGH") ? GREEN :
-                                     (category == "MED") ? YELLOW : RED;
+                    Color catColor = (category == "HIGH") ? Color{100, 255, 100, 255} :
+                                     (category == "MED") ? Color{255, 220, 100, 255} :
+                                                           Color{255, 120, 100, 255};
                     std::string label = resName.substr(0, 2) + ":" + category;
                     DrawTextEx(bodyFont, label.c_str(), {catX, yPos + 1.0f},
-                               FS(9.0f), sp, catColor);
-                    catX += MeasureTextEx(bodyFont, label.c_str(), FS(9.0f), sp).x + 6.0f;
+                               FS(11.0f), sp, catColor);
+                    catX += MeasureTextEx(bodyFont, label.c_str(), FS(11.0f), sp).x + 6.0f;
                 }
             }
             else
@@ -2274,8 +2388,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                         const char* layerDepths[] = {"0-10cm", "10-30cm", "30-100cm", "100-300cm"};
                         int maxLayer = scanIt2->second.maxScannedDepthLayer;
 
+                        // Only show bands the current tier can scan: T1→surface, T2→shallow, T3→all
+                        int maxPossibleLayer = (tier <= 1) ? 0 : (tier == 2) ? 1 : 3;
+
                         float bandH = 28.0f;
-                        for (int li = 0; li < 4; li++)
+                        for (int li = 0; li < maxPossibleLayer + 1; li++)
                         {
                             DepthLayer dl = static_cast<DepthLayer>(li);
                             float bandY = dpY + li * (bandH + 2.0f);
@@ -2318,7 +2435,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                             }
                             else
                             {
-                                // Unscanned layer
+                                // Unscanned layer (within tier capability but not yet scanned)
                                 DrawRectangle(static_cast<int>(dpX), static_cast<int>(bandY),
                                               static_cast<int>(dpW), static_cast<int>(bandH),
                                               {15, 15, 20, 255});
@@ -2329,6 +2446,17 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                             DrawRectangleLines(static_cast<int>(dpX), static_cast<int>(bandY),
                                                static_cast<int>(dpW), static_cast<int>(bandH), EXT_PANEL_BORDER);
                         }
+
+                        // Upgrade hint if deeper layers are locked
+                        if (maxPossibleLayer < 3)
+                        {
+                            const char* nextTierNames[] = {"Multi-Spectral Suite (T2)", "Deep Survey Array (T3)"};
+                            float hintY = dpY + (maxPossibleLayer + 1) * (bandH + 2.0f) + 2.0f;
+                            DrawTextEx(bodyFont, TextFormat("Upgrade to %s", nextTierNames[std::min(tier - 1, 1)]),
+                                       {dpX, hintY}, FS(9.0f), sp, EXT_DIM_TEXT);
+                            DrawTextEx(bodyFont, "for deeper layers",
+                                       {dpX, hintY + 12.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
+                        }
                     }
                     goto depthProfileDone;  // Only draw for one cell
                 }
@@ -2337,72 +2465,38 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         depthProfileDone:;
     }
 
-    // --- AI Auto-Management Toggle (T1+) ---
-    if (tier >= 1)
+    // --- Deferred hover tooltip (drawn on top of depth profile) ---
+    if (deferredTooltip && deferredScan)
     {
-        yPos += 8.0f;
-        DrawTextEx(headerFont, "AI MANAGEMENT", {px, yPos}, FS(12.0f), sp, EXT_HEADER_COLOR);
-        yPos += 16.0f;
+        DrawRectangle(static_cast<int>(deferredTTX), static_cast<int>(deferredTTY),
+                      160, deferredTTH, {15, 20, 30, 240});
+        DrawRectangleLines(static_cast<int>(deferredTTX), static_cast<int>(deferredTTY),
+                          160, deferredTTH, EXT_PANEL_BORDER);
 
-        auto& ai = unit->GetProspectingAI();
-        Vector2 mousePos3 = GetMousePosition();
-        float checkX = px;
-        float checkW = panelW * 0.5f;
-        float checkH = 16.0f;
-
-        // Auto Profile checkbox
+        float ttYPos = deferredTTY + 3.0f;
+        int sc = deferredScan->scanCount;
+        for (const auto& [resType, amount] : deferredScan->elements)
         {
-            Rectangle checkRect = {checkX, yPos, checkW, checkH};
-            bool hovered = CheckCollisionPointRec(mousePos3, checkRect);
-            Color textCol = ai.autoSelectProfile ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
-            const char* checkmark = ai.autoSelectProfile ? "[x]" : "[ ]";
-            DrawTextEx(bodyFont, TextFormat("%s Auto Profile", checkmark),
-                       {checkX, yPos + 1.0f}, FS(10.0f), sp, textCol);
-            if (hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                ai.autoSelectProfile = !ai.autoSelectProfile;
-            }
-        }
-        yPos += checkH;
-
-        // Auto Calibrate checkbox
-        {
-            Rectangle checkRect = {checkX, yPos, checkW, checkH};
-            bool hovered = CheckCollisionPointRec(mousePos3, checkRect);
-            Color textCol = ai.autoCalibrate ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
-            const char* checkmark = ai.autoCalibrate ? "[x]" : "[ ]";
-            DrawTextEx(bodyFont, TextFormat("%s Auto Calibrate", checkmark),
-                       {checkX, yPos + 1.0f}, FS(10.0f), sp, textCol);
-            if (hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                ai.autoCalibrate = !ai.autoCalibrate;
-            }
-        }
-        yPos += checkH;
-
-        // Auto Campaign checkbox (T3 only)
-        if (tier >= 3)
-        {
-            Rectangle checkRect = {checkX, yPos, checkW, checkH};
-            bool hovered = CheckCollisionPointRec(mousePos3, checkRect);
-            Color textCol = ai.autoCampaign ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
-            const char* checkmark = ai.autoCampaign ? "[x]" : "[ ]";
-            DrawTextEx(bodyFont, TextFormat("%s Auto Campaign", checkmark),
-                       {checkX, yPos + 1.0f}, FS(10.0f), sp, textCol);
-            if (hovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                ai.autoCampaign = !ai.autoCampaign;
-            }
-            yPos += checkH;
+            float basePct = (tier == 1) ? 15.0f : (tier == 2) ? 5.0f : 0.0f;
+            float interval = basePct / std::sqrt(static_cast<float>(sc));
+            float absInterval = amount * interval / 100.0f;
+            std::string resName = ResourceUtils::GetResourceName(resType);
+            DrawTextEx(bodyFont, TextFormat("%s: %.0f +/-%.0f (%dx)",
+                resName.c_str(), amount, absInterval, sc),
+                {deferredTTX + 4.0f, ttYPos}, FS(9.0f), sp, LIGHTGRAY);
+            ttYPos += 13.0f;
         }
 
-        // AI last action message
-        const auto& lastAction = unit->GetAILastAction();
-        if (!lastAction.empty())
-        {
-            DrawTextEx(bodyFont, lastAction.c_str(), {px, yPos + 2.0f}, FS(9.0f), sp, EXT_ACCENT_CYAN);
-        }
+        // Survey progress in tooltip
+        float ttSurvey = deferredScan->surveyProgress;
+        if (ttSurvey <= 0.0f && deferredScan->scanCount > 0)
+            ttSurvey = std::min(1.0f, static_cast<float>(deferredScan->scanCount) / 3.0f);
+        Color ttSurvColor = ttSurvey >= 0.9f ? EXT_ACCENT_GREEN :
+                            ttSurvey >= 0.5f ? YELLOW : RED;
+        DrawTextEx(bodyFont, TextFormat("Survey: %.0f%%", ttSurvey * 100.0f),
+                   {deferredTTX + 4.0f, ttYPos}, FS(9.0f), sp, ttSurvColor);
     }
+
 }
 
 void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)

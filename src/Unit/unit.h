@@ -31,6 +31,7 @@ public:
         int pulseCount;         // 5/15/30, affects noise reduction (sqrt(n))
         float cooldownTime;     // seconds
         float energyCost;       // energy consumed per scan
+        float surveyMultiplier = 1.0f;  // multiplier for survey progress gain
     };
 
     // Campaign entry for automated survey
@@ -153,6 +154,7 @@ public:
         int scanProfileIndex = 0;                  // Which scan profile was used
         std::map<DepthLayer, std::map<ResourceType, float>> layerElements;  // Per-layer data
         int maxScannedDepthLayer = 0;              // Highest layer revealed (0=surface only)
+        float surveyProgress = 0.0f;               // 0.0-1.0, drives extraction efficiency
     };
 
     // Excavation system
@@ -172,6 +174,7 @@ public:
     void MarkSiteForExcavation(int gridX, int gridY);
     void UnmarkSite(int gridX, int gridY);
     float GetGeologicalConfidence() const;
+    float GetSurveyProgress(int gridX, int gridY) const;
 
     // Scan profile accessors
     const ScanProfile& GetActiveScanProfile() const { return activeScanProfile; }

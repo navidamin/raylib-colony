@@ -440,15 +440,15 @@ void Unit::InitializeScanProfiles() {
     if (prospectingTier == 0)
     {
         // Tier 0: Visual only
-        availableProfiles.push_back({"Visual", 0.3f, 1, 5.0f, 10.0f});
+        availableProfiles.push_back({"Visual", 0.3f, 1, 5.0f, 10.0f, 0.8f});
         activeScanProfileIndex = 0;
     }
     else
     {
         // T1+: Quick, Standard, Deep
-        availableProfiles.push_back({"Quick", 0.5f, 5, 2.0f, 20.0f});
-        availableProfiles.push_back({"Standard", 1.0f, 15, 3.0f, 50.0f});
-        availableProfiles.push_back({"Deep", 2.0f, 30, 8.0f, 100.0f});
+        availableProfiles.push_back({"Quick", 0.5f, 5, 2.0f, 20.0f, 0.6f});
+        availableProfiles.push_back({"Standard", 1.0f, 15, 3.0f, 50.0f, 1.0f});
+        availableProfiles.push_back({"Deep", 2.0f, 30, 8.0f, 100.0f, 1.5f});
         activeScanProfileIndex = 1;  // Default to Standard
     }
 
@@ -1257,21 +1257,25 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     // Get available resources at this location and depth layer
     auto availableResources = resourceManager.GetResourcesAtGridLayer(gridX, gridY, activeLayer);
 
-    // --- Scan-gated extraction efficiency (smooth curve) ---
-    float scanMultiplier = 0.35f;  // Unscanned: 35% efficiency
+    // --- Survey-gated extraction efficiency ---
+    float scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY;  // Unscanned: 35% efficiency
     auto scanIt = scanHistory.find({gridX, gridY});
     if (scanIt != scanHistory.end() && scanIt->second.isScanned)
     {
-        int sc = scanIt->second.scanCount;
-        // Smooth curve: 0.35 + 0.65 * min(1.0, scanCount / 3.0)
-        scanMultiplier = 0.35f + 0.65f * std::min(1.0f, static_cast<float>(sc) / 3.0f);
+        float survey = scanIt->second.surveyProgress;
+        // Backward compat: migrate old scans that have scanCount but no surveyProgress
+        if (survey <= 0.0f && scanIt->second.scanCount > 0)
+        {
+            survey = std::min(1.0f, static_cast<float>(scanIt->second.scanCount) / 3.0f);
+        }
+        scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY + SURVEY_SCANNED_BONUS * survey;
 
         // Check if site is marked for excavation: +15% bonus (additive)
         for (const auto& site : markedSites)
         {
             if (site.first == gridX && site.second == gridY)
             {
-                scanMultiplier += 0.15f;
+                scanMultiplier += SURVEY_MARKED_SITE_BONUS;
                 break;
             }
         }
@@ -1783,15 +1787,15 @@ void Unit::PerformLIBSScan(int gridX, int gridY) {
             aiProfileIdx = 0;  // Quick for first scan
             aiLastAction = "AI: Quick scan (first pass)";
         }
-        else if (isMarked && existingScan->second.scanCount < 3)
+        else if (isMarked && existingScan->second.surveyProgress < 0.8f)
         {
-            aiProfileIdx = 2;  // Deep for marked sites needing more data
-            aiLastAction = "AI: Deep scan (marked site)";
+            aiProfileIdx = 2;  // Deep for marked sites needing more survey
+            aiLastAction = "AI: Deep scan (marked site, low survey)";
         }
-        else if (alreadyScanned && existingScan->second.qualityRating <= 2)
+        else if (alreadyScanned && existingScan->second.surveyProgress < 0.5f)
         {
-            aiProfileIdx = 1;  // Standard for low quality
-            aiLastAction = "AI: Standard scan (improve data)";
+            aiProfileIdx = 1;  // Standard for low survey progress
+            aiLastAction = "AI: Standard scan (improve survey)";
         }
         else
         {
@@ -1956,6 +1960,18 @@ void Unit::PerformLIBSScan(int gridX, int gridY) {
         }
     }
 
+    // --- Compute Survey Progress ---
+    static const float baseSurveyProgress[] = {
+        SURVEY_BASE_PROGRESS_T0, SURVEY_BASE_PROGRESS_T1,
+        SURVEY_BASE_PROGRESS_T2, SURVEY_BASE_PROGRESS_T3
+    };
+    float baseProgress = baseSurveyProgress[std::min(prospectingTier, 3)];
+    float profileSurveyMult = profile.surveyMultiplier;
+    float calSurveyMult = (prospectingTier >= 1) ? calibrationQuality : 1.0f;
+    float currentSurvey = isRescan ? result.surveyProgress : 0.0f;
+    float progressGain = baseProgress * profileSurveyMult * calSurveyMult * std::sqrt(1.0f - currentSurvey);
+    result.surveyProgress = std::min(1.0f, currentSurvey + progressGain);
+
     result.scanOrder = nextScanOrder++;
     scanHistory[{gridX, gridY}] = result;
 
@@ -1977,7 +1993,8 @@ void Unit::PerformLIBSScan(int gridX, int gridY) {
     std::cout << "[PROSPECTING] " << tierLabels[std::min(prospectingTier, 3)]
               << " scan (" << profile.name << " profile) at (" << gridX << "," << gridY
               << ") complete. Scan #" << newScanCount
-              << " Cal:" << static_cast<int>(calibrationQuality * 100.0f) << "%" << std::endl;
+              << " Cal:" << static_cast<int>(calibrationQuality * 100.0f) << "%"
+              << " Survey:" << static_cast<int>(result.surveyProgress * 100.0f) << "%" << std::endl;
 }
 
 void Unit::MarkSiteForExcavation(int gridX, int gridY) {
@@ -2112,6 +2129,21 @@ float Unit::GetGeologicalConfidence() const {
 
     // 25 cells in 5x5 grid, each contributes 4%, plus campaign bonus
     return std::min(1.0f, scannedCount / 25.0f + campaignConfidenceBonus);
+}
+
+float Unit::GetSurveyProgress(int gridX, int gridY) const {
+    auto it = scanHistory.find({gridX, gridY});
+    if (it != scanHistory.end() && it->second.isScanned)
+    {
+        float survey = it->second.surveyProgress;
+        // Backward compat: migrate old scans
+        if (survey <= 0.0f && it->second.scanCount > 0)
+        {
+            survey = std::min(1.0f, static_cast<float>(it->second.scanCount) / 3.0f);
+        }
+        return survey;
+    }
+    return 0.0f;
 }
 
 // --- Calibration Methods ---
