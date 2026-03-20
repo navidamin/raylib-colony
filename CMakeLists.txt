@@ -62,8 +62,10 @@ target_compile_options(raylib PRIVATE $<$<C_COMPILER_ID:GNU,Clang>:-Wno-unused-r
 target_compile_options(raylib PRIVATE $<$<C_COMPILER_ID:GNU>:-Wno-stringop-overflow>)
 target_compile_options(raylib PRIVATE $<$<C_COMPILER_ID:Clang>:-Wno-implicit-const-int-float-conversion>)
 target_compile_features(raylib PRIVATE c_std_99)
-if("${PLATFORM}" STREQUAL "Desktop")
-    target_compile_features(glfw PRIVATE c_std_99)
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    if(TARGET glfw)
+        target_compile_features(glfw PRIVATE c_std_99)
+    endif()
 endif()
 
 # ##########################################################################################################################################

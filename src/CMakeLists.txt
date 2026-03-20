@@ -44,20 +44,20 @@ target_include_directories(colony_game PRIVATE
 target_link_libraries(colony_game raylib tomlplusplus::tomlplusplus)
 
 # Platform specific configurations
-if(NOT WIN32)
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
     target_link_libraries(colony_game m)
 endif()
 
 # Web Configurations
-if (${PLATFORM} STREQUAL "Web")
+if ("${PLATFORM}" STREQUAL "Web")
     set_target_properties(colony_game PROPERTIES SUFFIX ".html")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1")
 
-    set(web_link_flags)
+    set(web_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
     if(CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES RelWithDebInfo)
         set(web_link_flags "${web_link_flags} -s ASSERTIONS=1")
     endif()
-    set(web_link_flags "${web_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/resources@resources --use-preload-plugins")
+    # Preload assets into the virtual filesystem at the path the game expects (src/assets/...)
+    set(web_link_flags "${web_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@src/assets --use-preload-plugins")
     set(web_link_flags "${web_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
 
     set_target_properties(colony_game PROPERTIES LINK_FLAGS "${web_link_flags}")
