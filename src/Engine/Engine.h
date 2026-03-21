@@ -19,6 +19,7 @@ public:
 
     void InitGame();
     void Run();
+    void UpdateFrame();
 
 private:
     int screenWidth;

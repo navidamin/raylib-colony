@@ -2,6 +2,10 @@
 #include <ctime>
 #include <cmath>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
 Engine::Engine(int screenWidth, int screenHeight, const char* title)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
@@ -32,12 +36,22 @@ void Engine::InitGame() {
     viewManager.SetCurrentView(View::Menu);
 }
 
+void Engine::UpdateFrame() {
+    HandleInput();
+    Update();
+    Draw();
+}
+
 void Engine::Run() {
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop_arg(
+        [](void* arg) { static_cast<Engine*>(arg)->UpdateFrame(); },
+        this, 0, 1);
+#else
     while (!WindowShouldClose()) {
-        HandleInput();
-        Update();
-        Draw();
+        UpdateFrame();
     }
+#endif
 }
 
 void Engine::HandleInput() {
