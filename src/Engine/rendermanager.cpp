@@ -343,6 +343,49 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
     DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
 
+    // Draw colony reserve dashboard (left side)
+    if (colony)
+    {
+        const auto& reserves = colony->GetStrategicReserves();
+        const auto& resCap = colony->GetReserveCapacity();
+        const auto& resources = GetResourceDescriptors();
+
+        int dashX = 10;
+        int dashY = 110;
+        int dashW = 240;
+
+        DrawRectangle(dashX, dashY, dashW, 20, Color{30, 30, 40, 220});
+        DrawText("COLONY RESERVES", dashX + 5, dashY + 3, 14, WHITE);
+        dashY += 22;
+
+        for (const auto& res : resources)
+        {
+            if (res.category != ResourceCategory::SINGULAR) continue;
+
+            auto sIt = reserves.find(res.type);
+            auto cIt = resCap.find(res.type);
+            float stored = (sIt != reserves.end()) ? sIt->second : 0.0f;
+            float cap = (cIt != resCap.end()) ? cIt->second : 0.0f;
+
+            if (cap <= 0.0f && stored <= 0.0f) continue;
+
+            float fill = cap > 0.0f ? stored / cap : 0.0f;
+            Color barColor;
+            if (fill > 0.9f) barColor = Color{255, 100, 100, 255};
+            else if (fill > 0.7f) barColor = YELLOW;
+            else barColor = Color{80, 180, 220, 255};
+
+            DrawText(res.name, dashX + 5, dashY + 1, 11, LIGHTGRAY);
+            float barX = (float)(dashX + 80);
+            float barW = (float)(dashW - 80 - 5);
+            DrawRectangle((int)barX, dashY, (int)barW, 14, Color{40, 40, 60, 200});
+            DrawRectangle((int)barX, dashY, (int)(barW * fill), 14, barColor);
+            DrawText(TextFormat("%.0f/%.0f", stored, cap), (int)barX + 3, dashY + 1, 11, WHITE);
+
+            dashY += 16;
+        }
+    }
+
     // Draw colony reserve upgrade panel (bottom-right)
     if (colony)
     {
@@ -403,6 +446,49 @@ void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
     DrawText("Sect View", 10, 10, 20, BLACK);
     DrawText("Press U for Unit View", 10, 40, 20, GRAY);
     DrawText("Press C for Colony View", 10, 70, 20, GRAY);
+
+    // Draw sect resource dashboard (left side)
+    if (sect)
+    {
+        const auto& storage = sect->GetResourceStorage();
+        const auto& capacity = sect->GetStorageCapacity();
+        const auto& resources = GetResourceDescriptors();
+
+        int dashX = 10;
+        int dashY = 110;
+        int dashW = 220;
+
+        DrawRectangle(dashX, dashY, dashW, 20, Color{30, 30, 40, 220});
+        DrawText("RESOURCES", dashX + 5, dashY + 3, 14, WHITE);
+        dashY += 22;
+
+        for (const auto& res : resources)
+        {
+            if (res.category != ResourceCategory::SINGULAR) continue;
+
+            auto sIt = storage.find(res.type);
+            auto cIt = capacity.find(res.type);
+            float stored = (sIt != storage.end()) ? sIt->second : 0.0f;
+            float cap = (cIt != capacity.end()) ? cIt->second : 0.0f;
+
+            if (cap <= 0.0f && stored <= 0.0f) continue;
+
+            float fill = cap > 0.0f ? stored / cap : 0.0f;
+            Color barColor;
+            if (fill > 0.9f) barColor = Color{255, 100, 100, 255};
+            else if (fill > 0.7f) barColor = YELLOW;
+            else barColor = Color{80, 180, 220, 255};
+
+            DrawText(res.name, dashX + 5, dashY + 1, 11, LIGHTGRAY);
+            float barX = (float)(dashX + 70);
+            float barW = (float)(dashW - 70 - 5);
+            DrawRectangle((int)barX, dashY, (int)barW, 14, Color{40, 40, 60, 200});
+            DrawRectangle((int)barX, dashY, (int)(barW * fill), 14, barColor);
+            DrawText(TextFormat("%.0f", stored), (int)barX + 3, dashY + 1, 11, WHITE);
+
+            dashY += 16;
+        }
+    }
 
     // Draw storage upgrade panel (bottom-right)
     if (sect)
