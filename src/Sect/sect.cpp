@@ -706,3 +706,45 @@ void Sect::GenerateAmbientEnergy(float deltaTime, float timeOfDay) {
         resourceStorage[ResourceType::ENERGY] = energyCapacity;
     }
 }
+
+bool Sect::CanUpgradeStorage() const {
+    if (storageLevel >= MAX_STORAGE_LEVEL) return false;
+
+    int nextLevel = storageLevel + 1;
+    float feCost = SECT_UPGRADE_COST_FE[nextLevel];
+    float siCost = SECT_UPGRADE_COST_SI[nextLevel];
+    float energyCost = SECT_UPGRADE_COST_ENERGY[nextLevel];
+
+    auto feIt = resourceStorage.find(ResourceType::Fe);
+    auto siIt = resourceStorage.find(ResourceType::Si);
+    auto enIt = resourceStorage.find(ResourceType::ENERGY);
+
+    float feAvail = (feIt != resourceStorage.end()) ? feIt->second : 0.0f;
+    float siAvail = (siIt != resourceStorage.end()) ? siIt->second : 0.0f;
+    float enAvail = (enIt != resourceStorage.end()) ? enIt->second : 0.0f;
+
+    return feAvail >= feCost && siAvail >= siCost && enAvail >= energyCost;
+}
+
+void Sect::UpgradeStorage() {
+    if (!CanUpgradeStorage()) return;
+
+    int nextLevel = storageLevel + 1;
+
+    // Deduct costs
+    resourceStorage[ResourceType::Fe] -= SECT_UPGRADE_COST_FE[nextLevel];
+    resourceStorage[ResourceType::Si] -= SECT_UPGRADE_COST_SI[nextLevel];
+    resourceStorage[ResourceType::ENERGY] -= SECT_UPGRADE_COST_ENERGY[nextLevel];
+
+    storageLevel = nextLevel;
+
+    // Update all capacities with new multiplier
+    float multiplier = STORAGE_LEVEL_MULTIPLIERS[storageLevel];
+    for (auto& [type, cap] : storageCapacity)
+    {
+        cap = SECT_BASE_STORAGE * multiplier;
+    }
+
+    std::cout << "Sect storage upgraded to level " << storageLevel
+              << " (capacity: " << SECT_BASE_STORAGE * multiplier << ")" << std::endl;
+}

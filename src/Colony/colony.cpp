@@ -74,6 +74,48 @@ void Colony::UnlockResearch() {
     // TODO: Implement unlocking of new technologies based on research level
 }
 
+bool Colony::CanUpgradeReserves() const {
+    if (reserveLevel >= MAX_STORAGE_LEVEL) return false;
+
+    int nextLevel = reserveLevel + 1;
+    float feCost = COLONY_UPGRADE_COST_FE[nextLevel];
+    float siCost = COLONY_UPGRADE_COST_SI[nextLevel];
+    float energyCost = COLONY_UPGRADE_COST_ENERGY[nextLevel];
+
+    auto feIt = strategicReserves.find(ResourceType::Fe);
+    auto siIt = strategicReserves.find(ResourceType::Si);
+    auto enIt = strategicReserves.find(ResourceType::ENERGY);
+
+    float feAvail = (feIt != strategicReserves.end()) ? feIt->second : 0.0f;
+    float siAvail = (siIt != strategicReserves.end()) ? siIt->second : 0.0f;
+    float enAvail = (enIt != strategicReserves.end()) ? enIt->second : 0.0f;
+
+    return feAvail >= feCost && siAvail >= siCost && enAvail >= energyCost;
+}
+
+void Colony::UpgradeReserves() {
+    if (!CanUpgradeReserves()) return;
+
+    int nextLevel = reserveLevel + 1;
+
+    // Deduct costs from strategic reserves
+    strategicReserves[ResourceType::Fe] -= COLONY_UPGRADE_COST_FE[nextLevel];
+    strategicReserves[ResourceType::Si] -= COLONY_UPGRADE_COST_SI[nextLevel];
+    strategicReserves[ResourceType::ENERGY] -= COLONY_UPGRADE_COST_ENERGY[nextLevel];
+
+    reserveLevel = nextLevel;
+
+    // Update all reserve capacities
+    float multiplier = STORAGE_LEVEL_MULTIPLIERS[reserveLevel];
+    for (auto& [type, cap] : reserveCapacity)
+    {
+        cap = COLONY_BASE_RESERVES * multiplier;
+    }
+
+    std::cout << "Colony reserves upgraded to level " << reserveLevel
+              << " (capacity: " << COLONY_BASE_RESERVES * multiplier << ")" << std::endl;
+}
+
 
 
 void Colony::Draw(Camera2D& camera) {

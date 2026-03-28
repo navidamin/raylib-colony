@@ -342,6 +342,55 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
 
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
     DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
+
+    // Draw colony reserve upgrade panel (bottom-right)
+    if (colony)
+    {
+        int panelW = 280;
+        int panelH = 100;
+        int panelX = screenWidth - panelW - 10;
+        int panelY = screenHeight - panelH - 10;
+
+        DrawRectangle(panelX, panelY, panelW, panelH, Color{30, 30, 40, 220});
+        DrawRectangleLines(panelX, panelY, panelW, panelH, Color{80, 80, 100, 255});
+
+        int level = colony->GetReserveLevel();
+        float currentCap = COLONY_BASE_RESERVES * STORAGE_LEVEL_MULTIPLIERS[level];
+        DrawText(TextFormat("Reserves Lv.%d (%.0f)", level, currentCap),
+                 panelX + 10, panelY + 10, 16, WHITE);
+
+        if (level < MAX_STORAGE_LEVEL)
+        {
+            int next = level + 1;
+            float nextCap = COLONY_BASE_RESERVES * STORAGE_LEVEL_MULTIPLIERS[next];
+            DrawText(TextFormat("Next: %.0f  Cost: Fe %.0f Si %.0f E %.0f",
+                     nextCap, COLONY_UPGRADE_COST_FE[next],
+                     COLONY_UPGRADE_COST_SI[next], COLONY_UPGRADE_COST_ENERGY[next]),
+                     panelX + 10, panelY + 32, 12, LIGHTGRAY);
+
+            Rectangle btnRect = {(float)(panelX + 10), (float)(panelY + 55), 120.0f, 30.0f};
+            bool canUpgrade = colony->CanUpgradeReserves();
+            Color btnColor = canUpgrade ? Color{60, 140, 60, 255} : Color{80, 80, 80, 255};
+            Color btnTextColor = canUpgrade ? WHITE : GRAY;
+
+            DrawRectangleRec(btnRect, btnColor);
+            DrawRectangleLinesEx(btnRect, 1.0f, canUpgrade ? GREEN : DARKGRAY);
+            DrawText("UPGRADE", (int)btnRect.x + 20, (int)btnRect.y + 8, 14, btnTextColor);
+
+            if (canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                Vector2 mouse = GetMousePosition();
+                if (CheckCollisionPointRec(mouse, btnRect))
+                {
+                    colony->UpgradeReserves();
+                }
+            }
+        }
+        else
+        {
+            DrawText("MAX LEVEL", panelX + 10, panelY + 55, 16, Color{100, 200, 100, 255});
+        }
+    }
 }
 
 void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
@@ -354,6 +403,57 @@ void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
     DrawText("Sect View", 10, 10, 20, BLACK);
     DrawText("Press U for Unit View", 10, 40, 20, GRAY);
     DrawText("Press C for Colony View", 10, 70, 20, GRAY);
+
+    // Draw storage upgrade panel (bottom-right)
+    if (sect)
+    {
+        int panelW = 250;
+        int panelH = 100;
+        int panelX = screenWidth - panelW - 10;
+        int panelY = screenHeight - panelH - 10;
+
+        DrawRectangle(panelX, panelY, panelW, panelH, Color{30, 30, 40, 220});
+        DrawRectangleLines(panelX, panelY, panelW, panelH, Color{80, 80, 100, 255});
+
+        int level = sect->GetStorageLevel();
+        float currentCap = SECT_BASE_STORAGE * STORAGE_LEVEL_MULTIPLIERS[level];
+        DrawText(TextFormat("Storage Lv.%d (%.0f)", level, currentCap),
+                 panelX + 10, panelY + 10, 16, WHITE);
+
+        if (level < MAX_STORAGE_LEVEL)
+        {
+            int next = level + 1;
+            float nextCap = SECT_BASE_STORAGE * STORAGE_LEVEL_MULTIPLIERS[next];
+            DrawText(TextFormat("Next: %.0f  Cost: Fe %.0f Si %.0f E %.0f",
+                     nextCap, SECT_UPGRADE_COST_FE[next],
+                     SECT_UPGRADE_COST_SI[next], SECT_UPGRADE_COST_ENERGY[next]),
+                     panelX + 10, panelY + 32, 12, LIGHTGRAY);
+
+            // Upgrade button
+            Rectangle btnRect = {(float)(panelX + 10), (float)(panelY + 55), 120.0f, 30.0f};
+            bool canUpgrade = sect->CanUpgradeStorage();
+            Color btnColor = canUpgrade ? Color{60, 140, 60, 255} : Color{80, 80, 80, 255};
+            Color btnTextColor = canUpgrade ? WHITE : GRAY;
+
+            DrawRectangleRec(btnRect, btnColor);
+            DrawRectangleLinesEx(btnRect, 1.0f, canUpgrade ? GREEN : DARKGRAY);
+            DrawText("UPGRADE", (int)btnRect.x + 20, (int)btnRect.y + 8, 14, btnTextColor);
+
+            // Check click
+            if (canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                Vector2 mouse = GetMousePosition();
+                if (CheckCollisionPointRec(mouse, btnRect))
+                {
+                    sect->UpgradeStorage();
+                }
+            }
+        }
+        else
+        {
+            DrawText("MAX LEVEL", panelX + 10, panelY + 55, 16, Color{100, 200, 100, 255});
+        }
+    }
 }
 
 void RenderManager::DrawUnitView(Unit* unit, TimeManager& timeManager) {
