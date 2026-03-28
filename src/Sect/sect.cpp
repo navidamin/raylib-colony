@@ -93,6 +93,18 @@ void Sect::Update(float deltaTime) {
         }
     }
 
+    // Generate ambient solar energy
+    GenerateAmbientEnergy(deltaTime, timeManager.GetTimeOfDay());
+
+    // Regenerate manpower toward base level
+    float currentManpower = resourceStorage[ResourceType::MANPOWER];
+    if (currentManpower < SECT_BASE_MANPOWER)
+    {
+        float regenRate = SECT_BASE_MANPOWER * 0.1f;  // 10% of base per second
+        resourceStorage[ResourceType::MANPOWER] = std::min(SECT_BASE_MANPOWER,
+            currentManpower + regenRate*deltaTime);
+    }
+
     // Update road construction if any are in progress
     UpdateRoadConstruction(deltaTime);
 }

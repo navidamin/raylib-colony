@@ -88,6 +88,7 @@ public:
     // Draw Time functions
     void Draw(int screenWidth, int screenHeight);
     int GetCurrentDay() const;
+    float GetTimeOfDay() const;  // Returns 0.0-1.0 (fraction of current day)
 
 private:
     /*

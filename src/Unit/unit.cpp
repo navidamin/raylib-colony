@@ -316,18 +316,31 @@ void Unit::ProcessFarming(float deltaTime) {
     float growthBoost = parameters["GrowthBoost"];
     float waterConsumption = parameters["WaterConsumption"];
 
-    // Calculate food production for this time step
-    float foodProduced = productionRate * fertility * growthBoost * deltaTime;
-
-    // Consume water
+    // Calculate water needed and check availability (graceful degradation)
     float waterNeeded = waterConsumption * deltaTime;
-    // TODO: Check if enough water is available and subtract it
+    float waterAvailable = resourceStorage[ResourceType::WATER];
+    float efficiencyMultiplier = 1.0f;
+
+    if (waterAvailable < waterNeeded)
+    {
+        if (waterAvailable <= 0.0f)
+        {
+            return;  // No water at all — cannot farm
+        }
+        float ratio = waterAvailable / waterNeeded;
+        efficiencyMultiplier = std::max(0.5f*ratio + 0.5f, ratio);
+    }
+
+    // Consume water proportional to efficiency
+    resourceStorage[ResourceType::WATER] = std::max(0.0f,
+        resourceStorage[ResourceType::WATER] - waterNeeded*efficiencyMultiplier);
+
+    // Calculate and deposit food production
+    float foodProduced = productionRate * fertility * growthBoost * deltaTime * efficiencyMultiplier;
+    AddResource(ResourceType::FOOD, foodProduced);
 
     // Reduce fertility over time (soil degradation)
     parameters["FertilityLevel"] = std::max(0.2f, fertility - (0.01f * deltaTime));
-
-    // TODO: Add produced food to storage
-    // This will need to interface with your resource management system
 }
 
 void Unit::ProcessEnergy(float deltaTime) {
@@ -339,19 +352,35 @@ void Unit::ProcessEnergy(float deltaTime) {
     float weatherImpact = parameters["WeatherImpact"];
     float fuelConsumption = parameters["FuelConsumption"];
 
-    // Calculate actual energy production for this time step
-    float energyProduced = energyOutput * efficiency * (1.0f + weatherImpact) * deltaTime;
-
-    // Consume fuel if needed
+    // Check fuel availability (graceful degradation)
+    float efficiencyMultiplier = 1.0f;
     float fuelNeeded = fuelConsumption * deltaTime;
-    // TODO: Check if enough fuel is available and subtract it
+
+    if (fuelNeeded > 0.0f)
+    {
+        float fuelAvailable = resourceStorage[ResourceType::H2];
+        if (fuelAvailable < fuelNeeded)
+        {
+            if (fuelAvailable <= 0.0f)
+            {
+                return;  // No fuel — cannot produce energy
+            }
+            float ratio = fuelAvailable / fuelNeeded;
+            efficiencyMultiplier = std::max(0.5f*ratio + 0.5f, ratio);
+        }
+
+        // Consume fuel proportional to efficiency
+        resourceStorage[ResourceType::H2] = std::max(0.0f,
+            resourceStorage[ResourceType::H2] - fuelNeeded*efficiencyMultiplier);
+    }
+
+    // Calculate and deposit energy production
+    float energyProduced = energyOutput * efficiency * (1.0f + weatherImpact) * deltaTime * efficiencyMultiplier;
+    AddResource(ResourceType::ENERGY, energyProduced);
 
     // Apply maintenance degradation
     float maintenanceCost = parameters["MaintenanceCost"];
     parameters["Efficiency"] = std::max(0.2f, efficiency - (maintenanceCost * deltaTime));
-
-    // TODO: Add produced energy to storage
-    // This will need to interface with your resource management system
 }
 
 void Unit::UpdateConstruction(float deltaTime) {
