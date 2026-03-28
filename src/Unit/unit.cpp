@@ -190,6 +190,30 @@ void Unit::Update(float deltaTime) {
             exc.wear = std::min(exc.wear, 1.0f);
         }
     }
+
+    // Flush overflow buffer into sect storage
+    for (auto& [type, buffered] : overflowBuffer)
+    {
+        if (buffered <= 0.0f) continue;
+
+        auto capacityIt = storageCapacity.find(type);
+        if (capacityIt == storageCapacity.end()) continue;
+
+        float available = capacityIt->second - resourceStorage[type];
+        if (available > 0.0f)
+        {
+            float transfer = std::min(buffered, available);
+            resourceStorage[type] += transfer;
+            buffered -= transfer;
+        }
+
+        // Cap overflow buffer to prevent unbounded growth
+        const float OVERFLOW_BUFFER_CAP = 200.0f;
+        if (buffered > OVERFLOW_BUFFER_CAP)
+        {
+            buffered = OVERFLOW_BUFFER_CAP;
+        }
+    }
 }
 
 void Unit::DrawInSectView(Vector2 corePosition, float coreRadius, int index) {

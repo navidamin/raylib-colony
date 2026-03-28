@@ -1617,6 +1617,7 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
 
     const auto& storage = unit->GetResourceStorage();
     const auto& capacity = unit->GetStorageCapacity();
+    const auto& overflow = unit->GetOverflowBuffer();
     float barW = static_cast<float>(w - padding * 2 - 140);
 
     bool hasStorage = false;
@@ -1624,10 +1625,13 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
     {
         float stored = 0.0f;
         float cap = 0.0f;
+        float buffered = 0.0f;
         auto sIt = storage.find(res.type);
         auto cIt = capacity.find(res.type);
+        auto oIt = overflow.find(res.type);
         if (sIt != storage.end()) stored = sIt->second;
         if (cIt != capacity.end()) cap = cIt->second;
+        if (oIt != overflow.end()) buffered = oIt->second;
 
         if (cap <= 0 && stored <= 0) continue;
         hasStorage = true;
@@ -1641,8 +1645,18 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
         else barColor = EXT_ACCENT_CYAN;
 
         DrawStyledBar(px + 90.0f, yPos, barW, 16.0f, fillFraction, barColor);
-        DrawTextEx(bodyFont, TextFormat("%.0f/%.0f", stored, cap),
-                   {px + 90.0f + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, LIGHTGRAY);
+
+        // Show overflow indicator if buffer has content
+        if (buffered > 0.0f)
+        {
+            DrawTextEx(bodyFont, TextFormat("%.0f/%.0f +%.0f", stored, cap, buffered),
+                       {px + 90.0f + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, Color{255, 180, 100, 255});
+        }
+        else
+        {
+            DrawTextEx(bodyFont, TextFormat("%.0f/%.0f", stored, cap),
+                       {px + 90.0f + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, LIGHTGRAY);
+        }
 
         yPos += 22.0f;
     }
