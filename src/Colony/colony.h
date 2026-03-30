@@ -56,6 +56,11 @@ public:
     bool ReceiveTypedSurplus(const TypedResource& resource);
     bool ProvideTypedResource(ResourceType type, TypedResource& outResource);
 
+    // Reserve upgrades
+    int GetReserveLevel() const { return reserveLevel; }
+    bool CanUpgradeReserves() const;
+    void UpgradeReserves();
+
     // Transport management
     Road* GetRoad(Sect* sectA, Sect* sectB);
     const std::vector<Road>& GetRoads() const { return roads; }
@@ -80,6 +85,7 @@ private:
     // Strategic resource reserves (singular resources)
     std::map<ResourceType, float> strategicReserves;
     std::map<ResourceType, float> reserveCapacity;
+    int reserveLevel = 0;  // Reserve upgrade level (0-3)
 
     // Typed resource reserves (MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS)
     std::map<ResourceType, std::vector<TypedResource>> typedReserves;

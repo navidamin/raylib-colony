@@ -376,3 +376,8 @@ void TimeManager::Draw(int screenWidth, int screenHeight) {
 int TimeManager::GetCurrentDay() const {
     return currentTicks / TICKS_PER_DAY;
 }
+
+float TimeManager::GetTimeOfDay() const {
+    int ticksInDay = currentTicks % TICKS_PER_DAY;
+    return static_cast<float>(ticksInDay) / static_cast<float>(TICKS_PER_DAY);
+}

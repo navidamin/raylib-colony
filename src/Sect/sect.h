@@ -69,6 +69,11 @@ public:
     // Ambient energy generation
     void GenerateAmbientEnergy(float deltaTime, float timeOfDay);
 
+    // Storage upgrades
+    int GetStorageLevel() const { return storageLevel; }
+    bool CanUpgradeStorage() const;
+    void UpgradeStorage();
+
     // Transportation processing
     void UpdateRoadConstruction(float deltaTime);
 
@@ -106,6 +111,7 @@ private:
     std::vector<std::string> production_priority;  // Order of production
     std::map<ResourceType, float> resourceStorage;
     std::map<ResourceType, float> storageCapacity;
+    int storageLevel = 0;  // Storage upgrade level (0-3)
 
     // Typed resource storage (MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS)
     std::map<ResourceType, std::vector<TypedResource>> typedResourceStorage;

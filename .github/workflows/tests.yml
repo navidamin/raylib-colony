@@ -1,0 +1,40 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+          libxext-dev libwayland-dev libxkbcommon-dev \
+          libgl-dev mesa-common-dev
+
+    - name: Configure with tests enabled
+      run: cmake -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build -j$(nproc)
+
+    - name: Run tests
+      run: cd build && ctest --output-on-failure --timeout 60

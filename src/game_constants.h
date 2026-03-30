@@ -30,6 +30,20 @@ const float STORAGE_SURPLUS_THRESHOLD = 0.8f;  // Push to colony when 80% full
 const float STORAGE_DEFICIT_THRESHOLD = 0.1f;  // Pull from colony when below 10%
 const float DEFICIT_REQUEST_AMOUNT = 0.3f;     // Request enough to fill to 30%
 
+// Storage upgrade constants (levels 0-3)
+const int MAX_STORAGE_LEVEL = 3;
+const float STORAGE_LEVEL_MULTIPLIERS[] = {1.0f, 1.5f, 2.0f, 3.0f};
+
+// Sect storage upgrade costs per level (Fe, Si, ENERGY)
+const float SECT_UPGRADE_COST_FE[]     = {0.0f, 100.0f, 250.0f, 500.0f};
+const float SECT_UPGRADE_COST_SI[]     = {0.0f,  50.0f, 150.0f, 300.0f};
+const float SECT_UPGRADE_COST_ENERGY[] = {0.0f, 200.0f, 400.0f, 800.0f};
+
+// Colony reserve upgrade costs per level (Fe, Si, ENERGY, ALLOYS)
+const float COLONY_UPGRADE_COST_FE[]     = {0.0f, 500.0f, 1000.0f, 2000.0f};
+const float COLONY_UPGRADE_COST_SI[]     = {0.0f, 250.0f,  500.0f, 1000.0f};
+const float COLONY_UPGRADE_COST_ENERGY[] = {0.0f, 500.0f, 1000.0f, 2000.0f};
+
 // Manpower constants (constant per sect)
 const float SECT_BASE_MANPOWER = 10.0f;           // Fixed manpower available per sect
 

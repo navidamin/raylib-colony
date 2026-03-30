@@ -342,6 +342,98 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
 
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
     DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
+
+    // Draw colony reserve dashboard (left side)
+    if (colony)
+    {
+        const auto& reserves = colony->GetStrategicReserves();
+        const auto& resCap = colony->GetReserveCapacity();
+        const auto& resources = GetResourceDescriptors();
+
+        int dashX = 10;
+        int dashY = 110;
+        int dashW = 240;
+
+        DrawRectangle(dashX, dashY, dashW, 20, Color{30, 30, 40, 220});
+        DrawText("COLONY RESERVES", dashX + 5, dashY + 3, 14, WHITE);
+        dashY += 22;
+
+        for (const auto& res : resources)
+        {
+            if (res.category != ResourceCategory::SINGULAR) continue;
+
+            auto sIt = reserves.find(res.type);
+            auto cIt = resCap.find(res.type);
+            float stored = (sIt != reserves.end()) ? sIt->second : 0.0f;
+            float cap = (cIt != resCap.end()) ? cIt->second : 0.0f;
+
+            if (cap <= 0.0f && stored <= 0.0f) continue;
+
+            float fill = cap > 0.0f ? stored / cap : 0.0f;
+            Color barColor;
+            if (fill > 0.9f) barColor = Color{255, 100, 100, 255};
+            else if (fill > 0.7f) barColor = YELLOW;
+            else barColor = Color{80, 180, 220, 255};
+
+            DrawText(res.name, dashX + 5, dashY + 1, 11, LIGHTGRAY);
+            float barX = (float)(dashX + 80);
+            float barW = (float)(dashW - 80 - 5);
+            DrawRectangle((int)barX, dashY, (int)barW, 14, Color{40, 40, 60, 200});
+            DrawRectangle((int)barX, dashY, (int)(barW * fill), 14, barColor);
+            DrawText(TextFormat("%.0f/%.0f", stored, cap), (int)barX + 3, dashY + 1, 11, WHITE);
+
+            dashY += 16;
+        }
+    }
+
+    // Draw colony reserve upgrade panel (bottom-right)
+    if (colony)
+    {
+        int panelW = 280;
+        int panelH = 100;
+        int panelX = screenWidth - panelW - 10;
+        int panelY = screenHeight - panelH - 10;
+
+        DrawRectangle(panelX, panelY, panelW, panelH, Color{30, 30, 40, 220});
+        DrawRectangleLines(panelX, panelY, panelW, panelH, Color{80, 80, 100, 255});
+
+        int level = colony->GetReserveLevel();
+        float currentCap = COLONY_BASE_RESERVES * STORAGE_LEVEL_MULTIPLIERS[level];
+        DrawText(TextFormat("Reserves Lv.%d (%.0f)", level, currentCap),
+                 panelX + 10, panelY + 10, 16, WHITE);
+
+        if (level < MAX_STORAGE_LEVEL)
+        {
+            int next = level + 1;
+            float nextCap = COLONY_BASE_RESERVES * STORAGE_LEVEL_MULTIPLIERS[next];
+            DrawText(TextFormat("Next: %.0f  Cost: Fe %.0f Si %.0f E %.0f",
+                     nextCap, COLONY_UPGRADE_COST_FE[next],
+                     COLONY_UPGRADE_COST_SI[next], COLONY_UPGRADE_COST_ENERGY[next]),
+                     panelX + 10, panelY + 32, 12, LIGHTGRAY);
+
+            Rectangle btnRect = {(float)(panelX + 10), (float)(panelY + 55), 120.0f, 30.0f};
+            bool canUpgrade = colony->CanUpgradeReserves();
+            Color btnColor = canUpgrade ? Color{60, 140, 60, 255} : Color{80, 80, 80, 255};
+            Color btnTextColor = canUpgrade ? WHITE : GRAY;
+
+            DrawRectangleRec(btnRect, btnColor);
+            DrawRectangleLinesEx(btnRect, 1.0f, canUpgrade ? GREEN : DARKGRAY);
+            DrawText("UPGRADE", (int)btnRect.x + 20, (int)btnRect.y + 8, 14, btnTextColor);
+
+            if (canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                Vector2 mouse = GetMousePosition();
+                if (CheckCollisionPointRec(mouse, btnRect))
+                {
+                    colony->UpgradeReserves();
+                }
+            }
+        }
+        else
+        {
+            DrawText("MAX LEVEL", panelX + 10, panelY + 55, 16, Color{100, 200, 100, 255});
+        }
+    }
 }
 
 void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
@@ -354,6 +446,100 @@ void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
     DrawText("Sect View", 10, 10, 20, BLACK);
     DrawText("Press U for Unit View", 10, 40, 20, GRAY);
     DrawText("Press C for Colony View", 10, 70, 20, GRAY);
+
+    // Draw sect resource dashboard (left side)
+    if (sect)
+    {
+        const auto& storage = sect->GetResourceStorage();
+        const auto& capacity = sect->GetStorageCapacity();
+        const auto& resources = GetResourceDescriptors();
+
+        int dashX = 10;
+        int dashY = 110;
+        int dashW = 220;
+
+        DrawRectangle(dashX, dashY, dashW, 20, Color{30, 30, 40, 220});
+        DrawText("RESOURCES", dashX + 5, dashY + 3, 14, WHITE);
+        dashY += 22;
+
+        for (const auto& res : resources)
+        {
+            if (res.category != ResourceCategory::SINGULAR) continue;
+
+            auto sIt = storage.find(res.type);
+            auto cIt = capacity.find(res.type);
+            float stored = (sIt != storage.end()) ? sIt->second : 0.0f;
+            float cap = (cIt != capacity.end()) ? cIt->second : 0.0f;
+
+            if (cap <= 0.0f && stored <= 0.0f) continue;
+
+            float fill = cap > 0.0f ? stored / cap : 0.0f;
+            Color barColor;
+            if (fill > 0.9f) barColor = Color{255, 100, 100, 255};
+            else if (fill > 0.7f) barColor = YELLOW;
+            else barColor = Color{80, 180, 220, 255};
+
+            DrawText(res.name, dashX + 5, dashY + 1, 11, LIGHTGRAY);
+            float barX = (float)(dashX + 70);
+            float barW = (float)(dashW - 70 - 5);
+            DrawRectangle((int)barX, dashY, (int)barW, 14, Color{40, 40, 60, 200});
+            DrawRectangle((int)barX, dashY, (int)(barW * fill), 14, barColor);
+            DrawText(TextFormat("%.0f", stored), (int)barX + 3, dashY + 1, 11, WHITE);
+
+            dashY += 16;
+        }
+    }
+
+    // Draw storage upgrade panel (bottom-right)
+    if (sect)
+    {
+        int panelW = 250;
+        int panelH = 100;
+        int panelX = screenWidth - panelW - 10;
+        int panelY = screenHeight - panelH - 10;
+
+        DrawRectangle(panelX, panelY, panelW, panelH, Color{30, 30, 40, 220});
+        DrawRectangleLines(panelX, panelY, panelW, panelH, Color{80, 80, 100, 255});
+
+        int level = sect->GetStorageLevel();
+        float currentCap = SECT_BASE_STORAGE * STORAGE_LEVEL_MULTIPLIERS[level];
+        DrawText(TextFormat("Storage Lv.%d (%.0f)", level, currentCap),
+                 panelX + 10, panelY + 10, 16, WHITE);
+
+        if (level < MAX_STORAGE_LEVEL)
+        {
+            int next = level + 1;
+            float nextCap = SECT_BASE_STORAGE * STORAGE_LEVEL_MULTIPLIERS[next];
+            DrawText(TextFormat("Next: %.0f  Cost: Fe %.0f Si %.0f E %.0f",
+                     nextCap, SECT_UPGRADE_COST_FE[next],
+                     SECT_UPGRADE_COST_SI[next], SECT_UPGRADE_COST_ENERGY[next]),
+                     panelX + 10, panelY + 32, 12, LIGHTGRAY);
+
+            // Upgrade button
+            Rectangle btnRect = {(float)(panelX + 10), (float)(panelY + 55), 120.0f, 30.0f};
+            bool canUpgrade = sect->CanUpgradeStorage();
+            Color btnColor = canUpgrade ? Color{60, 140, 60, 255} : Color{80, 80, 80, 255};
+            Color btnTextColor = canUpgrade ? WHITE : GRAY;
+
+            DrawRectangleRec(btnRect, btnColor);
+            DrawRectangleLinesEx(btnRect, 1.0f, canUpgrade ? GREEN : DARKGRAY);
+            DrawText("UPGRADE", (int)btnRect.x + 20, (int)btnRect.y + 8, 14, btnTextColor);
+
+            // Check click
+            if (canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                Vector2 mouse = GetMousePosition();
+                if (CheckCollisionPointRec(mouse, btnRect))
+                {
+                    sect->UpgradeStorage();
+                }
+            }
+        }
+        else
+        {
+            DrawText("MAX LEVEL", panelX + 10, panelY + 55, 16, Color{100, 200, 100, 255});
+        }
+    }
 }
 
 void RenderManager::DrawUnitView(Unit* unit, TimeManager& timeManager) {
@@ -1617,6 +1803,7 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
 
     const auto& storage = unit->GetResourceStorage();
     const auto& capacity = unit->GetStorageCapacity();
+    const auto& overflow = unit->GetOverflowBuffer();
     float barW = static_cast<float>(w - padding * 2 - 140);
 
     bool hasStorage = false;
@@ -1624,10 +1811,13 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
     {
         float stored = 0.0f;
         float cap = 0.0f;
+        float buffered = 0.0f;
         auto sIt = storage.find(res.type);
         auto cIt = capacity.find(res.type);
+        auto oIt = overflow.find(res.type);
         if (sIt != storage.end()) stored = sIt->second;
         if (cIt != capacity.end()) cap = cIt->second;
+        if (oIt != overflow.end()) buffered = oIt->second;
 
         if (cap <= 0 && stored <= 0) continue;
         hasStorage = true;
@@ -1641,8 +1831,18 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
         else barColor = EXT_ACCENT_CYAN;
 
         DrawStyledBar(px + 90.0f, yPos, barW, 16.0f, fillFraction, barColor);
-        DrawTextEx(bodyFont, TextFormat("%.0f/%.0f", stored, cap),
-                   {px + 90.0f + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, LIGHTGRAY);
+
+        // Show overflow indicator if buffer has content
+        if (buffered > 0.0f)
+        {
+            DrawTextEx(bodyFont, TextFormat("%.0f/%.0f +%.0f", stored, cap, buffered),
+                       {px + 90.0f + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, Color{255, 180, 100, 255});
+        }
+        else
+        {
+            DrawTextEx(bodyFont, TextFormat("%.0f/%.0f", stored, cap),
+                       {px + 90.0f + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, LIGHTGRAY);
+        }
 
         yPos += 22.0f;
     }

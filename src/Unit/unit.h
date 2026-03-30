@@ -242,6 +242,7 @@ public:
     const UIMessage& GetCurrentMessage() const { return currentMessage; }
     const std::map<ResourceType, float>& GetResourceStorage() const { return resourceStorage; }
     const std::map<ResourceType, float>& GetStorageCapacity() const { return storageCapacity; }
+    const std::map<ResourceType, float>& GetOverflowBuffer() const { return overflowBuffer; }
     float GetTotalRegolithExtracted() const { return totalRegolithExtracted; }
 
     // Module action wrappers for RenderManager
