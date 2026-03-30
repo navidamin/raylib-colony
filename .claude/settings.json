@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$TOOL_INPUT\" | grep -q 'git push'; then echo '[hook] Running tests after push...'; cmake -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release -Wno-dev 2>/dev/null && cmake --build build -j$(nproc) 2>&1 | tail -3 && cd build && ctest --output-on-failure --timeout 60; fi",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}

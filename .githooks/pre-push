@@ -1,0 +1,25 @@
+#!/bin/bash
+# Pre-push hook: build and run tests before allowing push.
+# Install: git config core.hooksPath .githooks
+
+set -e
+
+echo "=== Pre-push: Building and running tests ==="
+
+# Configure with tests
+cmake -B build -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release -Wno-dev 2>/dev/null
+
+# Build (game + tests)
+cmake --build build -j$(nproc) 2>&1 | tail -5
+
+# Run tests
+cd build && ctest --output-on-failure --timeout 60
+TEST_EXIT=$?
+
+if [ $TEST_EXIT -ne 0 ]; then
+    echo "=== Tests FAILED — push aborted ==="
+    exit 1
+fi
+
+echo "=== Tests passed — push allowed ==="
+exit 0
