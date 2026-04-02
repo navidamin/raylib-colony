@@ -114,14 +114,23 @@ All mechanics from variants 7A-7E are incorporated. See [sampling-mechanics.md](
 ### Mechanic Details
 
 #### Phase 0: Sweep (GPR Radar)
-- **Continuous frequency slider** (shallow-detailed ↔ deep-blurry)
+- **Continuous frequency slider** across 4 bands (shallow-detailed ↔ deep-blurry)
 - High frequency = detailed surface map (1 layer, high resolution)
 - Low frequency = deep but blurry map (all layers, low resolution)
 - Output: color-coded grid overlay (blue=uniform, yellow=moderate, red=anomaly)
-- Each sweep costs energy
 - Results have a **confidence level** — see [confidence-system.md](confidence-system.md)
 - **One sweep per frequency band** — no same-frequency repeats, but multiple different frequencies allowed
-- **[?]** Exact frequency bands and energy costs
+
+**Sweep Frequency Bands & Energy Costs:**
+
+| Frequency Band | Depth Penetration | Resolution | Energy Cost | Notes |
+|---------------|-------------------|-----------|-------------|-------|
+| High (Surface) | Regolith only | High detail | 30 energy | ~2 energy unit cycles. Reveals surface anomalies clearly |
+| Medium-High | Regolith + Megaregolith | Good detail | 60 energy | Reveals Ti-bearing ilmenite zones |
+| Medium-Low | Through Fractured Bedrock | Moderate detail | 100 energy | Key for finding water ice deposits |
+| Low (Deep) | All 4 layers | Blurry | 150 energy | ~10 energy cycles. Premium cost for full-depth picture |
+
+*Calibrated against energy unit production rate of 15.0f/cycle. Surface sweep is trivially cheap; deep sweep is a meaningful investment.*
 
 #### Phase 1: Sampling (Core Drilling)
 - Player selects cell on grid + depth layer
@@ -397,15 +406,20 @@ Prospecting objectives guide the player through mechanics progressively.
 | 9 | Pipeline mechanics | Continuous sweep slider, sequential multi-tool, fire assay ends chain, 4 presets |
 | 10 | Objectives system | Tier-locked tutorial objectives, no deadlines, mixed capability rewards |
 
+### Also Resolved (Energy Costs, 2026-04-02)
+
+| # | Gap | Resolution |
+|---|-----|-----------|
+| 11 | Sweep frequency bands and energy costs | 4 bands: 30/60/100/150 energy (High→Low frequency) |
+| 12 | Drilling energy costs | 15/30/50/75 base per layer, with tier discounts (calibrated to 15.0f/cycle production) |
+
 ### Remaining — Must-Resolve Before Implementation
 
 | # | Gap | Document | Priority |
 |---|-----|----------|----------|
-| 1 | Sweep frequency bands and exact energy costs | This document, Section 4 | MEDIUM |
-| 2 | Exact energy cost values for drilling | [depth-sampling-design.md](depth-sampling-design.md) | MEDIUM — needs balance |
-| 3 | Exact objective list per tier | This document, Section 11 | MEDIUM |
-| 4 | 20 ore shape templates | [ui-layout.md](ui-layout.md) | LOW |
-| 5 | Cell aggregate confidence weighting | [confidence-system.md](confidence-system.md) | LOW |
+| 1 | Exact objective list per tier | This document, Section 11 | MEDIUM |
+| 2 | 20 ore shape templates | [ui-layout.md](ui-layout.md) | LOW |
+| 3 | Cell aggregate confidence weighting | [confidence-system.md](confidence-system.md) | LOW |
 
 ### Remaining — Minor / Deferred
 

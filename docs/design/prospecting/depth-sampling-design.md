@@ -57,23 +57,29 @@ Define how resources are distributed across depth layers, how tier progression g
 
 ## Drilling Costs (Stepped with Tier Discounts)
 
-Base costs per layer, reduced by tier:
+Base costs per layer, reduced by tier. Calibrated against energy unit production rate (15.0f/cycle):
 
 | Layer | T0 Cost | T1 Cost | T2 Cost | T3 Cost |
 |-------|---------|---------|---------|---------|
-| Regolith (0) | 50 energy | 40 energy | 30 energy | 20 energy |
-| Megaregolith (1) | -- | 100 energy | 80 energy | 60 energy |
-| Fractured Bedrock (2) | -- | -- | 150 energy | 100 energy |
-| Intact Bedrock (3) | -- | -- | -- | 200 energy |
+| Regolith (0) | 15 energy | 12 energy | 10 energy | 8 energy |
+| Megaregolith (1) | -- | 30 energy | 25 energy | 20 energy |
+| Fractured Bedrock (2) | -- | -- | 50 energy | 35 energy |
+| Intact Bedrock (3) | -- | -- | -- | 75 energy |
 
 `--` = not accessible at that tier
+
+**Cost rationale:**
+- Surface sample (T0) = 1 energy unit cycle — trivially cheap, encourages exploration
+- Megaregolith (T1) = 2 cycles — noticeable but routine
+- Fractured Bedrock (T2) = ~3.3 cycles — meaningful investment for water access
+- Intact Bedrock (T3) = 5 cycles — serious commitment for He-3/rare minerals
+- Full 16-sample tray at T3 across mixed depths ≈ 40-60 energy cycles total
 
 ### Drill Time
 
 **Flat short time for all depths.** Drilling does not take longer for deeper layers — the cost difference is purely energy. This keeps the gameplay loop snappy and avoids idle waiting.
 
 [?] Should drilling also cost Manpower? — deferred
-[?] Exact energy values need balancing against energy production rates
 
 ## Tray Capacity
 
@@ -127,6 +133,6 @@ When in default/auto mode, the system samples in this order:
 | Manpower cost for drilling? | [?] — deferred |
 | Sample discard mechanic? | **Resolved:** Free discard anytime |
 | Sample archive vs active tray? | [?] — deferred |
-| Exact energy values vs production rates | [?] — needs game balance |
+| Exact energy values vs production rates | **Resolved:** 15/30/50/75 base, calibrated to 15.0f/cycle |
 | Geological formations spanning layers (veins, faults)? | [?] — future feature |
 | How depth interacts with stratigraphic column (7E)? | Direct — column slots map 1:1 to depth layers |
