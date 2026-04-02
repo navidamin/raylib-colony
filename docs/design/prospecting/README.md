@@ -8,11 +8,11 @@
 |---|----------|-------------|--------|
 | 1 | [prospecting-master-design.md](prospecting-master-design.md) | Pipeline stages, multi-scale control, mechanics integration, gaps inventory | DRAFT |
 | 2 | [sampling-mechanics.md](sampling-mechanics.md) | Science-based technology review + Design 7 variants (7A-7E) | DRAFT |
-| 3 | [depth-sampling-design.md](depth-sampling-design.md) | Depth layers, resource distribution by depth, tier gating, default allocation | STUB |
-| 4 | [confidence-system.md](confidence-system.md) | Formal confidence metric: scale, composition, per-tool behavior | STUB |
+| 3 | [depth-sampling-design.md](depth-sampling-design.md) | Depth layers, resource distribution by depth, tier gating, default allocation | DRAFT |
+| 4 | [confidence-system.md](confidence-system.md) | Formal confidence metric: scale, composition, per-tool behavior | DRAFT |
 | 5 | [resource-distribution-model.md](resource-distribution-model.md) | Pathfinder correlations, geological coherence, clue chaining, map init | STUB |
-| 6 | [ai-default-mode.md](ai-default-mode.md) | AI delegation logic, default behavior, efficiency penalties, heuristics | STUB |
-| 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | STUB |
+| 6 | [ai-default-mode.md](ai-default-mode.md) | AI delegation logic, default behavior, efficiency penalties, heuristics | DRAFT |
+| 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | DRAFT |
 
 ## Design Summary
 

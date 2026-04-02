@@ -1,63 +1,132 @@
 # Depth Sampling Design
 
-> Status: STUB
-> Last Updated: 2026-04-01
+> Status: DRAFT
+> Last Updated: 2026-04-02
 > Parent: [prospecting-master-design.md](prospecting-master-design.md)
 
 ---
 
 ## Purpose
 
-Define how resources are distributed across depth layers, how tier progression gates depth access, and how the default allocation priority works vs player-optimized depth selection.
+Define how resources are distributed across depth layers, how tier progression gates depth access, and how drilling costs work.
 
-## Layer Structure
+## Decisions (Resolved)
 
-| Layer | Index | Tier Required | Default Auto Priority | Resource Profile |
-|-------|-------|--------------|----------------------|-----------------|
-| Surface | 0 | T0 | 1st | [?] |
-| Shallow | 1 | T1 | 2nd | [?] |
-| Mid | 2 | T2 | [?] | [?] |
-| Deep | 3 | T3 | [?] | [?] |
+| Question | Decision |
+|----------|----------|
+| Distribution model | **Geologically realistic** — follows lunar geology profiles |
+| Drilling cost scaling | **Stepped with tier discounts** — fixed costs per layer, tiers reduce cost |
+| Tray capacity | **4 / 8 / 12 / 16** per tier (T0/T1/T2/T3) |
+| Re-sampling | **Yes** — improves confidence with diminishing returns |
 
-## Resource Distribution by Depth
+## Layer Structure (Lunar Geology Model)
 
-[?] — Key design decisions needed:
+| Layer | Index | Tier | Geological Basis | Characteristic Resources |
+|-------|-------|------|-----------------|------------------------|
+| **Regolith** | 0 | T0 | Fine-grained surface soil, impact-gardened, solar-wind implanted | Fe, Si, Al, Ca (bulk), trace solar-wind H, He |
+| **Megaregolith** | 1 | T1 | Coarse fragmented rock, partially sintered, impact ejecta | Ti (ilmenite concentrations), higher metal grades, some trapped volatiles |
+| **Fractured Bedrock** | 2 | T2 | Cracked but coherent rock, hydrothermal alteration zones | H2O (ice in fractures), mineral veins, concentrated ores |
+| **Intact Bedrock** | 3 | T3 | Solid unweathered rock, deep geological formations | He-3 (deep-implanted), rare minerals, pristine composition data |
 
-- Which resources concentrate at which depths?
-- Is distribution deterministic (always iron at surface) or procedural (varies by cell)?
-- How does depth distribution interact with the planet-level resource map in `ResourceManager`?
-- Are there depth-exclusive resources? (e.g., water ice only at depth 2-3, He-3 only at depth 3)
-
-### Proposed Model (rough)
+### Resource Distribution Rationale
 
 ```
-Surface:  Common bulk minerals (Fe, Si, Al, Ca) — easy access, moderate abundance
-Shallow:  Refined minerals (Ti, alloys precursors) — moderate access, variable
-Mid:      Volatiles (H2, H2O) — harder access, high value when found
-Deep:     Rare elements (He-3, trace minerals) — expensive access, very high value
+         Surface ─── most accessible, most "processed" by impacts/radiation
+           │         Common elements well-mixed. Low concentration of volatiles.
+           │         Good for: bulk construction materials (Fe, Si, Al)
+           ▼
+         Megaregolith ─── less disturbed, larger fragments
+           │         Mineral grains preserved (ilmenite = FeTiO3).
+           │         Good for: Ti extraction, industrial minerals
+           ▼
+         Fractured Bedrock ─── protected from surface processes
+           │         Fractures trap migrating volatiles (water ice in PSRs).
+           │         Good for: H2O, concentrated ore bodies
+           ▼
+         Intact Bedrock ─── pristine, untouched
+                     Highest-value, hardest-to-reach deposits.
+                     Good for: He-3, rare elements, definitive geological data
 ```
 
-[?] This model needs validation against gameplay balance.
+### Why This Creates Good Gameplay
 
-## Default vs Fine-Control
+- **Surface:** Easy access, common materials. Default/auto mode stops here
+- **Megaregolith:** Industrial upgrade path. Player who wants Ti must invest in T1 drilling
+- **Fractured Bedrock:** Water is critical for colony survival. Finding it at depth is a strategic discovery
+- **Intact Bedrock:** End-game materials (He-3 = high profit). Expensive to reach but very rewarding
 
-**Default allocation priority:** The auto-mode samples depths in a fixed order. The proposed order (1st → 2nd → skip → 4th) creates an incentive for player intervention — the skipped mid-layer contains volatiles that are valuable but overlooked by default.
+## Drilling Costs (Stepped with Tier Discounts)
 
-[?] Alternative: default could simply go 1→2→3→4 but with lower sample quality at each depth.
+Base costs per layer, reduced by tier:
 
-## Drilling Cost Scaling
+| Layer | T0 Cost | T1 Cost | T2 Cost | T3 Cost |
+|-------|---------|---------|---------|---------|
+| Regolith (0) | 50 energy | 40 energy | 30 energy | 20 energy |
+| Megaregolith (1) | -- | 100 energy | 80 energy | 60 energy |
+| Fractured Bedrock (2) | -- | -- | 150 energy | 100 energy |
+| Intact Bedrock (3) | -- | -- | -- | 200 energy |
 
-[?] How does cost scale with depth?
+`--` = not accessible at that tier
 
-| Option | Formula | Gameplay Effect |
-|--------|---------|----------------|
-| Linear | cost = base * (depth + 1) | Predictable, simple |
-| Exponential | cost = base * 2^depth | Deep drilling is a significant investment |
-| Stepped | fixed costs per tier | Simplest, least interesting |
+### Drill Time
+
+**Flat short time for all depths.** Drilling does not take longer for deeper layers — the cost difference is purely energy. This keeps the gameplay loop snappy and avoids idle waiting.
+
+[?] Should drilling also cost Manpower? — deferred
+[?] Exact energy values need balancing against energy production rates
+
+## Tray Capacity
+
+| Tier | Capacity | Rationale |
+|------|----------|-----------|
+| T0 | 4 samples | Tight. Player must prioritize. ~1 cell fully surveyed at surface |
+| T1 | 8 samples | Room for 2-3 cells. Starting to build spatial picture |
+| T2 | 12 samples | Comfortable multi-cell surveys. Depth sampling becomes practical |
+| T3 | 16 samples | Full survey campaigns. Deep + broad coverage possible |
+
+**Discard:** Samples can be discarded at any time for free to free tray slots.
+
+[?] Is there a "sample archive" for completed/analyzed samples separate from active tray?
+
+## Re-Sampling Mechanics
+
+Re-sampling the same cell+depth is allowed. Each re-sample:
+- Produces a new sample in the tray (costs a slot)
+- Adds confidence to that cell+depth, but with **diminishing returns**
+
+**Diminishing returns formula:**
+```
+confidenceGain(n) = baseGain / sqrt(n)
+
+Where n = number of times this cell+depth has been sampled
+  1st sample: baseGain × 1.0
+  2nd sample: baseGain × 0.71
+  3rd sample: baseGain × 0.58
+  4th sample: baseGain × 0.50
+```
+
+This encourages breadth (sample new cells) but allows focused re-sampling when the player really needs high confidence on a specific location.
+
+## Default Auto-Mode Depth Priority
+
+When in default/auto mode, the system samples in this order:
+1. Regolith (surface) — always first
+2. Megaregolith (shallow) — if T1+ available
+3. Intact Bedrock (deep) — skips fractured bedrock
+4. Fractured Bedrock (mid) — last priority
+
+**Why skip fractured bedrock by default?** The AI doesn't know to look for water in fractures — it follows the "easy access" heuristic. A player who understands the geology will prioritize fractured bedrock when water is needed, getting better results than the auto-mode.
+
+[?] Is this skip-pattern the right design? Alternative: AI just goes 0→1→2→3 but with lower sample quality.
 
 ## Open Questions
 
-- Can player re-sample same cell/depth? If yes, does it improve data or just waste resources?
-- Does drilling disturb adjacent layers? (sample quality penalty if already drilled nearby?)
-- Are there geological formations that span multiple layers? (veins, fault lines)
-- How does depth interact with stratigraphic column visualization (7E)?
+| Question | Status |
+|----------|--------|
+| Time cost for deeper drilling? | **Resolved:** Flat short time for all depths |
+| Manpower cost for drilling? | [?] — deferred |
+| Sample discard mechanic? | **Resolved:** Free discard anytime |
+| Sample archive vs active tray? | [?] — deferred |
+| Exact energy values vs production rates | [?] — needs game balance |
+| Geological formations spanning layers (veins, faults)? | [?] — future feature |
+| How depth interacts with stratigraphic column (7E)? | Direct — column slots map 1:1 to depth layers |

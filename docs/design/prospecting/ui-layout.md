@@ -1,7 +1,7 @@
 # Prospecting UI Layout
 
-> Status: STUB
-> Last Updated: 2026-04-01
+> Status: DRAFT
+> Last Updated: 2026-04-02
 > Parent: [prospecting-master-design.md](prospecting-master-design.md)
 
 ---
@@ -28,8 +28,11 @@ When the player opens the prospecting menu, they see:
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─ Sample Overview Bar ───────────────────────────────┐   │
-│  │  [Rotating sample icons showing all samples across   │   │
-│  │   all stages with visual state indicators]           │   │
+│  │  [Sample icons with visual encoding — see below]     │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─ Objectives Panel ─────────────────────────────────┐   │
+│  │  [Active objectives with progress indicators]       │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─ Message Bar ───────────────────────────────────────┐   │
@@ -41,55 +44,132 @@ When the player opens the prospecting menu, they see:
 ## Stage-Specific Views
 
 ### Sweep View (Phase 0)
-[?] — Layout for:
-- 5x5 grid with confidence heat map overlay
-- Frequency/depth slider
+- 5x5 grid with confidence heat map overlay (color-coded: red→green)
+- **Continuous frequency slider** (shallow-detailed ↔ deep-blurry)
 - Sweep button + energy cost display
-- Results summary
+- Results summary panel
+- One sweep per frequency band allowed (no same-frequency repeats, but multiple frequencies OK)
 
 ### Samples View (Phase 1+2)
-[?] — Layout for:
 - Grid for cell selection (sampling target)
-- Depth layer selector
-- Sample tray inventory
+- Depth layer selector (Regolith / Megaregolith / Fractured Bedrock / Intact Bedrock)
+- Sample tray inventory (4/8/12/16 capacity by tier)
 - Initial data display per sample
+- **Discard button** per sample (free, anytime)
 - Pipeline design interface (tool assignment per sample)
 
 ### Lab View (Phase 3)
-[?] — Layout for:
+- **Pipeline preset buttons** at top (see Pipeline Presets below)
+- Custom pipeline option
 - Processing queue / batch slots
 - Active processing animation
 - Incoming results data stream
 - Completed results archive
 - Stratigraphic column display (7E)
 
-## Sample Visual Design
+**Processing times:** Near-instant for all tools except fire assay (which has a meaningful wait period).
 
-Samples should be visually distinguishable. Rotating icons in the overview bar.
+**Multi-tool:** Sequential tools can be applied to the same sample. Fire assay ends the chain (destructive — consumes sample).
 
-[?] — Visual encoding:
-| Property | Encoding Option | Alternative |
-|----------|----------------|-------------|
-| Depth layer | Shape? (cube=surface, cylinder=core, crystal=deep) | Color band? |
-| Stage | Glow/animation? (static=tray, spinning=processing, bright=done) | Border color? |
-| Quality/confidence | Brightness? Size? | Star rating overlay? |
-| Element content | Tint color? (red=iron, blue=water, etc.) | Icon overlay? |
+## Pipeline Presets
 
-[?] — "Varied shapes" concept needs concrete visual design
+Four preset buttons in the Lab view for common analysis workflows:
+
+| Preset | Target Elements | Tools Used | Use Case |
+|--------|----------------|-----------|----------|
+| **Structural** | Fe, Si, Ti | Magnetic separation + XRF | Building materials, manufacturing sects |
+| **Life Support** | H₂O, O₂, H₂ | Volatile extraction + LIBS | Survival resources, polar sites |
+| **Strategic** | Au, Pt, Li, He-3 | Heavy mineral separation + Fire Assay | High-value elements, late-game |
+| **Full Survey** | All elements | All separations + all tools | Maximum data, highest cost |
+
+Presets auto-assign the specified pipeline to selected samples. Player can always override with custom tool assignment.
+
+## Sample Visual Design (Resolved)
+
+### Procedural Ore Shapes
+
+Each sample is rendered as a **procedural ore shape** — not a generic icon:
+
+```
+┌─ Sample Icon Structure ──────────────────────────┐
+│                                                    │
+│   ┌──────── Circular Border ────────┐             │
+│   │  ○ Ring count = depth layer     │             │
+│   │    1 ring  = Regolith (surface) │             │
+│   │    2 rings = Megaregolith       │             │
+│   │    3 rings = Fractured Bedrock  │             │
+│   │    4 rings = Intact Bedrock     │             │
+│   │                                 │             │
+│   │   ┌── Ore Shape ──┐            │             │
+│   │   │ 4-7 polygon    │            │             │
+│   │   │ fragments       │            │             │
+│   │   │ element-colored │            │             │
+│   │   │ glow=confidence │            │             │
+│   │   └────────────────┘            │             │
+│   └─────────────────────────────────┘             │
+│                                                    │
+└────────────────────────────────────────────────────┘
+```
+
+### Visual Encoding
+
+| Property | Encoding |
+|----------|----------|
+| **Element content** | Color of ore fragments (Fe=red-brown, H₂O=blue, Ti=silver, He-3=purple, etc.) |
+| **Confidence level** | Glow intensity around ore shape (no glow=Very Low, bright glow=Certain) |
+| **Depth layer** | Ring count on circular border (1-4 rings) |
+| **Processing state** | Static=tray, spinning=processing, bright flash=complete |
+
+### Shape Templates
+
+20 procedural ore shape templates to be designed:
+- 4-7 triangles/rectangles per template
+- Varied silhouettes (angular chunks, crystalline shards, rounded nodules, layered slabs)
+- Each sample randomly selects a template, colored by dominant element
+- Templates are visual variety only — no gameplay meaning
+
+[?] Exact 20 shape template designs — to be created with visual prototyping
+
+## Objectives Display
+
+### Objectives Panel
+
+Located below the Sample Overview Bar, shows active tier-locked tutorial objectives:
+
+```
+┌─ Objectives ──────────────────────────────────────────┐
+│  ☐ Complete your first surface sweep          [T0]    │
+│  ☐ Collect 3 samples from different cells     [T0]    │
+│  ☑ Run XRF analysis on a sample               [T1]    │
+│  ☐ Achieve "High" confidence on any cell      [T1]    │
+└───────────────────────────────────────────────────────┘
+```
+
+- Objectives are **tier-locked** — new objectives appear when the tier unlocks
+- **No deadlines** — objectives persist indefinitely until completed
+- **Rewards** are mixed capability unlocks per objective type:
+  - Bonus tray slots
+  - AI behavior upgrades
+  - Early tool/preset unlocks
+
+[?] Exact objective list per tier — to be designed during implementation
 
 ## Interaction Flow
 
 ```
 Player opens Prospecting menu
     │
-    ├─► Sweep tab: Configure and run GPR sweeps
-    │       └─► Results update grid heat map
+    ├─► Sweep tab: Configure frequency slider, run GPR sweeps
+    │       └─► Results update grid heat map (confidence colors)
     │
     ├─► Samples tab: Select cells, choose depths, collect
-    │       ├─► New sample appears in tray
-    │       └─► Assign processing pipeline (or accept default)
+    │       ├─► New sample appears in tray (procedural ore icon)
+    │       ├─► Discard unwanted samples (free)
+    │       └─► Assign processing pipeline or select preset
     │
-    └─► Lab tab: Monitor processing, view results
+    └─► Lab tab: Select preset or custom pipeline, monitor processing
+            ├─► Sequential tools applied to each sample
+            ├─► Fire assay ends chain (destructive)
             ├─► Completed samples show element data
             ├─► Pathfinder tips appear in message bar
             └─► Survey progress updates per cell
@@ -97,8 +177,11 @@ Player opens Prospecting menu
 
 ## Open Questions
 
-- Should all three stage tabs be visible simultaneously, or only the active stage?
-- How does the sample overview bar interact with stage content? (click sample → jump to its stage?)
-- Where does the stratigraphic column view live? Separate tab? Overlay on grid?
-- How much screen real estate does the 5x5 grid need vs the sample tray?
-- Does the UI need to work at the current extraction view's font scale (FS() multiplier)?
+| Question | Status |
+|----------|--------|
+| Should all three stage tabs be visible simultaneously, or only the active stage? | [?] |
+| How does the sample overview bar interact with stage content? (click sample → jump to its stage?) | [?] |
+| Where does the stratigraphic column view live? Separate tab? Overlay on grid? | [?] |
+| How much screen real estate does the 5x5 grid need vs the sample tray? | [?] |
+| Does the UI need to work at the current extraction view's font scale (FS() multiplier)? | [?] |
+| 20 ore shape template designs | [?] — to be prototyped |

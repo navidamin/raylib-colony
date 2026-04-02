@@ -1,7 +1,7 @@
 # Prospecting Module — Master Design Document
 
 > Status: DRAFT
-> Last Updated: 2026-04-01
+> Last Updated: 2026-04-02
 > Depends on: [confidence-system.md](confidence-system.md), [depth-sampling-design.md](depth-sampling-design.md), [resource-distribution-model.md](resource-distribution-model.md), [ai-default-mode.md](ai-default-mode.md), [ui-layout.md](ui-layout.md)
 
 ---
@@ -76,23 +76,20 @@ The pipeline is **iterative**, not one-shot:
 | **Per-stage override** | Player controls one stage, AI handles rest | Player does manual sampling, AI handles sweep and testing |
 | **Per-sample fine-tune** | Player controls individual sample processing | Player selects LIBS for H2O-promising sample, fire assay for He-3 candidate |
 
-### Default Mode Behavior
+### Default Mode Behavior (Resolved)
 
-| Stage | Default Behavior | Efficiency Penalty | Details |
-|-------|-----------------|-------------------|---------|
-| Sweep | Auto-depth: surface only | [?] Lower resolution | See [ai-default-mode.md](ai-default-mode.md) |
-| Sampling | Predefined depth priority | [?] May miss optimal layers | See [depth-sampling-design.md](depth-sampling-design.md) |
-| Tray | Auto-assign cheapest tools | [?] Fewer elements revealed | See [ai-default-mode.md](ai-default-mode.md) |
-| Testing | Default tool chain (XRF only?) | [?] Misses light elements | See [ai-default-mode.md](ai-default-mode.md) |
+| Stage | Default Behavior | What It Misses | Penalty Type |
+|-------|-----------------|----------------|-------------|
+| Sweep | Surface-only, single frequency | Deep anomalies, frequency optimization | Missed opportunities |
+| Sampling | Random cells, fixed depth priority (L0→L1→L3→L2) | Targeted sampling based on sweep data | Missed opportunities |
+| Tray | Cheapest separation + cheapest tool | Element-specific tool matching | Missed opportunities |
+| Testing | Cheapest available tool, no cross-referencing | Light elements, precise values, adjacency bonuses | Missed opportunities |
 
-### Open Questions — Multi-Scale Control
+**AI is always available from T0**, improving with tier. Primary penalty is lack of strategic agency (random targeting, cheapest tools), plus a small confidence penalty (20% at T0, decreasing to 5% at T3). See [ai-default-mode.md](ai-default-mode.md) for full design.
 
-| Question | Status |
-|----------|--------|
-| Exact efficiency penalty numbers for default mode | [?] Needs playtesting |
-| UI for switching between default and fine-control | [?] Toggle? Per-stage dropdown? See [ui-layout.md](ui-layout.md) |
-| When does AI delegation unlock? (always? tier-gated?) | [?] Design decision needed |
-| Can player switch modes mid-pipeline? | [?] Probably yes, but edge cases need thought |
+### Mode Switching
+
+Per-stage implicit override: interacting with a stage overrides auto for that stage. Global toggle in header sets baseline.
 
 ---
 
@@ -117,14 +114,14 @@ All mechanics from variants 7A-7E are incorporated. See [sampling-mechanics.md](
 ### Mechanic Details
 
 #### Phase 0: Sweep (GPR Radar)
-- Player selects sweep depth via frequency control
+- **Continuous frequency slider** (shallow-detailed ↔ deep-blurry)
 - High frequency = detailed surface map (1 layer, high resolution)
 - Low frequency = deep but blurry map (all layers, low resolution)
 - Output: color-coded grid overlay (blue=uniform, yellow=moderate, red=anomaly)
 - Each sweep costs energy
 - Results have a **confidence level** — see [confidence-system.md](confidence-system.md)
+- **One sweep per frequency band** — no same-frequency repeats, but multiple different frequencies allowed
 - **[?]** Exact frequency bands and energy costs
-- **[?]** How many sweeps before diminishing returns?
 
 #### Phase 1: Sampling (Core Drilling)
 - Player selects cell on grid + depth layer
@@ -136,14 +133,14 @@ All mechanics from variants 7A-7E are incorporated. See [sampling-mechanics.md](
 - **[?]** Maximum samples per cycle
 
 #### Phase 2: Sample Tray (Inventory + Pipeline Design)
-- Fixed-size tray (capacity scales with tier)
+- Fixed-size tray: **4 / 8 / 12 / 16** samples (T0/T1/T2/T3)
 - Samples display initial data (visual characteristics from collection)
+- **Samples can be discarded at any time for free** to reclaim tray slots
 - Player designs processing pipeline per sample:
   - Which separation method? (Magnetic / Heavy mineral / Volatile extraction)
   - Which analysis tool? (XRF / LIBS / Fire Assay)
+- **Pipeline presets** available: Structural, Life Support, Strategic, Full Survey (see [ui-layout.md](ui-layout.md))
 - In default mode: auto-assigned cheapest pipeline
-- **[?]** Tray capacity per tier: T0=?, T1=?, T2=?, T3=?
-- **[?]** Can samples be discarded to free slots?
 
 #### Phase 3: Testing (Multi-Tool Analysis)
 - Samples enter processing (view-only while in progress)
@@ -159,10 +156,10 @@ All mechanics from variants 7A-7E are incorporated. See [sampling-mechanics.md](
 | LIBS pulse | All elements incl. H, C, O | Moderate energy | No | T2 |
 | Fire assay | Perfect concentration of ONE element | High energy | **Yes — consumes sample** | T3 |
 
-- **Fire assay decision:** Use when high-value element suspected (He-3, rare minerals). Gives perfect data but loses the sample — can't apply other tools after.
+- **Sequential multi-tool:** Yes, multiple tools can be applied to the same sample in sequence. **Fire assay ends the chain** (destructive — consumes sample, no further tools possible).
+- **Processing time:** Near-instant for all tools except fire assay (which has a meaningful wait period).
+- **Fire assay decision:** Use when high-value element suspected (He-3, rare minerals). Gives perfect data but loses the sample.
 - **Cross-referencing bonus:** Same tool on adjacent cells → +survey bonus for both (T1+)
-- **[?]** Processing time per tool
-- **[?]** Can multiple tools be applied sequentially to same sample?
 
 #### Pathfinder System (Future Phase)
 - After analysis, tips appear: "Elevated arsenic detected — suggests iron deposit in adjacent cell"
@@ -180,46 +177,50 @@ All mechanics from variants 7A-7E are incorporated. See [sampling-mechanics.md](
 
 ---
 
-## 5. Confidence Level System
+## 5. Confidence Level System (Resolved)
 
 > Full design in [confidence-system.md](confidence-system.md)
 
-### Framework (to be filled)
+### Framework
 
 | Question | Decision |
 |----------|----------|
-| What does "confidence" measure? | [?] Accuracy of element readings? Certainty of deposit existence? Both? |
-| Scale | [?] 0-100%? Discrete levels? |
-| What affects confidence? | [?] Number of scans, tool quality, sample depth, sweep resolution |
-| How does confidence affect gameplay? | [?] Gates extraction? Affects efficiency? Visual only? |
-| Granularity | [?] Per-cell? Per-element? Per-sample? |
-| How do multiple methods compose? | [?] Additive? Bayesian? Max? |
-| Relationship to survey progress | [?] Is confidence a component of surveyProgress, or separate? |
+| What does "confidence" measure? | Accuracy/certainty of element readings and deposit knowledge |
+| Scale | **Hybrid:** 0-100% internal, 5 discrete display levels (Very Low / Low / Moderate / High / Certain) |
+| What affects confidence? | Number of scans, tool quality, tool diversity, re-sampling |
+| How does confidence affect gameplay? | **Modifies survey progress contribution** — higher confidence = more progress per result |
+| Granularity | **Hierarchical:** cell heat map → per-element breakdown → per-depth breakdown |
+| How do multiple methods compose? | **Probabilistic:** `conf = 1 - (1-c1)(1-c2)...` — rewards tool diversity |
+| Decay? | **No decay** — confidence is permanent |
+| Relationship to survey progress | Confidence is a **multiplier** on survey progress gain (Very Low=0.2x, Certain=1.0x) |
 
 ---
 
-## 6. Depth System
+## 6. Depth System (Resolved)
 
 > Full design in [depth-sampling-design.md](depth-sampling-design.md)
 
-### Layer Structure
+### Layer Structure (Lunar Geology Model)
 
-| Layer | Index | Tier Required | Default Auto Priority | Contents |
-|-------|-------|--------------|----------------------|----------|
-| Surface | 0 | T0 | 1st | [?] Which resources concentrate here? |
-| Shallow | 1 | T1 | 2nd | [?] |
-| Mid | 2 | T2 | [?] | [?] |
-| Deep | 3 | T3 | [?] | [?] |
+| Layer | Index | Tier | Default Auto Priority | Characteristic Resources |
+|-------|-------|------|----------------------|------------------------|
+| Regolith | 0 | T0 | 1st | Fe, Si, Al, Ca (bulk), trace solar-wind H, He |
+| Megaregolith | 1 | T1 | 2nd | Ti (ilmenite), higher metal grades, trapped volatiles |
+| Fractured Bedrock | 2 | T2 | **4th (skipped by AI)** | H₂O (ice in fractures), mineral veins, concentrated ores |
+| Intact Bedrock | 3 | T3 | 3rd | He-3, rare minerals, pristine composition data |
 
-### Open Questions — Depth
+**AI skips fractured bedrock** — it follows the "easy access" heuristic and doesn't know to look for water in fractures. A player who understands geology will prioritize it when water is needed.
 
-| Question | Status |
-|----------|--------|
-| Resource distribution model across depths | [?] — primary design task for [depth-sampling-design.md](depth-sampling-design.md) |
-| Why would default mode skip a layer? (strategic incentive) | [?] — e.g., mid-layer has rare elements that auto-mode misses |
-| Can player re-sample same cell/depth? | [?] |
-| Does deeper drilling cost more energy/time? | [?] — probably yes, linearly or exponentially |
-| Tray capacity per tier | [?] T0=4?, T1=8?, T2=10?, T3=12? (from Design 7 base) |
+### Key Decisions
+
+| Question | Resolution |
+|----------|-----------|
+| Distribution model | Geologically realistic (lunar geology profiles) |
+| Drilling cost | Stepped per layer with tier discounts (energy only) |
+| Drill time | **Flat short time** for all depths (cost difference is energy only) |
+| Tray capacity | **4 / 8 / 12 / 16** (T0/T1/T2/T3) |
+| Re-sampling | Yes, with diminishing returns: `baseGain / sqrt(n)` |
+| Sample discard | Free discard anytime |
 
 ---
 
@@ -293,13 +294,13 @@ Pathfinder and clue chaining mechanics are **deferred to a future development ph
 |---------|----|----|----|----|
 | **Sweep** | No sweep | Surface-only GPR | Frequency slider (surface→mid) | Full-depth GPR |
 | **Sampling depths** | Surface only | +Shallow | +Mid | +Deep (all 4) |
-| **Tray capacity** | [?] 4 | [?] 8 | [?] 10 | [?] 12 |
+| **Tray capacity** | 4 | 8 | 12 | 16 |
 | **Analysis tools** | Visual only | +XRF | +LIBS | +Fire Assay |
 | **Lab bench slots** | 1 concurrent | 2 concurrent | 3 concurrent | 4 concurrent |
 | **Separation methods** | None | Magnetic only | +Heavy mineral | +Volatile extraction |
 | **Pathfinder tips** | None | Basic ("nearby") | Directional arrows | Exact cell + abundance |
 | **Stratigraphy** | None | 2-layer column | Cross-section correlation | Full 4-layer + auto-correlate |
-| **AI/Default mode** | [?] | [?] | [?] | Full auto available |
+| **AI/Default mode** | Basic auto (-20% conf) | Better targeting (-15%) | Uses sweep data (-10%) | Full auto (-5% conf) |
 | **Cross-referencing** | None | Unlocked (adjacent bonus) | Multi-cell patterns | Auto-cross-reference |
 
 ---
@@ -318,40 +319,108 @@ Pathfinder and clue chaining mechanics are **deferred to a future development ph
               └─────────────────────┘            └──────────────────┘
 ```
 
-- Survey progress accumulates from: sweep confidence + sample completeness + tool analysis results
-- The exact formula mapping these inputs to `surveyProgress` is **[?]** — needs design
+### Survey Progress Formula (Resolved)
+
+Survey progress is **component-based**, with each component contributing to a portion of the total:
+
+```
+surveyProgress = sweepComponent + sampleComponent + testingComponent
+
+Where:
+  sweepComponent  = 0-20% (from GPR sweep coverage and frequency diversity)
+  sampleComponent = 0-50% (from core sample collection across cells and depths)
+  testingComponent = 0-30% (from analysis tool results)
+
+Each component's contribution is scaled by confidence:
+  actualGain = baseGain × confidenceMultiplier
+  
+  Confidence multipliers:
+    Very Low (0-20%):   0.2x
+    Low (21-40%):       0.4x
+    Moderate (41-60%):  0.7x
+    High (61-80%):      0.9x
+    Certain (81-100%):  1.0x
+```
+
 - Marked sites: player explicitly marks cells after reviewing results
-- Objective bonus: retained from current system or redesigned — **[?]**
+- Objective bonus: retained from current system
 
 ---
 
-## 11. Gaps Inventory
+## 11. Objectives System
 
-### Must-Resolve Before Implementation
+Prospecting objectives guide the player through mechanics progressively.
+
+### Design Decisions (Resolved)
+
+| Question | Decision |
+|----------|----------|
+| Generation | **Tier-locked tutorial objectives** — fixed per tier, teach new tools/mechanics |
+| Deadlines | **None** — objectives persist indefinitely until completed |
+| Rewards | **Mixed capability unlocks** per objective type |
+
+### Reward Types
+
+| Reward Category | Examples |
+|----------------|---------|
+| Tray bonus slots | +1 or +2 tray capacity |
+| AI behavior upgrades | AI uses better targeting, considers sweep data |
+| Early tool/preset unlock | Access to a tool or preset one tier early |
+
+### Objective Progression
+
+| Tier | Objective Theme | Example Objectives |
+|------|----------------|-------------------|
+| T0 | Basics: sweep and sample | "Complete your first surface sweep", "Collect 3 samples from different cells" |
+| T1 | Tool introduction | "Run XRF analysis on a sample", "Achieve 'High' confidence on any cell" |
+| T2 | Advanced techniques | "Use LIBS to detect water", "Sample fractured bedrock layer" |
+| T3 | Mastery | "Achieve 'Certain' confidence on 5 cells", "Use fire assay on a He-3 candidate" |
+
+[?] Exact objective list per tier — to be designed during implementation
+
+---
+
+## 12. Gaps Inventory
+
+### Resolved (Q&A Session 2026-04-02)
+
+| # | Gap | Resolution |
+|---|-----|-----------|
+| 1 | Confidence system formal definition | Hybrid 0-100% / 5 levels, probabilistic composition, hierarchical granularity |
+| 2 | Resource distribution across depth layers | Geologically realistic lunar model (4 layers) |
+| 3 | Default mode efficiency penalties | Missed opportunities + small confidence penalty (20% max, decreasing with tier) |
+| 4 | Tray capacity per tier | 4 / 8 / 12 / 16 |
+| 5 | surveyProgress accumulation formula | Component-based: sweep (0-20%) + samples (0-50%) + testing (0-30%), scaled by confidence |
+| 6 | AI delegation heuristics | Always available, random targeting + cheapest tools, improves with tier |
+| 7 | Processing times per tool | Near-instant except fire assay |
+| 8 | Sample visual differentiation | Procedural ore shapes, element-colored, glow=confidence, rings=depth |
+| 9 | Pipeline mechanics | Continuous sweep slider, sequential multi-tool, fire assay ends chain, 4 presets |
+| 10 | Objectives system | Tier-locked tutorial objectives, no deadlines, mixed capability rewards |
+
+### Remaining — Must-Resolve Before Implementation
 
 | # | Gap | Document | Priority |
 |---|-----|----------|----------|
-| 1 | Confidence system formal definition | [confidence-system.md](confidence-system.md) | HIGH |
-| 2 | Resource distribution across depth layers | [depth-sampling-design.md](depth-sampling-design.md) | HIGH |
-| 3 | Default mode efficiency penalties (numbers) | [ai-default-mode.md](ai-default-mode.md) | HIGH |
-| 4 | Tray capacity per tier | This document, Section 9 | MEDIUM |
-| 5 | surveyProgress accumulation formula (from new mechanics) | This document, Section 10 | HIGH |
+| 1 | Sweep frequency bands and exact energy costs | This document, Section 4 | MEDIUM |
+| 2 | Exact energy cost values for drilling | [depth-sampling-design.md](depth-sampling-design.md) | MEDIUM — needs balance |
+| 3 | Exact objective list per tier | This document, Section 11 | MEDIUM |
+| 4 | 20 ore shape templates | [ui-layout.md](ui-layout.md) | LOW |
+| 5 | Cell aggregate confidence weighting | [confidence-system.md](confidence-system.md) | LOW |
 
-### Must-Resolve Before Detailed Design
+### Remaining — Minor / Deferred
 
-| # | Gap | Document | Priority |
-|---|-----|----------|----------|
-| 6 | AI delegation heuristics | [ai-default-mode.md](ai-default-mode.md) | MEDIUM |
-| 7 | Sweep frequency bands and energy costs | This document, Section 4 | MEDIUM |
-| 8 | Processing times per tool | This document, Section 4 | MEDIUM |
-| 9 | Sample visual differentiation | [ui-layout.md](ui-layout.md) | LOW |
+| # | Gap | Document | Status |
+|---|-----|----------|--------|
+| 6 | Manpower cost for drilling | [depth-sampling-design.md](depth-sampling-design.md) | Deferred |
+| 7 | Sample archive vs active tray | [depth-sampling-design.md](depth-sampling-design.md) | Deferred |
+| 8 | Stage tab visibility (all vs active only) | [ui-layout.md](ui-layout.md) | Deferred |
 
 ### Deferred to Future Phase
 
 | # | Gap | Document | Dependency |
 |---|-----|----------|-----------|
-| 10 | Pathfinder element correlation rules | [resource-distribution-model.md](resource-distribution-model.md) | Needs geological coherence model |
-| 11 | Clue chaining reward tuning | [resource-distribution-model.md](resource-distribution-model.md) | Needs pathfinder rules |
-| 12 | Cross-referencing spatial patterns | This document, Section 4 | Needs geological coherence model |
-| 13 | Stratigraphy visualization details | [ui-layout.md](ui-layout.md) | Needs depth model |
-| 14 | Per-tool tier unlock costs | This document, Section 9 | Needs game balance pass |
+| 9 | Pathfinder element correlation rules | [resource-distribution-model.md](resource-distribution-model.md) | Needs geological coherence model |
+| 10 | Clue chaining reward tuning | [resource-distribution-model.md](resource-distribution-model.md) | Needs pathfinder rules |
+| 11 | Cross-referencing spatial patterns | This document, Section 4 | Needs geological coherence model |
+| 12 | Stratigraphy visualization details | [ui-layout.md](ui-layout.md) | Needs depth model |
+| 13 | Per-tool tier unlock costs | This document, Section 9 | Needs game balance pass |

@@ -1,7 +1,7 @@
 # Confidence Level System
 
-> Status: STUB
-> Last Updated: 2026-04-01
+> Status: DRAFT
+> Last Updated: 2026-04-02
 > Parent: [prospecting-master-design.md](prospecting-master-design.md)
 
 ---
@@ -10,61 +10,144 @@
 
 Define a coherent confidence metric that spans all prospecting technologies and methods. Confidence represents how certain the player (and the game system) can be about prospecting results.
 
-## Core Questions
+## Core Decisions (Resolved)
 
-| Question | Decision | Notes |
-|----------|----------|-------|
-| What does confidence measure? | [?] | Options: accuracy of element readings, certainty of deposit existence, or both |
-| Scale | [?] | Options: 0-100% continuous, discrete levels (Low/Moderate/High/Certain), letter grades |
-| Granularity | [?] | Options: per-cell, per-element, per-sample, per-depth-layer |
-| Relationship to surveyProgress | [?] | Is confidence a component that feeds into surveyProgress, or a separate parallel metric? |
+| Question | Decision |
+|----------|----------|
+| What does confidence measure? | Accuracy/certainty of element readings and deposit knowledge |
+| Scale | **Hybrid:** 0-100% tracked internally, displayed as discrete levels |
+| Granularity | **Hierarchical** — see below |
+| Relationship to surveyProgress | **Confidence modifies survey progress contribution** — higher confidence = more survey progress per analysis result |
+
+### Display Levels
+
+| Internal Range | Display Level | Color |
+|---------------|--------------|-------|
+| 0-20% | Very Low | Red |
+| 21-40% | Low | Orange |
+| 41-60% | Moderate | Yellow |
+| 61-80% | High | Light Green |
+| 81-100% | Certain | Green |
+
+### Hierarchical Granularity
+
+Confidence operates at three nested levels. The player sees progressively more detail as they drill into the data:
+
+```
+LEVEL 1: Cell Overview (heat map)
+    ┌───────────────────────────────────────────┐
+    │  5x5 grid, each cell shows aggregate      │
+    │  confidence as color (Very Low → Certain)  │
+    │  This is the FIRST VIEW in prospecting     │
+    │  menu — evolves as sampling/testing occurs  │
+    └───────────────────────────────────────────┘
+              │
+              │ (click cell)
+              ▼
+LEVEL 2: Per-Element Breakdown
+    ┌───────────────────────────────────────────┐
+    │  Fe: ████████░░ High (72%)                │
+    │  Si: ██████░░░░ Moderate (58%)            │
+    │  H2: ██░░░░░░░░ Low (22%)                 │
+    │  Ti: ░░░░░░░░░░ Very Low (8%)             │
+    │                                           │
+    │  (XRF gave good Fe/Si data but missed H2) │
+    └───────────────────────────────────────────┘
+              │
+              │ (expand depth view)
+              ▼
+LEVEL 3: Per-Depth-Layer Breakdown
+    ┌───────────────────────────────────────────┐
+    │  Fe confidence by depth:                  │
+    │  Surface:  ████████░░ High (75%)          │
+    │  Shallow:  ██████░░░░ Moderate (55%)      │
+    │  Mid:      ████░░░░░░ Low (38%)           │
+    │  Deep:     ░░░░░░░░░░ Very Low (5%)       │
+    │                                           │
+    │  (only surface/shallow sampled so far)    │
+    └───────────────────────────────────────────┘
+```
+
+**Cell-level aggregate** = weighted average of all per-element confidences (weighted by element abundance or equal weight — [?])
+
+## Confidence → Survey Progress Formula
+
+Each analysis result contributes to survey progress, **scaled by confidence**:
+
+```
+surveyProgressGain = baseGain × confidenceMultiplier
+
+Where confidenceMultiplier maps from the confidence of that specific measurement:
+  Very Low (0-20%):   0.2x multiplier
+  Low (21-40%):       0.4x
+  Moderate (41-60%):  0.7x
+  High (61-80%):      0.9x
+  Certain (81-100%):  1.0x
+```
+
+This means low-confidence results still contribute (you're not locked out), but investing in better tools/methods pays off significantly.
 
 ## Per-Technology Confidence Contributions
 
 | Technology | Confidence Output | Factors |
 |-----------|-------------------|---------|
-| GPR Sweep | [?] | Frequency used, number of sweeps, anomaly strength |
-| Visual Inspection | [?] | Always low — categories only |
-| XRF | [?] | Good for heavy elements, zero for light elements |
-| LIBS | [?] | High for all elements, moderate noise at low tier |
-| Fire Assay | [?] | Perfect for one element (100% confidence for that element) |
+| GPR Sweep | +5-15% per cell (broad, low) | Frequency used, number of sweeps |
+| Visual Inspection | +5-10% per element (categories only) | Always low |
+| XRF | +30-50% for heavy elements (Fe, Si, Al, Ca, Ti); 0% for light (H, C, O) | Tier quality |
+| LIBS | +20-40% for all elements | Tier, noise level |
+| Fire Assay | Sets to 100% for ONE chosen element | Destructive |
 
-## Composition Rules
+## Composition Rules (Resolved)
 
-How do multiple measurements compose?
+Multiple measurements on the same element compose using **probabilistic composition**:
 
-| Option | Rule | Pros | Cons |
-|--------|------|------|------|
-| Additive | conf = sum(contributions) capped at 100% | Simple | No diminishing returns |
-| Bayesian | P(correct) = 1 - product(1 - P_i) | Realistic | Complex, hard to display |
-| Max | conf = max(all contributions) | Very simple | No incentive for multiple tools |
-| Weighted average | conf = weighted_mean(contributions) | Balanced | Weights need tuning |
+```
+confidence = 1 - (1 - c1)(1 - c2)(1 - c3)...
 
-[?] — Decision needed. Bayesian is most scientifically coherent but may be opaque to player. Additive with diminishing returns (sqrt-based?) may be the pragmatic choice.
+Where c1, c2, c3 are individual tool contributions (as fractions, e.g., 0.35 for 35%)
+```
 
-## Gameplay Impact
+**Why this formula:**
+- Natural ceiling at 100% (can never exceed)
+- Rewards tool diversity — each new tool type adds significant value
+- Diminishing returns from same-tool re-application
+- Intuitive: "probability of NOT missing something decreases with each measurement"
 
-How does confidence affect the game?
+**Example:**
+- XRF gives 40% confidence on Fe → conf = 0.40
+- LIBS gives 25% on Fe → conf = 1 - (1-0.40)(1-0.25) = 1 - 0.45 = 0.55 (55%)
+- Re-sample XRF gives another 40% → conf = 1 - (1-0.55)(1-0.40) = 1 - 0.27 = 0.73 (73%)
 
-| Option | Effect | Design Implication |
-|--------|--------|-------------------|
-| Gates extraction | Can't extract below X% confidence | Hard gate — frustrating? |
-| Affects efficiency | Low confidence = lower extraction multiplier | Soft gate — natural incentive |
-| Visual only | Player info, no mechanical effect | Low stakes — boring? |
-| Affects survey progress | Confidence modifies how much survey progress each result contributes | Integrated — probably best |
+## Confidence Decay
 
-## Display Design
+**No decay.** Confidence is permanent once established. Geological data doesn't become less valid over time.
 
-[?] How is confidence shown to the player?
+## AI/Default Mode Confidence Penalty
 
-- Per-cell color overlay on grid?
-- Numeric percentage next to element readings?
-- Confidence bars per element in sample view?
-- Aggregate confidence badge per cell (stars? letter grade?)
+AI-produced results carry a **small confidence penalty** representing less careful instrument handling:
+
+| Tier | AI Confidence Penalty |
+|------|----------------------|
+| T0 | -20% (max penalty) |
+| T1 | -15% |
+| T2 | -10% |
+| T3 | -5% |
+
+The penalty decreases as the AI improves with tier. See [ai-default-mode.md](ai-default-mode.md) for full AI design.
+
+## Per-Tool Contribution Visibility
+
+**Yes** — in the per-element detail view (Level 2), each tool's contribution is shown:
+```
+Fe: ████████░░ High (72%)
+  └─ XRF scan: +40%
+  └─ LIBS pulse: +25%
+  └─ Re-sample XRF: +18% (diminished)
+```
 
 ## Open Questions
 
-- Should confidence decay over time? (instrument drift, environmental change)
-- Does the AI/default mode produce systematically lower confidence than manual?
-- Can the player see confidence breakdowns (which tool contributed how much)?
-- Is there a "verification" action (like QA/QC standards) that boosts confidence?
+| Question | Status |
+|----------|--------|
+| Cell aggregate weighting (by abundance or equal?) | [?] — minor, deferred |
+| Is there a QA/QC verification action that boosts confidence? | [?] — possible future mechanic |
