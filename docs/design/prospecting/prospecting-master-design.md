@@ -380,14 +380,18 @@ Prospecting objectives guide the player through mechanics progressively.
 
 Each tier has 4-5 objectives. Completing all objectives in a tier grants a **tier completion bonus** on top of individual rewards.
 
+**Reward timing principle:** Slot rewards come from "sustained usage" objectives (fill tray, achieve confidence, multi-depth sampling) — not "first use" objectives. The player should feel the tray constraint before earning relief. First-use objectives reward AI upgrades and preset unlocks instead.
+
 #### T0 — Basics (Surface Sampling + Visual Inspection)
 
 | # | Objective | Teaches | Reward |
 |---|-----------|---------|--------|
 | 0-1 | "Collect your first core sample" | Drilling mechanic | — (gated tutorial) |
 | 0-2 | "Visually inspect a sample" | Tool application | — (gated tutorial) |
-| 0-3 | "Collect samples from 3 different cells" | Spatial coverage matters | +1 tray slot |
-| 0-4 | "Fill your sample tray (4/4)" | Tray management, discard decisions | AI auto-collect unlocked |
+| 0-3 | "Collect samples from 3 different cells" | Spatial coverage matters | AI auto-collect unlocked |
+| 0-4 | "Fill your sample tray (4/4)" | Tray management, discard decisions | **+1 tray slot** |
+
+*Player reaches 0-4 only after filling all 4 slots — they've hit the wall, made discard decisions or felt the squeeze. The +1 is relief.*
 
 *T0 completion bonus: AI will auto-discard lowest-value samples when tray is full*
 
@@ -396,10 +400,12 @@ Each tier has 4-5 objectives. Completing all objectives in a tier grants a **tie
 | # | Objective | Teaches | Reward |
 |---|-----------|---------|--------|
 | 1-1 | "Run your first GPR surface sweep" | Sweep mechanic, heat map reading | — (gated tutorial) |
-| 1-2 | "Perform XRF analysis on a sample" | XRF tool (heavy element detection) | +1 tray slot |
-| 1-3 | "Achieve 'Moderate' confidence on any element" | Multi-measurement composition | AI uses sweep data for targeting |
-| 1-4 | "Sample from the Megaregolith layer" | Depth selection, Ti/ilmenite access | Early Structural preset unlock |
-| 1-5 | "Cross-reference results between 2 adjacent cells" | Adjacency bonus mechanic | +1 tray slot |
+| 1-2 | "Perform XRF analysis on a sample" | XRF tool (heavy element detection) | Early Structural preset unlock |
+| 1-3 | "Achieve 'Moderate' confidence on any element" | Multi-measurement composition | **+1 tray slot** |
+| 1-4 | "Sample from the Megaregolith layer" | Depth selection, Ti/ilmenite access | AI uses sweep data for targeting |
+| 1-5 | "Cross-reference results between 2 adjacent cells" | Adjacency bonus mechanic | **+1 tray slot** |
+
+*1-3 requires multiple measurements on the same element (probabilistic composition). By then, the player has been cycling through samples and feeling the 9-slot limit. 1-5 requires 2 adjacent cells fully analyzed — even more investment.*
 
 *T1 completion bonus: AI prioritizes cells flagged by sweep instead of random targeting*
 
@@ -407,11 +413,13 @@ Each tier has 4-5 objectives. Completing all objectives in a tier grants a **tie
 
 | # | Objective | Teaches | Reward |
 |---|-----------|---------|--------|
-| 2-1 | "Use LIBS to detect a light element (H, C, or O)" | LIBS advantage over XRF | +1 tray slot |
-| 2-2 | "Sample from the Fractured Bedrock layer" | Deep sampling, water ice access | Early Life Support preset unlock |
-| 2-3 | "Achieve 'High' confidence on any cell" | Tool diversity, probabilistic composition | AI considers tool diversity |
-| 2-4 | "Run sweeps at 3 different frequency bands" | Frequency diversity, deep anomaly detection | +1 tray slot |
+| 2-1 | "Use LIBS to detect a light element (H, C, or O)" | LIBS advantage over XRF | Early Life Support preset unlock |
+| 2-2 | "Sample from the Fractured Bedrock layer" | Deep sampling, water ice access | AI considers tool diversity |
+| 2-3 | "Achieve 'High' confidence on any cell" | Tool diversity, probabilistic composition | **+1 tray slot** |
+| 2-4 | "Run sweeps at 3 different frequency bands" | Frequency diversity, deep anomaly detection | **+1 tray slot** |
 | 2-5 | "Apply 2 different tools to the same sample" | Sequential multi-tool pipeline | AI uses multi-tool pipelines |
+
+*2-3 requires cell-level High confidence — multiple elements at Moderate+ from diverse tools. The player has been deep in tray management. 2-4 costs 190+ energy across 3 sweeps — real investment.*
 
 *T2 completion bonus: AI auto-assigns Life Support preset for polar sites*
 
@@ -419,11 +427,13 @@ Each tier has 4-5 objectives. Completing all objectives in a tier grants a **tie
 
 | # | Objective | Teaches | Reward |
 |---|-----------|---------|--------|
-| 3-1 | "Use Fire Assay on a He-3 candidate sample" | Destructive analysis risk/reward | +2 tray slots |
-| 3-2 | "Sample all 4 depth layers in a single cell" | Complete depth coverage | Stratigraphy auto-correlate |
+| 3-1 | "Use Fire Assay on a He-3 candidate sample" | Destructive analysis risk/reward | Stratigraphy auto-correlate |
+| 3-2 | "Sample all 4 depth layers in a single cell" | Complete depth coverage | **+2 tray slots** |
 | 3-3 | "Achieve 'Certain' confidence on 3 different cells" | Mastery of full toolchain | AI confidence penalty reduced to 0% |
-| 3-4 | "Complete a full stratigraphic column" | Stratigraphy correlation bonus | +2 tray slots |
+| 3-4 | "Complete a full stratigraphic column" | Stratigraphy correlation bonus | **+2 tray slots** |
 | 3-5 | "Reach 90% survey progress on any cell" | Capstone — full prospecting mastery | Early access to Strategic preset |
+
+*3-2 requires 4 samples in one cell = 25% of base tray. 3-4 requires all depths sampled AND analyzed. By these points the player is deep in tray logistics.*
 
 *T3 completion bonus: Full AI autonomy mode — AI runs optimal pipelines with near-player efficiency*
 
