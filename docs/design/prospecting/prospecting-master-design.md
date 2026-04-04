@@ -1,7 +1,7 @@
 # Prospecting Module — Master Design Document
 
-> Status: DRAFT
-> Last Updated: 2026-04-02
+> Status: IMPLEMENTATION-READY
+> Last Updated: 2026-04-04
 > Depends on: [confidence-system.md](confidence-system.md), [depth-sampling-design.md](depth-sampling-design.md), [resource-distribution-model.md](resource-distribution-model.md), [ai-default-mode.md](ai-default-mode.md), [ui-layout.md](ui-layout.md)
 
 ---
@@ -376,16 +376,64 @@ Prospecting objectives guide the player through mechanics progressively.
 | AI behavior upgrades | AI uses better targeting, considers sweep data |
 | Early tool/preset unlock | Access to a tool or preset one tier early |
 
-### Objective Progression
+### Objective List (Resolved)
 
-| Tier | Objective Theme | Example Objectives |
-|------|----------------|-------------------|
-| T0 | Basics: sweep and sample | "Complete your first surface sweep", "Collect 3 samples from different cells" |
-| T1 | Tool introduction | "Run XRF analysis on a sample", "Achieve 'High' confidence on any cell" |
-| T2 | Advanced techniques | "Use LIBS to detect water", "Sample fractured bedrock layer" |
-| T3 | Mastery | "Achieve 'Certain' confidence on 5 cells", "Use fire assay on a He-3 candidate" |
+Each tier has 4-5 objectives. Completing all objectives in a tier grants a **tier completion bonus** on top of individual rewards.
 
-[?] Exact objective list per tier — to be designed during implementation
+#### T0 — Basics (Surface Sampling + Visual Inspection)
+
+| # | Objective | Teaches | Reward |
+|---|-----------|---------|--------|
+| 0-1 | "Collect your first core sample" | Drilling mechanic | — (gated tutorial) |
+| 0-2 | "Visually inspect a sample" | Tool application | — (gated tutorial) |
+| 0-3 | "Collect samples from 3 different cells" | Spatial coverage matters | +1 tray slot |
+| 0-4 | "Fill your sample tray (4/4)" | Tray management, discard decisions | AI auto-collect unlocked |
+
+*T0 completion bonus: AI will auto-discard lowest-value samples when tray is full*
+
+#### T1 — Sweep + XRF + Depth
+
+| # | Objective | Teaches | Reward |
+|---|-----------|---------|--------|
+| 1-1 | "Run your first GPR surface sweep" | Sweep mechanic, heat map reading | — (gated tutorial) |
+| 1-2 | "Perform XRF analysis on a sample" | XRF tool (heavy element detection) | +1 tray slot |
+| 1-3 | "Achieve 'Moderate' confidence on any element" | Multi-measurement composition | AI uses sweep data for targeting |
+| 1-4 | "Sample from the Megaregolith layer" | Depth selection, Ti/ilmenite access | Early Structural preset unlock |
+| 1-5 | "Cross-reference results between 2 adjacent cells" | Adjacency bonus mechanic | +1 tray slot |
+
+*T1 completion bonus: AI prioritizes cells flagged by sweep instead of random targeting*
+
+#### T2 — LIBS + Deep Geology + Frequency Diversity
+
+| # | Objective | Teaches | Reward |
+|---|-----------|---------|--------|
+| 2-1 | "Use LIBS to detect a light element (H, C, or O)" | LIBS advantage over XRF | +1 tray slot |
+| 2-2 | "Sample from the Fractured Bedrock layer" | Deep sampling, water ice access | Early Life Support preset unlock |
+| 2-3 | "Achieve 'High' confidence on any cell" | Tool diversity, probabilistic composition | AI considers tool diversity |
+| 2-4 | "Run sweeps at 3 different frequency bands" | Frequency diversity, deep anomaly detection | +1 tray slot |
+| 2-5 | "Apply 2 different tools to the same sample" | Sequential multi-tool pipeline | AI uses multi-tool pipelines |
+
+*T2 completion bonus: AI auto-assigns Life Support preset for polar sites*
+
+#### T3 — Fire Assay + Mastery
+
+| # | Objective | Teaches | Reward |
+|---|-----------|---------|--------|
+| 3-1 | "Use Fire Assay on a He-3 candidate sample" | Destructive analysis risk/reward | +2 tray slots |
+| 3-2 | "Sample all 4 depth layers in a single cell" | Complete depth coverage | Stratigraphy auto-correlate |
+| 3-3 | "Achieve 'Certain' confidence on 3 different cells" | Mastery of full toolchain | AI confidence penalty reduced to 0% |
+| 3-4 | "Complete a full stratigraphic column" | Stratigraphy correlation bonus | +2 tray slots |
+| 3-5 | "Reach 90% survey progress on any cell" | Capstone — full prospecting mastery | Early access to Strategic preset |
+
+*T3 completion bonus: Full AI autonomy mode — AI runs optimal pipelines with near-player efficiency*
+
+#### Tray Slot Accounting
+
+Base tray: 4/8/12/16 (T0/T1/T2/T3). Objective bonus slots stack:
+- T0 rewards: +1 → effective 5 at T0, 9 at T1, etc.
+- T1 rewards: +2 → effective 11 at T1 (if all complete)
+- T2 rewards: +2 → effective 14 at T2
+- T3 rewards: +4 → effective 20 at T3 (maximum)
 
 ---
 
@@ -413,13 +461,17 @@ Prospecting objectives guide the player through mechanics progressively.
 | 11 | Sweep frequency bands and energy costs | 4 bands: 30/60/100/150 energy (High→Low frequency) |
 | 12 | Drilling energy costs | 15/30/50/75 base per layer, with tier discounts (calibrated to 15.0f/cycle production) |
 
+### Also Resolved (Final Gaps, 2026-04-04)
+
+| # | Gap | Resolution |
+|---|-----|-----------|
+| 13 | Exact objective list per tier | 4-5 objectives per tier (T0-T3), 18 total. Tutorial progression with mixed rewards (tray slots, AI upgrades, early unlocks). See Section 11 |
+| 14 | 20 ore shape templates | 4 families × 5 templates (Angular Chunks, Crystalline Shards, Rounded Nodules, Layered Slabs) with depth-family affinity bias. See [ui-layout.md](ui-layout.md) |
+| 15 | Cell aggregate confidence weighting | Abundance-weighted average, 5% threshold excludes trace elements. See [confidence-system.md](confidence-system.md) |
+
 ### Remaining — Must-Resolve Before Implementation
 
-| # | Gap | Document | Priority |
-|---|-----|----------|----------|
-| 1 | Exact objective list per tier | This document, Section 11 | MEDIUM |
-| 2 | 20 ore shape templates | [ui-layout.md](ui-layout.md) | LOW |
-| 3 | Cell aggregate confidence weighting | [confidence-system.md](confidence-system.md) | LOW |
+**None.** All must-resolve gaps have been addressed. The core pipeline design is implementation-ready.
 
 ### Remaining — Minor / Deferred
 

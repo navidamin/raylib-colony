@@ -120,15 +120,62 @@ Each sample is rendered as a **procedural ore shape** — not a generic icon:
 | **Depth layer** | Ring count on circular border (1-4 rings) |
 | **Processing state** | Static=tray, spinning=processing, bright flash=complete |
 
-### Shape Templates
+### Shape Templates (Resolved)
 
-20 procedural ore shape templates to be designed:
-- 4-7 triangles/rectangles per template
-- Varied silhouettes (angular chunks, crystalline shards, rounded nodules, layered slabs)
-- Each sample randomly selects a template, colored by dominant element
-- Templates are visual variety only — no gameplay meaning
+20 procedural ore shape templates in 4 visual families. Each template is a list of 4-7 convex polygon fragments arranged within a 32x32 unit cell. Samples randomly select a template at creation, colored by dominant element. Templates are visual variety only — no gameplay meaning.
 
-[?] Exact 20 shape template designs — to be created with visual prototyping
+#### Family A: Angular Chunks (fractured rock, sharp edges)
+
+| # | Name | Fragments | Silhouette Description |
+|---|------|-----------|----------------------|
+| A1 | Cleaved Block | 4 | Two large rectangular halves with offset fracture line |
+| A2 | Shatter | 7 | Radial fragments from center impact point |
+| A3 | Wedge Pair | 4 | Two opposing triangular wedges with gap |
+| A4 | Stacked Fracture | 5 | Horizontal layers with jagged breaks between them |
+| A5 | Corner Break | 5 | Large block with one corner chipped into 2 small pieces |
+
+#### Family B: Crystalline Shards (elongated, pointed, mineral-like)
+
+| # | Name | Fragments | Silhouette Description |
+|---|------|-----------|----------------------|
+| B1 | Single Crystal | 4 | One tall hexagonal prism with 3 small chip fragments |
+| B2 | Twin Growth | 5 | Two intersecting elongated hexagons + 3 tiny chips |
+| B3 | Needle Cluster | 6 | 6 thin elongated triangles radiating from center |
+| B4 | Tabular | 4 | One wide flat hexagon + 3 small prismatic fragments |
+| B5 | Druzy | 7 | Flat base with 5-6 small pointed fragments on top surface |
+
+#### Family C: Rounded Nodules (smooth, weathered, organic shapes)
+
+| # | Name | Fragments | Silhouette Description |
+|---|------|-----------|----------------------|
+| C1 | Cobble | 4 | One large rounded rectangle + 3 small oval chips |
+| C2 | Botryoidal | 6 | Cluster of 6 overlapping circles/ovals (grape-like) |
+| C3 | Concretion | 4 | Large oval with 3 crescent-shaped shell fragments |
+| C4 | Pebble Scatter | 7 | 7 small rounded polygons in loose cluster |
+| C5 | Split Nodule | 5 | Two halves of an oval + 3 interior fragments exposed |
+
+#### Family D: Layered Slabs (sedimentary, flat, stacked)
+
+| # | Name | Fragments | Silhouette Description |
+|---|------|-----------|----------------------|
+| D1 | Flagstone | 4 | 4 thin wide rectangles stacked with slight offsets |
+| D2 | Shale Split | 6 | 6 very thin irregular parallelograms, fanning apart |
+| D3 | Cross-Bedded | 5 | 3 diagonal slabs crossed by 2 thin perpendicular pieces |
+| D4 | Laminate | 5 | 5 horizontal strips of varying width, tight stack |
+| D5 | Breccia Slab | 7 | Flat slab outline filled with 6 angular fragment inclusions |
+
+#### Depth-Family Affinity (soft rule, not strict)
+
+Templates are randomly assigned, but with a bias toward geologically plausible families per depth layer:
+
+| Depth Layer | Preferred Families | Rationale |
+|-------------|-------------------|-----------|
+| Regolith | C (Nodules), D (Slabs) | Weathered surface material |
+| Megaregolith | A (Chunks), D (Slabs) | Impact-fractured rubble |
+| Fractured Bedrock | A (Chunks), B (Crystals) | Fractured mineral veins |
+| Intact Bedrock | B (Crystals), D (Slabs) | Pristine crystalline rock |
+
+Selection: 70% chance from preferred families, 30% from any family.
 
 ## Objectives Display
 
@@ -152,7 +199,7 @@ Located below the Sample Overview Bar, shows active tier-locked tutorial objecti
   - AI behavior upgrades
   - Early tool/preset unlocks
 
-[?] Exact objective list per tier — to be designed during implementation
+See [prospecting-master-design.md](prospecting-master-design.md) Section 11 for the full 18-objective list across T0-T3.
 
 ## Interaction Flow
 
@@ -184,4 +231,4 @@ Player opens Prospecting menu
 | Where does the stratigraphic column view live? Separate tab? Overlay on grid? | [?] |
 | How much screen real estate does the 5x5 grid need vs the sample tray? | [?] |
 | Does the UI need to work at the current extraction view's font scale (FS() multiplier)? | [?] |
-| 20 ore shape template designs | [?] — to be prototyped |
+| 20 ore shape template designs | **Resolved:** 4 families × 5 templates, with depth-family affinity bias |

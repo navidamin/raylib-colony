@@ -68,7 +68,23 @@ LEVEL 3: Per-Depth-Layer Breakdown
     └───────────────────────────────────────────┘
 ```
 
-**Cell-level aggregate** = weighted average of all per-element confidences (weighted by element abundance or equal weight — [?])
+**Cell-level aggregate** = abundance-weighted average of per-element confidences (resolved — see formula below)
+
+### Cell Aggregate Formula (Resolved)
+
+```
+cellConfidence = Σ(conf_i × abundance_i) / Σ(abundance_i)
+    where only elements with abundance ≥ 5% are included (trace elements excluded)
+```
+
+**Rationale:** Abundance-weighted means a cell rich in Fe doesn't show red just because trace Ti is uncharacterized. The player cares about confidence in what's actually extractable. The 5% threshold prevents noise from trace elements dragging down the aggregate.
+
+**Example:** Cell with Fe=60% (conf 80%), Si=25% (conf 50%), Ti=3% (excluded — trace):
+```
+cellConfidence = (0.80 × 0.60 + 0.50 × 0.25) / (0.60 + 0.25)
+               = (0.48 + 0.125) / 0.85
+               = 0.712 → "High" (71.2%)
+```
 
 ## Confidence → Survey Progress Formula
 
@@ -149,5 +165,5 @@ Fe: ████████░░ High (72%)
 
 | Question | Status |
 |----------|--------|
-| Cell aggregate weighting (by abundance or equal?) | [?] — minor, deferred |
+| Cell aggregate weighting (by abundance or equal?) | **Resolved:** Abundance-weighted, 5% threshold (see formula above) |
 | Is there a QA/QC verification action that boosts confidence? | [?] — possible future mechanic |
