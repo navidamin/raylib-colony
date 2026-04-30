@@ -1,19 +1,53 @@
 # Resource Distribution Model
 
 > Status: STUB
-> Last Updated: 2026-04-01
+> Last Updated: 2026-04-04
 > Parent: [prospecting-master-design.md](prospecting-master-design.md)
-> Schedule: Future phase (required for pathfinder and clue chaining mechanics)
+> Schedule: **Sub-cell generation needed for core pipeline.** Pathfinder/clue chaining deferred to future phase.
 
 ---
 
 ## Purpose
 
 Define how resources are distributed across the planet grid with geological coherence, supporting:
-1. Pathfinder mechanics (indicator elements → target deposits)
-2. Clue chaining (spatial trails between related cells)
-3. Depth distribution (what's at each layer)
-4. Cross-referencing (adjacent cells sharing geological features)
+1. **Sub-cell distribution** (core pipeline requirement — see below)
+2. Pathfinder mechanics (indicator elements → target deposits)
+3. Clue chaining (spatial trails between related cells)
+4. Depth distribution (what's at each layer)
+5. Cross-referencing (adjacent cells sharing geological features)
+
+## Sub-Cell Distribution (Required for Core Pipeline)
+
+The prospecting grid **subdivides a single planet cell** into NxN sub-cells (3×3 at T0, up to 6×6 at T3). The `ResourceManager` stores one abundance value per resource per planet cell. Sub-cell distribution determines how that abundance is spread within the cell at higher resolution.
+
+### Requirement
+
+Given a planet cell with resource abundance values (e.g., Fe=0.7, Si=0.3), generate an NxN sub-cell grid where:
+- Sub-cell values average to approximately the planet cell's value
+- Distribution has spatial coherence (clusters/gradients, not random noise)
+- Deposits form recognizable shapes (see ore shape templates in [ui-layout.md](ui-layout.md))
+- Distribution is deterministic (same seed + same cell = same sub-cell map)
+- Works at any grid size (3×3 through 6×6) — finer grids reveal more detail within the same spatial area
+
+### Interaction with Existing Systems
+
+```
+Planet cell (ResourceManager)     Prospecting sub-cells (new)
+┌────────────────────┐            ┌──┬──┬──┬──┬──┐
+│                    │            │.2│.3│.1│.4│.2│
+│  Fe = 0.7          │  ──gen──► │.3│.8│.9│.5│.3│  avg ≈ 0.7
+│  Si = 0.3          │            │.1│.7│.5│.4│.2│
+│  (coarse, known)   │            │.2│.3│.6│.8│.4│
+│                    │            │.1│.2│.3│.2│.1│
+└────────────────────┘            └──┴──┴──┴──┴──┘
+```
+
+- `OrbitalSurveyData` and `SiteArchetype` remain per planet cell (coarse view)
+- Sub-cell data is generated on-demand when a prospecting unit first operates on a cell
+- Sub-cell map is seeded from planet seed + cell coordinates (deterministic)
+- Depth layers (see [depth-sampling-design.md](depth-sampling-design.md)) apply per sub-cell
+
+[?] Implementation approach: Perlin noise? Voronoi clusters? Simple gradient + noise? Needs prototyping.
 
 ## Current System
 

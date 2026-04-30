@@ -1,7 +1,7 @@
 # AI & Default Mode Design
 
 > Status: DRAFT
-> Last Updated: 2026-04-02
+> Last Updated: 2026-04-04
 > Parent: [prospecting-master-design.md](prospecting-master-design.md)
 
 ---
@@ -18,16 +18,29 @@ Default mode is **functional but suboptimal**. It produces results — the playe
 
 ## Availability
 
-AI/default mode is **always available from T0**. It improves with tier:
+AI/default mode is **always available from T0** with basic functionality. Improvements are **purchased with research tokens from the colony pool** — not tied to tier or objectives. AI upgrades apply **globally to all sects**.
 
-| Tier | AI Capability | Confidence Penalty |
-|------|--------------|-------------------|
-| T0 | Basic auto: random cells, visual inspection only | -20% confidence penalty |
-| T1 | Adds XRF auto-selection, slightly better cell targeting | -15% confidence penalty |
-| T2 | Adds LIBS auto-selection, uses sweep data for targeting | -10% confidence penalty |
-| T3 | Full auto: all tools, good (but not optimal) targeting | -5% confidence penalty |
+### Base AI (Free)
+Random cell selection, visual inspection only, stops when tray is full. -20% confidence penalty. Functional but near-useless.
 
-The confidence penalty decreases as the AI improves with tier, making full automation viable (though still slightly suboptimal) at T3.
+### Research-Gated Upgrades
+
+| Research Project | Cost | What Changes | Prerequisite |
+|-----------------|------|-------------|-------------|
+| Auto-Collection | Low | AI collects without player input | — |
+| Auto-Discard | Low | AI replaces lowest-value sample when full | Auto-Collection |
+| Sweep-Guided Targeting | Medium | AI targets sweep-flagged cells | T1 tools |
+| Tool Matching | Medium | AI picks XRF/LIBS by element type | T2 tools |
+| Multi-Tool Pipelines | Medium | AI runs sequential tools per sample | Tool Matching |
+| Context-Aware Presets | High | AI selects preset by site type | Multi-Tool Pipelines |
+| Precision Calibration | High | Confidence penalty → 0% | Context-Aware Presets |
+| Full Autonomy | Very High | Near-player-quality decisions | All above |
+
+See [prospecting-master-design.md](prospecting-master-design.md) Section 11b for full research tree.
+
+### Empire Scaling
+
+AI research is an empire-management investment. A player with Full Autonomy can set every new sect to Default mode and let AI prospect while they focus elsewhere. A player who skips AI research must manually prospect every sect.
 
 ## Per-Stage Default Behavior
 

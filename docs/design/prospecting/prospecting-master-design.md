@@ -37,7 +37,7 @@ Four sequential stages. Each stage has a default mode and a fine-control mode.
 
 | Stage | Player Action | Output | Key Decision |
 |-------|--------------|--------|--------------|
-| **Sweep** | Choose sweep depth/frequency | Confidence heat map over 5x5 grid | Where to invest sampling effort |
+| **Sweep** | Choose sweep depth/frequency | Confidence heat map over prospecting grid | Where to invest sampling effort |
 | **Sampling** | Choose cell + depth layer | Raw core sample added to tray | Which cells and depths to prioritize |
 | **Sample Tray** | View initial data, design processing pipeline | Processing plan per sample | Which tools to use on which samples |
 | **Testing** | Monitor (read-only during processing) | Element data, survey progress, pathfinder tips | Interpret results, plan next samples |
@@ -50,6 +50,67 @@ The pipeline is **iterative**, not one-shot:
 3. Results + pathfinder tips → refine where to sample next
 4. Repeat until survey progress is satisfactory
 5. Begin extraction
+
+### Spatial Model
+
+#### Grid = Sub-Cell Resolution of One Planet Cell
+
+The prospecting grid **subdivides the planet grid cell** where the sect is located. The planet's 20×20 grid stores coarse resource abundances per cell (e.g., "Fe = 0.7"). Prospecting reveals how those resources are distributed within the cell at higher resolution.
+
+```
+Planet View (20×20)              Prospecting Grid (scales with tier)
+┌──┬──┬──┬──┐                    ┌──┬──┬──┬──┬──┐
+│  │  │  │  │                    │.2│.3│.1│.4│.2│
+├──┼──┼──┼──┤     ──zoom──►     ├──┼──┼──┼──┼──┤
+│  │▓▓│  │  │                    │.3│.8│.9│.5│.3│  Sub-cell Fe values
+├──┼──┼──┼──┤   "Fe = 0.7"      ├──┼──┼──┼──┼──┤  (average ≈ 0.7)
+│  │  │  │  │                    │.1│.7│.5│.4│.2│
+└──┴──┴──┴──┘                    ├──┼──┼──┼──┼──┤
+                                 │.2│.3│.6│.8│.4│
+                                 ├──┼──┼──┼──┼──┤
+                                 │.1│.2│.3│.2│.1│
+                                 └──┴──┴──┴──┴──┘
+```
+
+Prospecting = increasing resolution of existing planet data. The player already knows the planet cell is Fe-rich from the orbital survey. Prospecting reveals *where within that cell* the Fe concentrates (sub-cell clusters, gradients, deposits).
+
+**Requires:** Sub-cell resource distribution generation in `ResourceManager`. Given a planet cell's resource values, procedurally generate NxN sub-cell distribution with spatial coherence (clusters, not random noise). See [resource-distribution-model.md](resource-distribution-model.md).
+
+#### Grid Size Scales With Tier
+
+Higher-tier equipment scans at finer resolution:
+
+| Tier | Grid Size | Sub-Cells | Resolution |
+|------|-----------|-----------|------------|
+| T0 | 3×3 | 9 | Coarse — broad zones |
+| T1 | 4×4 | 16 | Moderate — individual deposits visible |
+| T2 | 5×5 | 25 | Good — deposit boundaries clear |
+| T3 | 6×6 | 36 | Fine — precise deposit mapping |
+
+When the grid expands at tier-up, previously surveyed sub-cells are re-divided. Existing survey data is preserved but the finer grid reveals detail that was invisible at coarser resolution.
+
+#### Tray Capacity vs Sample Space
+
+Grid growth and depth growth keep pace with tray capacity, maintaining consistent pressure:
+
+| Tier | Grid | Depths | Total Possible | Tray | Batches for Full Coverage |
+|------|------|--------|----------------|------|--------------------------|
+| T0 | 3×3 | 1 | 9 | 4 | ~2 |
+| T1 | 4×4 | 2 | 32 | 8 | ~4 |
+| T2 | 5×5 | 3 | 75 | 12 | ~6 |
+| T3 | 6×6 | 4 | 144 | 16 | ~9 |
+
+### New Sect / New Colony Behavior
+
+#### Tiers Are Per-Unit, Research Is Global
+
+- **Module tier:** Per-unit. A new sect's prospecting module starts at T0.
+- **Unlock techs:** Global (`UnlockRegistry`). A new unit can be upgraded immediately to whatever tier the player has researched, if they pay the resource cost.
+- **AI research:** Global. If the player invested research tokens in "Sweep-Guided Targeting," every sect benefits from T0 — including new ones. This is the key payoff for AI investment: it scales across the empire.
+- **Tutorial hints:** Shown once globally. New sects skip tutorial text — the player already knows the buttons.
+- **Survey data:** Per-sect. New ground must be prospected from scratch. No shortcuts — the process must be done, but the tools and AI are available from the start if researched.
+
+**Implication for AI investment:** A player who ignores AI research must manually prospect every new sect. A player who invested in AI research can set new sects to Default mode and let the AI handle prospecting while they focus elsewhere. The AI investment is an empire-scaling decision.
 
 ---
 
@@ -301,15 +362,16 @@ Pathfinder and clue chaining mechanics are **deferred to a future development ph
 
 | Feature | T0 | T1 | T2 | T3 |
 |---------|----|----|----|----|
+| **Grid resolution** | 3×3 (9 cells) | 4×4 (16 cells) | 5×5 (25 cells) | 6×6 (36 cells) |
 | **Sweep** | No sweep | Surface-only GPR | Frequency slider (surface→mid) | Full-depth GPR |
-| **Sampling depths** | Surface only | +Shallow | +Mid | +Deep (all 4) |
+| **Sampling depths** | Surface only | +Megaregolith | +Fractured Bedrock | +Intact Bedrock (all 4) |
 | **Tray capacity** | 4 | 8 | 12 | 16 |
 | **Analysis tools** | Visual only | +XRF | +LIBS | +Fire Assay |
 | **Lab bench slots** | 1 concurrent | 2 concurrent | 3 concurrent | 4 concurrent |
 | **Separation methods** | None | Magnetic only | +Heavy mineral | +Volatile extraction |
 | **Pathfinder tips** | None | Basic ("nearby") | Directional arrows | Exact cell + abundance |
 | **Stratigraphy** | None | 2-layer column | Cross-section correlation | Full 4-layer + auto-correlate |
-| **AI/Default mode** | Basic auto (-20% conf) | Better targeting (-15%) | Uses sweep data (-10%) | Full auto (-5% conf) |
+| **AI/Default mode** | Base auto (research-gated) | Research-gated | Research-gated | Research-gated |
 | **Cross-referencing** | None | Unlocked (adjacent bonus) | Multi-cell patterns | Auto-cross-reference |
 
 ---
@@ -376,74 +438,100 @@ Prospecting objectives guide the player through mechanics progressively.
 | AI behavior upgrades | AI uses better targeting, considers sweep data |
 | Early tool/preset unlock | Access to a tool or preset one tier early |
 
+### Reward Model
+
+Three reward sources, cleanly separated:
+
+| Source | What It Gives | Scope |
+|--------|-------------|-------|
+| **Tier upgrades** | Base tray capacity, tools, depths, grid resolution | Per-unit |
+| **Objectives** | Tray bonus slots, pipeline presets | Per-unit |
+| **Research tokens** | AI capabilities | Global (all sects) |
+
+- **Tutorial objectives** (first use of each tool) teach mechanics. **No payoff** — the player already received the tool from the tier upgrade.
+- **Achievement objectives** (sustained usage milestones) give tray slots or presets. These require the player to have worked within the current constraints.
+- **AI capabilities** are purchased from the colony research token pool. They apply globally to all sects. See Section 11b.
+
 ### Objective List (Resolved)
 
-Each tier has 4-5 objectives. Completing all objectives in a tier grants a **tier completion bonus** on top of individual rewards.
-
-**Reward timing principle:** Slot rewards come from "sustained usage" objectives (fill tray, achieve confidence, multi-depth sampling) — not "first use" objectives. The player should feel the tray constraint before earning relief. First-use objectives reward AI upgrades and preset unlocks instead.
+**Reward timing principle:** Slot rewards come from "sustained usage" objectives — not "first use" objectives. The player should feel the tray constraint before earning relief.
 
 #### T0 — Basics (Surface Sampling + Visual Inspection)
 
 | # | Objective | Teaches | Reward |
 |---|-----------|---------|--------|
-| 0-1 | "Collect your first core sample" | Drilling mechanic | — (gated tutorial) |
-| 0-2 | "Visually inspect a sample" | Tool application | — (gated tutorial) |
-| 0-3 | "Collect samples from 3 different cells" | Spatial coverage matters | AI auto-collect unlocked |
-| 0-4 | "Fill your sample tray (4/4)" | Tray management, discard decisions | **+1 tray slot** |
+| 0-1 | "Collect your first core sample" | Drilling mechanic | — (tutorial) |
+| 0-2 | "Visually inspect a sample" | Tool application | — (tutorial) |
+| 0-3 | "Collect samples from 3 different cells" | Spatial coverage | — (tutorial) |
+| 0-4 | "Fill your sample tray (4/4)" | Tray management | **+1 tray slot** |
 
-*Player reaches 0-4 only after filling all 4 slots — they've hit the wall, made discard decisions or felt the squeeze. The +1 is relief.*
-
-*T0 completion bonus: AI will auto-discard lowest-value samples when tray is full*
+*Tutorial hints for 0-1 through 0-3 are shown once globally. New sects skip them but still must complete the process.*
 
 #### T1 — Sweep + XRF + Depth
 
 | # | Objective | Teaches | Reward |
 |---|-----------|---------|--------|
-| 1-1 | "Run your first GPR surface sweep" | Sweep mechanic, heat map reading | — (gated tutorial) |
-| 1-2 | "Perform XRF analysis on a sample" | XRF tool (heavy element detection) | Early Structural preset unlock |
-| 1-3 | "Achieve 'Moderate' confidence on any element" | Multi-measurement composition | **+1 tray slot** |
-| 1-4 | "Sample from the Megaregolith layer" | Depth selection, Ti/ilmenite access | AI uses sweep data for targeting |
-| 1-5 | "Cross-reference results between 2 adjacent cells" | Adjacency bonus mechanic | **+1 tray slot** |
+| 1-1 | "Run your first GPR surface sweep" | Sweep + heat map | — (tutorial) |
+| 1-2 | "Perform XRF analysis on a sample" | XRF tool | — (tutorial) |
+| 1-3 | "Analyze a sample with Magnetic separation + XRF" | Structural workflow | **Structural preset** |
+| 1-4 | "Achieve 'Moderate' confidence on any element" | Multi-measurement composition | **+1 tray slot** |
+| 1-5 | "Cross-reference results between 2 adjacent cells" | Adjacency bonus | **+1 tray slot** |
 
-*1-3 requires multiple measurements on the same element (probabilistic composition). By then, the player has been cycling through samples and feeling the 9-slot limit. 1-5 requires 2 adjacent cells fully analyzed — even more investment.*
-
-*T1 completion bonus: AI prioritizes cells flagged by sweep instead of random targeting*
+*Structural preset earned by manually performing the workflow once — now it's a one-click button.*
 
 #### T2 — LIBS + Deep Geology + Frequency Diversity
 
 | # | Objective | Teaches | Reward |
 |---|-----------|---------|--------|
-| 2-1 | "Use LIBS to detect a light element (H, C, or O)" | LIBS advantage over XRF | Early Life Support preset unlock |
-| 2-2 | "Sample from the Fractured Bedrock layer" | Deep sampling, water ice access | AI considers tool diversity |
-| 2-3 | "Achieve 'High' confidence on any cell" | Tool diversity, probabilistic composition | **+1 tray slot** |
-| 2-4 | "Run sweeps at 3 different frequency bands" | Frequency diversity, deep anomaly detection | **+1 tray slot** |
-| 2-5 | "Apply 2 different tools to the same sample" | Sequential multi-tool pipeline | AI uses multi-tool pipelines |
+| 2-1 | "Use LIBS to detect a light element (H, C, or O)" | LIBS advantage over XRF | — (tutorial) |
+| 2-2 | "Detect H₂O using LIBS on a Fractured Bedrock sample" | Volatile workflow | **Life Support preset** |
+| 2-3 | "Achieve 'High' confidence on any cell" | Tool diversity | **+1 tray slot** |
+| 2-4 | "Run sweeps at 3 different frequency bands" | Frequency diversity | **+1 tray slot** |
+| 2-5 | "Apply 2 different tools to the same sample" | Multi-tool pipeline | — (tutorial) |
 
-*2-3 requires cell-level High confidence — multiple elements at Moderate+ from diverse tools. The player has been deep in tray management. 2-4 costs 190+ energy across 3 sweeps — real investment.*
-
-*T2 completion bonus: AI auto-assigns Life Support preset for polar sites*
+*Life Support preset earned by discovering the volatile detection workflow firsthand.*
 
 #### T3 — Fire Assay + Mastery
 
 | # | Objective | Teaches | Reward |
 |---|-----------|---------|--------|
-| 3-1 | "Use Fire Assay on a He-3 candidate sample" | Destructive analysis risk/reward | Stratigraphy auto-correlate |
-| 3-2 | "Sample all 4 depth layers in a single cell" | Complete depth coverage | **+2 tray slots** |
-| 3-3 | "Achieve 'Certain' confidence on 3 different cells" | Mastery of full toolchain | AI confidence penalty reduced to 0% |
-| 3-4 | "Complete a full stratigraphic column" | Stratigraphy correlation bonus | **+2 tray slots** |
-| 3-5 | "Reach 90% survey progress on any cell" | Capstone — full prospecting mastery | Early access to Strategic preset |
+| 3-1 | "Use Fire Assay on a sample" | Destructive analysis risk/reward | — (tutorial) |
+| 3-2 | "Confirm He-3 via Fire Assay in Intact Bedrock" | Strategic resource workflow | **Strategic preset** |
+| 3-3 | "Sample all 4 depth layers in a single cell" | Complete depth coverage | **+2 tray slots** |
+| 3-4 | "Complete a full stratigraphic column" | Stratigraphy correlation | **+2 tray slots** |
+| 3-5 | "Reach 90% survey progress on any cell" | Capstone mastery | **Stratigraphy auto-correlate** |
 
-*3-2 requires 4 samples in one cell = 25% of base tray. 3-4 requires all depths sampled AND analyzed. By these points the player is deep in tray logistics.*
-
-*T3 completion bonus: Full AI autonomy mode — AI runs optimal pipelines with near-player efficiency*
+*Strategic preset earned by completing the He-3 discovery workflow. Auto-correlate earned at mastery — highlights cross-section patterns the player previously had to spot manually.*
 
 #### Tray Slot Accounting
 
-Base tray: 4/8/12/16 (T0/T1/T2/T3). Objective bonus slots stack:
-- T0 rewards: +1 → effective 5 at T0, 9 at T1, etc.
-- T1 rewards: +2 → effective 11 at T1 (if all complete)
-- T2 rewards: +2 → effective 14 at T2
-- T3 rewards: +4 → effective 20 at T3 (maximum)
+Base tray: 4/8/12/16 (T0/T1/T2/T3). Objective bonus slots per tier:
+- T0: +1 → effective 5
+- T1: +2 → effective 10
+- T2: +2 → effective 14
+- T3: +4 → effective 20 (maximum)
+
+---
+
+## 11b. AI Capabilities (Research-Gated)
+
+AI capabilities are **purchased from the colony research token pool**, not earned from objectives. They apply **globally to all sects** — a key payoff for research investment.
+
+### AI Research Projects
+
+| Research Project | Cost | Effect | Prerequisite |
+|-----------------|------|--------|-------------|
+| **Basic Automation** | Free | AI drills random cells, applies visual inspection, stops when tray full | None (available T0) |
+| **Auto-Collection** | Low | AI collects samples without player input in Default mode | Basic Automation |
+| **Auto-Discard** | Low | AI replaces lowest-value sample when tray is full instead of stopping | Auto-Collection |
+| **Sweep-Guided Targeting** | Medium | AI targets cells flagged by sweep heat map instead of random selection | T1 tools unlocked |
+| **Tool Matching** | Medium | AI selects XRF for heavy elements, LIBS for light, instead of cheapest | T2 tools unlocked |
+| **Multi-Tool Pipelines** | Medium | AI applies sequential tools to samples (XRF then LIBS) instead of single tool | Tool Matching |
+| **Context-Aware Presets** | High | AI selects appropriate preset based on site characteristics (polar → Life Support) | Multi-Tool Pipelines |
+| **Precision Calibration** | High | AI confidence penalty reduced from -20% to 0% | Context-Aware Presets |
+| **Full Autonomy** | Very High | AI runs near-player-quality decisions: optimal targeting, all tools, strategic depth | All above |
+
+**Empire scaling:** A player who invests in AI research can set new sects to Default mode and let the AI handle prospecting across the colony. A player who skips AI research must manually prospect every sect. This makes AI research an empire-management decision, not just a convenience toggle.
 
 ---
 
@@ -471,32 +559,38 @@ Base tray: 4/8/12/16 (T0/T1/T2/T3). Objective bonus slots stack:
 | 11 | Sweep frequency bands and energy costs | 4 bands: 30/60/100/150 energy (High→Low frequency) |
 | 12 | Drilling energy costs | 15/30/50/75 base per layer, with tier discounts (calibrated to 15.0f/cycle production) |
 
-### Also Resolved (Final Gaps, 2026-04-04)
+### Also Resolved (Final Gaps + Structural Rework, 2026-04-04)
 
 | # | Gap | Resolution |
 |---|-----|-----------|
-| 13 | Exact objective list per tier | 4-5 objectives per tier (T0-T3), 18 total. Tutorial progression with mixed rewards (tray slots, AI upgrades, early unlocks). See Section 11 |
-| 14 | 20 ore shape templates | 4 families × 5 templates (Angular Chunks, Crystalline Shards, Rounded Nodules, Layered Slabs) with depth-family affinity bias. See [ui-layout.md](ui-layout.md) |
-| 15 | Cell aggregate confidence weighting | Abundance-weighted average, 5% threshold excludes trace elements. See [confidence-system.md](confidence-system.md) |
+| 13 | Exact objective list per tier | Tutorials (no payoff) + achievement objectives (tray slots, presets). See Section 11 |
+| 14 | 20 ore shape templates | 4 families × 5 templates with depth-family affinity bias. See [ui-layout.md](ui-layout.md) |
+| 15 | Cell aggregate confidence weighting | Abundance-weighted average, 5% threshold. See [confidence-system.md](confidence-system.md) |
+| 16 | AI reward source | AI capabilities research-gated (colony token pool), not objective-linked. See Section 11b |
+| 17 | Prospecting grid spatial model | Grid subdivides one planet cell. Size scales with tier (3×3 → 6×6). See Section 2 |
+| 18 | New sect/colony behavior | Process from scratch, tutorials shown once globally, AI research carries over. See Section 2 |
 
 ### Remaining — Must-Resolve Before Implementation
 
-**None.** All must-resolve gaps have been addressed. The core pipeline design is implementation-ready.
+| # | Gap | Document | Priority |
+|---|-----|----------|----------|
+| 1 | Sub-cell resource distribution generation | [resource-distribution-model.md](resource-distribution-model.md) | HIGH — core pipeline needs this |
+| 2 | AI research token costs (Low/Medium/High/Very High → actual numbers) | This document, Section 11b | MEDIUM — needs balance pass |
 
 ### Remaining — Minor / Deferred
 
 | # | Gap | Document | Status |
 |---|-----|----------|--------|
-| 6 | Manpower cost for drilling | [depth-sampling-design.md](depth-sampling-design.md) | Deferred |
-| 7 | Sample archive vs active tray | [depth-sampling-design.md](depth-sampling-design.md) | Deferred |
-| 8 | Stage tab visibility (all vs active only) | [ui-layout.md](ui-layout.md) | Deferred |
+| 3 | Manpower cost for drilling | [depth-sampling-design.md](depth-sampling-design.md) | Deferred |
+| 4 | Sample archive vs active tray | [depth-sampling-design.md](depth-sampling-design.md) | Deferred |
+| 5 | Stage tab visibility (all vs active only) | [ui-layout.md](ui-layout.md) | Deferred |
 
 ### Deferred to Future Phase
 
 | # | Gap | Document | Dependency |
 |---|-----|----------|-----------|
-| 9 | Pathfinder element correlation rules | [resource-distribution-model.md](resource-distribution-model.md) | Needs geological coherence model |
-| 10 | Clue chaining reward tuning | [resource-distribution-model.md](resource-distribution-model.md) | Needs pathfinder rules |
-| 11 | Cross-referencing spatial patterns | This document, Section 4 | Needs geological coherence model |
-| 12 | Stratigraphy visualization details | [ui-layout.md](ui-layout.md) | Needs depth model |
-| 13 | Per-tool tier unlock costs | This document, Section 9 | Needs game balance pass |
+| 6 | Pathfinder element correlation rules | [resource-distribution-model.md](resource-distribution-model.md) | Needs geological coherence model |
+| 7 | Clue chaining reward tuning | [resource-distribution-model.md](resource-distribution-model.md) | Needs pathfinder rules |
+| 8 | Cross-referencing spatial patterns | This document, Section 4 | Needs geological coherence model |
+| 9 | Stratigraphy visualization details | [ui-layout.md](ui-layout.md) | Needs depth model |
+| 10 | Per-tool tier unlock costs | This document, Section 9 | Needs game balance pass |
