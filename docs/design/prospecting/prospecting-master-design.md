@@ -243,7 +243,7 @@ All mechanics from variants 7A-7E are incorporated. See [sampling-mechanics.md](
 - Completed columns (all depth layers sampled) reveal full geological model
 - Adjacent completed columns show cross-section correlation lines
 - Correlated layers → bonus survey progress
-- **[?]** When/how this view is displayed (separate tab? overlay?)
+- **Display:** Side panel that appears next to the grid when hovering/selecting a cell with ≥2 depth samples. Panel slides in from the right, compressing the grid. See [ui-layout.md](ui-layout.md) for layout.
 
 ---
 
@@ -570,6 +570,14 @@ AI capabilities are **purchased from the colony research token pool**, not earne
 | 17 | Prospecting grid spatial model | Grid subdivides one planet cell. Size scales with tier (3×3 → 6×6). See Section 2 |
 | 18 | New sect/colony behavior | Process from scratch, tutorials shown once globally, AI research carries over. See Section 2 |
 
+### Also Resolved (UI Layout Decisions, 2026-04-30)
+
+| # | Gap | Resolution |
+|---|-----|-----------|
+| 19 | Stratigraphy view location | Side panel on hover/select (appears next to grid when cell has ≥2 depth samples). See [ui-layout.md](ui-layout.md) |
+| 20 | Font scaling for prospecting UI | Same FS() as extraction view (1.30x at 48pt). See [ui-layout.md](ui-layout.md) |
+| 21 | Objectives panel location | Bottom collapsible section below message bar. Collapsed by default, shows count. See [ui-layout.md](ui-layout.md) |
+
 ### Remaining — Must-Resolve Before Implementation
 
 | # | Gap | Document | Priority |
@@ -584,6 +592,8 @@ AI capabilities are **purchased from the colony research token pool**, not earne
 | 3 | Manpower cost for drilling | [depth-sampling-design.md](depth-sampling-design.md) | Deferred |
 | 4 | Sample archive vs active tray | [depth-sampling-design.md](depth-sampling-design.md) | Deferred |
 | 5 | Stage tab visibility (all vs active only) | [ui-layout.md](ui-layout.md) | Deferred |
+| — | ~~Font scaling~~ | [ui-layout.md](ui-layout.md) | **Resolved** (gap #20) |
+| — | ~~Objectives panel location~~ | [ui-layout.md](ui-layout.md) | **Resolved** (gap #21) |
 
 ### Deferred to Future Phase
 
@@ -592,5 +602,5 @@ AI capabilities are **purchased from the colony research token pool**, not earne
 | 6 | Pathfinder element correlation rules | [resource-distribution-model.md](resource-distribution-model.md) | Needs geological coherence model |
 | 7 | Clue chaining reward tuning | [resource-distribution-model.md](resource-distribution-model.md) | Needs pathfinder rules |
 | 8 | Cross-referencing spatial patterns | This document, Section 4 | Needs geological coherence model |
-| 9 | Stratigraphy visualization details | [ui-layout.md](ui-layout.md) | Needs depth model |
+| 9 | ~~Stratigraphy visualization details~~ | ~~[ui-layout.md](ui-layout.md)~~ | **Resolved** (gap #19) — side panel on hover/select |
 | 10 | Per-tool tier unlock costs | This document, Section 9 | Needs game balance pass |

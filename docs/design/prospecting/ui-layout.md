@@ -31,12 +31,12 @@ When the player opens the prospecting menu, they see:
 │  │  [Sample icons with visual encoding — see below]     │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
-│  ┌─ Objectives Panel ─────────────────────────────────┐   │
-│  │  [Active objectives with progress indicators]       │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
 │  ┌─ Message Bar ───────────────────────────────────────┐   │
 │  │  Pathfinder tips / Status messages / Alerts          │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─ ▶ Objectives (2/5) ───────────────────────────────┐   │
+│  │  [Collapsible — click to expand/collapse]            │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -179,25 +179,30 @@ Selection: 70% chance from preferred families, 30% from any family.
 
 ## Objectives Display
 
-### Objectives Panel
+### Objectives Panel (Bottom Collapsible)
 
-Located below the Sample Overview Bar, shows active tier-locked tutorial objectives:
+Small collapsible section at the bottom of the prospecting panel, below the message bar. Click the header to expand/collapse. Collapsed by default to keep the panel uncluttered; expanded shows active objectives.
 
 ```
-┌─ Objectives ──────────────────────────────────────────┐
-│  ☐ Complete your first surface sweep          [T0]    │
-│  ☐ Collect 3 samples from different cells     [T0]    │
-│  ☑ Run XRF analysis on a sample               [T1]    │
-│  ☐ Achieve "High" confidence on any cell      [T1]    │
+┌─ ▶ Objectives (2/5) ─────────────────────────────────┐  ← collapsed (click to expand)
+└───────────────────────────────────────────────────────┘
+
+┌─ ▼ Objectives (2/5) ─────────────────────────────────┐  ← expanded
+│  ☑ Collect your first core sample              [T0]  │
+│  ☑ Visually inspect a sample                   [T0]  │
+│  ☐ Collect samples from 3 different cells      [T0]  │
+│  ☐ Fill your sample tray (4/4)          → +1 slot    │
+│                                                       │
+│  ☐ Run your first GPR surface sweep            [T1]  │  ← appears after T1 unlock
 └───────────────────────────────────────────────────────┘
 ```
 
+- **Collapsed header** shows completed/total count (e.g., "2/5")
 - Objectives are **tier-locked** — new objectives appear when the tier unlocks
 - **No deadlines** — objectives persist indefinitely until completed
-- **Rewards** are mixed capability unlocks per objective type:
-  - Bonus tray slots
-  - AI behavior upgrades
-  - Early tool/preset unlocks
+- **Rewards** shown inline (e.g., "→ +1 slot", "→ Structural preset")
+- Completed objectives show checkmark and are dimmed
+- Tutorial objectives (no reward) show no reward label
 
 See [prospecting-master-design.md](prospecting-master-design.md) Section 11 for the full 18-objective list across T0-T3.
 
@@ -222,13 +227,54 @@ Player opens Prospecting menu
             └─► Survey progress updates per cell
 ```
 
+## Stratigraphy Side Panel
+
+The stratigraphy view appears as a **side panel** next to the grid when the player hovers or selects a cell that has multiple depth samples. It does not occupy a separate tab.
+
+```
+┌─ Stage Content Area ──────────────────────────────────────────────┐
+│                                                                    │
+│  ┌─ Grid ────────────────────┐  ┌─ Stratigraphy Panel ─────────┐ │
+│  │                            │  │                               │ │
+│  │   [NxN grid with heat      │  │  Cell (2,3) — Depth Column   │ │
+│  │    map / sample markers]   │  │  ┌─────────────────────────┐ │ │
+│  │                            │  │  │ Regolith      Fe 42%    │ │ │
+│  │                            │  │  │ ─────────────────────── │ │ │
+│  │                            │  │  │ Megaregolith  Ti 18%    │ │ │
+│  │                            │  │  │ ─────────────────────── │ │ │
+│  │                            │  │  │ Fract.Bedrock H₂O 31%  │ │ │
+│  │                            │  │  │ ─────────────────────── │ │ │
+│  │                            │  │  │ Intact Bedr.  He-3 7%   │ │ │
+│  │                            │  │  └─────────────────────────┘ │ │
+│  │                            │  │                               │ │
+│  │                            │  │  Adjacent correlation lines  │ │
+│  │                            │  │  shown when neighbor columns │ │
+│  │                            │  │  are also complete            │ │
+│  └────────────────────────────┘  └───────────────────────────────┘ │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Trigger:** Hover or select a cell with ≥2 depth layer samples. Panel slides in from the right, compressing the grid slightly. If the cell has only surface samples, no panel appears.
+
+**Content:**
+- Vertical depth column for the selected cell
+- Layer bars colored by dominant element, with composition percentages
+- Unsampled layers shown as gray/hatched placeholder
+- When adjacent cells also have complete columns, correlation lines connect matching layers across columns
+
+## Font Scaling
+
+The prospecting UI uses the **same FS() multiplier** as the existing extraction view: `baseSize * 1.30f` at 48pt texture size. All `DrawTextEx`/`MeasureTextEx` calls in prospecting panel methods are wrapped with `FS()`. This keeps text size consistent across all extraction unit panels.
+
 ## Open Questions
 
 | Question | Status |
 |----------|--------|
 | Should all three stage tabs be visible simultaneously, or only the active stage? | [?] |
 | How does the sample overview bar interact with stage content? (click sample → jump to its stage?) | [?] |
-| Where does the stratigraphic column view live? Separate tab? Overlay on grid? | [?] |
-| How much screen real estate does the 5x5 grid need vs the sample tray? | [?] |
-| Does the UI need to work at the current extraction view's font scale (FS() multiplier)? | [?] |
+| How much screen real estate does the NxN grid need vs the sample tray? | [?] |
 | 20 ore shape template designs | **Resolved:** 4 families × 5 templates, with depth-family affinity bias |
+| Where does the stratigraphic column view live? | **Resolved:** Side panel on hover/select |
+| Does the UI need to work at the current extraction view's font scale? | **Resolved:** Yes — same FS() (1.30x at 48pt) |
+| Where do objectives live within the prospecting panel? | **Resolved:** Bottom collapsible section |
