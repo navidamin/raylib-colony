@@ -78,38 +78,41 @@ class Archetype:
     accent: tuple      # signature accent (ice glint, KREEP glow, void, etc.)
     contrast: float    # 0..1, how much hillshade modulates albedo
 
-# Tones tuned to look like real lunar imagery: low chroma, mostly grayscale with
-# subtle hue shifts. Saturation kills the moon-feel.
+# Tones tuned to look like real lunar imagery: low chroma, mostly grayscale
+# with subtle hue shifts. All `base` colours kept in a tight 140..170
+# brightness range so no biome region reads as a shadow patch when
+# rendered at full-planet zoom. Biomes are distinguished by tint, not
+# by big brightness jumps.
 ARCHETYPES = {
     "MARE_INDUSTRIAL":     Archetype("Mare (basalt)",
-                                     ( 70,  68,  66),
-                                     ( 38,  37,  36),
-                                     (110, 106, 100),
-                                     ( 50,  46,  42), 0.45),
+                                     (138, 134, 128),
+                                     ( 80,  78,  74),
+                                     (170, 165, 156),
+                                     ( 90,  86,  80), 0.45),
     "HIGHLAND_CONSTRUCTION": Archetype("Highland (anorthosite)",
-                                     (158, 154, 146),
-                                     (102,  98,  92),
-                                     (210, 206, 196),
+                                     (162, 158, 150),
+                                     (110, 106,  98),
+                                     (200, 196, 188),
                                      (190, 188, 180), 0.55),
     "POLAR_VOLATILE":      Archetype("Polar (ice frost)",
-                                     (170, 178, 192),
-                                     (108, 116, 130),
-                                     (224, 230, 240),
+                                     (168, 174, 184),
+                                     (115, 122, 134),
+                                     (210, 218, 230),
                                      (220, 234, 246), 0.65),
     "KREEP_SCIENTIFIC":    Archetype("KREEP (thorium-rich)",
-                                     (118, 108,  96),
-                                     ( 72,  64,  56),
-                                     (172, 158, 140),
+                                     (158, 144, 130),
+                                     (100,  90,  80),
+                                     (190, 174, 156),
                                      (200, 150, 110), 0.50),
     "LAVA_TUBE":           Archetype("Lava tube collapse",
-                                     ( 80,  76,  72),
-                                     ( 22,  20,  18),
-                                     (118, 112, 104),
+                                     (148, 142, 134),
+                                     ( 70,  66,  60),
+                                     (180, 172, 162),
                                      (  6,   4,   4), 0.45),
     "MIXED":               Archetype("Mixed terrain",
-                                     (124, 118, 110),
-                                     ( 72,  68,  62),
-                                     (190, 184, 172),
+                                     (152, 146, 138),
+                                     (100,  94,  86),
+                                     (188, 180, 168),
                                      (140, 132, 120), 0.55),
 }
 
@@ -194,7 +197,7 @@ class Crater:
     has_peak: bool
 
 
-def sample_craters(shape, rng, count_small=220, count_med=70, count_big=14,
+def sample_craters(shape, rng, count_small=260, count_med=85, count_big=6,
                    min_separation=1.05):
     """Reject-sample crater positions so no two craters overlap.
 
@@ -289,12 +292,15 @@ def apply_craters(height, craters, rng=None):
         # floors fall into cast shadow — the variety the user asked for.
         # Larger craters trend shallower (filled / complex morphology).
         size_factor = 1.0 - min(0.55, (c.r - 8) / 220.0)
-        # Beta distribution for a smooth continuous range, not uniform —
-        # gives a fat middle so most craters land at moderate depth, with
-        # tails for very shallow and very deep ones. The user reported
-        # only "3-4 levels" with a tight uniform; widening + reshaping
-        # produces a continuous depth gradient.
+        # Beta distribution for a smooth continuous range, fat in the
+        # middle. Big craters need a stronger floor on depth_jitter so
+        # they read as proper carved bowls; otherwise a shallow large
+        # crater looks like a soft circular patch on the surface.
         depth_jitter = float(rng.beta(2.2, 2.2)) * 1.6 + 0.15  # 0.15..1.75
+        if c.r > 60:
+            depth_jitter = max(depth_jitter, 1.05)
+        elif c.r > 35:
+            depth_jitter = max(depth_jitter, 0.80)
         sharp = 1.0 - c.age * 0.7
         depth_amp = -0.40 * sharp * size_factor * depth_jitter
         # Rim is *small* — only ~5% of depth amplitude.
@@ -452,56 +458,34 @@ def archetype_pixel_map(arch_grid):
     return arch_grid[py[:, None], px[None, :]]
 
 
-def colourise(height, mare_mask, hillsh, arch_pix, rng, cast_mask=None):
+def colourise(height, mare_mask, hillsh, arch_pix, rng, cast_mask=None,
+              albedo_height=None):
+    """Apply per-pixel archetype colour, then modulate with hillshade and
+    cast shadows. We deliberately do NOT blend the archetype's shadow/base/
+    high colours by elevation — that produced large soft circular dark
+    patches wherever the FBM heightmap dipped, even when those dips were
+    not actually crater features.
+    """
     h, w = height.shape
-    rgb = np.zeros((h, w, 3), dtype=np.float32)
 
-    # height normalised to 0..1 for shadow/high blending
-    hn = (height - height.min()) / max(1e-6, height.max() - height.min())
-
-    # build a per-pixel base/shadow/high palette via lookup
+    # Per-pixel base archetype colour (Gaussian-blurred boundaries).
     base = np.zeros((h, w, 3), dtype=np.float32)
-    shadow = np.zeros_like(base)
-    high = np.zeros_like(base)
-    accent = np.zeros_like(base)
     contrast = np.zeros((h, w), dtype=np.float32)
-
     for i, name in enumerate(ARCHETYPE_ORDER):
         a = ARCHETYPES[name]
         m = (arch_pix == i)
         base[m] = a.base
-        shadow[m] = a.shadow
-        high[m] = a.high
-        accent[m] = a.accent
         contrast[m] = a.contrast
 
-    # blur archetype boundaries so they don't look like a blocky checkerboard
     blur_px = int(PX_PER_CELL * 0.9)
     base = np.asarray(Image.fromarray(base.astype(np.uint8))
                       .filter(ImageFilter.GaussianBlur(blur_px)),
                       dtype=np.float32)
-    shadow = np.asarray(Image.fromarray(shadow.astype(np.uint8))
-                        .filter(ImageFilter.GaussianBlur(blur_px)),
-                        dtype=np.float32)
-    high = np.asarray(Image.fromarray(high.astype(np.uint8))
-                      .filter(ImageFilter.GaussianBlur(blur_px)),
-                      dtype=np.float32)
-    accent = np.asarray(Image.fromarray(accent.astype(np.uint8))
-                        .filter(ImageFilter.GaussianBlur(blur_px)),
-                        dtype=np.float32)
     contrast_blur = np.asarray(
         Image.fromarray((contrast * 255).astype(np.uint8))
         .filter(ImageFilter.GaussianBlur(blur_px)), dtype=np.float32) / 255.0
 
-    # albedo = lerp(shadow, base, hn) then lerp toward high in upper half
-    t_low = np.clip(hn * 2.0, 0, 1)[..., None]
-    t_high = np.clip((hn - 0.5) * 2.0, 0, 1)[..., None]
-    albedo = shadow * (1 - t_low) + base * t_low
-    albedo = albedo * (1 - t_high) + high * t_high
-
-    # mare basins darken the albedo (and lower elevation already pulls dark)
-    mare = mare_mask[..., None]
-    albedo = albedo * (1.0 - 0.22 * mare)
+    albedo = base
 
     # hillshade modulates albedo
     sh = hillsh[..., None]
@@ -610,11 +594,15 @@ def build_planet(seed=SEED):
     shape = (SIZE, SIZE)
 
     print("[1/6] heightmap (FBM)...")
-    # Strong low-frequency relief, almost no high-frequency texture so the
-    # craters dominate the local detail and hillshade has no wood-grain.
+    # Very gentle relief — just enough to keep the surface from looking
+    # like a perfectly flat sheet. With craters as the only "real"
+    # features, even modest FBM amplitude reads as ugly soft circular
+    # dark patches under hillshade. We compress the FBM range to ~0.25
+    # of its raw amplitude so the surface stays close to flat.
     base = fbm(shape, octaves=5, base_scale=384, persistence=0.5, rng=rng)
     detail = fbm(shape, octaves=3, base_scale=128, persistence=0.5, rng=rng)
     height = 0.92 * base + 0.08 * detail
+    height = (height - height.mean()) * 0.30
     save_gray(height, os.path.join(OUT, "stage1_heightmap.png"))
 
     print("[2/6] mare basins (disabled — read as circular dark patches)...")
@@ -640,7 +628,7 @@ def build_planet(seed=SEED):
     arch_grid = assign_archetype_grid(rng)
     arch_pix = archetype_pixel_map(arch_grid)
     rgb, albedo = colourise(height_with_craters, mare, sh, arch_pix, rng,
-                            cast_mask=cast)
+                            cast_mask=cast, albedo_height=height)
     save_rgb(albedo, os.path.join(OUT, "stage5_albedo.png"))
     save_rgb(rgb, os.path.join(OUT, "stage5_archetypes.png"))
 
@@ -693,7 +681,7 @@ def render_archetype_tiles():
         arch_idx = ARCHETYPE_ORDER.index(arch_name)
         arch_pix_local = np.full((tile_px, tile_px), arch_idx, dtype=np.int32)
         rgb, _ = colourise(h_with, mare, sh, arch_pix_local, local_rng,
-                           cast_mask=cast)
+                           cast_mask=cast, albedo_height=h)
         rgb = add_decals(rgb, arch_pix_local, h_with, local_rng)
         img = Image.fromarray(rgb)
         img = label_image(img, ARCHETYPES[arch_name].name, font_size=18)
@@ -816,7 +804,8 @@ def render_seed_variants():
         py = np.repeat(np.arange(PLANET_GRID), small_size // PLANET_GRID)
         px = np.repeat(np.arange(PLANET_GRID), small_size // PLANET_GRID)
         arch_pix = ag[py[:, None], px[None, :]]
-        rgb, _ = colourise(h2, mare, sh, arch_pix, rng, cast_mask=cast)
+        rgb, _ = colourise(h2, mare, sh, arch_pix, rng, cast_mask=cast,
+                           albedo_height=height)
         rgb = add_decals(rgb, arch_pix, h2, rng)
         im = Image.fromarray(rgb).resize((panel, panel), Image.LANCZOS)
         im = label_image(im, f"seed {s}", font_size=18)
