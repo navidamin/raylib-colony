@@ -336,8 +336,10 @@ def apply_craters(height, craters, rng=None):
         delta[ejecta_mask] = 0.020 * sharp * np.exp(
             -((ed - 1.05) / 0.35) ** 2) * ej_break
 
-        if c.has_peak and c.r > 30 and sharp > 0.5:
-            delta += 0.08 * sharp * np.exp(-(d * 5.0) ** 2)
+        # (Central peaks intentionally omitted: a bare Gaussian dome on
+        # a flat floor reads as an unwanted bump, not a real complex-
+        # crater central peak. Re-add later with proper talus geometry
+        # if/when complex craters become a feature.)
 
         height[y0:y1, x0:x1] += delta
     return height
