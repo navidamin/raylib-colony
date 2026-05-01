@@ -194,25 +194,57 @@ class Crater:
     has_peak: bool
 
 
-def sample_craters(shape, rng, count_small=220, count_med=70, count_big=14):
+def sample_craters(shape, rng, count_small=220, count_med=70, count_big=14,
+                   min_separation=1.05):
+    """Reject-sample crater positions so no two craters overlap.
+
+    Place big craters first (they claim the most space), then medium,
+    then small. Each new crater must sit at least
+    `min_separation * (r1+r2)` from every existing crater — i.e. their
+    rims don't touch. If we can't place a crater after a budget of
+    attempts, drop it (the planet is full).
+    """
     h, w = shape
-    craters = []
-    # power law: many small, few big. Min radius 8 so the rim is at least a
-    # couple of pixels wide after pre-blur — otherwise small craters lose
-    # all their relief.
-    for n, rmin, rmax in [(count_small, 8, 18),
+    specs = []
+    for n, rmin, rmax in [(count_big, 42, 110),
                           (count_med, 18, 42),
-                          (count_big, 42, 110)]:
+                          (count_small, 8, 18)]:
         for _ in range(n):
-            craters.append(Crater(
-                cx=rng.uniform(0, w),
-                cy=rng.uniform(0, h),
-                r=rng.uniform(rmin, rmax),
-                age=rng.beta(2.0, 1.5),         # skew older
-                has_peak=rng.random() < 0.25,
+            specs.append((
+                float(rng.uniform(rmin, rmax)),
+                float(rng.beta(2.0, 1.5)),
+                bool(rng.random() < 0.25),
             ))
-    # sort by radius so big craters apply first, small ones overlay (recent)
-    craters.sort(key=lambda c: -c.r)
+
+    craters: list[Crater] = []
+    cx_arr = np.empty(0, dtype=np.float32)
+    cy_arr = np.empty(0, dtype=np.float32)
+    cr_arr = np.empty(0, dtype=np.float32)
+    max_attempts = 60
+    dropped = 0
+    for r, age, has_peak in specs:
+        placed = False
+        for _ in range(max_attempts):
+            cx = float(rng.uniform(0, w))
+            cy = float(rng.uniform(0, h))
+            if cr_arr.size == 0:
+                placed = True
+            else:
+                d2 = (cx_arr - cx) ** 2 + (cy_arr - cy) ** 2
+                min_d = (cr_arr + r) * min_separation
+                if not np.any(d2 < min_d * min_d):
+                    placed = True
+            if placed:
+                craters.append(Crater(cx=cx, cy=cy, r=r,
+                                      age=age, has_peak=has_peak))
+                cx_arr = np.append(cx_arr, cx)
+                cy_arr = np.append(cy_arr, cy)
+                cr_arr = np.append(cr_arr, r)
+                break
+        if not placed:
+            dropped += 1
+    if dropped:
+        print(f"  (dropped {dropped} craters that wouldn't fit)")
     return craters
 
 
@@ -257,7 +289,12 @@ def apply_craters(height, craters, rng=None):
         # floors fall into cast shadow — the variety the user asked for.
         # Larger craters trend shallower (filled / complex morphology).
         size_factor = 1.0 - min(0.55, (c.r - 8) / 220.0)
-        depth_jitter = rng.uniform(0.30, 1.20)
+        # Beta distribution for a smooth continuous range, not uniform —
+        # gives a fat middle so most craters land at moderate depth, with
+        # tails for very shallow and very deep ones. The user reported
+        # only "3-4 levels" with a tight uniform; widening + reshaping
+        # produces a continuous depth gradient.
+        depth_jitter = float(rng.beta(2.2, 2.2)) * 1.6 + 0.15  # 0.15..1.75
         sharp = 1.0 - c.age * 0.7
         depth_amp = -0.40 * sharp * size_factor * depth_jitter
         # Rim is *small* — only ~5% of depth amplitude.
@@ -322,22 +359,29 @@ def cast_shadows(height, azimuth_deg=315.0, altitude_deg=35.0, z_factor=75.0,
     h_scaled = (height * z_factor).astype(np.float32)
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 
-    in_shadow = np.zeros((h, w), dtype=bool)
+    # Track the maximum BLOCKING SLOPE along the sun ray, not just a
+    # binary "in shadow" flag. A pixel whose max blocking slope just
+    # barely exceeds the sun altitude should be only partially shadowed
+    # (penumbra-like). This is what gives the continuous range of crater
+    # depths the user wanted instead of three discrete tiers.
+    max_block = np.full((h, w), -1e9, dtype=np.float32)
     n_steps = int(max_distance_px / step_px)
     for s in range(1, n_steps + 1):
         dist = s * step_px
         sample_x = np.clip(xx + sx * dist, 0, w - 1).astype(np.int32)
         sample_y = np.clip(yy + sy_image * dist, 0, h - 1).astype(np.int32)
         h_sample = h_scaled[sample_y, sample_x]
-        # The straight ray from (pixel) at altitude `altitude_deg` reaches
-        # height = h_pixel + dist * tan_alt at this distance. If terrain
-        # is higher there, the ray is blocked → pixel is in shadow.
-        in_shadow |= (h_sample > (h_scaled + dist * tan_alt))
+        block_slope = (h_sample - h_scaled) / dist
+        max_block = np.maximum(max_block, block_slope)
 
-    # Soften the edge: sample the binary mask through a tiny blur so
-    # shadow edges don't alias.
-    soft = gaussian_blur((~in_shadow).astype(np.float32), 0.8)
-    return np.clip(soft, 0.0, 1.0)
+    # Smooth transition: at max_block == tan_alt we're at the shadow
+    # edge; anything `band` above that is full shadow, anything `band`
+    # below is full sun. Linear ramp across that band gives the gradient.
+    band = tan_alt * 0.35
+    shadow_amount = np.clip((max_block - tan_alt) / band, 0.0, 1.0)
+    light = 1.0 - shadow_amount
+    light = gaussian_blur(light, 0.8)
+    return np.clip(light, 0.0, 1.0)
 
 
 def hillshade(height, azimuth_deg=315.0, altitude_deg=35.0, z_factor=75.0,
@@ -573,10 +617,13 @@ def build_planet(seed=SEED):
     height = 0.92 * base + 0.08 * detail
     save_gray(height, os.path.join(OUT, "stage1_heightmap.png"))
 
-    print("[2/6] mare basins...")
-    mare = mare_field(shape, rng, n=3)
-    height_with_mare = height - 0.20 * mare
-    save_gray(mare, os.path.join(OUT, "stage2_mare.png"))
+    print("[2/6] mare basins (disabled — read as circular dark patches)...")
+    # We still emit the mask so the pipeline diagram has a slot, but we
+    # don't apply any height or albedo effect. User feedback: the soft
+    # circular basins read as ugly cast shadows on the surface.
+    mare = mare_field(shape, rng, n=3) * 0.0
+    height_with_mare = height
+    save_gray(mare_field(shape, rng, n=3), os.path.join(OUT, "stage2_mare.png"))
 
     print("[3/6] crater field...")
     craters = sample_craters(shape, rng)
