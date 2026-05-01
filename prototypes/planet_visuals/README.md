@@ -31,17 +31,31 @@ If you just want the headline images, look at:
    to avoid uint8-quantisation contour artefacts).
 2. **Mare basins** — a few low-frequency depression masks with sharp
    smoothstepped interiors.
-3. **Craters** — ~430 parametric craters, age-stratified (fresh =
-   sharp rim + central peak, old = eroded, irregular). Cosine bowl floor,
-   narrow rim, ejecta blanket broken by angular noise.
-4. **Hillshade** — Lambertian shading, NW sun (azimuth 315°, altitude
-   42°). Pre-blur on the heightmap suppresses micro-noise that would
-   otherwise read as crumpled foil.
+3. **Craters** — ~300 parametric craters, age-stratified. Geometry
+   cross-checked against LRO/Apollo imagery: **flat floor + smooth wall
+   + barely-raised rim** (rim is only ~5% of depth amplitude, not the
+   dominant feature). Per-crater depth jitter so some are shallow flat
+   dishes and some are deep enough to fall into cast shadow. Big fresh
+   craters get a central peak.
+4. **Hillshade + cast shadows** — Lambertian shading from a NW sun
+   (azimuth 315°, altitude 35°), plus a horizon ray-march so deep crater
+   floors actually go dark when the sun-side wall blocks the sun. This
+   is what makes small craters read as crater-shaped pits rather than
+   round bumps.
 5. **Archetype tinting** — per-cell `SiteArchetype` drives a
    base/shadow/high palette; boundaries Gaussian-blurred so the biome
    transitions don't look like a checkerboard.
 6. **Decals + dust** — lava-tube skylight rosettes, polar frost glints,
    KREEP warm blooms, regolith dust grain.
+
+## Sanity test
+
+`sanity_crater.py` produces `output/sanity_crater.png` — three rows of
+trivial test surfaces (NW ramp, raised hill, depression crater) plus a
+crater-size sweep (r=20 → r=140). The hill and crater rows should
+look like opposites; the size sweep should show small craters in deep
+shadow grading toward bigger lit bowls. Run it whenever you change
+the lighting math.
 
 ## Run it
 

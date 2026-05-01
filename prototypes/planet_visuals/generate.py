@@ -217,13 +217,23 @@ def sample_craters(shape, rng, count_small=220, count_med=70, count_big=14):
 
 
 def apply_craters(height, craters, rng=None):
-    """Carve craters into the height map. Each crater gets per-angle noise on
-    its rim/floor so it doesn't read as a perfect circle."""
+    """Carve craters with the geometry real lunar craters actually have:
+    flat floor + smooth wall + barely-raised rim.
+
+    Cross-checked against LRO/Apollo imagery:
+      * Depth/diameter ratio is ~1:5 for simple bowls, ~1:20 for large
+        flat-floored complex craters. We pick per crater.
+      * Rim height is only ~3-5% of crater depth, not the dominant feature.
+        (Old code had a rim 43% as tall as the bowl was deep — wrong.)
+      * The dominant visual feature is the *cast shadow*, which is
+        handled separately in `cast_shadows()`. Carving here is just
+        about getting the geometry right.
+    """
     if rng is None:
         rng = np.random.default_rng(0)
     h, w = height.shape
     for c in craters:
-        ej = 2.2
+        ej = 1.8
         x0 = max(0, int(c.cx - c.r * ej))
         x1 = min(w, int(c.cx + c.r * ej) + 1)
         y0 = max(0, int(c.cy - c.r * ej))
@@ -236,46 +246,48 @@ def apply_craters(height, craters, rng=None):
         d = np.sqrt(dx * dx + dy * dy) / c.r
         ang = np.arctan2(dy, dx)
 
-        # angular perturbation: 3 sinusoids at different freqs, random phases.
-        # amplitude grows with age (older = more eroded, irregular).
         a1, a2, a3 = rng.uniform(0, math.tau, 3)
-        irreg = (0.05 * np.sin(2 * ang + a1)
-                 + 0.04 * np.sin(3 * ang + a2)
-                 + 0.025 * np.sin(5 * ang + a3))
+        irreg = (0.04 * np.sin(2 * ang + a1)
+                 + 0.03 * np.sin(3 * ang + a2)
+                 + 0.02 * np.sin(5 * ang + a3))
         d = d * (1.0 + irreg * (0.5 + 0.5 * c.age))
 
-        # Wider rim so it survives any pre-blur. Sharp inner wall transition
-        # so the lit/shadow contrast is strong.
-        floor_mask = d < 0.75
-        rim_mask = (d >= 0.75) & (d < 1.20)
-        ejecta_mask = (d >= 1.20) & (d < ej)
-
+        # Per-crater depth variation. Wide jitter range so some craters
+        # are shallow flat dishes and some are deep enough that their
+        # floors fall into cast shadow — the variety the user asked for.
+        # Larger craters trend shallower (filled / complex morphology).
+        size_factor = 1.0 - min(0.55, (c.r - 8) / 220.0)
+        depth_jitter = rng.uniform(0.30, 1.20)
         sharp = 1.0 - c.age * 0.7
-        depth = -0.65 * sharp
-        rim = 0.28 * sharp
-        ej_h = 0.05 * sharp
+        depth_amp = -0.40 * sharp * size_factor * depth_jitter
+        # Rim is *small* — only ~5% of depth amplitude.
+        rim_amp = 0.05 * sharp * abs(depth_amp)
+
+        # Profile zones:
+        #   d in [0, 0.55]:  flat floor at depth_amp
+        #   d in [0.55, 0.92]: smooth wall rising to ground level
+        #   d in [0.92, 1.05]: tiny rim
+        #   d in [1.05, 1.8]:  subtle ejecta
+        floor_mask = d < 0.55
+        wall_mask = (d >= 0.55) & (d < 0.92)
+        rim_mask = (d >= 0.92) & (d < 1.05)
+        ejecta_mask = (d >= 1.05) & (d < ej)
 
         delta = np.zeros_like(d, dtype=np.float32)
-        # Bowl floor: rises sharply near rim (steep wall) and flattens at
-        # center. (1 - smoothstep(0..0.75, d)) gives a deep flat-ish floor.
-        fd = d[floor_mask] / 0.75
-        # invert smoothstep so center=1, edge=0
-        s = 1.0 - fd
-        floor_profile = s * s * (3.0 - 2.0 * s)
-        delta[floor_mask] = depth * floor_profile
-        # Rim profile: wider Gaussian centered just outside d=0.95 so it
-        # forms a real raised ridge. sigma=0.12 is a fat, readable rim.
+        delta[floor_mask] = depth_amp
+        wd = (d[wall_mask] - 0.55) / 0.37
+        ws = 1.0 - wd
+        delta[wall_mask] = depth_amp * (ws * ws * (3.0 - 2.0 * ws))
         rim_d = d[rim_mask]
-        rim_shape = np.exp(-((rim_d - 0.95) / 0.12) ** 2)
-        delta[rim_mask] = rim * rim_shape
-        # Ejecta: low broken bumps
+        delta[rim_mask] = rim_amp * np.exp(-((rim_d - 0.96) / 0.05) ** 2)
         ed = d[ejecta_mask]
         ea = ang[ejecta_mask]
-        ej_break = 0.5 + 0.5 * np.sin(ea * 5.0 + a1) ** 2
-        delta[ejecta_mask] = ej_h * np.exp(-((ed - 1.20) / 0.45) ** 2) * ej_break
+        ej_break = 0.3 + 0.7 * np.sin(ea * 5.0 + a1) ** 2
+        delta[ejecta_mask] = 0.020 * sharp * np.exp(
+            -((ed - 1.05) / 0.35) ** 2) * ej_break
 
-        if c.has_peak and c.r > 22 and sharp > 0.45:
-            delta += 0.18 * sharp * np.exp(-(d * 4.5) ** 2)
+        if c.has_peak and c.r > 30 and sharp > 0.5:
+            delta += 0.08 * sharp * np.exp(-(d * 5.0) ** 2)
 
         height[y0:y1, x0:x1] += delta
     return height
@@ -284,6 +296,49 @@ def apply_craters(height, craters, rng=None):
 # ---------------------------------------------------------------------------
 # Step 4 — hillshade
 # ---------------------------------------------------------------------------
+
+def cast_shadows(height, azimuth_deg=315.0, altitude_deg=35.0, z_factor=75.0,
+                 max_distance_px=70.0, step_px=1.5):
+    """Cheap horizon ray-march toward the sun. Returns a per-pixel float
+    mask: 1.0 = lit, 0.0 = fully blocked from the sun by terrain.
+
+    For each pixel, march along the sun direction in plan view; at each
+    step, ask whether the elevation there exceeds what a straight ray
+    from the pixel at the sun's altitude would have. If yes at any step,
+    the pixel is in cast shadow.
+
+    This is what makes deep crater floors go nearly black — the inner
+    wall on the sun side blocks the floor. Lambertian self-shading alone
+    can't produce that effect.
+    """
+    h, w = height.shape
+    sun_az_math = math.radians(360.0 - azimuth_deg + 90.0)
+    # We march FROM each pixel TOWARD the sun. In math angles +x is east
+    # and +y is north, but image y increases southward, so flip y.
+    sx = math.cos(sun_az_math)
+    sy_image = -math.sin(sun_az_math)
+    tan_alt = math.tan(math.radians(altitude_deg))
+
+    h_scaled = (height * z_factor).astype(np.float32)
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+
+    in_shadow = np.zeros((h, w), dtype=bool)
+    n_steps = int(max_distance_px / step_px)
+    for s in range(1, n_steps + 1):
+        dist = s * step_px
+        sample_x = np.clip(xx + sx * dist, 0, w - 1).astype(np.int32)
+        sample_y = np.clip(yy + sy_image * dist, 0, h - 1).astype(np.int32)
+        h_sample = h_scaled[sample_y, sample_x]
+        # The straight ray from (pixel) at altitude `altitude_deg` reaches
+        # height = h_pixel + dist * tan_alt at this distance. If terrain
+        # is higher there, the ray is blocked → pixel is in shadow.
+        in_shadow |= (h_sample > (h_scaled + dist * tan_alt))
+
+    # Soften the edge: sample the binary mask through a tiny blur so
+    # shadow edges don't alias.
+    soft = gaussian_blur((~in_shadow).astype(np.float32), 0.8)
+    return np.clip(soft, 0.0, 1.0)
+
 
 def hillshade(height, azimuth_deg=315.0, altitude_deg=35.0, z_factor=75.0,
               smooth_px=1.0):
@@ -353,7 +408,7 @@ def archetype_pixel_map(arch_grid):
     return arch_grid[py[:, None], px[None, :]]
 
 
-def colourise(height, mare_mask, hillsh, arch_pix, rng):
+def colourise(height, mare_mask, hillsh, arch_pix, rng, cast_mask=None):
     h, w = height.shape
     rgb = np.zeros((h, w, 3), dtype=np.float32)
 
@@ -408,6 +463,14 @@ def colourise(height, mare_mask, hillsh, arch_pix, rng):
     sh = hillsh[..., None]
     contrast_arr = contrast_blur[..., None]
     shaded = albedo * (1.0 - contrast_arr + contrast_arr * (0.35 + 1.30 * sh))
+
+    # Cast shadows: pixels the sun can't directly reach get darkened to
+    # ~22% of their lit value. Not pure black — real lunar shadows still
+    # receive some scattered earthlight / albedo bounce. 0.22 reads as
+    # "deep shadow" without becoming a featureless hole.
+    if cast_mask is not None:
+        cm = cast_mask[..., None]
+        shaded = shaded * (0.22 + 0.78 * cm)
 
     rgb = np.clip(shaded, 0, 255)
     return rgb.astype(np.uint8), albedo.astype(np.uint8)
@@ -520,14 +583,17 @@ def build_planet(seed=SEED):
     height_with_craters = apply_craters(height_with_mare.copy(), craters, rng)
     save_gray(height_with_craters, os.path.join(OUT, "stage3_craters.png"))
 
-    print("[4/6] hillshade...")
+    print("[4/6] hillshade + cast shadows...")
     sh = hillshade(height_with_craters)
+    cast = cast_shadows(height_with_craters)
     save_gray(sh, os.path.join(OUT, "stage4_hillshade.png"))
+    save_gray(cast, os.path.join(OUT, "stage4b_cast_shadows.png"))
 
     print("[5/6] archetype tinting...")
     arch_grid = assign_archetype_grid(rng)
     arch_pix = archetype_pixel_map(arch_grid)
-    rgb, albedo = colourise(height_with_craters, mare, sh, arch_pix, rng)
+    rgb, albedo = colourise(height_with_craters, mare, sh, arch_pix, rng,
+                            cast_mask=cast)
     save_rgb(albedo, os.path.join(OUT, "stage5_albedo.png"))
     save_rgb(rgb, os.path.join(OUT, "stage5_archetypes.png"))
 
@@ -576,9 +642,11 @@ def render_archetype_tiles():
             (tile_px, tile_px), local_rng,
             count_small=80, count_med=18, count_big=2), local_rng)
         sh = hillshade(h_with, z_factor=35.0, smooth_px=1.0)
+        cast = cast_shadows(h_with, z_factor=35.0, max_distance_px=40.0)
         arch_idx = ARCHETYPE_ORDER.index(arch_name)
         arch_pix_local = np.full((tile_px, tile_px), arch_idx, dtype=np.int32)
-        rgb, _ = colourise(h_with, mare, sh, arch_pix_local, local_rng)
+        rgb, _ = colourise(h_with, mare, sh, arch_pix_local, local_rng,
+                           cast_mask=cast)
         rgb = add_decals(rgb, arch_pix_local, h_with, local_rng)
         img = Image.fromarray(rgb)
         img = label_image(img, ARCHETYPES[arch_name].name, font_size=18)
@@ -695,13 +763,13 @@ def render_seed_variants():
         h2 = apply_craters(h2, sample_craters(
             shape, rng,
             count_small=200, count_med=40, count_big=6), rng)
-        sh = hillshade(h2, z_factor=35.0, smooth_px=2.0)
+        sh = hillshade(h2, z_factor=35.0, smooth_px=1.0)
+        cast = cast_shadows(h2, z_factor=35.0, max_distance_px=40.0)
         ag = assign_archetype_grid(rng)
-        # upsample arch_grid to small_size
         py = np.repeat(np.arange(PLANET_GRID), small_size // PLANET_GRID)
         px = np.repeat(np.arange(PLANET_GRID), small_size // PLANET_GRID)
         arch_pix = ag[py[:, None], px[None, :]]
-        rgb, _ = colourise(h2, mare, sh, arch_pix, rng)
+        rgb, _ = colourise(h2, mare, sh, arch_pix, rng, cast_mask=cast)
         rgb = add_decals(rgb, arch_pix, h2, rng)
         im = Image.fromarray(rgb).resize((panel, panel), Image.LANCZOS)
         im = label_image(im, f"seed {s}", font_size=18)
