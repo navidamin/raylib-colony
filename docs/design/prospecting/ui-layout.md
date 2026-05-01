@@ -44,7 +44,7 @@ When the player opens the prospecting menu, they see:
 ## Stage-Specific Views
 
 ### Sweep View (Phase 0)
-- 5x5 grid with confidence heat map overlay (color-coded: red→green)
+- 5x5 grid with confidence heat map overlay (neon thermal palette — see Grid Visual Style below)
 - **Continuous frequency slider** (shallow-detailed ↔ deep-blurry)
 - Sweep button + energy cost display
 - Results summary panel
@@ -280,6 +280,126 @@ Rather than pre-rendering every element color, render shapes as neutral gray/whi
 - Fits in a single 2048×2048 texture atlas (1024 slots available)
 - Memory: ~16 MB RGBA uncompressed, ~4 MB compressed
 
+## Grid Visual Style
+
+### Cell Appearance (Dark Theme)
+
+Grid cells match the extraction UI's dark theme:
+
+```
+┌─ Grid Cell States ──────────────────────────────────────────────┐
+│                                                                   │
+│   ┌───────┐  ┌───────┐  ┌───────┐  ┌───────┐  ┌───────┐       │
+│   │       │  │       │  │  ▪ Fe │  │  ◆ Ti │  │░░░░░░░│       │
+│   │       │  │       │  │       │  │       │  │░░░░░░░│       │
+│   └───────┘  └───────┘  └───────┘  └───────┘  └───────┘       │
+│   Unswept    Hover       Sampled    Selected   Anomaly         │
+│   (dark)     (bright     (element   (thick     (heat map       │
+│              border)     tint fill) border +   overlay)        │
+│                                     glow)                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| State | Background | Border | Detail |
+|-------|-----------|--------|--------|
+| **Unswept** | Dark gray (#1A1A2E) | Thin, dim (#333355) | Empty, no data |
+| **Swept (no sample)** | Dark gray + heat map overlay | Thin, dim | Heat map tint at ~40% opacity |
+| **Sampled** | Subtle fill tint of dominant element color | Thin, slightly brighter | Small crystal icon or element dot in cell |
+| **Hover** | Same as base state | Bright white/cyan border (#66FFFF) | Highlights on mouseover |
+| **Selected** | Same as base state | Thick bright border + subtle outer glow | Active cell for interaction |
+| **Anomaly** | Heat map hot-spot color at full intensity | Pulsing border | Sweep detected significant signal |
+
+### Sweep Heat Map Overlay
+
+Neon-futuristic thermal palette, applied at ~40% opacity over grid cells after sweep:
+
+| Signal Strength | Color | Hex | Visual |
+|----------------|-------|-----|--------|
+| None / Very Low | Deep space blue | #0D0D3B | Nearly invisible — nothing here |
+| Low | Dark indigo | #1B1B6B | Faint signal, probably background |
+| Below Average | Electric blue | #2244AA | Some signal, worth investigating |
+| Average | Bright cyan | #00CCDD | Moderate signal |
+| Above Average | Neon teal | #00FFAA | Strong signal, good target |
+| High | Hot magenta | #FF00AA | Very strong — high-value anomaly |
+| Very High | Bright pink-white | #FF66DD | Exceptional — rare deposit likely |
+
+The gradient goes from cold space-dark blues through electric cyans into hot magentas — a sci-fi instrument aesthetic that reads clearly against the dark cell backgrounds.
+
+**Opacity:** Heat map overlay at 40% over cell background. Hover brightens to 60%. Selected cell shows heat map at full intensity.
+
+## Button Styling
+
+### Ghost / Outlined Buttons
+
+Buttons use an outlined/ghost style — minimal visual weight so crystal samples remain the visual focus:
+
+```
+┌─ Button States ─────────────────────────────────────────────────┐
+│                                                                   │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
+│   │  ○ SWEEP     │  │  ○ SWEEP     │  │  ● SWEEP     │         │
+│   │    30⚡       │  │    30⚡       │  │    30⚡       │         │
+│   └──────────────┘  └──────────────┘  └──────────────┘         │
+│   Default            Hover             Active/Pressed           │
+│   (outline only)     (fills in)        (solid fill)             │
+│                                                                   │
+│   ┌──────────────┐                                               │
+│   │  ○ SWEEP     │   Disabled: dimmed border + text, no hover   │
+│   │    30⚡       │                                               │
+│   └──────────────┘                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| State | Border | Fill | Text | Detail |
+|-------|--------|------|------|--------|
+| **Default** | 1px, dim cyan (#336677) | None (transparent) | Light gray (#AABBCC) | Outline only, low visual weight |
+| **Hover** | 1px, bright cyan (#66FFFF) | Subtle fill (#66FFFF at 15%) | White (#EEEEFF) | Button "fills in" on hover |
+| **Active/Pressed** | 1px, bright cyan | Solid fill (#66FFFF at 30%) | White | Inset feel, fully engaged |
+| **Disabled** | 1px, very dim (#223344) | None | Dim (#556677) | No hover response, clearly inactive |
+
+**Button types:**
+
+| Button | Label | Context | Special Styling |
+|--------|-------|---------|----------------|
+| Sweep | "SWEEP" + energy cost | Sweep tab | Standard ghost |
+| Presets | "Structural" / "Life Support" / etc. | Lab tab, row of 4 | Standard ghost, active preset stays filled |
+| Discard | "✕" or "DISCARD" | Per-sample in tray | Red-tinted border (#AA4444) on hover — destructive action signal |
+| Collect | "COLLECT" | Samples tab | Standard ghost |
+| Calibrate | "CALIBRATE" | When drift is high | Amber-tinted border (#CCAA44) — attention signal |
+
+## Message Bar Styling
+
+### Accent Bar + Log Style
+
+Messages use a left-side colored accent bar to indicate type, like a terminal log:
+
+```
+┌─ Message Bar ───────────────────────────────────────────────────┐
+│ ▌ Elevated Ti detected — ilmenite likely in adjacent cells S    │  ← teal accent (pathfinder)
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ Message Bar ───────────────────────────────────────────────────┐
+│ ▌ Sample collected from cell (3,2) — Regolith layer             │  ← gray accent (status)
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ Message Bar ───────────────────────────────────────────────────┐
+│ ▌ Calibration drift at 85% — recalibrate recommended            │  ← amber accent (alert)
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| Message Type | Accent Bar Color | Text Color | Fade Time | When |
+|-------------|-----------------|------------|-----------|------|
+| **Pathfinder tip** | Teal (#00CCAA) | Light cyan (#BBDDDD) | 8 seconds | Pathfinder detects pattern or correlation |
+| **Status** | Dim gray (#555555) | Gray (#999999) | 5 seconds | Sample collected, sweep complete, routine events |
+| **Alert** | Amber (#CCAA44) | Light amber (#EEDDAA) | 10 seconds | Calibration drift high, tray full, energy low |
+| **Error** | Red (#CC4444) | Light red (#EEAAAA) | 12 seconds | Cannot collect (no energy), upgrade required |
+
+**Behavior:**
+- Messages appear with a quick fade-in (0.2s)
+- Fade out after their type-specific duration
+- New message replaces current message immediately (no queue stacking)
+- Accent bar is a 3px vertical stripe on the left edge of the message bar
+
 ## Objectives Display
 
 ### Objectives Panel (Bottom Collapsible)
@@ -332,39 +452,65 @@ Player opens Prospecting menu
 
 ## Stratigraphy Side Panel
 
-The stratigraphy view appears as a **side panel** next to the grid when the player hovers or selects a cell that has multiple depth samples. It does not occupy a separate tab.
+The stratigraphy view appears as a **side panel** next to the grid when the player hovers or selects a cell that has multiple depth samples. It renders as a **vertical drill core cross-section** — a literal column of rock layers.
 
 ```
 ┌─ Stage Content Area ──────────────────────────────────────────────┐
 │                                                                    │
 │  ┌─ Grid ────────────────────┐  ┌─ Stratigraphy Panel ─────────┐ │
+│  │                            │  │  Cell (2,3)                   │ │
+│  │   [NxN grid with heat      │  │                               │ │
+│  │    map / sample markers]   │  │  ┌─── Core Column ─────────┐ │ │
+│  │                            │  │  │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│ │ │
+│  │                            │  │  │▓▓ Regolith ▓▓▓ Fe 42% ▓▓│ │ │
+│  │                            │  │  │▓▓ [◆ crystal] ▓▓▓▓▓▓▓▓▓│ │ │
+│  │                            │  │  │▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓│ │ │
+│  │                            │  │  ├────────────────────────────┤ │ │
+│  │                            │  │  │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│ │ │
+│  │                            │  │  │▒▒ Megaregolith ▒ Ti 18% ▒│ │ │
+│  │                            │  │  │▒▒ [◆ crystal] ▒▒▒▒▒▒▒▒▒│ │ │
+│  │                            │  │  │▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│ │ │
+│  │                            │  │  ├────────────────────────────┤ │ │
+│  │                            │  │  │░░░░░░░░░░░░░░░░░░░░░░░░░░│ │ │
+│  │                            │  │  │░░ Fract. Bedrock ░░░░░░░░│ │ │
+│  │                            │  │  │░░ [not sampled]  ░░░░░░░░│ │ │
+│  │                            │  │  │░░░░░░░░░░░░░░░░░░░░░░░░░░│ │ │
+│  │                            │  │  ├────────────────────────────┤ │ │
+│  │                            │  │  │████████████████████████████│ │ │
+│  │                            │  │  │██ Intact Bedrock He-3 7% █│ │ │
+│  │                            │  │  │██ [◆ crystal] ████████████│ │ │
+│  │                            │  │  │████████████████████████████│ │ │
+│  │                            │  │  └────────────────────────────┘ │ │
 │  │                            │  │                               │ │
-│  │   [NxN grid with heat      │  │  Cell (2,3) — Depth Column   │ │
-│  │    map / sample markers]   │  │  ┌─────────────────────────┐ │ │
-│  │                            │  │  │ Regolith      Fe 42%    │ │ │
-│  │                            │  │  │ ─────────────────────── │ │ │
-│  │                            │  │  │ Megaregolith  Ti 18%    │ │ │
-│  │                            │  │  │ ─────────────────────── │ │ │
-│  │                            │  │  │ Fract.Bedrock H₂O 31%  │ │ │
-│  │                            │  │  │ ─────────────────────── │ │ │
-│  │                            │  │  │ Intact Bedr.  He-3 7%   │ │ │
-│  │                            │  │  └─────────────────────────┘ │ │
-│  │                            │  │                               │ │
-│  │                            │  │  Adjacent correlation lines  │ │
-│  │                            │  │  shown when neighbor columns │ │
-│  │                            │  │  are also complete            │ │
 │  └────────────────────────────┘  └───────────────────────────────┘ │
 │                                                                    │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-**Trigger:** Hover or select a cell with ≥2 depth layer samples. Panel slides in from the right, compressing the grid slightly. If the cell has only surface samples, no panel appears.
+**Trigger:** Hover or select a cell with ≥2 depth layer samples. Panel slides in from the right (0.3s ease-out), compressing the grid slightly. If the cell has only surface samples, no panel appears.
 
-**Content:**
-- Vertical depth column for the selected cell
-- Layer bars colored by dominant element, with composition percentages
-- Unsampled layers shown as gray/hatched placeholder
-- When adjacent cells also have complete columns, correlation lines connect matching layers across columns
+### Core Column Design
+
+The column is a vertical stack of 4 layer segments, drawn as a literal drill core cross-section:
+
+| Property | Detail |
+|----------|--------|
+| **Column width** | ~80px, centered in the panel |
+| **Segment height** | Proportional to real layer thickness (Regolith thinnest, Intact Bedrock tallest) |
+| **Segment fill** | Dominant element color at 60% opacity, with subtle noise texture for geological feel |
+| **Separator lines** | Thin horizontal lines (#555577) between layers — representing geological boundaries |
+| **Crystal icon** | Small version of the sample's 3D crystal sprite displayed inside the sampled layer |
+| **Unsampled layers** | Gray hatched fill (#333344, diagonal line pattern), "Not sampled" label in dim text |
+| **Labels** | Layer name (left-aligned) + dominant element % (right-aligned), small text inside each segment |
+
+### Correlation Lines
+
+When adjacent cells (neighbors of the selected cell) also have depth data:
+
+- Thin dashed lines connect matching layers across adjacent core columns
+- Lines colored by the shared element
+- Shows geological continuity — whether a deposit extends laterally
+- Up to 2 neighbor columns shown (left and right of selected cell's column)
 
 ## Font Scaling
 
@@ -377,7 +523,13 @@ The prospecting UI uses the **same FS() multiplier** as the existing extraction 
 | Should all three stage tabs be visible simultaneously, or only the active stage? | [?] |
 | How does the sample overview bar interact with stage content? (click sample → jump to its stage?) | [?] |
 | How much screen real estate does the NxN grid need vs the sample tray? | [?] |
-| 20 ore shape template designs | **Resolved:** 4 families × 5 templates, with depth-family affinity bias |
-| Where does the stratigraphic column view live? | **Resolved:** Side panel on hover/select |
+| 20 ore shape template designs | **Resolved:** 4 families × 5 hand-modeled 3D crystal meshes, pre-rendered to sprites |
+| Sample visual encoding | **Resolved:** 3D crystals — color=element, glow=confidence, shape=depth, size=richness |
+| Where does the stratigraphic column view live? | **Resolved:** Side panel on hover/select, vertical drill core cross-section |
 | Does the UI need to work at the current extraction view's font scale? | **Resolved:** Yes — same FS() (1.30x at 48pt) |
 | Where do objectives live within the prospecting panel? | **Resolved:** Bottom collapsible section |
+| Grid cell styling | **Resolved:** Dark theme, element-tinted sampled cells, cyan hover/select borders |
+| Heat map palette | **Resolved:** Neon thermal — deep blue (#0D0D3B) through cyan to hot magenta (#FF00AA) |
+| Button styling | **Resolved:** Ghost/outlined buttons, fill on hover, red-tinted for destructive actions |
+| Message bar styling | **Resolved:** Accent bar + log style — teal=pathfinder, gray=status, amber=alert, red=error |
+| Stratigraphy rendering | **Resolved:** Vertical core column with crystal icons per sampled layer, hatched unsampled |
