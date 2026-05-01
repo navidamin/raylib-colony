@@ -517,21 +517,59 @@ Base tray: 4/8/12/16 (T0/T1/T2/T3). Objective bonus slots per tier:
 
 AI capabilities are **purchased from the colony research token pool**, not earned from objectives. They apply **globally to all sects** — a key payoff for research investment.
 
+### Research Economy Context
+
+AI prospecting costs are calibrated against the full research budget:
+
+| Parameter | Value | Source |
+|-----------|-------|--------|
+| Research unit output | 5 SCIENCE/tick, 100 SCIENCE/day | `unit.cpp` ResearchPointsPerTick |
+| Early game (1 unit) | ~100/day | First research unit |
+| Mid game (2-3 units) | ~200-300/day | Colony expansion |
+| Late game (3-5 units) | ~300-500/day | Mature research infrastructure |
+| Estimated full game | ~200-300 game-days | — |
+| Total research budget | ~30,000-60,000 SCIENCE | Over a full playthrough |
+
+**Budget allocation across all research categories:**
+
+| Category | Share | Tokens (~45K avg) | What It Covers |
+|----------|-------|-------------------|----------------|
+| Extraction tech tree | ~25% | ~11,000 | 14 tier unlock techs (Spectroscopy, MechanizedDrilling, etc.) |
+| Other unit tech trees | ~25% | ~11,000 | Farming, Energy, Manufacturing, Research tier unlocks |
+| **Prospecting AI** | **~15%** | **~6,400** | **8 AI automation upgrades (this section)** |
+| Future AI systems | ~15% | ~6,500 | Other unit automation (deferred) |
+| Colony-wide research | ~20% | ~9,000 | Colony techs (deferred) |
+
+Prospecting AI is a significant but not dominant research investment — about 15% of total budget.
+
 ### AI Research Projects
 
-| Research Project | Cost | Effect | Prerequisite |
-|-----------------|------|--------|-------------|
-| **Basic Automation** | Free | AI drills random cells, applies visual inspection, stops when tray full | None (available T0) |
-| **Auto-Collection** | Low | AI collects samples without player input in Default mode | Basic Automation |
-| **Auto-Discard** | Low | AI replaces lowest-value sample when tray is full instead of stopping | Auto-Collection |
-| **Sweep-Guided Targeting** | Medium | AI targets cells flagged by sweep heat map instead of random selection | T1 tools unlocked |
-| **Tool Matching** | Medium | AI selects XRF for heavy elements, LIBS for light, instead of cheapest | T2 tools unlocked |
-| **Multi-Tool Pipelines** | Medium | AI applies sequential tools to samples (XRF then LIBS) instead of single tool | Tool Matching |
-| **Context-Aware Presets** | High | AI selects appropriate preset based on site characteristics (polar → Life Support) | Multi-Tool Pipelines |
-| **Precision Calibration** | High | AI confidence penalty reduced from -20% to 0% | Context-Aware Presets |
-| **Full Autonomy** | Very High | AI runs near-player-quality decisions: optimal targeting, all tools, strategic depth | All above |
+| Research Project | Cost (SCIENCE) | Research-Days (1 unit) | Effect | Prerequisite |
+|-----------------|---------------|----------------------|--------|-------------|
+| **Basic Automation** | 0 (Free) | 0 | AI drills random cells, applies visual inspection, stops when tray full | None (available T0) |
+| **Auto-Collection** | 200 | 2 days | AI collects samples without player input in Default mode | Basic Automation |
+| **Auto-Discard** | 200 | 2 days | AI replaces lowest-value sample when tray is full instead of stopping | Auto-Collection |
+| **Sweep-Guided Targeting** | 500 | 5 days | AI targets cells flagged by sweep heat map instead of random selection | T1 tools unlocked |
+| **Tool Matching** | 500 | 5 days | AI selects XRF for heavy elements, LIBS for light, instead of cheapest | T2 tools unlocked |
+| **Multi-Tool Pipelines** | 500 | 5 days | AI applies sequential tools to samples (XRF then LIBS) instead of single tool | Tool Matching |
+| **Context-Aware Presets** | 1000 | 10 days | AI selects appropriate preset based on site characteristics (polar → Life Support) | Multi-Tool Pipelines |
+| **Precision Calibration** | 1000 | 10 days | AI confidence penalty reduced from -20% to 0% | Context-Aware Presets |
+| **Full Autonomy** | 2500 | 25 days | AI runs near-player-quality decisions: optimal targeting, all tools, strategic depth | All above |
+| **TOTAL** | **6,400** | **64 days (1 unit)** | | |
+
+**Pacing milestones:**
+
+| Milestone | Cumulative Cost | With 1 Unit | With 2 Units | What Changes |
+|-----------|----------------|-------------|-------------|--------------|
+| Basic convenience (Auto-Collection + Auto-Discard) | 400 | 4 days | 2 days | AI handles sample management |
+| Smart targeting (+ Sweep-Guided) | 900 | 9 days | 4.5 days | AI stops being random, uses survey data |
+| Tool intelligence (+ Tool Matching + Pipelines) | 1,900 | 19 days | 9.5 days | AI uses right tools, multi-step analysis |
+| Near-autonomous (+ Context-Aware + Precision) | 3,900 | 39 days | 19.5 days | AI adapts to site, no confidence penalty |
+| Full autonomy | 6,400 | 64 days | 32 days | Fire and forget across all sects |
 
 **Empire scaling:** A player who invests in AI research can set new sects to Default mode and let the AI handle prospecting across the colony. A player who skips AI research must manually prospect every sect. This makes AI research an empire-management decision, not just a convenience toggle.
+
+**Design rationale:** Early convenience upgrades (Auto-Collection, Auto-Discard) are cheap — a player gets quality-of-life improvements within 2-4 days. The mid-tier intelligence upgrades (targeting, tools) unlock over the first few game-weeks. Full Autonomy is a late-game capstone requiring serious research commitment. With 2 Research units, the full tree completes in ~32 days — roughly one game-month of dedicated research.
 
 ---
 
@@ -583,7 +621,7 @@ AI capabilities are **purchased from the colony research token pool**, not earne
 | # | Gap | Document | Priority |
 |---|-----|----------|----------|
 | 1 | ~~Sub-cell resource distribution generation~~ | [resource-distribution-model.md](resource-distribution-model.md) | **Resolved** — 3-layer model (provinces + deposits + Perlin sub-cells) |
-| 2 | AI research token costs (Low/Medium/High/Very High → actual numbers) | This document, Section 11b | MEDIUM — needs balance pass |
+| 2 | ~~AI research token costs~~ | This document, Section 11b | **Resolved** — 0/200/500/1000/2500 SCIENCE scale, 6,400 total tree cost, calibrated against full research economy (~15% of budget) |
 
 ### Remaining — Minor / Deferred
 
