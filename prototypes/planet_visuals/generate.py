@@ -306,23 +306,30 @@ def apply_craters(height, craters, rng=None):
         # Rim is *small* — only ~5% of depth amplitude.
         rim_amp = 0.05 * sharp * abs(depth_amp)
 
-        # Profile zones:
-        #   d in [0, 0.55]:  flat floor at depth_amp
-        #   d in [0.55, 0.92]: smooth wall rising to ground level
-        #   d in [0.92, 1.05]: tiny rim
+        # Profile zones, tuned to match real lunar simple-crater morphology:
+        #   d in [0, 0.70]:    flat floor (talus-filled bottom; wider than
+        #                      a textbook "bowl" — matches LRO photos)
+        #   d in [0.70, 0.95]: wall, with a steepness curve that's nearly
+        #                      vertical near the top and gradual at the
+        #                      bottom (angle-of-repose talus). Power
+        #                      profile h = depth * (1 - u^p), p=3..5.
+        #   d in [0.95, 1.05]: tiny rim
         #   d in [1.05, 1.8]:  subtle ejecta
-        floor_mask = d < 0.55
-        wall_mask = (d >= 0.55) & (d < 0.92)
-        rim_mask = (d >= 0.92) & (d < 1.05)
+        floor_mask = d < 0.70
+        wall_mask = (d >= 0.70) & (d < 0.95)
+        rim_mask = (d >= 0.95) & (d < 1.05)
         ejecta_mask = (d >= 1.05) & (d < ej)
 
         delta = np.zeros_like(d, dtype=np.float32)
         delta[floor_mask] = depth_amp
-        wd = (d[wall_mask] - 0.55) / 0.37
-        ws = 1.0 - wd
-        delta[wall_mask] = depth_amp * (ws * ws * (3.0 - 2.0 * ws))
+        # Wall: vertical-near-top profile. Bigger / deeper craters get a
+        # higher exponent (more vertical upper wall) — real-world simple
+        # bowl craters are deeper *and* steeper at the top.
+        wall_p = 3.0 + min(2.0, abs(depth_amp) * 4.0)
+        wu = (d[wall_mask] - 0.70) / 0.25
+        delta[wall_mask] = depth_amp * (1.0 - wu ** wall_p)
         rim_d = d[rim_mask]
-        delta[rim_mask] = rim_amp * np.exp(-((rim_d - 0.96) / 0.05) ** 2)
+        delta[rim_mask] = rim_amp * np.exp(-((rim_d - 1.00) / 0.05) ** 2)
         ed = d[ejecta_mask]
         ea = ang[ejecta_mask]
         ej_break = 0.3 + 0.7 * np.sin(ea * 5.0 + a1) ** 2
