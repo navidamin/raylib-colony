@@ -571,6 +571,11 @@ Prospecting AI is a significant but not dominant research investment — about 1
 
 **Design rationale:** Early convenience upgrades (Auto-Collection, Auto-Discard) are cheap — a player gets quality-of-life improvements within 2-4 days. The mid-tier intelligence upgrades (targeting, tools) unlock over the first few game-weeks. Full Autonomy is a late-game capstone requiring serious research commitment. With 2 Research units, the full tree completes in ~32 days — roughly one game-month of dedicated research.
 
+**Cross-references:**
+- **Research module requirements** imposed by this section: [`docs/design/research/README.md`](../research/README.md) — captures what the Research system must support (project queue, SCIENCE costs, global effects)
+- **AI automation pattern** extracted from this section: [`docs/design/ai-automation/README.md`](../ai-automation/README.md) — establishes the reusable pattern for all unit AI trees
+- **Roadmap impact:** `ROADMAP_OVERALL.md` Phase 6 updated with constraints from this section
+
 ---
 
 ## 12. Gaps Inventory

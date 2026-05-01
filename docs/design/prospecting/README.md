@@ -52,6 +52,8 @@ The prospecting module uses a **Core Samples** approach (Design 7) enhanced with
 | Excavation | Receives `surveyProgress` + `markedSites` from prospecting | Not yet in design/ |
 | Beneficiation | Downstream of excavation, no direct prospecting dependency | Not yet in design/ |
 | Resource Manager | Provides ground truth resource data that prospecting reveals | Existing code in `src/ResourceManager/` |
+| **Research** | Funds AI automation upgrades via SCIENCE tokens (Section 11b) | [`docs/design/research/`](../research/README.md) — STUB |
+| **AI Automation** | Cross-cutting pattern for all unit AI trees (prospecting is first client) | [`docs/design/ai-automation/`](../ai-automation/README.md) — STUB |
 
 ## Key Design Constraint
 
