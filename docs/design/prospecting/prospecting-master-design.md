@@ -582,7 +582,7 @@ AI capabilities are **purchased from the colony research token pool**, not earne
 
 | # | Gap | Document | Priority |
 |---|-----|----------|----------|
-| 1 | Sub-cell resource distribution generation | [resource-distribution-model.md](resource-distribution-model.md) | HIGH — core pipeline needs this |
+| 1 | ~~Sub-cell resource distribution generation~~ | [resource-distribution-model.md](resource-distribution-model.md) | **Resolved** — 3-layer model (provinces + deposits + Perlin sub-cells) |
 | 2 | AI research token costs (Low/Medium/High/Very High → actual numbers) | This document, Section 11b | MEDIUM — needs balance pass |
 
 ### Remaining — Minor / Deferred
