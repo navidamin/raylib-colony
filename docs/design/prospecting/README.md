@@ -55,6 +55,76 @@ The prospecting module uses a **Core Samples** approach (Design 7) enhanced with
 | **Research** | Funds AI automation upgrades via SCIENCE tokens (Section 11b) | [`docs/design/research/`](../research/README.md) — STUB |
 | **AI Automation** | Cross-cutting pattern for all unit AI trees (prospecting is first client) | [`docs/design/ai-automation/`](../ai-automation/README.md) — STUB |
 
+## Implementation Order
+
+Build in this order — each phase is testable independently and builds on the previous one.
+
+### Phase 1: Data Model & Grid Structure
+- Sub-cell grid data (5×5 per extraction unit cell)
+- `Sample` struct (depth layer, element composition, confidence, crystal visual properties)
+- Sample tray (inventory container, 8-slot limit)
+- Depth layer definitions (Regolith → Megaregolith → Fractured Bedrock → Intact Bedrock)
+- Wire up to existing `ResourceManager` ground truth data
+
+### Phase 2: Sweep Mechanics (GPR)
+- Frequency slider → depth/resolution tradeoff calculation
+- GPR sweep execution: energy cost, anomaly detection, confidence generation
+- Heat map data generation per sub-cell (signal strength values)
+- Calibration drift system (accuracy decay over sweeps)
+- Basic heat map rendering on grid (neon thermal palette)
+
+### Phase 3: Sampling Mechanics
+- Drill-to-depth logic (energy cost, time per depth layer)
+- Sample collection → populates tray with element data from ground truth + noise
+- Tray management (collect, discard, reorder)
+- Crystal visual property assignment (shape from depth family, color from element, glow from confidence, size from richness)
+
+### Phase 4: Lab / Testing Pipeline
+- Tool definitions (XRF, LIBS, Optical Microscopy, Fire Assay, Magnetic Susceptibility)
+- Sequential tool application to samples (each reveals partial data, reduces uncertainty)
+- Preset pipelines (Structural, Life Support, Rare Elements, Quick Survey)
+- Custom pipeline building (drag-and-drop tool ordering)
+- Fire assay as destructive chain-ender
+
+### Phase 5: Survey Progress Integration
+- Aggregate cell confidence from sweep data + analyzed samples
+- Map confidence to `surveyProgress` (0.0–1.0) for extraction formula
+- Marked sites from high-confidence + pathfinder tip cells
+- Verify extraction efficiency responds correctly to new prospecting data
+
+### Phase 6: UI Rendering
+- Grid cell rendering (dark theme, states: unswept/swept/sampled/hover/selected/anomaly)
+- Heat map overlay (40% opacity, brighten on hover)
+- Crystal sprite rendering in sample tray and grid markers
+- Stratigraphy side panel (vertical core column, correlation lines)
+- Ghost buttons (sweep, collect, discard, presets, calibrate)
+- Message bar (accent bar + log style, type-specific colors and fade)
+- Tab navigation (Sweep → Samples → Lab)
+- Objectives panel (bottom collapsible)
+
+### Phase 7: AI / Default Mode
+- Default sweep strategy (auto-frequency selection, grid coverage pattern)
+- Default sampling heuristic (sample highest-signal cells, balanced depth)
+- Default lab pipeline (Quick Survey preset)
+- Efficiency penalty for AI mode vs player-optimized
+- Toggle between manual and AI control per stage
+
+### Phase 8: Objectives System
+- Objective data model (type, target, progress, reward)
+- Objective generation based on sweep/sample results
+- Progress tracking and completion detection
+- Bonus multiplier integration with extraction formula
+- Objectives panel UI (collapsed list with progress bars)
+
+### Dependencies Between Phases
+```
+Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5
+                                                    │
+Phase 6 can start after Phase 3 (needs data to render)
+Phase 7 can start after Phase 5 (needs full pipeline)
+Phase 8 can start after Phase 5 (needs survey progress)
+```
+
 ## Key Design Constraint
 
 Whatever the prospecting redesign produces, it must output:
