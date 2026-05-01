@@ -194,13 +194,15 @@ class Crater:
     has_peak: bool
 
 
-def sample_craters(shape, rng, count_small=350, count_med=70, count_big=12):
+def sample_craters(shape, rng, count_small=220, count_med=70, count_big=14):
     h, w = shape
     craters = []
-    # power law: many small, few big
-    for n, rmin, rmax in [(count_small, 4, 14),
-                          (count_med, 14, 36),
-                          (count_big, 36, 90)]:
+    # power law: many small, few big. Min radius 8 so the rim is at least a
+    # couple of pixels wide after pre-blur — otherwise small craters lose
+    # all their relief.
+    for n, rmin, rmax in [(count_small, 8, 18),
+                          (count_med, 18, 42),
+                          (count_big, 42, 110)]:
         for _ in range(n):
             craters.append(Crater(
                 cx=rng.uniform(0, w),
@@ -242,31 +244,38 @@ def apply_craters(height, craters, rng=None):
                  + 0.025 * np.sin(5 * ang + a3))
         d = d * (1.0 + irreg * (0.5 + 0.5 * c.age))
 
-        floor_mask = d < 0.80
-        rim_mask = (d >= 0.80) & (d < 1.08)
-        ejecta_mask = (d >= 1.08) & (d < ej)
+        # Wider rim so it survives any pre-blur. Sharp inner wall transition
+        # so the lit/shadow contrast is strong.
+        floor_mask = d < 0.75
+        rim_mask = (d >= 0.75) & (d < 1.20)
+        ejecta_mask = (d >= 1.20) & (d < ej)
 
         sharp = 1.0 - c.age * 0.7
-        depth = -0.42 * sharp
-        rim = 0.18 * sharp
-        ej_h = 0.06 * sharp
+        depth = -0.65 * sharp
+        rim = 0.28 * sharp
+        ej_h = 0.05 * sharp
 
         delta = np.zeros_like(d, dtype=np.float32)
-        # smooth bowl floor (cosine instead of parabola: less point-bottom)
-        fd = d[floor_mask] / 0.80
-        delta[floor_mask] = depth * (0.5 + 0.5 * np.cos(fd * math.pi))
-        # rim peak around d=0.95, narrower than before so light falls off fast
+        # Bowl floor: rises sharply near rim (steep wall) and flattens at
+        # center. (1 - smoothstep(0..0.75, d)) gives a deep flat-ish floor.
+        fd = d[floor_mask] / 0.75
+        # invert smoothstep so center=1, edge=0
+        s = 1.0 - fd
+        floor_profile = s * s * (3.0 - 2.0 * s)
+        delta[floor_mask] = depth * floor_profile
+        # Rim profile: wider Gaussian centered just outside d=0.95 so it
+        # forms a real raised ridge. sigma=0.12 is a fat, readable rim.
         rim_d = d[rim_mask]
-        rim_shape = np.exp(-((rim_d - 0.95) / 0.06) ** 2)
+        rim_shape = np.exp(-((rim_d - 0.95) / 0.12) ** 2)
         delta[rim_mask] = rim * rim_shape
-        # ejecta blanket — broader, gentler, and broken up by ang noise
+        # Ejecta: low broken bumps
         ed = d[ejecta_mask]
         ea = ang[ejecta_mask]
         ej_break = 0.5 + 0.5 * np.sin(ea * 5.0 + a1) ** 2
-        delta[ejecta_mask] = ej_h * np.exp(-((ed - 1.08) / 0.45) ** 2) * ej_break
+        delta[ejecta_mask] = ej_h * np.exp(-((ed - 1.20) / 0.45) ** 2) * ej_break
 
         if c.has_peak and c.r > 22 and sharp > 0.45:
-            delta += 0.10 * sharp * np.exp(-(d * 4.5) ** 2)
+            delta += 0.18 * sharp * np.exp(-(d * 4.5) ** 2)
 
         height[y0:y1, x0:x1] += delta
     return height
@@ -276,8 +285,8 @@ def apply_craters(height, craters, rng=None):
 # Step 4 — hillshade
 # ---------------------------------------------------------------------------
 
-def hillshade(height, azimuth_deg=315.0, altitude_deg=42.0, z_factor=45.0,
-              smooth_px=2.8):
+def hillshade(height, azimuth_deg=315.0, altitude_deg=35.0, z_factor=75.0,
+              smooth_px=1.0):
     """Lambertian shading. azimuth=315 -> sun from NW. Returns 0..1.
 
     `smooth_px` pre-blurs the heightmap so micro-noise doesn't dominate the
@@ -287,9 +296,14 @@ def hillshade(height, azimuth_deg=315.0, altitude_deg=42.0, z_factor=45.0,
     h = gaussian_blur(height, smooth_px) if smooth_px > 0 else height
     az = math.radians(360.0 - azimuth_deg + 90.0)
     alt = math.radians(altitude_deg)
+    # np.gradient on a 2D array returns (gradient along axis 0, axis 1) =
+    # (∂h/∂y_image_south, ∂h/∂x_east). Standard hillshade aspect (the
+    # downhill compass direction) in math-radian form is atan2(dy, -dx).
+    # The previous atan2(-dx, dy) was 90° rotated — it shaded craters as
+    # if they were hills lit from the SW.
     dy, dx = np.gradient(h * z_factor)
     slope = np.arctan(np.hypot(dx, dy))
-    aspect = np.arctan2(-dx, dy)
+    aspect = np.arctan2(dy, -dx)
     shaded = (np.sin(alt) * np.cos(slope)
               + np.cos(alt) * np.sin(slope) * np.cos(az - aspect))
     return np.clip(shaded, 0.0, 1.0)
