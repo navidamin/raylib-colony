@@ -291,18 +291,15 @@ def apply_craters(height, craters, rng=None):
         # are shallow flat dishes and some are deep enough that their
         # floors fall into cast shadow — the variety the user asked for.
         # Larger craters trend shallower (filled / complex morphology).
-        size_factor = 1.0 - min(0.55, (c.r - 8) / 220.0)
-        # Beta distribution for a smooth continuous range, fat in the
-        # middle. Big craters need a stronger floor on depth_jitter so
-        # they read as proper carved bowls; otherwise a shallow large
-        # crater looks like a soft circular patch on the surface.
+        # Per-crater depth, fully independent of radius — every crater
+        # picks a depth from the same Beta distribution, so big craters
+        # have the same chance of being deep as small ones. (Old code
+        # had a size_factor and per-size jitter floors that compressed
+        # big craters into the shallow band, which is why no deep large
+        # craters appeared.)
         depth_jitter = float(rng.beta(2.2, 2.2)) * 1.6 + 0.15  # 0.15..1.75
-        if c.r > 60:
-            depth_jitter = max(depth_jitter, 1.05)
-        elif c.r > 35:
-            depth_jitter = max(depth_jitter, 0.80)
         sharp = 1.0 - c.age * 0.7
-        depth_amp = -0.40 * sharp * size_factor * depth_jitter
+        depth_amp = -0.42 * sharp * depth_jitter
         # Rim is *small* — only ~5% of depth amplitude.
         rim_amp = 0.05 * sharp * abs(depth_amp)
 
@@ -500,6 +497,17 @@ def colourise(height, mare_mask, hillsh, arch_pix, rng, cast_mask=None,
     sh = hillsh[..., None]
     contrast_arr = contrast_blur[..., None]
     shaded = albedo * (1.0 - contrast_arr + contrast_arr * (0.35 + 1.30 * sh))
+
+    # Crater-floor ambient occlusion: darken any pixel that sits below
+    # the FBM baseline (i.e. is inside a crater bowl) proportional to
+    # its depth. Even when not in cast shadow, a crater floor gets less
+    # ambient / scattered light than the open surrounding plain. This
+    # is the "sense of depth" effect — a crater bottom should always
+    # read a bit darker than the surrounding soil.
+    if albedo_height is not None:
+        depth_below = np.clip(albedo_height - height, 0.0, 1.5)
+        ao = 1.0 - np.clip(depth_below * 0.85, 0.0, 0.45)
+        shaded = shaded * ao[..., None]
 
     # Cast shadows: pixels the sun can't directly reach get darkened to
     # ~22% of their lit value. Not pure black — real lunar shadows still
