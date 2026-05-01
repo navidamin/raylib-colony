@@ -84,98 +84,201 @@ Four preset buttons in the Lab view for common analysis workflows:
 
 Presets auto-assign the specified pipeline to selected samples. Player can always override with custom tool assignment.
 
-## Sample Visual Design (Resolved)
+## Sample Visual Design (Revised — 3D Crystal Approach)
 
-### Procedural Ore Shapes
+### Concept
 
-Each sample is rendered as a **procedural ore shape** — not a generic icon:
+Each sample is rendered as a **3D transparent multi-faceted crystal shape**, pre-rendered to sprite textures. Samples are not flat icons — they read as small translucent mineral specimens that encode gameplay data through shape, color, size, and glow.
+
+### Pre-Rendering Pipeline
+
+Base shapes are **hand-modeled 3D meshes** (in Blender or equivalent), exported and rendered offline to sprite sheets:
+
+1. Model 20 base crystal meshes (4 families × 5 shapes)
+2. Render each at multiple sizes (for richness encoding) and multiple glow levels (for confidence)
+3. Export as sprite atlas with transparent backgrounds
+4. Game loads sprites and selects the correct variant at runtime based on sample data
+
+This avoids real-time 3D rendering per-sample. The game draws 2D sprites — fast and simple.
+
+**Sprite atlas organization:**
 
 ```
-┌─ Sample Icon Structure ──────────────────────────┐
-│                                                    │
-│   ┌──────── Circular Border ────────┐             │
-│   │  ○ Ring count = depth layer     │             │
-│   │    1 ring  = Regolith (surface) │             │
-│   │    2 rings = Megaregolith       │             │
-│   │    3 rings = Fractured Bedrock  │             │
-│   │    4 rings = Intact Bedrock     │             │
-│   │                                 │             │
-│   │   ┌── Ore Shape ──┐            │             │
-│   │   │ 4-7 polygon    │            │             │
-│   │   │ fragments       │            │             │
-│   │   │ element-colored │            │             │
-│   │   │ glow=confidence │            │             │
-│   │   └────────────────┘            │             │
-│   └─────────────────────────────────┘             │
-│                                                    │
-└────────────────────────────────────────────────────┘
+sprites/samples/
+    family_a/          (Angular Chunks — surface regolith)
+        a1_cleaved/
+            size_1_glow_0.png    (small, no glow = poor + uncertain)
+            size_1_glow_1.png
+            ...
+            size_4_glow_4.png    (large, bright glow = rich + certain)
+        a2_shatter/
+            ...
+    family_b/          (Crystalline Shards — fractured/intact bedrock)
+    family_c/          (Rounded Nodules — megaregolith)
+    family_d/          (Layered Slabs — sedimentary)
 ```
+
+**Render parameters per sprite:**
+- Resolution: 64×64px per sample icon (scales to screen via FS())
+- Background: fully transparent (alpha=0)
+- Lighting: single directional light, slight rim highlight for depth
+- Material: translucent glass-like shader, colored by element tint
+- Camera angle: consistent 3/4 isometric view across all shapes
 
 ### Visual Encoding
 
-| Property | Encoding |
-|----------|----------|
-| **Element content** | Color of ore fragments (Fe=red-brown, H₂O=blue, Ti=silver, He-3=purple, etc.) |
-| **Confidence level** | Glow intensity around ore shape (no glow=Very Low, bright glow=Certain) |
-| **Depth layer** | Ring count on circular border (1-4 rings) |
-| **Processing state** | Static=tray, spinning=processing, bright flash=complete |
+| Gameplay Data | Visual Channel | Detail |
+|---------------|---------------|--------|
+| **Element composition** | Color / tint | Crystal body color matches dominant element (see palette below) |
+| **Confidence level** | Glow / emission | Edge glow intensity: dull (Very Low) → bright halo (Certain) |
+| **Depth layer** | Shape family | Surface=rough chunks, deep=geometric crystals (see family mapping) |
+| **Richness** | Size | Poor deposit=small sprite, rich deposit=large sprite |
+| **Processing state** | Animation | Static=in tray, slow rotate=processing, bright flash=analysis complete |
 
-### Shape Templates (Resolved)
+### Element Color Palette
 
-20 procedural ore shape templates in 4 visual families. Each template is a list of 4-7 convex polygon fragments arranged within a 32x32 unit cell. Samples randomly select a template at creation, colored by dominant element. Templates are visual variety only — no gameplay meaning.
+| Element | Color | Hex (approximate) | Rationale |
+|---------|-------|--------------------|-----------|
+| Fe (Iron) | Warm red-brown | #B5463C | Rust/hematite |
+| Ti (Titanium) | Cool silver-blue | #A0B0C0 | Metallic titanium |
+| Si (Silicon) | Pale amber | #D4A850 | Sandy silicate |
+| Al (Aluminium) | Light gray | #C0C0C8 | Brushed aluminium |
+| Ca (Calcium) | Off-white cream | #E8DCC0 | Limestone/chalk |
+| H2O (Water) | Clear blue | #4488CC | Water ice |
+| H2 (Hydrogen) | Pale cyan | #88CCEE | Light gas |
+| O2 (Oxygen) | Soft teal | #55AA99 | — |
+| C (Carbon) | Dark charcoal | #404040 | Graphite/coal |
+| He-3 | Violet purple | #8866BB | Rare/exotic signal |
 
-#### Family A: Angular Chunks (fractured rock, sharp edges)
+**Multi-element samples:** When a sample contains multiple significant elements, the crystal uses the dominant element's color as the base tint, with secondary element visible as internal inclusions or color bands (modeled into the appropriate shape variants).
 
-| # | Name | Fragments | Silhouette Description |
-|---|------|-----------|----------------------|
-| A1 | Cleaved Block | 4 | Two large rectangular halves with offset fracture line |
-| A2 | Shatter | 7 | Radial fragments from center impact point |
-| A3 | Wedge Pair | 4 | Two opposing triangular wedges with gap |
-| A4 | Stacked Fracture | 5 | Horizontal layers with jagged breaks between them |
-| A5 | Corner Break | 5 | Large block with one corner chipped into 2 small pieces |
+### Shape Families — Depth Mapping
 
-#### Family B: Crystalline Shards (elongated, pointed, mineral-like)
+Each depth layer maps to a preferred shape family, reflecting geological character:
 
-| # | Name | Fragments | Silhouette Description |
-|---|------|-----------|----------------------|
-| B1 | Single Crystal | 4 | One tall hexagonal prism with 3 small chip fragments |
-| B2 | Twin Growth | 5 | Two intersecting elongated hexagons + 3 tiny chips |
-| B3 | Needle Cluster | 6 | 6 thin elongated triangles radiating from center |
-| B4 | Tabular | 4 | One wide flat hexagon + 3 small prismatic fragments |
-| B5 | Druzy | 7 | Flat base with 5-6 small pointed fragments on top surface |
+| Depth Layer | Primary Family | Visual Character | Why |
+|-------------|---------------|-----------------|-----|
+| **Regolith** (surface) | A: Angular Chunks | Rough, fractured, irregular | Impact-shattered surface rubble |
+| **Megaregolith** | C: Rounded Nodules | Smooth, weathered, organic | Pressure-compacted, tumbled fragments |
+| **Fractured Bedrock** | D: Layered Slabs | Flat, stacked, sedimentary | Sheared geological layers |
+| **Intact Bedrock** | B: Crystalline Shards | Sharp, geometric, prismatic | Pristine mineral formations |
 
-#### Family C: Rounded Nodules (smooth, weathered, organic shapes)
+Selection: **70% from primary family, 30% random** (same rule as before, but families now encode depth instead of being purely decorative).
 
-| # | Name | Fragments | Silhouette Description |
-|---|------|-----------|----------------------|
-| C1 | Cobble | 4 | One large rounded rectangle + 3 small oval chips |
-| C2 | Botryoidal | 6 | Cluster of 6 overlapping circles/ovals (grape-like) |
-| C3 | Concretion | 4 | Large oval with 3 crescent-shaped shell fragments |
-| C4 | Pebble Scatter | 7 | 7 small rounded polygons in loose cluster |
-| C5 | Split Nodule | 5 | Two halves of an oval + 3 interior fragments exposed |
+### Shape Templates (20 base meshes)
 
-#### Family D: Layered Slabs (sedimentary, flat, stacked)
+Each mesh is a hand-modeled 3D crystal/rock with transparent material. Fragment counts indicate visual complexity, not polygon count.
 
-| # | Name | Fragments | Silhouette Description |
-|---|------|-----------|----------------------|
-| D1 | Flagstone | 4 | 4 thin wide rectangles stacked with slight offsets |
-| D2 | Shale Split | 6 | 6 very thin irregular parallelograms, fanning apart |
-| D3 | Cross-Bedded | 5 | 3 diagonal slabs crossed by 2 thin perpendicular pieces |
-| D4 | Laminate | 5 | 5 horizontal strips of varying width, tight stack |
-| D5 | Breccia Slab | 7 | Flat slab outline filled with 6 angular fragment inclusions |
+#### Family A: Angular Chunks (Regolith — surface debris)
 
-#### Depth-Family Affinity (soft rule, not strict)
+| # | Name | Visual Description |
+|---|------|--------------------|
+| A1 | Cleaved Block | Two large rectangular halves with offset fracture, exposed interior faces catch light |
+| A2 | Shatter | Radial fragments from center impact, sharp edges, visible through gaps |
+| A3 | Wedge Pair | Two opposing triangular wedges with translucent gap between them |
+| A4 | Stacked Fracture | Horizontal layers with jagged breaks, light passes through cracks |
+| A5 | Corner Break | Large block with one corner chipped off, interior facet visible |
 
-Templates are randomly assigned, but with a bias toward geologically plausible families per depth layer:
+#### Family B: Crystalline Shards (Intact Bedrock — deep pristine minerals)
 
-| Depth Layer | Preferred Families | Rationale |
-|-------------|-------------------|-----------|
-| Regolith | C (Nodules), D (Slabs) | Weathered surface material |
-| Megaregolith | A (Chunks), D (Slabs) | Impact-fractured rubble |
-| Fractured Bedrock | A (Chunks), B (Crystals) | Fractured mineral veins |
-| Intact Bedrock | B (Crystals), D (Slabs) | Pristine crystalline rock |
+| # | Name | Visual Description |
+|---|------|--------------------|
+| B1 | Single Crystal | Tall hexagonal prism, internal light refraction, small chip fragments at base |
+| B2 | Twin Growth | Two intersecting elongated hexagons, overlapping transparency creates darker zones |
+| B3 | Needle Cluster | Thin pointed crystals radiating from center, light catches each edge |
+| B4 | Tabular | Wide flat hexagonal plate, thin enough to be semi-transparent, prismatic edge glints |
+| B5 | Druzy | Flat base covered in small pointed crystal growth, sparkling surface |
 
-Selection: 70% chance from preferred families, 30% from any family.
+#### Family C: Rounded Nodules (Megaregolith — compacted rubble)
+
+| # | Name | Visual Description |
+|---|------|--------------------|
+| C1 | Cobble | One large smooth rounded stone, translucent edges, small chips nearby |
+| C2 | Botryoidal | Cluster of overlapping rounded forms (grape-like), light pools in crevices |
+| C3 | Concretion | Large oval with crescent shell fragments, internal layers visible through shell |
+| C4 | Pebble Scatter | Loose cluster of small rounded stones, varied transparency per pebble |
+| C5 | Split Nodule | Oval split in half, crystalline interior exposed, geode-like |
+
+#### Family D: Layered Slabs (Fractured Bedrock — sheared layers)
+
+| # | Name | Visual Description |
+|---|------|--------------------|
+| D1 | Flagstone | Thin wide rectangles stacked with offsets, light passes between layers |
+| D2 | Shale Split | Very thin irregular slabs fanning apart, translucent at edges |
+| D3 | Cross-Bedded | Diagonal slabs crossed by perpendicular pieces, grid-like light pattern |
+| D4 | Laminate | Tight stack of horizontal strips, banding effect through transparency |
+| D5 | Breccia Slab | Flat slab with angular fragment inclusions embedded inside, visible through surface |
+
+### Glow / Confidence Rendering
+
+Glow is rendered into the sprite at pre-render time (not a runtime post-process):
+
+| Confidence Level | Glow Intensity | Visual |
+|-----------------|----------------|--------|
+| Very Low (0-20%) | 0 — no glow | Crystal looks dull, matte surface, minimal light interaction |
+| Low (21-40%) | 1 — faint edge highlight | Subtle rim light on facet edges |
+| Moderate (41-60%) | 2 — soft glow | Visible halo, facets begin to catch light |
+| High (61-80%) | 3 — bright glow | Strong edge emission, internal light visible |
+| Certain (81-100%) | 4 — full emission | Crystal radiates light, bright halo, facets fully lit |
+
+**5 glow levels × 4 sizes × 20 templates = 400 sprite variants.** At 64×64px each this is ~1.6 MB uncompressed — easily fits in a single texture atlas.
+
+### Size / Richness Scaling
+
+| Richness | Size Level | Sprite Dimensions | Visual |
+|----------|-----------|-------------------|--------|
+| Poor (<25%) | 1 — Small | 40×40px within 64px cell | Barely fills the tray slot |
+| Below Average (25-50%) | 2 — Medium | 48×48px | Standard size |
+| Above Average (50-75%) | 3 — Large | 56×56px | Noticeable presence |
+| Rich (>75%) | 4 — Full | 64×64px | Fills the slot, immediately eye-catching |
+
+### Processing Animation
+
+Animations are runtime sprite manipulation, not pre-rendered:
+
+| State | Animation | Implementation |
+|-------|-----------|---------------|
+| In tray | Static | No transform |
+| Processing | Slow rotation | Rotate sprite 30°/sec around center |
+| Analysis complete | Bright flash + settle | White additive flash (0.3s), then static with final glow level |
+
+### Sample Tray Display
+
+The sample tray shows all current samples in a horizontal bar:
+
+```
+┌─ Sample Tray (6/8) ─────────────────────────────────────────────┐
+│                                                                   │
+│   [◆]  [◇]  [◆]  [◆]  [◇]  [◆]  [  ]  [  ]                   │
+│    Fe   Ti   H2O   Fe   Si   Ca                                  │
+│                                                                   │
+│   ◆ = sample present (3D crystal sprite)                         │
+│   ◇ = processing (rotating)                                      │
+│   [  ] = empty slot                                              │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+- All samples visible simultaneously (tray capacity: 4/8/12/16 by tier)
+- Selected sample highlighted with a border or subtle scale-up
+- Hovering a sample shows a tooltip with element breakdown and confidence
+- Element label below each sample in small text (dominant element abbreviation)
+
+### Implementation Notes
+
+**Asset creation workflow:**
+1. Model 20 base meshes in Blender (low-poly, ~200-500 tris each)
+2. Apply glass/translucent material with element color as a parameter
+3. Set up render rig: fixed camera, directional light, transparent background
+4. Batch render: 20 shapes × 10 colors × 5 glow levels × 4 sizes = 4,000 sprites
+5. Pack into texture atlas (or use color tinting at runtime to reduce to 20 × 5 × 4 = 400 base sprites, tinted per-element)
+
+**Runtime color tinting (recommended optimization):**
+Rather than pre-rendering every element color, render shapes as neutral gray/white crystal and apply element color as a tint multiply at runtime via raylib's `DrawTexturePro()` tint parameter. This reduces the atlas to **20 shapes × 5 glow levels × 4 sizes = 400 sprites** and allows easy addition of new elements without re-rendering.
+
+**Sprite atlas sizing (with runtime tinting):**
+- 400 sprites × 64×64px = ~1.6 million pixels
+- Fits in a single 2048×2048 texture atlas (1024 slots available)
+- Memory: ~16 MB RGBA uncompressed, ~4 MB compressed
 
 ## Objectives Display
 

@@ -338,9 +338,9 @@ Pathfinder and clue chaining mechanics are **deferred to a future development ph
 │  └──────────────────────────────────────────────────────┘   │
 │                                                             │
 │  ┌─ Sample Icons (all stages) ──────────────────────────┐  │
-│  │  [?] Rotating icons per stage                         │  │
-│  │  [?] Visual differentiation: color=element? shape=    │  │
-│  │      depth? glow=confidence?                          │  │
+│  │  3D crystal sprites: color=element, shape=depth,      │  │
+│  │  glow=confidence, size=richness                       │  │
+│  │  See ui-layout.md "Sample Visual Design" for full spec│  │
 │  └───────────────────────────────────────────────────────┘  │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
@@ -591,7 +591,7 @@ Prospecting AI is a significant but not dominant research investment — about 1
 | 5 | surveyProgress accumulation formula | Component-based: sweep (0-20%) + samples (0-50%) + testing (0-30%), scaled by confidence |
 | 6 | AI delegation heuristics | Always available, random targeting + cheapest tools, improves with tier |
 | 7 | Processing times per tool | Near-instant except fire assay |
-| 8 | Sample visual differentiation | Procedural ore shapes, element-colored, glow=confidence, rings=depth |
+| 8 | Sample visual differentiation | 3D transparent crystal sprites: color=element, glow=confidence, shape family=depth, size=richness. See [ui-layout.md](ui-layout.md) |
 | 9 | Pipeline mechanics | Continuous sweep slider, sequential multi-tool, fire assay ends chain, 4 presets |
 | 10 | Objectives system | Tier-locked tutorial objectives, no deadlines, mixed capability rewards |
 
@@ -607,7 +607,7 @@ Prospecting AI is a significant but not dominant research investment — about 1
 | # | Gap | Resolution |
 |---|-----|-----------|
 | 13 | Exact objective list per tier | Tutorials (no payoff) + achievement objectives (tray slots, presets). See Section 11 |
-| 14 | 20 ore shape templates | 4 families × 5 templates with depth-family affinity bias. See [ui-layout.md](ui-layout.md) |
+| 14 | 20 ore shape templates | 4 families × 5 hand-modeled 3D crystal meshes, pre-rendered to sprites. Depth→family mapping. See [ui-layout.md](ui-layout.md) |
 | 15 | Cell aggregate confidence weighting | Abundance-weighted average, 5% threshold. See [confidence-system.md](confidence-system.md) |
 | 16 | AI reward source | AI capabilities research-gated (colony token pool), not objective-linked. See Section 11b |
 | 17 | Prospecting grid spatial model | Grid subdivides one planet cell. Size scales with tier (3×3 → 6×6). See Section 2 |
