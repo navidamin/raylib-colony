@@ -74,6 +74,18 @@ endif()
 
 add_subdirectory(src)
 
+option(BUILD_TESTING "Build the test suite" OFF)
+if(BUILD_TESTING)
+    CPMAddPackage(
+        NAME Catch2
+        GITHUB_REPOSITORY catchorg/Catch2
+        VERSION 3.5.0
+        OPTIONS "CATCH_INSTALL_DOCS OFF" "CATCH_INSTALL_EXTRAS OFF"
+    )
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 # If MSVC is being used, and ASAN is enabled, we need to set the debugger environment so that it behaves well with MSVC's debugger, and we
 # can run the target from visual studio
 if(MSVC)
