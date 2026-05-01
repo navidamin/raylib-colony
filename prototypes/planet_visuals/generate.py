@@ -1,0 +1,766 @@
+"""
+Procedural moon surface prototype.
+
+Pipeline (each stage emits a debug PNG so we can see what it contributes):
+
+    1. Multi-octave value-noise heightmap          -> stage1_heightmap.png
+    2. Mare basins (low-freq depression mask)      -> stage2_mare.png
+    3. Parametric crater field (age-stratified)    -> stage3_craters.png
+    4. Hillshade (Lambertian, NW sun)              -> stage4_hillshade.png
+    5. Archetype tinting (MARE / HIGHLAND / POLAR  -> stage5_archetypes.png
+       / KREEP / LAVA_TUBE / MIXED)
+    6. Decals + composite                          -> stage6_final.png
+
+Then a few presentation outputs:
+
+    planet_full.png       1600x1600 final result, the whole 20x20 grid
+    archetype_tiles.png   one 256-px sample per archetype, side-by-side
+    detail_zoom.png       4x zoom on a crater cluster
+    comparison.png        old random-tile look vs new procedural look
+
+Run:    python3 generate.py
+Output: ./output/*.png
+"""
+
+from __future__ import annotations
+
+import math
+import os
+from dataclasses import dataclass
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+PLANET_GRID = 20            # game's PLANET_SIZE
+PX_PER_CELL = 80            # render resolution per game cell
+SIZE = PLANET_GRID * PX_PER_CELL   # 1600 px
+SEED = 12345
+
+OUT = os.path.join(os.path.dirname(__file__), "output")
+os.makedirs(OUT, exist_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Math helpers
+# ---------------------------------------------------------------------------
+
+def gaussian_blur(arr, sigma):
+    """Separable 1D Gaussian blur on a float32 array. Used in float space to
+    avoid the uint8 quantization contour-line artifacts that PIL gives us."""
+    if sigma <= 0:
+        return arr
+    radius = max(1, int(sigma * 3))
+    x = np.arange(-radius, radius + 1, dtype=np.float32)
+    k = np.exp(-(x ** 2) / (2.0 * sigma * sigma))
+    k /= k.sum()
+    out = arr.astype(np.float32, copy=False)
+    # Convolve along axis 1 then axis 0. np.convolve via apply_along_axis is
+    # plenty fast at our sizes.
+    out = np.apply_along_axis(lambda v: np.convolve(v, k, mode="same"), 1, out)
+    out = np.apply_along_axis(lambda v: np.convolve(v, k, mode="same"), 0, out)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Archetype palette (matches game_enums.h SiteArchetype)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Archetype:
+    name: str
+    base: tuple        # (r,g,b) average ground tone
+    shadow: tuple      # darker variant for low ground / floors
+    high: tuple        # brighter variant for ridges
+    accent: tuple      # signature accent (ice glint, KREEP glow, void, etc.)
+    contrast: float    # 0..1, how much hillshade modulates albedo
+
+# Tones tuned to look like real lunar imagery: low chroma, mostly grayscale with
+# subtle hue shifts. Saturation kills the moon-feel.
+ARCHETYPES = {
+    "MARE_INDUSTRIAL":     Archetype("Mare (basalt)",
+                                     ( 70,  68,  66),
+                                     ( 38,  37,  36),
+                                     (110, 106, 100),
+                                     ( 50,  46,  42), 0.45),
+    "HIGHLAND_CONSTRUCTION": Archetype("Highland (anorthosite)",
+                                     (158, 154, 146),
+                                     (102,  98,  92),
+                                     (210, 206, 196),
+                                     (190, 188, 180), 0.55),
+    "POLAR_VOLATILE":      Archetype("Polar (ice frost)",
+                                     (170, 178, 192),
+                                     (108, 116, 130),
+                                     (224, 230, 240),
+                                     (220, 234, 246), 0.65),
+    "KREEP_SCIENTIFIC":    Archetype("KREEP (thorium-rich)",
+                                     (118, 108,  96),
+                                     ( 72,  64,  56),
+                                     (172, 158, 140),
+                                     (200, 150, 110), 0.50),
+    "LAVA_TUBE":           Archetype("Lava tube collapse",
+                                     ( 80,  76,  72),
+                                     ( 22,  20,  18),
+                                     (118, 112, 104),
+                                     (  6,   4,   4), 0.45),
+    "MIXED":               Archetype("Mixed terrain",
+                                     (124, 118, 110),
+                                     ( 72,  68,  62),
+                                     (190, 184, 172),
+                                     (140, 132, 120), 0.55),
+}
+
+
+# ---------------------------------------------------------------------------
+# Step 1 — heightmap (value-noise FBM, fully vectorised)
+# ---------------------------------------------------------------------------
+
+def value_noise(shape, scale, rng):
+    """Single-octave smooth noise.
+
+    PIL mode 'F' for the bicubic upsample, then a numpy Gaussian blur in
+    float space. uint8 quantization here would give concentric contour
+    artifacts under hillshading.
+    """
+    h, w = shape
+    gh = max(2, h // scale + 2)
+    gw = max(2, w // scale + 2)
+    grid = rng.random((gh, gw)).astype(np.float32)
+    img = Image.fromarray(grid, mode="F")
+    img = img.resize((w + scale * 2, h + scale * 2), Image.BICUBIC)
+    arr = np.asarray(img, dtype=np.float32)[scale:scale + h, scale:scale + w]
+    arr = gaussian_blur(arr, scale * 0.45)
+    return np.clip(arr, 0.0, 1.0)
+
+
+def fbm(shape, octaves, base_scale, persistence, rng):
+    """Fractal Brownian motion: stack value-noise octaves."""
+    out = np.zeros(shape, dtype=np.float32)
+    amp = 1.0
+    norm = 0.0
+    scale = base_scale
+    for _ in range(octaves):
+        out += amp * value_noise(shape, scale, rng)
+        norm += amp
+        amp *= persistence
+        scale = max(2, scale // 2)
+    out /= norm
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Step 2 — mare basins (a few large low-freq dark depressions)
+# ---------------------------------------------------------------------------
+
+def mare_field(shape, rng, n=3):
+    """Big flat dark basins. The floor should read as a *plain*, not a smooth
+    bowl — so we use a smoothstepped indicator with a sharp interior."""
+    h, w = shape
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    mask = np.zeros(shape, dtype=np.float32)
+    for _ in range(n):
+        cx = rng.uniform(0.2, 0.8) * w
+        cy = rng.uniform(0.2, 0.8) * h
+        rx = rng.uniform(0.18, 0.32) * w
+        ry = rng.uniform(0.18, 0.32) * h
+        ang = rng.uniform(0.0, math.pi)
+        cs, sn = math.cos(ang), math.sin(ang)
+        x = (xx - cx) * cs + (yy - cy) * sn
+        y = -(xx - cx) * sn + (yy - cy) * cs
+        d = np.sqrt((x / rx) ** 2 + (y / ry) ** 2)
+        # smoothstep transition: flat 1.0 inside, soft ramp 0.85..1.05
+        t = np.clip((1.05 - d) / 0.20, 0.0, 1.0)
+        falloff = t * t * (3.0 - 2.0 * t)
+        mask = np.maximum(mask, falloff)
+    # break the perfect ellipse outline with low-freq jitter
+    jitter = fbm(shape, 4, 64, 0.5, rng)
+    mask *= 0.85 + 0.15 * jitter
+    return mask
+
+
+# ---------------------------------------------------------------------------
+# Step 3 — parametric crater field
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Crater:
+    cx: float
+    cy: float
+    r: float          # rim radius in pixels
+    age: float        # 0=fresh (sharp rim, central peak), 1=eroded
+    has_peak: bool
+
+
+def sample_craters(shape, rng, count_small=350, count_med=70, count_big=12):
+    h, w = shape
+    craters = []
+    # power law: many small, few big
+    for n, rmin, rmax in [(count_small, 4, 14),
+                          (count_med, 14, 36),
+                          (count_big, 36, 90)]:
+        for _ in range(n):
+            craters.append(Crater(
+                cx=rng.uniform(0, w),
+                cy=rng.uniform(0, h),
+                r=rng.uniform(rmin, rmax),
+                age=rng.beta(2.0, 1.5),         # skew older
+                has_peak=rng.random() < 0.25,
+            ))
+    # sort by radius so big craters apply first, small ones overlay (recent)
+    craters.sort(key=lambda c: -c.r)
+    return craters
+
+
+def apply_craters(height, craters, rng=None):
+    """Carve craters into the height map. Each crater gets per-angle noise on
+    its rim/floor so it doesn't read as a perfect circle."""
+    if rng is None:
+        rng = np.random.default_rng(0)
+    h, w = height.shape
+    for c in craters:
+        ej = 2.2
+        x0 = max(0, int(c.cx - c.r * ej))
+        x1 = min(w, int(c.cx + c.r * ej) + 1)
+        y0 = max(0, int(c.cy - c.r * ej))
+        y1 = min(h, int(c.cy + c.r * ej) + 1)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        dx = xx - c.cx
+        dy = yy - c.cy
+        d = np.sqrt(dx * dx + dy * dy) / c.r
+        ang = np.arctan2(dy, dx)
+
+        # angular perturbation: 3 sinusoids at different freqs, random phases.
+        # amplitude grows with age (older = more eroded, irregular).
+        a1, a2, a3 = rng.uniform(0, math.tau, 3)
+        irreg = (0.05 * np.sin(2 * ang + a1)
+                 + 0.04 * np.sin(3 * ang + a2)
+                 + 0.025 * np.sin(5 * ang + a3))
+        d = d * (1.0 + irreg * (0.5 + 0.5 * c.age))
+
+        floor_mask = d < 0.80
+        rim_mask = (d >= 0.80) & (d < 1.08)
+        ejecta_mask = (d >= 1.08) & (d < ej)
+
+        sharp = 1.0 - c.age * 0.7
+        depth = -0.42 * sharp
+        rim = 0.18 * sharp
+        ej_h = 0.06 * sharp
+
+        delta = np.zeros_like(d, dtype=np.float32)
+        # smooth bowl floor (cosine instead of parabola: less point-bottom)
+        fd = d[floor_mask] / 0.80
+        delta[floor_mask] = depth * (0.5 + 0.5 * np.cos(fd * math.pi))
+        # rim peak around d=0.95, narrower than before so light falls off fast
+        rim_d = d[rim_mask]
+        rim_shape = np.exp(-((rim_d - 0.95) / 0.06) ** 2)
+        delta[rim_mask] = rim * rim_shape
+        # ejecta blanket — broader, gentler, and broken up by ang noise
+        ed = d[ejecta_mask]
+        ea = ang[ejecta_mask]
+        ej_break = 0.5 + 0.5 * np.sin(ea * 5.0 + a1) ** 2
+        delta[ejecta_mask] = ej_h * np.exp(-((ed - 1.08) / 0.45) ** 2) * ej_break
+
+        if c.has_peak and c.r > 22 and sharp > 0.45:
+            delta += 0.10 * sharp * np.exp(-(d * 4.5) ** 2)
+
+        height[y0:y1, x0:x1] += delta
+    return height
+
+
+# ---------------------------------------------------------------------------
+# Step 4 — hillshade
+# ---------------------------------------------------------------------------
+
+def hillshade(height, azimuth_deg=315.0, altitude_deg=42.0, z_factor=45.0,
+              smooth_px=2.8):
+    """Lambertian shading. azimuth=315 -> sun from NW. Returns 0..1.
+
+    `smooth_px` pre-blurs the heightmap so micro-noise doesn't dominate the
+    gradient. Lunar terrain at game scale should read as gentle relief, not
+    crumpled foil.
+    """
+    h = gaussian_blur(height, smooth_px) if smooth_px > 0 else height
+    az = math.radians(360.0 - azimuth_deg + 90.0)
+    alt = math.radians(altitude_deg)
+    dy, dx = np.gradient(h * z_factor)
+    slope = np.arctan(np.hypot(dx, dy))
+    aspect = np.arctan2(-dx, dy)
+    shaded = (np.sin(alt) * np.cos(slope)
+              + np.cos(alt) * np.sin(slope) * np.cos(az - aspect))
+    return np.clip(shaded, 0.0, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Step 5 — archetype mask (coarse Voronoi-ish over the 20x20 grid)
+# ---------------------------------------------------------------------------
+
+ARCHETYPE_ORDER = list(ARCHETYPES.keys())  # stable index <-> name
+
+def assign_archetype_grid(rng):
+    """Return (PLANET_GRID, PLANET_GRID) ints into ARCHETYPE_ORDER.
+    Cluster archetypes by seeded centroids so neighbours agree most of the
+    time — this is what the real game does via SiteArchetype classification.
+    """
+    centroids = []
+    for arch in ARCHETYPE_ORDER:
+        centroids.append((
+            arch,
+            rng.uniform(0, PLANET_GRID),
+            rng.uniform(0, PLANET_GRID),
+        ))
+    grid = np.zeros((PLANET_GRID, PLANET_GRID), dtype=np.int32)
+    for gy in range(PLANET_GRID):
+        for gx in range(PLANET_GRID):
+            best = 0
+            best_d = 1e9
+            for i, (_, cx, cy) in enumerate(centroids):
+                d = (gx - cx) ** 2 + (gy - cy) ** 2
+                # bias polar toward edges (top/bottom rows)
+                if ARCHETYPE_ORDER[i] == "POLAR_VOLATILE":
+                    d *= 1.0 + (PLANET_GRID / 2 - abs(gy - PLANET_GRID / 2))
+                if d < best_d:
+                    best_d = d
+                    best = i
+            grid[gy, gx] = best
+    return grid
+
+
+def archetype_pixel_map(arch_grid):
+    """Upsample arch_grid to per-pixel labels with smooth-ish boundaries."""
+    h = w = SIZE
+    # nearest-neighbour upsample via numpy
+    py = np.repeat(np.arange(PLANET_GRID), PX_PER_CELL)
+    px = np.repeat(np.arange(PLANET_GRID), PX_PER_CELL)
+    return arch_grid[py[:, None], px[None, :]]
+
+
+def colourise(height, mare_mask, hillsh, arch_pix, rng):
+    h, w = height.shape
+    rgb = np.zeros((h, w, 3), dtype=np.float32)
+
+    # height normalised to 0..1 for shadow/high blending
+    hn = (height - height.min()) / max(1e-6, height.max() - height.min())
+
+    # build a per-pixel base/shadow/high palette via lookup
+    base = np.zeros((h, w, 3), dtype=np.float32)
+    shadow = np.zeros_like(base)
+    high = np.zeros_like(base)
+    accent = np.zeros_like(base)
+    contrast = np.zeros((h, w), dtype=np.float32)
+
+    for i, name in enumerate(ARCHETYPE_ORDER):
+        a = ARCHETYPES[name]
+        m = (arch_pix == i)
+        base[m] = a.base
+        shadow[m] = a.shadow
+        high[m] = a.high
+        accent[m] = a.accent
+        contrast[m] = a.contrast
+
+    # blur archetype boundaries so they don't look like a blocky checkerboard
+    blur_px = int(PX_PER_CELL * 0.9)
+    base = np.asarray(Image.fromarray(base.astype(np.uint8))
+                      .filter(ImageFilter.GaussianBlur(blur_px)),
+                      dtype=np.float32)
+    shadow = np.asarray(Image.fromarray(shadow.astype(np.uint8))
+                        .filter(ImageFilter.GaussianBlur(blur_px)),
+                        dtype=np.float32)
+    high = np.asarray(Image.fromarray(high.astype(np.uint8))
+                      .filter(ImageFilter.GaussianBlur(blur_px)),
+                      dtype=np.float32)
+    accent = np.asarray(Image.fromarray(accent.astype(np.uint8))
+                        .filter(ImageFilter.GaussianBlur(blur_px)),
+                        dtype=np.float32)
+    contrast_blur = np.asarray(
+        Image.fromarray((contrast * 255).astype(np.uint8))
+        .filter(ImageFilter.GaussianBlur(blur_px)), dtype=np.float32) / 255.0
+
+    # albedo = lerp(shadow, base, hn) then lerp toward high in upper half
+    t_low = np.clip(hn * 2.0, 0, 1)[..., None]
+    t_high = np.clip((hn - 0.5) * 2.0, 0, 1)[..., None]
+    albedo = shadow * (1 - t_low) + base * t_low
+    albedo = albedo * (1 - t_high) + high * t_high
+
+    # mare basins darken the albedo (and lower elevation already pulls dark)
+    mare = mare_mask[..., None]
+    albedo = albedo * (1.0 - 0.22 * mare)
+
+    # hillshade modulates albedo
+    sh = hillsh[..., None]
+    contrast_arr = contrast_blur[..., None]
+    shaded = albedo * (1.0 - contrast_arr + contrast_arr * (0.35 + 1.30 * sh))
+
+    rgb = np.clip(shaded, 0, 255)
+    return rgb.astype(np.uint8), albedo.astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# Step 6 — decals (ice glints in polar, KREEP glow, lava-tube voids)
+# ---------------------------------------------------------------------------
+
+def add_decals(rgb, arch_pix, height, rng):
+    img = Image.fromarray(rgb)
+    draw = ImageDraw.Draw(img, "RGBA")
+    h, w = arch_pix.shape
+
+    # small voids for lava-tube cells: pits with dark interior + faint rim
+    lava_idx = ARCHETYPE_ORDER.index("LAVA_TUBE")
+    polar_idx = ARCHETYPE_ORDER.index("POLAR_VOLATILE")
+    kreep_idx = ARCHETYPE_ORDER.index("KREEP_SCIENTIFIC")
+
+    # sparse sample
+    n = 800
+    xs = rng.integers(0, w, n)
+    ys = rng.integers(0, h, n)
+    for x, y in zip(xs, ys):
+        a = arch_pix[y, x]
+        if a == lava_idx and rng.random() < 0.04:
+            # lava-tube skylight: a small rosette of 3..6 collapse pits
+            cluster = rng.integers(3, 7)
+            for _ in range(cluster):
+                ox = x + int(rng.normal(0, 6))
+                oy = y + int(rng.normal(0, 6))
+                if not (0 <= ox < w and 0 <= oy < h):
+                    continue
+                if arch_pix[oy, ox] != lava_idx:
+                    continue
+                r = rng.integers(2, 5)
+                draw.ellipse([ox - r, oy - r, ox + r, oy + r],
+                             fill=(6, 4, 4, 230))
+                draw.ellipse([ox - r - 1, oy - r - 1,
+                              ox + r + 1, oy + r + 1],
+                             outline=(50, 46, 42, 160), width=1)
+        elif a == polar_idx and rng.random() < 0.12:
+            r = rng.integers(1, 3)
+            draw.ellipse([x - r, y - r, x + r, y + r],
+                         fill=(240, 250, 255, 170))
+        elif a == kreep_idx and rng.random() < 0.025:
+            r = rng.integers(10, 24)
+            for k, alpha in [(r, 14), (r * 0.6, 22), (r * 0.3, 38)]:
+                draw.ellipse([x - k, y - k, x + k, y + k],
+                             fill=(220, 140, 90, alpha))
+
+    return np.asarray(img)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for saving and labelling
+# ---------------------------------------------------------------------------
+
+def save_gray(arr, path):
+    a = (arr - arr.min()) / max(1e-6, arr.max() - arr.min())
+    Image.fromarray((a * 255).astype(np.uint8), mode="L").save(path)
+    print(f"  wrote {path}")
+
+
+def save_rgb(arr, path):
+    Image.fromarray(arr.astype(np.uint8)).save(path)
+    print(f"  wrote {path}")
+
+
+def label_image(img, text, font_size=22):
+    """Add a small caption at top-left."""
+    out = img.copy()
+    draw = ImageDraw.Draw(out, "RGBA")
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+    except OSError:
+        font = ImageFont.load_default()
+    pad = 6
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.rectangle([0, 0, tw + pad * 2, th + pad * 2], fill=(0, 0, 0, 180))
+    draw.text((pad, pad), text, fill=(255, 255, 255, 255), font=font)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Build pipeline
+# ---------------------------------------------------------------------------
+
+def build_planet(seed=SEED):
+    rng = np.random.default_rng(seed)
+    shape = (SIZE, SIZE)
+
+    print("[1/6] heightmap (FBM)...")
+    # Strong low-frequency relief, almost no high-frequency texture so the
+    # craters dominate the local detail and hillshade has no wood-grain.
+    base = fbm(shape, octaves=5, base_scale=384, persistence=0.5, rng=rng)
+    detail = fbm(shape, octaves=3, base_scale=128, persistence=0.5, rng=rng)
+    height = 0.92 * base + 0.08 * detail
+    save_gray(height, os.path.join(OUT, "stage1_heightmap.png"))
+
+    print("[2/6] mare basins...")
+    mare = mare_field(shape, rng, n=3)
+    height_with_mare = height - 0.20 * mare
+    save_gray(mare, os.path.join(OUT, "stage2_mare.png"))
+
+    print("[3/6] crater field...")
+    craters = sample_craters(shape, rng)
+    height_with_craters = apply_craters(height_with_mare.copy(), craters, rng)
+    save_gray(height_with_craters, os.path.join(OUT, "stage3_craters.png"))
+
+    print("[4/6] hillshade...")
+    sh = hillshade(height_with_craters)
+    save_gray(sh, os.path.join(OUT, "stage4_hillshade.png"))
+
+    print("[5/6] archetype tinting...")
+    arch_grid = assign_archetype_grid(rng)
+    arch_pix = archetype_pixel_map(arch_grid)
+    rgb, albedo = colourise(height_with_craters, mare, sh, arch_pix, rng)
+    save_rgb(albedo, os.path.join(OUT, "stage5_albedo.png"))
+    save_rgb(rgb, os.path.join(OUT, "stage5_archetypes.png"))
+
+    print("[6/6] decals + dust...")
+    final = add_decals(rgb, arch_pix, height_with_craters, rng)
+    # Regolith dust grain: very fine noise modulating brightness +/- 4%.
+    # Adds tactile feel without going through hillshade so no contour bands.
+    grain = (rng.random((SIZE, SIZE)).astype(np.float32) - 0.5) * 0.10
+    grain_blur = np.asarray(
+        Image.fromarray(((grain + 0.5) * 255).astype(np.uint8))
+        .filter(ImageFilter.GaussianBlur(0.6)),
+        dtype=np.float32) / 255.0 - 0.5
+    final = np.clip(final.astype(np.float32) * (1.0 + grain_blur[..., None] * 0.18),
+                    0, 255).astype(np.uint8)
+    save_rgb(final, os.path.join(OUT, "stage6_final.png"))
+
+    return {
+        "height": height_with_craters,
+        "mare": mare,
+        "hillshade": sh,
+        "arch_grid": arch_grid,
+        "arch_pix": arch_pix,
+        "albedo": albedo,
+        "rgb": rgb,
+        "final": final,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Presentation outputs
+# ---------------------------------------------------------------------------
+
+def render_archetype_tiles():
+    """Render one 320-px sample per archetype, using the same pipeline forced
+    to a single archetype. Saved as a horizontal strip with labels."""
+    tile_px = 320
+    rng = np.random.default_rng(SEED + 7)
+    tiles = []
+    for arch_name in ARCHETYPE_ORDER:
+        local_rng = np.random.default_rng(rng.integers(0, 2**31))
+        h = fbm((tile_px, tile_px), 6, 64, 0.55, local_rng)
+        h += 0.3 * fbm((tile_px, tile_px), 4, 16, 0.6, local_rng)
+        mare = mare_field((tile_px, tile_px), local_rng, n=1) * 0.4
+        h_with = h - 0.3 * mare
+        h_with = apply_craters(h_with, sample_craters(
+            (tile_px, tile_px), local_rng,
+            count_small=80, count_med=18, count_big=2), local_rng)
+        sh = hillshade(h_with, z_factor=35.0, smooth_px=1.0)
+        arch_idx = ARCHETYPE_ORDER.index(arch_name)
+        arch_pix_local = np.full((tile_px, tile_px), arch_idx, dtype=np.int32)
+        rgb, _ = colourise(h_with, mare, sh, arch_pix_local, local_rng)
+        rgb = add_decals(rgb, arch_pix_local, h_with, local_rng)
+        img = Image.fromarray(rgb)
+        img = label_image(img, ARCHETYPES[arch_name].name, font_size=18)
+        tiles.append(img)
+
+    strip_w = tile_px * len(tiles) + (len(tiles) - 1) * 6
+    strip = Image.new("RGB", (strip_w, tile_px), (12, 12, 14))
+    x = 0
+    for t in tiles:
+        strip.paste(t, (x, 0))
+        x += tile_px + 6
+    out = os.path.join(OUT, "archetype_tiles.png")
+    strip.save(out)
+    print(f"  wrote {out}")
+
+
+def render_detail_zoom(planet_data):
+    """Crop a 400x400 region from the final, upscale 2x for clarity."""
+    final = Image.fromarray(planet_data["final"])
+    x0, y0 = 700, 500     # area chosen empirically to land on craters
+    crop = final.crop((x0, y0, x0 + 400, y0 + 400))
+    crop = crop.resize((800, 800), Image.LANCZOS)
+    crop = label_image(crop, "Detail zoom (2x)", font_size=22)
+    out = os.path.join(OUT, "detail_zoom.png")
+    crop.save(out)
+    print(f"  wrote {out}")
+
+
+def render_old_baseline():
+    """Reproduce the existing in-game look (3 random tiles stamped)."""
+    asset_dir = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "src", "assets"))
+    tiles = [Image.open(os.path.join(asset_dir, f"moonsurface_tile{i}.png"))
+             .convert("RGB") for i in (1, 2, 3)]
+    img = Image.new("RGB", (SIZE, SIZE), (60, 60, 60))
+    rng = np.random.default_rng(SEED)
+    tw, th = tiles[0].size
+    for y in range(0, SIZE, th):
+        for x in range(0, SIZE, tw):
+            img.paste(tiles[int(rng.integers(0, 3))], (x, y))
+    out = os.path.join(OUT, "old_baseline.png")
+    img.save(out)
+    print(f"  wrote {out}")
+    return img
+
+
+def render_comparison(old_img, new_arr):
+    """Side-by-side at 800px each."""
+    panel = 800
+    composite = Image.new("RGB", (panel * 2 + 8, panel + 40), (12, 12, 14))
+    a = old_img.resize((panel, panel), Image.LANCZOS)
+    b = Image.fromarray(new_arr).resize((panel, panel), Image.LANCZOS)
+    a = label_image(a, "BEFORE  (current 3-tile shuffle)")
+    b = label_image(b, "AFTER  (procedural + archetype-tinted)")
+    composite.paste(a, (0, 40))
+    composite.paste(b, (panel + 8, 40))
+    draw = ImageDraw.Draw(composite)
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+    except OSError:
+        font = ImageFont.load_default()
+    draw.text((10, 8), "raylib-colony  --  planet visual prototype",
+              fill=(230, 230, 230), font=font)
+    out = os.path.join(OUT, "comparison.png")
+    composite.save(out)
+    print(f"  wrote {out}")
+
+
+def render_stages_composite():
+    """2x3 grid showing each pipeline step on the same seed."""
+    stages = [
+        ("stage1_heightmap.png", "1. heightmap (FBM)"),
+        ("stage2_mare.png",      "2. mare basins"),
+        ("stage3_craters.png",   "3. craters carved"),
+        ("stage4_hillshade.png", "4. hillshade"),
+        ("stage5_archetypes.png","5. archetype tints"),
+        ("stage6_final.png",     "6. + decals + dust"),
+    ]
+    cell = 540
+    pad = 6
+    cols, rows = 3, 2
+    W = cols * cell + (cols + 1) * pad
+    H = rows * cell + (rows + 1) * pad
+    canvas = Image.new("RGB", (W, H), (16, 16, 18))
+    for i, (name, label) in enumerate(stages):
+        path = os.path.join(OUT, name)
+        if not os.path.exists(path):
+            continue
+        im = Image.open(path).convert("RGB").resize((cell, cell), Image.LANCZOS)
+        im = label_image(im, label, font_size=20)
+        cx = pad + (i % cols) * (cell + pad)
+        cy = pad + (i // cols) * (cell + pad)
+        canvas.paste(im, (cx, cy))
+    out = os.path.join(OUT, "pipeline_stages.png")
+    canvas.save(out)
+    print(f"  wrote {out}")
+
+
+def render_seed_variants():
+    """Render 4 small planets with different seeds to show variety."""
+    panel = 480
+    seeds = [SEED, SEED + 1, SEED + 2, SEED + 3]
+    composite = Image.new("RGB", (panel * 2 + 8, panel * 2 + 8), (16, 16, 18))
+    for i, s in enumerate(seeds):
+        rng = np.random.default_rng(s)
+        small_size = 800
+        shape = (small_size, small_size)
+        base = fbm(shape, 5, 192, 0.5, rng)
+        detail = fbm(shape, 3, 64, 0.5, rng)
+        height = 0.92 * base + 0.08 * detail
+        mare = mare_field(shape, rng, n=3)
+        h2 = height - 0.20 * mare
+        h2 = apply_craters(h2, sample_craters(
+            shape, rng,
+            count_small=200, count_med=40, count_big=6), rng)
+        sh = hillshade(h2, z_factor=35.0, smooth_px=2.0)
+        ag = assign_archetype_grid(rng)
+        # upsample arch_grid to small_size
+        py = np.repeat(np.arange(PLANET_GRID), small_size // PLANET_GRID)
+        px = np.repeat(np.arange(PLANET_GRID), small_size // PLANET_GRID)
+        arch_pix = ag[py[:, None], px[None, :]]
+        rgb, _ = colourise(h2, mare, sh, arch_pix, rng)
+        rgb = add_decals(rgb, arch_pix, h2, rng)
+        im = Image.fromarray(rgb).resize((panel, panel), Image.LANCZOS)
+        im = label_image(im, f"seed {s}", font_size=18)
+        x = (i % 2) * (panel + 8)
+        y = (i // 2) * (panel + 8)
+        composite.paste(im, (x, y))
+    out = os.path.join(OUT, "seed_variants.png")
+    composite.save(out)
+    print(f"  wrote {out}")
+
+
+def render_archetype_grid_overlay(planet_data):
+    """Overlay archetype labels on the final planet to show the biome layout."""
+    img = Image.fromarray(planet_data["final"]).copy()
+    draw = ImageDraw.Draw(img, "RGBA")
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 11)
+    except OSError:
+        font = ImageFont.load_default()
+    arch_grid = planet_data["arch_grid"]
+    for gy in range(PLANET_GRID):
+        for gx in range(PLANET_GRID):
+            label = ARCHETYPE_ORDER[arch_grid[gy, gx]]
+            short = {"MARE_INDUSTRIAL": "MARE",
+                     "HIGHLAND_CONSTRUCTION": "HIGH",
+                     "POLAR_VOLATILE": "POLAR",
+                     "KREEP_SCIENTIFIC": "KREEP",
+                     "LAVA_TUBE": "LAVA",
+                     "MIXED": "MIX"}[label]
+            x = gx * PX_PER_CELL + 4
+            y = gy * PX_PER_CELL + 4
+            draw.rectangle([x, y, x + 38, y + 14], fill=(0, 0, 0, 140))
+            draw.text((x + 2, y), short, fill=(255, 255, 255, 220), font=font)
+    out = os.path.join(OUT, "planet_with_archetypes.png")
+    img.save(out)
+    print(f"  wrote {out}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    print("== building planet ==")
+    data = build_planet()
+    # Save the pretty version under a nicer name too
+    Image.fromarray(data["final"]).save(os.path.join(OUT, "planet_full.png"))
+    print(f"  wrote {os.path.join(OUT, 'planet_full.png')}")
+
+    print("\n== archetype tile strip ==")
+    render_archetype_tiles()
+
+    print("\n== detail zoom ==")
+    render_detail_zoom(data)
+
+    print("\n== old baseline reference ==")
+    old = render_old_baseline()
+
+    print("\n== before/after ==")
+    render_comparison(old, data["final"])
+
+    print("\n== archetype overlay ==")
+    render_archetype_grid_overlay(data)
+
+    print("\n== pipeline stages composite ==")
+    render_stages_composite()
+
+    print("\n== seed variants ==")
+    render_seed_variants()
+
+    print("\nDone. Outputs in", OUT)
+
+
+if __name__ == "__main__":
+    main()
