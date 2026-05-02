@@ -197,58 +197,132 @@ class Crater:
     has_peak: bool
 
 
-def sample_craters(shape, rng, count_small=260, count_med=85, count_big=6,
-                   min_separation=1.05):
-    """Reject-sample crater positions so no two craters overlap.
+def sample_craters(shape, rng, count_small=60, count_med=25, count_big=4,
+                   min_separation=1.15):
+    """Place primary craters via Bridson-style Poisson disc, then inject
+    secondary craters in clusters around large primaries.
 
-    Place big craters first (they claim the most space), then medium,
-    then small. Each new crater must sit at least
-    `min_separation * (r1+r2)` from every existing crater — i.e. their
-    rims don't touch. If we can't place a crater after a budget of
-    attempts, drop it (the planet is full).
+    Real lunar surfaces aren't uniform random; they show two patterns
+    that pure rejection sampling can't produce:
+
+      * even coverage at small scales (no big empty zones, no clumps),
+        because saturation equilibrium fills in any gaps;
+      * small-crater *clusters* radiating from each large primary impact,
+        formed by ejecta landing 2-5× the primary radius away. These
+        often align along 1-2 "ray" directions.
+
+    Bridson's algorithm gives us (1) by trying to place each new crater
+    near an already-placed one (preferred) or at a fully random spot
+    (occasional, to escape clumping). (2) is a second pass: for each
+    big-enough primary, generate a few small secondaries in its annulus.
     """
     h, w = shape
-    specs = []
+
+    primary_sizes = []
     for n, rmin, rmax in [(count_big, 42, 110),
                           (count_med, 18, 42),
                           (count_small, 8, 18)]:
         for _ in range(n):
-            specs.append((
-                float(rng.uniform(rmin, rmax)),
-                float(rng.beta(2.0, 1.5)),
-                bool(rng.random() < 0.25),
-            ))
+            primary_sizes.append(float(rng.uniform(rmin, rmax)))
+    primary_sizes.sort(reverse=True)  # big first claims space
 
-    craters: list[Crater] = []
-    cx_arr = np.empty(0, dtype=np.float32)
-    cy_arr = np.empty(0, dtype=np.float32)
-    cr_arr = np.empty(0, dtype=np.float32)
-    max_attempts = 60
-    dropped = 0
-    for r, age, has_peak in specs:
-        placed = False
-        for _ in range(max_attempts):
-            cx = float(rng.uniform(0, w))
-            cy = float(rng.uniform(0, h))
-            if cr_arr.size == 0:
-                placed = True
-            else:
-                d2 = (cx_arr - cx) ** 2 + (cy_arr - cy) ** 2
-                min_d = (cr_arr + r) * min_separation
-                if not np.any(d2 < min_d * min_d):
-                    placed = True
-            if placed:
-                craters.append(Crater(cx=cx, cy=cy, r=r,
-                                      age=age, has_peak=has_peak))
-                cx_arr = np.append(cx_arr, cx)
-                cy_arr = np.append(cy_arr, cy)
-                cr_arr = np.append(cr_arr, r)
+    placed: list[Crater] = []
+
+    def fits(x, y, r):
+        if not (0 <= x < w and 0 <= y < h):
+            return False
+        for c in placed:
+            if (c.cx - x) ** 2 + (c.cy - y) ** 2 \
+                    < ((c.r + r) * min_separation) ** 2:
+                return False
+        return True
+
+    def try_place(x, y, r, age, has_peak):
+        if fits(x, y, r):
+            placed.append(Crater(cx=x, cy=y, r=r,
+                                 age=age, has_peak=has_peak))
+            return True
+        return False
+
+    # --- pass 1: primaries via Bridson-like growth -----------------------
+    # Place the first one anywhere.
+    if primary_sizes:
+        r0 = primary_sizes[0]
+        for _ in range(100):
+            if try_place(float(rng.uniform(0, w)),
+                          float(rng.uniform(0, h)),
+                          r0,
+                          float(rng.beta(2.0, 1.5)),
+                          bool(rng.random() < 0.25)):
                 break
-        if not placed:
-            dropped += 1
-    if dropped:
-        print(f"  (dropped {dropped} craters that wouldn't fit)")
-    return craters
+
+    dropped_primary = 0
+    for r in primary_sizes[1:]:
+        success = False
+        for _ in range(60):
+            if placed and rng.random() < 0.6:
+                # Bridson-style: place near a random already-placed crater
+                seed = placed[int(rng.integers(0, len(placed)))]
+                d_min = (seed.r + r) * min_separation
+                d_max = d_min * 2.5
+                d = float(rng.uniform(d_min, d_max))
+                ang = float(rng.uniform(0, math.tau))
+                x = seed.cx + d * math.cos(ang)
+                y = seed.cy + d * math.sin(ang)
+            else:
+                # Global random — breaks Bridson clumping in dead zones
+                x = float(rng.uniform(0, w))
+                y = float(rng.uniform(0, h))
+            if try_place(x, y, r,
+                          float(rng.beta(2.0, 1.5)),
+                          bool(rng.random() < 0.25)):
+                success = True
+                break
+        if not success:
+            dropped_primary += 1
+
+    n_primary = len(placed)
+
+    # --- pass 2: secondary clusters around big primaries -----------------
+    # Snapshot the primaries before injecting secondaries; we don't
+    # want secondaries spawning more secondaries.
+    primaries_snapshot = list(placed)
+    dropped_secondary = 0
+    for p in primaries_snapshot:
+        if p.r < 35:
+            continue
+        n_secondaries = int(rng.integers(4, 9))
+        # Two preferred ray directions for chain effect.
+        ray_angles = (float(rng.uniform(0, math.tau)),
+                      float(rng.uniform(0, math.tau)))
+        for _ in range(n_secondaries):
+            sr = float(rng.uniform(4.0, 11.0))
+            success = False
+            for _ in range(25):
+                if rng.random() < 0.55:
+                    # Along a ray, with a tight angular spread.
+                    base = ray_angles[int(rng.integers(0, 2))]
+                    ang = base + float(rng.normal(0.0, 0.35))
+                else:
+                    ang = float(rng.uniform(0, math.tau))
+                d = p.r * float(rng.uniform(1.8, 4.0))
+                x = p.cx + d * math.cos(ang)
+                y = p.cy + d * math.sin(ang)
+                # Secondaries are typically younger / fresher than the
+                # background primary population (they formed in the
+                # primary's impact event).
+                age = float(rng.beta(1.5, 2.8))
+                if try_place(x, y, sr, age, False):
+                    success = True
+                    break
+            if not success:
+                dropped_secondary += 1
+
+    n_secondary = len(placed) - n_primary
+    print(f"  placed {n_primary} primaries + {n_secondary} secondaries"
+          f" (dropped {dropped_primary} primaries, "
+          f"{dropped_secondary} secondaries)")
+    return placed
 
 
 def apply_craters(height, craters, rng=None):
@@ -267,12 +341,14 @@ def apply_craters(height, craters, rng=None):
     if rng is None:
         rng = np.random.default_rng(0)
     h, w = height.shape
+    # Ejecta blanket disabled — was visually reading as crater-overlap
+    # at the user's preferred zoom. Carving stops at the rim (1.05 r).
+    extent = 1.10
     for c in craters:
-        ej = 1.8
-        x0 = max(0, int(c.cx - c.r * ej))
-        x1 = min(w, int(c.cx + c.r * ej) + 1)
-        y0 = max(0, int(c.cy - c.r * ej))
-        y1 = min(h, int(c.cy + c.r * ej) + 1)
+        x0 = max(0, int(c.cx - c.r * extent))
+        x1 = min(w, int(c.cx + c.r * extent) + 1)
+        y0 = max(0, int(c.cy - c.r * extent))
+        y1 = min(h, int(c.cy + c.r * extent) + 1)
         if x1 <= x0 or y1 <= y0:
             continue
         yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
@@ -315,7 +391,6 @@ def apply_craters(height, craters, rng=None):
         floor_mask = d < 0.70
         wall_mask = (d >= 0.70) & (d < 0.95)
         rim_mask = (d >= 0.95) & (d < 1.05)
-        ejecta_mask = (d >= 1.05) & (d < ej)
 
         delta = np.zeros_like(d, dtype=np.float32)
         delta[floor_mask] = depth_amp
@@ -327,11 +402,6 @@ def apply_craters(height, craters, rng=None):
         delta[wall_mask] = depth_amp * (1.0 - wu ** wall_p)
         rim_d = d[rim_mask]
         delta[rim_mask] = rim_amp * np.exp(-((rim_d - 1.00) / 0.05) ** 2)
-        ed = d[ejecta_mask]
-        ea = ang[ejecta_mask]
-        ej_break = 0.3 + 0.7 * np.sin(ea * 5.0 + a1) ** 2
-        delta[ejecta_mask] = 0.020 * sharp * np.exp(
-            -((ed - 1.05) / 0.35) ** 2) * ej_break
 
         # (Central peaks intentionally omitted: a bare Gaussian dome on
         # a flat floor reads as an unwanted bump, not a real complex-
@@ -692,7 +762,7 @@ def render_archetype_tiles():
         h_with = h - 0.3 * mare
         h_with = apply_craters(h_with, sample_craters(
             (tile_px, tile_px), local_rng,
-            count_small=80, count_med=18, count_big=2), local_rng)
+            count_small=20, count_med=8, count_big=1), local_rng)
         sh = hillshade(h_with, z_factor=35.0, smooth_px=1.0)
         cast = cast_shadows(h_with, z_factor=35.0, max_distance_px=40.0)
         arch_idx = ARCHETYPE_ORDER.index(arch_name)
@@ -814,7 +884,7 @@ def render_seed_variants():
         h2 = height - 0.20 * mare
         h2 = apply_craters(h2, sample_craters(
             shape, rng,
-            count_small=200, count_med=40, count_big=6), rng)
+            count_small=40, count_med=15, count_big=3), rng)
         sh = hillshade(h2, z_factor=35.0, smooth_px=1.0)
         cast = cast_shadows(h2, z_factor=35.0, max_distance_px=40.0)
         ag = assign_archetype_grid(rng)
