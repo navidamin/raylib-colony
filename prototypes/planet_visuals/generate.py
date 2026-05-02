@@ -197,24 +197,19 @@ class Crater:
     has_peak: bool
 
 
-def sample_craters(shape, rng, count_small=60, count_med=25, count_big=4,
+def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
                    min_separation=1.15):
-    """Place primary craters via Bridson-style Poisson disc, then inject
-    secondary craters in clusters around large primaries.
+    """Place primary craters with mostly-random placement (uniform
+    coverage, no clumps), then inject a small number of secondary
+    craters around each big primary.
 
-    Real lunar surfaces aren't uniform random; they show two patterns
-    that pure rejection sampling can't produce:
-
-      * even coverage at small scales (no big empty zones, no clumps),
-        because saturation equilibrium fills in any gaps;
-      * small-crater *clusters* radiating from each large primary impact,
-        formed by ejecta landing 2-5× the primary radius away. These
-        often align along 1-2 "ray" directions.
-
-    Bridson's algorithm gives us (1) by trying to place each new crater
-    near an already-placed one (preferred) or at a fully random spot
-    (occasional, to escape clumping). (2) is a second pass: for each
-    big-enough primary, generate a few small secondaries in its annulus.
+    The user-visible distribution we want is: uniform density across the
+    whole planet, with subtle clusters of small secondaries hanging off
+    a few big primaries. Bridson-style growth made the clusters too
+    obvious — most placements now go to a fully random location, with
+    only a small fraction (~15%) drawn near an existing crater. That's
+    enough to fill in any genuinely empty spot without producing a
+    blob structure.
     """
     h, w = shape
 
@@ -244,8 +239,7 @@ def sample_craters(shape, rng, count_small=60, count_med=25, count_big=4,
             return True
         return False
 
-    # --- pass 1: primaries via Bridson-like growth -----------------------
-    # Place the first one anywhere.
+    # --- pass 1: primaries (mostly uniform random, light Bridson rescue)
     if primary_sizes:
         r0 = primary_sizes[0]
         for _ in range(100):
@@ -259,18 +253,18 @@ def sample_craters(shape, rng, count_small=60, count_med=25, count_big=4,
     dropped_primary = 0
     for r in primary_sizes[1:]:
         success = False
-        for _ in range(60):
-            if placed and rng.random() < 0.6:
-                # Bridson-style: place near a random already-placed crater
+        for _ in range(80):
+            # 85% global random, 15% Bridson-style near an existing
+            # crater (only used as a rescue if random keeps failing).
+            if placed and rng.random() < 0.15:
                 seed = placed[int(rng.integers(0, len(placed)))]
                 d_min = (seed.r + r) * min_separation
-                d_max = d_min * 2.5
+                d_max = d_min * 2.0
                 d = float(rng.uniform(d_min, d_max))
                 ang = float(rng.uniform(0, math.tau))
                 x = seed.cx + d * math.cos(ang)
                 y = seed.cy + d * math.sin(ang)
             else:
-                # Global random — breaks Bridson clumping in dead zones
                 x = float(rng.uniform(0, w))
                 y = float(rng.uniform(0, h))
             if try_place(x, y, r,
@@ -283,34 +277,27 @@ def sample_craters(shape, rng, count_small=60, count_med=25, count_big=4,
 
     n_primary = len(placed)
 
-    # --- pass 2: secondary clusters around big primaries -----------------
-    # Snapshot the primaries before injecting secondaries; we don't
-    # want secondaries spawning more secondaries.
+    # --- pass 2: secondaries — fewer, only around the largest primaries
     primaries_snapshot = list(placed)
     dropped_secondary = 0
     for p in primaries_snapshot:
-        if p.r < 35:
+        if p.r < 45:                    # only biggest primaries spawn rays
             continue
-        n_secondaries = int(rng.integers(4, 9))
-        # Two preferred ray directions for chain effect.
+        n_secondaries = int(rng.integers(2, 5))     # 2..4
         ray_angles = (float(rng.uniform(0, math.tau)),
                       float(rng.uniform(0, math.tau)))
         for _ in range(n_secondaries):
-            sr = float(rng.uniform(4.0, 11.0))
+            sr = float(rng.uniform(4.0, 10.0))
             success = False
-            for _ in range(25):
+            for _ in range(20):
                 if rng.random() < 0.55:
-                    # Along a ray, with a tight angular spread.
                     base = ray_angles[int(rng.integers(0, 2))]
-                    ang = base + float(rng.normal(0.0, 0.35))
+                    ang = base + float(rng.normal(0.0, 0.30))
                 else:
                     ang = float(rng.uniform(0, math.tau))
-                d = p.r * float(rng.uniform(1.8, 4.0))
+                d = p.r * float(rng.uniform(1.8, 3.5))
                 x = p.cx + d * math.cos(ang)
                 y = p.cy + d * math.sin(ang)
-                # Secondaries are typically younger / fresher than the
-                # background primary population (they formed in the
-                # primary's impact event).
                 age = float(rng.beta(1.5, 2.8))
                 if try_place(x, y, sr, age, False):
                     success = True
@@ -762,7 +749,7 @@ def render_archetype_tiles():
         h_with = h - 0.3 * mare
         h_with = apply_craters(h_with, sample_craters(
             (tile_px, tile_px), local_rng,
-            count_small=20, count_med=8, count_big=1), local_rng)
+            count_small=40, count_med=15, count_big=1), local_rng)
         sh = hillshade(h_with, z_factor=35.0, smooth_px=1.0)
         cast = cast_shadows(h_with, z_factor=35.0, max_distance_px=40.0)
         arch_idx = ARCHETYPE_ORDER.index(arch_name)
@@ -884,7 +871,7 @@ def render_seed_variants():
         h2 = height - 0.20 * mare
         h2 = apply_craters(h2, sample_craters(
             shape, rng,
-            count_small=40, count_med=15, count_big=3), rng)
+            count_small=80, count_med=30, count_big=3), rng)
         sh = hillshade(h2, z_factor=35.0, smooth_px=1.0)
         cast = cast_shadows(h2, z_factor=35.0, max_distance_px=40.0)
         ag = assign_archetype_grid(rng)
