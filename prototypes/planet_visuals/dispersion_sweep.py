@@ -1,26 +1,16 @@
-"""Crater-dispersion calibration sweep — v2 (size + depth-variance axes).
+"""Crater-dispersion calibration sweep — v3.
 
-User feedback on v1:
-  * Density 0.30 was still too dense — drop to 0.20 / 0.25.
-  * Add `crater size` and `depth variance` as parameters too, since
-    those visibly affect "naturalness" as much as count does.
+Sweep: 18 cells. User-requested values:
 
-Sweep: 18 cells = 3 (density) x 3 (size_scale) x 2 (depth_variance).
-Outer rows = density; within each row 6 columns = (size x depth).
+  density_mult ∈ {0.15, 0.20}
+  size_scale ∈ {1.0, 1.25, 1.5}
+  depth_variance ∈ {0.5, 0.7, 1.0}
 
-  density_mult ∈ {0.20, 0.25, 0.30}
-    Multiplier on the procedural baseline crater counts (140 small +
-    55 med + 4 big primaries). 0.20 ≈ 40 craters total.
-  size_scale ∈ {0.7, 1.0, 1.3}
-    Multiplier on every crater's radius. 0.7 = smaller craters,
-    1.3 = bigger.
-  depth_variance ∈ {0.7, 1.4}
-    Spread of the per-crater depth_jitter around its mean. 0.7 =
-    most craters land at similar depth (less drama). 1.4 = wide
-    spread (some very shallow, some very deep).
+Layout: 3 rows (depth_variance) x 6 cols (density x size_scale).
+  Within each row, cols 1-3 = density 0.15 with sizes 1.0/1.25/1.5,
+  cols 4-6 = density 0.20 with the same sizes.
 
-age_alpha and min_separation are held at the values picked from v1
-(4.0 and 1.35) so the sweep focuses on the new axes.
+age_alpha and min_separation pinned at 4.0 / 1.35 (from v1 pick).
 
 Output: output/dispersion_sweep.png
 """
@@ -45,11 +35,10 @@ SEED = 12345
 
 BASE_SMALL, BASE_MED, BASE_BIG = 140, 55, 4
 
-DENSITIES = [0.20, 0.25, 0.30]
-SIZE_SCALES = [0.7, 1.0, 1.3]
-DEPTH_VARIANCES = [0.7, 1.4]
+DENSITIES = [0.15, 0.20]
+SIZE_SCALES = [1.0, 1.25, 1.5]
+DEPTH_VARIANCES = [0.5, 0.7, 1.0]
 
-# Pinned from v1 — picked as the most natural-looking
 AGE_ALPHA = 4.0
 MIN_SEP = 1.35
 
@@ -87,18 +76,18 @@ def render_one(density_mult, size_scale, depth_variance):
     rgb, _ = colourise(h_with, np.zeros_like(height), sh, arch_pix, rng,
                         cast_mask=cast, albedo_height=height)
     img = Image.fromarray(rgb).resize((600, 600), Image.LANCZOS)
-    label = (f"d={density_mult:.2f}  size={size_scale:.1f}  "
+    label = (f"d={density_mult:.2f}  size={size_scale:.2f}  "
              f"dvar={depth_variance:.1f}  ({len(craters)} craters)")
     return label_image(img, label, font_size=14)
 
 
 def main():
-    print("== v2 sweep: density x size_scale x depth_variance ==")
+    print("== v3 sweep: density 0.15/0.20 x size 1.0/1.25/1.5 x dvar 0.5/0.7/1.0 ==")
     panels = []
-    cells_per_row = len(SIZE_SCALES) * len(DEPTH_VARIANCES)  # 6
-    rows = len(DENSITIES)                                      # 3
-    for d in DENSITIES:
-        for dv in DEPTH_VARIANCES:
+    cols_per_row = len(DENSITIES) * len(SIZE_SCALES)   # 6
+    rows = len(DEPTH_VARIANCES)                         # 3
+    for dv in DEPTH_VARIANCES:
+        for d in DENSITIES:
             for sz in SIZE_SCALES:
                 t0 = time.time()
                 p = render_one(d, sz, dv)
@@ -108,7 +97,7 @@ def main():
     cell_w = 600 + 6
     canvas = Image.new(
         "RGB",
-        (cells_per_row * cell_w - 6,
+        (cols_per_row * cell_w - 6,
          rows * cell_w - 6 + 50),
         (16, 16, 18))
 
@@ -119,14 +108,14 @@ def main():
         font = ImageFont.load_default()
     draw = ImageDraw.Draw(canvas)
     draw.text((10, 10),
-              "Crater-dispersion v2  --  rows: density 0.20/0.25/0.30, "
-              "cols: (depth_variance, size_scale)  "
+              "Crater dispersion v3  --  rows: depth_variance 0.5/0.7/1.0,  "
+              "cols: (density 0.15/0.20, size 1.0/1.25/1.5)  "
               f"[age_alpha={AGE_ALPHA}, min_sep={MIN_SEP}]",
               fill=(230, 230, 230), font=font)
 
     for i, p in enumerate(panels):
-        col = i % cells_per_row
-        row = i // cells_per_row
+        col = i % cols_per_row
+        row = i // cols_per_row
         x = col * cell_w
         y = 50 + row * cell_w
         canvas.paste(p, (x, y))
