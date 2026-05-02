@@ -42,13 +42,16 @@ from generate import (
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "aristoteles")
 OUT = os.path.join(os.path.dirname(__file__), "output")
 
-# Region: lat 49..51°N, lon 16..18°E, 3x3 tiles
-LAT_RANGE = (49, 51)
-LON_RANGE = (16, 18)
-# Notable named features in the patch
+# Region: lat 48..52°N, lon 15..19°E, 5x5 tiles (~150 km N-S, ~97 km E-W).
+# Wide enough to contain Aristoteles' full rim (the crater is 87 km across,
+# which exceeds 3 tiles of longitude at this latitude — that's why we
+# bumped from 3x3 to 5x5).
+LAT_RANGE = (48, 52)
+LON_RANGE = (15, 19)
 LANDMARKS = [
-    ("Aristoteles", 50.2, 17.4),     # 87 km crater, the centerpiece
-    ("Mitchell",    49.7, 20.2),     # 30 km crater on Aristoteles' east rim — usually outside our region
+    ("Aristoteles", 50.2, 17.4),     # 87 km, the centerpiece
+    ("Eudoxus",     44.3, 16.3),     # 67 km — out of frame, well to the south
+    ("Mitchell",    49.7, 20.2),     # 30 km — east of Aristoteles, in frame
 ]
 SEED = 12345
 
