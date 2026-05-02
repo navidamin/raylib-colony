@@ -21,6 +21,7 @@ target_sources(colony_game PRIVATE
     Prospecting/prospecting_grid.cpp
     Prospecting/sweep_engine.cpp
     Prospecting/sampling_engine.cpp
+    Prospecting/lab_engine.cpp
     transport_types.cpp
 )
 
