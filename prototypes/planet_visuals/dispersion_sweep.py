@@ -1,16 +1,19 @@
-"""Crater-dispersion calibration sweep — v3.
+"""Crater-dispersion calibration sweep — v4.
 
-Sweep: 18 cells. User-requested values:
+Pinned (from prior iterations):
+  density_mult    = 0.12
+  depth_variance  = 1.0
+  age_alpha       = 4.0
+  min_separation  = 1.35
 
-  density_mult ∈ {0.15, 0.20}
-  size_scale ∈ {1.0, 1.25, 1.5}
-  depth_variance ∈ {0.5, 0.7, 1.0}
+Variable axes (3x2x3 = 18 cells):
+  size_scale ∈ {1.0, 1.25, 1.5}     uniform multiplier on every radius
+  size_variance ∈ {0.5, 1.5}        spread within each size bucket
+  depth_scale ∈ {0.6, 1.0, 1.5}     uniform multiplier on baseline depth
 
-Layout: 3 rows (depth_variance) x 6 cols (density x size_scale).
-  Within each row, cols 1-3 = density 0.15 with sizes 1.0/1.25/1.5,
-  cols 4-6 = density 0.20 with the same sizes.
-
-age_alpha and min_separation pinned at 4.0 / 1.35 (from v1 pick).
+Layout: 3 rows (depth_scale) x 6 cols (size_variance x size_scale).
+  Within each row: cols 1..3 = size_variance 0.5 with sizes 1.0/1.25/1.5;
+                   cols 4..6 = size_variance 1.5 with sizes 1.0/1.25/1.5.
 
 Output: output/dispersion_sweep.png
 """
@@ -35,16 +38,18 @@ SEED = 12345
 
 BASE_SMALL, BASE_MED, BASE_BIG = 140, 55, 4
 
-DENSITIES = [0.15, 0.20]
-SIZE_SCALES = [1.0, 1.25, 1.5]
-DEPTH_VARIANCES = [0.5, 0.7, 1.0]
-
+DENSITY = 0.12
+DEPTH_VARIANCE = 1.0
 AGE_ALPHA = 4.0
 MIN_SEP = 1.35
 
+SIZE_SCALES = [1.0, 1.25, 1.5]
+SIZE_VARIANCES = [0.5, 1.5]
+DEPTH_SCALES = [0.6, 1.0, 1.5]
 
-def render_one(density_mult, size_scale, depth_variance):
-    seed_hash = (hash((density_mult, size_scale, depth_variance)) & 0xffffffff)
+
+def render_one(size_scale, size_variance, depth_scale):
+    seed_hash = (hash((size_scale, size_variance, depth_scale)) & 0xffffffff)
     rng = np.random.default_rng(SEED ^ seed_hash)
     shape = (SIZE, SIZE)
 
@@ -53,16 +58,18 @@ def render_one(density_mult, size_scale, depth_variance):
     height = 0.92 * base + 0.08 * detail
     height = (height - height.mean()) * 0.30
 
-    cs = max(1, int(BASE_SMALL * density_mult))
-    cm = max(1, int(BASE_MED * density_mult))
-    cb = max(1, int(BASE_BIG * density_mult))
+    cs = max(1, int(BASE_SMALL * DENSITY))
+    cm = max(1, int(BASE_MED * DENSITY))
+    cb = max(1, int(BASE_BIG * DENSITY))
 
     craters = sample_craters(shape, rng,
                               count_small=cs, count_med=cm, count_big=cb,
                               min_separation=MIN_SEP, age_alpha=AGE_ALPHA,
-                              size_scale=size_scale)
+                              size_scale=size_scale,
+                              size_variance=size_variance)
     h_with = apply_craters(height.copy(), craters, rng,
-                            depth_variance=depth_variance)
+                            depth_variance=DEPTH_VARIANCE,
+                            depth_scale=depth_scale)
     h_with = h_with + 0.03 * gaussian_blur(pink_noise(shape, rng), 1.5)
 
     sh = hillshade(h_with, z_factor=75.0, smooth_px=1.0)
@@ -76,22 +83,23 @@ def render_one(density_mult, size_scale, depth_variance):
     rgb, _ = colourise(h_with, np.zeros_like(height), sh, arch_pix, rng,
                         cast_mask=cast, albedo_height=height)
     img = Image.fromarray(rgb).resize((600, 600), Image.LANCZOS)
-    label = (f"d={density_mult:.2f}  size={size_scale:.2f}  "
-             f"dvar={depth_variance:.1f}  ({len(craters)} craters)")
+    label = (f"size={size_scale:.2f}  svar={size_variance:.1f}  "
+             f"depth={depth_scale:.1f}  ({len(craters)} craters)")
     return label_image(img, label, font_size=14)
 
 
 def main():
-    print("== v3 sweep: density 0.15/0.20 x size 1.0/1.25/1.5 x dvar 0.5/0.7/1.0 ==")
+    print(f"== v4 sweep: size x size_variance x depth_scale "
+          f"(density={DENSITY}, dvar={DEPTH_VARIANCE}) ==")
     panels = []
-    cols_per_row = len(DENSITIES) * len(SIZE_SCALES)   # 6
-    rows = len(DEPTH_VARIANCES)                         # 3
-    for dv in DEPTH_VARIANCES:
-        for d in DENSITIES:
+    cols_per_row = len(SIZE_VARIANCES) * len(SIZE_SCALES)   # 6
+    rows = len(DEPTH_SCALES)                                # 3
+    for ds in DEPTH_SCALES:
+        for sv in SIZE_VARIANCES:
             for sz in SIZE_SCALES:
                 t0 = time.time()
-                p = render_one(d, sz, dv)
-                print(f"  d={d} size={sz} dvar={dv} ({time.time()-t0:.1f}s)")
+                p = render_one(sz, sv, ds)
+                print(f"  size={sz} svar={sv} depth={ds} ({time.time()-t0:.1f}s)")
                 panels.append(p)
 
     cell_w = 600 + 6
@@ -108,9 +116,10 @@ def main():
         font = ImageFont.load_default()
     draw = ImageDraw.Draw(canvas)
     draw.text((10, 10),
-              "Crater dispersion v3  --  rows: depth_variance 0.5/0.7/1.0,  "
-              "cols: (density 0.15/0.20, size 1.0/1.25/1.5)  "
-              f"[age_alpha={AGE_ALPHA}, min_sep={MIN_SEP}]",
+              f"v4  --  rows: depth_scale 0.6/1.0/1.5,  cols: "
+              f"(size_variance 0.5 then 1.5, size 1.0/1.25/1.5)  "
+              f"[d={DENSITY}, dvar={DEPTH_VARIANCE}, "
+              f"age={AGE_ALPHA}, sep={MIN_SEP}]",
               fill=(230, 230, 230), font=font)
 
     for i, p in enumerate(panels):
