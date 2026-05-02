@@ -101,3 +101,8 @@ constexpr float SWEEP_DEPTH_ATTENUATION = 0.5f;
 
 // Anomaly detection: cells above mean + threshold * stddev
 constexpr float SWEEP_ANOMALY_THRESHOLD = 1.5f;
+
+// --- Sampling mechanics ---
+
+// Richness normalization: totalAbundance / factor, clamped to 0-1
+constexpr float RICHNESS_NORMALIZATION = 2.0f;

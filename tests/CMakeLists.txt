@@ -14,6 +14,7 @@ add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/Prospecting/sample_tray.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/prospecting_grid.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/sweep_engine.cpp
+    ${CMAKE_SOURCE_DIR}/src/Prospecting/sampling_engine.cpp
 )
 
 set_target_properties(colony_testlib PROPERTIES
@@ -50,6 +51,7 @@ add_executable(colony_tests
     test_sample_tray.cpp
     test_prospecting_grid.cpp
     test_sweep.cpp
+    test_sampling.cpp
 )
 
 set_target_properties(colony_tests PROPERTIES
