@@ -53,13 +53,18 @@ def gaussian_blur(arr, sigma):
     avoid the uint8 quantization contour-line artifacts that PIL gives us."""
     if sigma <= 0:
         return arr
+    h, w = arr.shape
+    # np.convolve(mode='same') returns max(M, N) — i.e. when the kernel
+    # is wider than the signal, the output gets padded up. Cap radius
+    # to half the smaller axis so output shape is preserved.
     radius = max(1, int(sigma * 3))
+    radius = min(radius, h // 2 - 1, w // 2 - 1)
+    if radius < 1:
+        return arr
     x = np.arange(-radius, radius + 1, dtype=np.float32)
     k = np.exp(-(x ** 2) / (2.0 * sigma * sigma))
     k /= k.sum()
     out = arr.astype(np.float32, copy=False)
-    # Convolve along axis 1 then axis 0. np.convolve via apply_along_axis is
-    # plenty fast at our sizes.
     out = np.apply_along_axis(lambda v: np.convolve(v, k, mode="same"), 1, out)
     out = np.apply_along_axis(lambda v: np.convolve(v, k, mode="same"), 0, out)
     return out
@@ -281,13 +286,13 @@ def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
     primaries_snapshot = list(placed)
     dropped_secondary = 0
     for p in primaries_snapshot:
-        if p.r < 45:                    # only biggest primaries spawn rays
+        if p.r < 55:                    # only the very largest spawn rays
             continue
-        n_secondaries = int(rng.integers(2, 5))     # 2..4
+        n_secondaries = int(rng.integers(1, 4))     # 1..3
         ray_angles = (float(rng.uniform(0, math.tau)),
                       float(rng.uniform(0, math.tau)))
         for _ in range(n_secondaries):
-            sr = float(rng.uniform(4.0, 10.0))
+            sr = float(rng.uniform(4.0, 9.0))
             success = False
             for _ in range(20):
                 if rng.random() < 0.55:
