@@ -341,7 +341,8 @@ def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
     return placed
 
 
-def apply_craters(height, craters, rng=None, depth_variance=1.0):
+def apply_craters(height, craters, rng=None,
+                  depth_variance=1.0, depth_scale=1.0):
     """Carve craters with the geometry real lunar craters actually have:
     flat floor + smooth wall + barely-raised rim.
 
@@ -396,7 +397,7 @@ def apply_craters(height, craters, rng=None, depth_variance=1.0):
         # raised bumps.
         depth_jitter = max(0.05, 1.0 + (float(rng.beta(2.2, 2.2)) * 1.6 - 0.80) * depth_variance)
         sharp = 1.0 - c.age * 0.7
-        depth_amp = -0.42 * sharp * depth_jitter
+        depth_amp = -0.42 * sharp * depth_jitter * depth_scale
         # Rim is *small* — only ~5% of depth amplitude.
         rim_amp = 0.05 * sharp * abs(depth_amp)
 
