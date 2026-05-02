@@ -4,27 +4,11 @@
 #include "lab_engine.h"
 #include "sampling_engine.h"
 
-static Sample MakeAnalyzableSample()
-{
-    Sample s;
-    s.subCellX = 0;
-    s.subCellY = 0;
-    s.depthLayer = DepthLayer::SURFACE;
-    s.richness = 0.5f;
-    s.state = SampleState::IN_TRAY;
-    s.trueComposition[ResourceType::Fe] = 0.40f;
-    s.trueComposition[ResourceType::Si] = 0.25f;
-    s.trueComposition[ResourceType::Ti] = 0.10f;
-    s.trueComposition[ResourceType::H2] = 0.08f;
-    s.trueComposition[ResourceType::O2] = 0.06f;
-    return s;
-}
-
 // --- Tool tier availability ---
 
 TEST_CASE("LabEngine tool tier availability", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
 
     LabEngine t0(0);
     REQUIRE(t0.CanApplyTool(s, AnalysisTool::VISUAL_INSPECTION));
@@ -50,7 +34,7 @@ TEST_CASE("LabEngine tool tier availability", "[lab]")
 
 TEST_CASE("LabEngine separation tier availability", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
 
     LabEngine t0(0);
     REQUIRE_FALSE(t0.CanApplySeparation(s, SeparationMethod::MAGNETIC));
@@ -66,7 +50,7 @@ TEST_CASE("LabEngine separation tier availability", "[lab]")
 
 TEST_CASE("Separation NONE is rejected", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(2);
     REQUIRE_FALSE(engine.CanApplySeparation(s, SeparationMethod::NONE));
 }
@@ -75,7 +59,7 @@ TEST_CASE("Separation NONE is rejected", "[lab]")
 
 TEST_CASE("Visual inspection adds confidence to all elements", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(0);
 
     REQUIRE(engine.ApplyTool(s, AnalysisTool::VISUAL_INSPECTION, 100.0f));
@@ -92,7 +76,7 @@ TEST_CASE("Visual inspection adds confidence to all elements", "[lab]")
 
 TEST_CASE("XRF adds confidence to heavy elements only", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(1);
 
     engine.ApplyTool(s, AnalysisTool::XRF, 100.0f);
@@ -107,7 +91,7 @@ TEST_CASE("XRF adds confidence to heavy elements only", "[lab]")
 
 TEST_CASE("LIBS adds confidence to all elements including light", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(2);
 
     engine.ApplyTool(s, AnalysisTool::LIBS_PULSE, 100.0f);
@@ -119,7 +103,7 @@ TEST_CASE("LIBS adds confidence to all elements including light", "[lab]")
 
 TEST_CASE("Magnetic susceptibility only affects Fe and Ti", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(1);
 
     engine.ApplyTool(s, AnalysisTool::MAGNETIC_SUSCEPTIBILITY, 100.0f);
@@ -134,7 +118,7 @@ TEST_CASE("Magnetic susceptibility only affects Fe and Ti", "[lab]")
 
 TEST_CASE("Fire assay sets target to 100% and marks COMPLETED", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(3);
 
     REQUIRE(engine.ApplyTool(s, AnalysisTool::FIRE_ASSAY, 100.0f, ResourceType::Fe));
@@ -145,7 +129,7 @@ TEST_CASE("Fire assay sets target to 100% and marks COMPLETED", "[lab]")
 
 TEST_CASE("Cannot apply tools to COMPLETED sample", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(3);
 
     engine.ApplyTool(s, AnalysisTool::FIRE_ASSAY, 100.0f, ResourceType::Fe);
@@ -155,18 +139,65 @@ TEST_CASE("Cannot apply tools to COMPLETED sample", "[lab]")
 
 TEST_CASE("Cannot apply separation to COMPLETED sample", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(3);
 
     engine.ApplyTool(s, AnalysisTool::FIRE_ASSAY, 100.0f, ResourceType::Fe);
     REQUIRE_FALSE(engine.CanApplySeparation(s, SeparationMethod::MAGNETIC));
 }
 
+// --- State transitions ---
+
+TEST_CASE("First tool transitions IN_TRAY to PROCESSING", "[lab]")
+{
+    Sample s = MakeFullCompositionSample();
+    REQUIRE(s.state == SampleState::IN_TRAY);
+
+    LabEngine engine(0);
+    engine.ApplyTool(s, AnalysisTool::VISUAL_INSPECTION, 100.0f);
+    REQUIRE(s.state == SampleState::PROCESSING);
+}
+
+TEST_CASE("Further tools keep PROCESSING state", "[lab]")
+{
+    Sample s = MakeFullCompositionSample();
+    LabEngine engine(2);
+
+    engine.ApplyTool(s, AnalysisTool::XRF, 100.0f);
+    REQUIRE(s.state == SampleState::PROCESSING);
+
+    engine.ApplyTool(s, AnalysisTool::LIBS_PULSE, 200.0f);
+    REQUIRE(s.state == SampleState::PROCESSING);
+}
+
+TEST_CASE("Fire assay transitions PROCESSING to COMPLETED", "[lab]")
+{
+    Sample s = MakeFullCompositionSample();
+    LabEngine engine(3);
+
+    engine.ApplyTool(s, AnalysisTool::XRF, 100.0f);
+    REQUIRE(s.state == SampleState::PROCESSING);
+
+    engine.ApplyTool(s, AnalysisTool::FIRE_ASSAY, 200.0f, ResourceType::Fe);
+    REQUIRE(s.state == SampleState::COMPLETED);
+}
+
+TEST_CASE("Can still apply tools to PROCESSING sample", "[lab]")
+{
+    Sample s = MakeFullCompositionSample();
+    LabEngine engine(2);
+
+    engine.ApplyTool(s, AnalysisTool::VISUAL_INSPECTION, 100.0f);
+    REQUIRE(s.state == SampleState::PROCESSING);
+    REQUIRE(engine.CanApplyTool(s, AnalysisTool::XRF));
+    REQUIRE(engine.ApplyTool(s, AnalysisTool::XRF, 200.0f));
+}
+
 // --- Separation effects ---
 
 TEST_CASE("Magnetic separation adds confidence to Fe and Ti", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(1);
 
     REQUIRE(engine.ApplySeparation(s, SeparationMethod::MAGNETIC, 100.0f));
@@ -177,7 +208,7 @@ TEST_CASE("Magnetic separation adds confidence to Fe and Ti", "[lab]")
 
 TEST_CASE("Volatile extraction adds confidence to light elements", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(2);
 
     engine.ApplySeparation(s, SeparationMethod::VOLATILE_EXTRACTION, 100.0f);
@@ -187,7 +218,7 @@ TEST_CASE("Volatile extraction adds confidence to light elements", "[lab]")
 
 TEST_CASE("Separation can only be applied once", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(2);
 
     REQUIRE(engine.ApplySeparation(s, SeparationMethod::MAGNETIC, 100.0f));
@@ -199,7 +230,7 @@ TEST_CASE("Separation can only be applied once", "[lab]")
 
 TEST_CASE("Confidence accumulates probabilistically", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(2);
 
     engine.ApplyTool(s, AnalysisTool::XRF, 100.0f);
@@ -218,7 +249,7 @@ TEST_CASE("Confidence accumulates probabilistically", "[lab]")
 
 TEST_CASE("Re-applying same tool has diminishing returns", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(1);
 
     engine.ApplyTool(s, AnalysisTool::XRF, 100.0f);
@@ -238,8 +269,8 @@ TEST_CASE("Re-applying same tool has diminishing returns", "[lab]")
 
 TEST_CASE("Tool diversity gives broader coverage than repeating", "[lab]")
 {
-    Sample s1 = MakeAnalyzableSample();
-    Sample s2 = MakeAnalyzableSample();
+    Sample s1 = MakeFullCompositionSample();
+    Sample s2 = MakeFullCompositionSample();
     LabEngine engine(2);
 
     // s1: XRF twice — only covers heavy elements
@@ -263,7 +294,7 @@ TEST_CASE("Tool diversity gives broader coverage than repeating", "[lab]")
 
 TEST_CASE("Crystal glow updates after tool application", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     s.visual.glowLevel = 0;
     LabEngine engine(2);
 
@@ -278,7 +309,7 @@ TEST_CASE("Crystal glow updates after tool application", "[lab]")
 
 TEST_CASE("Analysis history records each tool application", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(2);
 
     REQUIRE(s.analysisHistory.empty());
@@ -307,7 +338,7 @@ TEST_CASE("Presets are defined correctly", "[lab]")
 
 TEST_CASE("Quick Survey preset applies visual inspection", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(0);
 
     REQUIRE(engine.ApplyPreset(s, 0, 100.0f));
@@ -317,7 +348,7 @@ TEST_CASE("Quick Survey preset applies visual inspection", "[lab]")
 
 TEST_CASE("Structural preset applies magnetic separation + XRF", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(1);
 
     REQUIRE(engine.ApplyPreset(s, 1, 100.0f));
@@ -331,7 +362,7 @@ TEST_CASE("Structural preset applies magnetic separation + XRF", "[lab]")
 
 TEST_CASE("Preset tier gating", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
 
     LabEngine t0(0);
     REQUIRE(t0.CanApplyPreset(s, 0));
@@ -351,7 +382,7 @@ TEST_CASE("Preset tier gating", "[lab]")
 
 TEST_CASE("Preset rejects invalid index", "[lab]")
 {
-    Sample s = MakeAnalyzableSample();
+    Sample s = MakeFullCompositionSample();
     LabEngine engine(3);
 
     REQUIRE_FALSE(engine.CanApplyPreset(s, -1));
@@ -387,4 +418,29 @@ TEST_CASE("IsFerromagnetic identifies correctly", "[lab]")
     REQUIRE(LabEngine::IsFerromagnetic(ResourceType::Ti));
     REQUIRE_FALSE(LabEngine::IsFerromagnetic(ResourceType::Si));
     REQUIRE_FALSE(LabEngine::IsFerromagnetic(ResourceType::H2));
+}
+
+// --- Energy costs ---
+
+TEST_CASE("Tool costs scale with capability", "[lab]")
+{
+    REQUIRE(LabEngine::GetToolCost(AnalysisTool::VISUAL_INSPECTION) == LAB_TOOL_COST_VISUAL);
+    REQUIRE(LabEngine::GetToolCost(AnalysisTool::XRF) == LAB_TOOL_COST_XRF);
+    REQUIRE(LabEngine::GetToolCost(AnalysisTool::LIBS_PULSE) == LAB_TOOL_COST_LIBS);
+    REQUIRE(LabEngine::GetToolCost(AnalysisTool::FIRE_ASSAY) == LAB_TOOL_COST_FIRE_ASSAY);
+
+    REQUIRE(LabEngine::GetToolCost(AnalysisTool::VISUAL_INSPECTION)
+          < LabEngine::GetToolCost(AnalysisTool::XRF));
+    REQUIRE(LabEngine::GetToolCost(AnalysisTool::XRF)
+          < LabEngine::GetToolCost(AnalysisTool::LIBS_PULSE));
+    REQUIRE(LabEngine::GetToolCost(AnalysisTool::LIBS_PULSE)
+          < LabEngine::GetToolCost(AnalysisTool::FIRE_ASSAY));
+}
+
+TEST_CASE("Separation costs are defined", "[lab]")
+{
+    REQUIRE(LabEngine::GetSeparationCost(SeparationMethod::MAGNETIC) == LAB_SEPARATION_COST_MAGNETIC);
+    REQUIRE(LabEngine::GetSeparationCost(SeparationMethod::HEAVY_MINERAL) == LAB_SEPARATION_COST_HEAVY);
+    REQUIRE(LabEngine::GetSeparationCost(SeparationMethod::VOLATILE_EXTRACTION) == LAB_SEPARATION_COST_VOLATILE);
+    REQUIRE(LabEngine::GetSeparationCost(SeparationMethod::NONE) == 0.0f);
 }

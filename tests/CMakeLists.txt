@@ -54,6 +54,7 @@ add_executable(colony_tests
     test_sweep.cpp
     test_sampling.cpp
     test_lab_pipeline.cpp
+    test_prospecting_integration.cpp
 )
 
 set_target_properties(colony_tests PROPERTIES

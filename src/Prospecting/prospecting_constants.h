@@ -104,5 +104,18 @@ constexpr float SWEEP_ANOMALY_THRESHOLD = 1.5f;
 
 // --- Sampling mechanics ---
 
+// Lab tool energy costs
+constexpr float LAB_TOOL_COST_VISUAL       = 5.0f;
+constexpr float LAB_TOOL_COST_XRF          = 25.0f;
+constexpr float LAB_TOOL_COST_OPTICAL      = 15.0f;
+constexpr float LAB_TOOL_COST_MAGNETIC     = 20.0f;
+constexpr float LAB_TOOL_COST_LIBS         = 40.0f;
+constexpr float LAB_TOOL_COST_FIRE_ASSAY   = 80.0f;
+
+// Separation energy costs
+constexpr float LAB_SEPARATION_COST_MAGNETIC  = 30.0f;
+constexpr float LAB_SEPARATION_COST_HEAVY     = 50.0f;
+constexpr float LAB_SEPARATION_COST_VOLATILE  = 45.0f;
+
 // Richness normalization: totalAbundance / factor, clamped to 0-1
 constexpr float RICHNESS_NORMALIZATION = 2.0f;

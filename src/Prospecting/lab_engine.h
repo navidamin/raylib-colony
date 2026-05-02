@@ -19,10 +19,12 @@ public:
     LabEngine(int tier = 0);
 
     bool CanApplyTool(const Sample& sample, AnalysisTool tool) const;
+    static float GetToolCost(AnalysisTool tool);
     bool ApplyTool(Sample& sample, AnalysisTool tool, float gameTime,
                    ResourceType fireAssayTarget = ResourceType::Fe);
 
     bool CanApplySeparation(const Sample& sample, SeparationMethod method) const;
+    static float GetSeparationCost(SeparationMethod method);
     bool ApplySeparation(Sample& sample, SeparationMethod method, float gameTime);
 
     bool CanApplyPreset(const Sample& sample, int presetIndex) const;

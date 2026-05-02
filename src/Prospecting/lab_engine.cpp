@@ -24,7 +24,7 @@ bool LabEngine::IsSeparationAvailable(SeparationMethod method) const
 {
     switch (method)
     {
-        case SeparationMethod::NONE:                return true;
+        case SeparationMethod::NONE:                return false;
         case SeparationMethod::MAGNETIC:            return tier >= 1;
         case SeparationMethod::HEAVY_MINERAL:       return tier >= 2;
         case SeparationMethod::VOLATILE_EXTRACTION: return tier >= 2;
@@ -39,11 +39,39 @@ bool LabEngine::CanApplyTool(const Sample& sample, AnalysisTool tool) const
     return IsToolAvailable(tool);
 }
 
+float LabEngine::GetToolCost(AnalysisTool tool)
+{
+    switch (tool)
+    {
+        case AnalysisTool::VISUAL_INSPECTION:       return LAB_TOOL_COST_VISUAL;
+        case AnalysisTool::XRF:                     return LAB_TOOL_COST_XRF;
+        case AnalysisTool::OPTICAL_MICROSCOPY:      return LAB_TOOL_COST_OPTICAL;
+        case AnalysisTool::MAGNETIC_SUSCEPTIBILITY: return LAB_TOOL_COST_MAGNETIC;
+        case AnalysisTool::LIBS_PULSE:              return LAB_TOOL_COST_LIBS;
+        case AnalysisTool::FIRE_ASSAY:              return LAB_TOOL_COST_FIRE_ASSAY;
+        default:                                     return 0.0f;
+    }
+}
+
+float LabEngine::GetSeparationCost(SeparationMethod method)
+{
+    switch (method)
+    {
+        case SeparationMethod::MAGNETIC:            return LAB_SEPARATION_COST_MAGNETIC;
+        case SeparationMethod::HEAVY_MINERAL:       return LAB_SEPARATION_COST_HEAVY;
+        case SeparationMethod::VOLATILE_EXTRACTION: return LAB_SEPARATION_COST_VOLATILE;
+        default:                                     return 0.0f;
+    }
+}
+
 bool LabEngine::ApplyTool(Sample& sample, AnalysisTool tool, float gameTime,
                             ResourceType fireAssayTarget)
 {
     if (!CanApplyTool(sample, tool))
         return false;
+
+    if (sample.state == SampleState::IN_TRAY)
+        sample.state = SampleState::PROCESSING;
 
     auto gains = GenerateToolConfidence(sample, tool, fireAssayTarget);
     AccumulateConfidence(sample, gains);
