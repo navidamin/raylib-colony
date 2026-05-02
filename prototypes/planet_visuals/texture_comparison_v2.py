@@ -21,7 +21,7 @@ from PIL import Image
 from generate import (
     PLANET_GRID, apply_craters, assign_archetype_grid,
     cast_shadows, colourise, fbm, gaussian_blur, hillshade,
-    label_image, sample_craters,
+    label_image, pink_noise, sample_craters,
 )
 
 OUT = os.path.join(os.path.dirname(__file__), "output")
@@ -30,28 +30,8 @@ SEED = 12345
 
 
 # ---------------------------------------------------------------------------
-# Building blocks reused below
+# Building blocks reused below (pink_noise lives in generate.py now)
 # ---------------------------------------------------------------------------
-
-def pink_noise(shape, rng, *, exponent=1.0):
-    """Generic 1/f^exponent noise via FFT spectrum shaping. Returns a
-    zero-mean unit-variance float field."""
-    h, w = shape
-    white = rng.standard_normal(shape).astype(np.float32)
-    spec = np.fft.fft2(white)
-    fy = np.fft.fftfreq(h)[:, None]
-    fx = np.fft.fftfreq(w)[None, :]
-    f = np.sqrt(fx * fx + fy * fy)
-    f[0, 0] = 1.0
-    filt = 1.0 / (f ** exponent)
-    filt[0, 0] = 0.0
-    out = np.real(np.fft.ifft2(spec * filt)).astype(np.float32)
-    out -= out.mean()
-    s = out.std()
-    if s > 1e-6:
-        out /= s
-    return out
-
 
 def worley_field(shape, rng, *, n_cells=4000, mode="F1"):
     """Worley/cellular noise. mode='F1' returns distance to nearest
