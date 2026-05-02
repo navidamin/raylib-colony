@@ -283,3 +283,15 @@ The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture si
 - `game_*.h` - Shared definitions (enums, structs, constants)
 
 **Note:** CMakeLists.txt in src/ may be incomplete - not all .cpp files are listed in target_sources. Verify compilation if adding new files.
+
+## Design Documents
+
+Module-specific design planning lives in `docs/design/<module-name>/`. Each module has a README.md that serves as the entry point and table of contents.
+
+**Auto-context rule:** When working on a module's code, read its design README first:
+
+| Module | Design Directory | Context Trigger |
+|--------|-----------------|-----------------|
+| Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
+
+See `docs/design/README.md` for the full planning method explanation.

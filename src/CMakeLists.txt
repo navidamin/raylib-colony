@@ -16,6 +16,9 @@ target_sources(colony_game PRIVATE
     ResourceManager/resource_manager.cpp
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
+    Prospecting/prospecting_types.cpp
+    Prospecting/sample_tray.cpp
+    Prospecting/prospecting_grid.cpp
     transport_types.cpp
 )
 
@@ -38,6 +41,7 @@ target_include_directories(colony_game PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
 )
 
 # Link libraries

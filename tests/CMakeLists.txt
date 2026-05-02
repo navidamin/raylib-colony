@@ -10,6 +10,9 @@ add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/GameTypes/game_types_loader.cpp
     ${CMAKE_SOURCE_DIR}/src/transport_types.cpp
     ${CMAKE_SOURCE_DIR}/src/Planet/planet.cpp
+    ${CMAKE_SOURCE_DIR}/src/Prospecting/prospecting_types.cpp
+    ${CMAKE_SOURCE_DIR}/src/Prospecting/sample_tray.cpp
+    ${CMAKE_SOURCE_DIR}/src/Prospecting/prospecting_grid.cpp
 )
 
 set_target_properties(colony_testlib PROPERTIES
@@ -29,6 +32,7 @@ target_include_directories(colony_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src/TimeManager
     ${CMAKE_SOURCE_DIR}/src/GameTypes
     ${CMAKE_SOURCE_DIR}/src/UnlockRegistry
+    ${CMAKE_SOURCE_DIR}/src/Prospecting
 )
 
 target_link_libraries(colony_testlib PUBLIC raylib tomlplusplus::tomlplusplus)
@@ -41,12 +45,19 @@ add_executable(colony_tests
     test_resource_types.cpp
     test_time_manager.cpp
     test_storage.cpp
+    test_prospecting_types.cpp
+    test_sample_tray.cpp
+    test_prospecting_grid.cpp
 )
 
 set_target_properties(colony_tests PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
+)
+
+target_include_directories(colony_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
 target_link_libraries(colony_tests PRIVATE colony_testlib Catch2::Catch2WithMain)

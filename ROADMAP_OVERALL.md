@@ -425,6 +425,7 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 ### **PHASE 6: Research & Technology**
 **Status:** PLANNED
 **Timeline:** Week 27-30
+**Design Docs:** `docs/design/research/README.md`, `docs/design/ai-automation/README.md`
 
 #### Objectives
 - Implement research tree system
@@ -432,27 +433,48 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 - Create SCIENCE resource accumulation
 - Implement colony-wide tech bonuses
 - Add research priority system
+- **Support AI automation unlock trees** (cross-cutting, see `docs/design/ai-automation/`)
+
+#### Pre-Existing Constraints
+
+The prospecting module design (Phase 1.5) already defines concrete requirements for this phase:
+
+| Constraint | Source | Detail |
+|-----------|--------|--------|
+| AI research projects with SCIENCE costs | `docs/design/prospecting/prospecting-master-design.md` §11b | 8 projects, 200-2,500 SCIENCE each, 6,400 total |
+| Global unlock effects | Prospecting AI pattern | Unlocks apply colony-wide to all sects |
+| Linear prerequisite chains | Prospecting AI tree | Each upgrade requires the previous one |
+| Module tier gates on some AI upgrades | Prospecting AI §11b | e.g., "T1 tools unlocked" required for Sweep-Guided Targeting |
+| Research budget model (~45K total) | Prospecting §11b budget table | 25% extraction techs, 25% other techs, 15% prospecting AI, 15% future AI, 20% colony |
+| 14 extraction tier techs need SCIENCE costs | `src/UnlockRegistry/unlock_registry.h` | Currently debug-unlocked (F5), need proper research path |
+
+See `docs/design/research/README.md` for full interface requirements and open questions.
 
 #### Major Components
 
 **6.1 Research Infrastructure** (Week 27)
-- [ ] Create ResearchManager class
-- [ ] Implement ResearchProject struct
-- [ ] Add SCIENCE accumulation at colony level
-- [ ] Create research queue system
-- [ ] Implement research progress tracking
+- [ ] Create ResearchManager class (subsumes UnlockRegistry's role)
+- [ ] Implement ResearchProject struct (cost, prerequisites, global effect, category)
+- [ ] Add SCIENCE accumulation at colony level (already partially working via strategicReserves)
+- [ ] Create research queue system (single project active, queue for next)
+- [ ] Implement research progress tracking (SCIENCE invested / cost)
+- [ ] Decide: single queue or parallel queues for tier techs vs. AI unlocks?
 
 **6.2 Technology Tree** (Week 28-29)
 - [ ] Design tech tree structure (in TOML)
-- [ ] Implement tech prerequisites
-- [ ] Create tech unlock effects
+- [ ] Implement tech prerequisites (linear chains + tier gates)
+- [ ] Create tech unlock effects (module tier gates + AI capability flags)
 - [ ] Add colony-wide bonuses (transport speed, efficiency, etc.)
 - [ ] Implement new unit/module unlocks
+- [ ] Port 14 existing extraction techs from UnlockRegistry to ResearchManager
+- [ ] Implement prospecting AI tree (8 projects) as first AI automation client
+- [ ] Define SCIENCE costs for extraction tier techs (~11,000 total budget)
 
 **6.3 Research UI** (Week 30)
-- [ ] Create research tree visualization
-- [ ] Add research project selection
+- [ ] Create research tree visualization (categorized: Tier Techs / AI Automation / Colony)
+- [ ] Add research project selection and purchase
 - [ ] Implement research progress display
+- [ ] Add per-unit "AI / Automation" panel showing purchased vs. available upgrades
 - [ ] Add tech tooltip descriptions
 - [ ] Create unlocked technology indicators
 
@@ -461,6 +483,9 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 - Tech tree provides strategic choices
 - Technologies unlock new modules, units, and bonuses
 - Research system integrated with production priorities
+- **Prospecting AI tree fully functional** (8 projects purchasable and applying effects)
+- **Extraction tier techs purchasable** (replacing debug F5 unlock)
+- UnlockRegistry becomes read-only query layer over ResearchManager
 
 ---
 
