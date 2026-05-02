@@ -46,9 +46,9 @@ Six stages, each emits a debug PNG to `output/stage*.png`:
 
 | Parameter | Value | Why |
 |---|---|---|
-| `count_small/med/big` | 140 / 55 / 4 | Sparse density user prefers |
+| `count_small/med/big` | 126 / 49 / 3 | Highland-density preset, picked from the v3 dispersion sweep at density_mult=0.9 |
 | Radii ranges | 8-18 / 18-42 / 42-110 px | Power-law size mix |
-| `min_separation` | 1.15 × (r1+r2) | No overlap, breathing room |
+| `min_separation` | 1.35 × (r1+r2) | Looser gives a less Bridson-clustered look at this density |
 | Bridson growth ratio | 15% near, 85% global | Mostly uniform, Bridson rescue only |
 | Secondary threshold | r > 55 | Only the very biggest spawn rays |
 | Secondaries per primary | 1..3 | Rare visible chains, not clusters |
@@ -67,7 +67,7 @@ Six stages, each emits a debug PNG to `output/stage*.png`:
 | Per-crater random | Distribution | Range |
 |---|---|---|
 | `depth_jitter` | Beta(2.2, 2.2) × 1.6 + 0.15 | 0.15..1.75 |
-| `age` | Beta(2.0, 1.5) (skewed older) | 0..1 |
+| `age` | Beta(4.0, 1.5) (heavily skewed older) | 0..1 — calibrated for highland realism |
 | `depth_amp` | -0.42 × sharp × jitter | -0.05 to -0.66 |
 
 `size_factor` was removed deliberately — every radius now draws from

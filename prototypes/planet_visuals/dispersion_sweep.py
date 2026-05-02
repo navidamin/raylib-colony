@@ -1,25 +1,28 @@
-"""Crater-dispersion calibration sweep.
+"""Crater-dispersion calibration sweep — v2 (size + depth-variance axes).
 
-Generates 18 sample renders varying three parameters that drive how
-"natural" the crater field looks at the procedural pipeline's
-crater-dense (highland) setting:
+User feedback on v1:
+  * Density 0.30 was still too dense — drop to 0.20 / 0.25.
+  * Add `crater size` and `depth variance` as parameters too, since
+    those visibly affect "naturalness" as much as count does.
 
-  density_mult: total crater count multiplier — 0.30, 0.55, 0.90
-                (vs the procedural baseline 140 small / 55 med / 4 big)
-  age_alpha:    Beta(α, 1.5) shape for crater age — 1.5, 2.5, 4.0
-                (higher → more eroded / older / shallower)
-  min_sep:      minimum rim-to-rim separation — 1.15, 1.35
-                (1.15 is current; 1.35 spreads craters more)
+Sweep: 18 cells = 3 (density) x 3 (size_scale) x 2 (depth_variance).
+Outer rows = density; within each row 6 columns = (size x depth).
 
-Layout: 6 cols x 3 rows, each row = one density level. Within a row,
-the 6 cells span (3 age levels) x (2 separations). Each cell is
-800x800 px, labelled with its parameter triple.
+  density_mult ∈ {0.20, 0.25, 0.30}
+    Multiplier on the procedural baseline crater counts (140 small +
+    55 med + 4 big primaries). 0.20 ≈ 40 craters total.
+  size_scale ∈ {0.7, 1.0, 1.3}
+    Multiplier on every crater's radius. 0.7 = smaller craters,
+    1.3 = bigger.
+  depth_variance ∈ {0.7, 1.4}
+    Spread of the per-crater depth_jitter around its mean. 0.7 =
+    most craters land at similar depth (less drama). 1.4 = wide
+    spread (some very shallow, some very deep).
+
+age_alpha and min_separation are held at the values picked from v1
+(4.0 and 1.35) so the sweep focuses on the new axes.
 
 Output: output/dispersion_sweep.png
-
-Real-data path (generate_real.py) is untouched — it bypasses
-sample_craters entirely, loading real LOLA elevation directly. So
-this calibration only affects the procedural mode.
 """
 
 from __future__ import annotations
@@ -32,30 +35,27 @@ from PIL import Image, ImageDraw, ImageFont
 
 from generate import (
     PLANET_GRID, apply_craters, assign_archetype_grid,
-    cast_shadows, colourise, fbm, gaussian_blur, hillshade,
-    label_image, pink_noise, sample_craters,
+    cast_shadows, colourise, fbm, hillshade, label_image,
+    pink_noise, sample_craters,
 )
 
 OUT = os.path.join(os.path.dirname(__file__), "output")
 SIZE = 800
 SEED = 12345
 
-# Baseline procedural counts
 BASE_SMALL, BASE_MED, BASE_BIG = 140, 55, 4
 
-# Parameter levels
-DENSITIES = [0.30, 0.55, 0.90]
-AGE_ALPHAS = [1.5, 2.5, 4.0]
-MIN_SEPS = [1.15, 1.35]
+DENSITIES = [0.20, 0.25, 0.30]
+SIZE_SCALES = [0.7, 1.0, 1.3]
+DEPTH_VARIANCES = [0.7, 1.4]
+
+# Pinned from v1 — picked as the most natural-looking
+AGE_ALPHA = 4.0
+MIN_SEP = 1.35
 
 
-def render_one(density_mult, age_alpha, min_sep):
-    """Render one cell. Same FBM heightmap each time so only the crater
-    field varies — easier visual A/B."""
-    # Use a fresh rng per call seeded from SEED + a hash so each cell
-    # has a different *pattern* of craters. Otherwise we'd compare 18
-    # near-identical layouts only differing in count.
-    seed_hash = (hash((density_mult, age_alpha, min_sep)) & 0xffffffff)
+def render_one(density_mult, size_scale, depth_variance):
+    seed_hash = (hash((density_mult, size_scale, depth_variance)) & 0xffffffff)
     rng = np.random.default_rng(SEED ^ seed_hash)
     shape = (SIZE, SIZE)
 
@@ -64,15 +64,16 @@ def render_one(density_mult, age_alpha, min_sep):
     height = 0.92 * base + 0.08 * detail
     height = (height - height.mean()) * 0.30
 
-    # Scale crater counts by density_mult
     cs = max(1, int(BASE_SMALL * density_mult))
     cm = max(1, int(BASE_MED * density_mult))
     cb = max(1, int(BASE_BIG * density_mult))
 
     craters = sample_craters(shape, rng,
                               count_small=cs, count_med=cm, count_big=cb,
-                              min_separation=min_sep, age_alpha=age_alpha)
-    h_with = apply_craters(height.copy(), craters, rng)
+                              min_separation=MIN_SEP, age_alpha=AGE_ALPHA,
+                              size_scale=size_scale)
+    h_with = apply_craters(height.copy(), craters, rng,
+                            depth_variance=depth_variance)
     h_with = h_with + 0.015 * pink_noise(shape, rng)
 
     sh = hillshade(h_with, z_factor=75.0, smooth_px=1.0)
@@ -86,22 +87,22 @@ def render_one(density_mult, age_alpha, min_sep):
     rgb, _ = colourise(h_with, np.zeros_like(height), sh, arch_pix, rng,
                         cast_mask=cast, albedo_height=height)
     img = Image.fromarray(rgb).resize((600, 600), Image.LANCZOS)
-    label = (f"density={density_mult:.2f}  "
-             f"age={age_alpha:.1f}  sep={min_sep:.2f}  ({len(craters)} craters)")
+    label = (f"d={density_mult:.2f}  size={size_scale:.1f}  "
+             f"dvar={depth_variance:.1f}  ({len(craters)} craters)")
     return label_image(img, label, font_size=14)
 
 
 def main():
-    print("== rendering 18-cell dispersion sweep ==")
+    print("== v2 sweep: density x size_scale x depth_variance ==")
     panels = []
-    cells_per_row = len(AGE_ALPHAS) * len(MIN_SEPS)  # 6
-    rows = len(DENSITIES)                              # 3
+    cells_per_row = len(SIZE_SCALES) * len(DEPTH_VARIANCES)  # 6
+    rows = len(DENSITIES)                                      # 3
     for d in DENSITIES:
-        for ms in MIN_SEPS:
-            for a in AGE_ALPHAS:
+        for dv in DEPTH_VARIANCES:
+            for sz in SIZE_SCALES:
                 t0 = time.time()
-                p = render_one(d, a, ms)
-                print(f"  d={d} a={a} ms={ms} ({time.time()-t0:.1f}s)")
+                p = render_one(d, sz, dv)
+                print(f"  d={d} size={sz} dvar={dv} ({time.time()-t0:.1f}s)")
                 panels.append(p)
 
     cell_w = 600 + 6
@@ -118,8 +119,9 @@ def main():
         font = ImageFont.load_default()
     draw = ImageDraw.Draw(canvas)
     draw.text((10, 10),
-              "Crater-dispersion calibration  --  rows: density, "
-              "cols: (age, separation)",
+              "Crater-dispersion v2  --  rows: density 0.20/0.25/0.30, "
+              "cols: (depth_variance, size_scale)  "
+              f"[age_alpha={AGE_ALPHA}, min_sep={MIN_SEP}]",
               fill=(230, 230, 230), font=font)
 
     for i, p in enumerate(panels):

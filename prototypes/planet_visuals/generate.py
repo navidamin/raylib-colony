@@ -226,7 +226,7 @@ class Crater:
 
 
 def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
-                   min_separation=1.15, age_alpha=2.0):
+                   min_separation=1.15, age_alpha=2.0, size_scale=1.0):
     """Place primary craters with mostly-random placement (uniform
     coverage, no clumps), then inject a small number of secondary
     craters around each big primary.
@@ -246,7 +246,8 @@ def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
                           (count_med, 18, 42),
                           (count_small, 8, 18)]:
         for _ in range(n):
-            primary_sizes.append(float(rng.uniform(rmin, rmax)))
+            r = float(rng.uniform(rmin, rmax)) * size_scale
+            primary_sizes.append(max(2.0, r))
     primary_sizes.sort(reverse=True)  # big first claims space
 
     placed: list[Crater] = []
@@ -340,7 +341,7 @@ def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
     return placed
 
 
-def apply_craters(height, craters, rng=None):
+def apply_craters(height, craters, rng=None, depth_variance=1.0):
     """Carve craters with the geometry real lunar craters actually have:
     flat floor + smooth wall + barely-raised rim.
 
@@ -388,7 +389,12 @@ def apply_craters(height, craters, rng=None):
         # had a size_factor and per-size jitter floors that compressed
         # big craters into the shallow band, which is why no deep large
         # craters appeared.)
-        depth_jitter = float(rng.beta(2.2, 2.2)) * 1.6 + 0.15  # 0.15..1.75
+        # depth_variance scales the spread of depths around 1.0. At 0.0
+        # all craters get the same depth (no variance). At 1.0 we get
+        # the original 0.15..1.75 range. Higher values widen the spread.
+        # Clip below at 0.05 so high variance doesn't flip craters into
+        # raised bumps.
+        depth_jitter = max(0.05, 1.0 + (float(rng.beta(2.2, 2.2)) * 1.6 - 0.80) * depth_variance)
         sharp = 1.0 - c.age * 0.7
         depth_amp = -0.42 * sharp * depth_jitter
         # Rim is *small* — only ~5% of depth amplitude.
