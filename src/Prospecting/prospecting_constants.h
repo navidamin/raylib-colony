@@ -44,6 +44,12 @@ constexpr float SURVEY_SWEEP_WEIGHT   = 0.20f;
 constexpr float SURVEY_SAMPLE_WEIGHT  = 0.50f;
 constexpr float SURVEY_TESTING_WEIGHT = 0.30f;
 
+// Fraction of sub-cells that must be sampled for full sample coverage
+constexpr float SURVEY_SAMPLE_COVERAGE_TARGET = 0.25f;
+
+// Survey progress threshold for marking a site for excavation
+constexpr float MARKED_SITE_THRESHOLD = 0.60f;
+
 // AI confidence penalties per tier
 constexpr float AI_CONFIDENCE_PENALTY[] = { 0.20f, 0.15f, 0.10f, 0.05f };
 

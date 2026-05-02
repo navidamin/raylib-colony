@@ -48,7 +48,7 @@ inline Sample MakeSampleWithConfidence(float feConf, float siConf)
 inline ResourceManager MakeTestResourceManager()
 {
     ResourceManager rm(20, 100.0f);
-    rm.GenerateResourceMap();
+    rm.GenerateResourceMap(42);
     rm.GenerateOrbitalSurveyData();
     return rm;
 }

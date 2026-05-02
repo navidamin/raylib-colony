@@ -16,6 +16,7 @@ add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/Prospecting/sweep_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/sampling_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/lab_engine.cpp
+    ${CMAKE_SOURCE_DIR}/src/Prospecting/survey_progress_engine.cpp
 )
 
 set_target_properties(colony_testlib PROPERTIES
@@ -55,6 +56,7 @@ add_executable(colony_tests
     test_sampling.cpp
     test_lab_pipeline.cpp
     test_prospecting_integration.cpp
+    test_survey_progress.cpp
 )
 
 set_target_properties(colony_tests PROPERTIES

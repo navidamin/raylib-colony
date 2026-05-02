@@ -8,7 +8,7 @@ ResourceManager::ResourceManager(int gridSize, float cellSize)
     layeredGrid.resize(gridSize, std::vector<LayeredResourceTile>(gridSize));
 }
 
-void ResourceManager::GenerateResourceMap() {
+void ResourceManager::GenerateResourceMap(unsigned int seed) {
     std::cout << "Starting resource map generation for grid size: " << gridSize << std::endl;
 
     // Clear existing resources
@@ -25,8 +25,7 @@ void ResourceManager::GenerateResourceMap() {
     }
 
     // Random number generation
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    std::mt19937 gen(seed != 0 ? seed : std::random_device{}());
     // Use more conservative bounds for cluster centers
     // Ensure clusters stay within grid even with radius
     int margin = 1;  // Larger margin to prevent overflow
