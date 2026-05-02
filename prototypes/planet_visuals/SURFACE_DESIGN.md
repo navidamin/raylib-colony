@@ -46,7 +46,11 @@ Six stages, each emits a debug PNG to `output/stage*.png`:
 
 | Parameter | Value | Why |
 |---|---|---|
-| `count_small/med/big` | 126 / 49 / 3 | Highland-density preset, picked from the v3 dispersion sweep at density_mult=0.9 |
+| `count_small/med/big` | 17 / 7 / 1 | Sparse mare-like preset, picked from the v4 dispersion sweep at density_mult=0.12 |
+| `size_scale` | 1.5 | Uniform multiplier on all crater radii |
+| `size_variance` | 0.5 | Tight buckets — most craters near each bucket's centre size |
+| `depth_scale` | 1.0 | Uniform multiplier on baseline depth |
+| `depth_variance` | 1.0 | Wide spread of per-crater depths around the mean |
 | Radii ranges | 8-18 / 18-42 / 42-110 px | Power-law size mix |
 | `min_separation` | 1.35 × (r1+r2) | Looser gives a less Bridson-clustered look at this density |
 | Bridson growth ratio | 15% near, 85% global | Mostly uniform, Bridson rescue only |
@@ -66,7 +70,7 @@ Six stages, each emits a debug PNG to `output/stage*.png`:
 
 | Per-crater random | Distribution | Range |
 |---|---|---|
-| `depth_jitter` | Beta(2.2, 2.2) × 1.6 + 0.15 | 0.15..1.75 |
+| `depth_jitter` | 1.0 + (Beta(2.2, 2.2) × 1.6 − 0.8) × `depth_variance`, clipped at 0.05 | depth_variance=1 → 0.20..1.80 |
 | `age` | Beta(4.0, 1.5) (heavily skewed older) | 0..1 — calibrated for highland realism |
 | `depth_amp` | -0.42 × sharp × jitter | -0.05 to -0.66 |
 

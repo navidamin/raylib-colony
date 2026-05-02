@@ -225,9 +225,9 @@ class Crater:
     has_peak: bool
 
 
-def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
-                   min_separation=1.15, age_alpha=2.0,
-                   size_scale=1.0, size_variance=1.0):
+def sample_craters(shape, rng, count_small=17, count_med=7, count_big=1,
+                   min_separation=1.35, age_alpha=4.0,
+                   size_scale=1.5, size_variance=0.5):
     """Place primary craters with mostly-random placement (uniform
     coverage, no clumps), then inject a small number of secondary
     craters around each big primary.
@@ -351,6 +351,8 @@ def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
 
 def apply_craters(height, craters, rng=None,
                   depth_variance=1.0, depth_scale=1.0):
+    # Defaults locked from the v4 dispersion sweep — sparse mare-like
+    # density with mid-deep craters and tight size buckets.
     """Carve craters with the geometry real lunar craters actually have:
     flat floor + smooth wall + barely-raised rim.
 
@@ -795,9 +797,11 @@ def render_archetype_tiles():
         h += 0.3 * fbm((tile_px, tile_px), 4, 16, 0.6, local_rng)
         mare = mare_field((tile_px, tile_px), local_rng, n=1) * 0.4
         h_with = h - 0.3 * mare
+        # archetype tile is 320x320 = 1/25 of full planet area, but we
+        # want it to look populated — 6/2/1 gives a richer preview.
         h_with = apply_craters(h_with, sample_craters(
             (tile_px, tile_px), local_rng,
-            count_small=40, count_med=15, count_big=1), local_rng)
+            count_small=6, count_med=2, count_big=1), local_rng)
         h_with = h_with + 0.03 * gaussian_blur(
             pink_noise((tile_px, tile_px), local_rng), 1.5)
         sh = hillshade(h_with, z_factor=35.0, smooth_px=1.0)
@@ -919,9 +923,10 @@ def render_seed_variants():
         height = 0.92 * base + 0.08 * detail
         mare = mare_field(shape, rng, n=3)
         h2 = height - 0.20 * mare
+        # seed-variants canvas is 800x800 = 1/4 of full planet area.
         h2 = apply_craters(h2, sample_craters(
             shape, rng,
-            count_small=80, count_med=30, count_big=3), rng)
+            count_small=4, count_med=2, count_big=1), rng)
         h2 = h2 + 0.03 * gaussian_blur(pink_noise(shape, rng), 1.5)
         sh = hillshade(h2, z_factor=35.0, smooth_px=1.0)
         cast = cast_shadows(h2, z_factor=35.0, max_distance_px=40.0)
