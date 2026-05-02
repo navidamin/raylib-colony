@@ -226,7 +226,8 @@ class Crater:
 
 
 def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
-                   min_separation=1.15, age_alpha=2.0, size_scale=1.0):
+                   min_separation=1.15, age_alpha=2.0,
+                   size_scale=1.0, size_variance=1.0):
     """Place primary craters with mostly-random placement (uniform
     coverage, no clumps), then inject a small number of secondary
     craters around each big primary.
@@ -245,8 +246,15 @@ def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
     for n, rmin, rmax in [(count_big, 42, 110),
                           (count_med, 18, 42),
                           (count_small, 8, 18)]:
+        center = 0.5 * (rmin + rmax)
+        half_range = 0.5 * (rmax - rmin)
         for _ in range(n):
-            r = float(rng.uniform(rmin, rmax)) * size_scale
+            # size_variance scales the spread around the bucket centre.
+            # 0 -> every crater in this bucket is the bucket centre size.
+            # 1 -> current uniform[rmin, rmax] behaviour.
+            # >1 -> wider spread, can exceed the bucket boundaries.
+            u = float(rng.uniform(-1.0, 1.0)) * size_variance
+            r = (center + half_range * u) * size_scale
             primary_sizes.append(max(2.0, r))
     primary_sizes.sort(reverse=True)  # big first claims space
 
