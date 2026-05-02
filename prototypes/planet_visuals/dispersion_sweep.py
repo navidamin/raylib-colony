@@ -27,9 +27,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from generate import (
-    PLANET_GRID, apply_craters, assign_archetype_grid,
-    cast_shadows, colourise, fbm, gaussian_blur, hillshade,
-    label_image, pink_noise, sample_craters,
+    ARCHETYPE_ORDER, apply_craters, cast_shadows, colourise, fbm,
+    gaussian_blur, hillshade, label_image, pink_noise, sample_craters,
 )
 
 OUT = os.path.join(os.path.dirname(__file__), "output")
@@ -53,10 +52,11 @@ def render_one(size_scale, size_variance, depth_scale):
     rng = np.random.default_rng(SEED ^ seed_hash)
     shape = (SIZE, SIZE)
 
-    base = fbm(shape, 5, 384, 0.5, rng)
-    detail = fbm(shape, 3, 128, 0.5, rng)
-    height = 0.92 * base + 0.08 * detail
-    height = (height - height.mean()) * 0.30
+    # Flat baseline (no FBM relief, no biome tint) — we want to compare
+    # crater dispersion only, not light-and-shadow patterns from
+    # background terrain or warm-vs-cold biome tinting. The full
+    # procedural pipeline keeps both of those.
+    height = np.zeros(shape, dtype=np.float32)
 
     cs = max(1, int(BASE_SMALL * DENSITY))
     cm = max(1, int(BASE_MED * DENSITY))
@@ -75,10 +75,10 @@ def render_one(size_scale, size_variance, depth_scale):
     sh = hillshade(h_with, z_factor=75.0, smooth_px=1.0)
     cast = cast_shadows(h_with, z_factor=75.0)
 
-    arch_grid = assign_archetype_grid(rng)
-    py_idx = np.minimum(
-        (np.arange(SIZE) * PLANET_GRID // SIZE), PLANET_GRID - 1)
-    arch_pix = arch_grid[py_idx[:, None], py_idx[None, :]]
+    # Uniform single-archetype tint (highland greys) for the calibration
+    # sheet. Real planet_full.png keeps the per-cell biome assignment.
+    arch_pix = np.zeros(shape, dtype=np.int32) + ARCHETYPE_ORDER.index(
+        "HIGHLAND_CONSTRUCTION")
 
     rgb, _ = colourise(h_with, np.zeros_like(height), sh, arch_pix, rng,
                         cast_mask=cast, albedo_height=height)
