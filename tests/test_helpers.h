@@ -4,6 +4,7 @@
 #include "sample_tray.h"
 #include "prospecting_grid.h"
 #include "resource_manager.h"
+#include "prospecting_system.h"
 
 inline Sample MakeDummySample(DepthLayer depth = DepthLayer::SURFACE,
                                float richness = 0.5f)

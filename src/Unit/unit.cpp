@@ -25,6 +25,24 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
     SetInitialParameters();
     InitializeModules();
     InitializeStorage();
+
+    if (unit_type == "Extraction")
+    {
+        Vector2 gp = GetGridPosition();
+        int gx = static_cast<int>(gp.x);
+        int gy = static_cast<int>(gp.y);
+        int prosTier = 0;
+        for (const auto& m : modules)
+        {
+            if (m.moduleType == "PROSPECTING")
+            {
+                prosTier = m.tier;
+                break;
+            }
+        }
+        prospectingSystem = std::make_unique<ProspectingSystem>(
+            prosTier, gx, gy, resourceManager);
+    }
 }
 
 Unit::~Unit() {
@@ -1311,25 +1329,37 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     auto availableResources = resourceManager.GetResourcesAtGridLayer(gridX, gridY, activeLayer);
 
     // --- Survey-gated extraction efficiency ---
-    float scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY;  // Unscanned: 35% efficiency
-    auto scanIt = scanHistory.find({gridX, gridY});
-    if (scanIt != scanHistory.end() && scanIt->second.isScanned)
+    float scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY;
+    if (prospectingSystem)
     {
-        float survey = scanIt->second.surveyProgress;
-        // Backward compat: migrate old scans that have scanCount but no surveyProgress
-        if (survey <= 0.0f && scanIt->second.scanCount > 0)
-        {
-            survey = std::min(1.0f, static_cast<float>(scanIt->second.scanCount) / 3.0f);
-        }
+        float survey = prospectingSystem->GetSurveyProgress();
         scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY + SURVEY_SCANNED_BONUS * survey;
 
-        // Check if site is marked for excavation: +15% bonus (additive)
-        for (const auto& site : markedSites)
+        if (prospectingSystem->IsMarkedSite())
         {
-            if (site.first == gridX && site.second == gridY)
+            scanMultiplier += SURVEY_MARKED_SITE_BONUS;
+        }
+    }
+    else
+    {
+        // Fallback for units without the new prospecting system
+        auto scanIt = scanHistory.find({gridX, gridY});
+        if (scanIt != scanHistory.end() && scanIt->second.isScanned)
+        {
+            float survey = scanIt->second.surveyProgress;
+            if (survey <= 0.0f && scanIt->second.scanCount > 0)
             {
-                scanMultiplier += SURVEY_MARKED_SITE_BONUS;
-                break;
+                survey = std::min(1.0f, static_cast<float>(scanIt->second.scanCount) / 3.0f);
+            }
+            scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY + SURVEY_SCANNED_BONUS * survey;
+
+            for (const auto& site : markedSites)
+            {
+                if (site.first == gridX && site.second == gridY)
+                {
+                    scanMultiplier += SURVEY_MARKED_SITE_BONUS;
+                    break;
+                }
             }
         }
     }

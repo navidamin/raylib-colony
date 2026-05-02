@@ -12,8 +12,10 @@
 #include "game_constants.h"
 #include "unit_ui.h"
 #include "separation_node.h"
+#include "prospecting_system.h"
 #include <utility>
 #include <cmath>
+#include <memory>
 
 class Unit {
 public:
@@ -209,6 +211,11 @@ public:
     void SetProspectingAIPolicy(const ProspectingAI& policy) { prospectingAI = policy; }
     const std::string& GetAILastAction() const { return aiLastAction; }
 
+    // New prospecting system
+    ProspectingSystem* GetProspectingSystem() { return prospectingSystem.get(); }
+    const ProspectingSystem* GetProspectingSystem() const { return prospectingSystem.get(); }
+    bool HasProspectingSystem() const { return prospectingSystem != nullptr; }
+
     // Excavation getters
     const std::vector<Excavator>& GetExcavators() const { return excavators; }
     void MoveExcavator(int excavatorId, int gridX, int gridY);
@@ -324,6 +331,9 @@ private:
     ProspectingAI prospectingAI;
     std::string aiLastAction;
     void UpdateProspectingAI(float deltaTime);
+
+    // New prospecting system (extraction units only)
+    std::unique_ptr<ProspectingSystem> prospectingSystem;
 
     // Excavation data
     std::vector<Excavator> excavators;
