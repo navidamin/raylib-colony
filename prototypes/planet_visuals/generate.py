@@ -226,7 +226,7 @@ class Crater:
 
 
 def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
-                   min_separation=1.15):
+                   min_separation=1.15, age_alpha=2.0):
     """Place primary craters with mostly-random placement (uniform
     coverage, no clumps), then inject a small number of secondary
     craters around each big primary.
@@ -274,7 +274,7 @@ def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
             if try_place(float(rng.uniform(0, w)),
                           float(rng.uniform(0, h)),
                           r0,
-                          float(rng.beta(2.0, 1.5)),
+                          float(rng.beta(age_alpha, 1.5)),
                           bool(rng.random() < 0.25)):
                 break
 
@@ -296,7 +296,7 @@ def sample_craters(shape, rng, count_small=140, count_med=55, count_big=4,
                 x = float(rng.uniform(0, w))
                 y = float(rng.uniform(0, h))
             if try_place(x, y, r,
-                          float(rng.beta(2.0, 1.5)),
+                          float(rng.beta(age_alpha, 1.5)),
                           bool(rng.random() < 0.25)):
                 success = True
                 break
