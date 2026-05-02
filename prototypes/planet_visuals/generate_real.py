@@ -1,30 +1,20 @@
-"""Render the Aristoteles / Mare Frigoris region of the Moon using
-real LOLA-derived elevation data, through our existing pipeline.
+"""Render the Plinius crater region of the Moon using real LOLA-derived
+elevation data, through our existing pipeline.
 
 Source: jaanga/moon-heightmaps-256p-ne (1° tiles at 256ppd, LOLA GLD100
 re-encoded as 16-bit elevation packed into PNG R+255*G).
 
-Region: lat 49..51°N, lon 16..18°E (~90 km x 90 km), centred on the
-prominent crater Aristoteles (50.2°N, 17.4°E, 87 km diameter). The
-northern band is flat Mare Frigoris; the southern band rolls into
-heavily cratered highland terrain. Eudoxus crater (44 km, 67°N — out
-of frame) is south-east of Aristoteles. This region was picked for
-"some but not too much craters" — clear named craters plus mare for
-contrast.
+Region: lat 14..16°N, lon 22..24°E (~91 km x 88 km), centred on Plinius
+(15.4°N, 23.7°E, 43 km diameter, ~2 km deep, fresh sharp-rimmed crater
+on the Mare Tranquillitatis / Mare Serenitatis boundary). The crater
+fits comfortably in a 3x3 patch with surrounding mare basin terrain
+visible.
 
-Rendering choices:
-  * Real LOLA elevation replaces the procedural FBM heightmap.
-  * The procedural crater generator is skipped — real craters are
-    already in the elevation.
-  * Albedo is *derived* from elevation (low = mare basalt dark, high =
-    anorthosite bright); real WAC mosaic stand-in is TODO.
-  * Pink-noise micro-texture, hillshade, cast shadows, AO, soft
-    circular boundary all kept from the procedural pipeline.
-
-Outputs:
-  output/aristoteles_real.png       — final render
-  output/aristoteles_heightmap.png  — debug elevation visualisation
-  output/aristoteles_compare.png    — side-by-side with procedural
+Why Plinius (not Aristoteles): Aristoteles is 87 km wide so its rim
+sits *outside* even a 5x5 patch in longitude, AND its depth/diameter
+ratio is only 0.038 — visually unimpressive. Plinius is 43 km / 2 km
+= 0.047, sharper rim morphology, and the surrounding mare is flat so
+the crater contrast is stronger.
 """
 
 from __future__ import annotations
@@ -39,20 +29,18 @@ from generate import (
     label_image, pink_noise,
 )
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "aristoteles")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "plinius")
 OUT = os.path.join(os.path.dirname(__file__), "output")
 
-# Region: lat 48..52°N, lon 15..19°E, 5x5 tiles (~150 km N-S, ~97 km E-W).
-# Wide enough to contain Aristoteles' full rim (the crater is 87 km across,
-# which exceeds 3 tiles of longitude at this latitude — that's why we
-# bumped from 3x3 to 5x5).
-LAT_RANGE = (48, 52)
-LON_RANGE = (15, 19)
+# Region: lat 14..16°N, lon 22..24°E, 3x3 tiles
+LAT_RANGE = (14, 16)
+LON_RANGE = (22, 24)
 LANDMARKS = [
-    ("Aristoteles", 50.2, 17.4),     # 87 km, the centerpiece
-    ("Eudoxus",     44.3, 16.3),     # 67 km — out of frame, well to the south
-    ("Mitchell",    49.7, 20.2),     # 30 km — east of Aristoteles, in frame
+    ("Plinius",  15.4, 23.7),       # 43 km — the centerpiece
+    ("Dawes",    17.2, 26.3),       # 18 km — east of Plinius, just outside frame
 ]
+REGION_SLUG = "plinius"             # used for output filenames
+REGION_TITLE = "Plinius / Mare Tranquillitatis-Serenitatis edge"
 SEED = 12345
 
 
@@ -160,15 +148,22 @@ def load_elevation():
         return (1.0 - x) ** 2
 
     fade = _fade(band)
+    # Cap each per-column / per-row correction so a chance large step
+    # in real terrain at the seam doesn't get amplified into a deep
+    # outlier. After BFS mean alignment, residuals should be small —
+    # anything bigger than ~80 units almost certainly is real terrain
+    # that happens to cross the seam, not encoding error. (For mostly
+    # flat regions like Mare Tranquillitatis the cap is what keeps the
+    # algorithm from carving artificial pits at corners.)
+    correction_cap = 80.0
+
+    def _capped(step_arr):
+        return np.clip(step_arr, -correction_cap, correction_cap)
+
     for r in range(tile_size, h, tile_size):
-        # per-column step at this seam (top-row vs bottom-row)
         step = elevation[r, :] - elevation[r - 1, :]
-        # smooth along the column axis to keep low-freq part (which is
-        # the encoding artefact) and discard high-freq (real terrain)
         step = gaussian_blur(step[None, :], 6.0)[0]
-        # subtract half the step from rows >= r (fading out), add half
-        # to rows < r (fading inward). This way both sides share the
-        # correction symmetrically.
+        step = _capped(step)
         for i in range(band):
             if r + i < h:
                 elevation[r + i, :] -= 0.5 * step * fade[i]
@@ -177,6 +172,7 @@ def load_elevation():
     for c in range(tile_size, w, tile_size):
         step = elevation[:, c] - elevation[:, c - 1]
         step = gaussian_blur(step[:, None], 6.0)[:, 0]
+        step = _capped(step)
         for i in range(band):
             if c + i < w:
                 elevation[:, c + i] -= 0.5 * step * fade[i]
@@ -301,18 +297,21 @@ def render_real():
     e_norm = (elevation - elevation.min())
     e_norm /= max(1e-6, e_norm.max())
     Image.fromarray((e_norm * 255).astype(np.uint8), mode="L").save(
-        os.path.join(OUT, "aristoteles_heightmap.png"))
+        os.path.join(OUT, f"{REGION_SLUG}_heightmap.png"))
 
-    # Pink-noise regolith micro-texture (same params as the procedural
-    # pipeline locked at amp 0.015, no blur).
-    elevation_with_texture = elevation + 0.015 * pink_noise(
+    # Pink-noise regolith micro-texture, but at lower amplitude than
+    # the procedural pipeline. Real LOLA data already encodes the
+    # large-scale terrain; we just want a hint of granular regolith
+    # without drowning subtle features like Plinius' shallow bowl.
+    elevation_with_texture = elevation + 0.005 * pink_noise(
         elevation.shape, rng)
 
-    # Hillshade + cast shadows. z_factor lower than the procedural
-    # render because real elevation has wider absolute range and we
-    # already scaled to roughly the FBM amplitude.
-    sh = hillshade(elevation_with_texture, z_factor=45.0, smooth_px=1.0)
-    cast = cast_shadows(elevation_with_texture, z_factor=45.0,
+    # Higher z_factor than the procedural pipeline because real terrain
+    # at this scale + this region has small relief amplitude — Plinius
+    # is genuinely a shallow ~2km crater on a flat ~30km mare basin.
+    # Need vertical exaggeration to make the bowl read as a bowl.
+    sh = hillshade(elevation_with_texture, z_factor=110.0, smooth_px=1.0)
+    cast = cast_shadows(elevation_with_texture, z_factor=110.0,
                          max_distance_px=80.0)
 
     # Albedo: derived from low-pass elevation (mare↔highland gradient).
@@ -346,8 +345,8 @@ def render_real():
     # Upscale to 1200 px for nicer output
     img = Image.fromarray(out).resize((1200, 1200), Image.LANCZOS)
     img = annotate_landmarks(img, (1200, 1200))
-    img.save(os.path.join(OUT, "aristoteles_real.png"))
-    print(f"  wrote {os.path.join(OUT, 'aristoteles_real.png')}")
+    img.save(os.path.join(OUT, f"{REGION_SLUG}_real.png"))
+    print(f"  wrote {os.path.join(OUT, f'{REGION_SLUG}_real.png')}")
     return img
 
 
@@ -394,8 +393,9 @@ def render_compare(real_img):
                             "Procedural (FBM + Bridson craters)",
                             font_size=20)
     real_img2 = label_image(real_img,
-                             "Real LOLA elevation — Aristoteles region "
-                             "(lat 49..51°N, lon 16..18°E)",
+                             f"Real LOLA elevation — {REGION_TITLE} "
+                             f"(lat {LAT_RANGE[0]}..{LAT_RANGE[1]}°N, "
+                             f"lon {LON_RANGE[0]}..{LON_RANGE[1]}°E)",
                              font_size=20)
     composite.paste(proc_img, (0, 50))
     composite.paste(real_img2, (1200 + pad, 50))
@@ -405,15 +405,15 @@ def render_compare(real_img):
     except OSError:
         font = ImageFont.load_default()
     draw = ImageDraw.Draw(composite)
-    draw.text((10, 12), "raylib-colony  --  procedural vs real-moon "
-              "(Aristoteles / Mare Frigoris edge)",
+    draw.text((10, 12), f"raylib-colony  --  procedural vs real-moon "
+              f"({REGION_TITLE})",
               fill=(230, 230, 230), font=font)
-    composite.save(os.path.join(OUT, "aristoteles_compare.png"))
-    print(f"  wrote {os.path.join(OUT, 'aristoteles_compare.png')}")
+    composite.save(os.path.join(OUT, f"{REGION_SLUG}_compare.png"))
+    print(f"  wrote {os.path.join(OUT, f'{REGION_SLUG}_compare.png')}")
 
 
 def main():
-    print("== rendering Apollo 11 region from LOLA elevation ==")
+    print(f"== rendering {REGION_TITLE} from LOLA elevation ==")
     real_img = render_real()
     print("== procedural side-by-side ==")
     render_compare(real_img)
