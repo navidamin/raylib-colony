@@ -724,10 +724,11 @@ def build_planet(seed=SEED):
     print("[3/6] crater field...")
     craters = sample_craters(shape, rng)
     height_with_craters = apply_craters(height_with_mare.copy(), craters, rng)
-    # Add a fine regolith texture: pink (1/f) noise, amp 0.015, no blur.
-    # Picked from the v3 texture-comparison sweep — softest visible level
-    # that still gives the densely-jagged regolith look from LRO photos.
-    height_with_craters = height_with_craters + 0.015 * pink_noise(shape, rng)
+    # Pink (1/f) noise regolith texture, amp 0.03 with sigma=1.5 blur
+    # — softer than raw pink at the same amp, gives the "v3 pink + blur"
+    # look from the texture-comparison sheet.
+    height_with_craters = height_with_craters + 0.03 * gaussian_blur(
+        pink_noise(shape, rng), 1.5)
     save_gray(height_with_craters, os.path.join(OUT, "stage3_craters.png"))
 
     print("[4/6] hillshade + cast shadows...")
@@ -788,7 +789,8 @@ def render_archetype_tiles():
         h_with = apply_craters(h_with, sample_craters(
             (tile_px, tile_px), local_rng,
             count_small=40, count_med=15, count_big=1), local_rng)
-        h_with = h_with + 0.015 * pink_noise((tile_px, tile_px), local_rng)
+        h_with = h_with + 0.03 * gaussian_blur(
+            pink_noise((tile_px, tile_px), local_rng), 1.5)
         sh = hillshade(h_with, z_factor=35.0, smooth_px=1.0)
         cast = cast_shadows(h_with, z_factor=35.0, max_distance_px=40.0)
         arch_idx = ARCHETYPE_ORDER.index(arch_name)
@@ -911,7 +913,7 @@ def render_seed_variants():
         h2 = apply_craters(h2, sample_craters(
             shape, rng,
             count_small=80, count_med=30, count_big=3), rng)
-        h2 = h2 + 0.015 * pink_noise(shape, rng)
+        h2 = h2 + 0.03 * gaussian_blur(pink_noise(shape, rng), 1.5)
         sh = hillshade(h2, z_factor=35.0, smooth_px=1.0)
         cast = cast_shadows(h2, z_factor=35.0, max_distance_px=40.0)
         ag = assign_archetype_grid(rng)

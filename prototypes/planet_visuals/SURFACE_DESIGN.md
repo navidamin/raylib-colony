@@ -76,10 +76,10 @@ the same depth distribution so any crater can be deep or shallow.
 ### Surface texture
 
 ```python
-height_with_craters += 0.015 * pink_noise(shape, rng)
+height_with_craters += 0.03 * gaussian_blur(pink_noise(shape, rng), 1.5)
 ```
 
-Pink noise (1/f spectrum) at amplitude 0.015, no post-blur. Picked
+Pink noise (1/f spectrum) at amplitude 0.03 with sigma=1.5 post-blur. Picked
 from the v3 sweep as the softest visible setting that still gives
 the densely-jagged regolith look from LRO photos. Comparison sheets
 in `output/texture_comparison{,_v2,_v3}.png`.
@@ -138,7 +138,8 @@ Three iteration rounds, each produced six side-by-side variants:
 - `output/texture_comparison_v3.png` — pink-noise softness sweep:
   amplitude {0.015, 0.022, 0.030} × blur sigma {0, 1.5}.
 
-The current pipeline uses v3 top-left: pink, amp=0.015, blur=0.
+The current pipeline uses pink, amp=0.03, blur sigma=1.5 (the
+"pink + blur" cell — softer than raw pink at the same amplitude).
 
 ---
 

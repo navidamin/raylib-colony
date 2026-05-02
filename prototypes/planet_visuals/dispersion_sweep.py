@@ -25,8 +25,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from generate import (
     PLANET_GRID, apply_craters, assign_archetype_grid,
-    cast_shadows, colourise, fbm, hillshade, label_image,
-    pink_noise, sample_craters,
+    cast_shadows, colourise, fbm, gaussian_blur, hillshade,
+    label_image, pink_noise, sample_craters,
 )
 
 OUT = os.path.join(os.path.dirname(__file__), "output")
@@ -63,7 +63,7 @@ def render_one(density_mult, size_scale, depth_variance):
                               size_scale=size_scale)
     h_with = apply_craters(height.copy(), craters, rng,
                             depth_variance=depth_variance)
-    h_with = h_with + 0.015 * pink_noise(shape, rng)
+    h_with = h_with + 0.03 * gaussian_blur(pink_noise(shape, rng), 1.5)
 
     sh = hillshade(h_with, z_factor=75.0, smooth_px=1.0)
     cast = cast_shadows(h_with, z_factor=75.0)
