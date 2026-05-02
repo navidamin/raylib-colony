@@ -77,3 +77,27 @@ constexpr float CRYSTAL_PRIMARY_FAMILY_CHANCE = 0.70f;
 // Crystal templates per shape family
 constexpr int CRYSTAL_TEMPLATES_PER_FAMILY = 5;
 constexpr int CRYSTAL_TOTAL_TEMPLATES = 20;
+
+// --- Sweep mechanics ---
+
+// Maximum frequency band accessible per tier (-1 = no sweep capability)
+constexpr int MAX_SWEEP_BAND_PER_TIER[] = { -1, 0, 2, 3 };
+
+// Sweep noise: base noise decreases with tier
+constexpr float SWEEP_BASE_NOISE = 0.15f;
+constexpr float SWEEP_NOISE_PER_TIER = 0.03f;
+
+// Sweep noise: low frequency adds noise (blurrier deep signals)
+constexpr float SWEEP_NOISE_PER_BAND = 0.04f;
+
+// Sweep noise: poor calibration adds noise
+constexpr float SWEEP_CALIBRATION_NOISE_WEIGHT = 0.10f;
+
+// Spatial blur: neighbor blending weight per frequency band
+constexpr float SWEEP_BLUR_PER_BAND = 0.15f;
+
+// Depth signal attenuation: attenuation = 1 / (1 + depth * factor)
+constexpr float SWEEP_DEPTH_ATTENUATION = 0.5f;
+
+// Anomaly detection: cells above mean + threshold * stddev
+constexpr float SWEEP_ANOMALY_THRESHOLD = 1.5f;

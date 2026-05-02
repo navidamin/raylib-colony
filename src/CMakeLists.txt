@@ -19,6 +19,7 @@ target_sources(colony_game PRIVATE
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
+    Prospecting/sweep_engine.cpp
     transport_types.cpp
 )
 
