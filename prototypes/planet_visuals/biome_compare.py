@@ -41,6 +41,30 @@ OUT = os.path.join(os.path.dirname(__file__), "output")
 SEED = 12345
 
 
+def assign_archetype_grid_voronoi(rng):
+    """Snapshot of the original Voronoi assignment kept here so the
+    A/B comparison still renders. Replaced by the noise-field method
+    in generate.py."""
+    centroids = [
+        (arch, rng.uniform(0, PLANET_GRID), rng.uniform(0, PLANET_GRID))
+        for arch in ARCHETYPE_ORDER
+    ]
+    grid = np.zeros((PLANET_GRID, PLANET_GRID), dtype=np.int32)
+    for gy in range(PLANET_GRID):
+        for gx in range(PLANET_GRID):
+            best = 0
+            best_d = 1e9
+            for i, (_, cx, cy) in enumerate(centroids):
+                d = (gx - cx) ** 2 + (gy - cy) ** 2
+                if ARCHETYPE_ORDER[i] == "POLAR_VOLATILE":
+                    d *= 1.0 + (PLANET_GRID / 2 - abs(gy - PLANET_GRID / 2))
+                if d < best_d:
+                    best_d = d
+                    best = i
+            grid[gy, gx] = best
+    return grid
+
+
 # ---------------------------------------------------------------------------
 # New biome assignment
 # ---------------------------------------------------------------------------
@@ -175,7 +199,7 @@ def biome_legend(width):
 def main():
     rng_old = np.random.default_rng(SEED)
     rng_new = np.random.default_rng(SEED)
-    grid_old = assign_archetype_grid(rng_old)
+    grid_old = assign_archetype_grid_voronoi(rng_old)
     grid_new = assign_archetype_grid_v2(rng_new)
 
     # Tally biome counts for each

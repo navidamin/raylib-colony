@@ -530,30 +530,63 @@ ARCHETYPE_ORDER = list(ARCHETYPES.keys())  # stable index <-> name
 
 def assign_archetype_grid(rng):
     """Return (PLANET_GRID, PLANET_GRID) ints into ARCHETYPE_ORDER.
-    Cluster archetypes by seeded centroids so neighbours agree most of the
-    time — this is what the real game does via SiteArchetype classification.
+
+    Noise-field biome assignment with hard constraints (calibrated in
+    biome_compare.py — see that script for visual A/B against the
+    earlier Voronoi version).
+
+      * MARE in the top 20% of an FBM noise field. Low-frequency noise
+        gives connected mare blobs that look like real basin geology
+        (Mare Imbrium, Mare Crisium etc. — connected, not scattered).
+      * POLAR forced at top-2 / bottom-2 rows of the grid.
+      * KREEP at 1-2 random radial hotspots (~5-10 cells each).
+      * LAVA TUBE at 1-3 randomly scattered isolated cells.
+      * MIXED auto-assigned in the ±0.04 band around the mare threshold
+        — that's the mare-highland transition zone.
+      * HIGHLAND is the default fill for everything else.
+
+    Resulting proportions per planet roughly: mare 10%, highland 50%,
+    polar 20%, kreep 2%, lava 0.5%, mixed 15% (boundaries).
     """
-    centroids = []
-    for arch in ARCHETYPE_ORDER:
-        centroids.append((
-            arch,
-            rng.uniform(0, PLANET_GRID),
-            rng.uniform(0, PLANET_GRID),
-        ))
-    grid = np.zeros((PLANET_GRID, PLANET_GRID), dtype=np.int32)
-    for gy in range(PLANET_GRID):
-        for gx in range(PLANET_GRID):
-            best = 0
-            best_d = 1e9
-            for i, (_, cx, cy) in enumerate(centroids):
-                d = (gx - cx) ** 2 + (gy - cy) ** 2
-                # bias polar toward edges (top/bottom rows)
-                if ARCHETYPE_ORDER[i] == "POLAR_VOLATILE":
-                    d *= 1.0 + (PLANET_GRID / 2 - abs(gy - PLANET_GRID / 2))
-                if d < best_d:
-                    best_d = d
-                    best = i
-            grid[gy, gx] = best
+    g = PLANET_GRID
+    shape = (g, g)
+
+    mare_strength = fbm(shape, 3, 4, 0.5, rng)
+    mare_thresh = float(np.percentile(mare_strength, 80))
+
+    yy = np.arange(g).reshape(-1, 1).repeat(g, axis=1)
+    polar_mask = (yy < 2) | (yy >= g - 2)
+
+    kreep_mask = np.zeros(shape, dtype=bool)
+    n_hotspots = int(rng.integers(1, 3))
+    for _ in range(n_hotspots):
+        cx = int(rng.integers(3, g - 3))
+        cy = int(rng.integers(3, g - 3))
+        radius = float(rng.uniform(1.5, 2.5))
+        ys, xs = np.mgrid[0:g, 0:g]
+        d = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
+        kreep_mask |= (d < radius)
+
+    lava_mask = np.zeros(shape, dtype=bool)
+    n_lava = int(rng.integers(1, 4))
+    for _ in range(n_lava):
+        x = int(rng.integers(0, g))
+        y = int(rng.integers(0, g))
+        lava_mask[y, x] = True
+
+    mixed_mask = (
+        (mare_strength > mare_thresh - 0.04)
+        & (mare_strength < mare_thresh + 0.04)
+    )
+
+    grid = np.full(shape, ARCHETYPE_ORDER.index("HIGHLAND_CONSTRUCTION"),
+                    dtype=np.int32)
+    grid[mare_strength > mare_thresh] = ARCHETYPE_ORDER.index("MARE_INDUSTRIAL")
+    overridable = ~(polar_mask | kreep_mask | lava_mask)
+    grid[mixed_mask & overridable] = ARCHETYPE_ORDER.index("MIXED")
+    grid[kreep_mask] = ARCHETYPE_ORDER.index("KREEP_SCIENTIFIC")
+    grid[polar_mask] = ARCHETYPE_ORDER.index("POLAR_VOLATILE")
+    grid[lava_mask] = ARCHETYPE_ORDER.index("LAVA_TUBE")
     return grid
 
 
