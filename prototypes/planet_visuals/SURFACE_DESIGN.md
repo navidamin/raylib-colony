@@ -1,22 +1,48 @@
 # Planet surface generation — design notes
 
-Living document describing the procedural moon-surface pipeline in
-`generate.py`, what each parameter does, and what's still on the
-table for future iteration.
+Living document for the planet visual prototype. Read this to pick up
+the work without re-deriving everything from the conversation history.
 
-Use this to pick up where we left off without re-deriving everything.
+The prototype lives entirely in `prototypes/planet_visuals/`. It is
+**not yet wired into the game** (no C++, no texture loading hook). The
+goal is to validate the look first, then port whichever path the user
+picks (bake-time PNG vs run-time shader).
 
 ---
 
-## Pipeline overview
+## Two pipelines, same renderer
 
-Six stages, each emits a debug PNG to `output/stage*.png`:
+| Script | Purpose | Output |
+|---|---|---|
+| `generate.py` | Procedural moon surface (FBM heightmap + crater generator) | `output/planet_full.png`, `comparison.png`, `seed_variants.png`, `archetype_tiles.png`, etc. |
+| `generate_real.py` | Real-data moon surface (LOLA elevation tiles for a named region) | `output/{region}_real.png`, `{region}_compare.png`, `{region}_heightmap.png` |
+| `wrap_to_sphere.py` | Project flat planet PNG onto a sphere disc | `output/planet_orbital.png` |
+
+The shading core is shared — both pipelines use the same hillshade,
+cast shadows, AO, archetype tinting, and pink-noise texture. The only
+difference is the heightmap source.
+
+### Auxiliary scripts
+
+| Script | What it does |
+|---|---|
+| `sanity_crater.py` | Lighting math sanity sheet (NW ramp / hill / crater + size sweep) |
+| `texture_comparison.py` / `_v2.py` / `_v3.py` | A/B sheets that picked the current regolith texture |
+| `dispersion_sweep.py` | A/B sheets that picked the current crater dispersion |
+| `biome_compare.py` | A/B of old (Voronoi) vs new (noise-field) biome distribution |
+
+---
+
+## Procedural pipeline (`generate.py`)
+
+Six stages, each emits a debug PNG:
 
 1. **Heightmap (FBM)** — multi-octave value-noise FBM, compressed to
-   ~30% amplitude. Provides very gentle regional relief; deliberately
-   small so it doesn't read as basins.
-2. **Mare basins** — *currently disabled*. Mask is still computed for
-   the pipeline diagram but contributes nothing to height or albedo.
+   ~30% amplitude. Gentle regional relief; deliberately small so it
+   doesn't read as basins.
+2. **Mare basins** — *currently disabled*. Mask is computed for the
+   pipeline diagram but contributes nothing to height or albedo. The
+   biome-tinting layer carries the mare/highland distinction now.
 3. **Crater field** — Bridson-ish placement + secondary clusters,
    profile = flat floor + power-curve wall + tiny rim (no ejecta).
    Plus a fine pink-noise (1/f) regolith texture added on top.
@@ -26,191 +52,296 @@ Six stages, each emits a debug PNG to `output/stage*.png`:
 5. **Archetype tinting** — per-cell `SiteArchetype` picks the base
    colour. All archetype base colours kept in a tight 138..168
    brightness range so no biome reads as a shadow patch.
-6. **Decals + dust** — biome-specific decals (lava-tube voids, polar
-   frost glints, KREEP warm bloom) + regolith dust grain.
+6. **Decals + dust** — lava-tube voids, polar frost glints, KREEP
+   bloom, regolith dust grain.
 
----
+### Locked parameters (calibrated through ~5 sweep iterations)
 
-## Parameter reference
+#### Heightmap (`build_planet`)
 
-### Heightmap (`build_planet`)
+| Parameter | Value |
+|---|---|
+| `base = fbm(.., 5, 384, 0.5)` | 5 octaves, base scale 384 |
+| `detail = fbm(.., 3, 128, 0.5)` | 3 octaves, base scale 128 |
+| `height = 0.92*base + 0.08*detail` | mostly base |
+| `(height - mean) * 0.30` | 30% amplitude compression |
 
-| Parameter | Value | Why |
-|---|---|---|
-| `base = fbm(.., 5, 384, 0.5)` | 5 octaves, base scale 384 | Large-scale relief |
-| `detail = fbm(.., 3, 128, 0.5)` | 3 octaves, base scale 128 | Mid-scale variation |
-| `height = 0.92*base + 0.08*detail` | mostly base | Detail almost zero |
-| `(height - mean) * 0.30` | 30% amplitude compression | Otherwise FBM dips read as basins |
-
-### Crater placement (`sample_craters`)
+#### Crater placement (`sample_craters` defaults)
 
 | Parameter | Value | Why |
 |---|---|---|
-| `count_small/med/big` | 17 / 7 / 1 | Sparse mare-like preset, picked from the v4 dispersion sweep at density_mult=0.12 |
+| `count_small/med/big` | 17 / 7 / 1 | Sparse mare-like preset (density 0.12 of original) |
 | `size_scale` | 1.5 | Uniform multiplier on all crater radii |
-| `size_variance` | 0.5 | Tight buckets — most craters near each bucket's centre size |
-| `depth_scale` | 1.0 | Uniform multiplier on baseline depth |
-| `depth_variance` | 1.0 | Wide spread of per-crater depths around the mean |
-| Radii ranges | 8-18 / 18-42 / 42-110 px | Power-law size mix |
-| `min_separation` | 1.35 × (r1+r2) | Looser gives a less Bridson-clustered look at this density |
+| `size_variance` | 0.5 | Tight buckets — most craters near each bucket centre |
+| `min_separation` | 1.35 × (r1+r2) | Looser → less Bridson clustering |
+| `age_alpha` | 4.0 | Beta(α, 1.5) — heavily skewed older / eroded |
 | Bridson growth ratio | 15% near, 85% global | Mostly uniform, Bridson rescue only |
 | Secondary threshold | r > 55 | Only the very biggest spawn rays |
-| Secondaries per primary | 1..3 | Rare visible chains, not clusters |
-| Secondary radii | 4..9 px | Smaller than smallest primary |
-| Secondary placement | annulus 1.8..3.5 r, 55% along 1 of 2 ray angles | Ejecta-chain look |
+| Secondaries per primary | 1..3 | Rare visible chains |
 
-### Crater profile (`apply_craters`)
+Native bucket radii: 8-18 / 18-42 / 42-110 px. After `size_scale=1.5`
+that becomes 12-27 / 27-63 / 63-165.
+
+#### Crater profile (`apply_craters` defaults)
 
 | Zone | d range | Shape |
 |---|---|---|
 | Floor | 0..0.70 | Flat at `depth_amp` |
-| Wall | 0.70..0.95 | `depth_amp * (1 - u^p)`, p = 3..5 (deeper = steeper top) |
-| Rim | 0.95..1.05 | Gaussian peak at d=1.00, σ=0.05, height = 5% of depth |
+| Wall | 0.70..0.95 | `depth_amp * (1 - u^p)`, p = 3..5 |
+| Rim | 0.95..1.05 | Gaussian peak, height = 5% of depth |
 | Ejecta | — | **Disabled** (was reading as crater overlap) |
 
-| Per-crater random | Distribution | Range |
-|---|---|---|
-| `depth_jitter` | 1.0 + (Beta(2.2, 2.2) × 1.6 − 0.8) × `depth_variance`, clipped at 0.05 | depth_variance=1 → 0.20..1.80 |
-| `age` | Beta(4.0, 1.5) (heavily skewed older) | 0..1 — calibrated for highland realism |
-| `depth_amp` | -0.42 × sharp × jitter | -0.05 to -0.66 |
+| Per-crater | Distribution |
+|---|---|
+| `depth_jitter` | `1.0 + (Beta(2.2, 2.2) × 1.6 − 0.8) × depth_variance`, clipped at 0.05 |
+| `age` | `Beta(age_alpha, 1.5)` |
+| `depth_amp` | `-0.42 × sharp × jitter × depth_scale` |
 
-`size_factor` was removed deliberately — every radius now draws from
-the same depth distribution so any crater can be deep or shallow.
+| Parameter | Locked default |
+|---|---|
+| `depth_scale` | 1.0 |
+| `depth_variance` | 1.0 |
 
-### Surface texture
+#### Surface texture
 
 ```python
 height_with_craters += 0.03 * gaussian_blur(pink_noise(shape, rng), 1.5)
 ```
 
-Pink noise (1/f spectrum) at amplitude 0.03 with sigma=1.5 post-blur. Picked
-from the v3 sweep as the softest visible setting that still gives
-the densely-jagged regolith look from LRO photos. Comparison sheets
-in `output/texture_comparison{,_v2,_v3}.png`.
+#### Lighting
 
-### Lighting
+| Parameter | Value |
+|---|---|
+| `azimuth` | 315° (NW) |
+| `altitude` | 35° |
+| `z_factor` | 75 |
+| `smooth_px` | 1.0 |
+| Cast-shadow ray-march | max 70 px, step 1.5, soft edge band 0.35 × tan(alt) |
+| Floor AO | `1 - clip(depth_below × 0.85, 0, 0.45)` |
 
-| Parameter | Value | Notes |
+#### Archetype palette (all in 138..168 brightness range)
+
+| Archetype | Base RGB |
+|---|---|
+| MARE_INDUSTRIAL | (138,134,128) |
+| HIGHLAND_CONSTRUCTION | (162,158,150) |
+| POLAR_VOLATILE | (168,174,184) |
+| KREEP_SCIENTIFIC | (158,144,130) |
+| LAVA_TUBE | (148,142,134) |
+| MIXED | (152,146,138) |
+
+Height-based shadow/high blending was **removed** — produced soft
+circular dark patches anywhere the FBM dipped. Albedo is now purely
+the archetype base colour, modulated by hillshade + cast shadows + AO.
+
+#### Biome distribution (`assign_archetype_grid`)
+
+Switched from Voronoi-with-random-centroids to **noise-field with
+hard constraints** (the "v2" approach validated in `biome_compare.py`).
+
+  * MARE in the top 20% of an FBM noise field. Connected blobs.
+  * POLAR forced at top-2 / bottom-2 rows.
+  * KREEP at 1-2 random radial hotspots (~5-10 cells each).
+  * LAVA TUBE at 1-3 randomly scattered isolated cells.
+  * MIXED auto-assigned in ±0.04 band around mare threshold.
+  * HIGHLAND default fill.
+
+Resulting proportions per planet roughly: mare 10% / highland 50% /
+polar 20% / kreep 2% / lava 0.5% / mixed 15%.
+
+---
+
+## Real-data pipeline (`generate_real.py`)
+
+End-to-end render of a named lunar region using LOLA-derived
+elevation. Path is **proven** (Plinius region renders cleanly). Region
+swap is a 5-line edit at the top of the script:
+`REGION_SLUG`, `REGION_TITLE`, `LAT_RANGE`, `LON_RANGE`, `LANDMARKS`.
+
+### Data source
+
+NASA/USGS hosts (Astrogeology, Moon Trek, PDS) are blocked from the
+sandbox. Working source is the GitHub mirror:
+
+  `jaanga/moon-heightmaps-256p-ne` (gh-pages branch)
+
+Encoded as 1°×1° PNG tiles at 256 ppd (~117 m/pixel). Elevation
+packed into PNG R/G channels: `height = R + 255 × G`. Repo covers the
+NE quadrant (lat 0..60°N, lon 0..180°E). Other quadrants exist as
+sibling repos (`-se`, `-sw`, `-nw`).
+
+Cached tiles under `data/{region}/lat{N}_lon{E}.png`.
+
+### Region currently set up
+
+**Plinius** (15.4°N, 23.7°E, 43 km crater on Mare Tranquillitatis /
+Mare Serenitatis boundary).
+
+  * 3×3 tile patch at lat 14..16°N, lon 22..24°E (~91×88 km)
+  * Plinius is a sharp-rimmed fresh crater, depth/D ≈ 0.047
+  * Surrounding mare is flat — many small fresh craters scattered
+
+### Failed / abandoned regions
+
+  * **Apollo 11** (Mare Tranquillitatis) — too flat, geologically real
+    but visually featureless at 90×90 km / 117 m/pixel.
+  * **Aristoteles** (87 km crater, lat 50.2°N, lon 17.4°E) — too big
+    (rim outside even a 5×5 patch in longitude) and depth/D = 0.038
+    (visually shallow).
+
+### Tile-seam artefact handling
+
+Per-tile encoding has ~700-unit DC offset jumps at tile boundaries.
+Fixed in two passes:
+
+  1. **BFS mean-alignment** from a pinned centre tile.
+  2. **Per-column / per-row residual correction** at every seam:
+     compute the step at each column, low-pass filter (keep encoding
+     artefact, discard real terrain), symmetrically subtract from
+     both sides over a 24-px fade band. Step magnitude capped at
+     ±80 units to prevent runaway corrections in flat regions.
+
+### Differences vs procedural pipeline
+
+| | Procedural | Real-data |
 |---|---|---|
-| `azimuth` | 315° (NW) | Standard hillshade convention |
-| `altitude` | 35° | Low enough that small craters cast shadow |
-| `z_factor` | 75 | Vertical exaggeration |
-| `smooth_px` | 1.0 | Pre-blur to suppress single-pixel noise |
-| Cast-shadow ray-march | max 70 px, step 1.5, soft edge band 35% of tan(alt) | Continuous shadow gradient |
-| Floor AO | `1 - clip(depth_below × 0.85, 0, 0.45)` | Crater bottoms ~70% as bright as ground |
+| Heightmap | FBM | Sampled LOLA |
+| Crater generator | sample_craters() | Skipped — real craters in elevation |
+| Albedo | Archetype palette | Synthetic mare-vs-highland gradient from low-pass elevation |
+| Texture amp | 0.03 | 0.005 (real data already has detail) |
+| Boundary | Square | Soft circular disc on deep-space background |
+| Markers | None | Annotated landmark crosshairs |
 
-### Archetype palette
+Real WAC mosaic for true albedo is **TODO** — sandbox doesn't allow
+USGS/NASA hosts and we haven't found a github mirror. The synthetic
+gradient is a stand-in.
 
-All `base` colours in 138..168 brightness range:
+---
 
-| Archetype | Base RGB | Tint |
+## Sphere-wrap (`wrap_to_sphere.py`)
+
+Projects `planet_full.png` onto a sphere viewed head-on. Output:
+`planet_orbital.png` — moon disc with limb darkening on a starfield.
+
+Math:
+  * Treats input as equirectangular projection of one hemisphere
+  * For each pixel `(xs, ys)` in the disc: `z = √(1 − xs² − ys²)`
+  * `lat = asin(ys)`, `lon = atan2(xs, z)`
+  * Bilinear sample texture at `(lat, lon) → (tx, ty)`
+  * Brightness × `z^0.6` for limb darkening
+  * Soft disc edge blended over the starfield
+
+Limitations: the input texture's hillshade is baked for top-down NW
+sun, so crater shadows near the disc edge won't match the globe's
+true normals. Acceptable for a thumbnail / planet-select UI.
+
+---
+
+## Decision log
+
+Major calls made through the iteration. Reverse chronological.
+
+| Date / sweep | Decision | Reason |
 |---|---|---|
-| MARE_INDUSTRIAL | (138,134,128) | Neutral grey |
-| HIGHLAND_CONSTRUCTION | (162,158,150) | Slightly warm |
-| POLAR_VOLATILE | (168,174,184) | Cool blue |
-| KREEP_SCIENTIFIC | (158,144,130) | Warm tan |
-| LAVA_TUBE | (148,142,134) | Neutral darker grey |
-| MIXED | (152,146,138) | Neutral |
-
-Height-based shadow/high blending was **removed** — it was producing
-soft circular dark patches anywhere the FBM dipped. Albedo is now
-purely the archetype base colour, modulated only by hillshade and
-cast shadows.
-
----
-
-## Sanity test
-
-`sanity_crater.py` produces `output/sanity_crater.png` — three rows
-of trivial test surfaces (NW ramp, hill, crater) plus a crater-size
-sweep. The hill and crater rows should look like opposites; the
-size sweep should grade from fully-shadowed small craters to lit
-big bowls. Run after any change to lighting math.
+| Sphere wrap | Build option B (projection + limb darkening) over A (disc crop) | Looks like a real moon thumbnail; cheap |
+| Biome v2 | Wire noise-field as default `assign_archetype_grid` | Voronoi was geologically chaotic |
+| Per-biome density | **Skip for now** (bullet on future-work list) | Locked sparse preset reads as believable terrain regardless of biome tint |
+| Game integration approach | **Hybrid**: real data for orbital/region-selection; procedural for surface gameplay; biome category links them | Real mare regions are visually flat at gameplay scale; procedural is replayable |
+| Texture amp/blur | 0.03 / σ=1.5 | "Pink + blur" cell from v3 sweep — softer pink |
+| Dispersion v4 (locked) | density 0.12 / size_scale 1.5 / size_variance 0.5 / depth_scale 1.0 / depth_variance 1.0 | Sparse mare-like, picked by user from v4 sweep |
+| `age_alpha=4.0`, `min_sep=1.35` | Locked from v1 sweep | Heavily eroded + breathing room reads as natural |
+| Real-data region: Plinius | Pivoted from Apollo 11 (too flat) → Aristoteles (too big/shallow) → Plinius | Right scale + sharp rim for the data resolution |
+| Crater profile | Flat floor + power-curve wall + tiny rim, **no ejecta** | Real LRO morphology; ejecta was reading as crater overlap |
+| Mare basin layer | **Disabled** | Soft circular dark patches read as ugly shadows |
+| Archetype palette | Tight 138..168 brightness range | Bigger spread caused biome blocks to read as shadows |
 
 ---
 
-## Texture comparison sheets
+## Game integration plan (proposed, not implemented)
 
-Three iteration rounds, each produced six side-by-side variants:
+The conversation landed on a **hybrid layered** approach:
 
-- `output/texture_comparison.png` (v1) — six fundamentally different
-  approaches: high-freq FBM, micro-crater swarm, Worley, pink (1/f),
-  Gaussian bumps, domain-warped FBM.
-- `output/texture_comparison_v2.png` — softer variants of pink + Worley
-  family: pink soft, redshift, brown, pink+blur, Worley smoothed,
-  Worley+pink blend.
-- `output/texture_comparison_v3.png` — pink-noise softness sweep:
-  amplitude {0.015, 0.022, 0.030} × blur sigma {0, 1.5}.
+| UI layer | Source | Purpose |
+|---|---|---|
+| Orbital / planet-select | `planet_orbital.png` (sphere-wrapped) | "This is the Moon" recognition |
+| Region selection within planet | Procedural biome map (current `assign_archetype_grid`) overlaid on the orbital image | Player picks a landing biome |
+| Close-up gameplay (sect / unit) | Procedural surface generation, parameters keyed by the cell's `SiteArchetype` | Each landing unique, biome-appropriate |
 
-The current pipeline uses pink, amp=0.03, blur sigma=1.5 (the
-"pink + blur" cell — softer than raw pink at the same amplitude).
+**Don't** generate real-data PNGs for actual gameplay surfaces — real
+mare regions are visually flat at gameplay scale. Real data is for
+the strategic view layer only.
+
+For C++ port: the renderer is a stack of well-isolated functions
+(`fbm`, `pink_noise`, `gaussian_blur`, `hillshade`, `cast_shadows`,
+`apply_craters`, `colourise`). Each is straightforward to port. Two
+paths to wire it in:
+
+  * **Bake-time**: port once, run at game start to produce a single
+    PNG per planet seed, hand to the existing `LoadMoonTiles()`
+    loader. Lower runtime cost, lower fidelity (one zoom level).
+  * **Run-time**: port noise + hillshade to a fragment shader, sample
+    per-pixel with mip levels. Higher cost, infinite zoom.
+
+Bake-time is the cheaper path; recommended unless infinite zoom
+matters.
 
 ---
 
-## Future work (in rough priority)
+## Future work
 
-### 1. Real-data calibration
-Find LRO close-up patches at the same scale as our render and place
-side by side. We've been calibrating against my mental model of
-LRO photos; a literal A/B comparison would surface what's still off.
+Ordered by likely-next-thing-to-touch.
 
-### 2. Texture follow-ups
-- Try other amp/blur cells from v3 in-game and see what reads best at
-  game zoom (the 600-px comparison panels may not be the right scale).
-- Worley + pink blend (v2 #6) was my second pick; could be revisited.
-- Texture currently constant across the whole planet — could vary by
-  archetype (e.g., polar = smoother / icier, KREEP = grainier).
+### A. Per-biome procedural presets
+The locked dispersion is calibrated for "sparse mare-like". Highland
+should be denser. Polar should look icier. Calibrate per-biome
+parameter sets via dispersion-sweep-style A/Bs. This becomes
+necessary for the hybrid plan's close-up gameplay layer.
 
-### 3. Crater morphology gaps
-- Complex craters (large primaries) should have terraced walls and
-  central peaks. The Gaussian-bump central peak we deleted needs to
-  come back with proper morphology — talus around the peak, not a
-  bare dome.
-- Old / eroded craters could have visibly degraded rims and partially
-  filled floors. Currently `age` only damps depth and rim height.
-- Crater-on-crater overlap with the older one partially destroyed
-  ("saturation equilibrium" look) — ruled out for this round but
-  noted as real lunar morphology.
+### B. Sphere wrap re-shading
+The orbital view's lighting is the flat texture's NW sun, baked in.
+Disc edges look slightly off. Add a `--reshade` mode that drops the
+texture's hillshade and re-applies it for the sphere's sun direction.
 
-### 4. Distribution refinements
-- Archetype-aware density: mare regions should be sparser (younger),
-  highlands denser (older / saturated).
-- Better secondary chains: currently 55% biased to one of two random
-  ray directions; real chains follow more discrete radial rays from
-  the primary impact.
+### C. Real WAC mosaic albedo
+Find a github mirror of LROC WAC tiles, plumb into `generate_real.py`.
+Replaces the synthetic mare↔highland gradient with actual reflectance.
+Catches features like Copernicus' bright ray system. Sandbox can't
+reach NASA/USGS directly.
 
-### 5. Lighting + shading
-- Sun angle is fixed at NW altitude 35°. Could vary per planet seed
-  for different "times of day" looks.
-- Could add a subtle limb-darkening / fall-off near the planet edges
-  so the rectangular grid doesn't read as such.
-- Earthshine: a faint blue-tinted fill light from the opposite
-  direction would soften deep cast shadows.
+### D. Complex-crater morphology
+Big primaries should have terraced walls + central peaks. The
+Gaussian-bump central peak we deleted needs to come back with proper
+talus geometry (not a bare dome on a flat floor).
 
-### 6. Mare basin re-introduction
-We disabled mare because the soft circular dark patches read as ugly
-shadows. They were the only physically-meaningful regional dark
-feature, though. Future attempts: make them less circular (heavily
-distorted boundaries), apply only as a subtle albedo shift not a
-height delta, and limit to one per planet maximum.
+### E. Real biome map
+For the hybrid plan's "real_lunar" mode: derive a global biome
+classification from LROC mosaic + LOLA elevation. Single bake. Used
+to seed `assign_archetype_grid` instead of the noise-field method
+when `mode=real_lunar`.
 
-### 7. Decals revisit
-Lava-tube void rosettes, polar frost glints, KREEP warm bloom are
-present but very subtle. With the surface texture now in place they
-might need recalibration to remain visible.
+### F. Game integration plumbing
+C++ port of the renderer. Bake-time path first (least work).
 
-### 8. Archetype tile preview
-The archetype-tile strip (`output/archetype_tiles.png`) is useful for
-tuning per-biome looks in isolation but doesn't reflect any
-biome-specific decals or future-work biome textures.
+### G. Lower priority (deferrable)
+- Mare basin re-introduction (subtle albedo only, no height)
+- Decals revisit — lava-tube voids / KREEP bloom got swamped by texture
+- Crater erosion that actually degrades rim profiles, not just damps
+- Archetype-aware crater density (covered by A above)
 
-### 9. Performance
-Current full-pipeline runtime at 1600×1600: a few seconds. Acceptable
-for a prototype. For run-time bake at game start, the heaviest costs
-are the cast-shadow ray-march and pink-noise FFT.
+---
 
-### 10. Game integration
-Not started. Two paths laid out in the README: bake-time (port to C++
-once, save a per-seed PNG, load via existing `LoadMoonTiles()`) or
-run-time (port noise + hillshade to a fragment shader). Bake-time is
-the cheaper integration path.
+## Branch & commits
+
+Branch: `claude/redesign-planet-visuals-kCrSp`
+
+Most-recent meaningful commits (newest first):
+  * `b6ec5dc` — sphere wrapping (orbital view)
+  * `a2d310e` — wire noise-field biome assignment as default
+  * `e7ac8aa` — biome distribution v2 (compare sheet)
+  * `d86f8e6` — lock procedural defaults from v4 sweep
+  * `3a8b702` — add size_variance parameter
+  * `47986e0` — dispersion sweep v4 (depth_scale + size_variance)
+  * `619f065` — bump pink-noise texture to amp 0.03 + blur 1.5
+  * `f004a07` — switch to Plinius region (real-data)
+
+`git log --oneline -50` for the full picture.
