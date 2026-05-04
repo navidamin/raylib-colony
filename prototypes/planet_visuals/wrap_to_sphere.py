@@ -1,15 +1,24 @@
-"""Wrap the flat planet_full.png onto a sphere viewed head-on.
+"""Wrap a flat moon texture onto a sphere viewed head-on.
 
-Treats the input texture as an equirectangular projection of one
-lunar hemisphere (lat ∈ [-90°, +90°], lon ∈ [-90°, +90°]). For each
-output pixel inside the disc, computes the corresponding sphere
-surface point, converts to lat/lon, and samples the texture.
+Two input layouts supported:
 
-Adds limb darkening (brightness × z^0.6 where z is the surface
-normal's component toward the camera — falls off at the disc edge).
-Composites onto a starfield background.
+  * `extent="hemisphere"`  — square texture covering 180°×180° (the
+    near side only). Original use case: the procedural planet_full.png.
+  * `extent="globe"`       — 2:1 texture covering 360°×180° (the full
+    moon). Use case: real LROC WAC mosaic. Rotate which hemisphere
+    is visible with `camera_lon_deg`.
 
-Output: output/planet_orbital.png
+Both pass through the same projection math: for each output pixel
+(xs, ys) inside the disc, compute z = √(1 − xs² − ys²), then
+lat = asin(ys), lon = atan2(xs, z) (front-hemisphere only). The
+texture-sampling map differs only in how lon → tx scales.
+
+Adds limb darkening (brightness × z^0.6) and a soft disc edge over
+a starfield.
+
+Outputs:
+  output/planet_orbital.png       — procedural planet wrapped
+  output/planet_orbital_real.png  — real moon (WAC mosaic) wrapped
 """
 
 from __future__ import annotations
@@ -35,24 +44,22 @@ def starfield(shape, density=0.0008, brightness=(60, 200), seed=42):
     bs = rng.uniform(brightness[0], brightness[1], n)
     for y, x, b in zip(ys, xs, bs):
         out[y, x] = (b, b, b * 0.95)
-    # Spread a bit so single pixels read at different scales
     return out
 
 
 def wrap_to_sphere(texture_path, output_size=1200, output_path=None,
-                    margin=12, limb_exponent=0.6,
-                    edge_softness=2.0):
-    """Project a square equirectangular hemisphere texture onto a
-    sphere viewed head-on.
+                    margin=12, limb_exponent=0.6, edge_softness=2.0,
+                    extent="hemisphere", camera_lon_deg=0.0,
+                    apply_limb_darkening=True):
+    """Project an equirectangular texture onto a sphere viewed head-on.
 
-    Math:
-      For each output pixel (xs, ys) in [-1, 1]² centred on the disc,
-      compute z = sqrt(1 - xs² - ys²) for the front hemisphere.
-      Convert (xs, ys, z) to lat/lon:  lat = asin(ys),
-                                       lon = atan2(xs, z).
-      Sample the texture at the corresponding equirectangular pixel.
-      Multiply by z^limb_exponent for natural limb darkening.
-      Blend over a starfield background with a soft disc edge.
+    Args:
+      extent: "hemisphere" (180°×180°) or "globe" (360°×180°).
+      camera_lon_deg: only used for "globe" — which longitude is at
+        the disc centre. 0 puts the prime meridian dead-on.
+      apply_limb_darkening: real WAC mosaics already have natural
+        limb shading baked in; setting this to False avoids
+        double-darkening at the disc edge.
     """
     src = np.asarray(Image.open(texture_path).convert("RGB"),
                       dtype=np.float32)
@@ -60,7 +67,6 @@ def wrap_to_sphere(texture_path, output_size=1200, output_path=None,
 
     bg = starfield((output_size, output_size))
 
-    # Per-pixel coords
     yy, xx = np.mgrid[0:output_size, 0:output_size].astype(np.float32)
     cx = cy = output_size / 2
     r_px = output_size / 2 - margin
@@ -70,17 +76,24 @@ def wrap_to_sphere(texture_path, output_size=1200, output_path=None,
     d2 = u * u + v * v
     z = np.sqrt(np.clip(1 - d2, 0, 1))
 
-    # Spherical coords for the front hemisphere
     lat = np.arcsin(np.clip(v, -1, 1))
     lon = np.arctan2(u, np.maximum(z, 1e-6))
 
-    # Equirectangular sample. Texture is treated as a hemisphere:
-    #   lat -π/2..π/2 → ty 0..h_src
-    #   lon -π/2..π/2 → tx 0..w_src
-    tx = (lon + math.pi / 2) / math.pi * w_src
+    if extent == "hemisphere":
+        # 180°×180° texture.  lat -π/2..π/2 → ty 0..h_src,
+        #                     lon -π/2..π/2 → tx 0..w_src.
+        tx = (lon + math.pi / 2) / math.pi * w_src
+    elif extent == "globe":
+        # 360°×180° texture. Apply a longitude offset so the chosen
+        # hemisphere lands at the disc centre.
+        cam_lon_rad = math.radians(camera_lon_deg)
+        lon_shifted = (lon + cam_lon_rad + math.pi) % (2 * math.pi) - math.pi
+        tx = (lon_shifted + math.pi) / (2 * math.pi) * w_src
+    else:
+        raise ValueError(f"unknown extent {extent!r}")
+
     ty = (math.pi / 2 - lat) / math.pi * h_src
 
-    # Bilinear sampling
     tx0 = np.clip(np.floor(tx).astype(np.int32), 0, w_src - 1)
     ty0 = np.clip(np.floor(ty).astype(np.int32), 0, h_src - 1)
     tx1 = np.clip(tx0 + 1, 0, w_src - 1)
@@ -96,12 +109,12 @@ def wrap_to_sphere(texture_path, output_size=1200, output_path=None,
                + s10 * (1 - fx) * fy
                + s11 * fx * fy)
 
-    # Limb darkening
-    sphere = sampled * (z ** limb_exponent)[..., None]
+    if apply_limb_darkening:
+        sphere = sampled * (z ** limb_exponent)[..., None]
+    else:
+        sphere = sampled
 
-    # Soft disc edge: alpha goes 1 inside, fades at the boundary
     alpha = np.clip(((1.0 - d2) / (2 * edge_softness / r_px)), 0, 1)
-
     out = sphere * alpha[..., None] + bg * (1 - alpha[..., None])
     out = np.clip(out, 0, 255).astype(np.uint8)
 
@@ -113,12 +126,29 @@ def wrap_to_sphere(texture_path, output_size=1200, output_path=None,
 
 
 def main():
-    src_path = os.path.join(OUT, "planet_full.png")
-    if not os.path.exists(src_path):
-        print(f"missing source: {src_path}\nRun generate.py first.")
-        return
-    print(f"== wrapping {src_path} onto sphere ==")
-    wrap_to_sphere(src_path, output_size=1200)
+    # Procedural wrap (the original use case).
+    src_proc = os.path.join(OUT, "planet_full.png")
+    if os.path.exists(src_proc):
+        print(f"== wrapping procedural planet ==")
+        wrap_to_sphere(src_proc, output_size=1200,
+                        output_path=os.path.join(OUT, "planet_orbital.png"),
+                        extent="hemisphere")
+
+    # Real-moon wrap (LROC WAC mosaic from Solar System Scope mirror).
+    src_real = os.path.join(
+        os.path.dirname(__file__), "data", "global_moon", "moon_color_8k.jpg")
+    if os.path.exists(src_real):
+        print(f"== wrapping real WAC mosaic ==")
+        wrap_to_sphere(src_real, output_size=1200,
+                        output_path=os.path.join(OUT, "planet_orbital_real.png"),
+                        extent="globe", camera_lon_deg=0.0,
+                        apply_limb_darkening=False)
+        # Also produce a far-side view for reference
+        wrap_to_sphere(src_real, output_size=1200,
+                        output_path=os.path.join(OUT,
+                                                  "planet_orbital_real_farside.png"),
+                        extent="globe", camera_lon_deg=180.0,
+                        apply_limb_darkening=False)
 
 
 if __name__ == "__main__":

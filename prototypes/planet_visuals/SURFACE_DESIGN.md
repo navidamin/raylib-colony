@@ -220,20 +220,30 @@ gradient is a stand-in.
 
 ## Sphere-wrap (`wrap_to_sphere.py`)
 
-Projects `planet_full.png` onto a sphere viewed head-on. Output:
-`planet_orbital.png` — moon disc with limb darkening on a starfield.
+Two flavours of orbital view, both produced by the same projection:
+
+  * **`planet_orbital.png`** — procedural planet wrapped onto a sphere
+    (input is `planet_full.png`, treated as a hemisphere texture)
+  * **`planet_orbital_real.png`** — **real LROC WAC mosaic** wrapped
+    onto a sphere (full-globe input, near-side hemisphere visible)
+  * `planet_orbital_real_farside.png` — same data, far-side view
 
 Math:
-  * Treats input as equirectangular projection of one hemisphere
   * For each pixel `(xs, ys)` in the disc: `z = √(1 − xs² − ys²)`
   * `lat = asin(ys)`, `lon = atan2(xs, z)`
-  * Bilinear sample texture at `(lat, lon) → (tx, ty)`
-  * Brightness × `z^0.6` for limb darkening
-  * Soft disc edge blended over the starfield
+  * Bilinear sample texture; mapping depends on `extent`:
+    - `extent="hemisphere"`: 180°×180° texture, `tx = (lon+π/2)/π * w`
+    - `extent="globe"`:      360°×180° texture, `tx = (lon+π)/(2π) * w`,
+                              with optional `camera_lon_deg` offset
+  * Brightness × `z^0.6` for limb darkening (skipped for real
+    mosaic — already has natural shading baked in)
+  * Soft disc edge blended over a starfield
 
-Limitations: the input texture's hillshade is baked for top-down NW
-sun, so crater shadows near the disc edge won't match the globe's
-true normals. Acceptable for a thumbnail / planet-select UI.
+Real WAC source: cached at `data/global_moon/moon_color_8k.jpg`
+(4096×2048 = ~2.7 km/px, 1.8 MB), pulled from
+`CoryG89/MoonDemo/master/img/maps/moon.jpg` — github mirror of
+NASA SVS CGI Moon Kit data (CC-BY 4.0 via Solar System Scope).
+Also a 1k version `moon_color_1k.jpg` (1024×512, 265 KB).
 
 ---
 
@@ -303,10 +313,14 @@ Disc edges look slightly off. Add a `--reshade` mode that drops the
 texture's hillshade and re-applies it for the sphere's sun direction.
 
 ### C. Real WAC mosaic albedo
-Find a github mirror of LROC WAC tiles, plumb into `generate_real.py`.
-Replaces the synthetic mare↔highland gradient with actual reflectance.
-Catches features like Copernicus' bright ray system. Sandbox can't
-reach NASA/USGS directly.
+**Partially done**: `data/global_moon/moon_color_8k.jpg` (4096×2048
+global) is cached and used by `wrap_to_sphere.py` for the orbital
+view. Still TODO: plumb into `generate_real.py` — replace the
+synthetic mare↔highland gradient with sampled WAC pixels at the
+region's lat/lon. Resolution at 4K equirectangular is ~2.7 km/px,
+which is coarse for a 100 km region (would yield only ~37×37 sample
+pixels). Acceptable for a placeholder; would want a higher-res
+mirror later for site-selection-quality renders.
 
 ### D. Complex-crater morphology
 Big primaries should have terraced walls + central peaks. The
