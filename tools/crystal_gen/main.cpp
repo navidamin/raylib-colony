@@ -10,8 +10,8 @@
 #include <sys/stat.h>
 
 // --- Configuration ---
-static const int RENDER_SIZE = 256;
-static const int OUTPUT_SIZE = 64;
+static const int RENDER_SIZE = 512;
+static const int OUTPUT_SIZE = 128;
 static const int GLOW_LEVELS = 5;
 static const int SIZE_LEVELS = 4;
 static const int SHAPES_PER_FAMILY = 5;
@@ -400,42 +400,82 @@ static MeshGenFunc GENERATORS[NUM_FAMILIES][SHAPES_PER_FAMILY] = {
 };
 
 // ============================================================
+// Lighting shader (embedded GLSL 330)
+// ============================================================
+
+static const char* VS_LIGHTING =
+    "#version 330\n"
+    "in vec3 vertexPosition;\n"
+    "in vec3 vertexNormal;\n"
+    "uniform mat4 mvp;\n"
+    "out vec3 fragNormal;\n"
+    "out vec3 fragPos;\n"
+    "void main() {\n"
+    "    fragNormal = vertexNormal;\n"
+    "    fragPos = vertexPosition;\n"
+    "    gl_Position = mvp * vec4(vertexPosition, 1.0);\n"
+    "}\n";
+
+static const char* FS_LIGHTING =
+    "#version 330\n"
+    "in vec3 fragNormal;\n"
+    "in vec3 fragPos;\n"
+    "uniform vec4 colDiffuse;\n"
+    "out vec4 finalColor;\n"
+    "void main() {\n"
+    "    vec3 norm = normalize(fragNormal);\n"
+    "    vec3 keyLight = normalize(vec3(0.5, 0.8, 0.3));\n"
+    "    vec3 fillLight = normalize(vec3(-0.4, 0.3, -0.5));\n"
+    "    vec3 viewDir = normalize(vec3(2.0, 2.5, 2.0) - fragPos);\n"
+    "\n"
+    "    float ambient = 0.25;\n"
+    "\n"
+    "    float diffKey = max(dot(norm, keyLight), 0.0);\n"
+    "    float diffFill = max(dot(norm, fillLight), 0.0);\n"
+    "\n"
+    "    vec3 halfDir = normalize(keyLight + viewDir);\n"
+    "    float spec = pow(max(dot(norm, halfDir), 0.0), 64.0);\n"
+    "\n"
+    "    float rim = 1.0 - max(dot(norm, viewDir), 0.0);\n"
+    "    rim = pow(rim, 3.0) * 0.3;\n"
+    "\n"
+    "    float lighting = ambient + diffKey * 0.55 + diffFill * 0.15 + spec * 0.45 + rim;\n"
+    "    finalColor = vec4(colDiffuse.rgb * clamp(lighting, 0.0, 1.4), colDiffuse.a);\n"
+    "}\n";
+
+// ============================================================
 // Rendering
 // ============================================================
 
 static void RenderCrystal(RenderTexture2D target, Mesh mesh, Camera3D camera,
-                           float scale, int glowLevel)
+                           Shader shader, float scale, int glowLevel)
 {
     BeginTextureMode(target);
     ClearBackground(BLANK);
 
     BeginMode3D(camera);
 
-    // Base crystal color: neutral gray for runtime tinting
-    unsigned char baseGray = 180;
-    // Glow increases brightness
-    unsigned char glowBoost = static_cast<unsigned char>(glowLevel * 18);
+    unsigned char baseGray = 155;
+    unsigned char glowBoost = static_cast<unsigned char>(glowLevel * 22);
     unsigned char r = static_cast<unsigned char>(std::min(255, baseGray + glowBoost));
     unsigned char g = static_cast<unsigned char>(std::min(255, baseGray + glowBoost));
-    unsigned char b = static_cast<unsigned char>(std::min(255, baseGray + glowBoost + glowLevel * 8));
-
-    // Translucent for the crystal feel
-    unsigned char alpha = static_cast<unsigned char>(160 + glowLevel * 20);
-    Color crystalColor = {r, g, b, alpha};
+    unsigned char b = static_cast<unsigned char>(std::min(255, baseGray + glowBoost + glowLevel * 10));
+    Color crystalColor = {r, g, b, 255};
 
     Material mat = LoadMaterialDefault();
+    mat.shader = shader;
     mat.maps[MATERIAL_MAP_DIFFUSE].color = crystalColor;
 
     Matrix transform = MatrixScale(scale, scale, scale);
     DrawMesh(mesh, mat, transform);
 
-    // Glow: draw slightly larger wireframe overlay for edge emission
     if (glowLevel > 0)
     {
-        float glowScale = scale * (1.0f + glowLevel * 0.03f);
-        unsigned char glowAlpha = static_cast<unsigned char>(30 + glowLevel * 25);
-        Color glowColor = {200, 220, 255, glowAlpha};
+        float glowScale = scale * (1.0f + glowLevel * 0.04f);
+        unsigned char glowAlpha = static_cast<unsigned char>(20 + glowLevel * 18);
+        Color glowColor = {210, 225, 255, glowAlpha};
         Material glowMat = LoadMaterialDefault();
+        glowMat.shader = shader;
         glowMat.maps[MATERIAL_MAP_DIFFUSE].color = glowColor;
         Matrix glowTransform = MatrixScale(glowScale, glowScale, glowScale);
         DrawMesh(mesh, glowMat, glowTransform);
@@ -467,21 +507,26 @@ int main(int argc, char** argv)
            NUM_FAMILIES, SHAPES_PER_FAMILY, SIZE_LEVELS, GLOW_LEVELS,
            NUM_FAMILIES * SHAPES_PER_FAMILY * SIZE_LEVELS * GLOW_LEVELS);
 
-    SetConfigFlags(FLAG_WINDOW_HIDDEN);
+    SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_MSAA_4X_HINT);
     InitWindow(RENDER_SIZE, RENDER_SIZE, "Crystal Generator");
     SetTargetFPS(60);
 
-    // 3/4 isometric camera
+    Shader lightShader = LoadShaderFromMemory(VS_LIGHTING, FS_LIGHTING);
+    if (lightShader.id == 0)
+    {
+        printf("ERROR: Failed to load lighting shader, falling back to default\n");
+        lightShader = LoadShaderFromMemory(NULL, NULL);
+    }
+
     Camera3D camera = {0};
-    camera.position = {2.0f, 2.5f, 2.0f};
+    camera.position = {2.2f, 2.8f, 2.2f};
     camera.target = {0.0f, 0.0f, 0.0f};
     camera.up = {0.0f, 1.0f, 0.0f};
-    camera.fovy = 30.0f;
+    camera.fovy = 28.0f;
     camera.projection = CAMERA_PERSPECTIVE;
 
     RenderTexture2D target = LoadRenderTexture(RENDER_SIZE, RENDER_SIZE);
 
-    // Size scale factors: small=0.55, medium=0.70, large=0.85, full=1.0
     float sizeScales[] = {0.55f, 0.70f, 0.85f, 1.0f};
 
     int totalSprites = 0;
@@ -499,7 +544,7 @@ int main(int argc, char** argv)
                 for (int glow = 0; glow < GLOW_LEVELS; glow++)
                 {
                     float scale = sizeScales[sizeLevel];
-                    RenderCrystal(target, mesh, camera, scale, glow);
+                    RenderCrystal(target, mesh, camera, lightShader, scale, glow);
 
                     // Read from render texture (flipped vertically by OpenGL)
                     Image img = LoadImageFromTexture(target.texture);
@@ -530,6 +575,7 @@ int main(int argc, char** argv)
     }
 
     UnloadRenderTexture(target);
+    UnloadShader(lightShader);
     CloseWindow();
 
     printf("\nDone! Generated %d sprites.\n", totalSprites);
