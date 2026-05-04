@@ -7,6 +7,8 @@
 #include "lab_engine.h"
 #include "survey_progress_engine.h"
 
+enum class ProspectingTab { SWEEP, SAMPLES, LAB };
+
 class ProspectingSystem
 {
 public:
@@ -29,6 +31,15 @@ public:
     const SamplingEngine& GetSampler() const;
     LabEngine& GetLab();
     const LabEngine& GetLab() const;
+
+    // UI state
+    ProspectingTab activeTab = ProspectingTab::SWEEP;
+    int selectedCellX = -1;
+    int selectedCellY = -1;
+    int selectedSampleIndex = -1;
+    int selectedFrequencyBand = 0;
+    DepthLayer selectedDepth = DepthLayer::SURFACE;
+    float gameTime = 0.0f;
 
 private:
     int tier;
