@@ -2288,6 +2288,24 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 elemCol.a = alpha;
                 DrawRectangleRec(slot, elemCol);
 
+                // Depth indicator
+                const char* depthChar =
+                    s->depthLayer == DepthLayer::SURFACE ? "S" :
+                    s->depthLayer == DepthLayer::SHALLOW ? "R" :
+                    s->depthLayer == DepthLayer::MID     ? "M" : "B";
+                DrawTextEx(bodyFont, depthChar,
+                           {slot.x + 2, slot.y + slot.height - 12}, FS(8.0f), sp,
+                           {255, 255, 255, 160});
+
+                // Crystal shape indicator based on visual family
+                const char* familyChar =
+                    s->visual.shapeFamily == ShapeFamily::ANGULAR_CHUNKS ? "A" :
+                    s->visual.shapeFamily == ShapeFamily::CRYSTALLINE_SHARDS ? "C" :
+                    s->visual.shapeFamily == ShapeFamily::ROUNDED_NODULES ? "N" : "L";
+                DrawTextEx(bodyFont, familyChar,
+                           {slot.x + slot.width - 10, slot.y + 2}, FS(8.0f), sp,
+                           {255, 255, 255, 120});
+
                 if (s->state == SampleState::PROCESSING)
                 {
                     DrawRectangleLinesEx(slot, 1.0f, PROS_MSG_ALERT);
@@ -2340,8 +2358,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             {
                 if (conf > 0.0f)
                 {
-                    DrawTextEx(bodyFont, TextFormat("  %s: %s (%.0f%%)",
-                        ResourceTypeToString(type), ProsConfLabel(conf), conf * 100.0f),
+                    float abund = 0.0f;
+                    auto ait = selSample->trueComposition.find(type);
+                    if (ait != selSample->trueComposition.end()) abund = ait->second;
+
+                    const char* valText = conf < 0.3f ?
+                        TextFormat("~%.0f%%", abund * 100.0f) :
+                        TextFormat("%.1f%%", abund * 100.0f);
+
+                    DrawTextEx(bodyFont, TextFormat("  %s: %s  conf:%s",
+                        ResourceTypeToString(type), valText, ProsConfLabel(conf)),
                         {ctrlX, detailY}, FS(8.0f), sp, ProsElementColor(type));
                     detailY += 12.0f;
                 }
@@ -2510,26 +2536,41 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 Color elemCol = ProsElementColor(type);
                 if (conf < 0.01f)
                 {
-                    // Unknown element — show "?" if not yet analyzed
-                    DrawTextEx(bodyFont, TextFormat("  ???: %s", ProsConfLabel(conf)),
+                    DrawTextEx(bodyFont, "  ???",
                                {rightX, resY}, FS(9.0f), sp, {80, 80, 100, 255});
                 }
                 else
                 {
-                    float barW = rightW - 100.0f;
+                    float barW = rightW - 130.0f;
                     float barH = 10.0f;
                     float barX = rightX + 60.0f;
 
                     DrawTextEx(bodyFont, ResourceTypeToString(type),
                                {rightX, resY}, FS(9.0f), sp, elemCol);
 
+                    // Background bar
                     DrawRectangle(static_cast<int>(barX), static_cast<int>(resY + 2),
                                   static_cast<int>(barW), static_cast<int>(barH), {40, 40, 60, 255});
-                    DrawRectangle(static_cast<int>(barX), static_cast<int>(resY + 2),
-                                  static_cast<int>(barW * conf), static_cast<int>(barH), elemCol);
 
-                    DrawTextEx(bodyFont, TextFormat("%.0f%%", conf * 100.0f),
-                               {barX + barW + 4, resY}, FS(9.0f), sp, EXT_DIM_TEXT);
+                    // Fill bar shows true abundance, alpha scales with confidence
+                    Color fillCol = elemCol;
+                    fillCol.a = static_cast<unsigned char>(80 + 175 * conf);
+                    DrawRectangle(static_cast<int>(barX), static_cast<int>(resY + 2),
+                                  static_cast<int>(barW * abundance), static_cast<int>(barH), fillCol);
+
+                    // Show value with precision based on confidence
+                    const char* valText;
+                    if (conf < 0.3f)
+                        valText = TextFormat("~%.0f%%", abundance * 100.0f);
+                    else if (conf < 0.7f)
+                        valText = TextFormat("%.0f%%", abundance * 100.0f);
+                    else
+                        valText = TextFormat("%.1f%%", abundance * 100.0f);
+
+                    DrawTextEx(bodyFont, valText,
+                               {barX + barW + 4, resY}, FS(9.0f), sp, WHITE);
+                    DrawTextEx(bodyFont, TextFormat("[%.0f%%]", conf * 100.0f),
+                               {barX + barW + 50.0f, resY}, FS(8.0f), sp, EXT_DIM_TEXT);
                 }
                 resY += 16.0f;
             }
