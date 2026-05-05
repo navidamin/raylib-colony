@@ -1,5 +1,7 @@
 #include "rendermanager.h"
 #include "resource_manager.h"
+#include "resource_types.h"
+#include "survey_progress_engine.h"
 #include <algorithm>
 #include <iostream>
 #include <cmath>
@@ -1853,850 +1855,747 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
     }
 }
 
+// --- Prospecting UI color constants ---
+static const Color PROS_CELL_BG         = {26, 26, 46, 255};
+static const Color PROS_CELL_BORDER     = {51, 51, 85, 255};
+static const Color PROS_HOVER_BORDER    = {102, 255, 255, 255};
+static const Color PROS_SELECT_BORDER   = {102, 255, 255, 255};
+static const Color PROS_TAB_ACTIVE      = {102, 255, 255, 60};
+static const Color PROS_TAB_BORDER      = {51, 102, 119, 255};
+static const Color PROS_TAB_ACTIVE_BDR  = {102, 255, 255, 255};
+static const Color PROS_BTN_BORDER      = {51, 102, 119, 255};
+static const Color PROS_BTN_HOVER       = {102, 255, 255, 38};
+static const Color PROS_BTN_TEXT        = {170, 187, 204, 255};
+static const Color PROS_BTN_TEXT_HOVER  = {238, 238, 255, 255};
+static const Color PROS_BTN_DISABLED    = {34, 51, 68, 255};
+static const Color PROS_MSG_STATUS      = {85, 85, 85, 255};
+static const Color PROS_MSG_ALERT       = {204, 170, 68, 255};
+
+static Color ProsSweepHeatColor(float signal)
+{
+    if (signal < 0.05f) return {13, 13, 59, 102};
+    if (signal < 0.15f) return {27, 27, 107, 102};
+    if (signal < 0.30f) return {34, 68, 170, 102};
+    if (signal < 0.50f) return {0, 204, 221, 102};
+    if (signal < 0.70f) return {0, 255, 170, 102};
+    if (signal < 0.85f) return {255, 0, 170, 102};
+    return {255, 102, 221, 102};
+}
+
+static Color ProsElementColor(ResourceType type)
+{
+    switch (type)
+    {
+        case ResourceType::Fe: return {181, 70, 60, 255};
+        case ResourceType::Ti: return {160, 176, 192, 255};
+        case ResourceType::Si: return {212, 168, 80, 255};
+        case ResourceType::Al: return {192, 192, 200, 255};
+        case ResourceType::Ca: return {232, 220, 192, 255};
+        case ResourceType::H2: return {136, 204, 238, 255};
+        case ResourceType::O2: return {85, 170, 153, 255};
+        case ResourceType::C:  return {64, 64, 64, 255};
+        default: return {150, 150, 150, 255};
+    }
+}
+
+static const char* ProsDepthName(DepthLayer d)
+{
+    switch (d)
+    {
+        case DepthLayer::SURFACE: return "Regolith";
+        case DepthLayer::SHALLOW: return "Megaregolith";
+        case DepthLayer::MID: return "Fract. Bedrock";
+        case DepthLayer::DEEP: return "Intact Bedrock";
+        default: return "Unknown";
+    }
+}
+
+static const char* ProsConfLabel(float conf)
+{
+    if (conf >= 0.80f) return "Certain";
+    if (conf >= 0.60f) return "High";
+    if (conf >= 0.40f) return "Moderate";
+    if (conf >= 0.20f) return "Low";
+    return "Very Low";
+}
+
 void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 {
     const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
     const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
     float sp = 1.0f;
-    int padding = 15;
-
-    float yPos = static_cast<float>(y + padding);
+    int padding = 12;
     float px = static_cast<float>(x + padding);
-    float panelW = static_cast<float>(w - padding * 2);
+    float pw = static_cast<float>(w - padding * 2);
 
-    const char* scanTitles[] = {"VISUAL ESTIMATION", "LIBS SCANNER", "MULTI-SPECTRAL SUITE", "DEEP SURVEY ARRAY"};
-    int idx = unit->GetSelectedModuleIndex();
-    const auto& mod = unit->GetModules()[idx];
-    int tier = std::min(mod.tier, 3);
+    if (!unit->HasProspectingSystem())
+    {
+        DrawTextEx(headerFont, "No prospecting system.", {px, static_cast<float>(y + padding)},
+                   FS(14.0f), sp, EXT_DIM_TEXT);
+        return;
+    }
 
-    DrawTextEx(headerFont, scanTitles[tier], {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
+    auto* ps = unit->GetProspectingSystem();
+    ps->gameTime += GetFrameTime();
+    Vector2 mouse = GetMousePosition();
+
+    // --- Header: title + survey progress bar ---
+    float yPos = static_cast<float>(y + padding);
+    float progress = ps->GetSurveyProgress();
+    DrawTextEx(headerFont, "PROSPECTING", {px, yPos}, FS(16.0f), sp, EXT_HEADER_COLOR);
+
+    float barW = 160.0f;
+    float barH = 14.0f;
+    float barX = px + pw - barW;
+    DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2), static_cast<int>(barW), static_cast<int>(barH),
+                  {40, 40, 60, 255});
+    Color barColor = progress >= 0.60f ? EXT_ACCENT_GREEN : EXT_ACCENT_CYAN;
+    DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2),
+                  static_cast<int>(barW * std::min(progress, 1.0f)), static_cast<int>(barH), barColor);
+    DrawTextEx(bodyFont, TextFormat("%.0f%%", progress * 100.0f),
+               {barX + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, barColor);
     yPos += 28.0f;
 
-    // Accuracy based on tier
-    const char* accLabels[] = {"Categories only", "+/-15% noise", "+/-5% noise", "Exact readings"};
-    DrawTextEx(bodyFont, TextFormat("Accuracy: %s", accLabels[tier]), {px, yPos}, FS(14.0f), sp, EXT_ACCENT_CYAN);
-    yPos += 20.0f;
+    // --- Stage tabs ---
+    float tabW = pw / 3.0f;
+    float tabH = 26.0f;
+    const char* tabNames[] = {"SWEEP", "SAMPLES", "LAB"};
+    ProspectingTab tabs[] = {ProspectingTab::SWEEP, ProspectingTab::SAMPLES, ProspectingTab::LAB};
 
-    // Geological confidence
-    float confidence = unit->GetGeologicalConfidence();
-    Color confColor = confidence >= 0.8f ? EXT_ACCENT_GREEN :
-                      confidence >= 0.4f ? YELLOW : RED;
-    DrawTextEx(bodyFont, TextFormat("Geological Confidence: %.0f%%", confidence * 100.0f),
-               {px, yPos}, FS(13.0f), sp, confColor);
-    yPos += 18.0f;
-
-    // --- CALIBRATION gauge (T1+) ---
-    if (tier >= 1)
+    for (int i = 0; i < 3; i++)
     {
-        float calQ = unit->GetCalibrationQuality();
-        Color calColor = calQ >= 0.9f ? EXT_ACCENT_GREEN :
-                         calQ >= 0.7f ? YELLOW : RED;
-        DrawTextEx(bodyFont, "Calibration:", {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
+        Rectangle tabRect = {px + i * tabW, yPos, tabW, tabH};
+        bool isActive = (ps->activeTab == tabs[i]);
+        bool isHover = CheckCollisionPointRec(mouse, tabRect);
 
-        float barX = px + 90.0f;
-        float barW = 100.0f;
-        float barH = 10.0f;
-        DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2.0f),
-                      static_cast<int>(barW), static_cast<int>(barH), {30, 30, 40, 255});
-        DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2.0f),
-                      static_cast<int>(barW * calQ), static_cast<int>(barH), calColor);
-        DrawRectangleLines(static_cast<int>(barX), static_cast<int>(yPos + 2.0f),
-                           static_cast<int>(barW), static_cast<int>(barH), EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, TextFormat("%.0f%%", calQ * 100.0f),
-                   {barX + barW + 5.0f, yPos}, FS(11.0f), sp, calColor);
-
-        // Calibrate button
-        if (tier >= 1 && tier < 3)
+        if (isActive)
         {
-            Vector2 mousePos0 = GetMousePosition();
-            float btnX = barX + barW + 45.0f;
-            Rectangle calBtn = {btnX, yPos - 1.0f, 70.0f, 16.0f};
-
-            if (unit->IsCalibrating())
-            {
-                // Show progress
-                float progress = 1.0f - (unit->GetCalibrationTimer() / CALIBRATION_DURATION);
-                DrawRectangleRec(calBtn, {30, 40, 60, 255});
-                DrawRectangle(static_cast<int>(btnX), static_cast<int>(yPos - 1.0f),
-                              static_cast<int>(70.0f * progress), 16, EXT_ACCENT_CYAN);
-                DrawRectangleLinesEx(calBtn, 1.0f, EXT_PANEL_BORDER);
-                DrawTextEx(bodyFont, "CAL...", {btnX + 14.0f, yPos}, FS(11.0f), sp, WHITE);
-            }
-            else
-            {
-                Color btnBg = CheckCollisionPointRec(mousePos0, calBtn) ?
-                    Color{60, 70, 90, 255} : Color{40, 45, 60, 255};
-                DrawRectangleRec(calBtn, btnBg);
-                DrawRectangleLinesEx(calBtn, 1.0f, EXT_PANEL_BORDER);
-                DrawTextEx(bodyFont, "CALIBRATE", {btnX + 4.0f, yPos}, FS(10.0f), sp, EXT_ACCENT_CYAN);
-
-                if (CheckCollisionPointRec(mousePos0, calBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    unit->StartCalibration();
-                }
-            }
+            DrawRectangleRec(tabRect, PROS_TAB_ACTIVE);
+            DrawRectangleLinesEx(tabRect, 1.0f, PROS_TAB_ACTIVE_BDR);
         }
-        else if (tier >= 3)
+        else if (isHover)
         {
-            DrawTextEx(bodyFont, "(auto)", {px + 200.0f, yPos}, FS(10.0f), sp, EXT_ACCENT_GREEN);
-        }
-        yPos += 18.0f;
-    }
-
-    // Scan history count
-    const auto& scanHistory = unit->GetScanHistory();
-    DrawTextEx(bodyFont, TextFormat("Scans Completed: %d", static_cast<int>(scanHistory.size())),
-               {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
-    yPos += 22.0f;
-
-    // --- SCAN PROFILE section (T1+) ---
-    if (tier >= 1)
-    {
-        DrawTextEx(headerFont, "SCAN PROFILE", {px, yPos}, FS(13.0f), sp, EXT_HEADER_COLOR);
-        yPos += 18.0f;
-
-        const auto& profiles = unit->GetAvailableProfiles();
-        int activeIdx = unit->GetActiveScanProfileIndex();
-        Vector2 mousePos1 = GetMousePosition();
-        float btnWidth = 55.0f;
-        float btnHeight = 20.0f;
-
-        for (size_t i = 0; i < profiles.size(); i++)
-        {
-            float bx = px + static_cast<float>(i) * (btnWidth + 5.0f);
-            Rectangle profBtn = {bx, yPos, btnWidth, btnHeight};
-
-            bool isActive = (static_cast<int>(i) == activeIdx);
-            bool isHovered = CheckCollisionPointRec(mousePos1, profBtn);
-
-            Color btnBg = isActive ? Color{60, 50, 20, 255} :
-                          isHovered ? Color{50, 55, 70, 255} : Color{35, 40, 50, 255};
-            DrawRectangleRec(profBtn, btnBg);
-            Color borderColor = isActive ? EXT_ACCENT_GOLD : EXT_PANEL_BORDER;
-            DrawRectangleLinesEx(profBtn, isActive ? 2.0f : 1.0f, borderColor);
-            Color textColor = isActive ? EXT_ACCENT_GOLD : LIGHTGRAY;
-            DrawTextEx(bodyFont, profiles[i].name.c_str(),
-                       {bx + 4.0f, yPos + 3.0f}, FS(10.0f), sp, textColor);
-
-            if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                unit->SetActiveScanProfile(static_cast<int>(i));
-            }
-
-            // Tooltip on hover
-            if (isHovered)
-            {
-                float ttX = bx;
-                float ttY = yPos + btnHeight + 2.0f;
-                DrawRectangle(static_cast<int>(ttX), static_cast<int>(ttY), 150, 48, {20, 25, 35, 240});
-                DrawRectangleLines(static_cast<int>(ttX), static_cast<int>(ttY), 150, 48, EXT_PANEL_BORDER);
-                DrawTextEx(bodyFont, TextFormat("Pwr: %.1fx  Pulses: %d",
-                    profiles[i].powerMultiplier, profiles[i].pulseCount),
-                    {ttX + 4.0f, ttY + 3.0f}, FS(9.0f), sp, LIGHTGRAY);
-                DrawTextEx(bodyFont, TextFormat("Cooldown: %.0fs  Cost: %.0f",
-                    profiles[i].cooldownTime, profiles[i].energyCost),
-                    {ttX + 4.0f, ttY + 16.0f}, FS(9.0f), sp, LIGHTGRAY);
-                DrawTextEx(bodyFont, TextFormat("Survey: %.1fx", profiles[i].surveyMultiplier),
-                    {ttX + 4.0f, ttY + 29.0f}, FS(9.0f), sp, EXT_ACCENT_CYAN);
-            }
-        }
-
-        // AI profile indicator
-        const auto& ai = unit->GetProspectingAI();
-        if (ai.autoSelectProfile)
-        {
-            float aiX = px + profiles.size() * (btnWidth + 5.0f) + 5.0f;
-            DrawTextEx(bodyFont, "[AI]", {aiX, yPos + 3.0f}, FS(10.0f), sp, EXT_ACCENT_CYAN);
-        }
-        yPos += btnHeight + 4.0f;
-
-        // --- AI toggles (compact inline row) ---
-        {
-            auto& ai = unit->GetProspectingAI();
-            Vector2 mousePosAI = GetMousePosition();
-            float aiRowX = px;
-
-            DrawTextEx(bodyFont, "AI:", {aiRowX, yPos + 1.0f}, FS(10.0f), sp, EXT_HEADER_COLOR);
-            aiRowX += 22.0f;
-
-            // Auto Profile checkbox
-            {
-                const char* chk = ai.autoSelectProfile ? "[x] Profile" : "[ ] Profile";
-                float chkW = MeasureTextEx(bodyFont, chk, FS(10.0f), sp).x + 6.0f;
-                Rectangle chkRect = {aiRowX, yPos, chkW, 16.0f};
-                Color textCol = ai.autoSelectProfile ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
-                DrawTextEx(bodyFont, chk, {aiRowX, yPos + 1.0f}, FS(10.0f), sp, textCol);
-                if (CheckCollisionPointRec(mousePosAI, chkRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    ai.autoSelectProfile = !ai.autoSelectProfile;
-                }
-                aiRowX += chkW;
-            }
-
-            // Auto Calibrate checkbox
-            {
-                const char* chk = ai.autoCalibrate ? "[x] Cal" : "[ ] Cal";
-                float chkW = MeasureTextEx(bodyFont, chk, FS(10.0f), sp).x + 6.0f;
-                Rectangle chkRect = {aiRowX, yPos, chkW, 16.0f};
-                Color textCol = ai.autoCalibrate ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
-                DrawTextEx(bodyFont, chk, {aiRowX, yPos + 1.0f}, FS(10.0f), sp, textCol);
-                if (CheckCollisionPointRec(mousePosAI, chkRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    ai.autoCalibrate = !ai.autoCalibrate;
-                }
-                aiRowX += chkW;
-            }
-
-            // Auto Campaign checkbox (T3 only)
-            if (tier >= 3)
-            {
-                const char* chk = ai.autoCampaign ? "[x] Campaign" : "[ ] Campaign";
-                float chkW = MeasureTextEx(bodyFont, chk, FS(10.0f), sp).x + 6.0f;
-                Rectangle chkRect = {aiRowX, yPos, chkW, 16.0f};
-                Color textCol = ai.autoCampaign ? EXT_ACCENT_CYAN : EXT_DIM_TEXT;
-                DrawTextEx(bodyFont, chk, {aiRowX, yPos + 1.0f}, FS(10.0f), sp, textCol);
-                if (CheckCollisionPointRec(mousePosAI, chkRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    ai.autoCampaign = !ai.autoCampaign;
-                }
-            }
-            yPos += 18.0f;
-
-            // AI last action message
-            const auto& lastAction = unit->GetAILastAction();
-            if (!lastAction.empty())
-            {
-                DrawTextEx(bodyFont, lastAction.c_str(), {px, yPos}, FS(9.0f), sp, EXT_ACCENT_CYAN);
-                yPos += 14.0f;
-            }
-        }
-    }
-
-    // --- Interactive 5x5 Scan Grid ---
-    Vector2 unitGrid = unit->GetGridPosition();
-    int centerGX = static_cast<int>(unitGrid.x);
-    int centerGY = static_cast<int>(unitGrid.y);
-    float cellSz = 38.0f;
-    float gridStartX = px;
-    float gridStartY = yPos;
-    Vector2 mousePos = GetMousePosition();
-    bool canScan = true;
-    float cooldown = unit->GetScanCooldown();
-    bool campaignMode = unit->IsCampaignActive();
-
-    DrawTextEx(headerFont, "SCAN GRID", {px, yPos - 2.0f}, FS(14.0f), sp, EXT_HEADER_COLOR);
-    DrawTextEx(bodyFont, "(5x5 around unit)", {px + 85.0f, yPos}, FS(11.0f), sp, EXT_DIM_TEXT);
-    yPos += 18.0f;
-    gridStartY = yPos;
-
-    // Deferred tooltip state (drawn after depth profile to fix z-order)
-    bool deferredTooltip = false;
-    float deferredTTX = 0.0f, deferredTTY = 0.0f;
-    int deferredTTH = 0;
-    const Unit::ScanResult* deferredScan = nullptr;
-
-    for (int dy = -2; dy <= 2; dy++)
-    {
-        for (int dx = -2; dx <= 2; dx++)
-        {
-            int cellGX = centerGX + dx;
-            int cellGY = centerGY + dy;
-            float cx = gridStartX + static_cast<float>(dx + 2) * cellSz;
-            float cy = gridStartY + static_cast<float>(dy + 2) * cellSz;
-            Rectangle cellRect = {cx, cy, cellSz - 2.0f, cellSz - 2.0f};
-
-            // Background: scanned cells tinted by quality, unscanned dark
-            auto scanIt = scanHistory.find({cellGX, cellGY});
-            bool isScanned = (scanIt != scanHistory.end() && scanIt->second.isScanned);
-
-            Color bgColor = {20, 25, 35, 255};
-            if (isScanned)
-            {
-                int q = scanIt->second.qualityRating;
-                bgColor = {static_cast<unsigned char>(30 + q * 10),
-                           static_cast<unsigned char>(40 + q * 15),
-                           static_cast<unsigned char>(50 + q * 10), 255};
-            }
-            DrawRectangleRec(cellRect, bgColor);
-
-            // Unit's own cell: cyan border
-            if (dx == 0 && dy == 0)
-            {
-                DrawRectangleLinesEx(cellRect, 2.0f, EXT_ACCENT_CYAN);
-            }
-            else
-            {
-                DrawRectangleLinesEx(cellRect, 1.0f, EXT_PANEL_BORDER);
-            }
-
-            // Marked sites: small green dot
-            const auto& markedSites = unit->GetMarkedSites();
-            for (const auto& site : markedSites)
-            {
-                if (site.first == cellGX && site.second == cellGY)
-                {
-                    DrawCircle(static_cast<int>(cx + cellSz/2.0f - 1.0f),
-                               static_cast<int>(cy + cellSz/2.0f - 1.0f), 4.0f, EXT_ACCENT_GREEN);
-                    break;
-                }
-            }
-
-            // Campaign queue indicator
-            const auto& campaign = unit->GetCampaign();
-            for (size_t ci = 0; ci < campaign.size(); ci++)
-            {
-                if (campaign[ci].gridX == cellGX && campaign[ci].gridY == cellGY)
-                {
-                    Color cColor = campaign[ci].completed ? Color{60, 100, 60, 200} : EXT_ACCENT_GOLD;
-                    DrawRectangleLinesEx(cellRect, 2.0f, cColor);
-                    if (!campaign[ci].completed)
-                    {
-                        DrawTextEx(bodyFont, TextFormat("%d", static_cast<int>(ci + 1)),
-                                   {cx + cellSz - 14.0f, cy + cellSz - 16.0f}, FS(9.0f), sp, EXT_ACCENT_GOLD);
-                    }
-                    break;
-                }
-            }
-
-            // Survey progress mini-bar + percentage
-            if (isScanned)
-            {
-                float survey = scanIt->second.surveyProgress;
-                // Backward compat
-                if (survey <= 0.0f && scanIt->second.scanCount > 0)
-                    survey = std::min(1.0f, static_cast<float>(scanIt->second.scanCount) / 3.0f);
-
-                Color barColor = survey >= 0.9f ? EXT_ACCENT_GREEN :
-                                 survey >= 0.5f ? YELLOW : RED;
-                // Mini progress bar at bottom of cell
-                float barHeight = 3.0f;
-                float barY3 = cy + cellSz - 2.0f - barHeight - 1.0f;
-                float barW3 = (cellSz - 4.0f) * survey;
-                DrawRectangle(static_cast<int>(cx + 1.0f), static_cast<int>(barY3),
-                              static_cast<int>(cellSz - 4.0f), static_cast<int>(barHeight),
-                              {30, 30, 40, 255});
-                DrawRectangle(static_cast<int>(cx + 1.0f), static_cast<int>(barY3),
-                              static_cast<int>(barW3), static_cast<int>(barHeight), barColor);
-                // Percentage text (top-right)
-                DrawTextEx(bodyFont, TextFormat("%.0f%%", survey * 100.0f),
-                           {cx + cellSz - 28.0f, cy + 2.0f}, FS(8.0f), sp, barColor);
-            }
-
-            // Coordinate label
-            DrawTextEx(bodyFont, TextFormat("%d,%d", cellGX, cellGY),
-                       {cx + 2.0f, cy + 2.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
-
-            // Hover highlight
-            if (canScan && cooldown <= 0.0f && !unit->IsCalibrating() &&
-                CheckCollisionPointRec(mousePos, cellRect))
-            {
-                DrawRectangleRec(cellRect, {255, 255, 255, 30});
-
-                // Left-click: perform scan (or add to campaign if T2+ campaign mode)
-                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    unit->PerformLIBSScan(cellGX, cellGY);
-                }
-                // Right-click: toggle mark/unmark
-                if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
-                {
-                    bool alreadyMarked = false;
-                    for (const auto& site : markedSites)
-                    {
-                        if (site.first == cellGX && site.second == cellGY)
-                        {
-                            alreadyMarked = true;
-                            break;
-                        }
-                    }
-                    if (alreadyMarked)
-                        unit->UnmarkSite(cellGX, cellGY);
-                    else
-                        unit->MarkSiteForExcavation(cellGX, cellGY);
-                }
-                // Middle-click: add to campaign queue (T2+)
-                if (tier >= 2 && IsMouseButtonPressed(MOUSE_BUTTON_MIDDLE))
-                {
-                    unit->AddToCampaign(cellGX, cellGY);
-                }
-
-                // Capture tooltip state (drawn after depth profile for z-order)
-                if (isScanned && scanIt->second.scanCount > 0 && tier >= 1)
-                {
-                    deferredTooltip = true;
-                    deferredTTX = cx + cellSz;
-                    deferredTTY = cy;
-                    if (deferredTTX + 160.0f > static_cast<float>(x + w)) deferredTTX = cx - 162.0f;
-                    deferredTTH = 12 + static_cast<int>(scanIt->second.elements.size()) * 13 + 16;
-                    deferredScan = &scanIt->second;
-                }
-            }
-        }
-    }
-
-    // Cooldown / Calibrating overlay
-    if (cooldown > 0.0f || unit->IsCalibrating())
-    {
-        float gridW = 5.0f * cellSz;
-        float gridH = 5.0f * cellSz;
-        DrawRectangle(static_cast<int>(gridStartX), static_cast<int>(gridStartY),
-                      static_cast<int>(gridW), static_cast<int>(gridH), {0, 0, 0, 150});
-
-        if (unit->IsCalibrating())
-        {
-            DrawTextEx(headerFont, "CALIBRATING",
-                       {gridStartX + gridW/2.0f - 50.0f, gridStartY + gridH/2.0f - 12.0f},
-                       FS(16.0f), sp, EXT_ACCENT_CYAN);
-            float barY2 = gridStartY + gridH/2.0f + 10.0f;
-            float calProgress = 1.0f - (unit->GetCalibrationTimer() / CALIBRATION_DURATION);
-            DrawRectangle(static_cast<int>(gridStartX + 20.0f), static_cast<int>(barY2),
-                          static_cast<int>((gridW - 40.0f) * calProgress), 6, EXT_ACCENT_CYAN);
-            DrawRectangleLines(static_cast<int>(gridStartX + 20.0f), static_cast<int>(barY2),
-                               static_cast<int>(gridW - 40.0f), 6, EXT_PANEL_BORDER);
+            DrawRectangleRec(tabRect, PROS_BTN_HOVER);
+            DrawRectangleLinesEx(tabRect, 1.0f, PROS_TAB_BORDER);
         }
         else
         {
-            DrawTextEx(headerFont, "COOLDOWN",
-                       {gridStartX + gridW/2.0f - 40.0f, gridStartY + gridH/2.0f - 12.0f},
-                       FS(16.0f), sp, EXT_ACCENT_GOLD);
-            float barY2 = gridStartY + gridH/2.0f + 10.0f;
-            float maxCooldown = unit->GetActiveScanProfile().cooldownTime;
-            if (maxCooldown < 0.1f) maxCooldown = 3.0f;
-            float progress = 1.0f - (cooldown / maxCooldown);
-            DrawRectangle(static_cast<int>(gridStartX + 20.0f), static_cast<int>(barY2),
-                          static_cast<int>((gridW - 40.0f) * progress), 6, EXT_ACCENT_CYAN);
-            DrawRectangleLines(static_cast<int>(gridStartX + 20.0f), static_cast<int>(barY2),
-                               static_cast<int>(gridW - 40.0f), 6, EXT_PANEL_BORDER);
+            DrawRectangleLinesEx(tabRect, 1.0f, PROS_TAB_BORDER);
+        }
+
+        Color textColor = isActive ? PROS_TAB_ACTIVE_BDR : (isHover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT);
+        Vector2 textSize = MeasureTextEx(bodyFont, tabNames[i], FS(11.0f), sp);
+        DrawTextEx(bodyFont, tabNames[i],
+                   {tabRect.x + (tabW - textSize.x) / 2, tabRect.y + (tabH - textSize.y) / 2},
+                   FS(11.0f), sp, textColor);
+
+        if (isHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            ps->activeTab = tabs[i];
         }
     }
+    yPos += tabH + 8.0f;
 
-    yPos = gridStartY + 5.0f * cellSz + 8.0f;
+    // --- Content area ---
+    float contentY = yPos;
+    float contentH = static_cast<float>(y + h) - yPos - 80.0f;
 
-    // Interaction hints
-    const char* hints = (tier >= 2) ?
-        "L-click: Scan  R-click: Mark  M-click: Queue" :
-        "Left-click: Scan cell   Right-click: Mark/unmark site";
-    DrawTextEx(bodyFont, hints, {px, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
-    yPos += 16.0f;
+    auto& grid = ps->GetGrid();
+    int gridSize = grid.GetGridSize();
 
-    // --- Survey + Extraction Efficiency Readout ---
+    if (ps->activeTab == ProspectingTab::SWEEP)
     {
-        Vector2 unitGrid2 = unit->GetGridPosition();
-        int ugx = static_cast<int>(unitGrid2.x);
-        int ugy = static_cast<int>(unitGrid2.y);
-        float survey = unit->GetSurveyProgress(ugx, ugy);
-        bool hasMark = false;
+        // === SWEEP TAB ===
+        float gridAreaW = std::min(pw * 0.55f, contentH - 40.0f);
+        float cellSize = gridAreaW / gridSize;
+        float gridX = px;
+        float gridY = contentY;
 
-        // Survey progress bar
-        Color surveyBarColor = survey >= 0.9f ? EXT_ACCENT_GREEN :
-                               survey >= 0.5f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Survey: %.0f%%", survey * 100.0f),
-                   {px, yPos}, FS(12.0f), sp, surveyBarColor);
-        float sBarX = px + 80.0f;
-        float sBarW = 120.0f;
-        float sBarH = 10.0f;
-        DrawRectangle(static_cast<int>(sBarX), static_cast<int>(yPos + 2.0f),
-                      static_cast<int>(sBarW), static_cast<int>(sBarH), {30, 30, 40, 255});
-        DrawRectangle(static_cast<int>(sBarX), static_cast<int>(yPos + 2.0f),
-                      static_cast<int>(sBarW * survey), static_cast<int>(sBarH), surveyBarColor);
-        DrawRectangleLines(static_cast<int>(sBarX), static_cast<int>(yPos + 2.0f),
-                           static_cast<int>(sBarW), static_cast<int>(sBarH), EXT_PANEL_BORDER);
-        yPos += 16.0f;
-
-        // Extraction efficiency from survey
-        float scanMult = SURVEY_UNSCANNED_EFFICIENCY + SURVEY_SCANNED_BONUS * survey;
-
-        const auto& markedSites2 = unit->GetMarkedSites();
-        for (const auto& site : markedSites2)
+        for (int gy = 0; gy < gridSize; gy++)
         {
-            if (site.first == ugx && site.second == ugy)
+            for (int gx = 0; gx < gridSize; gx++)
             {
-                scanMult += SURVEY_MARKED_SITE_BONUS;
-                hasMark = true;
-                break;
-            }
-        }
-        scanMult *= unit->GetObjectiveBonusMultiplier();
-        float pct = scanMult * 100.0f;
+                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize, cellSize - 1, cellSize - 1};
+                DrawRectangleRec(cellRect, PROS_CELL_BG);
 
-        Color effColor = pct >= 100.0f ? EXT_ACCENT_GREEN :
-                         pct >= 70.0f  ? YELLOW : RED;
-        const char* source = hasMark ? "(survey + marked site)" : "(from survey data)";
-        DrawTextEx(bodyFont, TextFormat("Extraction Efficiency: %.0f%% %s", pct, source),
-                   {px, yPos}, FS(11.0f), sp, effColor);
-        yPos += 16.0f;
-    }
-
-    // --- Campaign Controls (T2+) ---
-    if (tier >= 2)
-    {
-        const auto& campaign = unit->GetCampaign();
-        DrawTextEx(headerFont, TextFormat("CAMPAIGN (%d queued)", static_cast<int>(campaign.size())),
-                   {px, yPos}, FS(13.0f), sp, EXT_HEADER_COLOR);
-        yPos += 18.0f;
-
-        Vector2 mousePos2 = GetMousePosition();
-        float cbtnW = 50.0f;
-        float cbtnH = 18.0f;
-
-        if (!campaign.empty())
-        {
-            if (unit->IsCampaignActive())
-            {
-                // PAUSE button
-                Rectangle pauseBtn = {px, yPos, cbtnW, cbtnH};
-                Color pbg = CheckCollisionPointRec(mousePos2, pauseBtn) ?
-                    Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
-                DrawRectangleRec(pauseBtn, pbg);
-                DrawRectangleLinesEx(pauseBtn, 1.0f, EXT_PANEL_BORDER);
-                DrawTextEx(bodyFont, "PAUSE", {px + 6.0f, yPos + 2.0f}, FS(10.0f), sp, YELLOW);
-                if (CheckCollisionPointRec(mousePos2, pauseBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                const SubCell& cell = grid.GetSubCell(gx, gy);
+                if (cell.hasBeenSwept)
                 {
-                    unit->PauseCampaign();
+                    Color heat = ProsSweepHeatColor(cell.sweepSignal);
+                    DrawRectangleRec(cellRect, heat);
                 }
 
-                // Progress
-                DrawTextEx(bodyFont, TextFormat("Scanning %d/%d...",
-                    static_cast<int>(std::count_if(campaign.begin(), campaign.end(),
-                        [](const Unit::CampaignEntry& e) { return e.completed; })),
-                    static_cast<int>(campaign.size())),
-                    {px + cbtnW + 10.0f, yPos + 2.0f}, FS(10.0f), sp, EXT_ACCENT_CYAN);
+                if (!cell.sampleIds.empty())
+                {
+                    float dotR = cellSize * 0.15f;
+                    DrawCircle(static_cast<int>(cellRect.x + cellSize / 2),
+                               static_cast<int>(cellRect.y + cellSize / 2),
+                               dotR, {255, 255, 255, 180});
+                }
+
+                bool hover = CheckCollisionPointRec(mouse, cellRect);
+                bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
+                if (selected)
+                    DrawRectangleLinesEx(cellRect, 2.0f, PROS_SELECT_BORDER);
+                else if (hover)
+                    DrawRectangleLinesEx(cellRect, 1.0f, PROS_HOVER_BORDER);
+                else
+                    DrawRectangleLinesEx(cellRect, 1.0f, PROS_CELL_BORDER);
+
+                if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                {
+                    ps->selectedCellX = gx;
+                    ps->selectedCellY = gy;
+                }
+            }
+        }
+
+        // Sweep controls (right of grid)
+        float ctrlX = gridX + gridAreaW + 15.0f;
+        float ctrlY = contentY;
+        float ctrlW = pw - gridAreaW - 15.0f;
+
+        DrawTextEx(headerFont, "FREQUENCY BAND", {ctrlX, ctrlY}, FS(12.0f), sp, EXT_HEADER_COLOR);
+        ctrlY += 22.0f;
+
+        for (int band = 0; band < SWEEP_FREQUENCY_BANDS; band++)
+        {
+            bool canSweep = ps->GetSweep().CanSweep(grid, band);
+            bool alreadySwept = grid.HasSweptFrequency(band);
+            Rectangle bandBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 24.0f};
+            bool hover = CheckCollisionPointRec(mouse, bandBtn);
+
+            Color borderCol = canSweep ? PROS_BTN_BORDER : PROS_BTN_DISABLED;
+            Color textCol = canSweep ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
+
+            if (hover && canSweep)
+                DrawRectangleRec(bandBtn, PROS_BTN_HOVER);
+            if (alreadySwept)
+                DrawRectangleRec(bandBtn, {0, 204, 221, 25});
+            DrawRectangleLinesEx(bandBtn, 1.0f, ps->selectedFrequencyBand == band ? PROS_TAB_ACTIVE_BDR : borderCol);
+
+            const char* bandLabel = TextFormat("Band %d  %.0f E", band, SWEEP_ENERGY_COST[band]);
+            DrawTextEx(bodyFont, bandLabel, {ctrlX + 6, ctrlY + 4}, FS(10.0f), sp, textCol);
+
+            if (hover && canSweep && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                ps->selectedFrequencyBand = band;
+            }
+            ctrlY += 28.0f;
+        }
+
+        ctrlY += 8.0f;
+        Rectangle sweepBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 30.0f};
+        bool canSweepNow = ps->GetSweep().CanSweep(grid, ps->selectedFrequencyBand);
+        bool sweepHover = CheckCollisionPointRec(mouse, sweepBtn);
+
+        if (sweepHover && canSweepNow)
+            DrawRectangleRec(sweepBtn, PROS_BTN_HOVER);
+        DrawRectangleLinesEx(sweepBtn, 1.0f, canSweepNow ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
+        DrawTextEx(headerFont, "SWEEP",
+                   {ctrlX + (ctrlW - 10.0f) / 2 - 20.0f, ctrlY + 6}, FS(13.0f), sp,
+                   canSweepNow ? (sweepHover ? WHITE : PROS_BTN_TEXT_HOVER) : PROS_BTN_DISABLED);
+
+        if (sweepHover && canSweepNow && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            ps->GetSweep().ExecuteSweep(ps->GetGrid(), ps->selectedFrequencyBand, ps->gameTime);
+        }
+
+        ctrlY += 40.0f;
+
+        // Sweep history
+        const auto& sweepHist = grid.GetSweepHistory();
+        if (!sweepHist.empty())
+        {
+            DrawTextEx(bodyFont, TextFormat("Sweeps: %d", static_cast<int>(sweepHist.size())),
+                       {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            ctrlY += 16.0f;
+        }
+
+        float calQ = ps->GetSweep().GetCalibrationQuality();
+        DrawTextEx(bodyFont, TextFormat("Calibration: %.0f%%", calQ * 100.0f),
+                   {ctrlX, ctrlY}, FS(10.0f), sp, calQ >= 0.8f ? EXT_ACCENT_GREEN : PROS_MSG_ALERT);
+        ctrlY += 16.0f;
+
+        // Cell info tooltip
+        if (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
+            ps->selectedCellY >= 0 && ps->selectedCellY < gridSize)
+        {
+            ctrlY += 8.0f;
+            DrawTextEx(headerFont, TextFormat("CELL (%d,%d)", ps->selectedCellX, ps->selectedCellY),
+                       {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
+            ctrlY += 18.0f;
+
+            const SubCell& selCell = grid.GetSubCell(ps->selectedCellX, ps->selectedCellY);
+            DrawTextEx(bodyFont, TextFormat("Signal: %.2f", selCell.sweepSignal),
+                       {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            ctrlY += 14.0f;
+            DrawTextEx(bodyFont, TextFormat("Confidence: %s", ProsConfLabel(selCell.aggregateConfidence)),
+                       {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            ctrlY += 14.0f;
+            DrawTextEx(bodyFont, TextFormat("Samples: %d", static_cast<int>(selCell.sampleIds.size())),
+                       {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
+        }
+    }
+    else if (ps->activeTab == ProspectingTab::SAMPLES)
+    {
+        // === SAMPLES TAB ===
+        float gridAreaW = std::min(pw * 0.55f, contentH - 40.0f);
+        float cellSize = gridAreaW / gridSize;
+        float gridX = px;
+        float gridY = contentY;
+
+        // Draw grid with element tints for sampled cells
+        for (int gy = 0; gy < gridSize; gy++)
+        {
+            for (int gx = 0; gx < gridSize; gx++)
+            {
+                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize, cellSize - 1, cellSize - 1};
+                DrawRectangleRec(cellRect, PROS_CELL_BG);
+
+                const SubCell& cell = grid.GetSubCell(gx, gy);
+                if (cell.hasBeenSwept)
+                {
+                    Color heat = ProsSweepHeatColor(cell.sweepSignal);
+                    heat.a = 60;
+                    DrawRectangleRec(cellRect, heat);
+                }
+
+                if (!cell.sampleIds.empty())
+                {
+                    auto gt = grid.GetGroundTruth(gx, gy, DepthLayer::SURFACE);
+                    ResourceType dominant = ResourceType::Fe;
+                    float maxVal = 0.0f;
+                    for (const auto& [t, v] : gt)
+                    {
+                        if (v > maxVal) { maxVal = v; dominant = t; }
+                    }
+                    Color elemColor = ProsElementColor(dominant);
+                    elemColor.a = 80;
+                    DrawRectangleRec(cellRect, elemColor);
+
+                    float dotR = cellSize * 0.18f;
+                    DrawCircle(static_cast<int>(cellRect.x + cellSize / 2),
+                               static_cast<int>(cellRect.y + cellSize / 2),
+                               dotR, ProsElementColor(dominant));
+                }
+
+                bool hover = CheckCollisionPointRec(mouse, cellRect);
+                bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
+                if (selected)
+                    DrawRectangleLinesEx(cellRect, 2.0f, PROS_SELECT_BORDER);
+                else if (hover)
+                    DrawRectangleLinesEx(cellRect, 1.0f, PROS_HOVER_BORDER);
+                else
+                    DrawRectangleLinesEx(cellRect, 1.0f, PROS_CELL_BORDER);
+
+                if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                {
+                    ps->selectedCellX = gx;
+                    ps->selectedCellY = gy;
+                }
+            }
+        }
+
+        // Right side: depth selector + collect button + tray
+        float ctrlX = gridX + gridAreaW + 15.0f;
+        float ctrlY = contentY;
+        float ctrlW = pw - gridAreaW - 15.0f;
+
+        DrawTextEx(headerFont, "DEPTH LAYER", {ctrlX, ctrlY}, FS(12.0f), sp, EXT_HEADER_COLOR);
+        ctrlY += 22.0f;
+
+        DepthLayer depths[] = {DepthLayer::SURFACE, DepthLayer::SHALLOW, DepthLayer::MID, DepthLayer::DEEP};
+        for (int d = 0; d < 4; d++)
+        {
+            bool canDrill = ps->GetSampler().CanDrill(depths[d]);
+            Rectangle depthBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 22.0f};
+            bool hover = CheckCollisionPointRec(mouse, depthBtn);
+            bool selected = (ps->selectedDepth == depths[d]);
+
+            Color borderCol = canDrill ? (selected ? PROS_TAB_ACTIVE_BDR : PROS_BTN_BORDER) : PROS_BTN_DISABLED;
+            Color textCol = canDrill ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
+
+            if (selected && canDrill)
+                DrawRectangleRec(depthBtn, PROS_TAB_ACTIVE);
+            else if (hover && canDrill)
+                DrawRectangleRec(depthBtn, PROS_BTN_HOVER);
+            DrawRectangleLinesEx(depthBtn, 1.0f, borderCol);
+
+            float cost = ps->GetSampler().GetDrillCost(depths[d]);
+            const char* label = canDrill
+                ? TextFormat("%s  %.0fE", ProsDepthName(depths[d]), cost)
+                : TextFormat("%s  [LOCKED]", ProsDepthName(depths[d]));
+            DrawTextEx(bodyFont, label, {ctrlX + 6, ctrlY + 3}, FS(9.0f), sp, textCol);
+
+            if (hover && canDrill && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                ps->selectedDepth = depths[d];
+            }
+            ctrlY += 26.0f;
+        }
+
+        ctrlY += 8.0f;
+        bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
+                              ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
+        bool trayFull = ps->GetTray().IsFull();
+        bool canCollect = hasSelection && !trayFull &&
+                          ps->GetSampler().CanDrill(ps->selectedDepth);
+
+        Rectangle collectBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 28.0f};
+        bool collectHover = CheckCollisionPointRec(mouse, collectBtn);
+
+        if (collectHover && canCollect)
+            DrawRectangleRec(collectBtn, PROS_BTN_HOVER);
+        DrawRectangleLinesEx(collectBtn, 1.0f, canCollect ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
+        DrawTextEx(headerFont, "COLLECT",
+                   {ctrlX + (ctrlW - 10.0f) / 2 - 25.0f, ctrlY + 5}, FS(12.0f), sp,
+                   canCollect ? (collectHover ? WHITE : PROS_BTN_TEXT_HOVER) : PROS_BTN_DISABLED);
+
+        if (collectHover && canCollect && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            ps->GetSampler().CollectSample(ps->GetGrid(), ps->GetTray(),
+                                            ps->selectedCellX, ps->selectedCellY, ps->selectedDepth);
+        }
+
+        // Sample tray display
+        ctrlY += 40.0f;
+        DrawTextEx(headerFont, TextFormat("TRAY (%d/%d)", ps->GetTray().GetCount(), ps->GetTray().GetCapacity()),
+                   {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
+        ctrlY += 20.0f;
+
+        float slotSize = 28.0f;
+        float slotGap = 4.0f;
+        int slotsPerRow = static_cast<int>((ctrlW - 10.0f) / (slotSize + slotGap));
+        if (slotsPerRow < 1) slotsPerRow = 1;
+
+        for (int i = 0; i < ps->GetTray().GetCapacity(); i++)
+        {
+            int row = i / slotsPerRow;
+            int col = i % slotsPerRow;
+            Rectangle slot = {ctrlX + col * (slotSize + slotGap), ctrlY + row * (slotSize + slotGap),
+                              slotSize, slotSize};
+
+            const Sample* s = ps->GetTray().GetSampleByIndex(i);
+            bool slotHover = CheckCollisionPointRec(mouse, slot);
+            bool slotSelected = (ps->selectedSampleIndex == i && s != nullptr);
+
+            if (s)
+            {
+                Color elemCol = ProsElementColor(SamplingEngine::GetDominantElement(s->trueComposition));
+                float confGlow = s->GetAggregateConfidence();
+                unsigned char alpha = static_cast<unsigned char>(100 + 155 * confGlow);
+                elemCol.a = alpha;
+                DrawRectangleRec(slot, elemCol);
+
+                if (s->state == SampleState::PROCESSING)
+                {
+                    DrawRectangleLinesEx(slot, 1.0f, PROS_MSG_ALERT);
+                }
+                else if (s->state == SampleState::COMPLETED)
+                {
+                    DrawRectangleLinesEx(slot, 1.0f, EXT_ACCENT_GREEN);
+                }
             }
             else
             {
-                // START button
-                Rectangle startBtn = {px, yPos, cbtnW, cbtnH};
-                Color sbg = CheckCollisionPointRec(mousePos2, startBtn) ?
-                    Color{40, 70, 40, 255} : Color{30, 50, 30, 255};
-                DrawRectangleRec(startBtn, sbg);
-                DrawRectangleLinesEx(startBtn, 1.0f, EXT_PANEL_BORDER);
-                DrawTextEx(bodyFont, "START", {px + 8.0f, yPos + 2.0f}, FS(10.0f), sp, EXT_ACCENT_GREEN);
-                if (CheckCollisionPointRec(mousePos2, startBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    unit->StartCampaign();
-                }
+                DrawRectangleRec(slot, {30, 30, 50, 255});
             }
 
-            // CLEAR button
-            Rectangle clearBtn = {px + cbtnW + 60.0f + (unit->IsCampaignActive() ? 70.0f : 0.0f),
-                                  yPos, 48.0f, cbtnH};
-            Color clbg = CheckCollisionPointRec(mousePos2, clearBtn) ?
-                Color{80, 40, 40, 255} : Color{55, 30, 30, 255};
-            DrawRectangleRec(clearBtn, clbg);
-            DrawRectangleLinesEx(clearBtn, 1.0f, EXT_PANEL_BORDER);
-            DrawTextEx(bodyFont, "CLEAR", {clearBtn.x + 6.0f, yPos + 2.0f}, FS(10.0f), sp, RED);
-            if (CheckCollisionPointRec(mousePos2, clearBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            if (slotSelected)
+                DrawRectangleLinesEx(slot, 2.0f, PROS_SELECT_BORDER);
+            else if (slotHover)
+                DrawRectangleLinesEx(slot, 1.0f, PROS_HOVER_BORDER);
+            else
+                DrawRectangleLinesEx(slot, 1.0f, PROS_CELL_BORDER);
+
+            if (slotHover && s && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                unit->ClearCampaign();
+                ps->selectedSampleIndex = i;
+            }
+        }
+
+        // Selected sample details
+        const Sample* selSample = (ps->selectedSampleIndex >= 0)
+            ? ps->GetTray().GetSampleByIndex(ps->selectedSampleIndex) : nullptr;
+        if (selSample)
+        {
+            int trayRows = (ps->GetTray().GetCapacity() + slotsPerRow - 1) / slotsPerRow;
+            float detailY = ctrlY + trayRows * (slotSize + slotGap) + 8.0f;
+
+            DrawTextEx(bodyFont, TextFormat("Depth: %s", ProsDepthName(selSample->depthLayer)),
+                       {ctrlX, detailY}, FS(9.0f), sp, EXT_DIM_TEXT);
+            detailY += 14.0f;
+            DrawTextEx(bodyFont, TextFormat("Richness: %.0f%%", selSample->richness * 100.0f),
+                       {ctrlX, detailY}, FS(9.0f), sp, EXT_DIM_TEXT);
+            detailY += 14.0f;
+
+            const char* stateStr = selSample->state == SampleState::IN_TRAY ? "In Tray" :
+                                   selSample->state == SampleState::PROCESSING ? "Processing" : "Completed";
+            DrawTextEx(bodyFont, TextFormat("State: %s", stateStr),
+                       {ctrlX, detailY}, FS(9.0f), sp, EXT_DIM_TEXT);
+            detailY += 14.0f;
+
+            for (const auto& [type, conf] : selSample->elementConfidence)
+            {
+                if (conf > 0.0f)
+                {
+                    DrawTextEx(bodyFont, TextFormat("  %s: %s (%.0f%%)",
+                        ResourceTypeToString(type), ProsConfLabel(conf), conf * 100.0f),
+                        {ctrlX, detailY}, FS(8.0f), sp, ProsElementColor(type));
+                    detailY += 12.0f;
+                }
+            }
+        }
+    }
+    else if (ps->activeTab == ProspectingTab::LAB)
+    {
+        // === LAB TAB ===
+        float leftW = pw * 0.45f;
+        float rightX = px + leftW + 10.0f;
+        float rightW = pw - leftW - 10.0f;
+
+        // Left: sample selection (mini tray)
+        DrawTextEx(headerFont, "SELECT SAMPLE", {px, contentY}, FS(12.0f), sp, EXT_HEADER_COLOR);
+        float trayY = contentY + 20.0f;
+        float slotSize = 32.0f;
+        float slotGap = 4.0f;
+        int slotsPerRow = static_cast<int>(leftW / (slotSize + slotGap));
+        if (slotsPerRow < 1) slotsPerRow = 1;
+
+        for (int i = 0; i < ps->GetTray().GetCount(); i++)
+        {
+            int row = i / slotsPerRow;
+            int col = i % slotsPerRow;
+            Rectangle slot = {px + col * (slotSize + slotGap), trayY + row * (slotSize + slotGap),
+                              slotSize, slotSize};
+
+            const Sample* s = ps->GetTray().GetSampleByIndex(i);
+            if (!s) continue;
+
+            Color elemCol = ProsElementColor(SamplingEngine::GetDominantElement(s->trueComposition));
+            float confGlow = s->GetAggregateConfidence();
+            elemCol.a = static_cast<unsigned char>(100 + 155 * confGlow);
+            DrawRectangleRec(slot, elemCol);
+
+            if (s->state == SampleState::COMPLETED)
+                DrawRectangleLinesEx(slot, 1.0f, EXT_ACCENT_GREEN);
+            else if (s->state == SampleState::PROCESSING)
+                DrawRectangleLinesEx(slot, 1.0f, PROS_MSG_ALERT);
+
+            bool hover = CheckCollisionPointRec(mouse, slot);
+            bool selected = (ps->selectedSampleIndex == i);
+
+            if (selected)
+                DrawRectangleLinesEx(slot, 2.0f, PROS_SELECT_BORDER);
+            else if (hover)
+                DrawRectangleLinesEx(slot, 1.0f, PROS_HOVER_BORDER);
+            else
+                DrawRectangleLinesEx(slot, 1.0f, PROS_CELL_BORDER);
+
+            if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                ps->selectedSampleIndex = i;
+            }
+        }
+
+        // Tool buttons (below sample tray)
+        int trayRows = (ps->GetTray().GetCount() + slotsPerRow - 1) / slotsPerRow;
+        float toolY = trayY + trayRows * (slotSize + slotGap) + 12.0f;
+
+        Sample* selSample = (ps->selectedSampleIndex >= 0)
+            ? ps->GetTray().GetSampleByIndex(ps->selectedSampleIndex) : nullptr;
+
+        DrawTextEx(headerFont, "ANALYSIS TOOLS", {px, toolY}, FS(12.0f), sp, EXT_HEADER_COLOR);
+        toolY += 20.0f;
+
+        struct ToolEntry { AnalysisTool tool; const char* name; };
+        ToolEntry tools[] = {
+            {AnalysisTool::VISUAL_INSPECTION, "Visual"},
+            {AnalysisTool::XRF, "XRF"},
+            {AnalysisTool::OPTICAL_MICROSCOPY, "Optical"},
+            {AnalysisTool::MAGNETIC_SUSCEPTIBILITY, "Magnetic"},
+            {AnalysisTool::LIBS_PULSE, "LIBS"},
+            {AnalysisTool::FIRE_ASSAY, "Fire Assay"},
+        };
+
+        for (auto& te : tools)
+        {
+            bool canApply = selSample && ps->GetLab().CanApplyTool(*selSample, te.tool);
+            float cost = LabEngine::GetToolCost(te.tool);
+            Rectangle toolBtn = {px, toolY, leftW - 5.0f, 24.0f};
+            bool hover = CheckCollisionPointRec(mouse, toolBtn);
+
+            if (hover && canApply)
+                DrawRectangleRec(toolBtn, PROS_BTN_HOVER);
+            DrawRectangleLinesEx(toolBtn, 1.0f, canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED);
+
+            Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
+            DrawTextEx(bodyFont, TextFormat("%s  %.0fE", te.name, cost),
+                       {px + 6, toolY + 4}, FS(9.0f), sp, textCol);
+
+            if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                ps->GetLab().ApplyTool(*selSample, te.tool, ps->gameTime);
+            }
+            toolY += 28.0f;
+        }
+
+        // Separation methods
+        toolY += 8.0f;
+        DrawTextEx(headerFont, "SEPARATION", {px, toolY}, FS(12.0f), sp, EXT_HEADER_COLOR);
+        toolY += 20.0f;
+
+        struct SepEntry { SeparationMethod method; const char* name; };
+        SepEntry seps[] = {
+            {SeparationMethod::MAGNETIC, "Magnetic"},
+            {SeparationMethod::HEAVY_MINERAL, "Heavy Liquid"},
+            {SeparationMethod::VOLATILE_EXTRACTION, "Volatile"},
+        };
+
+        for (auto& se : seps)
+        {
+            bool canApply = selSample && ps->GetLab().CanApplySeparation(*selSample, se.method);
+            float cost = LabEngine::GetSeparationCost(se.method);
+            Rectangle sepBtn = {px, toolY, leftW - 5.0f, 24.0f};
+            bool hover = CheckCollisionPointRec(mouse, sepBtn);
+
+            if (hover && canApply)
+                DrawRectangleRec(sepBtn, PROS_BTN_HOVER);
+            DrawRectangleLinesEx(sepBtn, 1.0f, canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED);
+
+            Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
+            DrawTextEx(bodyFont, TextFormat("%s  %.0fE", se.name, cost),
+                       {px + 6, toolY + 4}, FS(9.0f), sp, textCol);
+
+            if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                ps->GetLab().ApplySeparation(*selSample, se.method, ps->gameTime);
+            }
+            toolY += 28.0f;
+        }
+
+        // Right side: selected sample detail + analysis results
+        DrawTextEx(headerFont, "RESULTS", {rightX, contentY}, FS(12.0f), sp, EXT_HEADER_COLOR);
+        float resY = contentY + 22.0f;
+
+        if (selSample)
+        {
+            const char* stateStr = selSample->state == SampleState::IN_TRAY ? "In Tray" :
+                                   selSample->state == SampleState::PROCESSING ? "Processing" : "Completed";
+            DrawTextEx(bodyFont, TextFormat("State: %s", stateStr),
+                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            resY += 16.0f;
+            DrawTextEx(bodyFont, TextFormat("Depth: %s", ProsDepthName(selSample->depthLayer)),
+                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            resY += 16.0f;
+            DrawTextEx(bodyFont, TextFormat("Richness: %.0f%%", selSample->richness * 100.0f),
+                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            resY += 16.0f;
+            DrawTextEx(bodyFont, TextFormat("Analyses: %d", static_cast<int>(selSample->analysisHistory.size())),
+                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            resY += 20.0f;
+
+            // Element composition with confidence
+            DrawTextEx(headerFont, "COMPOSITION", {rightX, resY}, FS(11.0f), sp, EXT_HEADER_COLOR);
+            resY += 18.0f;
+
+            for (const auto& [type, abundance] : selSample->trueComposition)
+            {
+                if (abundance < 0.01f) continue;
+                float conf = 0.0f;
+                auto cit = selSample->elementConfidence.find(type);
+                if (cit != selSample->elementConfidence.end()) conf = cit->second;
+
+                Color elemCol = ProsElementColor(type);
+                if (conf < 0.01f)
+                {
+                    // Unknown element — show "?" if not yet analyzed
+                    DrawTextEx(bodyFont, TextFormat("  ???: %s", ProsConfLabel(conf)),
+                               {rightX, resY}, FS(9.0f), sp, {80, 80, 100, 255});
+                }
+                else
+                {
+                    float barW = rightW - 100.0f;
+                    float barH = 10.0f;
+                    float barX = rightX + 60.0f;
+
+                    DrawTextEx(bodyFont, ResourceTypeToString(type),
+                               {rightX, resY}, FS(9.0f), sp, elemCol);
+
+                    DrawRectangle(static_cast<int>(barX), static_cast<int>(resY + 2),
+                                  static_cast<int>(barW), static_cast<int>(barH), {40, 40, 60, 255});
+                    DrawRectangle(static_cast<int>(barX), static_cast<int>(resY + 2),
+                                  static_cast<int>(barW * conf), static_cast<int>(barH), elemCol);
+
+                    DrawTextEx(bodyFont, TextFormat("%.0f%%", conf * 100.0f),
+                               {barX + barW + 4, resY}, FS(9.0f), sp, EXT_DIM_TEXT);
+                }
+                resY += 16.0f;
+            }
+
+            // Analysis history
+            if (!selSample->analysisHistory.empty())
+            {
+                resY += 8.0f;
+                DrawTextEx(headerFont, "HISTORY", {rightX, resY}, FS(10.0f), sp, EXT_HEADER_COLOR);
+                resY += 16.0f;
+
+                for (const auto& entry : selSample->analysisHistory)
+                {
+                    const char* toolName = "?";
+                    switch (entry.tool)
+                    {
+                        case AnalysisTool::VISUAL_INSPECTION: toolName = "Visual"; break;
+                        case AnalysisTool::XRF: toolName = "XRF"; break;
+                        case AnalysisTool::OPTICAL_MICROSCOPY: toolName = "Optical"; break;
+                        case AnalysisTool::MAGNETIC_SUSCEPTIBILITY: toolName = "Magnetic"; break;
+                        case AnalysisTool::LIBS_PULSE: toolName = "LIBS"; break;
+                        case AnalysisTool::FIRE_ASSAY: toolName = "Fire Assay"; break;
+                        default: break;
+                    }
+
+                    DrawTextEx(bodyFont, TextFormat("  %s", toolName),
+                               {rightX, resY}, FS(8.0f), sp, EXT_DIM_TEXT);
+                    resY += 12.0f;
+
+                    if (resY > static_cast<float>(y + h) - 90.0f) break;
+                }
             }
         }
         else
         {
-            DrawTextEx(bodyFont, "Middle-click grid cells to queue", {px, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
-        }
-        yPos += 22.0f;
-    }
-
-    // --- Scan History (compact) ---
-    if (!scanHistory.empty())
-    {
-        DrawTextEx(headerFont, "RECENT SCANS", {px, yPos}, FS(14.0f), sp, EXT_HEADER_COLOR);
-        yPos += 20.0f;
-
-        float maxBarW = static_cast<float>(w - padding * 2 - 140);
-
-        // Sort by scan order (most recent first)
-        std::vector<std::pair<std::pair<int,int>, Unit::ScanResult>> sortedScans(
-            scanHistory.begin(), scanHistory.end());
-        std::sort(sortedScans.begin(), sortedScans.end(),
-                  [](const auto& a, const auto& b) { return a.second.scanOrder > b.second.scanOrder; });
-
-        int count = 0;
-        for (const auto& [coords, scan] : sortedScans)
-        {
-            if (count >= 4) break;
-            DrawTextEx(bodyFont, TextFormat("(%d,%d)", coords.first, coords.second),
-                       {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
-
-            // Quality rating + survey progress
-            float entSurvey = scan.surveyProgress;
-            if (entSurvey <= 0.0f && scan.scanCount > 0)
-                entSurvey = std::min(1.0f, static_cast<float>(scan.scanCount) / 3.0f);
-            DrawTextEx(bodyFont, TextFormat("Q%d S:%.0f%%", scan.qualityRating, entSurvey * 100.0f),
-                       {px + 55.0f, yPos}, FS(11.0f), sp, EXT_ACCENT_GOLD);
-
-            float barH = 16.0f;
-
-            if (scan.scanTier == 0)
-            {
-                // Tier 0: Show categories only (no bars)
-                float catX = px + 100.0f;
-                for (const auto& [resType, category] : scan.categories)
-                {
-                    std::string resName = ResourceUtils::GetResourceName(resType);
-                    Color catColor = (category == "HIGH") ? Color{100, 255, 100, 255} :
-                                     (category == "MED") ? Color{255, 220, 100, 255} :
-                                                           Color{255, 120, 100, 255};
-                    std::string label = resName.substr(0, 2) + ":" + category;
-                    DrawTextEx(bodyFont, label.c_str(), {catX, yPos + 1.0f},
-                               FS(11.0f), sp, catColor);
-                    catX += MeasureTextEx(bodyFont, label.c_str(), FS(11.0f), sp).x + 6.0f;
-                }
-            }
-            else
-            {
-                // Tier 1+: Show composition bars with values
-                float totalAmount = 0.0f;
-                for (const auto& [resType, amount] : scan.elements)
-                {
-                    totalAmount += amount;
-                }
-                float barX = px + 100.0f;
-                float availBarW = maxBarW;
-                if (totalAmount > 0.0f)
-                {
-                    for (const auto& [resType, amount] : scan.elements)
-                    {
-                        float fraction = amount / totalAmount;
-                        float pct = fraction * 100.0f;
-                        float barW2 = fraction * availBarW;
-                        if (barW2 < 2.0f) barW2 = 2.0f;
-                        Color barColor = ResourceUtils::GetResourceColor(resType);
-                        DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos),
-                                      static_cast<int>(barW2), static_cast<int>(barH), barColor);
-
-                        std::string resName = ResourceUtils::GetResourceName(resType);
-                        std::string label = TextFormat("%s %.0f%%", resName.c_str(), pct);
-                        float labelW = MeasureTextEx(bodyFont, label.c_str(), FS(10.0f), sp).x;
-                        if (barW2 > labelW + 4.0f)
-                        {
-                            DrawTextEx(bodyFont, label.c_str(),
-                                       {barX + 2.0f, yPos + 1.0f}, FS(10.0f), sp, {0, 0, 0, 200});
-                        }
-                        else if (barW2 > 18.0f)
-                        {
-                            DrawTextEx(bodyFont, resName.c_str(),
-                                       {barX + 2.0f, yPos + 1.0f}, FS(10.0f), sp, {0, 0, 0, 200});
-                        }
-                        barX += barW2 + 1.0f;
-                    }
-                }
-            }
-
-            yPos += barH + 6.0f;
-            count++;
+            DrawTextEx(bodyFont, "Select a sample to analyze.",
+                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
         }
     }
 
-    // --- Marked Sites ---
-    yPos += 8.0f;
-    const auto& markedSites = unit->GetMarkedSites();
-    DrawTextEx(headerFont, TextFormat("MARKED SITES (%d)", static_cast<int>(markedSites.size())),
-               {px, yPos}, FS(14.0f), sp, EXT_HEADER_COLOR);
-    yPos += 20.0f;
+    // --- Bottom: survey progress summary ---
+    float bottomY = static_cast<float>(y + h) - 60.0f;
+    DrawLine(x + padding, static_cast<int>(bottomY), x + w - padding, static_cast<int>(bottomY), PROS_CELL_BORDER);
+    bottomY += 8.0f;
 
-    for (size_t i = 0; i < markedSites.size() && i < 4; i++)
-    {
-        DrawTextEx(bodyFont, TextFormat("  Site %d: (%d, %d)", static_cast<int>(i + 1),
-                   markedSites[i].first, markedSites[i].second),
-                   {px, yPos}, FS(12.0f), sp, EXT_ACCENT_GREEN);
-        yPos += 16.0f;
-    }
+    CellSurveyResult sr = SurveyProgressEngine::Calculate(ps->GetGrid(), ps->GetTray());
+    DrawTextEx(bodyFont, TextFormat("Sweep: %.0f%%", sr.sweepConfidence * 100.0f),
+               {px, bottomY}, FS(9.0f), sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, TextFormat("Sample: %.0f%%", sr.sampleConfidence * 100.0f),
+               {px + pw * 0.33f, bottomY}, FS(9.0f), sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, TextFormat("Testing: %.0f%%", sr.testingConfidence * 100.0f),
+               {px + pw * 0.66f, bottomY}, FS(9.0f), sp, EXT_DIM_TEXT);
+    bottomY += 14.0f;
 
-    // --- Objectives Section (T1+) ---
-    if (tier >= 1)
-    {
-        yPos += 8.0f;
-        const auto& objectives = unit->GetActiveObjectives();
-        DrawTextEx(headerFont, TextFormat("OBJECTIVES (%d)", static_cast<int>(objectives.size())),
-                   {px, yPos}, FS(13.0f), sp, EXT_HEADER_COLOR);
-        yPos += 18.0f;
+    bool marked = ps->IsMarkedSite();
+    DrawTextEx(bodyFont, marked ? "MARKED SITE" : "Unmarked",
+               {px, bottomY}, FS(9.0f), sp, marked ? EXT_ACCENT_GREEN : EXT_DIM_TEXT);
 
-        for (size_t i = 0; i < objectives.size() && i < 3; i++)
-        {
-            const auto& obj = objectives[i];
-            if (obj.revealed)
-            {
-                Color objColor = obj.completed ? EXT_ACCENT_GOLD : LIGHTGRAY;
-                DrawTextEx(bodyFont, obj.description.c_str(),
-                           {px + 5.0f, yPos}, FS(10.0f), sp, objColor);
+    float calQ = ps->GetSweep().GetCalibrationQuality();
+    DrawTextEx(bodyFont, TextFormat("Cal: %.0f%%", calQ * 100.0f),
+               {px + pw * 0.33f, bottomY}, FS(9.0f), sp,
+               calQ >= 0.8f ? EXT_ACCENT_GREEN : PROS_MSG_ALERT);
 
-                // Reward preview
-                const char* rewardLabels[] = {"extraction bonus", "confidence bonus", "resource grant"};
-                DrawTextEx(bodyFont, TextFormat("  -> +%.0f%% %s",
-                    obj.rewardValue * 100.0f, rewardLabels[obj.rewardType]),
-                    {px + 5.0f, yPos + 12.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
-            }
-            else
-            {
-                DrawTextEx(bodyFont, "??? (scan nearby to reveal)",
-                           {px + 5.0f, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
-            }
-            yPos += 26.0f;
-        }
-
-        // Objective bonus active indicator
-        if (unit->GetObjectiveBonusMultiplier() > 1.0f)
-        {
-            DrawTextEx(bodyFont, TextFormat("Active bonus: +%.0f%% extraction",
-                (unit->GetObjectiveBonusMultiplier() - 1.0f) * 100.0f),
-                {px, yPos}, FS(10.0f), sp, EXT_ACCENT_GOLD);
-            yPos += 14.0f;
-        }
-
-        // Discovery log (compact)
-        const auto& completed = unit->GetCompletedObjectives();
-        if (!completed.empty())
-        {
-            DrawTextEx(bodyFont, TextFormat("Discovery Log: %d completed", static_cast<int>(completed.size())),
-                       {px, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
-            yPos += 14.0f;
-        }
-    }
-
-    // --- Depth Profile (when hovering a scanned cell with layer data, T1+) ---
-    // This section draws on the right side of the grid when applicable
-    if (tier >= 1)
-    {
-        // Find if any scanned cell is being hovered that has layer data
-        for (int dy = -2; dy <= 2; dy++)
-        {
-            for (int dx = -2; dx <= 2; dx++)
-            {
-                int cellGX = centerGX + dx;
-                int cellGY = centerGY + dy;
-                float cx = gridStartX + static_cast<float>(dx + 2) * cellSz;
-                float cy = gridStartY + static_cast<float>(dy + 2) * cellSz;
-                Rectangle cellRect = {cx, cy, cellSz - 2.0f, cellSz - 2.0f};
-
-                if (CheckCollisionPointRec(mousePos, cellRect))
-                {
-                    auto scanIt2 = scanHistory.find({cellGX, cellGY});
-                    if (scanIt2 != scanHistory.end() && scanIt2->second.isScanned &&
-                        !scanIt2->second.layerElements.empty())
-                    {
-                        // Draw depth profile on the right side
-                        float dpX = gridStartX + 5.0f * cellSz + 10.0f;
-                        float dpY = gridStartY;
-                        float dpW = panelW - (5.0f * cellSz + 10.0f);
-                        if (dpW < 80.0f) break;
-
-                        DrawTextEx(bodyFont, "DEPTH PROFILE", {dpX, dpY}, FS(11.0f), sp, EXT_HEADER_COLOR);
-                        dpY += 16.0f;
-
-                        const char* layerNames[] = {"Surface", "Shallow", "Mid", "Deep"};
-                        const char* layerDepths[] = {"0-10cm", "10-30cm", "30-100cm", "100-300cm"};
-                        int maxLayer = scanIt2->second.maxScannedDepthLayer;
-
-                        // Only show bands the current tier can scan: T1→surface, T2→shallow, T3→all
-                        int maxPossibleLayer = (tier <= 1) ? 0 : (tier == 2) ? 1 : 3;
-
-                        float bandH = 28.0f;
-                        for (int li = 0; li < maxPossibleLayer + 1; li++)
-                        {
-                            DepthLayer dl = static_cast<DepthLayer>(li);
-                            float bandY = dpY + li * (bandH + 2.0f);
-
-                            if (li <= maxLayer)
-                            {
-                                // Scanned layer — show resource bars
-                                DrawRectangle(static_cast<int>(dpX), static_cast<int>(bandY),
-                                              static_cast<int>(dpW), static_cast<int>(bandH),
-                                              {30, static_cast<unsigned char>(35 + li * 5), 45, 255});
-                                DrawTextEx(bodyFont, layerNames[li],
-                                           {dpX + 2.0f, bandY + 1.0f}, FS(8.0f), sp, LIGHTGRAY);
-                                DrawTextEx(bodyFont, layerDepths[li],
-                                           {dpX + 2.0f, bandY + 10.0f}, FS(7.0f), sp, EXT_DIM_TEXT);
-
-                                auto layerIt = scanIt2->second.layerElements.find(dl);
-                                if (layerIt != scanIt2->second.layerElements.end())
-                                {
-                                    float totalL = 0.0f;
-                                    for (const auto& [t, v] : layerIt->second)
-                                        totalL += v;
-
-                                    float barX2 = dpX + 2.0f;
-                                    float barY2 = bandY + 18.0f;
-                                    float barAvail = dpW - 4.0f;
-                                    if (totalL > 0.0f)
-                                    {
-                                        for (const auto& [t, v] : layerIt->second)
-                                        {
-                                            float frac = v / totalL;
-                                            float bw = frac * barAvail;
-                                            if (bw < 1.0f) bw = 1.0f;
-                                            DrawRectangle(static_cast<int>(barX2), static_cast<int>(barY2),
-                                                          static_cast<int>(bw), 8,
-                                                          ResourceUtils::GetResourceColor(t));
-                                            barX2 += bw;
-                                        }
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                // Unscanned layer (within tier capability but not yet scanned)
-                                DrawRectangle(static_cast<int>(dpX), static_cast<int>(bandY),
-                                              static_cast<int>(dpW), static_cast<int>(bandH),
-                                              {15, 15, 20, 255});
-                                DrawTextEx(bodyFont, TextFormat("%s ???", layerNames[li]),
-                                           {dpX + 2.0f, bandY + 8.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
-                            }
-
-                            DrawRectangleLines(static_cast<int>(dpX), static_cast<int>(bandY),
-                                               static_cast<int>(dpW), static_cast<int>(bandH), EXT_PANEL_BORDER);
-                        }
-
-                        // Upgrade hint if deeper layers are locked
-                        if (maxPossibleLayer < 3)
-                        {
-                            const char* nextTierNames[] = {"Multi-Spectral Suite (T2)", "Deep Survey Array (T3)"};
-                            float hintY = dpY + (maxPossibleLayer + 1) * (bandH + 2.0f) + 2.0f;
-                            DrawTextEx(bodyFont, TextFormat("Upgrade to %s", nextTierNames[std::min(tier - 1, 1)]),
-                                       {dpX, hintY}, FS(9.0f), sp, EXT_DIM_TEXT);
-                            DrawTextEx(bodyFont, "for deeper layers",
-                                       {dpX, hintY + 12.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
-                        }
-                    }
-                    goto depthProfileDone;  // Only draw for one cell
-                }
-            }
-        }
-        depthProfileDone:;
-    }
-
-    // --- Deferred hover tooltip (drawn on top of depth profile) ---
-    if (deferredTooltip && deferredScan)
-    {
-        DrawRectangle(static_cast<int>(deferredTTX), static_cast<int>(deferredTTY),
-                      160, deferredTTH, {15, 20, 30, 240});
-        DrawRectangleLines(static_cast<int>(deferredTTX), static_cast<int>(deferredTTY),
-                          160, deferredTTH, EXT_PANEL_BORDER);
-
-        float ttYPos = deferredTTY + 3.0f;
-        int sc = deferredScan->scanCount;
-        for (const auto& [resType, amount] : deferredScan->elements)
-        {
-            float basePct = (tier == 1) ? 15.0f : (tier == 2) ? 5.0f : 0.0f;
-            float interval = basePct / std::sqrt(static_cast<float>(sc));
-            float absInterval = amount * interval / 100.0f;
-            std::string resName = ResourceUtils::GetResourceName(resType);
-            DrawTextEx(bodyFont, TextFormat("%s: %.0f +/-%.0f (%dx)",
-                resName.c_str(), amount, absInterval, sc),
-                {deferredTTX + 4.0f, ttYPos}, FS(9.0f), sp, LIGHTGRAY);
-            ttYPos += 13.0f;
-        }
-
-        // Survey progress in tooltip
-        float ttSurvey = deferredScan->surveyProgress;
-        if (ttSurvey <= 0.0f && deferredScan->scanCount > 0)
-            ttSurvey = std::min(1.0f, static_cast<float>(deferredScan->scanCount) / 3.0f);
-        Color ttSurvColor = ttSurvey >= 0.9f ? EXT_ACCENT_GREEN :
-                            ttSurvey >= 0.5f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Survey: %.0f%%", ttSurvey * 100.0f),
-                   {deferredTTX + 4.0f, ttYPos}, FS(9.0f), sp, ttSurvColor);
-    }
-
+    int tier = ps->GetTier();
+    DrawTextEx(bodyFont, TextFormat("Tier %d", tier),
+               {px + pw * 0.66f, bottomY}, FS(9.0f), sp, EXT_ACCENT_CYAN);
 }
 
 void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
@@ -3044,8 +2943,9 @@ void RenderManager::DrawOperationsPanel(Unit* unit, int x, int y, int w, int h)
     DrawTextEx(bodyFont, tierDescs[std::min(mod.tier, 3)], {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
     yPos += 40.0f;
 
-    // Geological confidence bonus
-    float confidence = unit->GetGeologicalConfidence();
+    // Survey coverage bonus from prospecting system
+    float confidence = unit->HasProspectingSystem()
+        ? unit->GetProspectingSystem()->GetSurveyProgress() : 0.0f;
     float confBonus = confidence * 0.10f;
     Color confColor = confidence >= 0.8f ? EXT_ACCENT_GREEN :
                       confidence >= 0.4f ? YELLOW : RED;
