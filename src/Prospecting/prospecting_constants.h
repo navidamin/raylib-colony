@@ -86,8 +86,8 @@ constexpr int CRYSTAL_TOTAL_TEMPLATES = 20;
 
 // --- Sweep mechanics ---
 
-// Maximum frequency band accessible per tier (-1 = no sweep capability)
-constexpr int MAX_SWEEP_BAND_PER_TIER[] = { -1, 0, 2, 3 };
+// Maximum frequency band accessible per tier (0 = band 0 only)
+constexpr int MAX_SWEEP_BAND_PER_TIER[] = { 0, 1, 2, 3 };
 
 // Sweep noise: base noise decreases with tier
 constexpr float SWEEP_BASE_NOISE = 0.15f;

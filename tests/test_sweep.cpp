@@ -18,12 +18,12 @@ TEST_CASE("SweepEngine CanSweep respects tier gating", "[sweep]")
     ProspectingGrid grid(1, 5, 5, rm);
 
     SweepEngine t0(0);
-    REQUIRE_FALSE(t0.CanSweep(grid, 0));
+    REQUIRE(t0.CanSweep(grid, 0));
     REQUIRE_FALSE(t0.CanSweep(grid, 1));
 
     SweepEngine t1(1);
     REQUIRE(t1.CanSweep(grid, 0));
-    REQUIRE_FALSE(t1.CanSweep(grid, 1));
+    REQUIRE(t1.CanSweep(grid, 1));
     REQUIRE_FALSE(t1.CanSweep(grid, 2));
 
     ProspectingGrid grid2(2, 5, 5, rm);
