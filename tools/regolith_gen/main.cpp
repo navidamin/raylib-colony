@@ -67,11 +67,17 @@ struct ParticleFamily
 //   1: CRYSTALLINE_SHARDS  -> shard
 //   2: ROUNDED_NODULES     -> rounded
 //   3: LAYERED_SLABS       -> slab
+// High-contrast family signatures — each family has a dominant cue that reads
+// at small sprite sizes:
+//   angular = very rough lumpy quasi-sphere
+//   shard   = strongly elongated needle (aspect ratio ~3.7:1)
+//   rounded = clean smooth sphere
+//   slab    = thin wide disc (height ~1/5 of width)
 static const ParticleFamily FAMILIES[] = {
-    {"angular", 0.30f, 2.0f, 5, 0.55f, 2.10f, {1.05f, 0.95f, 1.00f}, 0.10f},
-    {"shard",   0.12f, 1.6f, 4, 0.55f, 2.10f, {1.80f, 0.60f, 0.80f}, 0.06f},
-    {"rounded", 0.18f, 1.4f, 4, 0.50f, 2.05f, {1.00f, 1.00f, 1.00f}, 0.04f},
-    {"slab",    0.14f, 1.2f, 4, 0.45f, 2.05f, {1.40f, 0.35f, 1.20f}, 0.05f},
+    {"angular", 0.40f, 2.80f, 5, 0.55f, 2.10f, {1.10f, 0.95f, 1.00f}, 0.18f},
+    {"shard",   0.10f, 1.40f, 4, 0.50f, 2.05f, {2.40f, 0.55f, 0.65f}, 0.05f},
+    {"rounded", 0.10f, 1.20f, 3, 0.45f, 2.00f, {1.00f, 1.00f, 1.00f}, 0.02f},
+    {"slab",    0.10f, 1.00f, 4, 0.45f, 2.05f, {1.55f, 0.28f, 1.40f}, 0.04f},
 };
 static const int NUM_FAMILIES = sizeof(FAMILIES) / sizeof(FAMILIES[0]);
 
@@ -84,12 +90,14 @@ struct TemplateVariation
     float jaggednessMul;
     Vector3 ellipsoidMul;
 };
+// Stronger perturbations (50-100%) so each template reads as a distinct
+// specimen rather than a near-duplicate of the nominal.
 static const TemplateVariation TEMPLATES[NUM_TEMPLATES] = {
     { 1.00f, 1.00f, 1.00f, {1.00f, 1.00f, 1.00f} },  // t1 nominal
-    { 1.20f, 1.00f, 1.10f, {1.00f, 1.00f, 1.00f} },  // t2 rougher
-    { 0.85f, 0.80f, 0.95f, {1.00f, 1.00f, 1.00f} },  // t3 smoother + larger lumps
-    { 1.00f, 1.05f, 1.00f, {1.10f, 0.92f, 1.05f} },  // t4 stretched + finer
-    { 1.05f, 1.10f, 1.40f, {1.00f, 1.00f, 1.00f} },  // t5 extra jagged
+    { 1.50f, 0.65f, 1.30f, {1.00f, 1.00f, 1.00f} },  // t2 chunky — fewer big lumps
+    { 1.10f, 2.00f, 1.80f, {1.00f, 1.00f, 1.00f} },  // t3 fine — many tiny bumps
+    { 1.00f, 0.95f, 1.00f, {1.20f, 0.85f, 1.10f} },  // t4 stretched
+    { 0.45f, 0.70f, 0.40f, {1.00f, 1.00f, 1.00f} },  // t5 smooth — washed-out surface
 };
 
 // ============================================================
@@ -319,54 +327,68 @@ static Mesh IcoToRaylibMesh(const IcoMesh& src)
 }
 
 // ============================================================
-// Sprite render: white wireframe + soft white silhouette halo
+// Sprite render: white wireframe + Gaussian-blurred glow halo
 // ============================================================
+//
+// Glow is built in image space rather than via geometry: render the
+// wireframe to a scratch RT, copy out as an Image, blur the copy by an
+// amount proportional to glowLevel, then boost the blurred copy's pixel
+// values (the blur attenuates per-pixel intensity since energy spreads),
+// and additively composite the boosted halo back onto the sharp wires.
 
-static void RenderSprite(RenderTexture2D target, Mesh mesh, Camera3D camera,
-                          float sizeScale, int glowLevel)
+static void RenderAndSaveSprite(RenderTexture2D scratchTarget, Mesh mesh,
+                                 Camera3D camera, float sizeScale, int glowLevel,
+                                 const char* outPath, int outSize)
 {
-    BeginTextureMode(target);
+    // Pass: render clean white wireframe to the scratch RT.
+    BeginTextureMode(scratchTarget);
     ClearBackground(BLANK);
     BeginMode3D(camera);
-
     rlDisableDepthTest();
-
-    // Halo passes — filled mesh in low-alpha white at progressively larger
-    // scales build up a soft silhouette glow behind the wireframe.
-    if (glowLevel > 0)
-    {
-        Material haloMat = LoadMaterialDefault();
-        for (int p = 0; p < glowLevel; p++)
-        {
-            float haloScale = sizeScale * (1.0f + (p + 1) * 0.05f);
-            int alpha = 60 - p * 10;
-            if (alpha < 15) alpha = 15;
-            haloMat.maps[MATERIAL_MAP_DIFFUSE].color =
-                (Color){ 255, 255, 255, static_cast<unsigned char>(alpha) };
-            DrawMesh(mesh, haloMat, MatrixScale(haloScale, haloScale, haloScale));
-        }
-    }
-
-    // Main wireframe — opaque white so runtime tinting fully colorizes the lines.
     rlEnableWireMode();
     Material wireMat = LoadMaterialDefault();
     wireMat.maps[MATERIAL_MAP_DIFFUSE].color = (Color){ 255, 255, 255, 255 };
     DrawMesh(mesh, wireMat, MatrixScale(sizeScale, sizeScale, sizeScale));
     rlDisableWireMode();
-
     rlEnableDepthTest();
-
     EndMode3D();
     EndTextureMode();
-}
 
-static void SaveResized(RenderTexture2D target, const char* path, int outSize)
-{
-    Image img = LoadImageFromTexture(target.texture);
-    ImageFlipVertical(&img);
-    ImageResize(&img, outSize, outSize);
-    ExportImage(img, path);
-    UnloadImage(img);
+    Image wireImg = LoadImageFromTexture(scratchTarget.texture);
+    ImageFlipVertical(&wireImg);
+    ImageFormat(&wireImg, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+
+    if (glowLevel > 0)
+    {
+        Image haloImg = ImageCopy(wireImg);
+        int blurSize = glowLevel * 5;          // 5, 10, 15, 20 px @ 768
+        ImageBlurGaussian(&haloImg, blurSize);
+
+        // Gaussian blur conserves energy (peak intensity drops); boost so the
+        // halo is perceptually bright but stays below saturation so the sharp
+        // wires remain visible on top of the halo.
+        int boost = 1 + glowLevel * 2;          // 3, 5, 7, 9
+        unsigned char* hp = (unsigned char*)haloImg.data;
+        long N = (long)haloImg.width * (long)haloImg.height * 4;
+        for (long i = 0; i < N; i++)
+        {
+            int v = (int)hp[i] * boost;
+            hp[i] = (unsigned char)(v > 255 ? 255 : v);
+        }
+
+        // Additive composite halo onto sharp wireframe.
+        unsigned char* wp = (unsigned char*)wireImg.data;
+        for (long i = 0; i < N; i++)
+        {
+            int v = (int)wp[i] + (int)hp[i];
+            wp[i] = (unsigned char)(v > 255 ? 255 : v);
+        }
+        UnloadImage(haloImg);
+    }
+
+    ImageResize(&wireImg, outSize, outSize);
+    ExportImage(wireImg, outPath);
+    UnloadImage(wireImg);
 }
 
 // Apply per-template parameter perturbations to a base family.
@@ -445,8 +467,8 @@ int main(int argc, char** argv)
                     char path[768];
                     snprintf(path, sizeof(path), "%s/size_%d_glow_%d.png",
                              tdir, s + 1, g);
-                    RenderSprite(target, mesh, camera, SIZE_SCALES[s], g);
-                    SaveResized(target, path, OUTPUT_SIZE);
+                    RenderAndSaveSprite(target, mesh, camera, SIZE_SCALES[s], g,
+                                         path, OUTPUT_SIZE);
                     written++;
                 }
             }
