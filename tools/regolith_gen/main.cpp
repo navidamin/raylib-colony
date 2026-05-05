@@ -1,19 +1,25 @@
-// Regolith particle shape generator
+// Regolith sample sprite generator
 //
-// Mathematically synthesizes irregular regolith-like 3D particles by displacing
-// an icosphere with multi-octave Perlin noise. The technique mirrors the
-// spherical-harmonic-radial representation used by NIST (Garboczi et al.) for
-// real CT-scanned particles, but trades scientific exactness for runtime speed
-// and infinite seeded variety.
+// Mathematically synthesizes wireframe sprite renders of regolith-like
+// particles for the prospecting sample tray. Replaces tools/crystal_gen as the
+// asset pipeline source for sample sprites.
 //
-// For each family the generator produces:
-//   - PNG renders: wireframe (matches the CT-scan reference look) and lit solid
-//   - OBJ mesh exports for downstream use in the game or external tools
+// Encoding axes (mirroring ShapeFamily / CrystalVisual in the game):
+//   - 4 families:    angular, shard, rounded, slab
+//                    (order matches ShapeFamily enum: ANGULAR_CHUNKS,
+//                     CRYSTALLINE_SHARDS, ROUNDED_NODULES, LAYERED_SLABS)
+//   - 5 templates:   parameter perturbations within a family that vary the
+//                    geometry (roughness/frequency/jaggedness/ellipsoid mul)
+//                    without crossing the family signature
+//   - 4 size levels: render scale (richness)
+//   - 5 glow levels: soft white silhouette halo behind the wireframe (confidence)
 //
-// Output layout:
-//   <output>/<family>/sample_<n>.obj
-//   <output>/<family>/sample_<n>_wire.png
-//   <output>/<family>/sample_<n>_lit.png
+// Sprites are drawn as opaque WHITE wireframes on a transparent background, so
+// the game tints them at runtime with the sample's element color.
+//
+// Output layout (4 x 5 x 4 x 5 = 400 PNGs):
+//   <output>/<family>/t<n>/size_<s>_glow_<g>.png
+//     n in 1..5, s in 1..4, g in 0..4
 
 #include "raylib.h"
 #include "raymath.h"
@@ -34,33 +40,57 @@
 // ============================================================
 
 static const int RENDER_SIZE = 768;
-static const int OUTPUT_SIZE = 256;
+static const int OUTPUT_SIZE = 128;
 static const int SUBDIVISIONS = 4;          // 4 -> 2562 verts, 5120 tris
-static const int SAMPLES_PER_FAMILY = 6;
+static const int NUM_TEMPLATES = 5;
+static const int NUM_SIZE_LEVELS = 4;
+static const int NUM_GLOW_LEVELS = 5;
+
+// Render scale per size level (matches crystal_gen for consistency)
+static const float SIZE_SCALES[NUM_SIZE_LEVELS] = { 0.55f, 0.70f, 0.85f, 1.0f };
 
 struct ParticleFamily
 {
     const char* name;
-    float roughness;        // displacement amplitude (fraction of unit radius)
-    float baseFrequency;    // base spatial frequency of fbm
-    int   octaves;          // octaves of fbm
-    float persistence;      // amplitude falloff per octave
-    float lacunarity;       // frequency growth per octave
-    Vector3 ellipsoid;      // global non-uniform stretch applied after displacement
-    float jaggedness;       // extra high-frequency detail amplitude
+    float roughness;
+    float baseFrequency;
+    int   octaves;
+    float persistence;
+    float lacunarity;
+    Vector3 ellipsoid;
+    float jaggedness;
 };
 
+// Order MUST match the in-game ShapeFamily enum so a future loader can index
+// by static_cast<int>(visual.shapeFamily):
+//   0: ANGULAR_CHUNKS      -> angular
+//   1: CRYSTALLINE_SHARDS  -> shard
+//   2: ROUNDED_NODULES     -> rounded
+//   3: LAYERED_SLABS       -> slab
 static const ParticleFamily FAMILIES[] = {
-    // Smooth rounded — matches the left blob in the CT-scan reference
-    {"rounded",   0.18f, 1.4f, 4, 0.50f, 2.05f, {1.00f, 1.00f, 1.00f}, 0.04f},
-    // Elongated lozenge — matches the right blob in the CT-scan reference
-    {"elongated", 0.16f, 1.6f, 4, 0.50f, 2.05f, {1.55f, 0.70f, 0.85f}, 0.04f},
-    // Heavily jagged angular fragment
-    {"jagged",    0.30f, 2.0f, 5, 0.55f, 2.10f, {1.05f, 0.95f, 1.00f}, 0.10f},
-    // Subtly pebbly, near-spherical
-    {"pebbly",    0.12f, 1.0f, 3, 0.45f, 2.00f, {1.05f, 0.95f, 1.00f}, 0.02f},
+    {"angular", 0.30f, 2.0f, 5, 0.55f, 2.10f, {1.05f, 0.95f, 1.00f}, 0.10f},
+    {"shard",   0.12f, 1.6f, 4, 0.55f, 2.10f, {1.80f, 0.60f, 0.80f}, 0.06f},
+    {"rounded", 0.18f, 1.4f, 4, 0.50f, 2.05f, {1.00f, 1.00f, 1.00f}, 0.04f},
+    {"slab",    0.14f, 1.2f, 4, 0.45f, 2.05f, {1.40f, 0.35f, 1.20f}, 0.05f},
 };
 static const int NUM_FAMILIES = sizeof(FAMILIES) / sizeof(FAMILIES[0]);
+
+// Per-template parameter multipliers — pushes the same family signature toward
+// rougher / smoother / stretched / extra-jagged variants without leaving family.
+struct TemplateVariation
+{
+    float roughnessMul;
+    float frequencyMul;
+    float jaggednessMul;
+    Vector3 ellipsoidMul;
+};
+static const TemplateVariation TEMPLATES[NUM_TEMPLATES] = {
+    { 1.00f, 1.00f, 1.00f, {1.00f, 1.00f, 1.00f} },  // t1 nominal
+    { 1.20f, 1.00f, 1.10f, {1.00f, 1.00f, 1.00f} },  // t2 rougher
+    { 0.85f, 0.80f, 0.95f, {1.00f, 1.00f, 1.00f} },  // t3 smoother + larger lumps
+    { 1.00f, 1.05f, 1.00f, {1.10f, 0.92f, 1.05f} },  // t4 stretched + finer
+    { 1.05f, 1.10f, 1.40f, {1.00f, 1.00f, 1.00f} },  // t5 extra jagged
+};
 
 // ============================================================
 // Filesystem helper
@@ -112,25 +142,15 @@ static Vector3 GradientAt(int x, int y, int z, uint32_t seed)
     return G[Hash3D(x, y, z, seed) % 12];
 }
 
-static float Fade(float t)
-{
-    return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
-}
-
-static float LerpF(float a, float b, float t)
-{
-    return a + (b - a) * t;
-}
+static float Fade(float t) { return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f); }
+static float LerpF(float a, float b, float t) { return a + (b - a) * t; }
 
 static float PerlinNoise3D(Vector3 p, uint32_t seed)
 {
     int xi = static_cast<int>(floorf(p.x));
     int yi = static_cast<int>(floorf(p.y));
     int zi = static_cast<int>(floorf(p.z));
-    float xf = p.x - xi;
-    float yf = p.y - yi;
-    float zf = p.z - zi;
-
+    float xf = p.x - xi, yf = p.y - yi, zf = p.z - zi;
     float u = Fade(xf), v = Fade(yf), w = Fade(zf);
 
     Vector3 d000 = { xf,        yf,        zf        };
@@ -162,10 +182,7 @@ static float PerlinNoise3D(Vector3 p, uint32_t seed)
 
 static float Fbm3D(Vector3 p, int octaves, float persistence, float lacunarity, uint32_t seed)
 {
-    float total = 0.0f;
-    float amplitude = 1.0f;
-    float frequency = 1.0f;
-    float maxValue = 0.0f;
+    float total = 0.0f, amplitude = 1.0f, frequency = 1.0f, maxValue = 0.0f;
     for (int i = 0; i < octaves; i++)
     {
         Vector3 sp = Vector3Scale(p, frequency);
@@ -184,7 +201,7 @@ static float Fbm3D(Vector3 p, int octaves, float persistence, float lacunarity, 
 struct IcoMesh
 {
     std::vector<Vector3> verts;
-    std::vector<int> tris;  // 3 indices per triangle
+    std::vector<int> tris;
 };
 
 static int GetMidpoint(IcoMesh& m, std::unordered_map<uint64_t, int>& cache, int a, int b)
@@ -247,7 +264,6 @@ static IcoMesh GenerateRegolith(const ParticleFamily& fam, uint32_t seed)
 {
     IcoMesh m = BuildIcosphere(SUBDIVISIONS);
 
-    // Per-particle noise field offset so two particles of the same family look distinct
     float ox = static_cast<float>(Hash3D(0, 0, 0, seed) & 0xFFFF) / 65535.0f * 100.0f;
     float oy = static_cast<float>(Hash3D(1, 0, 0, seed) & 0xFFFF) / 65535.0f * 100.0f;
     float oz = static_cast<float>(Hash3D(2, 0, 0, seed) & 0xFFFF) / 65535.0f * 100.0f;
@@ -255,7 +271,7 @@ static IcoMesh GenerateRegolith(const ParticleFamily& fam, uint32_t seed)
 
     for (auto& v : m.verts)
     {
-        Vector3 dir = v;  // unit-sphere vertex == its outward normal
+        Vector3 dir = v;
         Vector3 lowPos = Vector3Add(Vector3Scale(dir, fam.baseFrequency), noiseOffset);
         float disp = Fbm3D(lowPos, fam.octaves, fam.persistence, fam.lacunarity, seed);
         Vector3 hiPos = Vector3Add(Vector3Scale(dir, fam.baseFrequency * 6.0f), noiseOffset);
@@ -271,7 +287,6 @@ static IcoMesh GenerateRegolith(const ParticleFamily& fam, uint32_t seed)
     return m;
 }
 
-// Convert the index-based IcoMesh to a flat-shaded raylib Mesh (per-face normals).
 static Mesh IcoToRaylibMesh(const IcoMesh& src)
 {
     int triCount = static_cast<int>(src.tris.size()) / 3;
@@ -304,91 +319,42 @@ static Mesh IcoToRaylibMesh(const IcoMesh& src)
 }
 
 // ============================================================
-// OBJ exporter
+// Sprite render: white wireframe + soft white silhouette halo
 // ============================================================
 
-static void ExportOBJ(const IcoMesh& m, const char* path)
-{
-    FILE* f = fopen(path, "w");
-    if (!f) { printf("  WARN: could not write %s\n", path); return; }
-    fprintf(f, "# regolith_gen synthetic particle\n");
-    fprintf(f, "# verts: %zu  tris: %zu\n", m.verts.size(), m.tris.size() / 3);
-    for (const auto& v : m.verts) fprintf(f, "v %.6f %.6f %.6f\n", v.x, v.y, v.z);
-    for (size_t i = 0; i < m.tris.size(); i += 3)
-        fprintf(f, "f %d %d %d\n", m.tris[i] + 1, m.tris[i + 1] + 1, m.tris[i + 2] + 1);
-    fclose(f);
-}
-
-// ============================================================
-// Lit shader (matches crystal_gen style)
-// ============================================================
-
-static const char* VS_LIT =
-    "#version 330\n"
-    "in vec3 vertexPosition;\n"
-    "in vec3 vertexNormal;\n"
-    "uniform mat4 mvp;\n"
-    "uniform mat4 matModel;\n"
-    "out vec3 fragNormal;\n"
-    "out vec3 fragPos;\n"
-    "void main() {\n"
-    "    fragNormal = mat3(matModel) * vertexNormal;\n"
-    "    fragPos = (matModel * vec4(vertexPosition, 1.0)).xyz;\n"
-    "    gl_Position = mvp * vec4(vertexPosition, 1.0);\n"
-    "}\n";
-
-static const char* FS_LIT =
-    "#version 330\n"
-    "in vec3 fragNormal;\n"
-    "in vec3 fragPos;\n"
-    "uniform vec4 colDiffuse;\n"
-    "out vec4 finalColor;\n"
-    "void main() {\n"
-    "    vec3 norm = normalize(fragNormal);\n"
-    "    vec3 keyLight = normalize(vec3(0.5, 0.8, 0.3));\n"
-    "    vec3 fillLight = normalize(vec3(-0.4, 0.3, -0.5));\n"
-    "    vec3 viewDir = normalize(vec3(2.0, 2.5, 2.0) - fragPos);\n"
-    "    float ambient = 0.30;\n"
-    "    float diffKey  = max(dot(norm, keyLight),  0.0);\n"
-    "    float diffFill = max(dot(norm, fillLight), 0.0);\n"
-    "    vec3 halfDir = normalize(keyLight + viewDir);\n"
-    "    float spec = pow(max(dot(norm, halfDir), 0.0), 32.0);\n"
-    "    float lighting = ambient + diffKey * 0.55 + diffFill * 0.20 + spec * 0.30;\n"
-    "    finalColor = vec4(colDiffuse.rgb * clamp(lighting, 0.0, 1.4), colDiffuse.a);\n"
-    "}\n";
-
-// ============================================================
-// Rendering passes
-// ============================================================
-
-// Wireframe render — emulates the CT-scan reference image: white background,
-// blue thin-line wire mesh.
-static void RenderWireframe(RenderTexture2D target, Mesh mesh, Camera3D camera)
-{
-    BeginTextureMode(target);
-    ClearBackground(WHITE);
-    BeginMode3D(camera);
-
-    rlEnableWireMode();
-    Material wireMat = LoadMaterialDefault();
-    wireMat.maps[MATERIAL_MAP_DIFFUSE].color = (Color){ 70, 140, 230, 255 };
-    DrawMesh(mesh, wireMat, MatrixIdentity());
-    rlDisableWireMode();
-
-    EndMode3D();
-    EndTextureMode();
-}
-
-static void RenderLit(RenderTexture2D target, Mesh mesh, Camera3D camera, Shader shader)
+static void RenderSprite(RenderTexture2D target, Mesh mesh, Camera3D camera,
+                          float sizeScale, int glowLevel)
 {
     BeginTextureMode(target);
     ClearBackground(BLANK);
     BeginMode3D(camera);
 
-    Material mat = LoadMaterialDefault();
-    mat.shader = shader;
-    mat.maps[MATERIAL_MAP_DIFFUSE].color = (Color){ 175, 165, 150, 255 };  // regolith gray-tan
-    DrawMesh(mesh, mat, MatrixIdentity());
+    rlDisableDepthTest();
+
+    // Halo passes — filled mesh in low-alpha white at progressively larger
+    // scales build up a soft silhouette glow behind the wireframe.
+    if (glowLevel > 0)
+    {
+        Material haloMat = LoadMaterialDefault();
+        for (int p = 0; p < glowLevel; p++)
+        {
+            float haloScale = sizeScale * (1.0f + (p + 1) * 0.05f);
+            int alpha = 60 - p * 10;
+            if (alpha < 15) alpha = 15;
+            haloMat.maps[MATERIAL_MAP_DIFFUSE].color =
+                (Color){ 255, 255, 255, static_cast<unsigned char>(alpha) };
+            DrawMesh(mesh, haloMat, MatrixScale(haloScale, haloScale, haloScale));
+        }
+    }
+
+    // Main wireframe — opaque white so runtime tinting fully colorizes the lines.
+    rlEnableWireMode();
+    Material wireMat = LoadMaterialDefault();
+    wireMat.maps[MATERIAL_MAP_DIFFUSE].color = (Color){ 255, 255, 255, 255 };
+    DrawMesh(mesh, wireMat, MatrixScale(sizeScale, sizeScale, sizeScale));
+    rlDisableWireMode();
+
+    rlEnableDepthTest();
 
     EndMode3D();
     EndTextureMode();
@@ -403,32 +369,41 @@ static void SaveResized(RenderTexture2D target, const char* path, int outSize)
     UnloadImage(img);
 }
 
+// Apply per-template parameter perturbations to a base family.
+static ParticleFamily ApplyTemplate(const ParticleFamily& base, const TemplateVariation& tv)
+{
+    ParticleFamily f = base;
+    f.roughness     *= tv.roughnessMul;
+    f.baseFrequency *= tv.frequencyMul;
+    f.jaggedness    *= tv.jaggednessMul;
+    f.ellipsoid.x   *= tv.ellipsoidMul.x;
+    f.ellipsoid.y   *= tv.ellipsoidMul.y;
+    f.ellipsoid.z   *= tv.ellipsoidMul.z;
+    return f;
+}
+
 // ============================================================
 // Main
 // ============================================================
 
 int main(int argc, char** argv)
 {
-    const char* outputDir = "../../src/assets/sprites/regolith";
+    const char* outputDir = "../../src/assets/sprites/samples";
     uint32_t baseSeed = 1337;
     if (argc > 1) outputDir = argv[1];
     if (argc > 2) baseSeed = static_cast<uint32_t>(strtoul(argv[2], nullptr, 10));
 
-    printf("Regolith Particle Generator\n");
+    int totalSprites = NUM_FAMILIES * NUM_TEMPLATES * NUM_SIZE_LEVELS * NUM_GLOW_LEVELS;
+
+    printf("Regolith Sample Sprite Generator\n");
     printf("Output dir: %s\n", outputDir);
     printf("Base seed:  %u\n", baseSeed);
-    printf("Families:   %d   Samples/family: %d\n", NUM_FAMILIES, SAMPLES_PER_FAMILY);
+    printf("Layout:     %d families x %d templates x %d sizes x %d glows = %d sprites\n",
+           NUM_FAMILIES, NUM_TEMPLATES, NUM_SIZE_LEVELS, NUM_GLOW_LEVELS, totalSprites);
 
     SetConfigFlags(FLAG_WINDOW_HIDDEN | FLAG_MSAA_4X_HINT);
-    InitWindow(RENDER_SIZE, RENDER_SIZE, "Regolith Generator");
+    InitWindow(RENDER_SIZE, RENDER_SIZE, "Regolith Sprite Gen");
     SetTargetFPS(60);
-
-    Shader litShader = LoadShaderFromMemory(VS_LIT, FS_LIT);
-    if (litShader.id == 0)
-    {
-        printf("WARN: lit shader failed; using default\n");
-        litShader = LoadShaderFromMemory(NULL, NULL);
-    }
 
     Camera3D camera = {0};
     camera.position = { 2.4f, 1.8f, 2.4f };
@@ -439,46 +414,49 @@ int main(int argc, char** argv)
 
     RenderTexture2D target = LoadRenderTexture(RENDER_SIZE, RENDER_SIZE);
 
-    int totalSamples = 0;
+    int written = 0;
     for (int f = 0; f < NUM_FAMILIES; f++)
     {
-        const ParticleFamily& fam = FAMILIES[f];
-        char dir[512];
-        snprintf(dir, sizeof(dir), "%s/%s", outputDir, fam.name);
-        MkdirP(dir);
-        printf("\nFamily: %-10s  rough=%.2f  ellipsoid=(%.2f,%.2f,%.2f)\n",
-               fam.name, fam.roughness, fam.ellipsoid.x, fam.ellipsoid.y, fam.ellipsoid.z);
+        const ParticleFamily& base = FAMILIES[f];
+        printf("\nFamily: %-8s  base ellipsoid=(%.2f,%.2f,%.2f) rough=%.2f\n",
+               base.name, base.ellipsoid.x, base.ellipsoid.y, base.ellipsoid.z, base.roughness);
 
-        for (int s = 0; s < SAMPLES_PER_FAMILY; s++)
+        for (int t = 0; t < NUM_TEMPLATES; t++)
         {
-            uint32_t seed = baseSeed + static_cast<uint32_t>(f) * 10007u + static_cast<uint32_t>(s) * 97u;
+            ParticleFamily fam = ApplyTemplate(base, TEMPLATES[t]);
+            uint32_t seed = baseSeed
+                          + static_cast<uint32_t>(f) * 10007u
+                          + static_cast<uint32_t>(t) * 97u;
+
             IcoMesh ico = GenerateRegolith(fam, seed);
             Mesh mesh = IcoToRaylibMesh(ico);
 
-            char objPath[640], wirePath[640], litPath[640];
-            snprintf(objPath,  sizeof(objPath),  "%s/sample_%d.obj",       dir, s + 1);
-            snprintf(wirePath, sizeof(wirePath), "%s/sample_%d_wire.png",  dir, s + 1);
-            snprintf(litPath,  sizeof(litPath),  "%s/sample_%d_lit.png",   dir, s + 1);
+            char tdir[640];
+            snprintf(tdir, sizeof(tdir), "%s/%s/t%d", outputDir, base.name, t + 1);
+            MkdirP(tdir);
+            printf("  t%d  seed=%u  rough=%.2f  freq=%.2f  jag=%.2f  ell=(%.2f,%.2f,%.2f)\n",
+                   t + 1, seed, fam.roughness, fam.baseFrequency, fam.jaggedness,
+                   fam.ellipsoid.x, fam.ellipsoid.y, fam.ellipsoid.z);
 
-            ExportOBJ(ico, objPath);
-
-            RenderWireframe(target, mesh, camera);
-            SaveResized(target, wirePath, OUTPUT_SIZE);
-
-            RenderLit(target, mesh, camera, litShader);
-            SaveResized(target, litPath, OUTPUT_SIZE);
-
+            for (int s = 0; s < NUM_SIZE_LEVELS; s++)
+            {
+                for (int g = 0; g < NUM_GLOW_LEVELS; g++)
+                {
+                    char path[768];
+                    snprintf(path, sizeof(path), "%s/size_%d_glow_%d.png",
+                             tdir, s + 1, g);
+                    RenderSprite(target, mesh, camera, SIZE_SCALES[s], g);
+                    SaveResized(target, path, OUTPUT_SIZE);
+                    written++;
+                }
+            }
             UnloadMesh(mesh);
-            totalSamples++;
-            printf("  sample %d: seed=%u  verts=%zu tris=%zu\n",
-                   s + 1, seed, ico.verts.size(), ico.tris.size() / 3);
         }
     }
 
     UnloadRenderTexture(target);
-    UnloadShader(litShader);
     CloseWindow();
 
-    printf("\nDone. Generated %d samples across %d families.\n", totalSamples, NUM_FAMILIES);
+    printf("\nDone. Wrote %d / %d sprites.\n", written, totalSprites);
     return 0;
 }
