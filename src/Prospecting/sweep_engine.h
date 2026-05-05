@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include "prospecting_grid.h"
 #include "prospecting_constants.h"
 
