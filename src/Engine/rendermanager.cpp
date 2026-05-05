@@ -8,8 +8,11 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
       fontsLoaded(false),
-      tilesLoaded(false)
+      tilesLoaded(false),
+      orbitalAssetsLoaded(false)
 {
+    orbitalNearTexture = {0};
+    orbitalFarTexture = {0};
 }
 
 void RenderManager::LoadFonts()
@@ -39,6 +42,7 @@ RenderManager::~RenderManager() {
 
     // Unload moon surface tiles when done
     UnloadMoonTiles();
+    UnloadOrbitalAssets();
 }
 
 void RenderManager::BeginDraw() {
@@ -3248,4 +3252,51 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
             chipX += chipW + 4.0f;
         }
     }
+}
+
+
+// --- Orbital view ---------------------------------------------------------
+
+void RenderManager::LoadOrbitalAssets() {
+    if (orbitalAssetsLoaded) return;
+    orbitalNearTexture = LoadTexture("src/assets/planet/orbital_near.png");
+    orbitalFarTexture  = LoadTexture("src/assets/planet/orbital_far.png");
+    if (orbitalNearTexture.id == 0) {
+        std::cout << "WARNING: failed to load orbital_near.png" << std::endl;
+    }
+    if (orbitalFarTexture.id == 0) {
+        std::cout << "WARNING: failed to load orbital_far.png" << std::endl;
+    }
+    orbitalAssetsLoaded = true;
+}
+
+void RenderManager::UnloadOrbitalAssets() {
+    if (!orbitalAssetsLoaded) return;
+    if (orbitalNearTexture.id != 0) UnloadTexture(orbitalNearTexture);
+    if (orbitalFarTexture.id  != 0) UnloadTexture(orbitalFarTexture);
+    orbitalAssetsLoaded = false;
+}
+
+void RenderManager::DrawOrbitalView() {
+    if (!orbitalAssetsLoaded) {
+        LoadOrbitalAssets();
+    }
+
+    Color spaceBg = {6, 7, 12, 255};
+    ClearBackground(spaceBg);
+
+    // Centre the disc in the screen. The texture is square (1200x1200).
+    // If the screen is smaller in either dimension, the texture overflows
+    // the visible area — that's fine, the disc is still centred.
+    if (orbitalNearTexture.id != 0) {
+        int x = (GetScreenWidth()  - orbitalNearTexture.width)  / 2;
+        int y = (GetScreenHeight() - orbitalNearTexture.height) / 2;
+        DrawTexture(orbitalNearTexture, x, y, WHITE);
+    }
+
+    DrawText("Lunar Orbit",            20, 20, 26, RAYWHITE);
+    DrawText("ENTER  descend to surface",
+             20, GetScreenHeight() - 60, 18, LIGHTGRAY);
+    DrawText("ESC    return to menu",
+             20, GetScreenHeight() - 36, 18, LIGHTGRAY);
 }

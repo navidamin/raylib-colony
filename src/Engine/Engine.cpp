@@ -136,11 +136,22 @@ void Engine::HandleInput() {
     switch (viewManager.GetCurrentView()) {
         case View::Menu:
             if (IsKeyPressed(KEY_ENTER)) {
+                // Menu → Orbital. From there, ENTER descends into the
+                // existing Planet view. Phase B: orbital is just a static
+                // disc; rotation + region click come in later phases.
+                viewManager.SwitchToOrbitalView();
+            }
+            break;
+        case View::Orbital:
+            if (IsKeyPressed(KEY_ENTER)) {
                 viewManager.SwitchToPlanetView(gameManager.GetCurrentColony());
                 viewManager.ResetCameraForCurrentView(View::Planet,
                                                      gameManager.GetColonies(),
                                                      gameManager.GetCurrentColony(),
                                                      gameManager.GetPlanet());
+            }
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                viewManager.SetCurrentView(View::Menu);
             }
             break;
         case View::SITE_SELECTION:
@@ -178,6 +189,10 @@ void Engine::HandleInput() {
                                                      gameManager.GetColonies(),
                                                      gameManager.GetCurrentColony(),
                                                      gameManager.GetPlanet());
+            }
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                // Planet ← ESC ← Orbital (climb back up the zoom hierarchy)
+                viewManager.SwitchToOrbitalView();
             }
             break;
         case View::Colony:
@@ -324,6 +339,9 @@ void Engine::Draw() {
     switch (viewManager.GetCurrentView()) {
         case View::Menu:
             renderManager.DrawMenuView();
+            break;
+        case View::Orbital:
+            renderManager.DrawOrbitalView();
             break;
         case View::SITE_SELECTION:
             renderManager.DrawSiteSelectionView(

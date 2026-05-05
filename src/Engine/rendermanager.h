@@ -25,6 +25,7 @@ public:
     void EndDraw();
 
     void DrawMenuView();
+    void DrawOrbitalView();
     void DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
                        InputManager& inputManager, TimeManager& timeManager);
     void DrawColonyView(Camera2D camera, Colony* colony, Planet* planet, std::vector<Colony *> &colonies,
@@ -61,6 +62,13 @@ private:
     Texture2D moonTiles[3];
     bool tilesLoaded;
     std::vector<int> tilePattern;  // Store which tile to use for each grid cell
+
+    // Orbital view textures (baked by prototypes/planet_visuals/asset_bake.py)
+    Texture2D orbitalNearTexture;
+    Texture2D orbitalFarTexture;
+    bool orbitalAssetsLoaded;
+    void LoadOrbitalAssets();
+    void UnloadOrbitalAssets();
 
     void DrawDebugActiveArea();
 
