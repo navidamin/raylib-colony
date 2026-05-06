@@ -56,27 +56,35 @@ def bake_orbital_disc(label, src_texture, camera_lon_deg, out_filename):
 def copy_global_mosaic():
     """Drop the full equirectangular WAC mosaic alongside the discs.
 
-    The C++ side will use this for runtime per-region rendering when we
-    zoom in past the orbital view (Phase E). 4K version is enough for
-    the visual fidelity target.
+    The C++ side uses this for runtime per-region rendering when we
+    zoom in past the orbital view (Phase E). Picks whichever cached
+    resolution is highest.
     """
-    src = os.path.join(PROTOTYPE_DATA, "moon_color_8k.jpg")
+    src_8k = os.path.join(PROTOTYPE_DATA, "moon_8k.jpg")
+    src_4k = os.path.join(PROTOTYPE_DATA, "moon_color_8k.jpg")
+    src = src_8k if os.path.exists(src_8k) else src_4k
     dst = os.path.join(GAME_ASSETS, "wac_global.jpg")
     if not os.path.exists(src):
         print(f"  [skip] WAC global not cached at {src}")
         return
     shutil.copy(src, dst)
     sz = os.path.getsize(dst)
-    print(f"  copied wac_global.jpg ({sz / 1024 / 1024:.1f} MB)")
+    print(f"  copied wac_global.jpg from {os.path.basename(src)} "
+          f"({sz / 1024 / 1024:.1f} MB)")
 
 
 def main():
     ensure_dest()
-    src_texture = os.path.join(PROTOTYPE_DATA, "moon_color_8k.jpg")
+    # Prefer the higher-res 8K source (1.34 km/pixel) when present;
+    # fall back to the legacy 4K-but-mislabeled-as-8k texture.
+    src_8k = os.path.join(PROTOTYPE_DATA, "moon_8k.jpg")
+    src_4k = os.path.join(PROTOTYPE_DATA, "moon_color_8k.jpg")
+    src_texture = src_8k if os.path.exists(src_8k) else src_4k
     if not os.path.exists(src_texture):
         raise SystemExit(
             f"missing source texture: {src_texture}\n"
             f"run wrap_to_sphere.py first or check data/global_moon/")
+    print(f"  source: {os.path.basename(src_texture)}")
 
     print("== bake orbital discs ==")
     bake_orbital_disc("near", src_texture,   0.0, "orbital_near.png")

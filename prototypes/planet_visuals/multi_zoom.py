@@ -38,7 +38,12 @@ PROTOTYPE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(PROTOTYPE_DIR, "data", "global_moon")
 OUT = os.path.join(PROTOTYPE_DIR, "output")
 
-WAC_PATH = os.path.join(DATA_DIR, "moon_color_8k.jpg")
+# Use the higher-res 8K mirror when available — gives ~1.34 km/pixel
+# at equator vs ~2.7 km/pixel for the legacy moon_color_8k.jpg (which
+# was actually 4K despite the filename).
+WAC_PATH_8K = os.path.join(DATA_DIR, "moon_8k.jpg")
+WAC_PATH_4K = os.path.join(DATA_DIR, "moon_color_8k.jpg")
+WAC_PATH = WAC_PATH_8K if os.path.exists(WAC_PATH_8K) else WAC_PATH_4K
 
 
 # --- Lunar feature database ----------------------------------------------
@@ -110,7 +115,7 @@ def latlon_to_disc(lat_deg, lon_deg, output_size, margin=12,
 
 # --- Output 1: orbital with named features -------------------------------
 
-def render_orbital_labelled(output_path, output_size=1200):
+def render_orbital_labelled(output_path, output_size=1600):
     """Wrap the WAC mosaic onto a sphere and overlay named feature
     labels, color-coded by feature type."""
     wrap_to_sphere(WAC_PATH, output_size=output_size,
@@ -249,7 +254,7 @@ def real_biome_grid(wac_global, planet_grid=PLANET_GRID):
 
 # --- Output 2: orbital with cell grid overlay ----------------------------
 
-def render_orbital_cellgrid(output_path, output_size=1200):
+def render_orbital_cellgrid(output_path, output_size=1600):
     """Wrap moon + overlay 20x20 cell grid on top, each cell coloured
     by its real-data biome classification."""
     wrap_to_sphere(WAC_PATH, output_size=output_size,
@@ -373,7 +378,7 @@ def crop_equirect_region(wac_global, lat_centre, lon_centre,
     return img.resize((output_w, output_h), Image.LANCZOS)
 
 
-def render_zoom_progression(output_path, panel_w=560):
+def render_zoom_progression(output_path, panel_w=900):
     """Show the same area at four zoom levels. Pick a region with
     something interesting at every scale."""
     target_lat = 9.6   # Copernicus region — has Mare Imbrium nearby,
