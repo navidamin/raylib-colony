@@ -90,7 +90,7 @@ FEATURES = [
 # --- Math helpers --------------------------------------------------------
 
 def latlon_to_disc(lat_deg, lon_deg, output_size, margin=12,
-                    camera_lon_deg=0.0):
+                     camera_lon_deg=0.0):
     """Project a lat/lon onto the orbital disc. Returns (px, py, visible).
     `visible` is False if the point is on the far side."""
     lat = math.radians(lat_deg)
@@ -115,12 +115,13 @@ def latlon_to_disc(lat_deg, lon_deg, output_size, margin=12,
 
 # --- Output 1: orbital with named features -------------------------------
 
-def render_orbital_labelled(output_path, output_size=1600):
+def render_orbital_labelled(output_path, output_size=1600,
+                              camera_lon_deg=0.0, title=None):
     """Wrap the WAC mosaic onto a sphere and overlay named feature
     labels, color-coded by feature type."""
     wrap_to_sphere(WAC_PATH, output_size=output_size,
                     output_path=output_path,
-                    extent="globe", camera_lon_deg=0.0,
+                    extent="globe", camera_lon_deg=camera_lon_deg,
                     apply_limb_darkening=False)
     img = Image.open(output_path).convert("RGBA")
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
@@ -142,7 +143,8 @@ def render_orbital_labelled(output_path, output_size=1600):
     }
 
     for f in FEATURES:
-        px, py, visible = latlon_to_disc(f.lat, f.lon, output_size)
+        px, py, visible = latlon_to_disc(
+            f.lat, f.lon, output_size, camera_lon_deg=camera_lon_deg)
         if not visible:
             continue
         color = type_colour[f.kind]
@@ -156,17 +158,13 @@ def render_orbital_labelled(output_path, output_size=1600):
                       fill=color, width=2)
             draw.text((px + r + 6, py - 7), f.name, fill=color, font=font_label)
         elif f.kind == "crater":
-            # Scale dot radius by feature size relative to disc radius
             r_disc = output_size / 2 - 12
-            # Moon radius 1737 km. f.radius_km / 1737 * r_disc
             r = max(3, int(f.radius_km / 1737.0 * r_disc * 0.6))
             draw.ellipse([px - r, py - r, px + r, py + r],
                          outline=color, width=1)
             draw.text((px + r + 4, py - 7), f.name, fill=color, font=font_label)
         else:  # mare
-            # Mare labels: place label, no marker (mare is a region)
             tx, ty = int(px), int(py)
-            # Soft outline for label legibility
             for ox in (-1, 0, 1):
                 for oy in (-1, 0, 1):
                     if ox == 0 and oy == 0:
@@ -175,10 +173,11 @@ def render_orbital_labelled(output_path, output_size=1600):
                               fill=(0, 0, 0, 200), font=font_label)
             draw.text((tx, ty), f.name, fill=color, font=font_label)
 
-    # Title
-    draw.text((20, 20), "Lunar Orbit  —  named features",
+    if title is None:
+        side = "near side" if abs(camera_lon_deg) < 90 else "far side"
+        title = f"Lunar Orbit  —  named features  ({side}, lon {int(camera_lon_deg):+d}°)"
+    draw.text((20, 20), title,
               fill=(255, 255, 255, 240), font=font_title)
-    # Legend
     legend_y = output_size - 80
     for i, (label, key) in enumerate(
             [("mare basin", "mare"),
@@ -254,12 +253,13 @@ def real_biome_grid(wac_global, planet_grid=PLANET_GRID):
 
 # --- Output 2: orbital with cell grid overlay ----------------------------
 
-def render_orbital_cellgrid(output_path, output_size=1600):
+def render_orbital_cellgrid(output_path, output_size=1600,
+                              camera_lon_deg=0.0):
     """Wrap moon + overlay 20x20 cell grid on top, each cell coloured
     by its real-data biome classification."""
     wrap_to_sphere(WAC_PATH, output_size=output_size,
                     output_path=output_path,
-                    extent="globe", camera_lon_deg=0.0,
+                    extent="globe", camera_lon_deg=camera_lon_deg,
                     apply_limb_darkening=False)
     base = Image.open(output_path).convert("RGBA")
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
@@ -297,10 +297,14 @@ def render_orbital_cellgrid(output_path, output_size=1600):
                     lon0 = cell_lon0 + (kx / K) * cell_deg
                     lon1 = cell_lon0 + ((kx + 1) / K) * cell_deg
                     # Project four corners
-                    p00 = latlon_to_disc(lat0, lon0, output_size)
-                    p01 = latlon_to_disc(lat0, lon1, output_size)
-                    p11 = latlon_to_disc(lat1, lon1, output_size)
-                    p10 = latlon_to_disc(lat1, lon0, output_size)
+                    p00 = latlon_to_disc(lat0, lon0, output_size,
+                                          camera_lon_deg=camera_lon_deg)
+                    p01 = latlon_to_disc(lat0, lon1, output_size,
+                                          camera_lon_deg=camera_lon_deg)
+                    p11 = latlon_to_disc(lat1, lon1, output_size,
+                                          camera_lon_deg=camera_lon_deg)
+                    p10 = latlon_to_disc(lat1, lon0, output_size,
+                                          camera_lon_deg=camera_lon_deg)
                     if not all([p00[2], p01[2], p11[2], p10[2]]):
                         continue
                     poly = [(p00[0], p00[1]), (p01[0], p01[1]),
@@ -310,14 +314,18 @@ def render_orbital_cellgrid(output_path, output_size=1600):
             # Cell border: thin lines on the cell boundary
             for i in range(K + 1):
                 lat = cell_lat0 + (i / K) * cell_deg
-                p_a = latlon_to_disc(lat, cell_lon0, output_size)
-                p_b = latlon_to_disc(lat, cell_lon1, output_size)
+                p_a = latlon_to_disc(lat, cell_lon0, output_size,
+                                      camera_lon_deg=camera_lon_deg)
+                p_b = latlon_to_disc(lat, cell_lon1, output_size,
+                                      camera_lon_deg=camera_lon_deg)
                 if i in (0, K) and p_a[2] and p_b[2]:
                     draw.line([(p_a[0], p_a[1]), (p_b[0], p_b[1])],
                               fill=(255, 255, 255, 140), width=1)
                 lon = cell_lon0 + (i / K) * cell_deg
-                p_a = latlon_to_disc(cell_lat0, lon, output_size)
-                p_b = latlon_to_disc(cell_lat1, lon, output_size)
+                p_a = latlon_to_disc(cell_lat0, lon, output_size,
+                                      camera_lon_deg=camera_lon_deg)
+                p_b = latlon_to_disc(cell_lat1, lon, output_size,
+                                      camera_lon_deg=camera_lon_deg)
                 if i in (0, K) and p_a[2] and p_b[2]:
                     draw.line([(p_a[0], p_a[1]), (p_b[0], p_b[1])],
                               fill=(255, 255, 255, 140), width=1)
@@ -331,7 +339,10 @@ def render_orbital_cellgrid(output_path, output_size=1600):
         font_title = ImageFont.load_default()
         font_label = ImageFont.load_default()
 
-    draw.text((20, 20), "Lunar Orbit  —  20×20 game cells, biomes from real WAC",
+    side = "near side" if abs(camera_lon_deg) < 90 else "far side"
+    draw.text((20, 20),
+              f"Lunar Orbit  —  20×20 game cells from real WAC  "
+              f"({side}, lon {int(camera_lon_deg):+d}°)",
               fill=(255, 255, 255, 240), font=font_title)
 
     # Legend with biome counts
@@ -476,13 +487,115 @@ def render_zoom_progression(output_path, panel_w=900):
 
 # ---------------------------------------------------------------------------
 
+def render_rotation_storyboard(output_path, n_frames=8, panel_w=460):
+    """Strip of `n_frames` orbital views rotating around the moon.
+    Visualises what the game's orbital-view rotation will feel like
+    once Phase D pre-bakes the angles."""
+    print(f"  baking {n_frames} rotation frames...")
+    panels = []
+    captions = []
+    for i in range(n_frames):
+        lon = i * (360.0 / n_frames)
+        # Wrap to [-180, 180] for display
+        display_lon = lon if lon <= 180 else lon - 360
+        tmp = os.path.join(OUT, f"_rot_tmp_{i:02d}.png")
+        wrap_to_sphere(WAC_PATH, output_size=panel_w,
+                        output_path=tmp,
+                        extent="globe", camera_lon_deg=lon,
+                        apply_limb_darkening=False)
+        panels.append(Image.open(tmp).convert("RGB"))
+        captions.append(f"lon {int(display_lon):+d}°")
+        os.remove(tmp)
+
+    # Layout: two rows of n/2 each
+    cols = n_frames // 2 if n_frames % 2 == 0 else n_frames
+    rows = 2 if n_frames % 2 == 0 else 1
+    pad = 8
+    title_h = 60
+    cap_h = 28
+    total_w = cols * panel_w + (cols - 1) * pad
+    total_h = title_h + rows * (panel_w + cap_h) + (rows - 1) * pad
+
+    canvas = Image.new("RGB", (total_w, total_h), (10, 12, 18))
+    try:
+        font_title = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
+        font_cap = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+    except OSError:
+        font_title = ImageFont.load_default()
+        font_cap = ImageFont.load_default()
+    draw = ImageDraw.Draw(canvas)
+    draw.text((20, 18),
+              f"Orbital rotation storyboard  ({n_frames} frames at "
+              f"{int(360 / n_frames)}° steps)",
+              fill=(220, 220, 220), font=font_title)
+
+    for i, (p, cap) in enumerate(zip(panels, captions)):
+        r = i // cols
+        c = i % cols
+        x = c * (panel_w + pad)
+        y = title_h + r * (panel_w + cap_h + pad)
+        canvas.paste(p, (x, y))
+        cw = draw.textlength(cap, font=font_cap)
+        draw.text((x + (panel_w - cw) // 2, y + panel_w + 4),
+                  cap, fill=(230, 230, 230), font=font_cap)
+
+    canvas.save(output_path)
+    print(f"  wrote {output_path}")
+
+
+def bake_rotation_frames_for_game(n_frames=12, panel_w=1200):
+    """Pre-bake the per-angle moon discs that the game's orbital view
+    will swap between. Phase D uses these directly — drop them into
+    src/assets/planet/orbital_rotation/{frame_NN.png}.
+
+    n_frames=12 → 30° steps. Smooth enough to read as rotation when
+    the player drags or scrolls."""
+    repo_root = os.path.normpath(os.path.join(PROTOTYPE_DIR, "..", ".."))
+    out_dir = os.path.join(repo_root, "src", "assets", "planet",
+                            "orbital_rotation")
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"  baking {n_frames} game-asset rotation frames into {out_dir}")
+    for i in range(n_frames):
+        lon = i * (360.0 / n_frames)
+        out = os.path.join(out_dir, f"frame_{i:02d}.png")
+        wrap_to_sphere(WAC_PATH, output_size=panel_w,
+                        output_path=out,
+                        extent="globe", camera_lon_deg=lon,
+                        apply_limb_darkening=False)
+    print(f"  done: {n_frames} frames at {panel_w}px")
+
+
 def main():
-    print("== orbital with named features ==")
-    render_orbital_labelled(os.path.join(OUT, "zoom_orbital_labelled.png"))
-    print("== orbital with cell grid ==")
-    render_orbital_cellgrid(os.path.join(OUT, "zoom_orbital_cellgrid.png"))
+    print("== orbital with named features (near side) ==")
+    render_orbital_labelled(
+        os.path.join(OUT, "zoom_orbital_labelled.png"),
+        camera_lon_deg=0.0)
+    print("== orbital with named features (far side) ==")
+    render_orbital_labelled(
+        os.path.join(OUT, "zoom_orbital_labelled_farside.png"),
+        camera_lon_deg=180.0)
+
+    print("== orbital with cell grid (near side) ==")
+    render_orbital_cellgrid(
+        os.path.join(OUT, "zoom_orbital_cellgrid.png"),
+        camera_lon_deg=0.0)
+    print("== orbital with cell grid (far side) ==")
+    render_orbital_cellgrid(
+        os.path.join(OUT, "zoom_orbital_cellgrid_farside.png"),
+        camera_lon_deg=180.0)
+
     print("== zoom progression ==")
     render_zoom_progression(os.path.join(OUT, "zoom_progression.png"))
+
+    print("== rotation storyboard ==")
+    render_rotation_storyboard(
+        os.path.join(OUT, "zoom_rotation_storyboard.png"),
+        n_frames=8)
+
+    print("== bake 12 rotation frames for game asset pipeline ==")
+    bake_rotation_frames_for_game(n_frames=12)
 
 
 if __name__ == "__main__":
