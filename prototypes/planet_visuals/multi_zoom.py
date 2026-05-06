@@ -57,10 +57,11 @@ class Feature:
     kind: str         # "mare" | "crater" | "landing"
 
 
-# Carefully curated. lat/lon match standard IAU coords. Radius is
-# either the basin/mare half-width or the crater diameter / 2.
+# Comprehensive feature database — near side AND far side. lat/lon are
+# IAU planetary nomenclature standard. radius_km is feature half-width
+# (mare diameter / 2 or crater diameter / 2). Add/remove freely.
 FEATURES = [
-    # Major maria (rough centroids)
+    # === Near-side maria ===
     Feature("Mare Imbrium",         32.8, -15.6, 600, "mare"),
     Feature("Mare Serenitatis",     28.0,  17.5, 350, "mare"),
     Feature("Mare Tranquillitatis",  8.5,  31.4, 350, "mare"),
@@ -69,8 +70,22 @@ FEATURES = [
     Feature("Mare Nubium",         -21.3, -16.5, 350, "mare"),
     Feature("Mare Humorum",        -24.4, -38.6, 300, "mare"),
     Feature("Mare Nectaris",       -15.2,  35.3, 175, "mare"),
+    Feature("Mare Vaporum",         13.3,   3.6, 120, "mare"),
+    Feature("Mare Cognitum",       -10.0, -23.1, 175, "mare"),
+    Feature("Mare Marginis",         13.3,  86.1, 210, "mare"),
+    Feature("Mare Smythii",         -1.3,  87.5, 185, "mare"),
+    Feature("Mare Australe",       -38.9,  93.0, 300, "mare"),
+    Feature("Mare Fecunditatis",    -7.8,  51.3, 460, "mare"),
     Feature("Oceanus Procellarum",  18.4, -57.4, 1500, "mare"),
-    # Famous craters
+    Feature("Sinus Iridum",         44.1, -31.5, 130, "mare"),
+    Feature("Sinus Medii",           2.4,   1.7,  70, "mare"),
+    # === Far-side maria + basins ===
+    Feature("Mare Moscoviense",     27.3, 147.9, 140, "mare"),
+    Feature("Mare Ingenii",        -33.7, 163.5, 160, "mare"),
+    Feature("Mare Orientale",      -19.4, -92.8, 160, "mare"),  # near limb
+    Feature("South Pole–Aitken",   -53.0, 191.0, 1200, "mare"),  # the biggest
+    Feature("Mare Hertzsprung",      0.6,-128.7, 280, "mare"),
+    # === Near-side famous craters ===
     Feature("Tycho",               -43.3, -11.4,  43, "crater"),
     Feature("Copernicus",            9.6, -20.0,  47, "crater"),
     Feature("Aristarchus",          23.7, -47.4,  20, "crater"),
@@ -79,11 +94,54 @@ FEATURES = [
     Feature("Plinius",              15.4,  23.7,  22, "crater"),
     Feature("Aristoteles",          50.2,  17.4,  44, "crater"),
     Feature("Kepler",                8.1, -38.0,  16, "crater"),
-    # Apollo landing sites
+    Feature("Posidonius",           31.8,  29.9,  48, "crater"),
+    Feature("Theophilus",          -11.4,  26.4,  55, "crater"),
+    Feature("Cyrillus",            -13.3,  24.0,  49, "crater"),
+    Feature("Catharina",           -18.1,  23.4,  50, "crater"),
+    Feature("Endymion",             53.6,  56.5,  62, "crater"),
+    Feature("Atlas",                46.7,  44.4,  44, "crater"),
+    Feature("Hercules",             46.7,  39.1,  34, "crater"),
+    Feature("Cleomedes",            27.7,  56.0,  62, "crater"),
+    Feature("Langrenus",            -8.9,  60.9,  66, "crater"),
+    Feature("Petavius",            -25.3,  60.4,  88, "crater"),
+    Feature("Schickard",           -44.4, -54.6, 113, "crater"),
+    Feature("Bailly",              -66.5, -69.1, 153, "crater"),
+    Feature("Maginus",             -50.0,  -6.2,  79, "crater"),
+    Feature("Walter",              -33.1,   1.0,  70, "crater"),
+    Feature("Ptolemaeus",           -9.3,  -1.9,  76, "crater"),
+    Feature("Alphonsus",           -13.7,  -2.8,  60, "crater"),
+    Feature("Arzachel",            -18.2,  -1.9,  48, "crater"),
+    # === Far-side craters ===
+    Feature("Tsiolkovsky",         -20.4, 129.1, 92, "crater"),
+    Feature("Korolev",              -4.4, -157.4, 220, "crater"),
+    Feature("Mendeleev",             5.7, 140.9, 156, "crater"),
+    Feature("Apollo (crater)",     -36.1, -151.8, 247, "crater"),
+    Feature("Hertzsprung",           1.4, -128.7, 285, "crater"),
+    Feature("Gagarin",             -19.5, 149.2, 130, "crater"),
+    Feature("Daedalus",             -5.9, 179.4,  47, "crater"),
+    Feature("Jules Verne",         -35.0, 147.0,  72, "crater"),
+    Feature("Belyaev",              23.3, 143.5,  27, "crater"),
+    # === Polar craters ===
+    Feature("Shackleton",          -89.7, 110.0,  10, "crater"),  # south pole
+    Feature("Peary",                88.6,  33.0,  37, "crater"),  # north pole
+    Feature("Faustini",            -87.2,  77.0,  20, "crater"),
+    # === Apollo landing sites (USA) ===
     Feature("Apollo 11",             0.7,  23.5,  1, "landing"),
+    Feature("Apollo 12",            -3.2, -23.4,  1, "landing"),
     Feature("Apollo 14",            -3.6, -17.5,  1, "landing"),
     Feature("Apollo 15",            26.1,   3.6,  1, "landing"),
+    Feature("Apollo 16",            -8.9,  15.5,  1, "landing"),
     Feature("Apollo 17",            20.2,  30.8,  1, "landing"),
+    # === Luna landers (USSR) ===
+    Feature("Luna 9",                7.1, -64.4,  1, "landing"),
+    Feature("Luna 16",              -0.7,  56.4,  1, "landing"),
+    Feature("Luna 17",              38.3, -35.0,  1, "landing"),
+    Feature("Luna 21",              25.9,  30.5,  1, "landing"),
+    # === Other notable landings ===
+    Feature("Chang'e 4",           -45.5, 177.6,  1, "landing"),  # first far-side
+    Feature("Chang'e 5",            43.1, -51.9,  1, "landing"),
+    Feature("Surveyor 3",           -3.0, -23.3,  1, "landing"),
+    Feature("Chandrayaan-3",       -69.4,  32.3,  1, "landing"),  # near south pole
 ]
 
 
@@ -227,23 +285,29 @@ def classify_cell_biome(wac_global, lat0, lat1, lon0, lon1):
     return "MIXED"
 
 
-def real_biome_grid(wac_global, planet_grid=PLANET_GRID):
-    """Build a 20x20 grid where each cell is the SiteArchetype name,
-    classified from the real WAC pixel statistics. Near-side hemisphere
-    only: lat -90..+90, lon -90..+90 maps to grid (0..PG, 0..PG)."""
-    grid = np.empty((planet_grid, planet_grid), dtype=object)
-    span = 180.0  # degrees of lat (and lon for near-side hemisphere)
-    half = span / 2
-    cell = span / planet_grid
-    for gy in range(planet_grid):
-        for gx in range(planet_grid):
+LAT_CELLS = 20      # 20 cells covering 180° latitude → 9° per cell
+LON_CELLS = 40      # 40 cells covering 360° longitude → 9° per cell, square
+                    # Whole moon = 800 cells. Game phase will need to extend
+                    # PLANET_SIZE (single value) to PLANET_LAT_CELLS / LON_CELLS.
+
+
+def real_biome_grid(wac_global, lat_cells=LAT_CELLS, lon_cells=LON_CELLS):
+    """Build a (lat_cells × lon_cells) grid covering the *whole moon*,
+    each cell classified into a SiteArchetype from real WAC pixel stats.
+
+    Default 20×40 = 800 cells, each 9° × 9° (square at the equator).
+    """
+    grid = np.empty((lat_cells, lon_cells), dtype=object)
+    cell_lat = 180.0 / lat_cells
+    cell_lon = 360.0 / lon_cells
+    for gy in range(lat_cells):
+        for gx in range(lon_cells):
             # gy=0 is top of grid = north (high lat)
-            lat1 = half - gy * cell
-            lat0 = lat1 - cell
-            lon0 = -half + gx * cell
-            lon1 = lon0 + cell
-            # Polar override
-            if abs((lat0 + lat1) / 2) > 70:
+            lat1 = 90.0 - gy * cell_lat
+            lat0 = lat1 - cell_lat
+            lon0 = -180.0 + gx * cell_lon
+            lon1 = lon0 + cell_lon
+            if abs((lat0 + lat1) / 2) > 75:
                 grid[gy, gx] = "POLAR_VOLATILE"
             else:
                 grid[gy, gx] = classify_cell_biome(
@@ -267,9 +331,11 @@ def render_orbital_cellgrid(output_path, output_size=1600,
 
     wac = np.asarray(Image.open(WAC_PATH).convert("RGB"))
     grid = real_biome_grid(wac)
+    lat_cells, lon_cells = grid.shape
 
     # Print summary
-    print("  cell biome counts (real-WAC classified):")
+    print(f"  cell biome counts ({lat_cells}×{lon_cells} = "
+          f"{lat_cells * lon_cells} cells, real-WAC classified):")
     flat = list(grid.flatten())
     for arch in ARCHETYPE_ORDER:
         n = flat.count(arch)
@@ -277,19 +343,27 @@ def render_orbital_cellgrid(output_path, output_size=1600,
 
     # For each cell, paint a translucent quad on the sphere by
     # tessellating its lat/lon corners.
-    span = 180.0
-    half = span / 2
-    cell_deg = span / PLANET_GRID
-    # Sub-divide each cell into K×K quads so the projection is smooth
-    K = 6
-    for gy in range(PLANET_GRID):
-        for gx in range(PLANET_GRID):
+    cell_lat_deg = 180.0 / lat_cells
+    cell_lon_deg = 360.0 / lon_cells
+    K = 4   # sub-divide each cell into K×K quads for smooth projection
+    for gy in range(lat_cells):
+        for gx in range(lon_cells):
             arch = grid[gy, gx]
             base_color = ARCHETYPES[arch].base
-            cell_lat1 = half - gy * cell_deg
-            cell_lat0 = cell_lat1 - cell_deg
-            cell_lon0 = -half + gx * cell_deg
-            cell_lon1 = cell_lon0 + cell_deg
+            cell_lat1 = 90.0 - gy * cell_lat_deg
+            cell_lat0 = cell_lat1 - cell_lat_deg
+            cell_lon0 = -180.0 + gx * cell_lon_deg
+            cell_lon1 = cell_lon0 + cell_lon_deg
+            # Skip cells entirely on the far side of the camera —
+            # cheap visibility test using the centre point. Saves a
+            # lot of polygon work on the half of the moon we can't see.
+            cx_lat = (cell_lat0 + cell_lat1) / 2
+            cx_lon = (cell_lon0 + cell_lon1) / 2
+            _, _, ctr_visible = latlon_to_disc(
+                cx_lat, cx_lon, output_size, camera_lon_deg=camera_lon_deg)
+            if not ctr_visible:
+                continue
+            cell_deg = cell_lat_deg  # used by inner loops below for lat steps
             for ky in range(K):
                 for kx in range(K):
                     lat0 = cell_lat0 + (ky / K) * cell_deg
@@ -341,7 +415,8 @@ def render_orbital_cellgrid(output_path, output_size=1600,
 
     side = "near side" if abs(camera_lon_deg) < 90 else "far side"
     draw.text((20, 20),
-              f"Lunar Orbit  —  20×20 game cells from real WAC  "
+              f"Lunar Orbit  —  {lat_cells}×{lon_cells} game cells "
+              f"({lat_cells * lon_cells}) from real WAC  "
               f"({side}, lon {int(camera_lon_deg):+d}°)",
               fill=(255, 255, 255, 240), font=font_title)
 
