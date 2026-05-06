@@ -642,6 +642,144 @@ def bake_rotation_frames_for_game(n_frames=12, panel_w=1200):
     print(f"  done: {n_frames} frames at {panel_w}px")
 
 
+def render_flat_planet_view(output_path, output_w=2400):
+    """Equirectangular flat view of the whole moon — 360° lon × 180° lat
+    rendered at 2:1 aspect, with the 20×40 cell grid + biome tint +
+    feature labels overlaid. This is the *planet view* the game would
+    show after the player descends from the orbital sphere.
+    """
+    output_h = output_w // 2
+
+    # Resize the source WAC to the target output size
+    src = Image.open(WAC_PATH).convert("RGB").resize(
+        (output_w, output_h), Image.LANCZOS)
+    base = src.convert("RGBA")
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # Biome classification + tinting
+    wac = np.asarray(Image.open(WAC_PATH).convert("RGB"))
+    grid = real_biome_grid(wac)
+    lat_cells, lon_cells = grid.shape
+    print(f"  classified {lat_cells}×{lon_cells} grid")
+
+    cell_h = output_h / lat_cells
+    cell_w = output_w / lon_cells
+
+    for gy in range(lat_cells):
+        for gx in range(lon_cells):
+            arch = grid[gy, gx]
+            base_color = ARCHETYPES[arch].base
+            x0 = int(gx * cell_w)
+            y0 = int(gy * cell_h)
+            x1 = int((gx + 1) * cell_w)
+            y1 = int((gy + 1) * cell_h)
+            draw.rectangle([x0, y0, x1, y1], fill=(*base_color, 110))
+
+    # Cell boundary lines
+    for gy in range(lat_cells + 1):
+        y = int(gy * cell_h)
+        draw.line([(0, y), (output_w, y)], fill=(255, 255, 255, 90), width=1)
+    for gx in range(lon_cells + 1):
+        x = int(gx * cell_w)
+        draw.line([(x, 0), (x, output_h)], fill=(255, 255, 255, 90), width=1)
+
+    try:
+        font_label = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 16)
+        font_title = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        font_legend = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
+    except OSError:
+        font_label = ImageFont.load_default()
+        font_title = ImageFont.load_default()
+        font_legend = ImageFont.load_default()
+
+    # Feature labels — equirectangular projection: lat → y, lon → x.
+    type_colour = {
+        "mare":    (200, 220, 255, 240),
+        "crater":  (255, 220, 180, 240),
+        "landing": (255, 120, 120, 250),
+    }
+    for f in FEATURES:
+        x = (f.lon + 180.0) / 360.0 * output_w
+        y = (90.0 - f.lat) / 180.0 * output_h
+        color = type_colour[f.kind]
+        if f.kind == "landing":
+            r = 6
+            draw.ellipse([x - r, y - r, x + r, y + r],
+                         outline=color, width=2)
+            draw.text((x + r + 4, y - 8), f.name, fill=color, font=font_label)
+        elif f.kind == "crater":
+            # Equirectangular: lat changes y by 1° per output_h/180.
+            # Crater radius scales by output_h/180 deg per km / 30.36 km/deg
+            r = max(3, int(f.radius_km / 30.36 * (output_h / 180.0)))
+            draw.ellipse([x - r, y - r, x + r, y + r],
+                         outline=color, width=2)
+            draw.text((x + r + 4, y - 8), f.name, fill=color, font=font_label)
+        else:  # mare — just the label, no marker
+            tx, ty = int(x), int(y)
+            for ox in (-1, 0, 1):
+                for oy in (-1, 0, 1):
+                    if ox == 0 and oy == 0:
+                        continue
+                    draw.text((tx + ox, ty + oy), f.name,
+                              fill=(0, 0, 0, 220), font=font_label)
+            draw.text((tx, ty), f.name, fill=color, font=font_label)
+
+    # Latitude / longitude graticule labels along the edges
+    for lat in (-60, -30, 0, 30, 60):
+        y = int((90.0 - lat) / 180.0 * output_h)
+        s = f"{lat:+d}°"
+        for ox in (-1, 0, 1):
+            for oy in (-1, 0, 1):
+                if ox or oy:
+                    draw.text((6 + ox, y - 9 + oy), s,
+                              fill=(0, 0, 0, 200), font=font_legend)
+        draw.text((6, y - 9), s, fill=(255, 255, 255, 240), font=font_legend)
+    for lon in (-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150):
+        x = int((lon + 180.0) / 360.0 * output_w)
+        s = f"{lon:+d}°"
+        for ox in (-1, 0, 1):
+            for oy in (-1, 0, 1):
+                if ox or oy:
+                    draw.text((x + 4 + ox, 6 + oy), s,
+                              fill=(0, 0, 0, 200), font=font_legend)
+        draw.text((x + 4, 6), s, fill=(255, 255, 255, 240), font=font_legend)
+
+    # Title
+    title = (f"Lunar Planet View  —  {lat_cells}×{lon_cells} = "
+             f"{lat_cells * lon_cells} cells, equirectangular, "
+             f"real WAC mosaic")
+    for ox in (-1, 0, 1):
+        for oy in (-1, 0, 1):
+            if ox or oy:
+                draw.text((20 + ox, output_h - 50 + oy), title,
+                          fill=(0, 0, 0, 220), font=font_title)
+    draw.text((20, output_h - 50), title,
+              fill=(255, 255, 255, 240), font=font_title)
+
+    # Legend
+    flat = list(grid.flatten())
+    ly = output_h - 90
+    short = {"MARE_INDUSTRIAL": "MARE", "HIGHLAND_CONSTRUCTION": "HIGHLAND",
+             "POLAR_VOLATILE": "POLAR", "KREEP_SCIENTIFIC": "KREEP",
+             "LAVA_TUBE": "LAVA", "MIXED": "MIXED"}
+    for i, name in enumerate(ARCHETYPE_ORDER):
+        n = flat.count(name)
+        c = (*ARCHETYPES[name].base, 255)
+        x = output_w - 1100 + (i % 6) * 180
+        y = ly
+        draw.rectangle([x, y, x + 14, y + 14], fill=c)
+        draw.text((x + 20, y - 1), f"{short[name]}  ({n})",
+                  fill=(220, 220, 220, 240), font=font_legend)
+
+    out = Image.alpha_composite(base, overlay)
+    out.convert("RGB").save(output_path)
+    print(f"  wrote {output_path}")
+
+
 def main():
     print("== orbital with named features (near side) ==")
     render_orbital_labelled(
@@ -660,6 +798,9 @@ def main():
     render_orbital_cellgrid(
         os.path.join(OUT, "zoom_orbital_cellgrid_farside.png"),
         camera_lon_deg=180.0)
+
+    print("== flat planet view (20×40 grid, whole moon) ==")
+    render_flat_planet_view(os.path.join(OUT, "zoom_planet_view.png"))
 
     print("== zoom progression ==")
     render_zoom_progression(os.path.join(OUT, "zoom_progression.png"))
