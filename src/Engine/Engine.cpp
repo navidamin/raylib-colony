@@ -17,6 +17,7 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
     InitWindow(screenWidth, screenHeight, title);
     SetTargetFPS(60);
     renderManager.LoadFonts();
+    renderManager.LoadSampleSprites();
 }
 
 Engine::~Engine() {

@@ -10,8 +10,14 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
       fontsLoaded(false),
-      tilesLoaded(false)
+      tilesLoaded(false),
+      sampleSpritesLoaded(false)
 {
+    for (int f = 0; f < 4; f++)
+        for (int t = 0; t < 5; t++)
+            for (int s = 0; s < 4; s++)
+                for (int g = 0; g < 5; g++)
+                    sampleSprites[f][t][s][g] = (Texture2D){0};
 }
 
 void RenderManager::LoadFonts()
@@ -41,6 +47,72 @@ RenderManager::~RenderManager() {
 
     // Unload moon surface tiles when done
     UnloadMoonTiles();
+
+    UnloadSampleSprites();
+}
+
+void RenderManager::LoadSampleSprites()
+{
+    if (sampleSpritesLoaded) return;
+
+    static const char* familyNames[4] = { "angular", "shard", "rounded", "slab" };
+    int loaded = 0;
+    char path[256];
+    for (int f = 0; f < 4; f++)
+    {
+        for (int t = 0; t < 5; t++)
+        {
+            for (int s = 0; s < 4; s++)
+            {
+                for (int g = 0; g < 5; g++)
+                {
+                    snprintf(path, sizeof(path),
+                             "src/assets/sprites/samples/%s/t%d/size_%d_glow_%d.png",
+                             familyNames[f], t + 1, s + 1, g);
+                    Texture2D tex = LoadTexture(path);
+                    if (tex.id != 0)
+                    {
+                        SetTextureFilter(tex, TEXTURE_FILTER_BILINEAR);
+                        loaded++;
+                    }
+                    sampleSprites[f][t][s][g] = tex;
+                }
+            }
+        }
+    }
+    sampleSpritesLoaded = (loaded > 0);
+    if (loaded != 400)
+    {
+        std::cout << "WARNING: Loaded " << loaded << "/400 sample sprites" << std::endl;
+    }
+}
+
+void RenderManager::UnloadSampleSprites()
+{
+    for (int f = 0; f < 4; f++)
+        for (int t = 0; t < 5; t++)
+            for (int s = 0; s < 4; s++)
+                for (int g = 0; g < 5; g++)
+                    if (sampleSprites[f][t][s][g].id != 0)
+                    {
+                        UnloadTexture(sampleSprites[f][t][s][g]);
+                        sampleSprites[f][t][s][g] = (Texture2D){0};
+                    }
+    sampleSpritesLoaded = false;
+}
+
+void RenderManager::DrawSampleSprite(int family, int templateIdx, int sizeLevelIdx,
+                                      int glowLevel, Color tint, Rectangle slot)
+{
+    if (!sampleSpritesLoaded) return;
+    family       = std::clamp(family,       0, 3);
+    templateIdx  = std::clamp(templateIdx,  0, 4);
+    sizeLevelIdx = std::clamp(sizeLevelIdx, 0, 3);
+    glowLevel    = std::clamp(glowLevel,    0, 4);
+    Texture2D tex = sampleSprites[family][templateIdx][sizeLevelIdx][glowLevel];
+    if (tex.id == 0) return;
+    Rectangle src = { 0.0f, 0.0f, (float)tex.width, (float)tex.height };
+    DrawTexturePro(tex, src, slot, (Vector2){ 0.0f, 0.0f }, 0.0f, tint);
 }
 
 void RenderManager::BeginDraw() {
@@ -2280,13 +2352,14 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             bool slotHover = CheckCollisionPointRec(mouse, slot);
             bool slotSelected = (ps->selectedSampleIndex == i && s != nullptr);
 
+            DrawRectangleRec(slot, {30, 30, 50, 255});
             if (s)
             {
-                Color elemCol = ProsElementColor(SamplingEngine::GetDominantElement(s->trueComposition));
-                float confGlow = s->GetAggregateConfidence();
-                unsigned char alpha = static_cast<unsigned char>(100 + 155 * confGlow);
-                elemCol.a = alpha;
-                DrawRectangleRec(slot, elemCol);
+                Color tint = ProsElementColor(SamplingEngine::GetDominantElement(s->trueComposition));
+                int glow = GetGlowLevel(s->GetAggregateConfidence());  // live confidence
+                int sizeIdx = std::clamp(s->visual.sizeLevel - 1, 0, 3);
+                DrawSampleSprite(static_cast<int>(s->visual.shapeFamily),
+                                 s->visual.templateIndex, sizeIdx, glow, tint, slot);
 
                 if (s->state == SampleState::PROCESSING)
                 {
@@ -2296,10 +2369,6 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 {
                     DrawRectangleLinesEx(slot, 1.0f, EXT_ACCENT_GREEN);
                 }
-            }
-            else
-            {
-                DrawRectangleRec(slot, {30, 30, 50, 255});
             }
 
             if (slotSelected)
@@ -2373,10 +2442,12 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             const Sample* s = ps->GetTray().GetSampleByIndex(i);
             if (!s) continue;
 
-            Color elemCol = ProsElementColor(SamplingEngine::GetDominantElement(s->trueComposition));
-            float confGlow = s->GetAggregateConfidence();
-            elemCol.a = static_cast<unsigned char>(100 + 155 * confGlow);
-            DrawRectangleRec(slot, elemCol);
+            DrawRectangleRec(slot, {30, 30, 50, 255});
+            Color tint = ProsElementColor(SamplingEngine::GetDominantElement(s->trueComposition));
+            int glow = GetGlowLevel(s->GetAggregateConfidence());
+            int sizeIdx = std::clamp(s->visual.sizeLevel - 1, 0, 3);
+            DrawSampleSprite(static_cast<int>(s->visual.shapeFamily),
+                             s->visual.templateIndex, sizeIdx, glow, tint, slot);
 
             if (s->state == SampleState::COMPLETED)
                 DrawRectangleLinesEx(slot, 1.0f, EXT_ACCENT_GREEN);

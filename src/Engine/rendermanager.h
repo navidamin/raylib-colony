@@ -20,6 +20,7 @@ public:
     ~RenderManager();
 
     void LoadFonts();
+    void LoadSampleSprites();
 
     void BeginDraw();
     void EndDraw();
@@ -61,6 +62,19 @@ private:
     Texture2D moonTiles[3];
     bool tilesLoaded;
     std::vector<int> tilePattern;  // Store which tile to use for each grid cell
+
+    // Sample sprite cache: [family 0-3][template 0-4][size 0-3][glow 0-4]
+    // Family order matches ShapeFamily enum:
+    //   0 ANGULAR_CHUNKS  -> angular
+    //   1 CRYSTALLINE_SHARDS -> shard
+    //   2 ROUNDED_NODULES  -> rounded
+    //   3 LAYERED_SLABS    -> slab
+    Texture2D sampleSprites[4][5][4][5];
+    bool sampleSpritesLoaded;
+    void UnloadSampleSprites();
+    // Draw a sample sprite into `slot`, tinted with `tint`. Indices are clamped.
+    void DrawSampleSprite(int family, int templateIdx, int sizeLevelIdx, int glowLevel,
+                          Color tint, Rectangle slot);
 
     void DrawDebugActiveArea();
 
