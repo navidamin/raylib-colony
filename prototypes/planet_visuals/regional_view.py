@@ -197,8 +197,79 @@ def params_for_zone(zone: ZoneInfo) -> RegionalParams:
 
 
 # ===========================================================================
-# Renderer
+# Buildability mask
 # ===========================================================================
+
+def buildability_mask(heightmap: np.ndarray, craters,
+                       crater_rim_factor: float = 1.05,
+                       slope_threshold_deg: float = 18.0,
+                       z_factor: float = 75.0) -> np.ndarray:
+    """1.0 = buildable, 0.0 = forbidden.
+
+    Two rules:
+      1. Inside any crater's rim (distance < `crater_rim_factor * r`)
+         is unbuildable — bowl walls + debris + sometimes permanent
+         shadow.
+      2. Anywhere the local slope exceeds `slope_threshold_deg` is
+         unbuildable — too steep for surface infrastructure. Catches
+         small unlisted craters AND any FBM-induced ridges.
+    """
+    h, w = heightmap.shape
+    mask = np.ones((h, w), dtype=np.float32)
+
+    # 1. Crater rim exclusion — vectorized per crater on a tight bbox.
+    for c in craters:
+        # bbox extends slightly past the rim for the soft falloff
+        margin = c.r * crater_rim_factor
+        x0 = max(0, int(c.cx - margin))
+        x1 = min(w, int(c.cx + margin) + 1)
+        y0 = max(0, int(c.cy - margin))
+        y1 = min(h, int(c.cy + margin) + 1)
+        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        d = np.sqrt((xx - c.cx) ** 2 + (yy - c.cy) ** 2)
+        # Soft inner-edge: already 1.0 outside the rim, taper to 0
+        # over the last 5% of radius.
+        inside = d < c.r * crater_rim_factor
+        # Smoothstep falloff from rim to interior over ~10% of r
+        falloff_band = max(2.0, c.r * 0.10)
+        t = np.clip((c.r * crater_rim_factor - d) / falloff_band, 0.0, 1.0)
+        local = 1.0 - t * t * (3.0 - 2.0 * t)   # smoothstep
+        mask[y0:y1, x0:x1] = np.minimum(mask[y0:y1, x0:x1],
+                                         np.where(inside, local, 1.0))
+
+    # 2. Slope cutoff — applied to a smoothed heightmap so the
+    #    pink-noise texture (sub-meter regolith roughness) doesn't
+    #    flag every pixel as steep. We want terrain-scale slopes,
+    #    not micro-texture.
+    smoothed = gaussian_blur(heightmap, 3.5)
+    dy, dx = np.gradient(smoothed * z_factor)
+    slope_rad = np.arctan(np.hypot(dx, dy))
+    slope_deg = np.degrees(slope_rad)
+    too_steep = slope_deg > slope_threshold_deg
+    mask = np.where(too_steep, 0.0, mask)
+
+    return mask
+
+
+def overlay_unbuildable(rgb: np.ndarray, mask: np.ndarray,
+                         tint_strength: float = 0.30) -> np.ndarray:
+    """Blend a subtle warm-red tint over unbuildable pixels so the
+    player can see at a glance where they can't build."""
+    red = np.array([200.0, 70.0, 60.0], dtype=np.float32)
+    forbidden = (1.0 - mask)[..., None]
+    out = rgb.astype(np.float32) * (1.0 - tint_strength * forbidden) \
+          + red * tint_strength * forbidden
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def save_mask_png(mask: np.ndarray, path: str):
+    """Save a 1-channel buildability mask PNG (white = buildable,
+    black = forbidden) for the C++ side to load."""
+    arr = np.clip(mask * 255, 0, 255).astype(np.uint8)
+    Image.fromarray(arr, mode="L").save(path)
+
+
+
 
 def _make_central_crater(p: RegionalParams, region_px: int) -> Crater | None:
     if p.central_crater_radius_frac is None:
@@ -296,14 +367,25 @@ def render_regional_view(zone: ZoneInfo, output_path: str,
     rgb, _ = colourise(h_with, np.zeros_like(height), sh, arch_pix, rng,
                         cast_mask=cast, albedo_height=height)
 
-    img = Image.fromarray(rgb).convert("RGB")
-    _annotate(img, zone, p)
+    # Buildability mask: forbid crater interiors + steep slopes.
+    mask = buildability_mask(h_with, craters,
+                              slope_threshold_deg=18.0)
+    rgb_with_overlay = overlay_unbuildable(rgb, mask)
+
+    # Save the mask as a sibling PNG so the C++ side can consume it
+    # directly at sect-placement time (white = ok, black = forbidden).
+    mask_path = os.path.splitext(output_path)[0] + "_buildable.png"
+    save_mask_png(mask, mask_path)
+
+    img = Image.fromarray(rgb_with_overlay).convert("RGB")
+    _annotate(img, zone, p, mask)
     img.save(output_path)
-    print(f"  wrote {output_path}")
+    print(f"  wrote {output_path}  (mask: {mask_path})")
     return img
 
 
-def _annotate(img: Image.Image, zone: ZoneInfo, p: RegionalParams):
+def _annotate(img: Image.Image, zone: ZoneInfo, p: RegionalParams,
+               mask: np.ndarray | None = None):
     """Title bar + parameter caption."""
     draw = ImageDraw.Draw(img, "RGBA")
     try:
@@ -325,6 +407,14 @@ def _annotate(img: Image.Image, zone: ZoneInfo, p: RegionalParams):
               + (f"  ·  {zone.age_ga} Ga" if zone.age_ga else ""),
               fill=(180, 200, 220), font=font_s)
 
+    # Top-right: buildable-area stat
+    if mask is not None:
+        buildable_frac = float(mask.mean())
+        stat = f"buildable: {buildable_frac * 100:.0f}%"
+        tw = draw.textlength(stat, font=font_s)
+        draw.text((img.width - tw - 16, 38), stat,
+                  fill=(180, 220, 200), font=font_s)
+
     # Bottom-left: procedural params summary
     spec = (f"density={p.count_small + p.count_med + p.count_big}  "
             f"size×{p.size_scale:.1f}  "
@@ -334,6 +424,16 @@ def _annotate(img: Image.Image, zone: ZoneInfo, p: RegionalParams):
     draw.rectangle([0, img.height - 28, img.width, img.height], fill=(0, 0, 0, 140))
     draw.text((16, img.height - 22), spec,
               fill=(180, 220, 200), font=font_s)
+
+    # Bottom-right: legend for the unbuildable overlay
+    legend = "■ no-build (crater / steep)"
+    tw = draw.textlength(legend, font=font_s)
+    # red square + label
+    draw.rectangle([img.width - tw - 32, img.height - 22,
+                     img.width - tw - 22, img.height - 12],
+                    fill=(200, 70, 60))
+    draw.text((img.width - tw - 16, img.height - 22), legend,
+              fill=(220, 200, 200), font=font_s)
 
 
 # ===========================================================================
@@ -369,8 +469,8 @@ def render_comparison():
     except OSError:
         ftitle = ImageFont.load_default()
     draw.text((20, 16),
-              "Regional View  —  procedural surfaces tuned per real zone "
-              "(replaces existing Colony view)",
+              "Regional View  —  procedural surfaces tuned per real zone, "
+              "red = no-build (crater interior or steep slope)",
               fill=(220, 220, 220), font=ftitle)
     for i, p in enumerate(panels):
         c = i % cols
