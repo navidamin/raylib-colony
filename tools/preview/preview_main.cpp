@@ -153,8 +153,10 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
     float gameTime = system.gameTime;
 
     // "swept" and beyond: run GPR sweeps so the heat map has signal.
+    // Band 0 is left unswept so the RUN SWEEP button previews in its
+    // enabled state.
     int bandCount = SWEEP_FREQUENCY_BANDS;
-    for (int band = 0; band < bandCount; band++)
+    for (int band = 1; band < bandCount; band++)
     {
         if (system.GetSweep().CanSweep(grid, band))
         {

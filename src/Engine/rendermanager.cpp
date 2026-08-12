@@ -1208,25 +1208,291 @@ void RenderManager::DrawSiteSelectionView(Camera2D camera, Planet* planet, Vecto
 // EXTRACTION UNIT UI
 // ============================================================================
 
-// Color constants for extraction UI (reuse site selection aesthetic)
-static const Color EXT_PANEL_BG      = {20, 20, 40, 220};
-static const Color EXT_PANEL_BORDER  = {100, 100, 200, 200};
-static const Color EXT_SCREEN_BG     = {10, 10, 25, 255};
-static const Color EXT_HEADER_COLOR  = {150, 150, 255, 255};
-static const Color EXT_ACCENT_CYAN   = {100, 220, 255, 255};
-static const Color EXT_ACCENT_GREEN  = {100, 255, 150, 255};
-static const Color EXT_ACCENT_GOLD   = {255, 220, 100, 255};
-static const Color EXT_DIM_TEXT      = {140, 140, 160, 255};
+// Design tokens for the extraction UI (dark sci-fi kit)
+static const Color EXT_SCREEN_BG     = {5, 7, 14, 255};       // near-black backdrop
+static const Color EXT_PANEL_BG      = {10, 15, 28, 255};     // card fill
+static const Color EXT_PANEL_BG2     = {14, 21, 38, 255};     // raised fill (buttons, chips)
+static const Color EXT_PANEL_BORDER  = {36, 62, 92, 255};     // dim slate-cyan hairline
+static const Color EXT_FRAME_ACCENT  = {70, 190, 230, 170};   // corner bracket accents
+static const Color EXT_HEADER_COLOR  = {168, 130, 255, 255};  // purple section headers
+static const Color EXT_ACCENT_CYAN   = {80, 225, 255, 255};
+static const Color EXT_ACCENT_GREEN  = {80, 230, 150, 255};
+static const Color EXT_ACCENT_GOLD   = {255, 200, 80, 255};
+static const Color EXT_ACCENT_RED    = {235, 70, 70, 255};
+static const Color EXT_ACCENT_VIOLET = {170, 110, 255, 255};
+static const Color EXT_DIM_TEXT      = {120, 138, 165, 255};
+static const Color EXT_TEXT          = {225, 235, 245, 255};
 
 // Layout constants
-static const int EXT_TOP_BAR_H    = 50;
-static const int EXT_BOTTOM_BAR_H = 40;
+static const int EXT_TOP_BAR_H    = 56;
+static const int EXT_BOTTOM_BAR_H = 118;   // status segments bar + message bar
 static const int EXT_LEFT_PANEL_W  = 280;
 static const int EXT_RIGHT_PANEL_W = 300;
+static const int EXT_GAP           = 8;    // margin around floating cards
 
 float RenderManager::FS(float baseSize)
 {
     return baseSize * 1.30f;
+}
+
+// --- Procedural UI-kit widgets -------------------------------------------
+// The visual design uses simple line icons and framed cards; everything is
+// drawn from primitives so it stays resolution-independent and theme-driven.
+
+// Sci-fi card: rounded fill, hairline border, bracket accents on the corners.
+static void ExtDrawPanelFrame(Rectangle r)
+{
+    DrawRectangleRounded(r, 0.04f, 4, EXT_PANEL_BG);
+    DrawRectangleRoundedLinesEx(r, 0.04f, 4, 1.0f, EXT_PANEL_BORDER);
+
+    const float len = 14.0f;
+    const float t = 2.0f;
+    Color c = EXT_FRAME_ACCENT;
+    DrawRectangleRec({r.x, r.y, len, t}, c);
+    DrawRectangleRec({r.x, r.y, t, len}, c);
+    DrawRectangleRec({r.x + r.width - len, r.y, len, t}, c);
+    DrawRectangleRec({r.x + r.width - t, r.y, t, len}, c);
+    DrawRectangleRec({r.x, r.y + r.height - t, len, t}, c);
+    DrawRectangleRec({r.x, r.y + r.height - len, t, len}, c);
+    DrawRectangleRec({r.x + r.width - len, r.y + r.height - t, len, t}, c);
+    DrawRectangleRec({r.x + r.width - t, r.y + r.height - len, t, len}, c);
+}
+
+enum class ExtIcon
+{
+    RADAR, EXCAVATOR, NODES, GEAR, CROSSHAIR,
+    FLASK, SLIDERS, BOLT, WARNING, OVERVIEW, HAMBURGER
+};
+
+// Line icon set matching the UI kit. (cx, cy) is the center, s the half-size.
+static void ExtDrawIcon(ExtIcon icon, float cx, float cy, float s, Color c)
+{
+    switch (icon)
+    {
+        case ExtIcon::RADAR:
+        {
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), s, c);
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), s * 0.55f, Fade(c, 0.7f));
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy), s * 0.18f, c);
+            break;
+        }
+        case ExtIcon::EXCAVATOR:
+        {
+            // tracks + cab + articulated boom + bucket claw
+            DrawRectangleLinesEx({cx - s, cy + s * 0.05f, s * 0.85f, s * 0.6f}, 1.5f, c);
+            DrawLineEx({cx - s * 1.05f, cy + s * 0.85f}, {cx + s * 0.15f, cy + s * 0.85f}, 2.5f, c);
+            DrawLineEx({cx - s * 0.15f, cy + s * 0.05f}, {cx + s * 0.35f, cy - s * 0.75f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.35f, cy - s * 0.75f}, {cx + s * 0.95f, cy - s * 0.05f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.95f, cy - s * 0.05f}, {cx + s * 0.65f, cy + s * 0.35f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.65f, cy + s * 0.35f}, {cx + s * 0.95f, cy + s * 0.45f}, 1.6f, c);
+            break;
+        }
+        case ExtIcon::NODES:
+        {
+            Vector2 a = {cx, cy - s * 0.65f};
+            Vector2 b = {cx - s * 0.7f, cy + s * 0.55f};
+            Vector2 d = {cx + s * 0.7f, cy + s * 0.55f};
+            DrawLineEx(a, b, 1.2f, Fade(c, 0.7f));
+            DrawLineEx(b, d, 1.2f, Fade(c, 0.7f));
+            DrawLineEx(d, a, 1.2f, Fade(c, 0.7f));
+            DrawCircleLines(static_cast<int>(a.x), static_cast<int>(a.y), s * 0.3f, c);
+            DrawCircleLines(static_cast<int>(b.x), static_cast<int>(b.y), s * 0.3f, c);
+            DrawCircleLines(static_cast<int>(d.x), static_cast<int>(d.y), s * 0.3f, c);
+            break;
+        }
+        case ExtIcon::GEAR:
+        {
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), s * 0.6f, c);
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), s * 0.22f, c);
+            for (int i = 0; i < 8; i++)
+            {
+                float ang = i * PI / 4.0f;
+                Vector2 in = {cx + cosf(ang) * s * 0.6f, cy + sinf(ang) * s * 0.6f};
+                Vector2 out = {cx + cosf(ang) * s, cy + sinf(ang) * s};
+                DrawLineEx(in, out, 2.2f, c);
+            }
+            break;
+        }
+        case ExtIcon::CROSSHAIR:
+        {
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), s * 0.62f, c);
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy), s * 0.14f, c);
+            DrawLineEx({cx, cy - s}, {cx, cy - s * 0.45f}, 1.5f, c);
+            DrawLineEx({cx, cy + s * 0.45f}, {cx, cy + s}, 1.5f, c);
+            DrawLineEx({cx - s, cy}, {cx - s * 0.45f, cy}, 1.5f, c);
+            DrawLineEx({cx + s * 0.45f, cy}, {cx + s, cy}, 1.5f, c);
+            break;
+        }
+        case ExtIcon::FLASK:
+        {
+            DrawLineEx({cx - s * 0.25f, cy - s}, {cx - s * 0.25f, cy - s * 0.15f}, 1.5f, c);
+            DrawLineEx({cx + s * 0.25f, cy - s}, {cx + s * 0.25f, cy - s * 0.15f}, 1.5f, c);
+            DrawLineEx({cx - s * 0.25f, cy - s * 0.15f}, {cx - s * 0.7f, cy + s * 0.8f}, 1.5f, c);
+            DrawLineEx({cx + s * 0.25f, cy - s * 0.15f}, {cx + s * 0.7f, cy + s * 0.8f}, 1.5f, c);
+            DrawLineEx({cx - s * 0.7f, cy + s * 0.8f}, {cx + s * 0.7f, cy + s * 0.8f}, 1.5f, c);
+            DrawLineEx({cx - s * 0.45f, cy - s}, {cx + s * 0.45f, cy - s}, 1.5f, c);
+            DrawLineEx({cx - s * 0.42f, cy + s * 0.35f}, {cx + s * 0.42f, cy + s * 0.35f}, 1.5f, Fade(c, 0.6f));
+            break;
+        }
+        case ExtIcon::SLIDERS:
+        {
+            float rows[3] = {cy - s * 0.6f, cy, cy + s * 0.6f};
+            float knobs[3] = {cx - s * 0.35f, cx + s * 0.4f, cx - s * 0.05f};
+            for (int i = 0; i < 3; i++)
+            {
+                DrawLineEx({cx - s, rows[i]}, {cx + s, rows[i]}, 1.5f, Fade(c, 0.7f));
+                DrawCircle(static_cast<int>(knobs[i]), static_cast<int>(rows[i]), s * 0.18f, c);
+            }
+            break;
+        }
+        case ExtIcon::BOLT:
+        {
+            DrawLineEx({cx + s * 0.45f, cy - s}, {cx - s * 0.25f, cy - s * 0.05f}, 2.4f, c);
+            DrawLineEx({cx - s * 0.25f, cy - s * 0.05f}, {cx + s * 0.25f, cy + s * 0.05f}, 2.4f, c);
+            DrawLineEx({cx + s * 0.25f, cy + s * 0.05f}, {cx - s * 0.45f, cy + s}, 2.4f, c);
+            break;
+        }
+        case ExtIcon::WARNING:
+        {
+            Vector2 top = {cx, cy - s};
+            Vector2 bl = {cx - s * 0.95f, cy + s * 0.75f};
+            Vector2 br = {cx + s * 0.95f, cy + s * 0.75f};
+            DrawLineEx(top, bl, 2.0f, c);
+            DrawLineEx(bl, br, 2.0f, c);
+            DrawLineEx(br, top, 2.0f, c);
+            DrawLineEx({cx, cy - s * 0.4f}, {cx, cy + s * 0.2f}, 2.0f, c);
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy + s * 0.48f), 1.5f, c);
+            break;
+        }
+        case ExtIcon::OVERVIEW:
+        {
+            DrawRectangleLinesEx({cx - s, cy - s * 0.75f, s * 2.0f, s * 1.5f}, 1.5f, c);
+            DrawLineEx({cx - s * 0.6f, cy - s * 0.25f}, {cx + s * 0.6f, cy - s * 0.25f}, 1.5f, Fade(c, 0.7f));
+            DrawLineEx({cx - s * 0.6f, cy + s * 0.2f}, {cx + s * 0.15f, cy + s * 0.2f}, 1.5f, Fade(c, 0.5f));
+            break;
+        }
+        case ExtIcon::HAMBURGER:
+        {
+            for (int i = -1; i <= 1; i++)
+            {
+                float ly = cy + i * s * 0.6f;
+                DrawLineEx({cx - s, ly}, {cx + s, ly}, 2.0f, c);
+            }
+            break;
+        }
+    }
+}
+
+// Per-module icon lookup for the module list and status segments.
+static ExtIcon ExtModuleIcon(const std::string& moduleType)
+{
+    if (moduleType == "PROSPECTING") return ExtIcon::RADAR;
+    if (moduleType == "EXCAVATION") return ExtIcon::EXCAVATOR;
+    if (moduleType == "BENEFICIATION") return ExtIcon::NODES;
+    if (moduleType == "OPERATIONS") return ExtIcon::GEAR;
+    if (moduleType == "DIRECTIVES") return ExtIcon::CROSSHAIR;
+    return ExtIcon::OVERVIEW;
+}
+
+// Segmented meter (calibration gauge in the kit).
+static void ExtDrawSegBar(float x, float y, float w, float h, float value, Color color)
+{
+    const int segs = 10;
+    DrawRectangleRounded({x, y, w, h}, 0.5f, 3, {18, 26, 44, 255});
+    DrawRectangleRoundedLinesEx({x, y, w, h}, 0.5f, 3, 1.0f, EXT_PANEL_BORDER);
+
+    float segW = (w - 6.0f) / segs;
+    int lit = static_cast<int>(value * segs + 0.5f);
+    for (int i = 0; i < lit; i++)
+    {
+        DrawRectangleRec({x + 3.0f + i * segW + 1.0f, y + 3.0f, segW - 2.0f, h - 6.0f},
+                         Fade(color, 0.45f + 0.55f * (i + 1) / segs));
+    }
+}
+
+// Diagonal hazard stripes clipped to a rectangle (danger button edges).
+static void ExtDrawHazardStripes(Rectangle r, Color c)
+{
+    const float stride = 14.0f;
+    BeginScissorMode(static_cast<int>(r.x), static_cast<int>(r.y),
+                     static_cast<int>(r.width), static_cast<int>(r.height));
+    for (float sx = r.x - r.height; sx < r.x + r.width; sx += stride)
+    {
+        DrawLineEx({sx, r.y + r.height}, {sx + r.height, r.y}, 4.0f, c);
+    }
+    EndScissorMode();
+}
+
+// Double chevron ">>" (action buttons in the kit).
+static void ExtDrawChevrons(float x, float y, float s, Color c)
+{
+    for (int i = 0; i < 2; i++)
+    {
+        float ox = x + i * s * 0.9f;
+        DrawLineEx({ox, y - s}, {ox + s * 0.75f, y}, 2.0f, c);
+        DrawLineEx({ox + s * 0.75f, y}, {ox, y + s}, 2.0f, c);
+    }
+}
+
+// One cuboid of the wireframe illustration, in a simple isometric projection.
+static void ExtDrawWireBox(Vector2 origin, float scale,
+                           float x, float y, float z, float w, float d, float h, Color c)
+{
+    auto project = [&](float wx, float wy, float wz) -> Vector2
+    {
+        return {origin.x + (wx - wy) * 0.866f * scale,
+                origin.y + (wx + wy) * 0.5f * scale - wz * scale};
+    };
+
+    Vector2 p[8] = {
+        project(x, y, z),         project(x + w, y, z),
+        project(x + w, y + d, z), project(x, y + d, z),
+        project(x, y, z + h),         project(x + w, y, z + h),
+        project(x + w, y + d, z + h), project(x, y + d, z + h)
+    };
+
+    const int edges[12][2] = {
+        {0,1},{1,2},{2,3},{3,0}, {4,5},{5,6},{6,7},{7,4}, {0,4},{1,5},{2,6},{3,7}
+    };
+    for (const auto& e : edges) DrawLineEx(p[e[0]], p[e[1]], 1.0f, c);
+}
+
+// Decorative blueprint drawing of the extraction unit (control panel art).
+static void ExtDrawWireframeUnit(Rectangle area, Color c)
+{
+    Vector2 origin = {area.x + area.width * 0.5f, area.y + area.height * 0.62f};
+    float scale = std::min(area.width, area.height) * 0.058f;
+
+    Color dim = Fade(c, 0.35f);
+    Color mid = Fade(c, 0.55f);
+
+    // Base platform, processing block, small annex
+    ExtDrawWireBox(origin, scale, -4.0f, -4.0f, 0.0f, 8.0f, 8.0f, 0.8f, dim);
+    ExtDrawWireBox(origin, scale, -2.8f, -2.2f, 0.8f, 4.2f, 4.2f, 2.0f, mid);
+    ExtDrawWireBox(origin, scale, 1.6f, -3.2f, 0.8f, 1.9f, 1.9f, 1.2f, dim);
+
+    // Derrick tower: four legs converging, with cross braces
+    auto project = [&](float wx, float wy, float wz) -> Vector2
+    {
+        return {origin.x + (wx - wy) * 0.866f * scale,
+                origin.y + (wx + wy) * 0.5f * scale - wz * scale};
+    };
+    float baseZ = 2.8f, topZ = 7.2f;
+    Vector2 legs[4] = {project(-1.4f, -1.4f, baseZ), project(1.4f, -1.4f, baseZ),
+                       project(1.4f, 1.4f, baseZ), project(-1.4f, 1.4f, baseZ)};
+    Vector2 apex = project(0.0f, 0.0f, topZ);
+    for (const Vector2& leg : legs) DrawLineEx(leg, apex, 1.0f, mid);
+    for (int level = 0; level < 3; level++)
+    {
+        float t = 0.22f + level * 0.26f;
+        float half = 1.4f * (1.0f - t);
+        float z = baseZ + (topZ - baseZ) * t;
+        Vector2 ring[4] = {project(-half, -half, z), project(half, -half, z),
+                           project(half, half, z), project(-half, half, z)};
+        for (int k = 0; k < 4; k++) DrawLineEx(ring[k], ring[(k + 1) % 4], 1.0f, dim);
+    }
+    DrawLineEx(apex, {apex.x, apex.y - scale * 1.2f}, 1.0f, mid);
+    DrawCircle(static_cast<int>(apex.x), static_cast<int>(apex.y - scale * 1.4f), 1.5f, c);
 }
 
 // ============================================================================
@@ -1255,42 +1521,163 @@ void RenderManager::DrawExtractionTopBar(Unit* unit, TimeManager& timeManager)
     DrawRectangle(0, 0, screenWidth, EXT_TOP_BAR_H, EXT_PANEL_BG);
     DrawLine(0, EXT_TOP_BAR_H, screenWidth, EXT_TOP_BAR_H, EXT_PANEL_BORDER);
 
-    // Unit title
-    DrawTextEx(headerFont, "EXTRACTION UNIT", {20.0f, 14.0f}, FS(22.0f), sp, WHITE);
+    float midY = EXT_TOP_BAR_H / 2.0f;
 
-    // Status indicator
+    // Unit icon chip
+    Rectangle chip = {14.0f, midY - 16.0f, 32.0f, 32.0f};
+    DrawRectangleRounded(chip, 0.3f, 4, EXT_PANEL_BG2);
+    DrawRectangleRoundedLinesEx(chip, 0.3f, 4, 1.0f, EXT_PANEL_BORDER);
+    ExtDrawIcon(ExtIcon::EXCAVATOR, chip.x + 16.0f, chip.y + 16.0f, 9.0f, EXT_ACCENT_CYAN);
+
+    // Unit title + status, measured so they never collide
+    float titleSize = FS(18.0f);
+    const char* title = "EXTRACTION UNIT";
+    float titleX = chip.x + chip.width + 14.0f;
+    Vector2 titleDim = MeasureTextEx(headerFont, title, titleSize, sp);
+    DrawTextEx(headerFont, title, {titleX, midY - titleDim.y / 2.0f}, titleSize, sp, EXT_TEXT);
+
     bool isActive = unit->IsActive();
-    Color statusColor = isActive ? EXT_ACCENT_GREEN : Color{255, 100, 100, 255};
+    Color statusColor = isActive ? EXT_ACCENT_CYAN : EXT_ACCENT_RED;
     const char* statusText = isActive ? "ONLINE" : "OFFLINE";
-    float statusX = 220.0f;
-    DrawCircle(static_cast<int>(statusX), 25, 5, statusColor);
-    DrawTextEx(bodyFont, statusText, {statusX + 12.0f, 16.0f}, FS(16.0f), sp, statusColor);
+    float statusSize = FS(12.0f);
+    Vector2 statusDim = MeasureTextEx(bodyFont, statusText, statusSize, sp);
+    DrawTextEx(bodyFont, statusText,
+               {titleX + titleDim.x + 18.0f, midY - statusDim.y / 2.0f}, statusSize, sp, statusColor);
 
-    // Day counter
-    const char* dayText = TextFormat("Day %d", timeManager.GetCurrentDay());
-    float dayWidth = MeasureTextEx(bodyFont, dayText, FS(16.0f), sp).x;
-    DrawTextEx(bodyFont, dayText, {screenWidth - dayWidth - 20.0f, 16.0f}, FS(16.0f), sp, WHITE);
+    // Right side: nav hint, day counter, menu icon
+    ExtDrawIcon(ExtIcon::HAMBURGER, screenWidth - 26.0f, midY, 8.0f, EXT_DIM_TEXT);
 
-    // Navigation hint
-    DrawTextEx(bodyFont, "Press S for Sect View",
-               {screenWidth - dayWidth - 200.0f, 16.0f}, FS(14.0f), sp, EXT_DIM_TEXT);
+    const char* dayText = TextFormat("DAY %d", timeManager.GetCurrentDay());
+    float daySize = FS(14.0f);
+    Vector2 dayDim = MeasureTextEx(headerFont, dayText, daySize, sp);
+    float dayX = screenWidth - 52.0f - dayDim.x;
+    DrawTextEx(headerFont, dayText, {dayX, midY - dayDim.y / 2.0f}, daySize, sp, EXT_TEXT);
+
+    const char* hint = "Press S for Sect View";
+    float hintSize = FS(11.0f);
+    Vector2 hintDim = MeasureTextEx(bodyFont, hint, hintSize, sp);
+    DrawTextEx(bodyFont, hint, {dayX - hintDim.x - 24.0f, midY - hintDim.y / 2.0f},
+               hintSize, sp, Fade(EXT_DIM_TEXT, 0.7f));
 }
 
 void RenderManager::DrawExtractionBottomBar(Unit* unit)
 {
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
     const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
     float sp = 1.0f;
 
-    int startY = screenHeight - EXT_BOTTOM_BAR_H;
-    DrawRectangle(0, startY, screenWidth, EXT_BOTTOM_BAR_H, EXT_PANEL_BG);
-    DrawLine(0, startY, screenWidth, startY, EXT_PANEL_BORDER);
+    // Region: [gap][status segments 60][gap][message bar 40][gap]
+    float statusY = static_cast<float>(screenHeight - EXT_BOTTOM_BAR_H + 6);
+    float statusH = 60.0f;
+    float msgY = statusY + statusH + 6.0f;
+    float msgH = 40.0f;
+    float barX = static_cast<float>(EXT_GAP);
+    float barW = static_cast<float>(screenWidth - EXT_GAP * 2);
 
-    // Fade message
-    const UIMessage& msg = unit->GetCurrentMessage();
-    if (msg.opacity > 0)
+    // --- Status segments ---
+    ExtDrawPanelFrame({barX, statusY, barW, statusH});
+
+    struct Segment
     {
-        Color msgColor = {255, 200, 50, static_cast<unsigned char>(255 * msg.opacity)};
-        DrawTextEx(bodyFont, msg.text.c_str(), {20.0f, startY + 8.0f}, FS(18.0f), sp, msgColor);
+        ExtIcon icon;
+        const char* name;
+        std::string value;
+        std::string sub;
+        Color subColor;
+    };
+    std::vector<Segment> segments;
+
+    if (unit->HasProspectingSystem())
+    {
+        auto* ps = unit->GetProspectingSystem();
+        CellSurveyResult sr = SurveyProgressEngine::Calculate(ps->GetGrid(), ps->GetTray());
+        float calQ = ps->GetSweep().GetCalibrationQuality();
+        bool marked = ps->IsMarkedSite();
+
+        segments.push_back({ExtIcon::RADAR, "SWEEP",
+                            TextFormat("%.0f%%", sr.sweepConfidence * 100.0f),
+                            marked ? "MARKED SITE" : "UNMARKED",
+                            marked ? EXT_ACCENT_GREEN : EXT_DIM_TEXT});
+        segments.push_back({ExtIcon::FLASK, "SAMPLES",
+                            TextFormat("%.0f%%", sr.sampleConfidence * 100.0f),
+                            TextFormat("CAL: %.0f%%", calQ * 100.0f),
+                            calQ >= 0.8f ? EXT_ACCENT_GREEN : EXT_ACCENT_GOLD});
+        segments.push_back({ExtIcon::SLIDERS, "TESTING",
+                            TextFormat("%.0f%%", sr.testingConfidence * 100.0f),
+                            TextFormat("TIER %d", ps->GetTier()),
+                            EXT_DIM_TEXT});
+    }
+
+    // Energy segment: selected module in module view, else total active draw
+    float energy = 0.0f;
+    const auto& modules = unit->GetModules();
+    int selIdx = unit->GetSelectedModuleIndex();
+    if (unit->IsInModuleView() && selIdx >= 0 && selIdx < static_cast<int>(modules.size()))
+    {
+        energy = modules[selIdx].energyRequired;
+    }
+    else
+    {
+        for (int i : unit->GetActiveModuleIndices()) energy += modules[i].energyRequired;
+    }
+    segments.push_back({ExtIcon::BOLT, "ENERGY",
+                        TextFormat("%.1f kW", energy), "", EXT_DIM_TEXT});
+
+    float segW = barW / segments.size();
+    for (size_t i = 0; i < segments.size(); i++)
+    {
+        const Segment& seg = segments[i];
+        float segX = barX + i * segW;
+
+        if (i > 0)
+        {
+            DrawLineEx({segX, statusY + 10.0f}, {segX, statusY + statusH - 10.0f},
+                       1.0f, Fade(EXT_PANEL_BORDER, 0.8f));
+        }
+
+        ExtDrawIcon(seg.icon, segX + 28.0f, statusY + statusH / 2.0f, 10.0f, EXT_ACCENT_CYAN);
+
+        float textX = segX + 50.0f;
+        DrawTextEx(bodyFont, seg.name, {textX, statusY + 12.0f}, FS(11.0f), sp, EXT_DIM_TEXT);
+
+        float valSize = FS(12.0f);
+        Vector2 valDim = MeasureTextEx(headerFont, seg.value.c_str(), valSize, sp);
+        DrawTextEx(headerFont, seg.value.c_str(),
+                   {segX + segW - valDim.x - 22.0f, statusY + 11.0f}, valSize, sp, EXT_TEXT);
+
+        if (!seg.sub.empty())
+        {
+            DrawTextEx(bodyFont, seg.sub.c_str(), {textX, statusY + 33.0f},
+                       FS(10.0f), sp, seg.subColor);
+        }
+    }
+
+    // --- Message bar ---
+    ExtDrawPanelFrame({barX, msgY, barW, msgH});
+
+    const UIMessage& msg = unit->GetCurrentMessage();
+    if (msg.opacity > 0 && !msg.text.empty())
+    {
+        float alpha = msg.opacity;
+        float textX = barX + 16.0f;
+        float textY = msgY + msgH / 2.0f - FS(12.0f) / 2.0f - 2.0f;
+
+        // "[TAG]" prefix rendered as a violet accent, body in plain text
+        std::string text = msg.text;
+        if (!text.empty() && text.front() == '[')
+        {
+            size_t close = text.find(']');
+            if (close != std::string::npos)
+            {
+                std::string tag = text.substr(0, close + 1);
+                DrawTextEx(headerFont, tag.c_str(), {textX, textY}, FS(12.0f), sp,
+                           Fade(EXT_ACCENT_VIOLET, alpha));
+                textX += MeasureTextEx(headerFont, tag.c_str(), FS(12.0f), sp).x + 10.0f;
+                text = text.substr(close + 1);
+                while (!text.empty() && text.front() == ' ') text.erase(text.begin());
+            }
+        }
+        DrawTextEx(bodyFont, text.c_str(), {textX, textY}, FS(12.0f), sp, Fade(EXT_TEXT, alpha));
     }
 }
 
@@ -1318,18 +1705,23 @@ void RenderManager::DrawWearBar(float x, float y, float w, float h, float wear)
 
 void RenderManager::DrawTierIndicator(float x, float y, int tier, int maxTier)
 {
-    Color tierColors[] = {GRAY, GREEN, BLUE, EXT_ACCENT_GOLD};
+    // Tier pips: cyan -> blue -> purple -> violet, like the kit's color dots
+    Color tierColors[] = {
+        {80, 225, 255, 255}, {80, 140, 255, 255}, {150, 110, 255, 255}, {200, 120, 255, 255}
+    };
     for (int i = 0; i <= maxTier; i++)
     {
-        float cx = x + i * 18.0f;
+        float cx = x + i * 17.0f;
         float cy = y;
         if (i <= tier)
         {
-            DrawCircle(static_cast<int>(cx), static_cast<int>(cy), 6, tierColors[std::min(i, 3)]);
+            Color c = tierColors[std::min(i, 3)];
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy), 5, c);
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), 6, Fade(c, 0.35f));
         }
         else
         {
-            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), 6, EXT_DIM_TEXT);
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), 5, Fade(EXT_DIM_TEXT, 0.7f));
         }
     }
 }
@@ -1345,35 +1737,34 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
     int panelY = EXT_TOP_BAR_H;
     int panelH = screenHeight - EXT_TOP_BAR_H - EXT_BOTTOM_BAR_H;
 
-    // Panel background
-    DrawRectangle(0, panelY, EXT_LEFT_PANEL_W, panelH, EXT_PANEL_BG);
-    DrawLine(EXT_LEFT_PANEL_W, panelY, EXT_LEFT_PANEL_W, panelY + panelH, EXT_PANEL_BORDER);
+    // Floating card
+    Rectangle panel = {static_cast<float>(EXT_GAP), static_cast<float>(panelY + EXT_GAP),
+                       static_cast<float>(EXT_LEFT_PANEL_W - EXT_GAP * 2),
+                       static_cast<float>(panelH - EXT_GAP * 2)};
+    ExtDrawPanelFrame(panel);
 
-    int padding = 10;
-    float yPos = static_cast<float>(panelY + padding);
+    float padding = 12.0f;
+    float innerX = panel.x + padding;
+    float innerW = panel.width - padding * 2;
+    float yPos = panel.y + padding;
 
-    // "Unit Overview" button
-    Rectangle overviewBtn = {
-        static_cast<float>(padding),
-        yPos,
-        static_cast<float>(EXT_LEFT_PANEL_W - padding * 2),
-        40.0f
-    };
-
+    // "UNIT OVERVIEW" button: icon + label + chevron
+    Rectangle overviewBtn = {innerX, yPos, innerW, 44.0f};
     bool overviewHovered = CheckCollisionPointRec(GetMousePosition(), overviewBtn);
     bool overviewSelected = !unit->IsInModuleView();
 
-    Color overviewBg = overviewSelected ? Color{40, 60, 100, 255} : Color{30, 30, 50, 255};
-    if (overviewHovered) overviewBg = Color{50, 70, 120, 255};
+    DrawRectangleRounded(overviewBtn, 0.2f, 4,
+                         overviewSelected ? Color{16, 38, 54, 255}
+                                          : (overviewHovered ? Color{16, 28, 46, 255} : EXT_PANEL_BG2));
+    DrawRectangleRoundedLinesEx(overviewBtn, 0.2f, 4, overviewSelected ? 1.5f : 1.0f,
+                                overviewSelected ? EXT_ACCENT_CYAN : EXT_PANEL_BORDER);
 
-    DrawRectangleRec(overviewBtn, overviewBg);
-    if (overviewSelected)
-        DrawRectangleLinesEx(overviewBtn, 2.0f, EXT_ACCENT_CYAN);
-    else
-        DrawRectangleLinesEx(overviewBtn, 1.0f, EXT_PANEL_BORDER);
-
-    DrawTextEx(headerFont, "UNIT OVERVIEW", {overviewBtn.x + 10.0f, overviewBtn.y + 10.0f},
-               FS(16.0f), sp, overviewSelected ? WHITE : LIGHTGRAY);
+    ExtDrawIcon(ExtIcon::OVERVIEW, overviewBtn.x + 20.0f, overviewBtn.y + 22.0f, 9.0f,
+                overviewSelected ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+    DrawTextEx(headerFont, "UNIT OVERVIEW", {overviewBtn.x + 40.0f, overviewBtn.y + 13.0f},
+               FS(13.0f), sp, overviewSelected ? EXT_ACCENT_CYAN : Fade(EXT_TEXT, 0.85f));
+    ExtDrawChevrons(overviewBtn.x + overviewBtn.width - 22.0f, overviewBtn.y + 22.0f, 5.0f,
+                    Fade(EXT_DIM_TEXT, 0.8f));
 
     if (overviewHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
@@ -1382,13 +1773,13 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
         unit->PublicShowMessage("Switched to unit overview");
     }
 
-    yPos += 55.0f;
+    yPos += 60.0f;
 
     // Section label
-    DrawTextEx(bodyFont, "MODULES", {static_cast<float>(padding), yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    yPos += 20.0f;
+    DrawTextEx(bodyFont, "MODULES", {innerX, yPos}, FS(11.0f), sp, EXT_DIM_TEXT);
+    yPos += 24.0f;
 
-    // Module buttons
+    // Module cards
     const auto& modules = unit->GetModules();
     int selectedIdx = unit->GetSelectedModuleIndex();
 
@@ -1396,57 +1787,44 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
     {
         const auto& mod = modules[i];
 
-        Rectangle btn = {
-            static_cast<float>(padding),
-            yPos,
-            static_cast<float>(EXT_LEFT_PANEL_W - padding * 2),
-            50.0f
-        };
-
+        Rectangle btn = {innerX, yPos, innerW, 62.0f};
         bool isHovered = CheckCollisionPointRec(GetMousePosition(), btn);
         bool isSelected = unit->IsInModuleView() && selectedIdx == static_cast<int>(i);
 
-        // Background color based on state
         Color btnBg;
-        if (!mod.isBuilt)
-            btnBg = {25, 25, 35, 255};
-        else if (isSelected)
-            btnBg = {40, 60, 100, 255};
-        else
-            btnBg = {30, 30, 50, 255};
+        if (isSelected) btnBg = {16, 38, 54, 255};
+        else if (isHovered) btnBg = {16, 28, 46, 255};
+        else if (!mod.isBuilt) btnBg = {11, 16, 30, 255};
+        else btnBg = EXT_PANEL_BG2;
 
-        if (isHovered) btnBg = Color{static_cast<unsigned char>(std::min(btnBg.r + 15, 255)),
-                                      static_cast<unsigned char>(std::min(btnBg.g + 15, 255)),
-                                      static_cast<unsigned char>(std::min(btnBg.b + 20, 255)),
-                                      255};
+        DrawRectangleRounded(btn, 0.15f, 4, btnBg);
+        DrawRectangleRoundedLinesEx(btn, 0.15f, 4, isSelected ? 1.5f : 1.0f,
+                                    isSelected ? EXT_ACCENT_CYAN
+                                               : Fade(EXT_PANEL_BORDER, mod.isBuilt ? 1.0f : 0.6f));
 
-        DrawRectangleRec(btn, btnBg);
+        // Icon
+        Color iconColor = !mod.isBuilt ? Fade(EXT_DIM_TEXT, 0.7f)
+                                       : (isSelected ? EXT_ACCENT_CYAN : Fade(EXT_TEXT, 0.75f));
+        ExtDrawIcon(ExtModuleIcon(mod.moduleType), btn.x + 22.0f, btn.y + 31.0f, 10.0f, iconColor);
 
-        // Border
-        if (isSelected)
-            DrawRectangleLinesEx(btn, 2.0f, EXT_ACCENT_CYAN);
-        else if (mod.isBuilt && mod.isActive)
-            DrawRectangleLinesEx(btn, 1.0f, EXT_ACCENT_GREEN);
-        else if (mod.isBuilt)
-            DrawRectangleLinesEx(btn, 1.0f, EXT_DIM_TEXT);
-        else
-            DrawRectangleLinesEx(btn, 1.0f, Color{60, 60, 80, 150});
+        // Name (uppercase per the kit)
+        std::string nameUpper = mod.name;
+        for (auto& ch : nameUpper) ch = static_cast<char>(toupper(ch));
+        Color nameColor = mod.isBuilt ? EXT_TEXT : EXT_DIM_TEXT;
+        DrawTextEx(headerFont, nameUpper.c_str(), {btn.x + 44.0f, btn.y + 12.0f},
+                   FS(12.0f), sp, nameColor);
 
-        // Module name
-        Color nameColor = mod.isBuilt ? WHITE : EXT_DIM_TEXT;
-        DrawTextEx(bodyFont, mod.name.c_str(), {btn.x + 10.0f, btn.y + 6.0f}, FS(15.0f), sp, nameColor);
-
-        // Tier indicator
-        DrawTierIndicator(btn.x + 10.0f, btn.y + 32.0f, mod.tier);
+        // Tier pips
+        DrawTierIndicator(btn.x + 50.0f, btn.y + 43.0f, mod.isBuilt ? mod.tier : -1);
 
         // Status text
         const char* statusText = !mod.isBuilt ? "NOT BUILT" : (mod.isActive ? "ACTIVE" : "INACTIVE");
-        Color statusColor = !mod.isBuilt ? EXT_DIM_TEXT : (mod.isActive ? EXT_ACCENT_GREEN : YELLOW);
-        float statusWidth = MeasureTextEx(bodyFont, statusText, FS(11.0f), sp).x;
+        Color statusColor = !mod.isBuilt ? Fade(EXT_DIM_TEXT, 0.8f)
+                                         : (mod.isActive ? EXT_ACCENT_GREEN : EXT_ACCENT_GOLD);
+        float statusWidth = MeasureTextEx(bodyFont, statusText, FS(10.0f), sp).x;
         DrawTextEx(bodyFont, statusText,
-                   {btn.x + btn.width - statusWidth - 10.0f, btn.y + 32.0f}, FS(11.0f), sp, statusColor);
+                   {btn.x + btn.width - statusWidth - 12.0f, btn.y + 38.0f}, FS(10.0f), sp, statusColor);
 
-        // Click handling
         if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             unit->SetSelectedModuleIndex(static_cast<int>(i));
@@ -1455,8 +1833,12 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
             unit->PublicShowMessage("Viewing " + mod.name);
         }
 
-        yPos += 55.0f;
+        yPos += 68.0f;
     }
+
+    // Decorative hazard strip at the card's bottom-left, per the kit
+    ExtDrawHazardStripes({panel.x + 8.0f, panel.y + panel.height - 14.0f, 70.0f, 6.0f},
+                         Fade(EXT_DIM_TEXT, 0.25f));
 }
 
 // --- Center Panel Router ---
@@ -1467,6 +1849,11 @@ void RenderManager::DrawExtractionModuleCenter(Unit* unit)
     int panelY = EXT_TOP_BAR_H;
     int panelW = screenWidth - EXT_LEFT_PANEL_W - EXT_RIGHT_PANEL_W;
     int panelH = screenHeight - EXT_TOP_BAR_H - EXT_BOTTOM_BAR_H;
+
+    // Shared floating card behind every center panel
+    ExtDrawPanelFrame({static_cast<float>(panelX + EXT_GAP), static_cast<float>(panelY + EXT_GAP),
+                       static_cast<float>(panelW - EXT_GAP * 2),
+                       static_cast<float>(panelH - EXT_GAP * 2)});
 
     if (!unit->IsInModuleView())
     {
@@ -1505,20 +1892,22 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     int panelX = screenWidth - EXT_RIGHT_PANEL_W;
     int panelY = EXT_TOP_BAR_H;
     int panelH = screenHeight - EXT_TOP_BAR_H - EXT_BOTTOM_BAR_H;
-    int padding = 12;
+    int padding = EXT_GAP + 12;   // card inset + inner padding, keeps x math below simple
 
-    // Panel background
-    DrawRectangle(panelX, panelY, EXT_RIGHT_PANEL_W, panelH, EXT_PANEL_BG);
-    DrawLine(panelX, panelY, panelX, panelY + panelH, EXT_PANEL_BORDER);
+    // Floating card
+    Rectangle panel = {static_cast<float>(panelX + EXT_GAP), static_cast<float>(panelY + EXT_GAP),
+                       static_cast<float>(EXT_RIGHT_PANEL_W - EXT_GAP * 2),
+                       static_cast<float>(panelH - EXT_GAP * 2)};
+    ExtDrawPanelFrame(panel);
 
-    float yPos = static_cast<float>(panelY + padding);
+    float yPos = panel.y + 14.0f;
 
     if (!unit->IsInModuleView())
     {
         // Unit overview mode - production rate controls
         DrawTextEx(headerFont, "PRODUCTION CONTROLS", {static_cast<float>(panelX + padding), yPos},
-                   FS(16.0f), sp, EXT_HEADER_COLOR);
-        yPos += 30.0f;
+                   FS(14.0f), sp, EXT_HEADER_COLOR);
+        yPos += 34.0f;
 
         const auto& modules = unit->GetModules();
         const auto& activeIndices = unit->GetActiveModuleIndices();
@@ -1536,9 +1925,9 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     if (idx < 0 || idx >= static_cast<int>(modules.size())) return;
     const auto& mod = modules[idx];
 
-    DrawTextEx(headerFont, "CONTROLS", {static_cast<float>(panelX + padding), yPos},
-               FS(16.0f), sp, EXT_HEADER_COLOR);
-    yPos += 30.0f;
+    DrawTextEx(headerFont, "CONTROL PANEL", {static_cast<float>(panelX + padding), yPos},
+               FS(14.0f), sp, EXT_HEADER_COLOR);
+    yPos += 34.0f;
 
     float btnW = static_cast<float>(EXT_RIGHT_PANEL_W - padding * 2);
     float btnH = 40.0f;
@@ -1550,11 +1939,12 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
         bool canBuild = unit->PublicCanBuildModule(idx);
         bool isHovered = CheckCollisionPointRec(GetMousePosition(), buildBtn);
 
-        Color btnColor = canBuild ? Color{40, 80, 180, 255} : Color{50, 50, 70, 255};
-        if (isHovered && canBuild) btnColor = Color{60, 100, 220, 255};
+        Color btnColor = canBuild ? Color{14, 40, 70, 255} : Color{16, 22, 38, 255};
+        if (isHovered && canBuild) btnColor = Color{20, 56, 96, 255};
 
-        DrawRectangleRec(buildBtn, btnColor);
-        DrawRectangleLinesEx(buildBtn, 1.0f, canBuild ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+        DrawRectangleRounded(buildBtn, 0.25f, 4, btnColor);
+        DrawRectangleRoundedLinesEx(buildBtn, 0.25f, 4, 1.0f,
+                                    canBuild ? EXT_ACCENT_CYAN : Fade(EXT_DIM_TEXT, 0.6f));
 
         const char* buildText = "BUILD MODULE";
         float textW = MeasureTextEx(headerFont, buildText, FS(16.0f), sp).x;
@@ -1601,17 +1991,20 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
         bool canUpgrade = unit->PublicCanUpgradeModule(idx);
         bool isHovered = CheckCollisionPointRec(GetMousePosition(), upgradeBtn);
 
-        Color btnColor = canUpgrade ? Color{40, 80, 180, 255} : Color{50, 50, 70, 255};
-        if (isHovered && canUpgrade) btnColor = Color{60, 100, 220, 255};
+        Color btnColor = canUpgrade ? Color{14, 40, 70, 255} : Color{16, 22, 38, 255};
+        if (isHovered && canUpgrade) btnColor = Color{20, 56, 96, 255};
 
-        DrawRectangleRec(upgradeBtn, btnColor);
-        DrawRectangleLinesEx(upgradeBtn, 1.0f, canUpgrade ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+        DrawRectangleRounded(upgradeBtn, 0.25f, 4, btnColor);
+        DrawRectangleRoundedLinesEx(upgradeBtn, 0.25f, 4, 1.0f,
+                                    canUpgrade ? EXT_ACCENT_CYAN : Fade(EXT_DIM_TEXT, 0.6f));
 
         const char* upgradeText = TextFormat("UPGRADE TO TIER %d", mod.tier + 1);
-        float textW = MeasureTextEx(headerFont, upgradeText, FS(14.0f), sp).x;
+        float textW = MeasureTextEx(headerFont, upgradeText, FS(13.0f), sp).x;
         DrawTextEx(headerFont, upgradeText,
-                   {upgradeBtn.x + (btnW - textW) / 2.0f, upgradeBtn.y + 12.0f}, FS(14.0f), sp,
+                   {upgradeBtn.x + (btnW - textW) / 2.0f - 8.0f, upgradeBtn.y + 12.0f}, FS(13.0f), sp,
                    canUpgrade ? WHITE : EXT_DIM_TEXT);
+        ExtDrawChevrons(upgradeBtn.x + (btnW + textW) / 2.0f + 6.0f, upgradeBtn.y + btnH / 2.0f,
+                        5.0f, canUpgrade ? EXT_ACCENT_CYAN : Fade(EXT_DIM_TEXT, 0.6f));
 
         if (isHovered && canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -1645,27 +2038,34 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     }
     else
     {
-        DrawTextEx(bodyFont, "MAX TIER REACHED", {static_cast<float>(panelX + padding), yPos},
-                   FS(14.0f), sp, EXT_ACCENT_GOLD);
-        yPos += 25.0f;
+        ExtDrawIcon(ExtIcon::WARNING, panelX + padding + 8.0f, yPos + 8.0f, 8.0f, EXT_ACCENT_GOLD);
+        DrawTextEx(headerFont, "MAX TIER REACHED",
+                   {static_cast<float>(panelX + padding + 26), yPos}, FS(13.0f), sp, EXT_ACCENT_GOLD);
+        yPos += 30.0f;
     }
 
-    yPos += 15.0f;
+    yPos += 12.0f;
 
-    // Activate/Deactivate toggle
+    // Activate/Deactivate toggle: hazard-striped danger/confirm button
     Rectangle toggleBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
     bool isHovered = CheckCollisionPointRec(GetMousePosition(), toggleBtn);
 
-    Color toggleColor = mod.isActive ? Color{150, 40, 40, 255} : Color{40, 120, 60, 255};
-    if (isHovered) toggleColor = mod.isActive ? Color{180, 60, 60, 255} : Color{60, 150, 80, 255};
+    bool danger = mod.isActive;
+    Color fillCol = danger ? Color{52, 12, 16, 255} : Color{12, 44, 26, 255};
+    if (isHovered) fillCol = danger ? Color{72, 16, 22, 255} : Color{16, 58, 34, 255};
+    Color edgeCol = danger ? EXT_ACCENT_RED : EXT_ACCENT_GREEN;
 
-    DrawRectangleRec(toggleBtn, toggleColor);
-    DrawRectangleLinesEx(toggleBtn, 1.0f, mod.isActive ? Color{255, 100, 100, 200} : EXT_ACCENT_GREEN);
+    DrawRectangleRounded(toggleBtn, 0.25f, 4, fillCol);
+    ExtDrawHazardStripes({toggleBtn.x + 3.0f, toggleBtn.y + 3.0f, 26.0f, btnH - 6.0f},
+                         Fade(edgeCol, 0.22f));
+    ExtDrawHazardStripes({toggleBtn.x + btnW - 29.0f, toggleBtn.y + 3.0f, 26.0f, btnH - 6.0f},
+                         Fade(edgeCol, 0.22f));
+    DrawRectangleRoundedLinesEx(toggleBtn, 0.25f, 4, 1.5f, edgeCol);
 
     const char* toggleText = mod.isActive ? "DEACTIVATE" : "ACTIVATE";
-    float textW = MeasureTextEx(headerFont, toggleText, FS(16.0f), sp).x;
+    float textW = MeasureTextEx(headerFont, toggleText, FS(15.0f), sp).x;
     DrawTextEx(headerFont, toggleText,
-               {toggleBtn.x + (btnW - textW) / 2.0f, toggleBtn.y + 12.0f}, FS(16.0f), sp, WHITE);
+               {toggleBtn.x + (btnW - textW) / 2.0f, toggleBtn.y + 12.0f}, FS(15.0f), sp, WHITE);
 
     if (isHovered && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
@@ -1674,24 +2074,24 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
 
     yPos += btnH + 20.0f;
 
-    // Module info section
-    DrawTextEx(headerFont, "MODULE INFO", {static_cast<float>(panelX + padding), yPos},
-               FS(14.0f), sp, EXT_HEADER_COLOR);
-    yPos += 22.0f;
+    // Module status section
+    DrawTextEx(headerFont, "MODULE STATUS", {static_cast<float>(panelX + padding), yPos},
+               FS(13.0f), sp, EXT_ACCENT_CYAN);
+    yPos += 24.0f;
 
     DrawTextEx(bodyFont, TextFormat("Tier: %d / 3", mod.tier),
-               {static_cast<float>(panelX + padding), yPos}, FS(13.0f), sp, LIGHTGRAY);
-    yPos += 18.0f;
+               {static_cast<float>(panelX + padding), yPos}, FS(12.0f), sp, EXT_TEXT);
+    yPos += 20.0f;
 
     DrawTextEx(bodyFont, TextFormat("Efficiency: %.0f%%", mod.efficiency * 100.0f),
-               {static_cast<float>(panelX + padding), yPos}, FS(13.0f), sp, LIGHTGRAY);
-    yPos += 18.0f;
+               {static_cast<float>(panelX + padding), yPos}, FS(12.0f), sp, EXT_TEXT);
+    yPos += 20.0f;
 
     if (mod.energyRequired > 0)
     {
         DrawTextEx(bodyFont, TextFormat("Energy: %.1f kW", mod.energyRequired),
-                   {static_cast<float>(panelX + padding), yPos}, FS(13.0f), sp, LIGHTGRAY);
-        yPos += 18.0f;
+                   {static_cast<float>(panelX + padding), yPos}, FS(12.0f), sp, EXT_TEXT);
+        yPos += 20.0f;
     }
 
     // Tier dependencies
@@ -1706,6 +2106,30 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
             DrawTextEx(bodyFont, TextFormat("  - %s", dep.c_str()),
                        {static_cast<float>(panelX + padding), yPos}, FS(11.0f), sp, EXT_DIM_TEXT);
             yPos += 14.0f;
+        }
+    }
+
+    // Decorative blueprint of the unit fills the remaining space
+    float artTop = yPos + 10.0f;
+    float artBottom = panel.y + panel.height - 48.0f;
+    if (artBottom - artTop > 110.0f)
+    {
+        ExtDrawWireframeUnit({panel.x + 14.0f, artTop, panel.width - 28.0f, artBottom - artTop},
+                             EXT_ACCENT_CYAN);
+
+        float tagY = panel.y + panel.height - 40.0f;
+        DrawTextEx(bodyFont, "// UE-3 //", {panel.x + 18.0f, tagY}, FS(10.0f), sp,
+                   Fade(EXT_DIM_TEXT, 0.8f));
+
+        // Barcode strip
+        float bx = panel.x + 18.0f;
+        float by = tagY + 18.0f;
+        for (int i = 0; i < 46; i++)
+        {
+            float lineW = ((i * 37) % 3 == 0) ? 2.0f : 1.0f;
+            DrawRectangleRec({bx, by, lineW, 9.0f},
+                             Fade(EXT_DIM_TEXT, ((i * 23) % 4 == 0) ? 0.85f : 0.4f));
+            bx += lineW + 2.0f;
         }
     }
 }
@@ -1867,7 +2291,7 @@ static const Color PROS_BTN_BORDER      = {51, 102, 119, 255};
 static const Color PROS_BTN_HOVER       = {102, 255, 255, 38};
 static const Color PROS_BTN_TEXT        = {170, 187, 204, 255};
 static const Color PROS_BTN_TEXT_HOVER  = {238, 238, 255, 255};
-static const Color PROS_BTN_DISABLED    = {34, 51, 68, 255};
+static const Color PROS_BTN_DISABLED    = {64, 84, 106, 255};
 static const Color PROS_MSG_STATUS      = {85, 85, 85, 255};
 static const Color PROS_MSG_ALERT       = {204, 170, 68, 255};
 
@@ -1919,12 +2343,68 @@ static const char* ProsConfLabel(float conf)
     return "Very Low";
 }
 
+// Rounded grid cell base: state-driven fill, hover/selection borders.
+static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
+{
+    DrawRectangleRounded(r, 0.22f, 4, {12, 15, 28, 255});
+    if (fill.a > 0)
+    {
+        DrawRectangleRounded(r, 0.22f, 4, fill);
+    }
+
+    if (selected)
+    {
+        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 2.0f, PROS_SELECT_BORDER);
+        DrawRectangleRoundedLinesEx({r.x - 2, r.y - 2, r.width + 4, r.height + 4}, 0.22f, 4,
+                                    1.0f, Fade(PROS_SELECT_BORDER, 0.35f));
+    }
+    else if (hover)
+    {
+        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 1.0f, Fade(PROS_HOVER_BORDER, 0.8f));
+    }
+    else
+    {
+        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 1.0f, {32, 38, 60, 255});
+    }
+}
+
+// Sample/sweep marker in the cell center. Confidence drives the glyph:
+// hollow ring (low) -> ring with core (moderate) -> solid bright dot (high).
+static void ProsDrawCellMarker(Rectangle r, const SubCell& cell)
+{
+    Vector2 c = {r.x + r.width / 2.0f, r.y + r.height / 2.0f};
+    float base = r.width * 0.18f;
+
+    if (!cell.sampleIds.empty())
+    {
+        float conf = cell.aggregateConfidence;
+        if (conf > 0.7f)
+        {
+            DrawCircleV(c, base * 0.85f, {120, 240, 255, 255});
+            DrawCircleV(c, base * 1.6f, {120, 240, 255, 35});
+        }
+        else if (conf > 0.4f)
+        {
+            DrawRing(c, base * 0.8f, base * 1.05f, 0.0f, 360.0f, 28, {238, 234, 252, 210});
+            DrawCircleV(c, base * 0.4f, {238, 234, 252, 130});
+        }
+        else
+        {
+            DrawRing(c, base * 0.8f, base * 1.05f, 0.0f, 360.0f, 28, {238, 234, 252, 180});
+        }
+    }
+    else if (cell.hasBeenSwept)
+    {
+        DrawCircleV(c, 1.5f, {225, 218, 255, 130});
+    }
+}
+
 void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 {
     const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
     const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
     float sp = 1.0f;
-    int padding = 12;
+    int padding = EXT_GAP + 14;   // card inset + inner padding
     float px = static_cast<float>(x + padding);
     float pw = static_cast<float>(w - padding * 2);
 
@@ -1939,53 +2419,53 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     ps->gameTime += GetFrameTime();
     Vector2 mouse = GetMousePosition();
 
-    // --- Header: title + survey progress bar ---
+    // --- Header: icon + title, calibration gauge on the right ---
     float yPos = static_cast<float>(y + padding);
-    float progress = ps->GetSurveyProgress();
-    DrawTextEx(headerFont, "PROSPECTING", {px, yPos}, FS(16.0f), sp, EXT_HEADER_COLOR);
+    ExtDrawIcon(ExtIcon::RADAR, px + 10.0f, yPos + 10.0f, 10.0f, EXT_ACCENT_CYAN);
+    DrawTextEx(headerFont, "PROSPECTING", {px + 28.0f, yPos + 1.0f}, FS(15.0f), sp, EXT_TEXT);
 
-    float barW = 160.0f;
-    float barH = 14.0f;
-    float barX = px + pw - barW;
-    DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2), static_cast<int>(barW), static_cast<int>(barH),
-                  {40, 40, 60, 255});
-    Color barColor = progress >= 0.60f ? EXT_ACCENT_GREEN : EXT_ACCENT_CYAN;
-    DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 2),
-                  static_cast<int>(barW * std::min(progress, 1.0f)), static_cast<int>(barH), barColor);
-    DrawTextEx(bodyFont, TextFormat("%.0f%%", progress * 100.0f),
-               {barX + barW + 5.0f, yPos + 1.0f}, FS(11.0f), sp, barColor);
-    yPos += 28.0f;
+    float calQHeader = ps->GetSweep().GetCalibrationQuality();
+    const char* calValue = TextFormat("%.0f%%", calQHeader * 100.0f);
+    float calValueW = MeasureTextEx(headerFont, calValue, FS(12.0f), sp).x;
+    float gaugeW = 90.0f;
+    float gaugeX = px + pw - calValueW - gaugeW - 10.0f;
+    const char* calLabel = "CALIBRATION";
+    float calLabelW = MeasureTextEx(bodyFont, calLabel, FS(10.0f), sp).x;
+    DrawTextEx(bodyFont, calLabel, {gaugeX - calLabelW - 10.0f, yPos + 5.0f},
+               FS(10.0f), sp, EXT_DIM_TEXT);
+    ExtDrawSegBar(gaugeX, yPos + 3.0f, gaugeW, 14.0f, calQHeader,
+                  calQHeader >= 0.8f ? EXT_ACCENT_CYAN : EXT_ACCENT_GOLD);
+    DrawTextEx(headerFont, calValue, {gaugeX + gaugeW + 10.0f, yPos + 2.0f},
+               FS(12.0f), sp, EXT_TEXT);
+    yPos += 32.0f;
 
     // --- Stage tabs ---
-    float tabW = pw / 3.0f;
-    float tabH = 26.0f;
+    float tabGap = 6.0f;
+    float tabW = (pw - tabGap * 2.0f) / 3.0f;
+    float tabH = 30.0f;
     const char* tabNames[] = {"SWEEP", "SAMPLES", "LAB"};
     ProspectingTab tabs[] = {ProspectingTab::SWEEP, ProspectingTab::SAMPLES, ProspectingTab::LAB};
 
     for (int i = 0; i < 3; i++)
     {
-        Rectangle tabRect = {px + i * tabW, yPos, tabW, tabH};
+        Rectangle tabRect = {px + i * (tabW + tabGap), yPos, tabW, tabH};
         bool isActive = (ps->activeTab == tabs[i]);
         bool isHover = CheckCollisionPointRec(mouse, tabRect);
 
         if (isActive)
         {
-            DrawRectangleRec(tabRect, PROS_TAB_ACTIVE);
-            DrawRectangleLinesEx(tabRect, 1.0f, PROS_TAB_ACTIVE_BDR);
-        }
-        else if (isHover)
-        {
-            DrawRectangleRec(tabRect, PROS_BTN_HOVER);
-            DrawRectangleLinesEx(tabRect, 1.0f, PROS_TAB_BORDER);
+            DrawRectangleRounded(tabRect, 0.3f, 4, {16, 48, 58, 255});
+            DrawRectangleRoundedLinesEx(tabRect, 0.3f, 4, 1.5f, PROS_TAB_ACTIVE_BDR);
         }
         else
         {
-            DrawRectangleLinesEx(tabRect, 1.0f, PROS_TAB_BORDER);
+            DrawRectangleRounded(tabRect, 0.3f, 4, isHover ? Color{16, 26, 44, 255} : EXT_PANEL_BG2);
+            DrawRectangleRoundedLinesEx(tabRect, 0.3f, 4, 1.0f, PROS_TAB_BORDER);
         }
 
         Color textColor = isActive ? PROS_TAB_ACTIVE_BDR : (isHover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT);
-        Vector2 textSize = MeasureTextEx(bodyFont, tabNames[i], FS(11.0f), sp);
-        DrawTextEx(bodyFont, tabNames[i],
+        Vector2 textSize = MeasureTextEx(headerFont, tabNames[i], FS(11.0f), sp);
+        DrawTextEx(headerFont, tabNames[i],
                    {tabRect.x + (tabW - textSize.x) / 2, tabRect.y + (tabH - textSize.y) / 2},
                    FS(11.0f), sp, textColor);
 
@@ -1994,11 +2474,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             ps->activeTab = tabs[i];
         }
     }
-    yPos += tabH + 8.0f;
+    yPos += tabH + 12.0f;
 
     // --- Content area ---
     float contentY = yPos;
-    float contentH = static_cast<float>(y + h) - yPos - 80.0f;
+    float contentH = static_cast<float>(y + h - padding) - yPos;
 
     auto& grid = ps->GetGrid();
     int gridSize = grid.GetGridSize();
@@ -2006,41 +2486,31 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     if (ps->activeTab == ProspectingTab::SWEEP)
     {
         // === SWEEP TAB ===
-        float gridAreaW = std::min(pw * 0.55f, contentH - 40.0f);
+        float gridAreaW = std::min(pw * 0.58f, contentH - 10.0f);
         float cellSize = gridAreaW / gridSize;
         float gridX = px;
         float gridY = contentY;
 
+        float cellGap = 5.0f;
         for (int gy = 0; gy < gridSize; gy++)
         {
             for (int gx = 0; gx < gridSize; gx++)
             {
-                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize, cellSize - 1, cellSize - 1};
-                DrawRectangleRec(cellRect, PROS_CELL_BG);
+                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
+                                      cellSize - cellGap, cellSize - cellGap};
 
                 const SubCell& cell = grid.GetSubCell(gx, gy);
+                Color fill = {0, 0, 0, 0};
                 if (cell.hasBeenSwept)
                 {
-                    Color heat = ProsSweepHeatColor(cell.sweepSignal);
-                    DrawRectangleRec(cellRect, heat);
-                }
-
-                if (!cell.sampleIds.empty())
-                {
-                    float dotR = cellSize * 0.15f;
-                    DrawCircle(static_cast<int>(cellRect.x + cellSize / 2),
-                               static_cast<int>(cellRect.y + cellSize / 2),
-                               dotR, {255, 255, 255, 180});
+                    fill = ProsSweepHeatColor(cell.sweepSignal);
+                    fill.a = 115;   // muted plum over the dark base, per the mock
                 }
 
                 bool hover = CheckCollisionPointRec(mouse, cellRect);
                 bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
-                if (selected)
-                    DrawRectangleLinesEx(cellRect, 2.0f, PROS_SELECT_BORDER);
-                else if (hover)
-                    DrawRectangleLinesEx(cellRect, 1.0f, PROS_HOVER_BORDER);
-                else
-                    DrawRectangleLinesEx(cellRect, 1.0f, PROS_CELL_BORDER);
+                ProsDrawCellBase(cellRect, fill, selected, hover);
+                ProsDrawCellMarker(cellRect, cell);
 
                 if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 {
@@ -2062,46 +2532,62 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         {
             bool canSweep = ps->GetSweep().CanSweep(grid, band);
             bool alreadySwept = grid.HasSweptFrequency(band);
-            Rectangle bandBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 24.0f};
+            Rectangle bandBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 26.0f};
             bool hover = CheckCollisionPointRec(mouse, bandBtn);
+            bool selectedBand = (ps->selectedFrequencyBand == band);
 
-            Color borderCol = canSweep ? PROS_BTN_BORDER : PROS_BTN_DISABLED;
-            Color textCol = canSweep ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
+            Color fillCol = selectedBand ? Color{14, 44, 56, 255}
+                                         : (hover && canSweep ? Color{16, 26, 44, 255} : EXT_PANEL_BG2);
+            DrawRectangleRounded(bandBtn, 0.35f, 4, fillCol);
+            if (alreadySwept && !selectedBand)
+                DrawRectangleRounded(bandBtn, 0.35f, 4, {0, 204, 221, 16});
+            DrawRectangleRoundedLinesEx(bandBtn, 0.35f, 4, selectedBand ? 1.5f : 1.0f,
+                                        selectedBand ? PROS_TAB_ACTIVE_BDR
+                                                     : (canSweep ? PROS_BTN_BORDER : PROS_BTN_DISABLED));
 
-            if (hover && canSweep)
-                DrawRectangleRec(bandBtn, PROS_BTN_HOVER);
-            if (alreadySwept)
-                DrawRectangleRec(bandBtn, {0, 204, 221, 25});
-            DrawRectangleLinesEx(bandBtn, 1.0f, ps->selectedFrequencyBand == band ? PROS_TAB_ACTIVE_BDR : borderCol);
-
-            const char* bandLabel = TextFormat("Band %d  %.0f E", band, SWEEP_ENERGY_COST[band]);
-            DrawTextEx(bodyFont, bandLabel, {ctrlX + 6, ctrlY + 4}, FS(10.0f), sp, textCol);
+            Color textCol = selectedBand ? EXT_TEXT
+                                         : (!canSweep ? PROS_BTN_DISABLED
+                                                      : (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT));
+            DrawTextEx(headerFont, TextFormat("BAND %d", band),
+                       {ctrlX + 10.0f, ctrlY + 6.0f}, FS(10.0f), sp, textCol);
+            const char* costLabel = TextFormat("%.0f E", SWEEP_ENERGY_COST[band]);
+            float costW = MeasureTextEx(bodyFont, costLabel, FS(10.0f), sp).x;
+            DrawTextEx(bodyFont, costLabel,
+                       {ctrlX + ctrlW - 20.0f - costW, ctrlY + 6.0f}, FS(10.0f), sp, textCol);
 
             if (hover && canSweep && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
                 ps->selectedFrequencyBand = band;
             }
-            ctrlY += 28.0f;
+            ctrlY += 32.0f;
         }
 
-        ctrlY += 8.0f;
-        Rectangle sweepBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 30.0f};
+        ctrlY += 10.0f;
+        Rectangle sweepBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 34.0f};
         bool canSweepNow = ps->GetSweep().CanSweep(grid, ps->selectedFrequencyBand);
         bool sweepHover = CheckCollisionPointRec(mouse, sweepBtn);
 
-        if (sweepHover && canSweepNow)
-            DrawRectangleRec(sweepBtn, PROS_BTN_HOVER);
-        DrawRectangleLinesEx(sweepBtn, 1.0f, canSweepNow ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
-        DrawTextEx(headerFont, "SWEEP",
-                   {ctrlX + (ctrlW - 10.0f) / 2 - 20.0f, ctrlY + 6}, FS(13.0f), sp,
-                   canSweepNow ? (sweepHover ? WHITE : PROS_BTN_TEXT_HOVER) : PROS_BTN_DISABLED);
+        Color runFill = !canSweepNow ? Color{16, 22, 38, 255}
+                                     : (sweepHover ? Color{20, 56, 96, 255} : Color{14, 40, 70, 255});
+        DrawRectangleRounded(sweepBtn, 0.3f, 4, runFill);
+        DrawRectangleRoundedLinesEx(sweepBtn, 0.3f, 4, 1.5f,
+                                    canSweepNow ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
+
+        const char* runLabel = "RUN SWEEP";
+        float runW = MeasureTextEx(headerFont, runLabel, FS(12.0f), sp).x;
+        Color runText = canSweepNow ? (sweepHover ? WHITE : EXT_ACCENT_CYAN) : PROS_BTN_DISABLED;
+        DrawTextEx(headerFont, runLabel,
+                   {sweepBtn.x + (sweepBtn.width - runW) / 2.0f - 10.0f, ctrlY + 9.0f},
+                   FS(12.0f), sp, runText);
+        ExtDrawChevrons(sweepBtn.x + (sweepBtn.width + runW) / 2.0f + 4.0f, ctrlY + 17.0f,
+                        5.0f, runText);
 
         if (sweepHover && canSweepNow && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             ps->GetSweep().ExecuteSweep(ps->GetGrid(), ps->selectedFrequencyBand, ps->gameTime);
         }
 
-        ctrlY += 40.0f;
+        ctrlY += 46.0f;
 
         // Sweep history
         const auto& sweepHist = grid.GetSweepHistory();
@@ -2123,7 +2609,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         {
             ctrlY += 8.0f;
             DrawTextEx(headerFont, TextFormat("CELL (%d,%d)", ps->selectedCellX, ps->selectedCellY),
-                       {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
+                       {ctrlX, ctrlY}, FS(11.0f), sp, EXT_ACCENT_CYAN);
             ctrlY += 18.0f;
 
             const SubCell& selCell = grid.GetSubCell(ps->selectedCellX, ps->selectedCellY);
@@ -2150,16 +2636,20 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         {
             for (int gx = 0; gx < gridSize; gx++)
             {
-                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize, cellSize - 1, cellSize - 1};
-                DrawRectangleRec(cellRect, PROS_CELL_BG);
+                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
+                                      cellSize - 5.0f, cellSize - 5.0f};
 
                 const SubCell& cell = grid.GetSubCell(gx, gy);
+                Color fill = {0, 0, 0, 0};
                 if (cell.hasBeenSwept)
                 {
-                    Color heat = ProsSweepHeatColor(cell.sweepSignal);
-                    heat.a = 60;
-                    DrawRectangleRec(cellRect, heat);
+                    fill = ProsSweepHeatColor(cell.sweepSignal);
+                    fill.a = 55;
                 }
+
+                bool hover = CheckCollisionPointRec(mouse, cellRect);
+                bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
+                ProsDrawCellBase(cellRect, fill, selected, hover);
 
                 if (!cell.sampleIds.empty())
                 {
@@ -2171,23 +2661,15 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                         if (v > maxVal) { maxVal = v; dominant = t; }
                     }
                     Color elemColor = ProsElementColor(dominant);
-                    elemColor.a = 80;
-                    DrawRectangleRec(cellRect, elemColor);
+                    elemColor.a = 60;
+                    DrawRectangleRounded({cellRect.x + 2, cellRect.y + 2,
+                                          cellRect.width - 4, cellRect.height - 4}, 0.22f, 4, elemColor);
 
-                    float dotR = cellSize * 0.18f;
-                    DrawCircle(static_cast<int>(cellRect.x + cellSize / 2),
-                               static_cast<int>(cellRect.y + cellSize / 2),
+                    float dotR = cellRect.width * 0.16f;
+                    DrawCircle(static_cast<int>(cellRect.x + cellRect.width / 2),
+                               static_cast<int>(cellRect.y + cellRect.height / 2),
                                dotR, ProsElementColor(dominant));
                 }
-
-                bool hover = CheckCollisionPointRec(mouse, cellRect);
-                bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
-                if (selected)
-                    DrawRectangleLinesEx(cellRect, 2.0f, PROS_SELECT_BORDER);
-                else if (hover)
-                    DrawRectangleLinesEx(cellRect, 1.0f, PROS_HOVER_BORDER);
-                else
-                    DrawRectangleLinesEx(cellRect, 1.0f, PROS_CELL_BORDER);
 
                 if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 {
@@ -2611,32 +3093,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         }
     }
 
-    // --- Bottom: survey progress summary ---
-    float bottomY = static_cast<float>(y + h) - 60.0f;
-    DrawLine(x + padding, static_cast<int>(bottomY), x + w - padding, static_cast<int>(bottomY), PROS_CELL_BORDER);
-    bottomY += 8.0f;
-
-    CellSurveyResult sr = SurveyProgressEngine::Calculate(ps->GetGrid(), ps->GetTray());
-    DrawTextEx(bodyFont, TextFormat("Sweep: %.0f%%", sr.sweepConfidence * 100.0f),
-               {px, bottomY}, FS(9.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, TextFormat("Sample: %.0f%%", sr.sampleConfidence * 100.0f),
-               {px + pw * 0.33f, bottomY}, FS(9.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, TextFormat("Testing: %.0f%%", sr.testingConfidence * 100.0f),
-               {px + pw * 0.66f, bottomY}, FS(9.0f), sp, EXT_DIM_TEXT);
-    bottomY += 14.0f;
-
-    bool marked = ps->IsMarkedSite();
-    DrawTextEx(bodyFont, marked ? "MARKED SITE" : "Unmarked",
-               {px, bottomY}, FS(9.0f), sp, marked ? EXT_ACCENT_GREEN : EXT_DIM_TEXT);
-
-    float calQ = ps->GetSweep().GetCalibrationQuality();
-    DrawTextEx(bodyFont, TextFormat("Cal: %.0f%%", calQ * 100.0f),
-               {px + pw * 0.33f, bottomY}, FS(9.0f), sp,
-               calQ >= 0.8f ? EXT_ACCENT_GREEN : PROS_MSG_ALERT);
-
-    int tier = ps->GetTier();
-    DrawTextEx(bodyFont, TextFormat("Tier %d", tier),
-               {px + pw * 0.66f, bottomY}, FS(9.0f), sp, EXT_ACCENT_CYAN);
+    // (Survey progress summary now lives in the shared bottom status bar.)
 }
 
 void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
