@@ -10,8 +10,8 @@ extraction efficiency respond.
 The playtest builds for WebAssembly and deploys with the game to GitHub
 Pages via `.github/workflows/deploy-web.yml`:
 
-- Game: `https://<owner>.github.io/<repo>/`
-- **Playtest: `https://<owner>.github.io/<repo>/playtest/`**
+- Game: `https://navidamin.github.io/raylib-colony/`
+- **Playtest: `https://navidamin.github.io/raylib-colony/playtest/`**
 
 Taps map to clicks; the TIER UP / RESET buttons in the top bar replace the
 `T` / `R` keys. The canvas scales to the device screen (landscape
