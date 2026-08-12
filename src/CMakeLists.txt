@@ -135,39 +135,47 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         )
     endif()
 
-    # -----------------------------------------------------------------------
-    # colony_playtest: interactive prospecting sandbox
-    #
-    # Boots straight into the prospecting module with a live game loop, for
-    # gameplay testing without navigating the full game (see
-    # tools/playtest/playtest_main.cpp for controls).
-    # -----------------------------------------------------------------------
-    add_executable(colony_playtest)
+endif()
 
-    target_sources(colony_playtest PRIVATE
-        "${CMAKE_SOURCE_DIR}/tools/playtest/playtest_main.cpp"
-        ${COLONY_CORE_SOURCES}
+# ---------------------------------------------------------------------------
+# colony_playtest: interactive prospecting sandbox
+#
+# Boots straight into the prospecting module with a live game loop, for
+# gameplay testing without navigating the full game (see
+# tools/playtest/playtest_main.cpp for controls). Builds for Web too, so it
+# can be played on phone/tablet via GitHub Pages.
+# ---------------------------------------------------------------------------
+add_executable(colony_playtest)
+
+target_sources(colony_playtest PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/playtest/playtest_main.cpp"
+    ${COLONY_CORE_SOURCES}
+)
+
+set_target_properties(colony_playtest PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(colony_playtest PRIVATE ${COLONY_INCLUDE_DIRS})
+
+target_link_libraries(colony_playtest raylib tomlplusplus::tomlplusplus)
+
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(colony_playtest m)
+endif()
+
+if ("${PLATFORM}" STREQUAL "Web")
+    # Same shell, preloaded assets, and link flags as the main game
+    set_target_properties(colony_playtest PROPERTIES SUFFIX ".html")
+    set_target_properties(colony_playtest PROPERTIES LINK_FLAGS "${web_link_flags}")
+endif()
+
+if(APPLE)
+    target_link_libraries(colony_playtest
+        "-framework IOKit"
+        "-framework Cocoa"
+        "-framework OpenGL"
     )
-
-    set_target_properties(colony_playtest PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-    )
-
-    target_include_directories(colony_playtest PRIVATE ${COLONY_INCLUDE_DIRS})
-
-    target_link_libraries(colony_playtest raylib tomlplusplus::tomlplusplus)
-
-    if(NOT WIN32)
-        target_link_libraries(colony_playtest m)
-    endif()
-
-    if(APPLE)
-        target_link_libraries(colony_playtest
-            "-framework IOKit"
-            "-framework Cocoa"
-            "-framework OpenGL"
-        )
-    endif()
 endif()

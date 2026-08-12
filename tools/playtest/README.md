@@ -5,7 +5,20 @@ prospecting module — no menu, no colony placement, no navigation. Use it to
 playtest the sweep → sample → lab loop and feel how survey progress and
 extraction efficiency respond.
 
-## Run it
+## Play on phone / tablet
+
+The playtest builds for WebAssembly and deploys with the game to GitHub
+Pages via `.github/workflows/deploy-web.yml`:
+
+- Game: `https://<owner>.github.io/<repo>/`
+- **Playtest: `https://<owner>.github.io/<repo>/playtest/`**
+
+Taps map to clicks; the TIER UP / RESET buttons in the top bar replace the
+`T` / `R` keys. The canvas scales to the device screen (landscape
+recommended). Trigger the workflow manually (workflow_dispatch) or push to
+main to redeploy.
+
+## Run it (desktop)
 
 ```bash
 cmake -B build

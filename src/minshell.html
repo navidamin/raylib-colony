@@ -35,10 +35,16 @@
 
     <!-- Web Style -->
     <style>
-        body { 
-          margin: 0px; 
-          overflow: hidden; 
+        html, body {
+          height: 100%;
+        }
+        body {
+          margin: 0px;
+          overflow: hidden;
           background-color: black;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         canvas.emscripten {
           border: 0px none;
@@ -48,6 +54,13 @@
           margin-left: auto;
           margin-right: auto;
           display: block;
+          /* Scale to fit phones/tablets, preserving aspect ratio.
+             touch-action: none keeps taps from scrolling/zooming the page. */
+          max-width: 100vw;
+          max-height: 100vh;
+          width: auto;
+          height: auto;
+          touch-action: none;
         }
     </style>
     <script type='text/javascript' src="https://cdn.jsdelivr.net/gh/eligrey/FileSaver.js/dist/FileSaver.min.js"> </script>
