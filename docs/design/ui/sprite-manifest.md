@@ -56,17 +56,109 @@ charge, exactly the crystal drawing path.
 
 ## Manufacture (Fabrication, Assembly, Quality, Logistics, Automation)
 
-| Sprite set | Variants | Count | Used by |
-|---|---|---|---|
-| **Part blanks** | 4 materials (Fe/Si/Ti/Al) x 3 process stages (raw / machined / finished) | 12 | Fabrication, Assembly, Quality |
-| Conveyor tile | 4 animation frames | 4 | Assembly |
-| Robot arm | 3 poses (reach / grip / place) | 3 | Assembly, Automation |
-| QC stamp overlays | pass / fail / pending | 3 | Quality |
-| Cargo crates | 3 sizes x 2 states (open/sealed) | 6 | Logistics |
-| Status hologram | 3 states (nominal / warning / fault) | 3 | Automation |
+> Detailed manifest — this unit's panels are envisioned as a **production
+> line view** (stations + conveyor + parts in flight), a **QC bench** (the
+> lab-tab analog: pick a part, inspect it), a **logistics bay**, and an
+> **automation console**. Every set below is keyed by a small struct, drawn
+> through the same lazy texture cache as the crystals.
 
-Part blanks tinted by material color reuse the element-tint path already in
-`DrawCrystalSprite`.
+### Intended panel layout (context for the sprites)
+
+```
+FABRICATION / ASSEMBLY tab            QUALITY tab (lab analog)
++--------------------------------+    +------------------------------+
+| [station] ==conveyor== [station]|   | SELECT PART   RESULTS        |
+|     |         part->      |    |    | [slot][slot]  [big part      |
+| [station] ==conveyor== [output]|    | [slot][slot]   preview +     |
+|  station cards w/ state glow   |    |  stamp overlay on each]      |
++--------------------------------+    +------------------------------+
+```
+
+### Hero set: part blanks (`sprites/manufacture/parts/`)
+
+The workpiece is the "crystal" of this unit — one object inspected and
+watched as it transforms. Sprites are rendered **neutral gray**; material
+is applied as a runtime tint (same lift-toward-white path as
+`DrawCrystalSprite`), so one file serves every material.
+
+| Axis | Values | Notes |
+|---|---|---|
+| Process stage | `raw` / `machined` / `finished` | geometry changes per stage |
+| Shape template | 3 per stage | raw: ingot, billet, casting; machined: bracket, cylinder, plate; finished: gear, housing, casing |
+| Material | Fe / Si / Ti / Al (+ future alloys) | runtime tint, **zero extra files** |
+| Defect | overlay sprite per stage (crack, void, warp) | composited on top, any part can show a flaw |
+
+Files: `parts/<stage>/<template>.png` (9) + `parts/defects/<stage>.png` (3) = **12**.
+
+Keying struct (mirrors `CrystalVisual`):
+
+```cpp
+struct PartVisual
+{
+    PartStage stage;        // RAW, MACHINED, FINISHED
+    int templateIndex;      // 0-2 within stage
+    ResourceType material;  // tint source (Fe, Si, Ti, Al)
+    bool defective;         // draw defect overlay
+};
+```
+
+### Production line (`sprites/manufacture/line/`)
+
+| Sprite set | Variants | Files | Used by |
+|---|---|---|---|
+| Machine stations | 3 stations (furnace, CNC, press) x 3 states (idle / active / fault) | 9 | Fabrication center panel — station cards like the separation chain |
+| Conveyor belt | straight + corner, 4 animation frames each | 8 | Assembly line view; direction via rotation at draw time |
+| Robot arm | 4 poses (idle / reach / grip / place) | 4 | Assembly, Automation; tier via tint |
+
+Station `active` state should read at a glance (glow window, moving tool),
+`fault` gets a red edge — matches the ON/OFF border language used in the
+beneficiation chain.
+
+### Quality bench (`sprites/manufacture/qc/`)
+
+| Sprite set | Variants | Files | Used by |
+|---|---|---|---|
+| Stamp overlays | pass / fail / pending | 3 | composited over part slots, like the tray state borders |
+| Scanner beam | 2-frame sweep | 2 | inspection animation over the big part preview |
+| Defect close-ups | crack / void / warp | 3 | RESULTS detail view when a part fails |
+
+### Logistics bay (`sprites/manufacture/logistics/`)
+
+| Sprite set | Variants | Files | Used by |
+|---|---|---|---|
+| Crates | 3 sizes x 2 states (open / sealed) | 6 | outgoing goods display, fill = production backlog |
+| Pallet | empty / loaded | 2 | staging area |
+| AGV cart | idle / moving (2 frames) | 2 | animated between stations and bay |
+
+### Automation console (`sprites/manufacture/automation/`)
+
+| Sprite set | Variants | Files | Used by |
+|---|---|---|---|
+| Status holograms | nominal / warning / fault x 2-frame pulse | 6 | console header, mirrors kit orb language |
+| Console bench | 3 tier levels | 3 | center art, tier-gated detail |
+| Program chips | 3 routine types (throughput / quality / balanced) | 3 | clickable policy selector cards |
+
+### Manufacture totals and production notes
+
+| Set | Files |
+|---|---|
+| Part blanks + defects | 12 |
+| Production line | 21 |
+| Quality bench | 8 |
+| Logistics bay | 10 |
+| Automation console | 12 |
+| **Manufacture total** | **63** |
+
+- Render at the crystal set's resolution via a `part_gen` sibling of
+  `tools/crystal_gen` (same lighting shader; parts are simple lathe/extrude
+  geometry, cheaper than crystals).
+- Animation is frame-swap by game time — no atlas needed; the texture cache
+  already handles per-file loading.
+- Priority within the unit: **part blanks first** (they appear in three of
+  five module panels), then stations + conveyor (the line view is the
+  unit's identity), then QC, logistics, automation.
+- Revises the earlier rough count (31) — the detailed design roughly
+  doubles it, still one generator pass.
 
 ## Research (Laboratory, Analysis, Simulation, Archive, Publication)
 
@@ -95,10 +187,10 @@ art (simulations) — the smallest new-asset budget of the four units.
 |---|---|
 | Farming | 88 |
 | Energy | 42 |
-| Manufacture | 31 |
+| Manufacture | 63 |
 | Research | 19 (+1 overlay) |
 | Shared | 4 (optional) |
-| **Total** | **~185** |
+| **Total** | **~215** |
 
 Well under the crystal set's 400 — one `crystal_gen`-style generator pass per
 family of sets. Recommended production order: **battery cells** (smallest,
