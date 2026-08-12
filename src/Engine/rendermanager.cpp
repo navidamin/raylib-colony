@@ -1761,12 +1761,13 @@ void RenderManager::DrawExtractionBottomBar(Unit* unit)
 void RenderManager::DrawStyledBar(float x, float y, float w, float h, float value, Color fillColor)
 {
     value = Clamp(value, 0.0f, 1.0f);
-    DrawRectangle(static_cast<int>(x), static_cast<int>(y),
-                  static_cast<int>(w), static_cast<int>(h), {40, 40, 60, 200});
-    DrawRectangle(static_cast<int>(x), static_cast<int>(y),
-                  static_cast<int>(w * value), static_cast<int>(h), fillColor);
-    DrawRectangleLines(static_cast<int>(x), static_cast<int>(y),
-                       static_cast<int>(w), static_cast<int>(h), EXT_PANEL_BORDER);
+    Rectangle track = {x, y, w, h};
+    DrawRectangleRounded(track, 0.5f, 3, {18, 26, 44, 255});
+    if (w * value > 3.0f)
+    {
+        DrawRectangleRounded({x + 1.5f, y + 1.5f, w * value - 3.0f, h - 3.0f}, 0.5f, 3, fillColor);
+    }
+    DrawRectangleRoundedLinesEx(track, 0.5f, 3, 1.0f, EXT_PANEL_BORDER);
 }
 
 void RenderManager::DrawWearBar(float x, float y, float w, float h, float wear)
@@ -2771,13 +2772,15 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             bool selected = (ps->selectedDepth == depths[d]);
 
             Color borderCol = canDrill ? (selected ? PROS_TAB_ACTIVE_BDR : PROS_BTN_BORDER) : PROS_BTN_DISABLED;
-            Color textCol = canDrill ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
+            Color textCol = canDrill ? (selected ? EXT_TEXT
+                                                 : (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT))
+                                     : PROS_BTN_DISABLED;
 
-            if (selected && canDrill)
-                DrawRectangleRec(depthBtn, PROS_TAB_ACTIVE);
-            else if (hover && canDrill)
-                DrawRectangleRec(depthBtn, PROS_BTN_HOVER);
-            DrawRectangleLinesEx(depthBtn, 1.0f, borderCol);
+            Color depthFill = (selected && canDrill) ? Color{16, 44, 56, 255}
+                                                     : (hover && canDrill ? Color{16, 26, 44, 255}
+                                                                          : EXT_PANEL_BG2);
+            DrawRectangleRounded(depthBtn, 0.35f, 4, depthFill);
+            DrawRectangleRoundedLinesEx(depthBtn, 0.35f, 4, selected ? 1.5f : 1.0f, borderCol);
 
             float cost = ps->GetSampler().GetDrillCost(depths[d]);
             const char* label = canDrill
@@ -2799,15 +2802,22 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         bool canCollect = hasSelection && !trayFull &&
                           ps->GetSampler().CanDrill(ps->selectedDepth);
 
-        Rectangle collectBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 28.0f};
+        Rectangle collectBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 30.0f};
         bool collectHover = CheckCollisionPointRec(mouse, collectBtn);
 
-        if (collectHover && canCollect)
-            DrawRectangleRec(collectBtn, PROS_BTN_HOVER);
-        DrawRectangleLinesEx(collectBtn, 1.0f, canCollect ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
-        DrawTextEx(headerFont, "COLLECT",
-                   {ctrlX + (ctrlW - 10.0f) / 2 - 25.0f, ctrlY + 5}, FS(12.0f), sp,
-                   canCollect ? (collectHover ? WHITE : PROS_BTN_TEXT_HOVER) : PROS_BTN_DISABLED);
+        Color collectFill = !canCollect ? Color{16, 22, 38, 255}
+                                        : (collectHover ? Color{20, 56, 96, 255} : Color{14, 40, 70, 255});
+        DrawRectangleRounded(collectBtn, 0.3f, 4, collectFill);
+        DrawRectangleRoundedLinesEx(collectBtn, 0.3f, 4, 1.5f,
+                                    canCollect ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
+        const char* collectLabel = "COLLECT";
+        float collectW = MeasureTextEx(headerFont, collectLabel, FS(12.0f), sp).x;
+        Color collectText = canCollect ? (collectHover ? WHITE : EXT_ACCENT_CYAN) : PROS_BTN_DISABLED;
+        DrawTextEx(headerFont, collectLabel,
+                   {collectBtn.x + (collectBtn.width - collectW) / 2.0f - 8.0f, ctrlY + 7}, FS(12.0f), sp,
+                   collectText);
+        ExtDrawChevrons(collectBtn.x + (collectBtn.width + collectW) / 2.0f + 4.0f, ctrlY + 15.0f,
+                        5.0f, collectText);
 
         if (collectHover && canCollect && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
@@ -2839,13 +2849,14 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
             if (s)
             {
-                Color elemCol = ProsElementColor(SamplingEngine::GetDominantElement(s->trueComposition));
-                float confGlow = s->GetAggregateConfidence();
-                unsigned char alpha = static_cast<unsigned char>(100 + 155 * confGlow);
-                elemCol.a = alpha;
-                DrawRectangleRec(slot, elemCol);
+                DrawRectangleRounded(slot, 0.25f, 4,
+                                     slotSelected ? Color{16, 38, 54, 255} : EXT_PANEL_BG2);
 
-                // Depth indicator
+                // The sample's actual crystal sprite
+                DrawCrystalSprite(s->visual, {slot.x + 2, slot.y + 2,
+                                              slot.width - 4, slot.height - 4});
+
+                // Depth indicator badge
                 const char* depthChar =
                     s->depthLayer == DepthLayer::SURFACE ? "S" :
                     s->depthLayer == DepthLayer::SHALLOW ? "R" :
@@ -2853,36 +2864,32 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 DrawTextEx(bodyFont, depthChar,
                            {slot.x + 2, slot.y + slot.height - 12}, FS(8.0f), sp,
                            {255, 255, 255, 160});
-
-                // Crystal shape indicator based on visual family
-                const char* familyChar =
-                    s->visual.shapeFamily == ShapeFamily::ANGULAR_CHUNKS ? "A" :
-                    s->visual.shapeFamily == ShapeFamily::CRYSTALLINE_SHARDS ? "C" :
-                    s->visual.shapeFamily == ShapeFamily::ROUNDED_NODULES ? "N" : "L";
-                DrawTextEx(bodyFont, familyChar,
-                           {slot.x + slot.width - 10, slot.y + 2}, FS(8.0f), sp,
-                           {255, 255, 255, 120});
-
-                if (s->state == SampleState::PROCESSING)
-                {
-                    DrawRectangleLinesEx(slot, 1.0f, PROS_MSG_ALERT);
-                }
-                else if (s->state == SampleState::COMPLETED)
-                {
-                    DrawRectangleLinesEx(slot, 1.0f, EXT_ACCENT_GREEN);
-                }
             }
             else
             {
-                DrawRectangleRec(slot, {30, 30, 50, 255});
+                DrawRectangleRounded(slot, 0.25f, 4, {12, 15, 28, 255});
             }
 
+            Color slotBorder = PROS_CELL_BORDER;
+            float slotBorderThick = 1.0f;
             if (slotSelected)
-                DrawRectangleLinesEx(slot, 2.0f, PROS_SELECT_BORDER);
+            {
+                slotBorder = PROS_SELECT_BORDER;
+                slotBorderThick = 2.0f;
+            }
             else if (slotHover)
-                DrawRectangleLinesEx(slot, 1.0f, PROS_HOVER_BORDER);
-            else
-                DrawRectangleLinesEx(slot, 1.0f, PROS_CELL_BORDER);
+            {
+                slotBorder = PROS_HOVER_BORDER;
+            }
+            else if (s && s->state == SampleState::COMPLETED)
+            {
+                slotBorder = Fade(EXT_ACCENT_GREEN, 0.6f);
+            }
+            else if (s && s->state == SampleState::PROCESSING)
+            {
+                slotBorder = PROS_MSG_ALERT;
+            }
+            DrawRectangleRoundedLinesEx(slot, 0.25f, 4, slotBorderThick, slotBorder);
 
             if (slotHover && s && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
@@ -3267,7 +3274,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         Rectangle depthPlus = {depthX + 90.0f, yPos - 1.0f, btnW, btnH};
 
         // [-] button
-        Color minusBg = CheckCollisionPointRec(mousePos, depthMinus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
+        Color minusBg = CheckCollisionPointRec(mousePos, depthMinus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
         DrawRectangleRec(depthMinus, minusBg);
         DrawRectangleLinesEx(depthMinus, 1.0f, EXT_PANEL_BORDER);
         DrawTextEx(bodyFont, "-", {depthX + 6.0f, yPos}, FS(12.0f), sp, WHITE);
@@ -3281,7 +3288,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         DrawTextEx(bodyFont, TextFormat("%.0f cm", exc.depth), {depthX + 24.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
         // [+] button
-        Color plusBg = CheckCollisionPointRec(mousePos, depthPlus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
+        Color plusBg = CheckCollisionPointRec(mousePos, depthPlus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
         DrawRectangleRec(depthPlus, plusBg);
         DrawRectangleLinesEx(depthPlus, 1.0f, EXT_PANEL_BORDER);
         DrawTextEx(bodyFont, "+", {depthX + 96.0f, yPos}, FS(12.0f), sp, WHITE);
@@ -3300,7 +3307,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         Rectangle ratePlus = {rateX + 85.0f, yPos - 1.0f, btnW, btnH};
 
         // [-] button
-        Color rMinBg = CheckCollisionPointRec(mousePos, rateMinus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
+        Color rMinBg = CheckCollisionPointRec(mousePos, rateMinus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
         DrawRectangleRec(rateMinus, rMinBg);
         DrawRectangleLinesEx(rateMinus, 1.0f, EXT_PANEL_BORDER);
         DrawTextEx(bodyFont, "-", {rateX + 6.0f, yPos}, FS(12.0f), sp, WHITE);
@@ -3314,7 +3321,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         DrawTextEx(bodyFont, TextFormat("%.0f", exc.rate), {rateX + 24.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
 
         // [+] button
-        Color rPlsBg = CheckCollisionPointRec(mousePos, ratePlus) ? Color{60, 60, 80, 255} : Color{40, 40, 55, 255};
+        Color rPlsBg = CheckCollisionPointRec(mousePos, ratePlus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
         DrawRectangleRec(ratePlus, rPlsBg);
         DrawRectangleLinesEx(ratePlus, 1.0f, EXT_PANEL_BORDER);
         DrawTextEx(bodyFont, "+", {rateX + 91.0f, yPos}, FS(12.0f), sp, WHITE);
@@ -3386,7 +3393,7 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
         if (i > 0)
         {
             Rectangle upBtn = {reorderX, yPos + 3.0f, arrowBtnW, arrowBtnH};
-            Color upBg = CheckCollisionPointRec(mousePos, upBtn) ? Color{60, 70, 90, 255} : Color{40, 45, 60, 255};
+            Color upBg = CheckCollisionPointRec(mousePos, upBtn) ? Color{60, 70, 90, 255} : Color{24, 38, 60, 255};
             DrawRectangleRec(upBtn, upBg);
             DrawRectangleLinesEx(upBtn, 1.0f, EXT_PANEL_BORDER);
             // Up arrow triangle
@@ -3406,7 +3413,7 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
         if (i < chain.size() - 1)
         {
             Rectangle downBtn = {reorderX + arrowBtnW + 4.0f, yPos + 3.0f, arrowBtnW, arrowBtnH};
-            Color downBg = CheckCollisionPointRec(mousePos, downBtn) ? Color{60, 70, 90, 255} : Color{40, 45, 60, 255};
+            Color downBg = CheckCollisionPointRec(mousePos, downBtn) ? Color{60, 70, 90, 255} : Color{24, 38, 60, 255};
             DrawRectangleRec(downBtn, downBg);
             DrawRectangleLinesEx(downBtn, 1.0f, EXT_PANEL_BORDER);
             // Down arrow triangle
@@ -3433,9 +3440,9 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
         const char* statusText = node.isActive ? "ON" : "OFF";
         float statusX = px + nodeW - 130.0f;
         Rectangle toggleBtn = {statusX, yPos + 3.0f, 35.0f, 18.0f};
-        Color toggleBg = CheckCollisionPointRec(mousePos, toggleBtn) ? Color{50, 55, 70, 255} : Color{30, 35, 50, 255};
-        DrawRectangleRec(toggleBtn, toggleBg);
-        DrawRectangleLinesEx(toggleBtn, 1.0f, activeColor);
+        Color toggleBg = CheckCollisionPointRec(mousePos, toggleBtn) ? Color{24, 38, 60, 255} : Color{14, 21, 38, 255};
+        DrawRectangleRounded(toggleBtn, 0.4f, 4, toggleBg);
+        DrawRectangleRoundedLinesEx(toggleBtn, 0.4f, 4, 1.0f, activeColor);
         DrawTextEx(bodyFont, statusText, {statusX + 5.0f, yPos + 5.0f}, FS(12.0f), sp, activeColor);
 
         if (CheckCollisionPointRec(mousePos, toggleBtn) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -3588,7 +3595,7 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
     // Current directive display
     int dirIdx = static_cast<int>(directive.type);
     DrawTextEx(bodyFont, "Current:", {px, yPos}, FS(13.0f), sp, LIGHTGRAY);
-    Color dirColor = (dirIdx == 0) ? EXT_DIM_TEXT : EXT_ACCENT_GOLD;
+    Color dirColor = (dirIdx == 0) ? EXT_DIM_TEXT : EXT_ACCENT_CYAN;
     DrawTextEx(headerFont, directiveNames[dirIdx], {px + 65.0f, yPos - 2.0f}, FS(16.0f), sp, dirColor);
     yPos += 22.0f;
 
@@ -3640,26 +3647,26 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
         Color cardBg;
         if (isCurrentDirective)
         {
-            cardBg = {50, 45, 20, 255};  // Gold-tinted active
+            cardBg = {16, 44, 56, 255};  // Teal-tinted active, matches selection scheme
         }
         else if (isUnlocked)
         {
-            cardBg = CheckCollisionPointRec(mousePos, card) ? Color{40, 45, 60, 255} : Color{30, 35, 50, 255};
+            cardBg = CheckCollisionPointRec(mousePos, card) ? Color{24, 38, 60, 255} : Color{14, 21, 38, 255};
         }
         else
         {
-            cardBg = {20, 20, 25, 200};  // Dim locked
+            cardBg = {11, 16, 30, 200};  // Dim locked
         }
-        DrawRectangleRec(card, cardBg);
+        DrawRectangleRounded(card, 0.2f, 4, cardBg);
 
         // Border
         if (isCurrentDirective)
         {
-            DrawRectangleLinesEx(card, 2.0f, EXT_ACCENT_GOLD);
+            DrawRectangleRoundedLinesEx(card, 0.2f, 4, 1.5f, EXT_ACCENT_CYAN);
         }
         else
         {
-            DrawRectangleLinesEx(card, 1.0f, EXT_PANEL_BORDER);
+            DrawRectangleRoundedLinesEx(card, 0.2f, 4, 1.0f, EXT_PANEL_BORDER);
         }
 
         // Directive name
@@ -3719,18 +3726,18 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
 
             Rectangle chip = {chipX, yPos, chipW, chipH};
             bool isSelected = (directive.targetResource == resources[r]);
-            Color chipBg = isSelected ? Color{60, 50, 20, 255} : Color{35, 40, 55, 255};
+            Color chipBg = isSelected ? Color{16, 44, 56, 255} : Color{14, 21, 38, 255};
             if (!isSelected && CheckCollisionPointRec(mousePos, chip))
             {
-                chipBg = {50, 55, 70, 255};
+                chipBg = {24, 38, 60, 255};
             }
 
-            DrawRectangleRec(chip, chipBg);
-            Color chipBorder = isSelected ? EXT_ACCENT_GOLD :
+            DrawRectangleRounded(chip, 0.4f, 4, chipBg);
+            Color chipBorder = isSelected ? EXT_ACCENT_CYAN :
                                ResourceUtils::GetResourceColor(resources[r]);
-            DrawRectangleLinesEx(chip, isSelected ? 2.0f : 1.0f, chipBorder);
+            DrawRectangleRoundedLinesEx(chip, 0.4f, 4, isSelected ? 1.5f : 1.0f, chipBorder);
 
-            Color labelColor = isSelected ? EXT_ACCENT_GOLD :
+            Color labelColor = isSelected ? EXT_ACCENT_CYAN :
                                ResourceUtils::GetResourceColor(resources[r]);
             DrawTextEx(bodyFont, resLabels[r], {chipX + 8.0f, yPos + 5.0f}, FS(12.0f), sp, labelColor);
 
