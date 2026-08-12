@@ -41,6 +41,81 @@ RenderManager::~RenderManager() {
 
     // Unload moon surface tiles when done
     UnloadMoonTiles();
+
+    // Unload cached crystal sample sprites
+    for (auto& [path, texture] : crystalTextures)
+    {
+        UnloadTexture(texture);
+    }
+    crystalTextures.clear();
+}
+
+// --- Crystal sample sprites ------------------------------------------------
+// Pre-rendered 3D crystal sprites live in src/assets/sprites/samples/, one
+// directory per shape family/template, one file per size x glow variant.
+// CrystalVisual encodes exactly those coordinates, plus the element tint.
+
+const Texture2D* RenderManager::GetCrystalTexture(const CrystalVisual& visual)
+{
+    static const char* familyDirs[4] = {"family_a", "family_b", "family_c", "family_d"};
+    static const char* shapeDirs[4][5] = {
+        {"a1_cleaved", "a2_shatter", "a3_wedge", "a4_stacked", "a5_corner"},
+        {"b1_crystal", "b2_twin", "b3_needle", "b4_tabular", "b5_druzy"},
+        {"c1_cobble", "c2_botryoidal", "c3_concretion", "c4_pebble", "c5_split"},
+        {"d1_flagstone", "d2_shale", "d3_crossbed", "d4_laminate", "d5_breccia"},
+    };
+
+    int family = std::min(std::max(static_cast<int>(visual.shapeFamily), 0), 3);
+    int shape = std::min(std::max(visual.templateIndex, 0), 4);
+    int size = std::min(std::max(visual.sizeLevel, 1), 4);
+    int glow = std::min(std::max(visual.glowLevel, 0), 4);
+
+    std::string path = TextFormat("src/assets/sprites/samples/%s/%s/size_%d_glow_%d.png",
+                                  familyDirs[family], shapeDirs[family][shape], size, glow);
+
+    auto it = crystalTextures.find(path);
+    if (it != crystalTextures.end()) return &it->second;
+
+    if (!FileExists(path.c_str())) return nullptr;
+
+    Texture2D texture = LoadTexture(path.c_str());
+    if (texture.id == 0) return nullptr;
+
+    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+    auto [inserted, ok] = crystalTextures.emplace(path, texture);
+    return &inserted->second;
+}
+
+void RenderManager::DrawCrystalSprite(const CrystalVisual& visual, Rectangle dest)
+{
+    const Texture2D* texture = GetCrystalTexture(visual);
+    if (!texture)
+    {
+        // Fallback: element-colored chip if the sprite set is missing
+        Color c = visual.elementColor;
+        c.a = 200;
+        DrawRectangleRounded(dest, 0.3f, 4, c);
+        return;
+    }
+
+    // Fit inside dest preserving aspect ratio. The sprites carry generous
+    // transparent margins, so overscan slightly to make the crystal fill
+    // the slot.
+    float scale = std::min(dest.width / texture->width, dest.height / texture->height) * 1.4f;
+    float drawW = texture->width * scale;
+    float drawH = texture->height * scale;
+    Rectangle target = {dest.x + (dest.width - drawW) / 2.0f,
+                        dest.y + (dest.height - drawH) / 2.0f, drawW, drawH};
+
+    // Tint toward the dominant element, lifted so dark tints don't kill the
+    // sprite's baked-in lighting
+    Color tint = visual.elementColor;
+    tint.r = static_cast<unsigned char>(tint.r + (255 - tint.r) * 0.5f);
+    tint.g = static_cast<unsigned char>(tint.g + (255 - tint.g) * 0.5f);
+    tint.b = static_cast<unsigned char>(tint.b + (255 - tint.b) * 0.5f);
+
+    DrawTexturePro(*texture, {0, 0, static_cast<float>(texture->width), static_cast<float>(texture->height)},
+                   target, {0, 0}, 0.0f, tint);
 }
 
 void RenderManager::BeginDraw() {
@@ -2863,11 +2938,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         float rightX = px + leftW + 10.0f;
         float rightW = pw - leftW - 10.0f;
 
-        // Left: sample selection (mini tray)
+        // Left: sample selection (mini tray) with crystal sprites
         DrawTextEx(headerFont, "SELECT SAMPLE", {px, contentY}, FS(12.0f), sp, EXT_HEADER_COLOR);
         float trayY = contentY + 20.0f;
-        float slotSize = 32.0f;
-        float slotGap = 4.0f;
+        float slotSize = 42.0f;
+        float slotGap = 5.0f;
         int slotsPerRow = static_cast<int>(leftW / (slotSize + slotGap));
         if (slotsPerRow < 1) slotsPerRow = 1;
 
@@ -2881,25 +2956,32 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             const Sample* s = ps->GetTray().GetSampleByIndex(i);
             if (!s) continue;
 
-            Color elemCol = ProsElementColor(SamplingEngine::GetDominantElement(s->trueComposition));
-            float confGlow = s->GetAggregateConfidence();
-            elemCol.a = static_cast<unsigned char>(100 + 155 * confGlow);
-            DrawRectangleRec(slot, elemCol);
-
-            if (s->state == SampleState::COMPLETED)
-                DrawRectangleLinesEx(slot, 1.0f, EXT_ACCENT_GREEN);
-            else if (s->state == SampleState::PROCESSING)
-                DrawRectangleLinesEx(slot, 1.0f, PROS_MSG_ALERT);
-
             bool hover = CheckCollisionPointRec(mouse, slot);
             bool selected = (ps->selectedSampleIndex == i);
 
+            DrawRectangleRounded(slot, 0.2f, 4, selected ? Color{16, 38, 54, 255} : EXT_PANEL_BG2);
+            DrawCrystalSprite(s->visual, {slot.x + 3, slot.y + 3, slot.width - 6, slot.height - 6});
+
+            Color borderCol = PROS_CELL_BORDER;
+            float borderThick = 1.0f;
             if (selected)
-                DrawRectangleLinesEx(slot, 2.0f, PROS_SELECT_BORDER);
+            {
+                borderCol = PROS_SELECT_BORDER;
+                borderThick = 2.0f;
+            }
             else if (hover)
-                DrawRectangleLinesEx(slot, 1.0f, PROS_HOVER_BORDER);
-            else
-                DrawRectangleLinesEx(slot, 1.0f, PROS_CELL_BORDER);
+            {
+                borderCol = PROS_HOVER_BORDER;
+            }
+            else if (s->state == SampleState::COMPLETED)
+            {
+                borderCol = Fade(EXT_ACCENT_GREEN, 0.6f);
+            }
+            else if (s->state == SampleState::PROCESSING)
+            {
+                borderCol = PROS_MSG_ALERT;
+            }
+            DrawRectangleRoundedLinesEx(slot, 0.2f, 4, borderThick, borderCol);
 
             if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
@@ -2927,27 +3009,32 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             {AnalysisTool::FIRE_ASSAY, "Fire Assay"},
         };
 
-        for (auto& te : tools)
+        // Two-column grid keeps the tool list inside the card
+        float toolColW = (leftW - 11.0f) / 2.0f;
+        for (int t = 0; t < 6; t++)
         {
+            auto& te = tools[t];
             bool canApply = selSample && ps->GetLab().CanApplyTool(*selSample, te.tool);
             float cost = LabEngine::GetToolCost(te.tool);
-            Rectangle toolBtn = {px, toolY, leftW - 5.0f, 24.0f};
+            Rectangle toolBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 30.0f,
+                                 toolColW, 24.0f};
             bool hover = CheckCollisionPointRec(mouse, toolBtn);
 
-            if (hover && canApply)
-                DrawRectangleRec(toolBtn, PROS_BTN_HOVER);
-            DrawRectangleLinesEx(toolBtn, 1.0f, canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED);
+            DrawRectangleRounded(toolBtn, 0.3f, 4,
+                                 hover && canApply ? Color{16, 26, 44, 255} : EXT_PANEL_BG2);
+            DrawRectangleRoundedLinesEx(toolBtn, 0.3f, 4, 1.0f,
+                                        canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED);
 
             Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
             DrawTextEx(bodyFont, TextFormat("%s  %.0fE", te.name, cost),
-                       {px + 6, toolY + 4}, FS(9.0f), sp, textCol);
+                       {toolBtn.x + 8.0f, toolBtn.y + 5.0f}, FS(9.0f), sp, textCol);
 
             if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
                 ps->GetLab().ApplyTool(*selSample, te.tool, ps->gameTime);
             }
-            toolY += 28.0f;
         }
+        toolY += 3 * 30.0f;
 
         // Separation methods
         toolY += 8.0f;
@@ -2961,26 +3048,28 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             {SeparationMethod::VOLATILE_EXTRACTION, "Volatile"},
         };
 
-        for (auto& se : seps)
+        for (int t = 0; t < 3; t++)
         {
+            auto& se = seps[t];
             bool canApply = selSample && ps->GetLab().CanApplySeparation(*selSample, se.method);
             float cost = LabEngine::GetSeparationCost(se.method);
-            Rectangle sepBtn = {px, toolY, leftW - 5.0f, 24.0f};
+            Rectangle sepBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 30.0f,
+                                toolColW, 24.0f};
             bool hover = CheckCollisionPointRec(mouse, sepBtn);
 
-            if (hover && canApply)
-                DrawRectangleRec(sepBtn, PROS_BTN_HOVER);
-            DrawRectangleLinesEx(sepBtn, 1.0f, canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED);
+            DrawRectangleRounded(sepBtn, 0.3f, 4,
+                                 hover && canApply ? Color{16, 26, 44, 255} : EXT_PANEL_BG2);
+            DrawRectangleRoundedLinesEx(sepBtn, 0.3f, 4, 1.0f,
+                                        canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED);
 
             Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
             DrawTextEx(bodyFont, TextFormat("%s  %.0fE", se.name, cost),
-                       {px + 6, toolY + 4}, FS(9.0f), sp, textCol);
+                       {sepBtn.x + 8.0f, sepBtn.y + 5.0f}, FS(9.0f), sp, textCol);
 
             if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
                 ps->GetLab().ApplySeparation(*selSample, se.method, ps->gameTime);
             }
-            toolY += 28.0f;
         }
 
         // Right side: selected sample detail + analysis results
@@ -2989,6 +3078,17 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
         if (selSample)
         {
+            // Large crystal preview on a glow disc, like the kit's orbs
+            float previewSize = 96.0f;
+            Rectangle preview = {rightX + rightW - previewSize - 12.0f, contentY + 6.0f,
+                                 previewSize, previewSize};
+            Vector2 previewCenter = {preview.x + previewSize / 2.0f, preview.y + previewSize / 2.0f};
+            DrawCircleV(previewCenter, previewSize * 0.52f,
+                        Fade(selSample->visual.elementColor, 0.10f));
+            DrawCircleLines(static_cast<int>(previewCenter.x), static_cast<int>(previewCenter.y),
+                            previewSize * 0.52f, Fade(selSample->visual.elementColor, 0.35f));
+            DrawCrystalSprite(selSample->visual, preview);
+
             const char* stateStr = selSample->state == SampleState::IN_TRAY ? "In Tray" :
                                    selSample->state == SampleState::PROCESSING ? "Processing" : "Completed";
             DrawTextEx(bodyFont, TextFormat("State: %s", stateStr),

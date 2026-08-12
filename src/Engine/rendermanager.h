@@ -13,6 +13,7 @@
 #include "game_enums.h"
 #include <vector>
 #include <string>
+#include <map>
 
 class RenderManager {
 public:
@@ -61,6 +62,11 @@ private:
     Texture2D moonTiles[3];
     bool tilesLoaded;
     std::vector<int> tilePattern;  // Store which tile to use for each grid cell
+
+    // Crystal sample sprites, lazy-loaded from src/assets/sprites/samples/
+    std::map<std::string, Texture2D> crystalTextures;
+    const Texture2D* GetCrystalTexture(const CrystalVisual& visual);
+    void DrawCrystalSprite(const CrystalVisual& visual, Rectangle dest);
 
     void DrawDebugActiveArea();
 
