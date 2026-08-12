@@ -16,6 +16,7 @@
 #include "game_constants.h"
 #include "game_enums.h"
 
+#include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -30,6 +31,8 @@ struct PreviewOptions
     int tier = 2;
     int width = 1280;
     int height = 720;
+    int spriteSize = 4;
+    int spriteGlow = 3;
     std::string outPath = "preview.png";
 };
 
@@ -39,7 +42,9 @@ static void PrintUsage()
         << "Usage: colony_preview [options]\n"
         << "\n"
         << "  --module <name>   prospecting | excavation | beneficiation | operations |\n"
-        << "                    directives | overview          (default: prospecting)\n"
+        << "                    directives | overview | sprites (default: prospecting)\n"
+        << "  --sprite-size <n> crystal sprite size variant     (sprites only, default: 4)\n"
+        << "  --sprite-glow <n> crystal sprite glow variant     (sprites only, default: 3)\n"
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
         << "  --state <name>    empty | swept | sampled | analyzed\n"
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
@@ -75,6 +80,14 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--tier" && hasNext)
         {
             options.tier = TextToInteger(argv[++i]);
+        }
+        else if (arg == "--sprite-size" && hasNext)
+        {
+            options.spriteSize = TextToInteger(argv[++i]);
+        }
+        else if (arg == "--sprite-glow" && hasNext)
+        {
+            options.spriteGlow = TextToInteger(argv[++i]);
         }
         else if (arg == "--out" && hasNext)
         {
@@ -191,10 +204,157 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
     }
 }
 
+// Renders a contact sheet of the pre-rendered crystal sample sprites, one row
+// per shape family. These assets live in src/assets/sprites/samples/ but are
+// not currently drawn by the game, so this is the only way to review them.
+static int RenderSpriteSheet(const PreviewOptions& options)
+{
+    const char* spriteRoot = "src/assets/sprites/samples";
+
+    if (!DirectoryExists(spriteRoot))
+    {
+        std::cout << "No sprite directory at " << spriteRoot << "\n";
+        return 1;
+    }
+
+    // Collect family -> shape directories.
+    std::vector<std::string> families;
+    FilePathList familyList = LoadDirectoryFiles(spriteRoot);
+    for (unsigned int i = 0; i < familyList.count; i++)
+    {
+        if (!IsPathFile(familyList.paths[i])) families.push_back(familyList.paths[i]);
+    }
+    UnloadDirectoryFiles(familyList);
+    std::sort(families.begin(), families.end());
+
+    std::vector<std::vector<std::string>> shapesByFamily;
+    size_t maxShapes = 0;
+    for (const std::string& family : families)
+    {
+        std::vector<std::string> shapes;
+        FilePathList shapeList = LoadDirectoryFiles(family.c_str());
+        for (unsigned int i = 0; i < shapeList.count; i++)
+        {
+            if (!IsPathFile(shapeList.paths[i])) shapes.push_back(shapeList.paths[i]);
+        }
+        UnloadDirectoryFiles(shapeList);
+        std::sort(shapes.begin(), shapes.end());
+        maxShapes = std::max(maxShapes, shapes.size());
+        shapesByFamily.push_back(shapes);
+    }
+
+    if (families.empty() || maxShapes == 0)
+    {
+        std::cout << "No sprite families found under " << spriteRoot << "\n";
+        return 1;
+    }
+
+    const int cellSize = 150;
+    const int labelHeight = 18;
+    const int margin = 20;
+    const int headerHeight = 40;
+
+    int sheetWidth = margin * 2 + static_cast<int>(maxShapes) * cellSize;
+    int sheetHeight = headerHeight + margin +
+                      static_cast<int>(families.size()) * (cellSize + labelHeight);
+
+    SetTraceLogLevel(LOG_WARNING);
+    InitWindow(sheetWidth, sheetHeight, "Crystal Sprite Sheet");
+
+    int status = 0;
+    {
+        // Load the requested variant from every shape directory.
+        std::string variant = TextFormat("size_%d_glow_%d.png",
+                                          options.spriteSize, options.spriteGlow);
+
+        // Load every sprite up front. Textures must stay alive until the render
+        // batch is flushed at EndTextureMode(), so they cannot be unloaded
+        // inline -- doing so draws whatever texture is still resident instead.
+        struct SheetEntry
+        {
+            Texture2D texture;
+            std::string label;
+            int cellX;
+            int cellY;
+        };
+
+        std::vector<SheetEntry> entries;
+
+        for (size_t f = 0; f < families.size(); f++)
+        {
+            int rowY = headerHeight + margin + static_cast<int>(f) * (cellSize + labelHeight);
+
+            for (size_t s = 0; s < shapesByFamily[f].size(); s++)
+            {
+                std::string file = shapesByFamily[f][s] + "/" + variant;
+                if (!FileExists(file.c_str())) continue;
+
+                SheetEntry entry;
+                entry.texture = LoadTexture(file.c_str());
+                entry.label = GetFileName(shapesByFamily[f][s].c_str());
+                entry.cellX = margin + static_cast<int>(s) * cellSize;
+                entry.cellY = rowY;
+                entries.push_back(entry);
+            }
+        }
+
+        RenderTexture2D target = LoadRenderTexture(sheetWidth, sheetHeight);
+
+        BeginTextureMode(target);
+        ClearBackground({18, 18, 30, 255});
+
+        DrawText(TextFormat("Crystal sample sprites  -  %s", variant.c_str()),
+                 margin, 14, 18, {200, 220, 255, 255});
+
+        for (const SheetEntry& entry : entries)
+        {
+            // Fit the sprite inside the cell, preserving aspect ratio.
+            float scale = std::min(static_cast<float>(cellSize - 10) / entry.texture.width,
+                                   static_cast<float>(cellSize - 10) / entry.texture.height);
+            float drawW = entry.texture.width * scale;
+            float drawH = entry.texture.height * scale;
+
+            DrawTextureEx(entry.texture,
+                          {entry.cellX + (cellSize - drawW) / 2.0f,
+                           entry.cellY + (cellSize - drawH) / 2.0f},
+                          0.0f, scale, WHITE);
+
+            DrawText(entry.label.c_str(), entry.cellX + 6, entry.cellY + cellSize, 11,
+                     {150, 165, 190, 255});
+        }
+
+        EndTextureMode();
+
+        for (SheetEntry& entry : entries) UnloadTexture(entry.texture);
+
+        Image sheet = LoadImageFromTexture(target.texture);
+        ImageFlipVertical(&sheet);  // render textures are stored bottom-up
+        bool exported = ExportImage(sheet, options.outPath.c_str());
+        UnloadImage(sheet);
+        UnloadRenderTexture(target);
+
+        if (exported)
+        {
+            std::cout << "Wrote " << options.outPath << " (" << families.size()
+                      << " families, variant " << variant << ")\n";
+        }
+        else
+        {
+            std::cout << "Failed to write " << options.outPath << "\n";
+            status = 1;
+        }
+    }
+
+    CloseWindow();
+    return status;
+}
+
 int main(int argc, char** argv)
 {
     PreviewOptions options;
     if (!ParseArgs(argc, argv, options)) return 0;
+
+    if (options.module == "sprites") return RenderSpriteSheet(options);
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(options.width, options.height, "Colony UI Preview");

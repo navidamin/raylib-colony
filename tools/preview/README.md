@@ -22,7 +22,9 @@ from what the game draws. If the preview looks wrong, the game looks wrong.
 
 | Flag | Values | Notes |
 |------|--------|-------|
-| `--module` | `prospecting`, `excavation`, `beneficiation`, `operations`, `directives`, `overview` | which panel to draw |
+| `--module` | `prospecting`, `excavation`, `beneficiation`, `operations`, `directives`, `overview`, `sprites` | which panel to draw |
+| `--sprite-size` | `1`–`4` | crystal sprite size variant (`sprites` only) |
+| `--sprite-glow` | `0`–`4` | crystal sprite glow variant (`sprites` only) |
 | `--tab` | `sweep`, `samples`, `lab` | prospecting only |
 | `--state` | `empty`, `swept`, `sampled`, `analyzed` | how far to drive the prospecting pipeline |
 | `--tier` | `0`–`3` | module tier (uses the debug upgrade path, so no techs or resources needed) |
@@ -31,6 +33,16 @@ from what the game draws. If the preview looks wrong, the game looks wrong.
 
 `--state` is cumulative: `swept` runs GPR sweeps, `sampled` also fills the sample
 tray, `analyzed` also pushes every sample through the best available lab preset.
+
+## Crystal sprite sheet
+
+`--module sprites` renders a contact sheet of the pre-rendered sample sprites in
+`src/assets/sprites/samples/` — one row per shape family, 20 shapes in total.
+
+Note that **the game does not currently draw these sprites**. The sample tray in
+the prospecting panel draws a coloured rectangle with a single letter for the
+shape family (`rendermanager.cpp`, sample tray slot drawing). The sprite sheet is
+therefore the only way to see these assets today.
 
 ## How it runs headless
 

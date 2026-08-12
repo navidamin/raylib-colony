@@ -60,6 +60,8 @@ if [ "${1:-}" = "--all" ]; then
                --out "$OUT_DIR/$module-t3.png"
     done
 
+    Render --module sprites --out "$OUT_DIR/crystal-sheet.png"
+
     echo "Done:"
     ls -1 "$OUT_DIR"
     exit 0
