@@ -3,10 +3,14 @@ name: Deploy to GitHub Pages
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    # claude/game-status-remaining-z2u35f: temporary trigger so the
+    # prospecting playtest deploys from the feature branch for mobile
+    # playtesting -- remove when the branch merges.
+    branches: [main, master, claude/game-status-remaining-z2u35f]
     paths:
       - 'src/**'
       - 'CMakeLists.txt'
+      - 'tools/playtest/**'
       - '.github/workflows/deploy-web.yml'
 
 permissions:
