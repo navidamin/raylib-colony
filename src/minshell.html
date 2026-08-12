@@ -90,20 +90,58 @@
         <canvas class=emscripten id=canvas oncontextmenu=event.preventDefault() tabindex=-1></canvas>
         <script type='text/javascript'>
             // Fit the fixed-size framebuffer canvas to the device viewport,
-            // preserving aspect ratio. Re-applied on resize/rotation and a
-            // few times after load, because Emscripten writes its own inline
-            // canvas style when the GL context is created.
-            function fitCanvas()
+            // preserving aspect ratio. Emscripten/raylib write their own
+            // inline canvas style at unpredictable times (GL context
+            // creation, resizes), so this is a persistent enforcer, not a
+            // one-shot: it re-asserts the fitted size with !important
+            // priority whenever the canvas size or style changes, and polls
+            // as a final fallback.
+            (function()
             {
+                function fitCanvas()
+                {
+                    var c = document.getElementById('canvas');
+                    if (!c || !c.width || !c.height) return;
+
+                    var vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
+                    var vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+                    var scale = Math.min(vw / c.width, vh / c.height);
+                    var w = Math.floor(c.width * scale) + 'px';
+                    var h = Math.floor(c.height * scale) + 'px';
+
+                    // Guard: only touch style when wrong, so the observer
+                    // below does not loop on our own writes.
+                    if (c.style.getPropertyValue('width') !== w ||
+                        c.style.getPropertyPriority('width') !== 'important')
+                    {
+                        c.style.setProperty('width', w, 'important');
+                    }
+                    if (c.style.getPropertyValue('height') !== h ||
+                        c.style.getPropertyPriority('height') !== 'important')
+                    {
+                        c.style.setProperty('height', h, 'important');
+                    }
+                }
+
+                window.addEventListener('resize', fitCanvas);
+                window.addEventListener('orientationchange', function() { setTimeout(fitCanvas, 200); });
+                if (window.visualViewport)
+                {
+                    window.visualViewport.addEventListener('resize', fitCanvas);
+                }
+
+                // Re-assert whenever anything rewrites the canvas size/style
                 var c = document.getElementById('canvas');
-                if (!c || !c.width || !c.height) return;
-                var scale = Math.min(window.innerWidth / c.width, window.innerHeight / c.height);
-                c.style.width = Math.floor(c.width * scale) + 'px';
-                c.style.height = Math.floor(c.height * scale) + 'px';
-            }
-            window.addEventListener('resize', fitCanvas);
-            window.addEventListener('orientationchange', function() { setTimeout(fitCanvas, 200); });
-            [100, 500, 1000, 2000].forEach(function(ms) { setTimeout(fitCanvas, ms); });
+                if (window.MutationObserver && c)
+                {
+                    new MutationObserver(fitCanvas).observe(c,
+                        { attributes: true, attributeFilter: ['style', 'width', 'height'] });
+                }
+
+                // Fallback poll: cheap, and covers engines the observer misses
+                setInterval(fitCanvas, 500);
+                fitCanvas();
+            })();
         </script>
         <p id="output" />
         <script>
