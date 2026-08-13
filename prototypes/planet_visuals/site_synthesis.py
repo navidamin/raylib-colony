@@ -589,6 +589,41 @@ def render_locations(wac, site_fn=pixelart_site):
     print(f"  wrote {path}")
 
 
+def synthesize_chain_spans(wac: np.ndarray, lat_deg: float, lon_deg: float,
+                           spans_deg, synth_res: int = SYNTH_RES):
+    """Progressive amplification for an ARBITRARY ladder of window
+    spans (degrees, descending). Level 0 comes from the real WAC; each
+    deeper level crops span_i/span_{i-1} of the previous OUTPUT,
+    re-sharpens, and adds finer grain. Generalises the centre-third
+    chain to the game's view ratios. Returns luminance arrays."""
+    spans = list(spans_deg)
+    lum, _ = synthesize_site(wac, lat_deg, lon_deg, span_deg=spans[0],
+                             synth_res=synth_res)
+    levels = [lum]
+    for lvl in range(1, len(spans)):
+        frac = spans[lvl] / spans[lvl - 1]
+        if not 0.0 < frac < 1.0:
+            raise ValueError(f"spans must strictly descend: {spans}")
+        half = frac * synth_res / 2.0
+        lo = int(round(synth_res / 2.0 - half))
+        hi = max(lo + 2, int(round(synth_res / 2.0 + half)))
+        rng = np.random.default_rng(
+            (location_seed(lat_deg, lon_deg) ^ (0x9E3779B9 * lvl))
+            & 0xFFFFFFFF)
+        base = np.ascontiguousarray(levels[-1][lo:hi, lo:hi],
+                                    dtype=np.float32)
+        base = np.asarray(
+            Image.fromarray(base, mode="F").resize((synth_res, synth_res),
+                                                   Image.BICUBIC),
+            dtype=np.float32)
+        base = gaussian_blur(base, 0.6)
+        blur = gaussian_blur(base, 5.0)
+        base = np.clip(base + 0.40 * (base - blur),
+                       0.0, 1.0).astype(np.float32)
+        levels.append(_texture_modulate(base, rng, amp=1.0 + 0.7 * lvl))
+    return levels
+
+
 def render_deep_zoom(wac, sites, panel=620,
                      output_name="site_synthesis_deepzoom.png"):
     """For each site: regional real (~300 km) -> site (~90 km) ->

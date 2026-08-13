@@ -178,6 +178,40 @@ change to `data/lola/REQUEST`. DEM caveat: at 16 px/deg the Local and
 Close windows only span 16 and 5 DEM pixels — real but coarse; the
 118 m/px LDEM would need the same runner trick with tiling (8 GB).
 
+## Game-view correlation (2026-08-13): 1 world unit = 50 m
+
+The game's geographic views are Orbital → Planet → Colony → Sect
+(`game_enums.h`; Unit view is an interior panel, not a zoom level).
+The scale anchor is the user's constraint: **a sect and its units
+occupy 5 km in diameter.** Since a planet grid cell is
+`SECT_CORE_RADIUS × 2 = 100` world units (`game_constants.h`), this
+fixes everything:
+
+| Game view | Window | Cells | Resolution (300 px) | LDEM_16 px |
+|-----------|--------|-------|---------------------|-----------|
+| ORBITAL | whole moon (3,476 km disc) | — | baked frames | — |
+| PLANET | 100 km (3.298°) | 20×20 of 5 km | 333 m/px | 52.8 |
+| COLONY | 25 km | 5×5 of 5 km | 83 m/px | 13.2 |
+| SECT | 5 km (0.165°) | 1 cell, core r = 2.5 km | 17 m/px | 2.6 |
+
+Derived sizes: 1 world unit = 50 m; SECT_CORE_RADIUS (50 u) = 2.5 km;
+a unit building ~2–6 world units = 100–300 m. The old "Site" window
+(3°, 90.97 km) is superseded by PLANET (100 km) — nearly the same
+window, now cell-aligned.
+
+`synthesize_chain_spans` generalises the deep-zoom chain to this
+ladder (100 → 25 → 5 km; arbitrary descending spans), and
+`game_views.py` renders it per site with the 20×20 / 5×5 grids and
+sect-core circle overlaid and LOLA stats per view
+(`output/site_synthesis_gameviews.png`).
+
+Gameplay payoff visible in the demo sites: a Mare Imbrium sect cell is
+relief 26 m / slope 0.2° (ideal build site), a Copernicus central-peak
+cell is relief 513 m / slope 4.4° with 12° maxima — site selection
+can score real buildability. DEM caveat: at SECT scale LDEM_16 has
+only ~2.6 px; slopes there need the 118 m LOLA product (runner-fetch
++ per-site tiles).
+
 ## Open questions
 
 - Palette warmth/hue — currently blue-violet shadows; could shift
