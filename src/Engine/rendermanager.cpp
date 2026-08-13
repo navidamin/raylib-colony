@@ -1695,8 +1695,15 @@ void RenderManager::DrawExtractionBottomBar(Unit* unit)
     {
         for (int i : unit->GetActiveModuleIndices()) energy += modules[i].energyRequired;
     }
+    // Stored energy is the spendable resource for prospecting actions; the
+    // module draw is shown underneath as context.
+    float storedEnergy = unit->GetStoredResource(ResourceType::ENERGY);
+    Color energyColor = storedEnergy < 100.0f ? EXT_ACCENT_RED
+                                              : (storedEnergy < 300.0f ? EXT_ACCENT_GOLD
+                                                                       : EXT_DIM_TEXT);
     segments.push_back({ExtIcon::BOLT, "ENERGY",
-                        TextFormat("%.1f kW", energy), "", EXT_DIM_TEXT});
+                        TextFormat("%.0f E", storedEnergy),
+                        TextFormat("%.1f kW draw", energy), energyColor});
 
     float segW = barW / segments.size();
     for (size_t i = 0; i < segments.size(); i++)
@@ -2419,6 +2426,31 @@ static const char* ProsConfLabel(float conf)
     return "Very Low";
 }
 
+// --- Prospecting energy accounting -----------------------------------------
+// Sweeps, drills, and lab work all cost energy from the unit's storage. The
+// UI gates on affordability so costs are visible before committing, and
+// charges only when the action actually succeeds.
+
+static bool ProsCanAfford(const Unit* unit, float cost)
+{
+    if (cost <= 0.0f) return true;
+    return unit->GetStoredResource(ResourceType::ENERGY) >= cost;
+}
+
+static bool ProsChargeEnergy(Unit* unit, float cost, const char* action)
+{
+    if (cost <= 0.0f) return true;
+
+    if (!unit->ConsumeResource(ResourceType::ENERGY, cost))
+    {
+        unit->PublicShowMessage(
+            TextFormat("Not enough energy for %s: need %.0f E, have %.0f E.",
+                       action, cost, unit->GetStoredResource(ResourceType::ENERGY)));
+        return false;
+    }
+    return true;
+}
+
 // Rounded grid cell base: state-driven fill, hover/selection borders.
 static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
 {
@@ -2606,7 +2638,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
         for (int band = 0; band < SWEEP_FREQUENCY_BANDS; band++)
         {
-            bool canSweep = ps->GetSweep().CanSweep(grid, band);
+            bool affordable = ProsCanAfford(unit, SWEEP_ENERGY_COST[band]);
+            bool canSweep = ps->GetSweep().CanSweep(grid, band) && affordable;
             bool alreadySwept = grid.HasSweptFrequency(band);
             Rectangle bandBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 26.0f};
             bool hover = CheckCollisionPointRec(mouse, bandBtn);
@@ -2640,7 +2673,9 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
         ctrlY += 10.0f;
         Rectangle sweepBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 34.0f};
-        bool canSweepNow = ps->GetSweep().CanSweep(grid, ps->selectedFrequencyBand);
+        float sweepCost = SWEEP_ENERGY_COST[ps->selectedFrequencyBand];
+        bool canSweepNow = ps->GetSweep().CanSweep(grid, ps->selectedFrequencyBand) &&
+                           ProsCanAfford(unit, sweepCost);
         bool sweepHover = CheckCollisionPointRec(mouse, sweepBtn);
 
         Color runFill = !canSweepNow ? Color{16, 22, 38, 255}
@@ -2660,7 +2695,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
         if (sweepHover && canSweepNow && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
-            ps->GetSweep().ExecuteSweep(ps->GetGrid(), ps->selectedFrequencyBand, ps->gameTime);
+            if (ProsChargeEnergy(unit, sweepCost, "sweep"))
+            {
+                ps->GetSweep().ExecuteSweep(ps->GetGrid(), ps->selectedFrequencyBand, ps->gameTime);
+            }
         }
 
         ctrlY += 46.0f;
@@ -2814,7 +2852,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         DepthLayer depths[] = {DepthLayer::SURFACE, DepthLayer::SHALLOW, DepthLayer::MID, DepthLayer::DEEP};
         for (int d = 0; d < 4; d++)
         {
-            bool canDrill = ps->GetSampler().CanDrill(depths[d]);
+            bool tierAllows = ps->GetSampler().CanDrill(depths[d]);
+            bool canDrill = tierAllows;   // selection stays legal; COLLECT gates on energy
             Rectangle depthBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 22.0f};
             bool hover = CheckCollisionPointRec(mouse, depthBtn);
             bool selected = (ps->selectedDepth == depths[d]);
@@ -2861,7 +2900,9 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
                               ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
         bool trayFull = ps->GetTray().IsFull();
-        bool canCollect = hasSelection && !trayFull &&
+        float drillCost = ps->GetSampler().GetDrillCost(ps->selectedDepth);
+        bool canAffordDrill = ProsCanAfford(unit, drillCost);
+        bool canCollect = hasSelection && !trayFull && canAffordDrill &&
                           ps->GetSampler().CanDrill(ps->selectedDepth);
 
         Rectangle collectBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 30.0f};
@@ -2883,8 +2924,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
         if (collectHover && canCollect && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
-            ps->GetSampler().CollectSample(ps->GetGrid(), ps->GetTray(),
-                                            ps->selectedCellX, ps->selectedCellY, ps->selectedDepth);
+            if (ProsChargeEnergy(unit, drillCost, "drilling"))
+            {
+                if (!ps->GetSampler().CollectSample(ps->GetGrid(), ps->GetTray(),
+                                                    ps->selectedCellX, ps->selectedCellY,
+                                                    ps->selectedDepth))
+                {
+                    // Refund a drill that could not actually be taken
+                    unit->AddResource(ResourceType::ENERGY, drillCost);
+                }
+            }
         }
 
         // DISCARD: frees a tray slot, otherwise a full tray is a dead end
@@ -3104,7 +3153,15 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         float presetColW = (leftW - 11.0f) / 2.0f;
         for (size_t p = 0; p < presets.size(); p++)
         {
-            bool canApply = selSample && ps->GetLab().CanApplyPreset(*selSample, static_cast<int>(p));
+            // A preset runs a separation plus its tools -- charge the sum
+            float presetCost = LabEngine::GetSeparationCost(presets[p].separation);
+            for (AnalysisTool tool : presets[p].tools)
+            {
+                presetCost += LabEngine::GetToolCost(tool);
+            }
+
+            bool canApply = selSample && ps->GetLab().CanApplyPreset(*selSample, static_cast<int>(p)) &&
+                            ProsCanAfford(unit, presetCost);
             Rectangle presetBtn = {px + (p % 2) * (presetColW + 6.0f),
                                    toolY + (p / 2) * 27.0f, presetColW, 23.0f};
             bool hover = CheckCollisionPointRec(mouse, presetBtn);
@@ -3122,15 +3179,17 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
             Color textCol = canApply ? (hover ? WHITE : Fade(EXT_ACCENT_VIOLET, 0.95f))
                                      : PROS_BTN_DISABLED;
-            const char* presetLabel = canApply
-                ? presets[p].name.c_str()
-                : TextFormat("%s  T%d", presets[p].name.c_str(), presets[p].requiredTier);
+            bool tierLocked = ps->GetTier() < presets[p].requiredTier;
+            const char* presetLabel = tierLocked
+                ? TextFormat("%s  T%d", presets[p].name.c_str(), presets[p].requiredTier)
+                : TextFormat("%s  %.0fE", presets[p].name.c_str(), presetCost);
             DrawTextEx(bodyFont, presetLabel,
                        {presetBtn.x + 8.0f, presetBtn.y + 5.0f}, FS(9.0f), sp, textCol);
 
             if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                if (ps->GetLab().ApplyPreset(*selSample, static_cast<int>(p), ps->gameTime))
+                if (ProsChargeEnergy(unit, presetCost, presets[p].name.c_str()) &&
+                    ps->GetLab().ApplyPreset(*selSample, static_cast<int>(p), ps->gameTime))
                 {
                     ps->lastLabActionKind = 2;
                     ps->lastLabActionIndex = static_cast<int>(p);
@@ -3159,8 +3218,9 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         for (int t = 0; t < 6; t++)
         {
             auto& te = tools[t];
-            bool canApply = selSample && ps->GetLab().CanApplyTool(*selSample, te.tool);
             float cost = LabEngine::GetToolCost(te.tool);
+            bool canApply = selSample && ps->GetLab().CanApplyTool(*selSample, te.tool) &&
+                            ProsCanAfford(unit, cost);
             Rectangle toolBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 27.0f,
                                  toolColW, 23.0f};
             bool hover = CheckCollisionPointRec(mouse, toolBtn);
@@ -3207,7 +3267,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
             if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                if (ps->GetLab().ApplyTool(*selSample, te.tool, ps->gameTime))
+                if (ProsChargeEnergy(unit, cost, te.name) &&
+                    ps->GetLab().ApplyTool(*selSample, te.tool, ps->gameTime))
                 {
                     ps->lastLabActionKind = 0;
                     ps->lastLabActionIndex = t;
@@ -3232,8 +3293,9 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         for (int t = 0; t < 3; t++)
         {
             auto& se = seps[t];
-            bool canApply = selSample && ps->GetLab().CanApplySeparation(*selSample, se.method);
             float cost = LabEngine::GetSeparationCost(se.method);
+            bool canApply = selSample && ps->GetLab().CanApplySeparation(*selSample, se.method) &&
+                            ProsCanAfford(unit, cost);
             Rectangle sepBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 27.0f,
                                 toolColW, 23.0f};
             bool hover = CheckCollisionPointRec(mouse, sepBtn);
@@ -3268,7 +3330,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
             if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                if (ps->GetLab().ApplySeparation(*selSample, se.method, ps->gameTime))
+                if (ProsChargeEnergy(unit, cost, se.name) &&
+                    ps->GetLab().ApplySeparation(*selSample, se.method, ps->gameTime))
                 {
                     ps->lastLabActionKind = 1;
                     ps->lastLabActionIndex = t;

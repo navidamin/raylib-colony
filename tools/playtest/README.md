@@ -52,15 +52,24 @@ and activate the other modules, though only prospecting has real gameplay.
    (SWEEP / SAMPLES / TESTING) and marked-site state.
 4. **Calibration**: quality drifts with use; recalibrate from the sweep tab.
 
+## Energy
+
+Every prospecting action costs energy from the unit's storage: sweeps
+30-150 E by band, drills 8-75 E by tier/depth, lab tools 5-80 E, and
+presets the sum of their pipeline. Buttons grey out when you cannot
+afford them, and the ENERGY segment in the bottom bar turns gold below
+300 E and red below 100 E.
+
+In the real game a unit is fed by its sect/colony. The sandbox has
+neither, so it trickles **30 E/second up to a 1500 E cap** — enough to
+keep playing, not enough to ignore. Prioritising which samples deserve a
+full lab workup is the intended tension.
+
 ## Known gameplay gaps (expected, not bugs)
 
-- **Energy costs are display-only** — sweeps/drills/lab runs show an `E`
-  cost but nothing is deducted yet.
-- **Sample/testing confidence may read 0%** in the bottom bar — the
-  aggregation of sample + lab work into `surveyProgress` is a flagged open
-  issue (see session notes); sweeping is what moves the number today.
 - Frequency bands are one-shot per grid (that's by design); use `R` for a
   fresh grid.
+- Objectives (Phase 8) and AI/default mode (Phase 7) are not implemented.
 
 ## Headless smoke test
 

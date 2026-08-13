@@ -33,6 +33,7 @@ struct PreviewOptions
     int height = 720;
     int spriteSize = 4;
     int spriteGlow = 3;
+    float energy = -1.0f;   // <0 = leave the unit's default
     std::string outPath = "preview.png";
 };
 
@@ -48,6 +49,7 @@ static void PrintUsage()
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
         << "  --state <name>    empty | swept | sampled | analyzed\n"
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
+        << "  --energy <n>      override stored energy (tests cost gating)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
         << "  --out <path>      output PNG path                (default: preview.png)\n"
         << "  --help            show this message\n";
@@ -88,6 +90,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--sprite-glow" && hasNext)
         {
             options.spriteGlow = TextToInteger(argv[++i]);
+        }
+        else if (arg == "--energy" && hasNext)
+        {
+            options.energy = static_cast<float>(TextToInteger(argv[++i]));
         }
         else if (arg == "--out" && hasNext)
         {
@@ -393,6 +399,11 @@ int main(int argc, char** argv)
     std::map<ResourceType, float> capacity;
 
     Unit unit("Extraction", unitPosition, resourceManager, timeManager, storage, capacity);
+
+    if (options.energy >= 0.0f)
+    {
+        storage[ResourceType::ENERGY] = options.energy;
+    }
 
     std::string moduleType = ModuleTypeFromName(options.module);
 

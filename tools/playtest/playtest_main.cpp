@@ -61,6 +61,12 @@ struct PlaytestContext
     bool done = false;
 };
 
+// In the real game the unit is fed by its sect/colony. The sandbox has
+// neither, so supply a steady trickle (and a cap) to keep prospecting
+// playable without making energy free.
+static const float PLAYTEST_ENERGY_PER_SECOND = 30.0f;
+static const float PLAYTEST_ENERGY_CAP = 1500.0f;
+
 static std::unique_ptr<Unit> MakeUnit(PlaytestContext& ctx)
 {
     // Mid-grid position so the unit sits on a populated resource cell
@@ -103,6 +109,12 @@ static void UpdateDrawFrame(void* arg)
     float deltaTime = GetFrameTime();
     ctx.timeManager->Update(deltaTime);
     ctx.unit->Update(deltaTime);
+
+    // Sandbox energy supply, capped
+    if (ctx.unit->GetStoredResource(ResourceType::ENERGY) < PLAYTEST_ENERGY_CAP)
+    {
+        ctx.unit->AddResource(ResourceType::ENERGY, PLAYTEST_ENERGY_PER_SECOND * deltaTime);
+    }
 
     bool wantTierUp = IsKeyPressed(KEY_T);
     bool wantReset = IsKeyPressed(KEY_R);
