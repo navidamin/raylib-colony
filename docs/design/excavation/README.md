@@ -6,50 +6,36 @@
 
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
-| 1 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of excavation technologies, candidate functions, and 3 alternative module designs (A/B/C) | REVIEWED — alternatives decided |
-| 2 | [dig-plan-design.md](dig-plan-design.md) | **The chosen design.** Design B + machinery selection, split into Level 1 (build now) and Level 2 (deferred) | DRAFT |
+| 1 | [design-options.md](design-options.md) | **Current.** The 16 aspects any excavation design must answer, then 4 options defined side by side for comparison | DRAFT — awaiting decision |
+| 2 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
 
 ## Design Summary
 
-Excavation is the second stage of the extraction pipeline. It takes the confidence map
-produced by prospecting and converts ground into a *mass flow with a grade vector*, which
-beneficiation then separates.
+Excavation is the second stage of the extraction pipeline. Prospecting tells you what's in
+the ground; excavation gets it out; beneficiation separates it.
 
 ```
-[Prospecting]         [EXCAVATION]                      [Beneficiation]
- confidence map  →  [Plan] → [Dig Cycle] → [Haul]  →  raw regolith + grade
- marked sites        where     how               how much     ↓ separation chain
-                                                          [Sect Storage]
+[Prospecting]  →  [EXCAVATION]  →  [Beneficiation]  →  [Sect Storage]
+ what's there      get it out       separate it
 ```
 
-The central scientific fact the module is built around: **on the Moon an excavator cannot
-push.** At 1/6 g, machine weight provides almost no reaction force, so terrestrial
-"bigger blade, more down-force" logic does not apply. Every real design solves this by
-taking *small bites continuously* (bucket drum / bucket wheel), by *reducing the soil's
-strength* (percussion, ultrasonics, thermal), or by *avoiding contact forces entirely*
-(pneumatic). That constraint is what makes excavation an interesting decision space
-rather than a throughput slider.
+**No design chosen yet.** Four options are laid out side by side in
+[design-options.md](design-options.md), each answering the same 16 questions so they can be
+compared directly:
 
-Three alternative designs were proposed in [excavation-mechanics.md](excavation-mechanics.md):
+| | Built on | Feels like | Main tension |
+|---|---|---|---|
+| **1 — The Pit** | The ground | Carving territory | Reach vs distance |
+| **2 — The Machine Shed** | The equipment | Running a garage | Speed vs breakdown |
+| **3 — The Dig Order** | The flow | Tuning an engine | Speed vs clean vs power |
+| **4 — The Gamble** | The unknown | Placing bets | Knowing vs digging |
 
-| Design | Scale | Core Question | Core Tension | Outcome |
-|--------|-------|--------------|--------------|---------|
-| **A — Dig Cycle** | Machine | *How do I cut?* | Force vs traction vs wear | Reduced to machinery *selection* in L1; full tuning deferred to L2 |
-| **B — Mine Plan** | Pit / site | *Where do I cut?* | Grade vs dilution vs haul distance | ✅ **CHOSEN — the spine** |
-| **C — Fleet & Uptime** | Operation | *Can I keep cutting?* | Throughput vs wear vs power/thermal duty cycle | Deferred to L2 |
-
-**Decision:** Design B with minor machinery selection, built in two levels.
-See [dig-plan-design.md](dig-plan-design.md).
-
-| Level | Scope | When |
-|-------|-------|------|
-| **Level 1** | Block model, machine selection, dig plan, dilution, depletion, auto mode. Self-contained and playable; no file outside excavation changes behavior. | **Now** |
-| **Level 2** | Depth physics, machine tuning, wear/maintenance, duty cycle, bench geometry, haulage, fleet roles. | After surrounding modules are plugged in |
-
-The Level 1 loop: queue blocks → see `PLANNED 0.42 → DELIVERED 0.27 (−36% DILUTION)` →
-survey those blocks → the same plan now delivers far more. Machine choice feeds the same
-decision, because coarse machines cost nothing in uniform ground and ruin isolated rich
-pockets.
+The background fact that shapes all of them: **on the Moon a digger cannot push.** At 1/6
+gravity a machine barely weighs anything, so it can't lean on a blade the way an Earth
+excavator does. Real designs work around this by taking many small bites, by shaking the
+soil loose first, or by blowing it out with gas — which is why different machine types have
+genuinely different strengths rather than just bigger numbers. Details in
+[excavation-mechanics.md](excavation-mechanics.md) Part 1.
 
 ## Cross-References
 
@@ -82,47 +68,28 @@ Everything in this design directory is about replacing that multiply-chain with 
 
 | Module | Dependency | Status |
 |--------|-----------|--------|
-| **Prospecting** | Supplies `surveyProgress` + `markedSites`; under Design B also supplies per-sub-cell confidence used for grade control | [`docs/design/prospecting/`](../prospecting/README.md) — DRAFT |
-| **Beneficiation** | Direct downstream consumer — receives excavation's raw mass + grade vector | Not yet in design/ |
+| **Prospecting** | Supplies survey progress and marked sites; how heavily excavation leans on it varies by option (heaviest in Option 4) | [`docs/design/prospecting/`](../prospecting/README.md) — DRAFT |
+| **Beneficiation** | Direct downstream consumer — receives whatever excavation digs up | Not yet in design/ |
 | **Operations** | Supplies the efficiency modifier applied to excavation output | Not yet in design/ |
 | **Directives** | `MAXIMIZE` / `CONSERVE` / `EMERGENCY_HARVEST` all act on excavation rate and wear | Not yet in design/ |
-| **Energy** | Excavation is the largest energy consumer in the unit; Design C makes the day/night duty cycle explicit | Not yet in design/ |
+| **Energy** | Excavation is the unit's largest power draw; Option 3 makes that a direct player concern | Not yet in design/ |
 | **AI Automation** | Excavation is the second client of the shared AI/default-mode pattern | [`docs/design/ai-automation/`](../ai-automation/README.md) — STUB |
 
 ## Implementation Order
 
-Full build order lives in [dig-plan-design.md §4](dig-plan-design.md#4-build-order-for-level-1).
-Summary of Level 1:
-
-1. `DigBlock` struct, 5×5×4 grid, populated from ResourceManager
-2. `GetBlockConfidence()` adapter — the single seam to prospecting
-3. `MachineSpec` loading from `game_types.toml`, tier/tech gating
-4. `ComputeDilution()` + `ComputeBlockThroughput()`
-5. `ProcessExtraction()` Stage 1 rewrite, per-block depletion
-6. Survey constant retune + balance pass
-7. `AutoSelectDigPlan()` — game plays correctly with the panel never opened
-8. Panel UI
-
-Steps 1–7 are gameplay-complete without step 8, so the UI can be iterated separately.
+To be written once an option is chosen.
 
 ## Key Design Constraint
 
-Whatever the excavation redesign produces, it must feed the existing pipeline unchanged:
+Whatever excavation ends up being, it has to feed the existing pipeline without
+restructuring it:
 
 ```
-Stage 1 (excavation) → std::map<ResourceType, float> rawRegolith
+Stage 1 (excavation)   → what gets dug up      ← this is what we're designing
 Stage 2 (beneficiation separation chain) — unchanged
 Stage 3 (sect storage) — unchanged
 ```
 
-The survey-gating formula in `ProcessExtraction()` keeps its shape, but Level 1 retunes two
-constants so that `scanMultiplier` and the new dilution term don't penalize unsurveyed
-ground twice:
-```
-scanMultiplier = (0.70 + 0.30 * surveyProgress) + (0.15 if marked)
-                  ^^^^   ^^^^ was 0.35 / 0.65
-```
-The knowledge penalty moves from *rate* to *grade*. See
-[dig-plan-design.md §2.6](dig-plan-design.md#26-throughput-and-integration-with-existing-multipliers).
-
-New mechanics multiply into Stage 1; they must not restructure Stages 2–3.
+The existing modifiers (Operations efficiency, Directives, module tier, machine count) all
+still multiply into Stage 1 and keep their current meaning, so those modules keep working
+whichever option is picked.
