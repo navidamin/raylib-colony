@@ -92,7 +92,7 @@
         <div id="shellDebug" style="position:fixed;top:4px;left:4px;z-index:9999;
              font:10px monospace;color:rgba(255,255,255,0.65);
              background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
-             pointer-events:none;">SHELL v3 loading...</div>
+             pointer-events:none;">SHELL v4 loading...</div>
         <script type='text/javascript'>
             // Fit the fixed-size framebuffer canvas to the device viewport,
             // preserving aspect ratio. Emscripten/raylib write their own
@@ -108,7 +108,7 @@
                     var d = document.getElementById('shellDebug');
                     if (!d || !c) return;
                     var r = c.getBoundingClientRect();
-                    d.textContent = 'SHELL v3'
+                    d.textContent = 'SHELL v4'
                         + ' cnv=' + c.width + 'x' + c.height
                         + ' style=' + c.style.getPropertyValue('width') + '/'
                                     + c.style.getPropertyPriority('width')
@@ -123,12 +123,26 @@
                         + ' dpr=' + window.devicePixelRatio;
                 }
 
+                // The game renders a fixed-size framebuffer; resize plumbing
+                // in the wasm runtime shrinks the canvas attributes to the
+                // CSS size on mobile, which crops the game (it keeps
+                // rendering at full size). Pin the framebuffer and scale
+                // only via CSS.
+                var GAME_W = 1280;
+                var GAME_H = 720;
+
                 function fitCanvas()
                 {
                     var c = document.getElementById('canvas');
                     if (!c) return;
+
+                    // Restore the framebuffer if something shrank it. The
+                    // game loop repaints every frame, so the buffer clear
+                    // this causes is invisible.
+                    if (c.width !== GAME_W) c.width = GAME_W;
+                    if (c.height !== GAME_H) c.height = GAME_H;
+
                     updateDebug(c);
-                    if (!c.width || !c.height) return;
 
                     var vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
                     var vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
