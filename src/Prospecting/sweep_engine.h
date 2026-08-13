@@ -23,6 +23,7 @@ public:
 
     float GetCalibrationQuality() const;
     bool IsCalibrating() const;
+    float GetCalibrationProgress() const;   // 0-1 while calibrating
     void StartCalibration();
     void UpdateCalibration(float deltaTime);
 

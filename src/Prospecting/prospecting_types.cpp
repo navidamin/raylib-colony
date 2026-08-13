@@ -73,9 +73,32 @@ bool IsLayerAccessible(int tier, DepthLayer layer)
 
 int GetGridSizeForTier(int tier)
 {
+    (void)tier;   // fixed lattice: tier changes reach, not grid size
+    return PROSPECTING_GRID_SIZE;
+}
+
+int GetReachForTier(int tier)
+{
     if (tier < 0) tier = 0;
     if (tier > 3) tier = 3;
-    return PROSPECTING_GRID_SIZE[tier];
+    return PROSPECTING_REACH_PER_TIER[tier];
+}
+
+bool IsSubCellInReach(int subX, int subY, int tier)
+{
+    int reach = GetReachForTier(tier);
+    int offset = (PROSPECTING_GRID_SIZE - reach) / 2;
+    return subX >= offset && subX < offset + reach &&
+           subY >= offset && subY < offset + reach;
+}
+
+int TierRequiredForSubCell(int subX, int subY)
+{
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        if (IsSubCellInReach(subX, subY, tier)) return tier;
+    }
+    return -1;
 }
 
 int GetTrayCapacityForTier(int tier)

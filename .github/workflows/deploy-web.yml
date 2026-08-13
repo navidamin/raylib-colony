@@ -7,6 +7,7 @@ on:
     paths:
       - 'src/**'
       - 'CMakeLists.txt'
+      - 'tools/playtest/**'
       - '.github/workflows/deploy-web.yml'
 
 permissions:
@@ -47,6 +48,15 @@ jobs:
         # .data file contains preloaded assets
         if [ -f build/src/colony_game.data ]; then
           cp build/src/colony_game.data deploy/colony_game.data
+        fi
+
+        # Prospecting playtest sandbox at /playtest/
+        mkdir -p deploy/playtest
+        cp build/src/colony_playtest.html deploy/playtest/index.html
+        cp build/src/colony_playtest.js deploy/playtest/colony_playtest.js
+        cp build/src/colony_playtest.wasm deploy/playtest/colony_playtest.wasm
+        if [ -f build/src/colony_playtest.data ]; then
+          cp build/src/colony_playtest.data deploy/playtest/colony_playtest.data
         fi
 
     - name: Setup Pages

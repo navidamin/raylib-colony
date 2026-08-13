@@ -41,6 +41,12 @@ public:
     DepthLayer selectedDepth = DepthLayer::SURFACE;
     float gameTime = 0.0f;
 
+    // Lab button feedback: which action fired last, for a brief flash
+    // (kind: -1 none, 0 analysis tool, 1 separation)
+    int lastLabActionKind = -1;
+    int lastLabActionIndex = -1;
+    float lastLabActionTime = -100.0f;
+
 private:
     int tier;
     ResourceManager& resourceManager;
