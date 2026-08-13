@@ -250,6 +250,26 @@ The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture si
 3. Define production costs in `game_constants.h`
 4. Create module definitions in `Unit::InitializeModules()`
 
+**Adding a new module panel:** (see [`docs/guides/ui-panels.md`](docs/guides/ui-panels.md))
+1. Add `DrawFooPanel(Unit*, int x, int y, int w, int h)` to `RenderManager`
+2. Dispatch to it by `moduleType` in `DrawExtractionModuleCenter`
+3. Add the module's icon to the `ExtIcon` enum and `ExtModuleIcon()`
+4. Build the layout from the existing widget helpers and design tokens
+5. Keep persistent UI state on the module's facade, not the renderer
+6. Render every state (`--tier`, `--state`, `--energy`) and **look at the PNGs**
+7. Check against [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md)
+
+*Non-extraction units currently draw via the legacy `unit->DrawInUnitView()`
+path (`unit_ui.cpp`). Route a real panel through `RenderManager` instead — that
+is what provides the shared chrome, theme, and preview-tool support.*
+
+**Building a new gameplay module:** (see [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md))
+1. `src/<Module>/` with constants / types / pure-logic engines / facade
+2. Name units at data boundaries (quantity vs fraction vs rate)
+3. Tier capability in constant tables, queried via `Can*()` methods
+4. Keep the contract with the rest of the game narrow
+5. Add sources to `COLONY_CORE_SOURCES` in `src/CMakeLists.txt`
+
 **Adding a new view:**
 1. Add enum to `View` in `game_enums.h`
 2. Create `RenderManager::Draw*View()` method
@@ -283,6 +303,28 @@ The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture si
 - `game_*.h` - Shared definitions (enums, structs, constants)
 
 **Note:** CMakeLists.txt in src/ may be incomplete - not all .cpp files are listed in target_sources. Verify compilation if adding new files.
+
+## Development Guides
+
+General instructions distilled from building the prospecting module and the
+extraction UI. Read the relevant one **before** starting, not after.
+
+| Guide | Read when |
+|-------|-----------|
+| [`docs/guides/ui-panels.md`](docs/guides/ui-panels.md) | Building or restyling any module panel — design tokens, semantic colours, widget helpers, control semantics, touch feedback, IMGUI discipline |
+| [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md) | Starting a new module or unit — engine/facade structure, **declaring units at data boundaries**, tier tables, narrow contracts, hero visuals |
+| [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md) | You think a feature is done — the six questions that catch "engine-implemented but not player-reachable" |
+| [`docs/dev-workflow.md`](docs/dev-workflow.md) | Any UI or gameplay work — the testing instruments and the working loop |
+| [`docs/web-deploy-mobile.md`](docs/web-deploy-mobile.md) | Touching `minshell.html`, the Pages deploy, or the phone build |
+
+Three rules worth stating up front, each learned expensively:
+
+1. **Never claim a visual result without rendering it.** `preview.sh` takes
+   ~5 seconds.
+2. **When a value looks wrong, dump the data before theorising.**
+   `colony_inspect` found in one step what reading the generator twice missed.
+3. **Engine-implemented is not player-reachable.** Correct code that no input
+   path reaches is not a finished feature.
 
 ## Dev Workflow & Testing Instruments
 
