@@ -117,6 +117,28 @@ Iteration lessons for this style:
   hug the wall (d > ~0.55).
 - Ordered dither at 0.55 amplitude read as textile; 0.30 is enough.
 
+## Deep zoom (2026-08-13, later): two more levels, progressive
+
+`synthesize_site_chain` extends the photo-real path below the site
+window: **each deeper level takes the centre third of the previous
+level's OUTPUT as its macro truth**, re-sharpens it, and adds grain at
+the finer scale — real forms flow down, texture becomes structure.
+3x per level: ~90 km → ~30 km → ~10 km. Each level salts the location
+seed, so the whole chain is still deterministic per site.
+
+Tuning/porting lessons:
+- Grain amplitude must GROW with depth (`amp = 1 + 0.7·level`) — the
+  macro gets smoother each level, and constant grain reads as fog by
+  the second level.
+- PIL `Image.fromarray(mode="F")` reads the raw buffer as contiguous
+  float32; feeding it a float64 array (or a strided slice view)
+  produces silently binarized garbage. Cast + `ascontiguousarray` at
+  the boundary. (Cost one full debugging round; found by printing
+  min/max/mean per level — NaNs everywhere.)
+
+Output: `site_synthesis_deepzoom.png` — three sites ×
+(regional real → site → local → close).
+
 ## Open questions
 
 - Palette warmth/hue — currently blue-violet shadows; could shift

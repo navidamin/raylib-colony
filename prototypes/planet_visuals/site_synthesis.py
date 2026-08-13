@@ -122,7 +122,8 @@ def synthesize_site(wac: np.ndarray, lat_deg: float, lon_deg: float,
     spread = max(p_hi - p_lo, 1e-4)
     gain = min(2.2, max(1.0, 0.60 / spread))
     mid = 0.5 * (p_hi + p_lo)
-    macro_sharp = np.clip(mid + (macro_sharp - mid) * gain, 0.0, 1.0)
+    macro_sharp = np.clip(mid + (macro_sharp - mid) * gain,
+                          0.0, 1.0).astype(np.float32)
 
     # -- Conditioning field: bright highland terrain is densely cratered
     #    and rough; dark mare is sparse and smooth. Derived from the
@@ -130,24 +131,33 @@ def synthesize_site(wac: np.ndarray, lat_deg: float, lon_deg: float,
     density = np.clip((macro - 0.22) / 0.45, 0.15, 1.0)
     roughness = 0.45 + 0.55 * density
 
-    # -- Detail heightmap. Invented craters REMOVED (user decision
-    #    2026-08-13: "you just created craters where there are none" —
-    #    the amplification of real forms worked, the invention didn't).
-    #    What remains is surface texture only: regolith grain and a
-    #    gentle undulation. Every crater in the output is a real one.
+    lum = _texture_modulate(macro_sharp, rng)
+    return lum, macro
+
+
+def _texture_modulate(macro_sharp: np.ndarray,
+                      rng: np.random.Generator,
+                      amp: float = 1.0) -> np.ndarray:
+    """Add surface texture to a macro base: regolith grain and gentle
+    undulation, shaded and applied as a quiet modulation. NO invented
+    craters (user decision 2026-08-13) — every form in the base passes
+    through; this only makes the ground feel like ground."""
+    shape = macro_sharp.shape
+
+    # Rough terrain (bright highlands) gets more grain than maria.
+    density = np.clip((macro_sharp - 0.22) / 0.45, 0.15, 1.0)
+    roughness = 0.45 + 0.55 * density
+
     height = np.zeros(shape, dtype=np.float32)
-
-    # Regolith grain — pink noise matches natural
-    # rough-surface statistics. Quiet: it is texture, not terrain.
-    height += 0.004 * pink_noise(shape, rng) * roughness
+    # Regolith grain — pink noise matches natural rough-surface
+    # statistics. Quiet: it is texture, not terrain.
+    height += 0.004 * amp * pink_noise(shape, rng) * roughness
     # Gentle undulation so flat stretches are not billiard-table flat.
-    height += 0.02 * (fbm(shape, 3, 64, 0.5, rng) - 0.5) * roughness
+    height += 0.02 * amp * (fbm(shape, 3, 64, 0.5, rng) - 0.5) * roughness
 
-    # -- Shade the detail relief. Normalised so flat ground multiplies
-    #    by 1.0 — the real macro brightness passes through untouched
-    #    where we added nothing. The detail is a *modulation* of the
-    #    real macro, never its replacement: mostly within +/-25%, with
-    #    cast shadows allowed to go deep inside fresh craters.
+    # Shade the texture relief. Normalised so flat ground multiplies
+    # by 1.0 — the base brightness passes through untouched where we
+    # added nothing; the modulation stays mostly within +/-25%.
     z = 110.0
     hs = hillshade(height, z_factor=z, smooth_px=0.6)
     flat_ref = float(hillshade(np.zeros(shape, dtype=np.float32),
@@ -158,11 +168,54 @@ def synthesize_site(wac: np.ndarray, lat_deg: float, lon_deg: float,
 
     lum = macro_sharp * (0.75 + 0.25 * rel) * (0.35 + 0.65 * light)
 
-    # Faint fine albedo speckle (ray dust, boulders at sub-pixel scale).
+    # Faint fine albedo speckle (dust, sub-pixel boulders).
     speckle = fbm(shape, 2, 4, 0.5, rng)
-    lum *= 1.0 + 0.04 * (speckle - 0.5) * roughness
+    lum *= 1.0 + 0.04 * min(amp, 1.6) * (speckle - 0.5) * roughness
 
-    return np.clip(lum, 0.0, 1.0), macro
+    return np.clip(lum, 0.0, 1.0).astype(np.float32)
+
+
+def synthesize_site_chain(wac: np.ndarray, lat_deg: float, lon_deg: float,
+                          extra_levels: int = 2,
+                          synth_res: int = SYNTH_RES):
+    """Progressive deep zoom below the site window. Level 0 is the
+    normal site synthesis from the real WAC (~90 km). Each deeper
+    level takes the CENTRE THIRD of the previous level's output as its
+    macro truth — real forms keep flowing down, and each level's
+    texture becomes the next level's structure — then re-sharpens and
+    adds grain at the finer scale. 3x zoom per level: ~90 -> ~30 ->
+    ~10 km. Deterministic: each level salts the location seed.
+
+    Returns a list of luminance arrays, coarsest first.
+    """
+    lum, _ = synthesize_site(wac, lat_deg, lon_deg, synth_res=synth_res)
+    levels = [lum]
+    third = synth_res // 3
+    lo = (synth_res - third) // 2
+    hi = lo + third
+    for lvl in range(1, extra_levels + 1):
+        rng = np.random.default_rng(
+            (location_seed(lat_deg, lon_deg) ^ (0x9E3779B9 * lvl))
+            & 0xFFFFFFFF)
+        # The dtype/contiguity here is load-bearing: PIL mode "F" reads
+        # the raw buffer as 4-byte floats, so a float64 array or a
+        # strided slice view renders as garbage (binarized blobs).
+        base = np.ascontiguousarray(levels[-1][lo:hi, lo:hi],
+                                    dtype=np.float32)
+        base = np.asarray(
+            Image.fromarray(base, mode="F").resize((synth_res, synth_res),
+                                                   Image.BICUBIC),
+            dtype=np.float32)
+        # Mild denoise then unsharp — same recipe as level 0, gentler
+        # gain since contrast was already established upstream.
+        base = gaussian_blur(base, 0.6)
+        blur = gaussian_blur(base, 5.0)
+        base = np.clip(base + 0.40 * (base - blur),
+                       0.0, 1.0).astype(np.float32)
+        # Grain grows with depth: the macro gets smoother each level,
+        # so without this the deep panels read as fog.
+        levels.append(_texture_modulate(base, rng, amp=1.0 + 0.7 * lvl))
+    return levels
 
 
 # --- Stylized pixel art ---------------------------------------------------
@@ -475,6 +528,72 @@ def render_locations(wac, site_fn=pixelart_site):
         draw.text((x + max(0, (half - cw) // 2), title_h + DISPLAY_RES + 6),
                   cap, fill=(230, 230, 230), font=font_cap)
     path = os.path.join(OUT, "site_synthesis_locations.png")
+    canvas.save(path)
+    print(f"  wrote {path}")
+
+
+def render_deep_zoom(wac, sites, panel=620,
+                     output_name="site_synthesis_deepzoom.png"):
+    """For each site: regional real (~300 km) -> site (~90 km) ->
+    local (~30 km) -> close (~10 km), the last three photo-real
+    amplified, each deeper panel the centre third of the previous.
+    One row per site."""
+    captions = ["Regional (~300 km) — real",
+                "Site (~90 km) — amplified",
+                "Local (~30 km) — amplified",
+                "Close (~10 km) — amplified"]
+    n_cols = len(captions)
+    pad = 10
+    title_h = 60
+    cap_h = 26
+    name_h = 30
+    row_h = name_h + panel + cap_h
+    total_w = n_cols * panel + (n_cols - 1) * pad
+    total_h = title_h + len(sites) * (row_h + pad)
+    canvas = Image.new("RGB", (total_w, total_h), (10, 12, 18))
+    font_title, font_cap = _fonts()
+    draw = ImageDraw.Draw(canvas)
+    draw.text((20, 18),
+              "Deep zoom, photo-real — two levels below the site "
+              "window. Each panel is the centre third of the previous; "
+              "no invented craters, real forms amplified all the way "
+              "down.",
+              fill=(220, 220, 220), font=font_title)
+
+    for row, (name, lat, lon) in enumerate(sites):
+        y0 = title_h + row * (row_h + pad)
+        draw.text((8, y0 + 4), f"{name}  ({lat:+.1f}, {lon:+.1f})",
+                  fill=(255, 200, 100), font=font_cap)
+        y = y0 + name_h
+
+        levels = synthesize_site_chain(wac, lat, lon, extra_levels=2)
+        panels = []
+        # Regional real context panel
+        reg = crop_equirect_region(wac, lat, lon, lat_span=10, lon_span=10,
+                                   output_w=panel, output_h=panel)
+        panels.append(reg.convert("RGB"))
+        for lum in levels:
+            img = Image.fromarray(apply_ramp(lum))
+            panels.append(img.resize((panel, panel), Image.LANCZOS))
+
+        for i, p in enumerate(panels):
+            x = i * (panel + pad)
+            p = p.convert("RGB")
+            # Centre-third zoom box on every panel that has a deeper one
+            if i < n_cols - 1:
+                pd = ImageDraw.Draw(p)
+                frac = 0.30 if i == 0 else (1.0 / 3.0)
+                b = panel * frac / 2
+                pd.rectangle([panel / 2 - b, panel / 2 - b,
+                              panel / 2 + b, panel / 2 + b],
+                             outline=(255, 200, 100), width=3)
+            canvas.paste(p, (x, y))
+            if row == len(sites) - 1:
+                cw = draw.textlength(captions[i], font=font_cap)
+                draw.text((x + (panel - cw) // 2, y + panel + 4),
+                          captions[i], fill=(230, 230, 230), font=font_cap)
+
+    path = os.path.join(OUT, output_name)
     canvas.save(path)
     print(f"  wrote {path}")
 
