@@ -850,6 +850,39 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
             "Autonomous fleet. 8 drones, zone painting."
         };
         module.description = tierDescs[module.tier];
+
+        // Fleet size comes from tier. This used to live in a second
+        // `else if (moduleType == "EXCAVATION")` further down the same
+        // if/else chain, which the branch above already matched -- so it was
+        // dead code and a tier upgrade never actually added a machine.
+        int targetCount = 1;
+        if (module.tier == 1) targetCount = 2;
+        else if (module.tier == 2) targetCount = 4;
+        else if (module.tier == 3) targetCount = 8;
+
+        while (static_cast<int>(excavators.size()) < targetCount)
+        {
+            Excavator exc;
+            exc.id = static_cast<int>(excavators.size());
+            exc.gridPos = WorldToGrid(parentSectPosition);
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.depth = 0.0f;
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+            exc.wear = 0.0f;
+            excavators.push_back(exc);
+        }
+
+        // Existing machines are re-fitted to the new tier too, otherwise the
+        // fleet is a mix of old and new and the tier means nothing.
+        for (auto& exc : excavators)
+        {
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+        }
     }
     else if (module.moduleType == "BENEFICIATION")
     {
@@ -886,28 +919,6 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
             separationChain.push_back(SeparationNodes::CreateElectrostatic());
             separationChain.push_back(SeparationNodes::CreateThermal());
             separationChain.push_back(SeparationNodes::CreateMRE());
-        }
-    }
-    else if (module.moduleType == "EXCAVATION")
-    {
-        // Add excavators based on tier
-        int targetCount = 1;
-        if (module.tier == 1) targetCount = 2;
-        else if (module.tier == 2) targetCount = 4;
-        else if (module.tier == 3) targetCount = 8;
-
-        while (static_cast<int>(excavators.size()) < targetCount)
-        {
-            Excavator exc;
-            exc.id = static_cast<int>(excavators.size());
-            exc.gridPos = WorldToGrid(parentSectPosition);
-            exc.method = module.tier >= 3 ? "drone" :
-                         module.tier >= 2 ? "percussive" :
-                         module.tier >= 1 ? "bucket_wheel" : "scoop";
-            exc.depth = 0.0f;
-            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
-            exc.wear = 0.0f;
-            excavators.push_back(exc);
         }
     }
 
@@ -1008,6 +1019,39 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
             "Autonomous fleet. 8 drones, zone painting."
         };
         module.description = tierDescs[module.tier];
+
+        // Fleet size comes from tier. This used to live in a second
+        // `else if (moduleType == "EXCAVATION")` further down the same
+        // if/else chain, which the branch above already matched -- so it was
+        // dead code and a tier upgrade never actually added a machine.
+        int targetCount = 1;
+        if (module.tier == 1) targetCount = 2;
+        else if (module.tier == 2) targetCount = 4;
+        else if (module.tier == 3) targetCount = 8;
+
+        while (static_cast<int>(excavators.size()) < targetCount)
+        {
+            Excavator exc;
+            exc.id = static_cast<int>(excavators.size());
+            exc.gridPos = WorldToGrid(parentSectPosition);
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.depth = 0.0f;
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+            exc.wear = 0.0f;
+            excavators.push_back(exc);
+        }
+
+        // Existing machines are re-fitted to the new tier too, otherwise the
+        // fleet is a mix of old and new and the tier means nothing.
+        for (auto& exc : excavators)
+        {
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+        }
     }
     else if (module.moduleType == "BENEFICIATION")
     {
@@ -1043,27 +1087,6 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
             separationChain.push_back(SeparationNodes::CreateElectrostatic());
             separationChain.push_back(SeparationNodes::CreateThermal());
             separationChain.push_back(SeparationNodes::CreateMRE());
-        }
-    }
-    else if (module.moduleType == "EXCAVATION")
-    {
-        int targetCount = 1;
-        if (module.tier == 1) targetCount = 2;
-        else if (module.tier == 2) targetCount = 4;
-        else if (module.tier == 3) targetCount = 8;
-
-        while (static_cast<int>(excavators.size()) < targetCount)
-        {
-            Excavator exc;
-            exc.id = static_cast<int>(excavators.size());
-            exc.gridPos = WorldToGrid(parentSectPosition);
-            exc.method = module.tier >= 3 ? "drone" :
-                         module.tier >= 2 ? "percussive" :
-                         module.tier >= 1 ? "bucket_wheel" : "scoop";
-            exc.depth = 0.0f;
-            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
-            exc.wear = 0.0f;
-            excavators.push_back(exc);
         }
     }
 
