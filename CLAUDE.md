@@ -312,7 +312,7 @@ extraction UI. Read the relevant one **before** starting, not after.
 | Guide | Read when |
 |-------|-----------|
 | [`docs/guides/ui-panels.md`](docs/guides/ui-panels.md) | Building or restyling any module panel — design tokens, semantic colours, widget helpers, control semantics, touch feedback, IMGUI discipline |
-| [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md) | Starting a new module or unit — engine/facade structure, **declaring units at data boundaries**, tier tables, narrow contracts, hero visuals |
+| [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md) | Starting a new module or unit — **a 13-aspect design brief to work through before writing code** (loop, contract, multi-scale control, tier arc, economy, friction, decision texture, scale, AI hook), then the implementation shape: engine/facade structure, **declaring units at data boundaries**, tier tables, hero visuals |
 | [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md) | You think a feature is done — the six questions that catch "engine-implemented but not player-reachable" |
 | [`docs/dev-workflow.md`](docs/dev-workflow.md) | Any UI or gameplay work — the testing instruments and the working loop |
 | [`docs/web-deploy-mobile.md`](docs/web-deploy-mobile.md) | Touching `minshell.html`, the Pages deploy, or the phone build |
