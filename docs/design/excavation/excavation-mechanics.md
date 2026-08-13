@@ -1,8 +1,13 @@
 # Excavation Mechanics — Science Review & Design Alternatives
 
-> Status: DRAFT
+> Status: REVIEWED — Part 3 alternatives decided, see [dig-plan-design.md](dig-plan-design.md)
 > Last Updated: 2026-08-13
 > Parent: [README.md](README.md)
+>
+> **Decision:** Design B chosen as the spine, with Design A reduced to machinery *selection*
+> (presets, not parameter tuning) and Design C deferred. Part 1 remains the science reference
+> for both development levels. Part 5's gaps are superseded by
+> [dig-plan-design.md §6](dig-plan-design.md#6-gaps).
 
 ---
 
