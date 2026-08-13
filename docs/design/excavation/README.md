@@ -7,9 +7,10 @@
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
 | 1 | [excavation-design.md](excavation-design.md) | **The design.** Panel + place + gamble + machinery, with the rules that keep the gamble honest | DRAFT |
-| 2 | [design-options.md](design-options.md) | Round 1 exploration: 16 aspects, then 4 options compared | SUPERSEDED |
-| 3 | [design-options-v2.md](design-options-v2.md) | Round 2 exploration: three variants of the panel direction | SUPERSEDED |
-| 4 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
+| 2 | [implementation-plan.md](implementation-plan.md) | **How to build it.** Branch merge, architecture, 7 phases, testing, risks | DRAFT |
+| 3 | [design-options.md](design-options.md) | Round 1 exploration: 16 aspects, then 4 options compared | SUPERSEDED |
+| 4 | [design-options-v2.md](design-options-v2.md) | Round 2 exploration: three variants of the panel direction | SUPERSEDED |
+| 5 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
 
 ## Design Summary
 
@@ -90,9 +91,23 @@ Everything in this design directory is about replacing that multiply-chain with 
 
 ## Implementation Order
 
-To be written. The design's open questions in
-[excavation-design.md §9](excavation-design.md#9-open-questions) come first — three of them
-need checking against the prospecting code before build order is meaningful.
+Full plan in [implementation-plan.md](implementation-plan.md). In short:
+
+**Merge `claude/game-status-remaining-z2u35f` first** — it carries 23 commits of prospecting
+work this design depends on, including the quantity/composition split that changes what
+excavation reads on day one. Two doc-only conflicts, both trivial.
+
+Then seven phases, following `docs/guides/module-architecture.md`:
+
+1. **Read-only adapter** — prove excavation can see prospecting's grid, no behaviour change
+2. **Estimate engine** — the blur (Rules 1–2), stable-hashed, unit-tested
+3. **Dig engine** — replaces the Stage 1 multiply chain; machine table; precision blending
+4. **Write-back** — the only cross-module change; a single setter on `ProspectingGrid`
+5. **The panel** — grid shaded by targeted-resource yield, machine bay, sliders, readout
+6. **AUTO and the AI ladder** — Basic → Trained → Expert
+7. **Balance** — every constant calibrated against dumped real data
+
+Phases 1–3 change no other module, so the work is useful even if it stalls there.
 
 ## Key Design Constraint
 
