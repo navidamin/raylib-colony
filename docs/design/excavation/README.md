@@ -29,17 +29,24 @@ Prospecting tells you which spot is worth it — if you paid for prospecting. Fu
 | Pillar | What it is |
 |--------|-----------|
 | **The panel** | Target material, pace, power cap. Purity is what you read, not what you set |
-| **Place** | Which spot in prospecting's grid, and how deep. No reach, no names |
+| **Place** | Which spot in the 8×8 lattice, and how deep. Reach is a tier ring, not a dial |
 | **The gamble** | Digging without having paid to survey first — not random noise, a choice to skip a cost |
-| **Machinery** | Six machines with different reach, precision, pace and wear. Optional; AUTO by default |
+| **Machinery** | Six machines with different depth, precision, pace and wear. Optional; AUTO by default |
 
 The three lock together through one machine stat: **precision**. A sloppy machine digs
 wider than you aimed and averages your chosen spot with its neighbours — throwing away the
 survey you paid for. So *"should I survey?"* and *"which machine?"* become the same question.
 
-Excavation invents no geography. Prospecting already builds a per-unit sub-cell grid (3×3 up
-to 6×6 by tier), with real 0.3×–2.0× variation between spots, per-spot confidence, and
-per-spot per-depth ground truth. Excavation reads that grid and digs in it.
+Excavation invents no geography. Prospecting builds a **fixed 8×8** sub-cell lattice per
+unit, with 0.3×–2.0× variation between spots, per-spot per-depth confidence, and per-spot
+per-depth ground truth. Excavation reads that lattice and digs in it.
+
+**Tier extends reach, not resolution** — concentric rings out from the sect,
+2×2 → 4×4 → 6×6 → 8×8. Excavation reads that reach with its **own** tier, which is where the
+gamble becomes structural: dig further than you can survey and you're working ground you have
+no way to learn about first. At tier 0 the grid's best spot is inside reach only **7%** of
+the time, so early game isn't about surveying — it's about being pinned to whatever lies
+under the sect.
 
 The background fact behind the machine stats: **on the Moon a digger cannot push.** At 1/6
 gravity a machine barely weighs anything, so it can't lean on a blade the way an Earth
@@ -60,8 +67,8 @@ genuinely different strengths rather than just bigger numbers. Details in
 | `src/Engine/inputmanager.cpp` | Excavation input handling |
 | `src/ResourceManager/` | `GetResourcesAtGridLayer()` — per-cell, per-depth ground truth |
 | `src/Prospecting/prospecting_grid.h` | **The grid excavation digs in** — `GetSubCell()`, `GetGroundTruth(subX, subY, depth)` |
-| `src/Prospecting/prospecting_types.h` | `SubCell::aggregateConfidence` — how well a spot is known |
-| `src/Prospecting/prospecting_constants.h` | `PROSPECTING_GRID_SIZE` (3–6), `SUBCELL_VARIATION_MIN/MAX` (0.3–2.0), `MAX_DEPTH_PER_TIER` |
+| `src/Prospecting/prospecting_types.h` | `SubCell::aggregateConfidence`; `GetReachForTier`, `IsSubCellInReach`, `TierRequiredForSubCell` — excavation calls the reach helpers with its **own** tier |
+| `src/Prospecting/prospecting_constants.h` | `PROSPECTING_GRID_SIZE` (fixed 8), `PROSPECTING_REACH_PER_TIER` (2/4/6/8), `SUBCELL_VARIATION_MIN/MAX` (0.3–2.0), `MAX_DEPTH_PER_TIER` |
 | `src/game_constants.h` | `EXTRACTION_PRODUCTION_COSTS`, survey constants |
 
 ### Current State (what already exists)
@@ -93,9 +100,10 @@ Everything in this design directory is about replacing that multiply-chain with 
 
 Full plan in [implementation-plan.md](implementation-plan.md). In short:
 
-**Merge `claude/game-status-remaining-z2u35f` first** — it carries 23 commits of prospecting
-work this design depends on, including the quantity/composition split that changes what
-excavation reads on day one. Two doc-only conflicts, both trivial.
+**`claude/game-status-remaining-z2u35f` is merged** (8b6e880, no conflicts). It carries the
+prospecting work this design stands on — the fixed-lattice reach model, the
+quantity/composition split, the rebuilt extraction UI, and the test instruments. Re-merge
+before each phase; that branch is still moving.
 
 Then seven phases, following `docs/guides/module-architecture.md`:
 

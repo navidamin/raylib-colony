@@ -1,7 +1,7 @@
 # Excavation — The Design
 
 > Status: DRAFT — the agreed frame, firmed up
-> Last Updated: 2026-08-13
+> Last Updated: 2026-08-13 (revised for the fixed-lattice reach model)
 > Parent: [README.md](README.md)
 >
 > Supersedes [design-options.md](design-options.md) and
@@ -32,8 +32,10 @@ excavation needs:
 
 | Already implemented | Where |
 |---------------------|-------|
-| A sub-cell grid per extraction unit, sized by prospecting tier: **3×3 → 4×4 → 5×5 → 6×6** | `prospecting_constants.h:4` |
-| Real spatial variation — each sub-cell runs **0.3× to 2.0×** the cell average | `prospecting_constants.h:66-67` |
+| A **fixed 8×8** sub-cell lattice per extraction unit — sub-cell size never changes | `prospecting_constants.h:14` |
+| Tier extends **reach**, as concentric rings: **T0 2×2 · T1 4×4 · T2 6×6 · T3 8×8** | `prospecting_constants.h:18` |
+| Reach helpers: `GetReachForTier`, `IsSubCellInReach`, `TierRequiredForSubCell` | `prospecting_types.h:135-144` |
+| Real spatial variation — each sub-cell runs **0.3× to 2.0×** the cell average | `prospecting_constants.h:79-80` |
 | Per-sub-cell, per-depth truth: `GetGroundTruth(subX, subY, depth)` | `prospecting_grid.h:22` |
 | Per-sub-cell confidence: `SubCell::aggregateConfidence` | `prospecting_types.h:106` |
 | Depth access gated by prospecting tier: **1 → 2 → 3 → 4 layers** | `prospecting_constants.h:15` |
@@ -47,13 +49,31 @@ So excavation invents no geography. It reads prospecting's grid and digs in it.
 
 **A spot is one sub-cell at one depth.** That's the whole of place.
 
-- The grid is 3×3 at prospecting tier 0, up to 6×6 at tier 3 — so 9 to 36 spots per depth
+- The lattice is a **fixed 8×8** — 64 spots per depth, each always the same size
+- **Reach grows with tier**, as rings out from the sect: 2×2 → 4×4 → 6×6 → 8×8
 - Four depths, gated by what your machine can reach
 - You point at a spot; the excavator works it until it's exhausted or you move it
 - Spots deplete individually, so the worked-out area spreads across the grid over time
 
-No reach slider — the sect's cell was chosen when the player placed the sect, and that
-decision is already made. No names — a name would be invention over a 100 m square.
+No reach *slider* — reach is a tier unlock, not a dial. And no names: a name would be
+invention over a 12 m square.
+
+### Excavation has its own reach
+
+Prospecting's reach comes from its own tier. **Excavation should read `IsSubCellInReach`
+with the *excavation* module's tier**, not prospecting's — the helper already takes tier as
+a parameter, so this costs nothing to implement and produces the module's best structural
+idea:
+
+| If… | Then… |
+|-----|-------|
+| Excavation reach **>** prospecting reach | You can dig ground you have no way to survey. **This is the gamble, made structural** |
+| Prospecting reach **>** excavation reach | You know about good ground you can't yet touch — a concrete reason to upgrade excavation |
+| Equal | The normal case: survey what you can dig |
+
+So the two tiers become a real build decision — *upgrade prospecting to know more, or
+excavation to reach further?* — and the gamble stops depending only on a statistical blur.
+It becomes a place on the map you can see and can't yet learn about.
 
 ---
 
@@ -134,35 +154,38 @@ value of surveying ≈ (best spot − average spot) × how long you'll work here
 ```
 
 **These numbers are measured from the actual generator**, not assumed. The grid is built
-from 1–2 Gaussian hot spots per resource per depth, normalised to mean 1.0 and clamped to
-0.3–2.0 (`prospecting_grid.cpp:120-181`). Simulating that generator 200,000 times per grid
-size gives:
+from 1–2 Gaussian hot spots per resource per depth over the fixed 8×8 lattice, normalised
+to mean 1.0 and clamped to 0.3–2.0. Simulating it 200,000 times
+(`subcell_distribution_sim.py`) gives:
 
-| Prospecting tier | Grid | Median spot | Best spot | **Surveying is worth** |
-|------------------|------|-------------|-----------|----------------------|
-| T0 | 3×3 (9) | 0.96 | 1.48 | **+50%** |
-| T1 | 4×4 (16) | 0.89 | 1.72 | **+77%** |
-| T2 | 5×5 (25) | 0.80 | 1.88 | **+99%** |
-| T3 | 6×6 (36) | 0.71 | 1.96 | **+114%** |
+| Tier | Reach | Spots | Mean spot | Best reachable | **Surveying is worth** | **Best cell reachable** |
+|------|-------|-------|-----------|----------------|----------------------|------------------------|
+| T0 | 2×2 | 4 | 1.03 | 1.34 | **+33%** | **7%** |
+| T1 | 4×4 | 16 | 1.01 | 1.86 | **+97%** | 25% |
+| T2 | 6×6 | 36 | 0.96 | 2.00 | **+114%** | 50% |
+| T3 | 8×8 | 64 | 0.87 | 2.00 | **+130%** | 100% |
 
-The mean stays near 1.0 by construction — the generator normalises to it. What changes with
-tier is **resolution**: a coarse grid smears the hot spot across big cells, while a fine one
-lets you point at the peak itself. Notice the median *falls* as the best *rises* — finer
-grids spread the ground out at both ends.
+Three things fall out of this, and they matter more than the individual figures.
 
-**So the value of a survey more than doubles from T0 to T3, purely from grid resolution.**
-Prospecting tier doesn't just reveal more, it makes the ground more worth knowing. That arc
-needs no special-casing — it falls out of the generator that already exists.
+**1. At tier 0 you are not choosing — you are stuck.** The grid's best spot is inside your
+reach only **7%** of the time. Four spots, barely any spread, +33% for surveying them all.
+Early game isn't about whether to survey; it's about being pinned to whatever lies directly
+under the sect. That is a far better early-game story than "you should have surveyed", and
+it makes the first reach upgrade land hard: T0 → T1 raises the best spot you can touch by
+**1.40×** on its own, before any surveying.
 
-The other half of the arc is cost: early on you're power-starved and every tick spent
-surveying is a tick not producing, so a +50% payoff you have to wait for is a genuinely
-hard sell. By T3 you have power to spare and a +114% payoff. **Blind digging is right early
-and wrong late, on its own.**
+**2. Expanding reach widens the spread at both ends.** The best reachable spot climbs
+1.34 → 2.00, while the *mean* reachable spot **falls** 1.03 → 0.87. More ground is not
+better ground; it's more varied ground. So choosing well matters more at every tier, and
+choosing badly costs more — which is exactly the pressure targeted digging should be under.
 
-> Balance note: at 6×6 the best spot is pinned to the 2.0 ceiling 82% of the time (at 3×3,
-> only 14%). The clamp — not the grid — is what limits the top end at high tier. If T3 ever
-> needs more headroom, raise `SUBCELL_VARIATION_MAX`; making the grid finer would add almost
-> nothing.
+**3. Surveying and reaching are different purchases.** Reach raises your ceiling; surveying
+lets you find it. Reach alone tops out at T2 (the best spot is pinned to the 2.0 clamp from
+there on), so past that point every further gain comes from knowing where to point. The two
+upgrades stop being interchangeable.
+
+> Balance note: the top end is limited by the **clamp**, not the grid — at T2 and T3 the best
+> spot sits at 2.0. If late game needs more headroom, raise `SUBCELL_VARIATION_MAX`.
 
 ### The ground is clustered, and that matters
 
@@ -181,6 +204,10 @@ designing around:
 4. **Depth re-rolls the clusters too** — the seed includes depth. The best spot at layer 1
    is *not* the best spot at layer 3, so you cannot extrapolate downward. Surveying at depth
    is genuinely necessary rather than merely thorough.
+5. **Hot spots don't care about your reach.** Cluster centres are placed across the whole
+   8×8, so the good ground is wherever it is — which is why T0 sees the best spot only 7% of
+   the time. Reach upgrades aren't a bigger number, they're access to ground that was always
+   there.
 
 There may also be a second, smaller hot spot (`numClusters` is 1 or 2) — a reason to keep
 looking after you've found one.
@@ -203,7 +230,7 @@ MACHINERY), you **run** several at once, and they **wear out**.
 
 | Stat | What it means | Why it's a real choice |
 |------|--------------|----------------------|
-| **Reach** | Deepest layer it can work | Hard gate. Some material is only reachable one way |
+| **Depth** | Deepest layer it can work (*not* the spatial reach rings — that's tier) | Hard gate. Some material is only reachable one way |
 | **Precision** | How tightly it stays on the spot you aimed at | See below — this is the important one |
 | **Pace ceiling** | How far you can push the pace slider | Some machines simply can't be hurried |
 | **Power floor** | Minimum draw even when idling | Cheap machines are cheap to *own* |
@@ -234,7 +261,7 @@ Six machines, drawn from the real technologies in
 [excavation-mechanics.md](excavation-mechanics.md) Part 1. Names are plain; the science is
 in the stats.
 
-| Machine | Reach | Precision | Pace | Power | Purity | Wear | Its job |
+| Machine | Depth | Precision | Pace | Power | Purity | Wear | Its job |
 |---------|-------|-----------|------|-------|--------|------|---------|
 | **Scoop** | Surface | Low | Low | Very low | Low | Low | The starter. Cheap to own, never great |
 | **Bucket Wheel** | Shallow | Low | **High** | Medium | Low | High | Volume. Perfect for digging blind |
@@ -338,13 +365,16 @@ all still multiply in and keep their current meaning, so those modules keep work
 - `[?]` Can several machines work different spots at once, or do they stack on one spot? Stacking is simpler; splitting is more interesting and needs more UI.
 
 **Resolved**
-- ✅ The distribution is **clustered Gaussian, not uniform** — measured, and the survey payoff runs +50% at T0 to +114% at T3
+- ✅ The distribution is **clustered Gaussian, not uniform** — measured against the fixed 8×8 lattice: survey payoff runs +33% at T0 to +130% at T3
+- ✅ Reach is a **tier-gated ring**, not a slider — and excavation reads it with its *own* tier, which makes the gamble structural
 - ✅ Confidence varies **per spot and per depth**, so Rule 2 blurs per depth
 - ✅ Dug spots write confidence 1.0 back into prospecting's grid, shown with a distinct mark (Rule 5)
 
 **Needs building on the prospecting side**
 - `[?]` `SubCell` needs a "worked" state — how much has been taken out, at which depths — for Rule 5's mark to render
 - `[?]` Who owns the writeback: does excavation call into `ProspectingGrid`, or does prospecting poll excavation? A single setter on the grid is probably cleanest
+- `[?]` Can excavation dig outside *prospecting's* reach if its own tier allows? The design above says yes — that's where the gamble lives — but prospecting currently refuses to sweep or drill out-of-reach cells, so the two modules need to agree that reach is per-module
+- `[?]` `prospecting-master-design.md:90` still describes the old resizing grid ("previously surveyed sub-cells are re-divided"). Stale since the reach change — worth fixing on the prospecting side
 
 **Can wait**
 - `[?]` The Blower's gas consumable needs a gas production chain first

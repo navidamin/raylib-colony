@@ -12,11 +12,16 @@ The prospecting work this design depends on lives on
 **`claude/game-status-remaining-z2u35f`**, 23 commits ahead of this branch. Excavation
 cannot be built against `main`'s prospecting — it's already stale.
 
+### Merged as of 8b6e880 — clean, no conflicts
+
+The merge is done. What follows is what it brought in.
+
 ### What that branch changes that matters here
 
 | Change | Why it matters to excavation |
 |--------|----------------------------|
-| **Quantity / composition split** — `GetQuantity()` added alongside `GetGroundTruth()`, which now returns *fractions* | This is the single most important change. Excavation must consume both, deliberately (§2) |
+| **Fixed 8×8 lattice; tier extends reach in rings** (2×2 → 8×8), replacing the old resizing grid | Rewrote the design's foundation. Reach is now the progression axis, and excavation reads it with its own tier |
+| **Quantity / composition split** — `GetQuantity()` added alongside `GetGroundTruth()`, which now returns *fractions* | Excavation must consume both, deliberately (§2) |
 | `RICHNESS_NORMALIZATION` 2.0 → 10000.0, calibrated against dumped data | Any excavation constant touching richness must be calibrated the same way |
 | `rendermanager.cpp` +1603 lines — extraction UI rebuilt to the dark theme | The excavation panel must be built in the *new* renderer, not the old one |
 | `src/CMakeLists.txt` restructured around `COLONY_CORE_SOURCES` | New excavation sources go in that list, once, for all three targets |
@@ -28,20 +33,12 @@ cannot be built against `main`'s prospecting — it's already stale.
 This branch is documentation only so far, so a merge is clean and keeps both histories.
 
 ```bash
-git fetch origin claude/game-status-remaining-z2u35f
-git merge origin/claude/game-status-remaining-z2u35f
+git merge origin/claude/game-status-remaining-z2u35f     # done: 8b6e880, auto-merged
 ```
 
-**Two files conflict, both documentation, both trivial:**
-
-| File | Conflict | Resolution |
-|------|----------|-----------|
-| `CLAUDE.md` | Both added rows to the design-docs auto-context table | Keep both rows |
-| `docs/design/prospecting/README.md` | They rewrote status/TOC; we edited the excavation row in the related-modules table | Take theirs, re-apply our one-line excavation row |
-
-> If `game-status-remaining` is meant to land on `main` first, wait for that and merge
-> `main` instead. Either way, **do not start coding until the merge is done** — the
-> quantity/composition split changes what excavation reads on day one.
+Both expected conflicts (`CLAUDE.md`, `docs/design/prospecting/README.md`) resolved
+automatically. **Re-merge before starting each phase** — that branch is still moving, and
+its grid work is this module's foundation.
 
 ---
 
@@ -101,10 +98,10 @@ Which means the survey-value numbers measured in
 [excavation-design.md §3](excavation-design.md#why-anyone-would-dig-blind) apply **to the
 targeted resource**, not to total tonnage. Measured separately:
 
-| Grid | Best vs mean, **targeted resource** | Best vs mean, **total quantity** |
-|------|------------------------------------|----------------------------------|
-| 3×3 | **+50%** | +24% |
-| 6×6 | **+114%** | +57% |
+| Tier / reach | Best vs mean, **targeted resource** | Best vs mean, **total quantity** |
+|--------------|------------------------------------|----------------------------------|
+| T0 · 2×2 | **+33%** | ~+16% |
+| T3 · 8×8 | **+130%** | ~+65% |
 
 Total quantity is much flatter because independent per-resource clusters partly cancel when
 summed.
@@ -126,8 +123,9 @@ Seven phases. Each is independently verifiable; the game stays playable througho
 Prove excavation can see prospecting's grid before changing anything.
 
 - `ExcavationSystem` facade, owned by `Unit`, created when the EXCAVATION module exists
-- Read-only accessors over `prospectingSystem->GetGrid()`: grid size, per-spot quantity,
-  composition, confidence, depth availability
+- Read-only accessors over `prospectingSystem->GetGrid()`: per-spot quantity, composition,
+  confidence, depth availability
+- **Reach, using the excavation module's own tier** — `IsSubCellInReach(x, y, excavationTier)`
 - `tools/inspect` dump of the grid as excavation sees it
 
 **Done when:** the inspect dump shows plausible per-spot yields for a chosen target, and
@@ -147,8 +145,9 @@ The gamble, with nothing depending on it yet.
 ### Phase 3 — Dig engine, replacing the Stage 1 multiply chain
 The core, still with no new UI.
 
-- `Machine` struct + machine table in `excavation_constants.h` (reach, precision, pace
-  ceiling, power floor, purity, wear) — a constant table, not branching logic
+- `Machine` struct + machine table in `excavation_constants.h` (**depth** reach, precision,
+  pace ceiling, power floor, purity, wear) — a constant table, not branching logic.
+  Spatial reach is the tier ring and is *not* a machine stat
 - `DigEngine::Tick()` → `{ perResourceYield, purity, powerDraw, wearDelta }`
 - **Precision** implemented as a weighted blend of the aimed spot with its neighbours —
   this is the stat that ties machinery to the survey (design §4)
@@ -257,5 +256,6 @@ rather than the wording:
 - `[?]` Does the power cap draw on the sect's shared pool, or is it a local budget?
 - `[?]` Can several machines work different spots at once, or do they stack on one spot? Stacking is simpler; splitting needs more UI and more facade state.
 - `[?]` Is a disappointing result revealed gradually as you dig, or all at once at the end?
+- `[?]` **Does excavation reach differ from prospecting reach?** The design says yes, and it's where the gamble lives — but prospecting refuses out-of-reach sweeps and drills, so both modules must agree reach is per-module. Confirm with whoever owns the prospecting branch before Phase 1.
 
 The first three are needed **before Phase 3**. The fourth can wait for Phase 5.
