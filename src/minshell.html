@@ -88,6 +88,11 @@
     </head>
     <body>
         <canvas class=emscripten id=canvas oncontextmenu=event.preventDefault() tabindex=-1></canvas>
+        <!-- Live geometry readout for diagnosing mobile fit issues -->
+        <div id="shellDebug" style="position:fixed;top:4px;left:4px;z-index:9999;
+             font:10px monospace;color:rgba(255,255,255,0.65);
+             background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
+             pointer-events:none;">SHELL v3 loading...</div>
         <script type='text/javascript'>
             // Fit the fixed-size framebuffer canvas to the device viewport,
             // preserving aspect ratio. Emscripten/raylib write their own
@@ -98,10 +103,32 @@
             // as a final fallback.
             (function()
             {
+                function updateDebug(c)
+                {
+                    var d = document.getElementById('shellDebug');
+                    if (!d || !c) return;
+                    var r = c.getBoundingClientRect();
+                    d.textContent = 'SHELL v3'
+                        + ' cnv=' + c.width + 'x' + c.height
+                        + ' style=' + c.style.getPropertyValue('width') + '/'
+                                    + c.style.getPropertyPriority('width')
+                        + ' rect=' + Math.round(r.width) + 'x' + Math.round(r.height)
+                                   + '@' + Math.round(r.x) + ',' + Math.round(r.y)
+                        + ' win=' + window.innerWidth + 'x' + window.innerHeight
+                        + ' vv=' + (window.visualViewport
+                                    ? Math.round(window.visualViewport.width) + 'x'
+                                      + Math.round(window.visualViewport.height)
+                                      + '@' + Math.round(window.visualViewport.offsetTop)
+                                    : 'none')
+                        + ' dpr=' + window.devicePixelRatio;
+                }
+
                 function fitCanvas()
                 {
                     var c = document.getElementById('canvas');
-                    if (!c || !c.width || !c.height) return;
+                    if (!c) return;
+                    updateDebug(c);
+                    if (!c.width || !c.height) return;
 
                     var vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
                     var vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
