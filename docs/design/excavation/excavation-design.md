@@ -65,7 +65,7 @@ It is not random noise added to output. It is the difference between what you *t
 a spot and what's *actually* there — and that difference is entirely under the player's
 control, because surveying shrinks it.
 
-### The four rules that make this sturdy
+### The five rules that make this sturdy
 
 These matter more than the numbers. Break any one and the gamble becomes a slot machine.
 
@@ -78,11 +78,16 @@ Never re-roll per tick. A player who digs the same spot twice must get the same 
 **Rule 2 — Confidence 1.0 means no gamble, and that's the point.**
 ```
 shown estimate = truth ± spread
-spread         = maxSpread × (1 − confidence)
+spread         = maxSpread × (1 − confidence(spot, depth))
 ```
 At full confidence the estimate *is* the truth, the gamble disappears, and excavation
 becomes a pure optimization. That's not a failure of the design — it's the reward for
 surveying, and the module's arc: **early game it's a bet, late game it's a craft.**
+
+**Confidence is per spot *and* per depth**, so a spot can be well known at the surface and
+guesswork below. Combined with `MAX_DEPTH_PER_TIER` (a tier-1 rig sees only two layers) and
+machines that reach deeper than the rig can see, the lower layers stay a genuine bet long
+after the surface is mapped.
 
 **Rule 3 — Digging is the expensive way to prospect.**
 Once you've dug a spot, you know it for real — permanently. So there are two roads to
@@ -101,6 +106,24 @@ No warning popup for digging blind. But because dug spots become known, the play
 sees the spot next door was twice as good. The *"I should have surveyed"* moment arrives
 as a discovery, not a scolding — and it lands harder for it.
 
+**Rule 5 — Digging writes back into prospecting's grid.**
+When excavation works a spot at a depth, it sets that spot's confidence to **1.0** and marks
+it as *known by digging* — visually distinct from *known by surveying*, because the two mean
+different things:
+
+| State | Confidence | What it tells the player |
+|-------|-----------|-------------------------|
+| Unsurveyed | low | A guess, with a wide range |
+| Surveyed | rising | What's there, and it's still there |
+| **Dug** | **1.0, marked** | What was there — and how much you've taken out of it |
+
+A spot that is 100% known *and emptied* is very different information from one that is 100%
+known *and full*, so the mark has to carry that, not just say "known".
+
+This has a useful side effect: since `surveyProgress` already gates extraction efficiency,
+**digging blind slowly bootstraps your own efficiency.** A player who never surveys still
+improves, just the expensive way — which is exactly the shape Rule 3 describes.
+
 ### Why anyone would dig blind
 
 Because surveying costs energy and time you may not have, and its payoff scales with how
@@ -110,22 +133,57 @@ long you'll stay.
 value of surveying ≈ (best spot − average spot) × how long you'll work here
 ```
 
-With the current 0.3×–2.0× spread, an average spot is worth about 1.15× baseline, while the
-best of 9 is around 1.8×. **So surveying before you dig is worth roughly +60% output** — if
-you're going to be there long enough to collect it.
+**These numbers are measured from the actual generator**, not assumed. The grid is built
+from 1–2 Gaussian hot spots per resource per depth, normalised to mean 1.0 and clamped to
+0.3–2.0 (`prospecting_grid.cpp:120-181`). Simulating that generator 200,000 times per grid
+size gives:
 
-That gives a clean arc without any special-casing:
+| Prospecting tier | Grid | Median spot | Best spot | **Surveying is worth** |
+|------------------|------|-------------|-----------|----------------------|
+| T0 | 3×3 (9) | 0.96 | 1.48 | **+50%** |
+| T1 | 4×4 (16) | 0.89 | 1.72 | **+77%** |
+| T2 | 5×5 (25) | 0.80 | 1.88 | **+99%** |
+| T3 | 6×6 (36) | 0.71 | 1.96 | **+114%** |
 
-| | Grid | Best-of | Surveying worth | Because |
-|---|---|---|---|---|
-| **Early** | 3×3 = 9 spots | ~1.8× | ~+60% | But you're power-starved and every tick surveying is a tick not producing |
-| **Late** | 6×6 = 36 spots | ~1.95× | ~+70% | More spots means more spread to exploit, and you have power to spare |
+The mean stays near 1.0 by construction — the generator normalises to it. What changes with
+tier is **resolution**: a coarse grid smears the hot spot across big cells, while a fine one
+lets you point at the peak itself. Notice the median *falls* as the best *rises* — finer
+grids spread the ground out at both ends.
 
-So blind digging is *right* early and *wrong* late. The player's instinct changes over the
-campaign on its own.
+**So the value of a survey more than doubles from T0 to T3, purely from grid resolution.**
+Prospecting tier doesn't just reveal more, it makes the ground more worth knowing. That arc
+needs no special-casing — it falls out of the generator that already exists.
 
-> These figures assume the sub-cell variation is roughly uniform across 0.3–2.0. Worth
-> checking against the actual generator before balancing on them.
+The other half of the arc is cost: early on you're power-starved and every tick spent
+surveying is a tick not producing, so a +50% payoff you have to wait for is a genuinely
+hard sell. By T3 you have power to spare and a +114% payoff. **Blind digging is right early
+and wrong late, on its own.**
+
+> Balance note: at 6×6 the best spot is pinned to the 2.0 ceiling 82% of the time (at 3×3,
+> only 14%). The clamp — not the grid — is what limits the top end at high tier. If T3 ever
+> needs more headroom, raise `SUBCELL_VARIATION_MAX`; making the grid finer would add almost
+> nothing.
+
+### The ground is clustered, and that matters
+
+The hot spots are Gaussian blobs, not independent random cells. Four consequences worth
+designing around:
+
+1. **Surveying one spot tells you about its neighbours.** Rich ground is contiguous, so a
+   partial survey is worth more than its share. Players can sample sparsely and interpolate
+   — which is what real prospecting does.
+2. **The good stuff looks like an ore body.** A blob rather than scattered noise. It reads
+   correctly on screen and rewards working outward from a found peak.
+3. **Every resource has its hot spot in a different place** — the seed includes the resource
+   index (`HashSeed(px, py, depth, resourceIdx)`). So the best spot for iron is not the best
+   spot for silicon. **This is what gives the panel's target selector real weight**: change
+   what you're after and the right place to stand changes with it.
+4. **Depth re-rolls the clusters too** — the seed includes depth. The best spot at layer 1
+   is *not* the best spot at layer 3, so you cannot extrapolate downward. Surveying at depth
+   is genuinely necessary rather than merely thorough.
+
+There may also be a second, smaller hot spot (`numClusters` is 1 or 2) — a reason to keep
+looking after you've found one.
 
 ### The deepest bet
 
@@ -279,10 +337,14 @@ all still multiply in and keep their current meaning, so those modules keep work
 - `[?]` When a spot's result disappoints, is it revealed gradually as you dig, or at the end? Slow dread vs sharp surprise — changes how the gamble feels.
 - `[?]` Can several machines work different spots at once, or do they stack on one spot? Stacking is simpler; splitting is more interesting and needs more UI.
 
-**Needs checking against the code**
-- `[?]` Is sub-cell variation actually uniform across 0.3–2.0? The +60% figure for surveying depends on it.
-- `[?]` Does `SubCell::aggregateConfidence` vary by depth, or is it one value per sub-cell? Rule 2's blur needs per-depth confidence to work properly at depth.
-- `[?]` What does prospecting currently do when a spot is dug out — does it know, or does it keep reporting the original truth?
+**Resolved**
+- ✅ The distribution is **clustered Gaussian, not uniform** — measured, and the survey payoff runs +50% at T0 to +114% at T3
+- ✅ Confidence varies **per spot and per depth**, so Rule 2 blurs per depth
+- ✅ Dug spots write confidence 1.0 back into prospecting's grid, shown with a distinct mark (Rule 5)
+
+**Needs building on the prospecting side**
+- `[?]` `SubCell` needs a "worked" state — how much has been taken out, at which depths — for Rule 5's mark to render
+- `[?]` Who owns the writeback: does excavation call into `ProspectingGrid`, or does prospecting poll excavation? A single setter on the grid is probably cleanest
 
 **Can wait**
 - `[?]` The Blower's gas consumable needs a gas production chain first
