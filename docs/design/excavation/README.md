@@ -6,9 +6,10 @@
 
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
-| 1 | [design-options-v2.md](design-options-v2.md) | **Current.** Three variants of the chosen direction — a control panel plus optional machinery, a gamble, and a sense of place | DRAFT — awaiting decision |
-| 2 | [design-options.md](design-options.md) | Round 1: the 16 aspects any excavation design must answer, then 4 options compared. Option 3 was preferred and is narrowed in the doc above | SUPERSEDED — Option 3 chosen |
-| 3 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
+| 1 | [excavation-design.md](excavation-design.md) | **The design.** Panel + place + gamble + machinery, with the rules that keep the gamble honest | DRAFT |
+| 2 | [design-options.md](design-options.md) | Round 1 exploration: 16 aspects, then 4 options compared | SUPERSEDED |
+| 3 | [design-options-v2.md](design-options-v2.md) | Round 2 exploration: three variants of the panel direction | SUPERSEDED |
+| 4 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
 
 ## Design Summary
 
@@ -20,25 +21,26 @@ the ground; excavation gets it out; beneficiation separates it.
  what's there      get it out       separate it
 ```
 
-**Direction chosen: a control panel** — the player sets a target material and two sliders
-(pace, power cap) and reads the result, rather than driving machines directly. It's the
-friendliest of the four options considered, and because every player action is *setting a
-value*, an AI can use the identical interface — so automation needs no parallel system.
+**The design:** you point a machine at a spot in the ground and tune how hard it works.
+Prospecting tells you which spot is worth it — if you paid for prospecting. Full detail in
+[excavation-design.md](excavation-design.md).
 
-Three variants add machinery, uncertainty, and a sense of place on top of that core.
-Details in [design-options-v2.md](design-options-v2.md):
+| Pillar | What it is |
+|--------|-----------|
+| **The panel** | Target material, pace, power cap. Purity is what you read, not what you set |
+| **Place** | Which spot in prospecting's grid, and how deep. No reach, no names |
+| **The gamble** | Digging without having paid to survey first — not random noise, a choice to skip a cost |
+| **Machinery** | Six machines with different reach, precision, pace and wear. Optional; AUTO by default |
 
-| | Place is… | Gamble is… | Machinery is… | Effort |
-|---|---|---|---|---|
-| **A — The Field Picker** | a short list of named grounds | a range on the estimate | a picker, AUTO by default | Low |
-| **B — The Working Map** | a small map that visibly wears down | fog over unworked ground | tied to what the ground needs | Medium |
-| **C — The Standing Order** | how far your operation reaches | the price of reaching further | a rule in your order | Low–Med |
+The three lock together through one machine stat: **precision**. A sloppy machine digs
+wider than you aimed and averages your chosen spot with its neighbours — throwing away the
+survey you paid for. So *"should I survey?"* and *"which machine?"* become the same question.
 
-These stack rather than compete: build **A**, use **C**'s order sheet as the tier-3 AI mode,
-and **B**'s map can replace A's place list later as a pure visual upgrade with no mechanical
-change.
+Excavation invents no geography. Prospecting already builds a per-unit sub-cell grid (3×3 up
+to 6×6 by tier), with real 0.3×–2.0× variation between spots, per-spot confidence, and
+per-spot per-depth ground truth. Excavation reads that grid and digs in it.
 
-The background fact that shapes all of them: **on the Moon a digger cannot push.** At 1/6
+The background fact behind the machine stats: **on the Moon a digger cannot push.** At 1/6
 gravity a machine barely weighs anything, so it can't lean on a blade the way an Earth
 excavator does. Real designs work around this by taking many small bites, by shaking the
 soil loose first, or by blowing it out with gas — which is why different machine types have
@@ -55,7 +57,10 @@ genuinely different strengths rather than just bigger numbers. Details in
 | `src/Unit/unit.cpp` | Excavator init (439-447), EXCAVATION module def (467-490), tier descriptions (831-840), tier excavator spawning (878-900), energy cost (1108-1118), `ProcessExtraction()` Stage 1 (1299-1331), wear accumulation (141-143) |
 | `src/Engine/rendermanager.cpp` | Excavation panel rendering |
 | `src/Engine/inputmanager.cpp` | Excavation input handling |
-| `src/ResourceManager/` | `GetResourcesAtGridLayer()` — depth-layer ground truth |
+| `src/ResourceManager/` | `GetResourcesAtGridLayer()` — per-cell, per-depth ground truth |
+| `src/Prospecting/prospecting_grid.h` | **The grid excavation digs in** — `GetSubCell()`, `GetGroundTruth(subX, subY, depth)` |
+| `src/Prospecting/prospecting_types.h` | `SubCell::aggregateConfidence` — how well a spot is known |
+| `src/Prospecting/prospecting_constants.h` | `PROSPECTING_GRID_SIZE` (3–6), `SUBCELL_VARIATION_MIN/MAX` (0.3–2.0), `MAX_DEPTH_PER_TIER` |
 | `src/game_constants.h` | `EXTRACTION_PRODUCTION_COSTS`, survey constants |
 
 ### Current State (what already exists)
@@ -76,16 +81,18 @@ Everything in this design directory is about replacing that multiply-chain with 
 
 | Module | Dependency | Status |
 |--------|-----------|--------|
-| **Prospecting** | Supplies survey progress and marked sites; how heavily excavation leans on it varies by variant (most tangible in Variant B, where surveying clears fog off the map) | [`docs/design/prospecting/`](../prospecting/README.md) — DRAFT |
+| **Prospecting** | Owns the grid excavation digs in, and the confidence that decides whether a dig is a bet or a calculation. The tightest coupling in the game | [`docs/design/prospecting/`](../prospecting/README.md) — DRAFT |
 | **Beneficiation** | Direct downstream consumer — receives whatever excavation digs up | Not yet in design/ |
 | **Operations** | Supplies the efficiency modifier applied to excavation output | Not yet in design/ |
 | **Directives** | `MAXIMIZE` / `CONSERVE` / `EMERGENCY_HARVEST` all act on excavation rate and wear | Not yet in design/ |
 | **Energy** | Excavation is the unit's largest power draw; the power-cap slider makes that a direct player concern | Not yet in design/ |
-| **AI Automation** | Excavation is the second client of the shared pattern — and the control-panel direction means the AI uses the player's own interface rather than a parallel system | [`docs/design/ai-automation/`](../ai-automation/README.md) — STUB |
+| **AI Automation** | Second client of the shared pattern. Every player input is a value, so the AI uses the same interface; research improves how well it chooses, including when to gamble | [`docs/design/ai-automation/`](../ai-automation/README.md) — STUB |
 
 ## Implementation Order
 
-To be written once an option is chosen.
+To be written. The design's open questions in
+[excavation-design.md §9](excavation-design.md#9-open-questions) come first — three of them
+need checking against the prospecting code before build order is meaningful.
 
 ## Key Design Constraint
 
@@ -99,5 +106,4 @@ Stage 3 (sect storage) — unchanged
 ```
 
 The existing modifiers (Operations efficiency, Directives, module tier, machine count) all
-still multiply into Stage 1 and keep their current meaning, so those modules keep working
-whichever option is picked.
+still multiply into Stage 1 and keep their current meaning, so those modules keep working.
