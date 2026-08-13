@@ -284,6 +284,14 @@ The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture si
 
 **Note:** CMakeLists.txt in src/ may be incomplete - not all .cpp files are listed in target_sources. Verify compilation if adding new files.
 
+## Web Builds & Mobile
+
+Before touching `src/minshell.html`, the Pages deploy workflow, or
+anything about the web/phone builds, read `docs/web-deploy-mobile.md` —
+it documents the three-layer canvas sizing problem (CSS size vs
+framebuffer attributes vs game render size), the SHELL v4 enforcer that
+fixes it, the on-page diagnostic badge, and the deploy/caching gotchas.
+
 ## Design Documents
 
 Module-specific design planning lives in `docs/design/<module-name>/`. Each module has a README.md that serves as the entry point and table of contents.

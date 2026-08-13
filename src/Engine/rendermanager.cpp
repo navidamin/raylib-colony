@@ -2771,22 +2771,36 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             bool hover = CheckCollisionPointRec(mouse, depthBtn);
             bool selected = (ps->selectedDepth == depths[d]);
 
-            Color borderCol = canDrill ? (selected ? PROS_TAB_ACTIVE_BDR : PROS_BTN_BORDER) : PROS_BTN_DISABLED;
+            // Radio-style rows: this is a selection list, not an action
+            // button -- COLLECT below is the action.
+            Color borderCol = canDrill ? (selected ? Fade(PROS_TAB_ACTIVE_BDR, 0.7f) : Fade(PROS_BTN_BORDER, 0.7f))
+                                       : Fade(PROS_BTN_DISABLED, 0.7f);
             Color textCol = canDrill ? (selected ? EXT_TEXT
                                                  : (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT))
                                      : PROS_BTN_DISABLED;
 
-            Color depthFill = (selected && canDrill) ? Color{16, 44, 56, 255}
-                                                     : (hover && canDrill ? Color{16, 26, 44, 255}
-                                                                          : EXT_PANEL_BG2);
+            Color depthFill = (selected && canDrill) ? Color{13, 30, 40, 255}
+                                                     : (hover && canDrill ? Color{14, 22, 38, 255}
+                                                                          : Color{11, 16, 30, 255});
             DrawRectangleRounded(depthBtn, 0.35f, 4, depthFill);
-            DrawRectangleRoundedLinesEx(depthBtn, 0.35f, 4, selected ? 1.5f : 1.0f, borderCol);
+            DrawRectangleRoundedLinesEx(depthBtn, 0.35f, 4, 1.0f, borderCol);
+
+            // Radio indicator
+            float rx = ctrlX + 12.0f;
+            float ry = ctrlY + 11.0f;
+            DrawCircleLines(static_cast<int>(rx), static_cast<int>(ry), 5.0f,
+                            canDrill ? Fade(EXT_ACCENT_CYAN, selected ? 1.0f : 0.5f)
+                                     : PROS_BTN_DISABLED);
+            if (selected && canDrill)
+            {
+                DrawCircle(static_cast<int>(rx), static_cast<int>(ry), 2.5f, EXT_ACCENT_CYAN);
+            }
 
             float cost = ps->GetSampler().GetDrillCost(depths[d]);
             const char* label = canDrill
                 ? TextFormat("%s  %.0fE", ProsDepthName(depths[d]), cost)
                 : TextFormat("%s  [LOCKED]", ProsDepthName(depths[d]));
-            DrawTextEx(bodyFont, label, {ctrlX + 6, ctrlY + 3}, FS(9.0f), sp, textCol);
+            DrawTextEx(bodyFont, label, {ctrlX + 24, ctrlY + 3}, FS(9.0f), sp, textCol);
 
             if (hover && canDrill && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
@@ -3026,19 +3040,55 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             Rectangle toolBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 30.0f,
                                  toolColW, 24.0f};
             bool hover = CheckCollisionPointRec(mouse, toolBtn);
+            bool pressed = hover && canApply && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
 
-            DrawRectangleRounded(toolBtn, 0.3f, 4,
-                                 hover && canApply ? Color{16, 26, 44, 255} : EXT_PANEL_BG2);
-            DrawRectangleRoundedLinesEx(toolBtn, 0.3f, 4, 1.0f,
-                                        canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED);
+            // Already applied to the selected sample?
+            bool applied = false;
+            if (selSample)
+            {
+                for (const auto& step : selSample->analysisHistory)
+                {
+                    if (step.tool == te.tool) { applied = true; break; }
+                }
+            }
 
-            Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
+            // Brief flash right after a successful tap (touch has no hover)
+            bool flash = (ps->lastLabActionKind == 0 && ps->lastLabActionIndex == t &&
+                          ps->gameTime - ps->lastLabActionTime < 0.4f);
+
+            Color fill = EXT_PANEL_BG2;
+            if (pressed || flash) fill = {24, 70, 90, 255};
+            else if (hover && canApply) fill = {16, 26, 44, 255};
+            else if (applied) fill = {13, 30, 34, 255};
+
+            DrawRectangleRounded(toolBtn, 0.3f, 4, fill);
+            DrawRectangleRoundedLinesEx(toolBtn, 0.3f, 4, flash ? 2.0f : 1.0f,
+                                        flash ? EXT_ACCENT_CYAN
+                                              : (applied ? Fade(EXT_ACCENT_GREEN, 0.7f)
+                                                         : (canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED)));
+
+            Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT)
+                                     : (applied ? Fade(EXT_ACCENT_GREEN, 0.8f) : PROS_BTN_DISABLED);
             DrawTextEx(bodyFont, TextFormat("%s  %.0fE", te.name, cost),
                        {toolBtn.x + 8.0f, toolBtn.y + 5.0f}, FS(9.0f), sp, textCol);
 
+            if (applied)
+            {
+                // Checkmark on the right edge
+                float cxm = toolBtn.x + toolBtn.width - 14.0f;
+                float cym = toolBtn.y + 12.0f;
+                DrawLineEx({cxm - 4.0f, cym}, {cxm - 1.0f, cym + 3.5f}, 2.0f, EXT_ACCENT_GREEN);
+                DrawLineEx({cxm - 1.0f, cym + 3.5f}, {cxm + 4.5f, cym - 3.5f}, 2.0f, EXT_ACCENT_GREEN);
+            }
+
             if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                ps->GetLab().ApplyTool(*selSample, te.tool, ps->gameTime);
+                if (ps->GetLab().ApplyTool(*selSample, te.tool, ps->gameTime))
+                {
+                    ps->lastLabActionKind = 0;
+                    ps->lastLabActionIndex = t;
+                    ps->lastLabActionTime = ps->gameTime;
+                }
             }
         }
         toolY += 3 * 30.0f;
@@ -3063,19 +3113,43 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             Rectangle sepBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 30.0f,
                                 toolColW, 24.0f};
             bool hover = CheckCollisionPointRec(mouse, sepBtn);
+            bool pressed = hover && canApply && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+            bool applied = selSample && selSample->separationApplied == se.method;
+            bool flash = (ps->lastLabActionKind == 1 && ps->lastLabActionIndex == t &&
+                          ps->gameTime - ps->lastLabActionTime < 0.4f);
 
-            DrawRectangleRounded(sepBtn, 0.3f, 4,
-                                 hover && canApply ? Color{16, 26, 44, 255} : EXT_PANEL_BG2);
-            DrawRectangleRoundedLinesEx(sepBtn, 0.3f, 4, 1.0f,
-                                        canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED);
+            Color fill = EXT_PANEL_BG2;
+            if (pressed || flash) fill = {24, 70, 90, 255};
+            else if (hover && canApply) fill = {16, 26, 44, 255};
+            else if (applied) fill = {13, 30, 34, 255};
 
-            Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT) : PROS_BTN_DISABLED;
+            DrawRectangleRounded(sepBtn, 0.3f, 4, fill);
+            DrawRectangleRoundedLinesEx(sepBtn, 0.3f, 4, flash ? 2.0f : 1.0f,
+                                        flash ? EXT_ACCENT_CYAN
+                                              : (applied ? Fade(EXT_ACCENT_GREEN, 0.7f)
+                                                         : (canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED)));
+
+            Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT)
+                                     : (applied ? Fade(EXT_ACCENT_GREEN, 0.8f) : PROS_BTN_DISABLED);
             DrawTextEx(bodyFont, TextFormat("%s  %.0fE", se.name, cost),
                        {sepBtn.x + 8.0f, sepBtn.y + 5.0f}, FS(9.0f), sp, textCol);
 
+            if (applied)
+            {
+                float cxm = sepBtn.x + sepBtn.width - 14.0f;
+                float cym = sepBtn.y + 12.0f;
+                DrawLineEx({cxm - 4.0f, cym}, {cxm - 1.0f, cym + 3.5f}, 2.0f, EXT_ACCENT_GREEN);
+                DrawLineEx({cxm - 1.0f, cym + 3.5f}, {cxm + 4.5f, cym - 3.5f}, 2.0f, EXT_ACCENT_GREEN);
+            }
+
             if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                ps->GetLab().ApplySeparation(*selSample, se.method, ps->gameTime);
+                if (ps->GetLab().ApplySeparation(*selSample, se.method, ps->gameTime))
+                {
+                    ps->lastLabActionKind = 1;
+                    ps->lastLabActionIndex = t;
+                    ps->lastLabActionTime = ps->gameTime;
+                }
             }
         }
 
