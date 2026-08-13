@@ -147,6 +147,37 @@ Tuning/porting lessons:
 Output: `site_synthesis_deepzoom.png` — three sites ×
 (regional real → site → local → close).
 
+## Real scale + ground truth (2026-08-13, later)
+
+Every zoom window is now **square in kilometres** (lon span widened by
+1/cos(lat); before this they were square in degrees — 27% E-W squash
+at Tycho's latitude). Exact scales (Moon radius 1737.4 km →
+30.323 km/deg), 300 px internal grid:
+
+| Level | Span | Window | Resolution |
+|-------|------|--------|------------|
+| Continental | 50° | 1,516 km | 5,054 m/px |
+| Regional | 10° | 303.2 km | 1,011 m/px |
+| Site | 3° | 90.97 km | 303 m/px |
+| Local | 1° | 30.32 km | 101 m/px |
+| Close | 1/3° | 10.11 km | 34 m/px |
+
+**Elevation ground truth**: `elevation.py` loads NASA's LOLA LDEM_16
+model (`data/lola/ldem_16_uint.tif`, 16 px/deg ≈ 1.9 km/px, decode
+`metres = raw × 0.5 − 10000`, offset calibrated against Apollo 11 and
+Chang'e 4 LOLA elevations). Any (lat, lon) the player zooms to can be
+queried for real elevation, relief, and slope — `terrain_report.py`
+renders amplified view / elevation map / slope map per level with the
+numbers (`output/site_synthesis_terrain.png`). Copernicus checks out:
+floor −3.5 km, relief 4,081 m, rim wall slopes to 33.5°.
+
+Data provenance: the container's egress cannot reach NASA/USGS hosts,
+so `fetch-dem.yml` downloads the DEM on a GitHub Actions runner
+(full internet) and commits it to the branch — triggered by pushing a
+change to `data/lola/REQUEST`. DEM caveat: at 16 px/deg the Local and
+Close windows only span 16 and 5 DEM pixels — real but coarse; the
+118 m/px LDEM would need the same runner trick with tiling (8 GB).
+
 ## Open questions
 
 - Palette warmth/hue — currently blue-violet shadows; could shift
