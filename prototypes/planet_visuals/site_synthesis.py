@@ -148,29 +148,41 @@ def _texture_modulate(macro_sharp: np.ndarray,
     density = np.clip((macro_sharp - 0.22) / 0.45, 0.15, 1.0)
     roughness = 0.45 + 0.55 * density
 
-    height = np.zeros(shape, dtype=np.float32)
+    # RELIEF FROM THE REAL FORMS (anti-matte): the upsampled source has
+    # flat, washed-out lighting, so a pure albedo modulation inherits
+    # that matte look. Treat the macro luminance as a height proxy
+    # (bright = raised, dark = sunk) and RELIGHT it with a directional
+    # sun — the big shapes come back with crisp lit/shadow sides like
+    # the native-resolution real imagery has.
+    form_relief = (gaussian_blur(macro_sharp, 2.5) - 0.5) * 0.13
+
+    height = form_relief.astype(np.float32)
     # Regolith grain — pink noise matches natural rough-surface
     # statistics. Quiet: it is texture, not terrain.
     height += 0.004 * amp * pink_noise(shape, rng) * roughness
     # Gentle undulation so flat stretches are not billiard-table flat.
     height += 0.02 * amp * (fbm(shape, 3, 64, 0.5, rng) - 0.5) * roughness
 
-    # Shade the texture relief. Normalised so flat ground multiplies
-    # by 1.0 — the base brightness passes through untouched where we
-    # added nothing; the modulation stays mostly within +/-25%.
+    # Shade the combined relief. Normalised so flat ground multiplies
+    # by 1.0; the directional term now carries much more of the image.
     z = 110.0
     hs = hillshade(height, z_factor=z, smooth_px=0.6)
     flat_ref = float(hillshade(np.zeros(shape, dtype=np.float32),
                                z_factor=z, smooth_px=0.0)[0, 0])
-    rel = np.clip(hs / max(flat_ref, 1e-4), 0.0, 1.5)
+    rel = np.clip(hs / max(flat_ref, 1e-4), 0.0, 1.6)
     light = cast_shadows(height, z_factor=z,
-                         max_distance_px=18.0, step_px=1.5)
+                         max_distance_px=22.0, step_px=1.5)
 
-    lum = macro_sharp * (0.75 + 0.25 * rel) * (0.35 + 0.65 * light)
+    lum = macro_sharp * (0.62 + 0.38 * rel) * (0.45 + 0.55 * light)
 
     # Faint fine albedo speckle (dust, sub-pixel boulders).
     speckle = fbm(shape, 2, 4, 0.5, rng)
     lum *= 1.0 + 0.04 * min(amp, 1.6) * (speckle - 0.5) * roughness
+
+    # Gentle S-curve: deepen shadows, keep highlights — kills the
+    # residual haze without clipping.
+    lum = np.clip(lum, 0.0, 1.0)
+    lum = lum * lum * (3.0 - 2.0 * lum) * 0.20 + lum * 0.80
 
     return np.clip(lum, 0.0, 1.0).astype(np.float32)
 

@@ -130,6 +130,14 @@ Tuning/porting lessons:
 - Grain amplitude must GROW with depth (`amp = 1 + 0.7·level`) — the
   macro gets smoother each level, and constant grain reads as fog by
   the second level.
+- **Anti-matte relighting**: pure albedo modulation inherits the flat
+  washed-out lighting of the upsampled source ("matte", user call).
+  Fix: treat the smoothed macro as a height proxy (bright = raised)
+  and relight it directionally along with the grain
+  (`form_relief = (blur(macro,2.5) − 0.5) × 0.13`), plus a gentle
+  S-curve. The first attempt at ×0.30 with heavy cast shadows swung
+  to harsh chiaroscuro — the working range is narrow; land between
+  0.62+0.38·relief and 0.45+0.55·light.
 - PIL `Image.fromarray(mode="F")` reads the raw buffer as contiguous
   float32; feeding it a float64 array (or a strided slice view)
   produces silently binarized garbage. Cast + `ascontiguousarray` at
