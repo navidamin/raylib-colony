@@ -293,5 +293,6 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | Module | Design Directory | Context Trigger |
 |--------|-----------------|-----------------|
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
+| Excavation | `docs/design/excavation/README.md` | Working on excavator handling or `ProcessExtraction()` Stage 1 in `unit.cpp`, the excavation panel in `rendermanager.cpp`, or excavation input handling |
 
 See `docs/design/README.md` for the full planning method explanation.

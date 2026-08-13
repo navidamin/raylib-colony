@@ -49,7 +49,7 @@ The prospecting module uses a **Core Samples** approach (Design 7) enhanced with
 ### Related Module Designs
 | Module | Dependency | Status |
 |--------|-----------|--------|
-| Excavation | Receives `surveyProgress` + `markedSites` from prospecting | Not yet in design/ |
+| **Excavation** | Receives `surveyProgress` + `markedSites` from prospecting; proposed Design B also consumes per-sub-cell confidence for grade control | [`docs/design/excavation/`](../excavation/README.md) — DRAFT |
 | Beneficiation | Downstream of excavation, no direct prospecting dependency | Not yet in design/ |
 | Resource Manager | Provides ground truth resource data that prospecting reveals | Existing code in `src/ResourceManager/` |
 | **Research** | Funds AI automation upgrades via SCIENCE tokens (Section 11b) | [`docs/design/research/`](../research/README.md) — STUB |
