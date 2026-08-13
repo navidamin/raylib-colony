@@ -70,3 +70,12 @@ screenshot instead of running interactively (used for CI/container checks):
 ```bash
 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ./build/src/colony_playtest --shot boot.png
 ```
+
+## Troubleshooting
+
+- **Deploy run failed with "socket hang up" / 503 in Setup Emscripten** —
+  transient GitHub Actions infrastructure; re-run the workflow (or push any
+  change under `src/` or `tools/playtest/`).
+- **Phone still shows an old/cropped page** — GitHub Pages caches HTML for
+  10 minutes and mobile browsers cache hard; append a query string
+  (`/playtest/?v=3`) to force a fresh fetch.
