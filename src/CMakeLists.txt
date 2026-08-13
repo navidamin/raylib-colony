@@ -23,6 +23,7 @@ set(COLONY_CORE_SOURCES
     Prospecting/prospecting_system.cpp
     Excavation/site_view.cpp
     Excavation/estimate_engine.cpp
+    Excavation/dig_engine.cpp
     Excavation/excavation_system.cpp
     transport_types.cpp
 )
@@ -204,6 +205,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Prospecting/sample_tray.cpp
         Excavation/site_view.cpp
         Excavation/estimate_engine.cpp
+        Excavation/dig_engine.cpp
     )
 
     set_target_properties(colony_test PROPERTIES
@@ -237,6 +239,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Prospecting/sample_tray.cpp
         Excavation/site_view.cpp
         Excavation/estimate_engine.cpp
+        Excavation/dig_engine.cpp
     )
 
     set_target_properties(colony_inspect PROPERTIES

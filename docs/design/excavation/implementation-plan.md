@@ -197,7 +197,7 @@ That is Rule 4's hindsight moment arriving on its own, with no nagging and no sp
 > under-reads. That is intended (Rule 1), but if too many rich spots under-read the early
 > game may feel uniformly poor rather than uncertain. Check in Phase 7.
 
-### Phase 3 — Dig engine, replacing the Stage 1 multiply chain
+### Phase 3 — Dig engine ✅ DONE
 The core, still with no new UI.
 
 - `Machine` struct + machine table in `excavation_constants.h` (**depth** reach, precision,
@@ -211,11 +211,44 @@ The core, still with no new UI.
 - Existing multipliers preserved: `opsModifier`, `directiveModifier`, tier multiplier,
   machine count — Operations and Directives keep working untouched
 
-**Done when:** output is within ~10% of current values on an average spot, and a precise
-machine on a surveyed spot measurably beats a sloppy one.
+**Done.** `dig_engine.{h,cpp}` plus the machine table, `DigSite` depletion state on the
+facade, and `ProcessExtraction()` Stage 1 replaced. **55 checks, 0 failures.**
 
-Because purity was dropped, **Phase 3 touches no file outside excavation** — the property
-Phases 1–2 already had, which the purity decision would have broken.
+Excavation now works **one spot** on the lattice with a chosen machine rather than skimming
+the whole parent cell evenly. Every previous modifier survives with its old meaning —
+operations efficiency, directives, module tier and survey gating are folded into a single
+`externalMultiplier` handed to the engine, so Operations and Directives keep working
+untouched. Stages 2 and 3 are unchanged.
+
+**The two mechanics that carry the design:**
+
+*Precision* — a machine below 1.0 blends the aimed spot with its in-reach neighbours. That
+is what makes a blunt machine throw away a survey, and what makes it the *right* tool on
+unsurveyed ground, where covering ground beats aiming.
+
+*Selectivity* — how much surrounding waste the machine leaves in the ground. It shows up in
+the composition handed onward, never as a purity number. Pushing the pace costs selectivity,
+so the pace dial trades tonnage against mix.
+
+**Machine table** — six machines, none a strict upgrade on another. The pair that matters is
+Bucket Wheel and Bucket Drum, both arriving at tier 1 as opposites: 1.8 pace / 0.45 precision
+/ 0.10 selectivity against 1.0 / 0.90 / 0.60.
+
+**Two bugs found by the tests, not by reading:**
+
+1. *Zeno's excavator.* A nearly-empty spot yielded proportionally less, so depletion
+   approached zero and a spot **never actually ran out** — 100,000 ticks and still going.
+   Fixed with a floor on the taper (`EXC_MIN_TAPER`). A spot now exhausts after ~65 ticks at
+   full pace, about three game days.
+2. Depletion rate was 4× too slow to be observable; recalibrated against the real spot
+   quantities `colony_inspect` reports.
+
+**Also changed:** wear now follows work done rather than the clock, and the PRIORITIZE
+directive steers what excavation *aims at* rather than applying a flat +40% to one resource
+— more direct, and it uses the machinery that now exists.
+
+A fallback keeps the old flat per-cell skim for units without an excavation or prospecting
+system, so harnesses and any older path still produce.
 
 ### Phase 4 — Write-back to prospecting *(Rule 5)*
 The one change that reaches into another module.

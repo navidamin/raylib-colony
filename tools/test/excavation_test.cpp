@@ -23,6 +23,7 @@
 #include "sample_tray.h"
 #include "site_view.h"
 #include "estimate_engine.h"
+#include "dig_engine.h"
 #include "game_constants.h"
 
 #include <cstdio>
@@ -275,6 +276,188 @@ static void TestReachRings()
     Check(t3.CanWorkDepth(DepthLayer::DEEP), "tier 3 can work the deep layer");
 }
 
+static void TestPrecisionBlendsNeighbours()
+{
+    printf("Precision -- a blunt machine averages the spot with its neighbours\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SiteView site(3);
+    DigEngine engine;
+
+    // Find a spot whose composition genuinely differs from its neighbours,
+    // otherwise blending is unobservable and the test proves nothing.
+    int tx = -1, ty = -1;
+    float biggestGap = 0.0f;
+    for (int y = 1; y < 7; y++)
+    {
+        for (int x = 1; x < 7; x++)
+        {
+            auto exact = engine.BlendedComposition(grid, site, x, y, DepthLayer::SURFACE, 1.0f);
+            auto blunt = engine.BlendedComposition(grid, site, x, y, DepthLayer::SURFACE, 0.45f);
+            float gap = std::fabs(exact[ResourceType::C] - blunt[ResourceType::C]);
+            if (gap > biggestGap) { biggestGap = gap; tx = x; ty = y; }
+        }
+    }
+
+    Check(tx >= 0 && biggestGap > 1e-4f, "blending visibly changes the mix somewhere");
+
+    auto exact = engine.BlendedComposition(grid, site, tx, ty, DepthLayer::SURFACE, 1.0f);
+    auto blunt = engine.BlendedComposition(grid, site, tx, ty, DepthLayer::SURFACE, 0.45f);
+
+    float exactSum = 0.0f, bluntSum = 0.0f;
+    for (const auto& [t, f] : exact) exactSum += f;
+    for (const auto& [t, f] : blunt) bluntSum += f;
+
+    Check(Near(exactSum, 1.0f, 1e-2f), "a precise machine still reads as fractions");
+    Check(Near(bluntSum, 1.0f, 1e-2f), "blending conserves the fraction total");
+
+    // Precision 1.0 must be exactly the ground truth -- no drift.
+    auto truth = grid.GetGroundTruth(tx, ty, DepthLayer::SURFACE);
+    bool matchesTruth = true;
+    for (const auto& [t, f] : truth)
+    {
+        if (!Near(exact[t], f)) matchesTruth = false;
+    }
+    Check(matchesTruth, "full precision digs exactly the aimed spot");
+}
+
+static void TestSelectivityCleansTheMix()
+{
+    printf("Selectivity -- a choosy machine hands on a better mix, less of it\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SiteView site(3);
+    DigSite worked;
+    DigEngine engine;
+
+    const ResourceType target = ResourceType::C;
+    const int x = 4, y = 4;
+
+    // Auger is very selective and slow; wheel is indiscriminate and fast.
+    DigResult choosy = engine.Dig(grid, site, worked, x, y, DepthLayer::SURFACE, target,
+                                  MachineId::AUGER, 1, 0.6f, 0.0f, 1.0f, 1.0f);
+    DigResult blunt = engine.Dig(grid, site, worked, x, y, DepthLayer::SURFACE, target,
+                                 MachineId::BUCKET_WHEEL, 1, 1.8f, 0.0f, 1.0f, 1.0f);
+
+    float choosyShare = choosy.totalMass > 0.0f ? choosy.targetMass / choosy.totalMass : 0.0f;
+    float bluntShare = blunt.totalMass > 0.0f ? blunt.targetMass / blunt.totalMass : 0.0f;
+
+    Check(choosy.totalMass > 0.0f && blunt.totalMass > 0.0f, "both machines dig something");
+    Check(choosyShare > bluntShare, "the choosy machine hands on a cleaner mix");
+    Check(blunt.totalMass > choosy.totalMass, "the blunt machine moves more total mass");
+
+    // Pace should cost selectivity: the same machine, pushed, gets dirtier.
+    DigResult gentle = engine.Dig(grid, site, worked, x, y, DepthLayer::SURFACE, target,
+                                  MachineId::BUCKET_DRUM, 1, 0.2f, 0.0f, 1.0f, 1.0f);
+    DigResult hard = engine.Dig(grid, site, worked, x, y, DepthLayer::SURFACE, target,
+                                MachineId::BUCKET_DRUM, 1, 1.0f, 0.0f, 1.0f, 1.0f);
+
+    float gentleShare = gentle.totalMass > 0.0f ? gentle.targetMass / gentle.totalMass : 0.0f;
+    float hardShare = hard.totalMass > 0.0f ? hard.targetMass / hard.totalMass : 0.0f;
+
+    Check(gentleShare > hardShare, "pushing the pace costs selectivity");
+    Check(hard.targetMass > gentle.targetMass, "pushing the pace still yields more target");
+}
+
+static void TestPowerCapThrottles()
+{
+    printf("The power cap throttles pace rather than being ignored\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SiteView site(3);
+    DigSite worked;
+    DigEngine engine;
+
+    DigResult uncapped = engine.Dig(grid, site, worked, 4, 4, DepthLayer::SURFACE,
+                                    ResourceType::C, MachineId::BUCKET_DRUM, 1,
+                                    1.0f, 0.0f, 1.0f, 1.0f);
+    DigResult capped = engine.Dig(grid, site, worked, 4, 4, DepthLayer::SURFACE,
+                                  ResourceType::C, MachineId::BUCKET_DRUM, 1,
+                                  1.0f, 1.4f, 1.0f, 1.0f);
+
+    Check(!uncapped.throttledByPower, "an uncapped dig runs at the set pace");
+    Check(capped.throttledByPower, "a tight cap reports throttling");
+    Check(capped.effectivePace < uncapped.effectivePace, "the cap lowers the pace");
+    Check(capped.totalMass < uncapped.totalMass, "throttling reduces output");
+    Check(capped.powerDraw <= 1.4f + 1e-3f, "draw stays within the cap");
+}
+
+static void TestReachAndDepthAreEnforced()
+{
+    printf("A dig outside reach or beyond the machine produces nothing\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    DigSite worked;
+    DigEngine engine;
+
+    SiteView t0(0);   // reaches only the central 2x2, surface only
+    DigResult outside = engine.Dig(grid, t0, worked, 0, 0, DepthLayer::SURFACE,
+                                   ResourceType::C, MachineId::SCOOP, 1,
+                                   1.0f, 0.0f, 1.0f, 1.0f);
+    Check(outside.totalMass == 0.0f, "a spot outside reach yields nothing");
+
+    DigResult inside = engine.Dig(grid, t0, worked, 4, 4, DepthLayer::SURFACE,
+                                  ResourceType::C, MachineId::SCOOP, 1,
+                                  1.0f, 0.0f, 1.0f, 1.0f);
+    Check(inside.totalMass > 0.0f, "a spot inside reach yields material");
+
+    SiteView t3(3);
+    DigResult tooDeep = engine.Dig(grid, t3, worked, 4, 4, DepthLayer::DEEP,
+                                   ResourceType::C, MachineId::SCOOP, 1,
+                                   1.0f, 0.0f, 1.0f, 1.0f);
+    Check(tooDeep.totalMass == 0.0f, "a surface machine cannot reach the deep layer");
+
+    DigResult hammer = engine.Dig(grid, t3, worked, 4, 4, DepthLayer::DEEP,
+                                  ResourceType::C, MachineId::PERCUSSIVE, 1,
+                                  1.0f, 0.0f, 1.0f, 1.0f);
+    Check(hammer.totalMass > 0.0f, "the hammer reaches the deep layer");
+}
+
+static void TestSpotsDeplete()
+{
+    printf("Spots deplete and eventually run out\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SiteView site(3);
+    DigSite worked;
+    DigEngine engine;
+
+    Check(Near(worked.Remaining(4, 4, DepthLayer::SURFACE), 1.0f), "a fresh spot is untouched");
+
+    int ticks = 0;
+    while (!worked.IsExhausted(4, 4, DepthLayer::SURFACE) && ticks < 100000)
+    {
+        DigResult r = engine.Dig(grid, site, worked, 4, 4, DepthLayer::SURFACE,
+                                 ResourceType::C, MachineId::BUCKET_WHEEL, 1,
+                                 1.8f, 0.0f, 1.0f, 1.0f);
+        worked.Take(4, 4, DepthLayer::SURFACE, r.depletionFraction);
+        ticks++;
+    }
+
+    Check(worked.IsExhausted(4, 4, DepthLayer::SURFACE), "a worked spot runs out");
+    Check(ticks > 20 && ticks < 200, "a spot lasts a sensible number of ticks");
+    printf("        (spot exhausted after %d ticks at full pace)\n", ticks);
+
+    DigResult after = engine.Dig(grid, site, worked, 4, 4, DepthLayer::SURFACE,
+                                 ResourceType::C, MachineId::BUCKET_WHEEL, 1,
+                                 1.8f, 0.0f, 1.0f, 1.0f);
+    Check(after.totalMass == 0.0f, "an exhausted spot yields nothing");
+    Check(after.spotExhausted, "an exhausted spot says so");
+
+    Check(Near(worked.Remaining(3, 3, DepthLayer::SURFACE), 1.0f),
+          "digging one spot does not deplete its neighbour");
+}
+
 int main()
 {
     printf("\n=== excavation tests ===\n\n");
@@ -285,6 +468,11 @@ int main()
     TestConfidenceClosesTheRange();
     TestYieldUsesQuantityTimesComposition();
     TestReachRings();
+    TestPrecisionBlendsNeighbours();
+    TestSelectivityCleansTheMix();
+    TestPowerCapThrottles();
+    TestReachAndDepthAreEnforced();
+    TestSpotsDeplete();
 
     printf("\n%d checks, %d failures\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

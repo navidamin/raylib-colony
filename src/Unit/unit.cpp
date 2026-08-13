@@ -1343,37 +1343,76 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     };
 
     // --- Stage 1: Excavation (raw regolith) ---
+    //
+    // The excavation module works ONE spot on prospecting's 8x8 lattice with a
+    // chosen machine, rather than skimming the whole parent cell evenly. What
+    // comes up is a composition, so how dirty the dig was needs no separate
+    // number -- a blunt or hurried machine simply brings more of everything
+    // that is not the target. See docs/design/excavation/excavation-design.md.
+    //
+    // Every modifier that applied before still applies, with its old meaning:
+    // operations efficiency, directives, module tier and survey gating are all
+    // folded into one multiplier handed to the engine.
     std::map<ResourceType, float> rawRegolith;
 
-    for (const auto& [resourceType, abundance] : availableResources)
+    int activeExcavators = 0;
+    for (const auto& exc : excavators)
     {
-        float baseRate = extractionRates.count(resourceType) ?
-            extractionRates[resourceType] : 0.01f;
+        if (exc.wear < 1.0f) activeExcavators++;
+    }
+    activeExcavators = std::max(1, activeExcavators);
 
-        // Apply directive priority boost
-        float priorityBoost = 1.0f;
-        if (activeDirective.type == DirectiveType::PRIORITIZE &&
-            resourceType == prioritizedResource)
+    if (excavationSystem && prospectingSystem)
+    {
+        // The prioritise directive steers what excavation aims at, which is
+        // more direct than the old flat +40% on one resource.
+        if (activeDirective.type == DirectiveType::PRIORITIZE)
         {
-            priorityBoost = 1.4f;  // +40% for prioritized resource
+            excavationSystem->targetResource = prioritizedResource;
         }
 
-        float extractionAmount = baseRate * efficiency * tierMultiplier *
-                                  abundance * opsModifier * directiveModifier *
-                                  scanMultiplier * priorityBoost * deltaTime;
+        float externalMultiplier = efficiency * tierMultiplier * opsModifier *
+                                   directiveModifier * scanMultiplier;
 
-        // Scale by number of active excavators
-        int activeExcavators = 0;
-        for (const auto& exc : excavators)
+        DigResult dig = excavationSystem->Dig(*prospectingSystem, activeExcavators,
+                                              externalMultiplier, deltaTime);
+
+        for (const auto& [resourceType, amount] : dig.yield)
         {
-            if (exc.wear < 1.0f) activeExcavators++;
+            resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, amount);
+            rawRegolith[resourceType] = amount;
         }
-        extractionAmount *= std::max(1, activeExcavators);
 
-        // Deplete from planet
-        resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, extractionAmount);
+        // Wear now follows the work done rather than the clock.
+        for (auto& exc : excavators)
+        {
+            if (exc.wear < 1.0f) exc.wear += dig.wearDelta;
+        }
+    }
+    else
+    {
+        // No excavation or prospecting system (older saves, harnesses): fall
+        // back to the flat per-cell skim so the unit still produces.
+        for (const auto& [resourceType, abundance] : availableResources)
+        {
+            float baseRate = extractionRates.count(resourceType) ?
+                extractionRates[resourceType] : 0.01f;
 
-        rawRegolith[resourceType] = extractionAmount;
+            float priorityBoost = 1.0f;
+            if (activeDirective.type == DirectiveType::PRIORITIZE &&
+                resourceType == prioritizedResource)
+            {
+                priorityBoost = 1.4f;
+            }
+
+            float extractionAmount = baseRate * efficiency * tierMultiplier *
+                                      abundance * opsModifier * directiveModifier *
+                                      scanMultiplier * priorityBoost * deltaTime *
+                                      activeExcavators;
+
+            resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, extractionAmount);
+            rawRegolith[resourceType] = extractionAmount;
+        }
     }
 
     // --- Stage 2: Beneficiation (separation chain) ---
