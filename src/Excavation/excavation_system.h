@@ -1,6 +1,7 @@
 #pragma once
 
 #include "site_view.h"
+#include "estimate_engine.h"
 #include "resource_types.h"
 
 class ProspectingSystem;
@@ -25,8 +26,14 @@ public:
     SiteView&       GetSite();
     const SiteView& GetSite() const;
 
+    const EstimateEngine& GetEstimator() const;
+
     // Convenience for the currently selected spot.
     SpotView DescribeSelected(const ProspectingSystem& prospecting) const;
+
+    // What the player is TOLD is in the selected spot, as opposed to what is
+    // actually there. The panel reads this; the dig engine reads the truth.
+    SpotEstimate EstimateSelected(const ProspectingSystem& prospecting) const;
 
     // Move the selection to the best spot this tier can reach, by true value.
     // Used to give a fresh unit a sensible starting spot rather than (0,0),
@@ -45,4 +52,5 @@ public:
 private:
     int tier;
     SiteView site;
+    EstimateEngine estimator;
 };

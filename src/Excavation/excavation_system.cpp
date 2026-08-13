@@ -40,6 +40,18 @@ const SiteView& ExcavationSystem::GetSite() const
     return site;
 }
 
+const EstimateEngine& ExcavationSystem::GetEstimator() const
+{
+    return estimator;
+}
+
+SpotEstimate ExcavationSystem::EstimateSelected(const ProspectingSystem& prospecting) const
+{
+    return estimator.Estimate(prospecting.GetGrid(), prospecting.GetTray(), site,
+                              selectedSpotX, selectedSpotY,
+                              selectedDepth, targetResource);
+}
+
 SpotView ExcavationSystem::DescribeSelected(const ProspectingSystem& prospecting) const
 {
     return site.Describe(prospecting.GetGrid(), prospecting.GetTray(),

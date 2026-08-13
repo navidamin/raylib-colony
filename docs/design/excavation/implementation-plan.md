@@ -152,7 +152,7 @@ spot also moves between depth layers — SURFACE peaks at (6,4), MID at (1,1) �
 "depth re-rolls the clusters, you cannot extrapolate downward" claim, observed rather than
 assumed.
 
-### Phase 2 — Estimate engine *(Rules 1 and 2)*
+### Phase 2 — Estimate engine ✅ DONE
 The gamble, with nothing depending on it yet.
 
 - `EstimateEngine::GetEstimate(spot, depth, target)` → `{ low, high, shown }`
@@ -160,8 +160,42 @@ The gamble, with nothing depending on it yet.
   reuse prospecting's `HashSeed` pattern. **Never `rand()`, never per-tick.**
 - `spread = maxSpread × (1 − confidence(spot, depth))`, confidence read per depth
 
-**Done when:** a unit test asserts the same spot returns an identical estimate across
-1,000 calls and across a save/load, and that spread → 0 as confidence → 1.
+**Done.** `estimate_engine.{h,cpp}` plus a `colony_test` target — the repo had no test
+framework, so it is a plain executable with a `Check()` helper that exits non-zero on
+failure. **31 checks, 0 failures.**
+
+The estimate is built so the **range always contains the truth** — the instrument is
+imprecise, never lying. What moves is where inside the range the point estimate sits:
+
+```
+halfWidth = truth × MAX_SPREAD × (1 − confidence)
+shown     = truth + stableOffset × halfWidth      // |stableOffset| ≤ 1
+low, high = shown ∓ halfWidth
+```
+
+`stableOffset` is an FNV-1a hash of *(parent cell, sub-cell, depth, resource)*, matching the
+pattern `ProspectingGrid::HashSeed` already uses. Never `rand()`, never per-tick.
+
+There is no save system yet, so the meaningful equivalent of a save/load test is rebuilding
+the world from the same seed and re-reading all 64 spots — which the test does.
+
+**What the dump showed** — the best reachable spot at cell (5,5) truly holds **2219**:
+
+| Confidence | Player reads | Range |
+|-----------|-------------|-------|
+| 0% | **937** | 0 – 2268 |
+| 25% | 1257 | 259 – 2256 |
+| 50% | 1578 | 912 – 2243 |
+| 75% | 1898 | 1566 – 2231 |
+| 100% | **2219** | 2219 – 2219 |
+
+Better than designed: **the best spot on the lattice reads as a poor one when unsurveyed.**
+A blind player doesn't just get a fuzzy number — they walk straight past the best ground.
+That is Rule 4's hindsight moment arriving on its own, with no nagging and no special-casing.
+
+> Worth watching in balance: the bias is stable per spot, so a *particular* rich spot always
+> under-reads. That is intended (Rule 1), but if too many rich spots under-read the early
+> game may feel uniformly poor rather than uncertain. Check in Phase 7.
 
 ### Phase 3 — Dig engine, replacing the Stage 1 multiply chain
 The core, still with no new UI.

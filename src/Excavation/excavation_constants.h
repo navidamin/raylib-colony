@@ -44,6 +44,21 @@ constexpr float EXC_SWEEP_CONFIDENCE_WEIGHT = 0.6f;
 constexpr float EXC_SAMPLE_CONFIDENCE_WEIGHT = 1.0f;
 
 // ---------------------------------------------------------------------------
+// Estimates (the gamble)
+// ---------------------------------------------------------------------------
+// How wrong a completely unsurveyed reading can be, as a fraction of the true
+// value. At confidence 0 a spot reads anywhere in truth x [0.4, 1.6]; at
+// confidence 1 it reads exactly true. The bias within that band is a stable
+// hash of the spot's coordinates, never a per-tick roll -- see
+// EstimateEngine, Rule 1.
+constexpr float EXC_MAX_ESTIMATE_SPREAD = 0.6f;
+
+// Confidence at which the range is treated as closed and the spot reads as
+// known. Slightly below 1.0 so a thoroughly surveyed spot does not sit at
+// "almost certain" forever because of floating-point dust.
+constexpr float EXC_CERTAIN_CONFIDENCE = 0.95f;
+
+// ---------------------------------------------------------------------------
 // Depth
 // ---------------------------------------------------------------------------
 // Deepest layer index each excavation tier can work. Machines narrow this

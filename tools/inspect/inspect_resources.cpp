@@ -18,6 +18,7 @@
 #include "prospecting_grid.h"
 #include "sample_tray.h"
 #include "site_view.h"
+#include "estimate_engine.h"
 #include "game_constants.h"
 
 #include <cstdio>
@@ -188,6 +189,21 @@ static void DumpExcavationView(ResourceManager& rm, int gx, int gy,
                    bx, by, v.quantity, ResourceTypeToString(target),
                    v.quantity > 0.0f ? v.targetYield / v.quantity : 0.0f,
                    v.targetYield, v.confidence);
+
+            // What the player would be TOLD about that spot at each level of
+            // knowledge -- the gamble, in the numbers they actually read.
+            EstimateEngine estimator;
+            printf("    what the player reads: ");
+            for (float c = 0.0f; c <= 1.001f; c += 0.25f)
+            {
+                SpotEstimate e = estimator.EstimateAt(v.targetYield, c,
+                                                      grid.GetParentGridX(),
+                                                      grid.GetParentGridY(),
+                                                      bx, by, depth, target);
+                printf("[conf %.0f%%: %.0f (%.0f-%.0f)] ",
+                       c * 100.0f, e.shown, e.low, e.high);
+            }
+            printf("\n");
         }
     }
 }

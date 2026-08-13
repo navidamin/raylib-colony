@@ -22,6 +22,7 @@ set(COLONY_CORE_SOURCES
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
     Excavation/site_view.cpp
+    Excavation/estimate_engine.cpp
     Excavation/excavation_system.cpp
     transport_types.cpp
 )
@@ -184,6 +185,41 @@ if(APPLE)
 endif()
 
 # ---------------------------------------------------------------------------
+# colony_test: invariant checks for the excavation module
+#
+# No test framework in this repo -- a plain executable with a Check() helper
+# that exits non-zero on failure. Covers the design rules that are easy to
+# break silently: stable estimates, confidence closing the range, and yield
+# being quantity x composition rather than either alone.
+# Not built for Web.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_test)
+
+    target_sources(colony_test PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/test/excavation_test.cpp"
+        ResourceManager/resource_manager.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+        Excavation/site_view.cpp
+        Excavation/estimate_engine.cpp
+    )
+
+    set_target_properties(colony_test PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+
+    target_include_directories(colony_test PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_test raylib tomlplusplus::tomlplusplus)
+
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(colony_test m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # colony_inspect: terminal dump of generated game data
 #
 # Prints real ResourceManager / ProspectingGrid numbers so value bugs can be
@@ -200,6 +236,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Prospecting/prospecting_types.cpp
         Prospecting/sample_tray.cpp
         Excavation/site_view.cpp
+        Excavation/estimate_engine.cpp
     )
 
     set_target_properties(colony_inspect PROPERTIES
