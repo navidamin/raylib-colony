@@ -119,7 +119,7 @@ Reproduce with `docs/design/excavation/subcell_distribution_sim.py`.
 
 Seven phases. Each is independently verifiable; the game stays playable throughout.
 
-### Phase 1 — Read-only adapter *(no behaviour change)*
+### Phase 1 — Read-only adapter ✅ DONE
 Prove excavation can see prospecting's grid before changing anything.
 
 - `ExcavationSystem` facade, owned by `Unit`, created when the EXCAVATION module exists
@@ -128,8 +128,29 @@ Prove excavation can see prospecting's grid before changing anything.
 - **Reach, using the excavation module's own tier** — `IsSubCellInReach(x, y, excavationTier)`
 - `tools/inspect` dump of the grid as excavation sees it
 
-**Done when:** the inspect dump shows plausible per-spot yields for a chosen target, and
-`ProcessExtraction()` still behaves exactly as before.
+**Done.** `src/Excavation/` has `excavation_constants.h`, `excavation_types.h`,
+`site_view.{h,cpp}` (engine) and `excavation_system.{h,cpp}` (facade); `Unit` owns the
+facade and keeps its tier in sync; `colony_inspect` dumps the lattice as excavation sees it.
+`ProcessExtraction()` is untouched.
+
+`SiteView` takes the **grid and tray**, not `ProspectingSystem` — an engine should depend on
+data, not on another module's facade. That is also what lets `colony_inspect` drive it
+without linking the whole prospecting chain.
+
+**What the dump showed** (parent cell 5,5, target C — the cell's dominant resource):
+
+| Tier | Reach | Spots | Mean | Best | Best vs mean | Reach holds |
+|------|-------|-------|------|------|--------------|-------------|
+| T0 | 2×2 | 4 | 551 | 854 | +55% | **38%** of the lattice's best |
+| T1 | 4×4 | 16 | 834 | 1935 | +132% | 87% |
+| T2 | 6×6 | 36 | 969 | 2219 | +129% | 100% |
+| T3 | 8×8 | 64 | 968 | 2219 | +129% | 100% |
+
+Close to the simulation (+33% → +130%), and it confirms the design's central story from real
+data: **at tier 0 you can only reach 38% of the best ground on your own lattice.** The best
+spot also moves between depth layers — SURFACE peaks at (6,4), MID at (1,1) — which is the
+"depth re-rolls the clusters, you cannot extrapolate downward" claim, observed rather than
+assumed.
 
 ### Phase 2 — Estimate engine *(Rules 1 and 2)*
 The gamble, with nothing depending on it yet.
@@ -247,15 +268,26 @@ Two things worth asserting in code rather than by eye:
 
 ---
 
-## 7. Still Open Before Phase 3
+## 7. Decisions (2026-08-13)
 
-From [excavation-design.md §9](excavation-design.md#9-open-questions), these change the code
-rather than the wording:
+| Question | Decision |
+|----------|----------|
+| **Purity** | Dirty ore all arrives, but **beneficiation burns more power** separating it. Makes the pace slider an energy decision and ties excavation to Energy and Beneficiation. Needs a small beneficiation-side change in Phase 3 |
+| **Machines** | **All stack on one spot** — more machines means faster, same place. One selection, one readout, small UI |
+| **Excavation reach** | **Its own tier**, via `IsSubCellInReach(x, y, excavationTier)`. Implemented in Phase 1 |
+| **Power cap** | Draws on the **sect's shared energy pool** — energy is already a sect resource |
+| **Result reveal** | **Gradually as you dig**, not in a lump at the end |
+| **Constants** | Calibrated against dumped data in Phase 7, not guessed now |
 
-- `[?]` Does purity change **what** beneficiation receives, or **how much power** it burns to separate it?
-- `[?]` Does the power cap draw on the sect's shared pool, or is it a local budget?
-- `[?]` Can several machines work different spots at once, or do they stack on one spot? Stacking is simpler; splitting needs more UI and more facade state.
-- `[?]` Is a disappointing result revealed gradually as you dig, or all at once at the end?
-- `[?]` **Does excavation reach differ from prospecting reach?** The design says yes, and it's where the gamble lives — but prospecting refuses out-of-reach sweeps and drills, so both modules must agree reach is per-module. Confirm with whoever owns the prospecting branch before Phase 1.
+Still needs a word with whoever owns the prospecting branch: prospecting refuses
+out-of-reach sweeps and drills, so both modules must agree that **reach is per-module**.
+Nothing built so far depends on their answer — excavation only *reads*.
+
+---
+
+## 8. Still Open Before Phase 3
+
+- `[?]` Beneficiation's power draw needs a hook on its side to receive the purity figure — small, but it is a second module's file
+- `[?]` What is a spot's total yield before it exhausts? Sets how often the player moves, and needs calibrating against the real quantities (`colony_inspect` shows 760–44,000 per spot depending on the cell)
 
 The first three are needed **before Phase 3**. The fourth can wait for Phase 5.

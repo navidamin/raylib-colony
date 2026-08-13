@@ -42,6 +42,19 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
         }
         prospectingSystem = std::make_unique<ProspectingSystem>(
             prosTier, gx, gy, resourceManager);
+
+        // Excavation reads prospecting's lattice but keeps its OWN tier, so
+        // its reach can differ from what prospecting can survey.
+        int excTier = 0;
+        for (const auto& m : modules)
+        {
+            if (m.moduleType == "EXCAVATION")
+            {
+                excTier = m.tier;
+                break;
+            }
+        }
+        excavationSystem = std::make_unique<ExcavationSystem>(excTier);
     }
 }
 
@@ -930,6 +943,11 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
         CalculateConsumption();
     }
 
+    if (module.moduleType == "EXCAVATION" && excavationSystem)
+    {
+        excavationSystem->SetTier(module.tier);
+    }
+
     if (module.moduleType == "PROSPECTING" && prospectingSystem)
     {
         prospectingSystem->SetTier(module.tier);
@@ -1077,6 +1095,11 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
     if (activeModuleIndices.count(moduleIndex) > 0)
     {
         CalculateConsumption();
+    }
+
+    if (module.moduleType == "EXCAVATION" && excavationSystem)
+    {
+        excavationSystem->SetTier(module.tier);
     }
 
     if (module.moduleType == "PROSPECTING" && prospectingSystem)

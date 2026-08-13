@@ -21,6 +21,8 @@ set(COLONY_CORE_SOURCES
     Prospecting/lab_engine.cpp
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
+    Excavation/site_view.cpp
+    Excavation/excavation_system.cpp
     transport_types.cpp
 )
 
@@ -36,6 +38,7 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Excavation"
 )
 
 add_executable(colony_game)
@@ -195,6 +198,8 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         ResourceManager/resource_manager.cpp
         Prospecting/prospecting_grid.cpp
         Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+        Excavation/site_view.cpp
     )
 
     set_target_properties(colony_inspect PROPERTIES

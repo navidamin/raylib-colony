@@ -13,6 +13,7 @@
 #include "unit_ui.h"
 #include "separation_node.h"
 #include "prospecting_system.h"
+#include "excavation_system.h"
 #include <utility>
 #include <cmath>
 #include <memory>
@@ -117,6 +118,11 @@ public:
     const ProspectingSystem* GetProspectingSystem() const { return prospectingSystem.get(); }
     bool HasProspectingSystem() const { return prospectingSystem != nullptr; }
 
+    // Excavation system
+    ExcavationSystem* GetExcavationSystem() { return excavationSystem.get(); }
+    const ExcavationSystem* GetExcavationSystem() const { return excavationSystem.get(); }
+    bool HasExcavationSystem() const { return excavationSystem != nullptr; }
+
     // Excavation getters
     const std::vector<Excavator>& GetExcavators() const { return excavators; }
     void MoveExcavator(int excavatorId, int gridX, int gridY);
@@ -197,6 +203,7 @@ private:
 
     // Prospecting system (extraction units only)
     std::unique_ptr<ProspectingSystem> prospectingSystem;
+    std::unique_ptr<ExcavationSystem> excavationSystem;
 
     // Excavation data
     std::vector<Excavator> excavators;
