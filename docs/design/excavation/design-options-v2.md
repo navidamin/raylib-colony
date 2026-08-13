@@ -173,3 +173,68 @@ expensive visual work until it's clearly worth doing.
 - `[?]` Does the power cap draw from the sect's shared pool, or is it a local budget?
 - `[?]` Should a poor result be revealed as it happens, or only at the end of a work period? (Affects how the gamble feels — slow dread vs sharp surprise.)
 - `[?]` In C, is reach a smooth radius or a small number of steps (Near / Mid / Far)? Steps are friendlier and easier to explain.
+
+---
+
+## Part 6: Correction — Geography Is Vertical, Not Horizontal
+
+**Variant A's named patches and Variant C's reach slider are both invalid.** They assume
+horizontal ground that the player chooses among, and neither exists.
+
+### What the code actually says
+
+| Fact | Where |
+|------|-------|
+| `SECT_CORE_RADIUS = 50.0f`, so a grid cell is 100×100 world units | `game_constants.h:9` |
+| A sect sits at exactly **one** grid cell | `Sect::location`, `Unit::GetGridPosition()` floors sect position into one cell |
+| An extraction unit works exactly that one cell — `GetResourcesAtGridLayer(gridX, gridY, layer)` | `unit.cpp:1220` |
+| A cell holds **one** `LayeredResourceTile` — `std::map<ResourceType,float> layers[4]` | `resource_manager.h:42-45` |
+| Resource data exists from world generation; nothing about the cell is discovered at runtime | `GenerateResourceMap()` |
+| Reach *does* exist, but at colony scale — `jurisdiction_radius = SECT_CORE_RADIUS * 4` — and it holds sects, not dig sites | `colony.cpp:4, 205, 220` |
+
+Three consequences:
+
+1. **The area is fixed and pre-known.** The sect's cell is its working ground. There is no
+   reach to widen and nothing to expand into — that decision was already made when the
+   player placed the sect.
+2. **Names have no source.** Nothing in the code names sub-areas. Inventing 4–6 names inside
+   a single 100 m cell would be fabricated flavor over uniform data. Named places only make
+   sense at colony scale, where sects are genuinely distinct locations.
+3. **There is no horizontal variation to pick between.** One cell = one resource map per
+   depth layer. Every square metre of the cell is identical in the data.
+
+### What actually varies: depth
+
+The **only real spatial variation excavation has today is the four depth layers**, each with
+its own resource map. That is genuine, already generated, and free to use.
+
+It is also the better story scientifically — the science review already covers it
+([mechanics §8](excavation-mechanics.md#8-depth-dependent-geotechnics)): regolith density
+rises from ~1.30 to ~1.92 g/cm³ over the first metre, and cohesion rises with it. Deeper
+ground is richer, harder, slower, and more power-hungry. That is a real tradeoff with no
+invention required.
+
+**So "place" in this module means depth, not location.** The player isn't choosing *where*
+on the surface to dig — they're choosing *how deep*, and the pit goes down rather than out.
+
+### What survives
+
+| | Status |
+|---|---|
+| Shared core (target + pace + power cap, purity as output) | **Unaffected** |
+| Variant A — named patches | **Dead.** Becomes "pick a depth layer" |
+| Variant B — top-down zone map | **Reshaped.** Becomes a side-on cross-section through the four layers — cheaper to draw and more distinctive |
+| Variant C — reach slider | **Dead.** Reach isn't the player's to set |
+| Machinery (optional, AUTO default) | **Unaffected** — and stronger, since depth is exactly what separates the machines |
+| Gamble | **Survives with a caveat** — see below |
+
+### The open fork
+
+Uncertainty needs something unknown to be uncertain *about*. With one uniform cell, the only
+honest unknown is **how much is left in each layer** and **what the deeper layers hold before
+you've surveyed them** — which is thinner than the gamble described in Variants A and B.
+
+Restoring a richer gamble requires horizontal variation inside the cell, which means
+generating sub-cell resource data. The prospecting design already proposes a 5×5 sub-cell
+grid; if excavation shares that generator, one piece of work serves both modules. That is a
+real decision with real cost, and it is recorded as unresolved rather than assumed.
