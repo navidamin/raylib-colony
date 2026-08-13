@@ -97,7 +97,9 @@ async function main() {
             hasTouch: true,
         });
 
-        await page.goto('file://' + pagePath);
+        // ?debug=1 turns on the shell's geometry badge, so a failure report
+        // includes the live numbers.
+        await page.goto('file://' + pagePath + '?debug=1');
         // Outlast the last hostile stomp (2500ms) plus the shell's poll
         await page.waitForTimeout(4000);
 

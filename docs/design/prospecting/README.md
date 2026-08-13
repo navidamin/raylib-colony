@@ -6,13 +6,13 @@
 
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
-| 1 | [prospecting-master-design.md](prospecting-master-design.md) | Pipeline stages, multi-scale control, mechanics integration, gaps inventory | DRAFT |
-| 2 | [sampling-mechanics.md](sampling-mechanics.md) | Science-based technology review + Design 7 variants (7A-7E) | DRAFT |
-| 3 | [depth-sampling-design.md](depth-sampling-design.md) | Depth layers, resource distribution by depth, tier gating, default allocation | DRAFT |
-| 4 | [confidence-system.md](confidence-system.md) | Formal confidence metric: scale, composition, per-tool behavior | DRAFT |
-| 5 | [resource-distribution-model.md](resource-distribution-model.md) | Pathfinder correlations, geological coherence, clue chaining, map init | STUB |
-| 6 | [ai-default-mode.md](ai-default-mode.md) | AI delegation logic, default behavior, efficiency penalties, heuristics | DRAFT |
-| 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | DRAFT |
+| 1 | [prospecting-master-design.md](prospecting-master-design.md) | Pipeline stages, multi-scale control, mechanics integration, gaps inventory | IMPLEMENTED (except §11b AI tree) |
+| 2 | [sampling-mechanics.md](sampling-mechanics.md) | Science-based technology review + Design 7 variants (7A-7E) | IMPLEMENTED |
+| 3 | [depth-sampling-design.md](depth-sampling-design.md) | Depth layers, resource distribution by depth, tier gating, default allocation | IMPLEMENTED |
+| 4 | [confidence-system.md](confidence-system.md) | Formal confidence metric: scale, composition, per-tool behavior | IMPLEMENTED |
+| 5 | [resource-distribution-model.md](resource-distribution-model.md) | Pathfinder correlations, geological coherence, clue chaining, map init | STUB — undesigned, blocks pathfinder tips |
+| 6 | [ai-default-mode.md](ai-default-mode.md) | AI delegation logic, default behavior, efficiency penalties, heuristics | DESIGNED, NOT BUILT (Phase 7) |
+| 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | IMPLEMENTED (restyled 2026-08; no stratigraphy panel) |
 
 ## Design Summary
 
@@ -31,13 +31,22 @@ The prospecting module uses a **Core Samples** approach (Design 7) enhanced with
 ## Cross-References
 
 ### Source Code (current implementation)
+
+> The pre-2026-05 implementation (`PerformLIBSScan`, scan profiles, campaigns,
+> objectives, `ProspectingAI` in `unit.cpp`) was **deleted** in the rewrite.
+
 | File | Relevant Code |
 |------|--------------|
-| `src/Unit/unit.h` | ScanResult, ScanProfile, CampaignEntry, ProspectingObjective structs (lines 28-65, 144-158) |
-| `src/Unit/unit.cpp` | PerformLIBSScan (1792-2040), ProcessExtraction scanMultiplier (1314-1338), Calibration (2204-2239), Campaigns (2243-2307), Objectives (2311-2494) |
-| `src/Engine/rendermanager.cpp` | DrawProspectingPanel (1856-2493) |
-| `src/Engine/inputmanager.cpp` | Prospecting input handling |
-| `src/game_constants.h` | SURVEY_UNSCANNED_EFFICIENCY, SURVEY_SCANNED_BONUS, SURVEY_MARKED_SITE_BONUS |
+| `src/Prospecting/prospecting_system.h/.cpp` | `ProspectingSystem` facade — owns engines + UI state, exports `GetSurveyProgress()` / `IsMarkedSite()` |
+| `src/Prospecting/prospecting_grid.h/.cpp` | Sub-cell grid; `GetGroundTruth()` (composition fractions) vs `GetQuantity()` (absolute) |
+| `src/Prospecting/sweep_engine.h/.cpp` | GPR bands, signal, noise, calibration |
+| `src/Prospecting/sampling_engine.h/.cpp` | Drilling, sample creation, crystal visual assignment |
+| `src/Prospecting/lab_engine.h/.cpp` | Analysis tools, separations, preset pipelines |
+| `src/Prospecting/survey_progress_engine.h/.cpp` | Sweep/sample/testing → `surveyProgress` |
+| `src/Prospecting/sample_tray.h/.cpp` | Tray capacity and sample lifecycle |
+| `src/Prospecting/prospecting_constants.h` | Tier tables, energy costs, survey weights |
+| `src/Engine/rendermanager.cpp` | `DrawProspectingPanel` (3 tabs), `DrawCrystalSprite`, energy gating helpers |
+| `src/Unit/unit.cpp` | `ProcessExtraction` consumes survey progress |
 
 ### Existing Documentation
 | Document | Location | Relevance |
@@ -54,6 +63,23 @@ The prospecting module uses a **Core Samples** approach (Design 7) enhanced with
 | Resource Manager | Provides ground truth resource data that prospecting reveals | Existing code in `src/ResourceManager/` |
 | **Research** | Funds AI automation upgrades via SCIENCE tokens (Section 11b) | [`docs/design/research/`](../research/README.md) — STUB |
 | **AI Automation** | Cross-cutting pattern for all unit AI trees (prospecting is first client) | [`docs/design/ai-automation/`](../ai-automation/README.md) — STUB |
+
+## Implementation Status
+
+| Phase | Status |
+|---|---|
+| 1. Data model & grid structure | ✅ Implemented |
+| 2. Sweep mechanics (GPR) | ✅ Implemented |
+| 3. Sampling mechanics | ✅ Implemented (crystal sprites rendered 2026-08) |
+| 4. Lab / testing pipeline | ✅ Implemented (presets yes; custom drag-order pipeline no) |
+| 5. Survey progress integration | ✅ Implemented (composition scale bug fixed 2026-08) |
+| 6. UI rendering | ✅ Implemented (3 tabs; **no stratigraphy panel**) |
+| 7. AI / default mode | ❌ Not started |
+| 8. Objectives system | ❌ Not started |
+
+Also outstanding: pathfinder tips / clue chaining (needs
+[resource-distribution-model.md](resource-distribution-model.md) designed
+first), and an energy-cost balance pass now that costs are enforced.
 
 ## Implementation Order
 

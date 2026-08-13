@@ -88,8 +88,10 @@
     </head>
     <body>
         <canvas class=emscripten id=canvas oncontextmenu=event.preventDefault() tabindex=-1></canvas>
-        <!-- Live geometry readout for diagnosing mobile fit issues -->
-        <div id="shellDebug" style="position:fixed;top:4px;left:4px;z-index:9999;
+        <!-- Live geometry readout for diagnosing mobile fit issues.
+             Hidden unless the page is loaded with ?debug=1 -- see
+             docs/web-deploy-mobile.md. -->
+        <div id="shellDebug" style="display:none;position:fixed;top:4px;left:4px;z-index:9999;
              font:10px monospace;color:rgba(255,255,255,0.65);
              background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
              pointer-events:none;">SHELL v4 loading...</div>
@@ -103,9 +105,15 @@
             // as a final fallback.
             (function()
             {
+                // Diagnostics are opt-in: load with ?debug=1 to show the badge
+                var debugEnabled = /[?&]debug=1(&|$)/.test(window.location.search);
+                var debugEl = document.getElementById('shellDebug');
+                if (debugEnabled && debugEl) debugEl.style.display = 'block';
+
                 function updateDebug(c)
                 {
-                    var d = document.getElementById('shellDebug');
+                    if (!debugEnabled) return;
+                    var d = debugEl;
                     if (!d || !c) return;
                     var r = c.getBoundingClientRect();
                     d.textContent = 'SHELL v4'
