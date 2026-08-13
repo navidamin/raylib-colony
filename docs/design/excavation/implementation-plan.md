@@ -51,7 +51,7 @@ implementation; excavation mirrors its shape.
 src/Excavation/
     excavation_constants.h      machine table, tier gates, tuning constants
     excavation_types.h/.cpp     Machine, DigTarget, DigResult, MachineState
-    dig_engine.h/.cpp           pure logic: yield, purity, power, wear per tick
+    dig_engine.h/.cpp           pure logic: yield composition, power, wear per tick
     estimate_engine.h/.cpp      pure logic: the blur (Rules 1-2), expected-vs-actual
     machine_engine.h/.cpp       pure logic: machine stats, AUTO selection, repair
     excavation_system.h/.cpp    facade: owns engines + panel UI state
@@ -201,9 +201,10 @@ That is Rule 4's hindsight moment arriving on its own, with no nagging and no sp
 The core, still with no new UI.
 
 - `Machine` struct + machine table in `excavation_constants.h` (**depth** reach, precision,
-  pace ceiling, power floor, purity, wear) — a constant table, not branching logic.
+  pace ceiling, power floor, selectivity, wear) — a constant table, not branching logic.
   Spatial reach is the tier ring and is *not* a machine stat
-- `DigEngine::Tick()` → `{ perResourceYield, purity, powerDraw, wearDelta }`
+- `DigEngine::Tick()` → `{ perResourceYield, powerDraw, wearDelta }` — the yield map *is* the
+  composition, so how dirty the dig was needs no separate field
 - **Precision** implemented as a weighted blend of the aimed spot with its neighbours —
   this is the stat that ties machinery to the survey (design §4)
 - Per-spot depletion, written back to `ResourceManager::UpdateResourceDepletion()`
@@ -212,6 +213,9 @@ The core, still with no new UI.
 
 **Done when:** output is within ~10% of current values on an average spot, and a precise
 machine on a surveyed spot measurably beats a sloppy one.
+
+Because purity was dropped, **Phase 3 touches no file outside excavation** — the property
+Phases 1–2 already had, which the purity decision would have broken.
 
 ### Phase 4 — Write-back to prospecting *(Rule 5)*
 The one change that reaches into another module.
@@ -306,7 +310,7 @@ Two things worth asserting in code rather than by eye:
 
 | Question | Decision |
 |----------|----------|
-| **Purity** | Dirty ore all arrives, but **beneficiation burns more power** separating it. Makes the pace slider an energy decision and ties excavation to Energy and Beneficiation. Needs a small beneficiation-side change in Phase 3 |
+| ~~**Purity**~~ | **Reversed 2026-08-13.** There is no purity value in excavation. Beneficiation's separation chain already *is* the purity system, and "dug dirty" is already expressible in the `map<ResourceType, float>` Stage 1 hands over — more of everything else relative to the target. A separate scalar said the same thing twice and invented a cross-module hook to carry it. **Pace changes the composition, not a purity number**, and dirty digging costs through systems that already exist: capacity-limited sect storage with an overflow buffer, and a separation chain with more to process |
 | **Machines** | **All stack on one spot** — more machines means faster, same place. One selection, one readout, small UI |
 | **Excavation reach** | **Its own tier**, via `IsSubCellInReach(x, y, excavationTier)`. Implemented in Phase 1 |
 | **Power cap** | Draws on the **sect's shared energy pool** — energy is already a sect resource |
@@ -321,7 +325,6 @@ Nothing built so far depends on their answer — excavation only *reads*.
 
 ## 8. Still Open Before Phase 3
 
-- `[?]` Beneficiation's power draw needs a hook on its side to receive the purity figure — small, but it is a second module's file
 - `[?]` What is a spot's total yield before it exhausts? Sets how often the player moves, and needs calibrating against the real quantities (`colony_inspect` shows 760–44,000 per spot depending on the cell)
 
 The first three are needed **before Phase 3**. The fourth can wait for Phase 5.

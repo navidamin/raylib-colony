@@ -18,7 +18,7 @@ Three pillars, and each one is real rather than invented:
 
 | Pillar | What it is | Where it comes from |
 |--------|-----------|--------------------|
-| **The panel** | Target material, pace, power cap. Purity is what you read, not what you set | The friendliest of the four earlier options, and a natural fit for AI |
+| **The panel** | Target material, pace, power cap. What you read is how much of what you dug is actually the target | The friendliest of the four earlier options, and a natural fit for AI |
 | **Place** | Which spot in the grid, and how deep. No reach, no names | Prospecting's grid — already built |
 | **The gamble** | Digging without having paid to survey first | Prospecting costs energy and time; skipping it is a real choice |
 | **Machinery** | A stable of machines with genuinely different jobs | The `Excavator` struct and the four `method` strings already in the code |
@@ -234,7 +234,7 @@ MACHINERY), you **run** several at once, and they **wear out**.
 | **Precision** | How tightly it stays on the spot you aimed at | See below — this is the important one |
 | **Pace ceiling** | How far you can push the pace slider | Some machines simply can't be hurried |
 | **Power floor** | Minimum draw even when idling | Cheap machines are cheap to *own* |
-| **Purity** | How clean its output is at a given pace | Directly sets what beneficiation receives |
+| **Selectivity** | How much waste it brings up alongside the target | Shows up in the composition handed to beneficiation |
 | **Wear** | How fast it eats itself | Fast machines are expensive to keep |
 
 ### Precision is where all three pillars meet
@@ -261,7 +261,7 @@ Six machines, drawn from the real technologies in
 [excavation-mechanics.md](excavation-mechanics.md) Part 1. Names are plain; the science is
 in the stats.
 
-| Machine | Depth | Precision | Pace | Power | Purity | Wear | Its job |
+| Machine | Depth | Precision | Pace | Power | Select. | Wear | Its job |
 |---------|-------|-----------|------|-------|--------|------|---------|
 | **Scoop** | Surface | Low | Low | Very low | Low | Low | The starter. Cheap to own, never great |
 | **Bucket Wheel** | Shallow | Low | **High** | Medium | Low | High | Volume. Perfect for digging blind |
@@ -359,13 +359,13 @@ all still multiply in and keep their current meaning, so those modules keep work
 ## 9. Open Questions
 
 **Needs deciding before building**
-- `[?]` Does purity change *what* beneficiation receives, or *how much power* it burns to separate it? The second is more interesting but reaches into beneficiation's design.
 - `[?]` Does the power cap draw on the sect's shared pool, or is it a local budget?
 - `[?]` When a spot's result disappoints, is it revealed gradually as you dig, or at the end? Slow dread vs sharp surprise — changes how the gamble feels.
 - `[?]` Can several machines work different spots at once, or do they stack on one spot? Stacking is simpler; splitting is more interesting and needs more UI.
 
 **Resolved**
 - ✅ The distribution is **clustered Gaussian, not uniform** — measured against the fixed 8×8 lattice: survey payoff runs +33% at T0 to +130% at T3
+- ✅ **No purity value in excavation.** Beneficiation's separation chain already is the purity system, and "dug dirty" is already carried by the composition map Stage 1 hands over. Pace changes that composition; it does not set a separate number
 - ✅ Reach is a **tier-gated ring**, not a slider — and excavation reads it with its *own* tier, which makes the gamble structural
 - ✅ Confidence varies **per spot and per depth**, so Rule 2 blurs per depth
 - ✅ Dug spots write confidence 1.0 back into prospecting's grid, shown with a distinct mark (Rule 5)
