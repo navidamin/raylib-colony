@@ -6,8 +6,9 @@
 
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
-| 1 | [design-options.md](design-options.md) | **Current.** The 16 aspects any excavation design must answer, then 4 options defined side by side for comparison | DRAFT — awaiting decision |
-| 2 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
+| 1 | [design-options-v2.md](design-options-v2.md) | **Current.** Three variants of the chosen direction — a control panel plus optional machinery, a gamble, and a sense of place | DRAFT — awaiting decision |
+| 2 | [design-options.md](design-options.md) | Round 1: the 16 aspects any excavation design must answer, then 4 options compared. Option 3 was preferred and is narrowed in the doc above | SUPERSEDED — Option 3 chosen |
+| 3 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
 
 ## Design Summary
 
@@ -19,16 +20,23 @@ the ground; excavation gets it out; beneficiation separates it.
  what's there      get it out       separate it
 ```
 
-**No design chosen yet.** Four options are laid out side by side in
-[design-options.md](design-options.md), each answering the same 16 questions so they can be
-compared directly:
+**Direction chosen: a control panel** — the player sets a target material and two sliders
+(pace, power cap) and reads the result, rather than driving machines directly. It's the
+friendliest of the four options considered, and because every player action is *setting a
+value*, an AI can use the identical interface — so automation needs no parallel system.
 
-| | Built on | Feels like | Main tension |
-|---|---|---|---|
-| **1 — The Pit** | The ground | Carving territory | Reach vs distance |
-| **2 — The Machine Shed** | The equipment | Running a garage | Speed vs breakdown |
-| **3 — The Dig Order** | The flow | Tuning an engine | Speed vs clean vs power |
-| **4 — The Gamble** | The unknown | Placing bets | Knowing vs digging |
+Three variants add machinery, uncertainty, and a sense of place on top of that core.
+Details in [design-options-v2.md](design-options-v2.md):
+
+| | Place is… | Gamble is… | Machinery is… | Effort |
+|---|---|---|---|---|
+| **A — The Field Picker** | a short list of named grounds | a range on the estimate | a picker, AUTO by default | Low |
+| **B — The Working Map** | a small map that visibly wears down | fog over unworked ground | tied to what the ground needs | Medium |
+| **C — The Standing Order** | how far your operation reaches | the price of reaching further | a rule in your order | Low–Med |
+
+These stack rather than compete: build **A**, use **C**'s order sheet as the tier-3 AI mode,
+and **B**'s map can replace A's place list later as a pure visual upgrade with no mechanical
+change.
 
 The background fact that shapes all of them: **on the Moon a digger cannot push.** At 1/6
 gravity a machine barely weighs anything, so it can't lean on a blade the way an Earth
@@ -68,12 +76,12 @@ Everything in this design directory is about replacing that multiply-chain with 
 
 | Module | Dependency | Status |
 |--------|-----------|--------|
-| **Prospecting** | Supplies survey progress and marked sites; how heavily excavation leans on it varies by option (heaviest in Option 4) | [`docs/design/prospecting/`](../prospecting/README.md) — DRAFT |
+| **Prospecting** | Supplies survey progress and marked sites; how heavily excavation leans on it varies by variant (most tangible in Variant B, where surveying clears fog off the map) | [`docs/design/prospecting/`](../prospecting/README.md) — DRAFT |
 | **Beneficiation** | Direct downstream consumer — receives whatever excavation digs up | Not yet in design/ |
 | **Operations** | Supplies the efficiency modifier applied to excavation output | Not yet in design/ |
 | **Directives** | `MAXIMIZE` / `CONSERVE` / `EMERGENCY_HARVEST` all act on excavation rate and wear | Not yet in design/ |
-| **Energy** | Excavation is the unit's largest power draw; Option 3 makes that a direct player concern | Not yet in design/ |
-| **AI Automation** | Excavation is the second client of the shared AI/default-mode pattern | [`docs/design/ai-automation/`](../ai-automation/README.md) — STUB |
+| **Energy** | Excavation is the unit's largest power draw; the power-cap slider makes that a direct player concern | Not yet in design/ |
+| **AI Automation** | Excavation is the second client of the shared pattern — and the control-panel direction means the AI uses the player's own interface rather than a parallel system | [`docs/design/ai-automation/`](../ai-automation/README.md) — STUB |
 
 ## Implementation Order
 
