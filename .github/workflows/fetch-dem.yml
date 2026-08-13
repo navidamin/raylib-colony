@@ -1,0 +1,53 @@
+# One-shot data fetcher: downloads NASA's LOLA LDEM_16 elevation model
+# (CGI Moon Kit, public domain) on a runner — which has full internet,
+# unlike the Claude Code container — and commits it to the branch.
+#
+# Trigger: push a change to the REQUEST file below on the planet-visuals
+# branch. The committed .tif does NOT match the paths filter, so the
+# workflow's own commit cannot retrigger it.
+#
+# Remove this workflow once the DEM is committed.
+
+name: Fetch LOLA DEM
+
+on:
+  push:
+    branches:
+      - claude/redesign-planet-visuals-kCrSp
+    paths:
+      - prototypes/planet_visuals/data/lola/REQUEST
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/redesign-planet-visuals-kCrSp
+
+      - name: Download LDEM_16 (uint16, 0.5 m units, 5760x2880)
+        run: |
+          set -euo pipefail
+          cd prototypes/planet_visuals/data/lola
+          curl -fSL --retry 3 -o ldem_16_uint.tif \
+            "https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/ldem_16_uint.tif"
+          ls -la ldem_16_uint.tif
+          # Sanity: a real LDEM_16 uint16 TIFF is ~33 MB
+          size=$(stat -c%s ldem_16_uint.tif)
+          if [ "$size" -lt 20000000 ]; then
+            echo "Downloaded file too small ($size bytes) — aborting"
+            exit 1
+          fi
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add prototypes/planet_visuals/data/lola/ldem_16_uint.tif
+          git commit -m "Add LOLA LDEM_16 elevation model (NASA CGI Moon Kit, public domain)"
+          git pull --rebase origin claude/redesign-planet-visuals-kCrSp
+          git push origin HEAD:claude/redesign-planet-visuals-kCrSp

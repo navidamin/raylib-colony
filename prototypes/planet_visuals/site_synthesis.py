@@ -53,6 +53,48 @@ DISPLAY_RES = 900
 SITE_SPAN_DEG = 3.0
 
 
+# --- Real scale -----------------------------------------------------------
+
+MOON_RADIUS_KM = 1737.4
+KM_PER_DEG = math.pi * MOON_RADIUS_KM / 180.0     # 30.323 km per degree
+
+
+def window_km(lat_deg: float, span_deg: float) -> float:
+    """N-S extent of a lat-span window in km (also the E-W extent, since
+    all crops here widen lon_span by 1/cos(lat) to stay square in km)."""
+    return span_deg * KM_PER_DEG
+
+
+def lon_span_for(lat_deg: float, lat_span_deg: float) -> float:
+    """Longitude span that makes the window square in kilometres at
+    this latitude. Without this, windows are square in DEGREES and the
+    ground is squashed E-W by cos(lat) — 27% at Tycho's latitude."""
+    c = max(0.2, math.cos(math.radians(lat_deg)))
+    return lat_span_deg / c
+
+
+def print_scale_table(synth_res: int = SYNTH_RES):
+    """The real physical scale of every zoom level."""
+    print(f"  Moon radius {MOON_RADIUS_KM} km -> "
+          f"{KM_PER_DEG:.3f} km per degree")
+    rows = [
+        ("Orbital",      None,  "hemisphere, ~3,476 km disc"),
+        ("Continental",  50.0,  None),
+        ("Regional",     10.0,  None),
+        ("Site",         3.0,   None),
+        ("Local",        1.0,   None),
+        ("Close",        1.0 / 3.0, None),
+    ]
+    for name, span, note in rows:
+        if span is None:
+            print(f"  {name:12s} {note}")
+            continue
+        km = window_km(0.0, span)
+        m_px = km * 1000.0 / synth_res
+        print(f"  {name:12s} {span:6.3f} deg  ->  {km:7.2f} km window"
+              f"   ({m_px:7.1f} m/px at {synth_res}px)")
+
+
 # --- Determinism ----------------------------------------------------------
 
 def location_seed(lat_deg: float, lon_deg: float) -> int:
@@ -73,13 +115,15 @@ def location_seed(lat_deg: float, lon_deg: float) -> int:
 
 def crop_native(wac: np.ndarray, lat_centre: float, lon_centre: float,
                 span_deg: float) -> np.ndarray:
-    """Crop the equirect WAC to a centred lat/lon window at NATIVE
-    resolution (no resize) and return grayscale float 0..1."""
+    """Crop the equirect WAC to a centred window at NATIVE resolution
+    (no resize), grayscale float 0..1. lat_span = span_deg; lon span is
+    widened by 1/cos(lat) so the window is SQUARE IN KILOMETRES."""
     h_src, w_src = wac.shape[:2]
+    lon_span = lon_span_for(lat_centre, span_deg)
     lat0 = lat_centre - span_deg / 2
     lat1 = lat_centre + span_deg / 2
-    lon0 = lon_centre - span_deg / 2
-    lon1 = lon_centre + span_deg / 2
+    lon0 = lon_centre - lon_span / 2
+    lon1 = lon_centre + lon_span / 2
     y0 = max(0, int((90.0 - lat1) / 180.0 * h_src))
     y1 = min(h_src, int((90.0 - lat0) / 180.0 * h_src))
     x0 = max(0, int((lon0 + 180.0) / 360.0 * w_src))
@@ -392,9 +436,10 @@ def style_pixel_dither(lum: np.ndarray) -> Image.Image:
 def real_blurry(wac: np.ndarray, lat_deg: float, lon_deg: float,
                 span_deg: float = SITE_SPAN_DEG) -> Image.Image:
     """What the game shows today: the native crop blown up smoothly.
-    This is multi_zoom's panel 4."""
+    This is multi_zoom's panel 4 (square-in-km window)."""
     return crop_equirect_region(wac, lat_deg, lon_deg,
-                                lat_span=span_deg, lon_span=span_deg,
+                                lat_span=span_deg,
+                                lon_span=lon_span_for(lat_deg, span_deg),
                                 output_w=DISPLAY_RES, output_h=DISPLAY_RES)
 
 
@@ -550,10 +595,12 @@ def render_deep_zoom(wac, sites, panel=620,
     local (~30 km) -> close (~10 km), the last three photo-real
     amplified, each deeper panel the centre third of the previous.
     One row per site."""
-    captions = ["Regional (~300 km) — real",
-                "Site (~90 km) — amplified",
-                "Local (~30 km) — amplified",
-                "Close (~10 km) — amplified"]
+    captions = [f"Regional ({window_km(0, 10):.0f} km) — real",
+                f"Site ({window_km(0, 3):.1f} km) — amplified",
+                f"Local ({window_km(0, 1):.2f} km) — amplified",
+                f"Close ({window_km(0, 1 / 3):.2f} km, "
+                f"{window_km(0, 1 / 3) * 1000 / SYNTH_RES:.0f} m/px)"
+                " — amplified"]
     n_cols = len(captions)
     pad = 10
     title_h = 60
@@ -581,7 +628,8 @@ def render_deep_zoom(wac, sites, panel=620,
         levels = synthesize_site_chain(wac, lat, lon, extra_levels=2)
         panels = []
         # Regional real context panel
-        reg = crop_equirect_region(wac, lat, lon, lat_span=10, lon_span=10,
+        reg = crop_equirect_region(wac, lat, lon, lat_span=10,
+                                   lon_span=lon_span_for(lat, 10.0),
                                    output_w=panel, output_h=panel)
         panels.append(reg.convert("RGB"))
         for lum in levels:
