@@ -159,7 +159,11 @@ int main(int argc, char** argv)
         RenderManager renderManager(ctx.screenWidth, ctx.screenHeight);
         renderManager.LoadFonts();
 
+        // The constructor only allocates the grids; Planet normally calls this
+        // to populate them. Without it the whole map is empty and every sample
+        // reads 0% richness.
         ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+        resourceManager.GenerateResourceMap();
         TimeManager timeManager;
 
         ctx.renderManager = &renderManager;

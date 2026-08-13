@@ -124,4 +124,9 @@ constexpr float LAB_SEPARATION_COST_HEAVY     = 50.0f;
 constexpr float LAB_SEPARATION_COST_VOLATILE  = 45.0f;
 
 // Richness normalization: totalAbundance / factor, clamped to 0-1
-constexpr float RICHNESS_NORMALIZATION = 2.0f;
+// Absolute deposit quantity (summed across elements in one sub-cell layer)
+// that counts as 100% richness. ResourceManager produces roughly 5,000 for an
+// average cell layer and ~13,000 for a cluster core, before sub-cell variation
+// (0.3x-2.0x), so 10,000 puts typical samples mid-range and leaves headroom
+// for genuinely rich finds.
+constexpr float RICHNESS_NORMALIZATION = 10000.0f;

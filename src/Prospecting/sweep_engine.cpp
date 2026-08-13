@@ -191,11 +191,11 @@ float SweepEngine::CalculateRawSignal(const ProspectingGrid& grid, int subX, int
     for (int d = 0; d < penetration; d++)
     {
         DepthLayer depth = static_cast<DepthLayer>(d);
-        auto resources = grid.GetGroundTruth(subX, subY, depth);
 
-        float layerSignal = 0.0f;
-        for (const auto& [type, abundance] : resources)
-            layerSignal += abundance;
+        // Absolute quantity, not composition: GPR responds to how much
+        // material is present, and composition fractions sum to 1 everywhere
+        // (which would flatten the heat map).
+        float layerSignal = grid.GetQuantity(subX, subY, depth);
 
         float attenuation = 1.0f / (1.0f + d * SWEEP_DEPTH_ATTENUATION);
         signal += layerSignal * attenuation;

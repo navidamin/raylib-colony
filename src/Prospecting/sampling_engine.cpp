@@ -60,7 +60,7 @@ Sample SamplingEngine::CreateSample(const ProspectingGrid& grid,
     s.subCellY = subY;
     s.depthLayer = depth;
     s.trueComposition = grid.GetGroundTruth(subX, subY, depth);
-    s.richness = CalculateRichness(s.trueComposition);
+    s.richness = CalculateRichnessFromQuantity(grid.GetQuantity(subX, subY, depth));
     s.state = SampleState::IN_TRAY;
     s.visual = AssignCrystalVisual(s, grid.GetParentGridX(), grid.GetParentGridY());
     return s;
@@ -105,13 +105,9 @@ CrystalVisual SamplingEngine::AssignCrystalVisual(const Sample& sample,
     return v;
 }
 
-float SamplingEngine::CalculateRichness(const std::map<ResourceType, float>& composition)
+float SamplingEngine::CalculateRichnessFromQuantity(float totalQuantity)
 {
-    float total = 0.0f;
-    for (const auto& [type, abundance] : composition)
-        total += abundance;
-
-    return std::clamp(total / RICHNESS_NORMALIZATION, 0.0f, 1.0f);
+    return std::clamp(totalQuantity / RICHNESS_NORMALIZATION, 0.0f, 1.0f);
 }
 
 ResourceType SamplingEngine::GetDominantElement(const std::map<ResourceType, float>& composition)

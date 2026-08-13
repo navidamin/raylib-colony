@@ -38,6 +38,14 @@ std::map<ResourceType, float> ProspectingGrid::GetGroundTruth(int subX, int subY
     return subCellResources[d][subY][subX];
 }
 
+float ProspectingGrid::GetQuantity(int subX, int subY, DepthLayer depth) const
+{
+    int d = static_cast<int>(depth);
+    if (d < 0 || d > 3) return 0.0f;
+    if (subY < 0 || subY >= gridSize || subX < 0 || subX >= gridSize) return 0.0f;
+    return subCellQuantities[d][subY][subX];
+}
+
 float ProspectingGrid::GetTotalRichness(int subX, int subY) const
 {
     float total = 0.0f;
@@ -45,13 +53,7 @@ float ProspectingGrid::GetTotalRichness(int subX, int subY) const
 
     for (int d = 0; d < maxDepth; d++)
     {
-        if (subY >= 0 && subY < gridSize && subX >= 0 && subX < gridSize)
-        {
-            for (const auto& [type, abundance] : subCellResources[d][subY][subX])
-            {
-                total += abundance;
-            }
-        }
+        total += GetQuantity(subX, subY, static_cast<DepthLayer>(d));
     }
     return total;
 }
@@ -91,6 +93,7 @@ void ProspectingGrid::AllocateGrid()
     {
         subCellResources[d].assign(gridSize,
             std::vector<std::map<ResourceType, float>>(gridSize));
+        subCellQuantities[d].assign(gridSize, std::vector<float>(gridSize, 0.0f));
     }
 }
 
@@ -104,6 +107,36 @@ void ProspectingGrid::GenerateSubCellDistribution()
         auto parentResources = resourceManager.GetResourcesAtGridLayer(
             parentGridX, parentGridY, depth);
         GenerateLayerDistribution(depth, parentResources);
+    }
+
+    // ResourceManager works in absolute quantities (hundreds to thousands per
+    // cell); the prospecting chain works in composition fractions. Record the
+    // absolute total per sub-cell, then normalize the per-element values into
+    // fractions that sum to 1.
+    for (int d = 0; d < maxDepth; d++)
+    {
+        for (int y = 0; y < gridSize; y++)
+        {
+            for (int x = 0; x < gridSize; x++)
+            {
+                auto& cellResources = subCellResources[d][y][x];
+
+                float total = 0.0f;
+                for (const auto& [type, quantity] : cellResources)
+                {
+                    total += quantity;
+                }
+                subCellQuantities[d][y][x] = total;
+
+                if (total > 0.0f)
+                {
+                    for (auto& [type, quantity] : cellResources)
+                    {
+                        quantity /= total;
+                    }
+                }
+            }
+        }
     }
 }
 

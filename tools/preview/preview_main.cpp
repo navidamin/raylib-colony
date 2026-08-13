@@ -189,18 +189,25 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
 
     if (state == "sampled") return;
 
-    // "analyzed": push every tray sample through the best available lab preset.
-    const std::vector<LabPreset>& presets = LabEngine::GetPresets();
-    std::vector<Sample>& samples = tray.GetSamples();
+    // "analyzed": run a thorough lab workup on every tray sample -- every
+    // available tool, ending with the destructive Fire Assay.
+    const AnalysisTool toolOrder[] = {
+        AnalysisTool::VISUAL_INSPECTION,
+        AnalysisTool::OPTICAL_MICROSCOPY,
+        AnalysisTool::MAGNETIC_SUSCEPTIBILITY,
+        AnalysisTool::XRF,
+        AnalysisTool::LIBS_PULSE,
+        AnalysisTool::FIRE_ASSAY,
+    };
 
+    std::vector<Sample>& samples = tray.GetSamples();
     for (Sample& sample : samples)
     {
-        for (int p = static_cast<int>(presets.size()) - 1; p >= 0; p--)
+        for (AnalysisTool tool : toolOrder)
         {
-            if (system.GetLab().CanApplyPreset(sample, p))
+            if (system.GetLab().CanApplyTool(sample, tool))
             {
-                system.GetLab().ApplyPreset(sample, p, gameTime);
-                break;
+                system.GetLab().ApplyTool(sample, tool, gameTime);
             }
         }
     }
@@ -369,7 +376,11 @@ int main(int argc, char** argv)
     RenderManager renderManager(options.width, options.height);
     renderManager.LoadFonts();
 
+    // The constructor only allocates the grids; Planet normally calls this to
+    // populate them. Without it the whole map is empty and every sample reads
+    // 0% richness.
     ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    resourceManager.GenerateResourceMap();
     TimeManager timeManager;
 
     // Place the unit mid-grid so it samples a populated resource cell.
