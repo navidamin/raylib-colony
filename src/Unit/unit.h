@@ -87,6 +87,7 @@ public:
 
     // Module Processing functions
     void InitializeModules();
+    void ApplyPlaceholderModuleCosts();
     void InitializeFutureModules();
     bool UpgradeModule(int moduleIndex);
     bool UpgradeModuleTier(int moduleIndex);

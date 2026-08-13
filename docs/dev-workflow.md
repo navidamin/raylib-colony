@@ -36,12 +36,18 @@ Renders any module panel to a PNG with no display, using the real
 
 ```bash
 tools/preview/preview.sh --module prospecting --tab lab --tier 3
-tools/preview/preview.sh --all            # 12-panel set, ~5s
+tools/preview/preview.sh --unit Energy --module battery --tier 2
+tools/preview/preview.sh --all            # all 25 modules + states, ~90s
 tools/preview/preview.sh --module sprites # crystal sprite contact sheet
 ```
 
-Key flags: `--module`, `--tab`, `--state` (`empty`/`swept`/`sampled`/`analyzed`),
+Key flags: `--unit` (`Extraction`/`Farming`/`Energy`/`Manufacture`/`Research`),
+`--module`, `--tab`, `--state` (`empty`/`swept`/`sampled`/`analyzed`),
 `--tier 0-3`, `--energy N` (test cost gating), `--size`, `--out`.
+
+Module names are unique across unit types, so `--unit` only selects which unit
+is constructed. `--tier 0` on a module that starts unbuilt previews the NOT
+BUILT state; any higher tier builds it first.
 
 The world uses a **fixed seed** (`PREVIEW_MAP_SEED`), so screenshots are
 reproducible and comparable between runs. Full docs: `tools/preview/README.md`.

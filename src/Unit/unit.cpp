@@ -423,6 +423,10 @@ void Unit::InitializeModules() {
         InitializeGenericModules();
     }
 
+    // Fill in build/upgrade costs and energy draw for any module that did not
+    // define its own, so the module menu's controls work for every unit type.
+    ApplyPlaceholderModuleCosts();
+
     // Update unit status based on module states
     UpdateUnitStatus();
 
@@ -430,6 +434,37 @@ void Unit::InitializeModules() {
     if (!activeModuleIndices.empty())
     {
         CalculateConsumption();
+    }
+}
+
+// Applies the placeholder cost curve from game_constants.h to every module that
+// has no upgradeCosts of its own. A module that defines its own table keeps it,
+// so designed modules override this without a special case.
+void Unit::ApplyPlaceholderModuleCosts() {
+    auto baseIter = MODULE_BASE_COSTS.find(unit_type);
+    if (baseIter == MODULE_BASE_COSTS.end())
+    {
+        return;
+    }
+    const auto& baseCosts = baseIter->second;
+
+    for (auto& mod : modules)
+    {
+        if (mod.upgradeCosts.empty())
+        {
+            for (int tier = 1; tier <= 3; tier++)
+            {
+                for (const auto& [resource, amount] : baseCosts)
+                {
+                    mod.upgradeCosts[tier][resource] = amount * MODULE_TIER_COST_SCALE[tier];
+                }
+            }
+        }
+
+        if (mod.energyRequired <= 0.0f)
+        {
+            mod.energyRequired = MODULE_TIER_ENERGY[std::min(std::max(mod.tier, 0), 3)];
+        }
     }
 }
 
@@ -817,6 +852,12 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
     }
     module.productionRates = module.maxProductionRates;
 
+    // Higher tiers run heavier equipment, so the energy draw grows with them.
+    // Scaled from the module's own tier-0 figure rather than replaced, so a
+    // module that declared a bespoke draw keeps its relative size.
+    module.energyRequired *= MODULE_TIER_ENERGY[std::min(module.tier, 3)]
+                           / MODULE_TIER_ENERGY[std::min(module.tier - 1, 3)];
+
     // Update description based on tier
     if (module.moduleType == "PROSPECTING")
     {
@@ -970,6 +1011,11 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
         rate *= tierMultiplier / tierMults[std::min(module.tier - 1, 3)];
     }
     module.productionRates = module.maxProductionRates;
+
+    // Keep energy in step with UpgradeModuleTier, so previews and playtests
+    // show the same draw a real upgrade would produce.
+    module.energyRequired *= MODULE_TIER_ENERGY[std::min(module.tier, 3)]
+                           / MODULE_TIER_ENERGY[std::min(module.tier - 1, 3)];
 
     if (module.moduleType == "PROSPECTING")
     {

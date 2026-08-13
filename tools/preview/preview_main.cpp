@@ -28,6 +28,7 @@ static const unsigned int PREVIEW_MAP_SEED = 20260813u;
 
 struct PreviewOptions
 {
+    std::string unitType = "Extraction";
     std::string module = "prospecting";
     std::string tab = "sweep";
     std::string state = "analyzed";
@@ -45,8 +46,18 @@ static void PrintUsage()
     std::cout
         << "Usage: colony_preview [options]\n"
         << "\n"
-        << "  --module <name>   prospecting | excavation | beneficiation | operations |\n"
-        << "                    directives | overview | sprites (default: prospecting)\n"
+        << "  --unit <type>     Extraction | Farming | Energy | Manufacture | Research\n"
+        << "                    (default: Extraction)\n"
+        << "  --module <name>   Extraction:  prospecting | excavation | beneficiation |\n"
+        << "                                 operations | directives\n"
+        << "                    Farming:     irrigation | greenhouse | hydroponics |\n"
+        << "                                 harvest | storage\n"
+        << "                    Energy:      solar | battery | nuclear | grid | emergency\n"
+        << "                    Manufacture: fabrication | assembly | quality |\n"
+        << "                                 logistics | automation\n"
+        << "                    Research:    laboratory | analysis | simulation |\n"
+        << "                                 archive | publication\n"
+        << "                    Also: overview | sprites          (default: prospecting)\n"
         << "  --sprite-size <n> crystal sprite size variant     (sprites only, default: 4)\n"
         << "  --sprite-glow <n> crystal sprite glow variant     (sprites only, default: 3)\n"
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
@@ -69,6 +80,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         {
             PrintUsage();
             return false;
+        }
+        else if (arg == "--unit" && hasNext)
+        {
+            options.unitType = argv[++i];
         }
         else if (arg == "--module" && hasNext)
         {
@@ -124,13 +139,45 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
 }
 
 // Maps a --module name onto the moduleType string used by the Unit module list.
+// Names are unique across every unit type, so --unit only selects which unit is
+// constructed; it does not disambiguate the module name.
 static std::string ModuleTypeFromName(const std::string& name)
 {
+    // Extraction
     if (name == "prospecting") return "PROSPECTING";
     if (name == "excavation") return "EXCAVATION";
     if (name == "beneficiation") return "BENEFICIATION";
     if (name == "operations") return "OPERATIONS";
     if (name == "directives") return "DIRECTIVES";
+
+    // Farming
+    if (name == "irrigation") return "IRRIGATION";
+    if (name == "greenhouse") return "GREENHOUSE";
+    if (name == "hydroponics") return "HYDROPONICS";
+    if (name == "harvest") return "HARVEST";
+    if (name == "storage") return "STORAGE";
+
+    // Energy
+    if (name == "solar") return "SOLAR_ARRAY";
+    if (name == "battery") return "BATTERY";
+    if (name == "nuclear") return "NUCLEAR";
+    if (name == "grid") return "GRID";
+    if (name == "emergency") return "EMERGENCY";
+
+    // Manufacture
+    if (name == "fabrication") return "FABRICATION";
+    if (name == "assembly") return "ASSEMBLY";
+    if (name == "quality") return "QUALITY";
+    if (name == "logistics") return "LOGISTICS";
+    if (name == "automation") return "AUTOMATION";
+
+    // Research
+    if (name == "laboratory") return "LABORATORY";
+    if (name == "analysis") return "ANALYSIS";
+    if (name == "simulation") return "SIMULATION";
+    if (name == "archive") return "ARCHIVE";
+    if (name == "publication") return "PUBLICATION";
+
     return "";
 }
 
@@ -403,7 +450,17 @@ int main(int argc, char** argv)
     std::map<ResourceType, float> storage;
     std::map<ResourceType, float> capacity;
 
-    Unit unit("Extraction", unitPosition, resourceManager, timeManager, storage, capacity);
+    Unit unit(options.unitType, unitPosition, resourceManager, timeManager, storage, capacity);
+
+    // Stock the build materials a module needs, so --tier reaches built and
+    // upgraded states. Without this every preview would show NOT BUILT with an
+    // unaffordable cost list, which is not what most previews are checking.
+    for (ResourceType material : {ResourceType::CONSTRUCTION_MATERIALS, ResourceType::MACHINERY,
+                                  ResourceType::ELECTRONICS, ResourceType::ALLOYS,
+                                  ResourceType::Fe, ResourceType::Si, ResourceType::WATER})
+    {
+        unit.AddResource(material, 5000.0f);
+    }
 
     if (options.energy >= 0.0f)
     {
@@ -427,6 +484,16 @@ int main(int argc, char** argv)
         }
         else
         {
+
+        // Modules 3 and 4 of each unit start unbuilt. Build before upgrading so
+        // the preview shows a coherent state -- otherwise the panel reports a
+        // tier-2 energy draw next to a NOT BUILT badge and a locked tier arc.
+        // Requesting --tier 0 leaves an unbuilt module alone, which is how the
+        // not-built state is previewed.
+        if (options.tier > 0 && !unit.GetModules()[moduleIndex].isBuilt)
+        {
+            unit.PublicBuildModule(moduleIndex);
+        }
 
         for (int t = 0; t < options.tier; t++)
         {
@@ -472,7 +539,8 @@ int main(int argc, char** argv)
         if (exported)
         {
             std::cout << "Wrote " << options.outPath
-                      << " (module=" << options.module
+                      << " (unit=" << options.unitType
+                      << " module=" << options.module
                       << " tab=" << options.tab
                       << " state=" << options.state
                       << " tier=" << options.tier << ")\n";

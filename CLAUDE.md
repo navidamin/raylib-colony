@@ -259,9 +259,12 @@ The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture si
 6. Render every state (`--tier`, `--state`, `--energy`) and **look at the PNGs**
 7. Check against [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md)
 
-*Non-extraction units currently draw via the legacy `unit->DrawInUnitView()`
-path (`unit_ui.cpp`). Route a real panel through `RenderManager` instead — that
-is what provides the shared chrome, theme, and preview-tool support.*
+*Every unit type now draws through the shared modular chrome
+(`DrawModularUnitView`). Modules without a bespoke centre panel fall back to
+`DrawGenericModulePanel`, which renders the module's real data (tier arc,
+throughput, energy, tech deps) and marks itself PRELIMINARY. Replacing that
+fallback with a real panel is step 2 above — the legacy `unit->DrawInUnitView()`
+path in `unit_ui.cpp` is no longer reached.*
 
 **Building a new gameplay module:** (see [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md))
 1. `src/<Module>/` with constants / types / pure-logic engines / facade
