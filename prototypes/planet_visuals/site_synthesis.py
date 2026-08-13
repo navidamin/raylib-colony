@@ -37,8 +37,7 @@ import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from generate import (apply_craters, cast_shadows, fbm, gaussian_blur,
-                      hillshade, pink_noise, sample_craters)
+from generate import cast_shadows, fbm, gaussian_blur, hillshade, pink_noise
 from multi_zoom import WAC_PATH, crop_equirect_region, latlon_to_disc
 from wrap_to_sphere import wrap_to_sphere
 
@@ -131,27 +130,14 @@ def synthesize_site(wac: np.ndarray, lat_deg: float, lon_deg: float,
     density = np.clip((macro - 0.22) / 0.45, 0.15, 1.0)
     roughness = 0.45 + 0.55 * density
 
-    # -- Detail heightmap: only features BELOW the source floor.
-    #    Source floor ~1.3 km/px -> craters under ~4 km diameter are
-    #    invisible in the real data. At ~300 m per synth pixel that is
-    #    a radius cap of ~7 px. size_scale=0.16 puts the crater buckets
-    #    at roughly r 1.3..17 px (0.4..5 km dia); the few biggest sit at
-    #    the floor boundary where real data fades out.
-    craters = sample_craters(shape, rng,
-                             count_small=70, count_med=16, count_big=3,
-                             min_separation=1.25,
-                             size_scale=0.22, size_variance=0.8)
-    kept = []
-    for c in craters:
-        cy = min(synth_res - 1, max(0, int(c.cy)))
-        cx = min(synth_res - 1, max(0, int(c.cx)))
-        if rng.random() < density[cy, cx]:
-            kept.append(c)
-
+    # -- Detail heightmap. Invented craters REMOVED (user decision
+    #    2026-08-13: "you just created craters where there are none" —
+    #    the amplification of real forms worked, the invention didn't).
+    #    What remains is surface texture only: regolith grain and a
+    #    gentle undulation. Every crater in the output is a real one.
     height = np.zeros(shape, dtype=np.float32)
-    apply_craters(height, kept, rng, depth_variance=1.0, depth_scale=1.0)
 
-    # Regolith grain between craters — pink noise matches natural
+    # Regolith grain — pink noise matches natural
     # rough-surface statistics. Quiet: it is texture, not terrain.
     height += 0.004 * pink_noise(shape, rng) * roughness
     # Gentle undulation so flat stretches are not billiard-table flat.
@@ -235,7 +221,9 @@ def synthesize_pixelart(wac: np.ndarray, lat_deg: float, lon_deg: float,
         Image.fromarray(native, mode="F").resize((pix_res, pix_res),
                                                  Image.BICUBIC),
         dtype=np.float32)
-    macro = gaussian_blur(macro, 1.6)
+    # Light smoothing only — with no invented craters, the real forms
+    # carry the whole picture; heavy blur turned them into amoebas.
+    macro = gaussian_blur(macro, 0.7)
 
     # Gentle adaptive expansion around the crop's own midpoint.
     p_lo, p_hi = np.percentile(macro, [3.0, 97.0])
@@ -251,52 +239,9 @@ def synthesize_pixelart(wac: np.ndarray, lat_deg: float, lon_deg: float,
     # smooth, not noisy.
     tone += 1.1 * (fbm(shape, 3, 56, 0.5, rng) - 0.5)
 
-    # Conditioning: crater count scales with brightness (highland dense,
-    # mare sparse) — same idea as the realistic path, fewer craters.
-    density = np.clip((macro - 0.25) / 0.45, 0.20, 1.0)
-
-    # Fewer, bigger craters — pebble-sprinkle reads as noise; a handful
-    # of confident bowls reads as pixel art.
-    craters = sample_craters(shape, rng,
-                             count_small=16, count_med=8, count_big=3,
-                             min_separation=1.45,
-                             size_scale=0.26, size_variance=0.8)
-    # Unit vector pointing TOWARD the sun (north-west, up-left in
-    # screen coords where y grows downward).
-    sx, sy = -0.7071, -0.7071
-
-    yy, xx = np.mgrid[0:pix_res, 0:pix_res].astype(np.float32)
-    for c in craters:
-        cy = min(pix_res - 1, max(0, int(c.cy)))
-        cx = min(pix_res - 1, max(0, int(c.cx)))
-        if rng.random() >= density[cy, cx]:
-            continue
-        r = max(3.0, c.r)
-        dx = (xx - c.cx) / r
-        dy = (yy - c.cy) / r
-        d = np.sqrt(dx * dx + dy * dy)
-        inside = d < 1.0
-        if not inside.any():
-            continue
-        # u > 0: the inner wall on the SUN side — faces away from the
-        # sun, so it is the shadowed wall of a concave bowl. u < 0: the
-        # far wall, whose inner face catches the light.
-        u = dx * sx + dy * sy
-        delta = np.zeros(shape, dtype=np.float32)
-        # Floor: one tone down, flat and clean.
-        delta[inside] = -1.0
-        # Crescents HUG the walls (d > ~0.55) — wide ones turn the
-        # crater into a two-tone cookie instead of a bowl.
-        shadow = inside & (u > 0.15) & (d > 0.55)
-        delta[shadow] = -2.4
-        # Lit inner wall opposite, thinner still.
-        lit = inside & (u < -0.25) & (d > 0.65)
-        delta[lit] = +1.2
-        # Thin bright rim just outside on the sun side, where the
-        # outer slope catches the light.
-        rim = (d >= 1.0) & (d < 1.12) & (u > 0.25)
-        delta[rim] = +0.9
-        tone += delta
+    # Invented craters REMOVED (user decision 2026-08-13): every form
+    # in the output now comes from the real crop's big shapes. The
+    # stylization is purely tonal.
 
     # Ordered 2x2 dither at tone boundaries — classic pixel-art
     # blending, keeps gradients smooth without extra palette entries.
@@ -532,6 +477,71 @@ def render_locations(wac, site_fn=pixelart_site):
     path = os.path.join(OUT, "site_synthesis_locations.png")
     canvas.save(path)
     print(f"  wrote {path}")
+
+
+def render_random_locations(wac, n_sites=6, panel=440, seed=20260813):
+    """n_sites random near-side locations, each rendered three ways:
+    real (blurry), photo-real amplified, stylized pixel art — all with
+    NO invented craters. Grid: columns = sites, rows = styles."""
+    rng = np.random.default_rng(seed)
+    sites = []
+    while len(sites) < n_sites:
+        lat = float(rng.uniform(-55.0, 55.0))
+        lon = float(rng.uniform(-85.0, 85.0))
+        sites.append((lat, lon))
+
+    rows = []
+    row_labels = ["Real WAC (blurry)",
+                  "Amplified — photo-real",
+                  "Amplified — pixel art"]
+    real_row = []
+    photo_row = []
+    pixel_row = []
+    for lat, lon in sites:
+        real_row.append(real_blurry(wac, lat, lon).resize((panel, panel),
+                                                          Image.LANCZOS))
+        lum, _ = synthesize_site(wac, lat, lon)
+        photo_row.append(style_realistic(lum).resize((panel, panel),
+                                                     Image.LANCZOS))
+        pixel_row.append(pixelart_site(wac, lat, lon).resize(
+            (panel, panel), Image.NEAREST))
+    rows = [real_row, photo_row, pixel_row]
+
+    pad = 8
+    title_h = 60
+    cap_h = 26
+    label_w = 46
+    total_w = label_w + n_sites * panel + (n_sites - 1) * pad
+    total_h = title_h + 3 * (panel + pad) + cap_h
+    canvas = Image.new("RGB", (total_w, total_h), (10, 12, 18))
+    font_title, font_cap = _fonts()
+    draw = ImageDraw.Draw(canvas)
+    draw.text((20, 18),
+              "Random locations, no invented craters — every form is "
+              "real. Rows: real / photo-real amplified / pixel art.",
+              fill=(220, 220, 220), font=font_title)
+    for r, (row, label) in enumerate(zip(rows, row_labels)):
+        y = title_h + r * (panel + pad)
+        # Vertical row label
+        lbl = Image.new("RGB", (panel, label_w), (10, 12, 18))
+        ld = ImageDraw.Draw(lbl)
+        ld.text((8, 12), label, fill=(200, 200, 210), font=font_cap)
+        canvas.paste(lbl.rotate(90, expand=True), (0, y))
+        for i, p in enumerate(row):
+            x = label_w + i * (panel + pad)
+            canvas.paste(p.convert("RGB"), (x, y))
+    # Site captions under the last row
+    y = title_h + 3 * (panel + pad) - pad + 4
+    for i, (lat, lon) in enumerate(sites):
+        cap = f"({lat:+.1f}, {lon:+.1f})"
+        x = label_w + i * (panel + pad)
+        cw = draw.textlength(cap, font=font_cap)
+        draw.text((x + (panel - cw) // 2, y), cap,
+                  fill=(230, 230, 230), font=font_cap)
+    path = os.path.join(OUT, "site_synthesis_random.png")
+    canvas.save(path)
+    print(f"  wrote {path}")
+    return sites
 
 
 def check_determinism(wac, lat=9.6, lon=-20.0):

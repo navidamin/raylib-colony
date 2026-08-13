@@ -71,6 +71,24 @@ style = lunar ramp (cool shadow → warm sunlit), continuous or
 | `output/site_synthesis_drilldown.png` | The 4-panel zoom strip with panel 4 synthesized |
 | `output/site_synthesis_locations.png` | Crater / mare / highland conditioning, real vs synth |
 
+## Correction (2026-08-13, later): no invented craters
+
+After seeing both styles, the user's verdict: the amplification of
+real forms works — **the invented craters were the problem** ("you
+just created craters where there are none"). Procedural crater
+generation is removed from BOTH paths. What remains per style:
+
+- **Photo-real**: native denoise → upsample → unsharp → adaptive
+  contrast, plus quiet regolith grain and undulation. Every crater in
+  the output is a real one from the WAC data.
+- **Pixel art**: the same real-form base, light smoothing (0.7 — the
+  earlier hard blur turned forms into amoebas once craters were gone),
+  9-tone quantise + ordered dither. Purely tonal stylization.
+
+`render_random_locations` renders N random near-side sites in a
+real / photo-real / pixel-art grid (`site_synthesis_random.png`) so
+the two surviving styles can be judged across arbitrary terrain.
+
 ## Style decision (2026-08-13): stylized pixel art
 
 The photo-real synthesis path was **rejected** by the user: *"I want
