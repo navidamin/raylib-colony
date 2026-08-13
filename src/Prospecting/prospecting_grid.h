@@ -34,7 +34,13 @@ public:
     const std::vector<SweepRecord>& GetSweepHistory() const;
     bool HasSweptFrequency(int frequencyBand) const;
 
+    // Tier only changes instrument reach; the lattice is fixed, so survey
+    // data and sample links survive an upgrade.
     void ResizeForTier(int newTier);
+
+    // Reach helpers, forwarded with this grid's tier applied.
+    bool IsInReach(int subX, int subY) const;
+    int GetReach() const;
 
 private:
     int tier;

@@ -32,6 +32,11 @@ bool SamplingEngine::CollectSample(ProspectingGrid& grid, SampleTray& tray,
     if (subX < 0 || subX >= size || subY < 0 || subY >= size)
         return false;
 
+    // Out-of-reach sub-cells exist and hold real data, but the drill cannot
+    // get to them until a higher tier extends range.
+    if (!grid.IsInReach(subX, subY))
+        return false;
+
     Sample sample = CreateSample(grid, subX, subY, depth);
 
     if (!tray.AddSample(sample))

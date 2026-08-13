@@ -444,9 +444,11 @@ int main(int argc, char** argv)
 
             ApplyProspectingState(*system, options.state);
 
-            // Select the first cell and sample so detail views have a subject.
-            system->selectedCellX = 0;
-            system->selectedCellY = 0;
+            // Select a cell inside instrument reach, so the cell readout shows
+            // real data rather than an out-of-range cell.
+            int centre = system->GetGrid().GetGridSize() / 2;
+            system->selectedCellX = centre;
+            system->selectedCellY = centre;
             if (system->GetTray().GetCount() > 0) system->selectedSampleIndex = 0;
         }
         }

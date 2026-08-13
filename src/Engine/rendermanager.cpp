@@ -2476,6 +2476,42 @@ static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
     }
 }
 
+// Out-of-reach cell: dimmed, dashed border, small lock glyph. The cell is
+// visible from tier 0 so the player can see the ground they will eventually
+// reach, and how much of it is still out of range.
+static void ProsDrawLockedCell(Rectangle r, bool hover)
+{
+    // Deliberately quiet: the reachable area must stay the focus, while the
+    // surrounding ground is still visible as "yours, later". A lock glyph on
+    // every cell would drown the panel, so it only appears on hover.
+    DrawRectangleRounded(r, 0.22f, 4, {8, 10, 18, 255});
+
+    Color edge = hover ? Color{70, 92, 120, 255} : Color{20, 25, 40, 255};
+    const float dash = 4.0f;
+    for (float x = r.x + 3; x < r.x + r.width - 3; x += dash * 2)
+    {
+        float w = std::min(dash, r.x + r.width - 3 - x);
+        DrawRectangleRec({x, r.y, w, 1.0f}, edge);
+        DrawRectangleRec({x, r.y + r.height - 1, w, 1.0f}, edge);
+    }
+    for (float y = r.y + 3; y < r.y + r.height - 3; y += dash * 2)
+    {
+        float h = std::min(dash, r.y + r.height - 3 - y);
+        DrawRectangleRec({r.x, y, 1.0f, h}, edge);
+        DrawRectangleRec({r.x + r.width - 1, y, 1.0f, h}, edge);
+    }
+
+    if (hover)
+    {
+        float cx = r.x + r.width / 2.0f;
+        float cy = r.y + r.height / 2.0f;
+        float s = std::min(r.width, r.height) * 0.16f;
+        Color glyph = {120, 150, 190, 255};
+        DrawRectangleRec({cx - s, cy - s * 0.1f, s * 2.0f, s * 1.5f}, glyph);
+        DrawRing({cx, cy - s * 0.1f}, s * 0.62f, s * 0.92f, 180.0f, 360.0f, 16, glyph);
+    }
+}
+
 // Sample/sweep marker in the cell center. Confidence drives the glyph:
 // hollow ring (low) -> ring with core (moderate) -> solid bright dot (high).
 static void ProsDrawCellMarker(Rectangle r, const SubCell& cell)
@@ -2599,6 +2635,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         float gridX = px;
         float gridY = contentY;
 
+        // Tracked while drawing so the out-of-range tooltip can be drawn last
+        int lockedHoverX = -1;
+        int lockedHoverY = -1;
+
         float cellGap = 5.0f;
         for (int gy = 0; gy < gridSize; gy++)
         {
@@ -2606,6 +2646,19 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             {
                 Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
                                       cellSize - cellGap, cellSize - cellGap};
+
+                bool hover = CheckCollisionPointRec(mouse, cellRect);
+
+                if (!grid.IsInReach(gx, gy))
+                {
+                    ProsDrawLockedCell(cellRect, hover);
+                    if (hover)
+                    {
+                        lockedHoverX = gx;
+                        lockedHoverY = gy;
+                    }
+                    continue;
+                }
 
                 const SubCell& cell = grid.GetSubCell(gx, gy);
                 Color fill = {0, 0, 0, 0};
@@ -2615,7 +2668,6 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                     fill.a = 115;   // muted plum over the dark base, per the mock
                 }
 
-                bool hover = CheckCollisionPointRec(mouse, cellRect);
                 bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
                 ProsDrawCellBase(cellRect, fill, selected, hover);
                 ProsDrawCellMarker(cellRect, cell);
@@ -2626,6 +2678,42 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                     ps->selectedCellY = gy;
                 }
             }
+        }
+
+        // Reach legend under the grid
+        float legendY = gridY + gridSize * cellSize + 2.0f;
+        DrawTextEx(bodyFont,
+                   TextFormat("SURVEY RANGE  %dx%d of %dx%d",
+                              grid.GetReach(), grid.GetReach(), gridSize, gridSize),
+                   {gridX, legendY}, FS(9.0f), sp, EXT_DIM_TEXT);
+        if (grid.GetReach() < gridSize)
+        {
+            const char* rangeHint = "Higher tiers extend range";
+            float hintW = MeasureTextEx(bodyFont, rangeHint, FS(9.0f), sp).x;
+            DrawTextEx(bodyFont, rangeHint,
+                       {gridX + gridAreaW - cellGap - hintW, legendY}, FS(9.0f), sp,
+                       Fade(EXT_DIM_TEXT, 0.7f));
+        }
+
+        // Out-of-range tooltip, drawn last so it sits above the grid
+        if (lockedHoverX >= 0)
+        {
+            int needTier = TierRequiredForSubCell(lockedHoverX, lockedHoverY);
+            const char* line1 = "OUT OF RANGE";
+            const char* line2 = needTier >= 0
+                ? TextFormat("Tier %d extends survey range here", needTier)
+                : "Unreachable";
+
+            float w = std::max(MeasureTextEx(headerFont, line1, FS(10.0f), sp).x,
+                               MeasureTextEx(bodyFont, line2, FS(9.0f), sp).x) + 20.0f;
+            float h = 38.0f;
+            float tx = std::min(mouse.x + 14.0f, px + pw - w);
+            float ty = std::min(mouse.y + 14.0f, static_cast<float>(y + h) - 48.0f);
+
+            DrawRectangleRounded({tx, ty, w, h}, 0.2f, 4, {12, 18, 32, 245});
+            DrawRectangleRoundedLinesEx({tx, ty, w, h}, 0.2f, 4, 1.0f, EXT_PANEL_BORDER);
+            DrawTextEx(headerFont, line1, {tx + 10.0f, ty + 7.0f}, FS(10.0f), sp, EXT_ACCENT_GOLD);
+            DrawTextEx(bodyFont, line2, {tx + 10.0f, ty + 21.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
         }
 
         // Sweep controls (right of grid)
@@ -2800,6 +2888,12 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             {
                 Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
                                       cellSize - 5.0f, cellSize - 5.0f};
+
+                if (!grid.IsInReach(gx, gy))
+                {
+                    ProsDrawLockedCell(cellRect, CheckCollisionPointRec(mouse, cellRect));
+                    continue;
+                }
 
                 const SubCell& cell = grid.GetSubCell(gx, gy);
                 Color fill = {0, 0, 0, 0};

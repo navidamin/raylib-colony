@@ -38,6 +38,16 @@ std::map<ResourceType, float> ProspectingGrid::GetGroundTruth(int subX, int subY
     return subCellResources[d][subY][subX];
 }
 
+bool ProspectingGrid::IsInReach(int subX, int subY) const
+{
+    return IsSubCellInReach(subX, subY, tier);
+}
+
+int ProspectingGrid::GetReach() const
+{
+    return GetReachForTier(tier);
+}
+
 float ProspectingGrid::GetQuantity(int subX, int subY, DepthLayer depth) const
 {
     int d = static_cast<int>(depth);
@@ -79,10 +89,11 @@ bool ProspectingGrid::HasSweptFrequency(int frequencyBand) const
 
 void ProspectingGrid::ResizeForTier(int newTier)
 {
+    // The lattice is fixed, so a tier change only extends reach. Nothing is
+    // reallocated -- which is what preserves sweep data, confidence, and the
+    // sub-cell links held by collected samples across an upgrade. (The
+    // previous size-changing grid wiped all of that on every tier-up.)
     tier = newTier;
-    gridSize = GetGridSizeForTier(newTier);
-    AllocateGrid();
-    GenerateSubCellDistribution();
 }
 
 void ProspectingGrid::AllocateGrid()
