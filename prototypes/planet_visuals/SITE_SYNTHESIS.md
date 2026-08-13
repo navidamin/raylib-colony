@@ -71,14 +71,41 @@ style = lunar ramp (cool shadow → warm sunlit), continuous or
 | `output/site_synthesis_drilldown.png` | The 4-panel zoom strip with panel 4 synthesized |
 | `output/site_synthesis_locations.png` | Crater / mare / highland conditioning, real vs synth |
 
-## Open questions (style is the player's call)
+## Style decision (2026-08-13): stylized pixel art
 
-- Which style variant: continuous, 14-tone pixel art, or dithered?
-- Tone count and palette warmth of the pixel-art ramp.
-- Small-crater density in maria (currently floor 0.15 of highland
-  density — possibly still too many).
-- Intermediate zooms: panels 2–3 are real-only today; the same
-  amplification could sharpen the regional zoom with a higher floor.
+The photo-real synthesis path was **rejected** by the user: *"I want
+pixel art. You don't need to be very precise in reproducing the
+surface. The smooth and attractiveness is more important."*
+
+The chosen path is `synthesize_pixelart` + `style_pixelart_v2`:
+
+- **No lighting simulation.** Craters are drawn the way a pixel artist
+  draws them: flat floor one tone down, a shadow crescent hugging the
+  sun-side inner wall, a lit crescent on the far wall, a thin bright
+  rim outside on the sun side. Sun fixed NW.
+- **Chunky grid**: 150 px internal, 6x nearest to 900. 9-tone ramp,
+  cool blue-violet shadows → warm sunlit highlights.
+- **Real crop smoothed HARD** — only the big tonal shapes survive
+  (mare edges, main bowls, bright rays). Precision is explicitly not
+  the goal; the real data just keeps the map honest per location.
+- **Few confident craters** (~27 placed) instead of a sprinkle;
+  gentle 2x2 ordered dither (amplitude 0.30) at tone boundaries.
+
+Iteration lessons for this style:
+- The first pass lit craters like convex pebbles — for a concave bowl
+  the shadow crescent goes on the SUN side inner wall. Get the sun
+  vector sign right before tuning anything else.
+- Wide crescents turn craters into two-tone cookies; crescents must
+  hug the wall (d > ~0.55).
+- Ordered dither at 0.55 amplitude read as textile; 0.30 is enough.
+
+## Open questions
+
+- Palette warmth/hue — currently blue-violet shadows; could shift
+  toward the game UI's dark sci-fi palette.
+- Crater size mix and count per terrain.
+- Intermediate zooms: panels 2–3 are real-only today; a lighter
+  stylization pass could unify the whole drill-down's look.
 
 ## Game integration sketch (not built)
 

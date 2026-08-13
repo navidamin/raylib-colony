@@ -179,6 +179,142 @@ def synthesize_site(wac: np.ndarray, lat_deg: float, lon_deg: float,
     return np.clip(lum, 0.0, 1.0), macro
 
 
+# --- Stylized pixel art ---------------------------------------------------
+#
+# The user's call (2026-08-13): precision in reproducing the surface is
+# NOT the goal — smoothness and attractiveness are. So this path does
+# not simulate lighting at all. The real crop only supplies the big
+# tonal shapes; craters are drawn the way a pixel artist draws them:
+# clean disc, dark shadow crescent on the sun side, lit crescent
+# opposite, done. Chunky pixels, one small handsome palette.
+
+PIX_RES = 150          # internal pixel grid; 150 * 6 = 900 display
+PIX_TONES = 9          # palette depth
+
+
+def pixel_palette(n: int = PIX_TONES):
+    """Cool-shadow -> warm-light lunar ramp, tuned for charm over
+    accuracy. Index 0 is the deepest shadow tone."""
+    stops = [
+        (26, 28, 44),      # deep shadow, blue-violet
+        (52, 54, 74),
+        (84, 86, 106),
+        (117, 119, 136),
+        (148, 149, 162),
+        (176, 176, 185),
+        (201, 200, 204),
+        (223, 221, 218),
+        (244, 241, 231),   # sunlit, warm
+    ]
+    if n == len(stops):
+        return stops
+    out = []
+    for i in range(n):
+        t = i / (n - 1) * (len(stops) - 1)
+        a = int(t)
+        b = min(a + 1, len(stops) - 1)
+        f = t - a
+        out.append(tuple(int(stops[a][k] + (stops[b][k] - stops[a][k]) * f)
+                         for k in range(3)))
+    return out
+
+
+def synthesize_pixelart(wac: np.ndarray, lat_deg: float, lon_deg: float,
+                        span_deg: float = SITE_SPAN_DEG,
+                        pix_res: int = PIX_RES):
+    """Stylized site view. Returns a (pix_res, pix_res) int array of
+    palette indices."""
+    rng = np.random.default_rng(location_seed(lat_deg, lon_deg))
+    shape = (pix_res, pix_res)
+
+    # Macro: real crop, denoised and SMOOTHED HARD — we only want the
+    # big shapes (mare edge, main crater bowl, ray brightness).
+    native = crop_native(wac, lat_deg, lon_deg, span_deg)
+    native = gaussian_blur(native, 0.8)
+    macro = np.asarray(
+        Image.fromarray(native, mode="F").resize((pix_res, pix_res),
+                                                 Image.BICUBIC),
+        dtype=np.float32)
+    macro = gaussian_blur(macro, 1.6)
+
+    # Gentle adaptive expansion around the crop's own midpoint.
+    p_lo, p_hi = np.percentile(macro, [3.0, 97.0])
+    spread = max(p_hi - p_lo, 1e-4)
+    gain = min(2.0, max(1.0, 0.55 / spread))
+    mid = 0.5 * (p_hi + p_lo)
+    macro = np.clip(mid + (macro - mid) * gain, 0.02, 0.98)
+
+    # Base tone field in continuous palette units.
+    tone = macro * (PIX_TONES - 1)
+
+    # Soft large-scale undulation so plains aren't one flat tone —
+    # smooth, not noisy.
+    tone += 1.1 * (fbm(shape, 3, 56, 0.5, rng) - 0.5)
+
+    # Conditioning: crater count scales with brightness (highland dense,
+    # mare sparse) — same idea as the realistic path, fewer craters.
+    density = np.clip((macro - 0.25) / 0.45, 0.20, 1.0)
+
+    # Fewer, bigger craters — pebble-sprinkle reads as noise; a handful
+    # of confident bowls reads as pixel art.
+    craters = sample_craters(shape, rng,
+                             count_small=16, count_med=8, count_big=3,
+                             min_separation=1.45,
+                             size_scale=0.26, size_variance=0.8)
+    # Unit vector pointing TOWARD the sun (north-west, up-left in
+    # screen coords where y grows downward).
+    sx, sy = -0.7071, -0.7071
+
+    yy, xx = np.mgrid[0:pix_res, 0:pix_res].astype(np.float32)
+    for c in craters:
+        cy = min(pix_res - 1, max(0, int(c.cy)))
+        cx = min(pix_res - 1, max(0, int(c.cx)))
+        if rng.random() >= density[cy, cx]:
+            continue
+        r = max(3.0, c.r)
+        dx = (xx - c.cx) / r
+        dy = (yy - c.cy) / r
+        d = np.sqrt(dx * dx + dy * dy)
+        inside = d < 1.0
+        if not inside.any():
+            continue
+        # u > 0: the inner wall on the SUN side — faces away from the
+        # sun, so it is the shadowed wall of a concave bowl. u < 0: the
+        # far wall, whose inner face catches the light.
+        u = dx * sx + dy * sy
+        delta = np.zeros(shape, dtype=np.float32)
+        # Floor: one tone down, flat and clean.
+        delta[inside] = -1.0
+        # Crescents HUG the walls (d > ~0.55) — wide ones turn the
+        # crater into a two-tone cookie instead of a bowl.
+        shadow = inside & (u > 0.15) & (d > 0.55)
+        delta[shadow] = -2.4
+        # Lit inner wall opposite, thinner still.
+        lit = inside & (u < -0.25) & (d > 0.65)
+        delta[lit] = +1.2
+        # Thin bright rim just outside on the sun side, where the
+        # outer slope catches the light.
+        rim = (d >= 1.0) & (d < 1.12) & (u > 0.25)
+        delta[rim] = +0.9
+        tone += delta
+
+    # Ordered 2x2 dither at tone boundaries — classic pixel-art
+    # blending, keeps gradients smooth without extra palette entries.
+    bayer = np.array([[0.0, 0.5], [0.75, 0.25]], dtype=np.float32) - 0.375
+    dither = np.tile(bayer, (pix_res // 2 + 1, pix_res // 2 + 1))
+    tone += 0.30 * dither[:pix_res, :pix_res]
+
+    idx = np.clip(np.round(tone), 0, PIX_TONES - 1).astype(np.int32)
+    return idx
+
+
+def style_pixelart_v2(idx: np.ndarray) -> Image.Image:
+    pal = np.array(pixel_palette(), dtype=np.uint8)
+    rgb = pal[idx]
+    return Image.fromarray(rgb).resize((DISPLAY_RES, DISPLAY_RES),
+                                       Image.NEAREST)
+
+
 # --- Styling --------------------------------------------------------------
 
 def lunar_palette(n: int = 14):
@@ -289,24 +425,29 @@ def compose_strip(panels, captions, title, output_path, panel_w=DISPLAY_RES):
 
 # --- Outputs --------------------------------------------------------------
 
+def pixelart_site(wac, lat, lon):
+    """The chosen style: stylized pixel art, smooth and attractive
+    over precise (user decision 2026-08-13; the photo-real path above
+    is kept for reference only)."""
+    return style_pixelart_v2(synthesize_pixelart(wac, lat, lon))
+
+
 def render_compare(wac, lat, lon, name):
     lum, _ = synthesize_site(wac, lat, lon)
     panels = [real_blurry(wac, lat, lon),
-              style_realistic(lum),
-              style_pixel(lum),
-              style_pixel_dither(lum)]
+              pixelart_site(wac, lat, lon),
+              style_realistic(lum)]
     captions = ["Real WAC (today: blurry)",
-                "Synthesized — continuous",
-                "Synthesized — pixel art 14-tone",
-                "Synthesized — pixel art + dither"]
+                "Stylized pixel art (chosen direction)",
+                "Photo-real synthesis (rejected, for reference)"]
     compose_strip(panels, captions,
                   f"Site synthesis — {name} ({lat:+.1f}, {lon:+.1f}), "
-                  f"~90 km window. Macro forms from real WAC, detail "
-                  f"below the 1.3 km/px floor is generated.",
+                  f"~90 km window. Real pixels guide the big shapes; "
+                  f"the style is game pixel art.",
                   os.path.join(OUT, "site_synthesis_compare.png"))
 
 
-def render_drilldown(wac, lat, lon, style_fn=style_pixel):
+def render_drilldown(wac, lat, lon, site_fn=pixelart_site):
     """The multi_zoom 4-panel strip, with the site panel synthesized."""
     panel_w = DISPLAY_RES
     panels = []
@@ -342,9 +483,8 @@ def render_drilldown(wac, lat, lon, style_fn=style_pixel):
         panels.append(Image.alpha_composite(p, overlay))
         captions.append(cap)
 
-    lum, _ = synthesize_site(wac, lat, lon)
-    panels.append(style_fn(lum).convert("RGBA"))
-    captions.append("Site (~90 km) — SYNTHESIZED")
+    panels.append(site_fn(wac, lat, lon).convert("RGBA"))
+    captions.append("Site (~90 km) — SYNTHESIZED PIXEL ART")
 
     compose_strip(panels, captions,
                   "Drill-down, Copernicus. Panels 1-3 real WAC; panel 4 "
@@ -353,7 +493,7 @@ def render_drilldown(wac, lat, lon, style_fn=style_pixel):
                   os.path.join(OUT, "site_synthesis_drilldown.png"))
 
 
-def render_locations(wac, style_fn=style_pixel):
+def render_locations(wac, site_fn=pixelart_site):
     """Three terrain types, real vs synthesized — the conditioning must
     visibly adapt (mare smooth/sparse, highland rough/dense)."""
     sites = [("Copernicus (crater)", 9.6, -20.0),
@@ -363,9 +503,8 @@ def render_locations(wac, style_fn=style_pixel):
     panels = []
     captions = []
     for name, lat, lon in sites:
-        lum, _ = synthesize_site(wac, lat, lon)
         real = real_blurry(wac, lat, lon).resize((half, half), Image.LANCZOS)
-        synth = style_fn(lum).resize((half, half), Image.NEAREST)
+        synth = site_fn(wac, lat, lon).resize((half, half), Image.NEAREST)
         pair = Image.new("RGB", (half, DISPLAY_RES), (10, 12, 18))
         pair.paste(real.convert("RGB"), (0, 0))
         pair.paste(synth.convert("RGB"), (0, half))
@@ -396,8 +535,8 @@ def render_locations(wac, style_fn=style_pixel):
 
 
 def check_determinism(wac, lat=9.6, lon=-20.0):
-    a, _ = synthesize_site(wac, lat, lon)
-    b, _ = synthesize_site(wac, lat, lon)
+    a = synthesize_pixelart(wac, lat, lon)
+    b = synthesize_pixelart(wac, lat, lon)
     same = np.array_equal(a, b)
     print(f"  determinism check ({lat}, {lon}): "
           f"{'IDENTICAL' if same else 'MISMATCH — BUG'}")
