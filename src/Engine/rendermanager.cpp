@@ -2675,9 +2675,57 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         }
 
         float calQ = ps->GetSweep().GetCalibrationQuality();
+        bool calibrating = ps->GetSweep().IsCalibrating();
+
         DrawTextEx(bodyFont, TextFormat("Calibration: %.0f%%", calQ * 100.0f),
                    {ctrlX, ctrlY}, FS(10.0f), sp, calQ >= 0.8f ? EXT_ACCENT_GREEN : PROS_MSG_ALERT);
-        ctrlY += 16.0f;
+        ctrlY += 18.0f;
+
+        // CALIBRATE: restores quality to 100%, blocks sweeping while it runs
+        Rectangle calBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 26.0f};
+        bool calHover = CheckCollisionPointRec(mouse, calBtn);
+        bool calNeeded = calQ < 0.999f;
+        bool calEnabled = calNeeded && !calibrating;
+
+        Color calFill = calibrating ? Color{16, 40, 48, 255}
+                                    : (!calEnabled ? Color{14, 20, 34, 255}
+                                                   : (calHover ? Color{20, 50, 66, 255}
+                                                               : EXT_PANEL_BG2));
+        DrawRectangleRounded(calBtn, 0.3f, 4, calFill);
+
+        if (calibrating)
+        {
+            // Progress fill
+            float prog = ps->GetSweep().GetCalibrationProgress();
+            if (prog > 0.01f)
+            {
+                DrawRectangleRounded({calBtn.x + 2.0f, calBtn.y + 2.0f,
+                                      (calBtn.width - 4.0f) * prog, calBtn.height - 4.0f},
+                                     0.3f, 4, Fade(EXT_ACCENT_CYAN, 0.25f));
+            }
+        }
+
+        DrawRectangleRoundedLinesEx(calBtn, 0.3f, 4, calibrating ? 1.5f : 1.0f,
+                                    calibrating ? EXT_ACCENT_CYAN
+                                                : (calEnabled ? PROS_BTN_BORDER : PROS_BTN_DISABLED));
+
+        const char* calLabel = calibrating
+            ? TextFormat("CALIBRATING %.0f%%", ps->GetSweep().GetCalibrationProgress() * 100.0f)
+            : (calNeeded ? "CALIBRATE" : "CALIBRATED");
+        Color calText = calibrating ? EXT_ACCENT_CYAN
+                                    : (calEnabled ? (calHover ? WHITE : PROS_BTN_TEXT_HOVER)
+                                                  : PROS_BTN_DISABLED);
+        float calLabelW = MeasureTextEx(headerFont, calLabel, FS(10.0f), sp).x;
+        DrawTextEx(headerFont, calLabel,
+                   {calBtn.x + (calBtn.width - calLabelW) / 2.0f, calBtn.y + 7.0f},
+                   FS(10.0f), sp, calText);
+
+        if (calHover && calEnabled && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            ps->GetSweep().StartCalibration();
+            unit->PublicShowMessage("Calibrating sweep instrument...");
+        }
+        ctrlY += 32.0f;
 
         // Cell info tooltip
         if (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
@@ -2839,8 +2887,39 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                                             ps->selectedCellX, ps->selectedCellY, ps->selectedDepth);
         }
 
+        // DISCARD: frees a tray slot, otherwise a full tray is a dead end
+        ctrlY += 34.0f;
+        const Sample* discardTarget = (ps->selectedSampleIndex >= 0)
+            ? ps->GetTray().GetSampleByIndex(ps->selectedSampleIndex) : nullptr;
+
+        Rectangle discardBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 26.0f};
+        bool discardHover = CheckCollisionPointRec(mouse, discardBtn);
+        bool canDiscard = (discardTarget != nullptr);
+
+        DrawRectangleRounded(discardBtn, 0.3f, 4,
+                             canDiscard && discardHover ? Color{54, 16, 22, 255}
+                                                        : Color{14, 20, 34, 255});
+        DrawRectangleRoundedLinesEx(discardBtn, 0.3f, 4, 1.0f,
+                                    canDiscard ? Fade(EXT_ACCENT_RED, 0.8f) : PROS_BTN_DISABLED);
+
+        const char* discardLabel = trayFull && !canDiscard ? "TRAY FULL - SELECT A SAMPLE" : "DISCARD SAMPLE";
+        float discardW = MeasureTextEx(headerFont, discardLabel, FS(10.0f), sp).x;
+        DrawTextEx(headerFont, discardLabel,
+                   {discardBtn.x + (discardBtn.width - discardW) / 2.0f, discardBtn.y + 7.0f},
+                   FS(10.0f), sp,
+                   canDiscard ? (discardHover ? WHITE : Fade(EXT_ACCENT_RED, 0.9f)) : PROS_BTN_DISABLED);
+
+        if (discardHover && canDiscard && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            if (ps->GetTray().RemoveSample(discardTarget->id))
+            {
+                ps->selectedSampleIndex = -1;
+                unit->PublicShowMessage("Sample discarded.");
+            }
+        }
+
         // Sample tray display
-        ctrlY += 40.0f;
+        ctrlY += 32.0f;
         DrawTextEx(headerFont, TextFormat("TRAY (%d/%d)", ps->GetTray().GetCount(), ps->GetTray().GetCapacity()),
                    {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
         ctrlY += 20.0f;
@@ -3017,6 +3096,51 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         Sample* selSample = (ps->selectedSampleIndex >= 0)
             ? ps->GetTray().GetSampleByIndex(ps->selectedSampleIndex) : nullptr;
 
+        // --- Preset pipelines: one tap runs a separation + tool combo ---
+        DrawTextEx(headerFont, "PRESETS", {px, toolY}, FS(12.0f), sp, EXT_HEADER_COLOR);
+        toolY += 20.0f;
+
+        const std::vector<LabPreset>& presets = LabEngine::GetPresets();
+        float presetColW = (leftW - 11.0f) / 2.0f;
+        for (size_t p = 0; p < presets.size(); p++)
+        {
+            bool canApply = selSample && ps->GetLab().CanApplyPreset(*selSample, static_cast<int>(p));
+            Rectangle presetBtn = {px + (p % 2) * (presetColW + 6.0f),
+                                   toolY + (p / 2) * 27.0f, presetColW, 23.0f};
+            bool hover = CheckCollisionPointRec(mouse, presetBtn);
+            bool flash = (ps->lastLabActionKind == 2 &&
+                          ps->lastLabActionIndex == static_cast<int>(p) &&
+                          ps->gameTime - ps->lastLabActionTime < 0.4f);
+
+            Color fill = flash ? Color{24, 70, 90, 255}
+                               : (hover && canApply ? Color{16, 32, 52, 255} : Color{13, 22, 40, 255});
+            DrawRectangleRounded(presetBtn, 0.3f, 4, fill);
+            DrawRectangleRoundedLinesEx(presetBtn, 0.3f, 4, flash ? 2.0f : 1.0f,
+                                        flash ? EXT_ACCENT_CYAN
+                                              : (canApply ? Fade(EXT_ACCENT_VIOLET, 0.8f)
+                                                          : PROS_BTN_DISABLED));
+
+            Color textCol = canApply ? (hover ? WHITE : Fade(EXT_ACCENT_VIOLET, 0.95f))
+                                     : PROS_BTN_DISABLED;
+            const char* presetLabel = canApply
+                ? presets[p].name.c_str()
+                : TextFormat("%s  T%d", presets[p].name.c_str(), presets[p].requiredTier);
+            DrawTextEx(bodyFont, presetLabel,
+                       {presetBtn.x + 8.0f, presetBtn.y + 5.0f}, FS(9.0f), sp, textCol);
+
+            if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                if (ps->GetLab().ApplyPreset(*selSample, static_cast<int>(p), ps->gameTime))
+                {
+                    ps->lastLabActionKind = 2;
+                    ps->lastLabActionIndex = static_cast<int>(p);
+                    ps->lastLabActionTime = ps->gameTime;
+                    unit->PublicShowMessage(presets[p].name + " pipeline applied.");
+                }
+            }
+        }
+        toolY += ((presets.size() + 1) / 2) * 27.0f + 6.0f;
+
         DrawTextEx(headerFont, "ANALYSIS TOOLS", {px, toolY}, FS(12.0f), sp, EXT_HEADER_COLOR);
         toolY += 20.0f;
 
@@ -3037,8 +3161,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             auto& te = tools[t];
             bool canApply = selSample && ps->GetLab().CanApplyTool(*selSample, te.tool);
             float cost = LabEngine::GetToolCost(te.tool);
-            Rectangle toolBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 30.0f,
-                                 toolColW, 24.0f};
+            Rectangle toolBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 27.0f,
+                                 toolColW, 23.0f};
             bool hover = CheckCollisionPointRec(mouse, toolBtn);
             bool pressed = hover && canApply && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
 
@@ -3091,7 +3215,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                 }
             }
         }
-        toolY += 3 * 30.0f;
+        toolY += 3 * 27.0f;
 
         // Separation methods
         toolY += 8.0f;
@@ -3110,8 +3234,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             auto& se = seps[t];
             bool canApply = selSample && ps->GetLab().CanApplySeparation(*selSample, se.method);
             float cost = LabEngine::GetSeparationCost(se.method);
-            Rectangle sepBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 30.0f,
-                                toolColW, 24.0f};
+            Rectangle sepBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 27.0f,
+                                toolColW, 23.0f};
             bool hover = CheckCollisionPointRec(mouse, sepBtn);
             bool pressed = hover && canApply && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
             bool applied = selSample && selSample->separationApplied == se.method;

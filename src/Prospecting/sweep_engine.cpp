@@ -14,6 +14,10 @@ SweepEngine::SweepEngine(int tier)
 
 bool SweepEngine::CanSweep(const ProspectingGrid& grid, int frequencyBand) const
 {
+    // The instrument is offline while being calibrated
+    if (calibrating)
+        return false;
+
     if (frequencyBand < 0 || frequencyBand >= SWEEP_FREQUENCY_BANDS)
         return false;
 
@@ -160,6 +164,12 @@ void SweepEngine::StartCalibration()
 {
     calibrating = true;
     calibrationTimer = CALIBRATION_DURATION;
+}
+
+float SweepEngine::GetCalibrationProgress() const
+{
+    if (!calibrating || CALIBRATION_DURATION <= 0.0f) return 0.0f;
+    return 1.0f - (calibrationTimer / CALIBRATION_DURATION);
 }
 
 void SweepEngine::UpdateCalibration(float deltaTime)
