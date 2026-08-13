@@ -23,6 +23,9 @@
 #include <string>
 #include <vector>
 
+// Fixed world seed: reproducible screenshots across runs and machines.
+static const unsigned int PREVIEW_MAP_SEED = 20260813u;
+
 struct PreviewOptions
 {
     std::string module = "prospecting";
@@ -384,9 +387,11 @@ int main(int argc, char** argv)
 
     // The constructor only allocates the grids; Planet normally calls this to
     // populate them. Without it the whole map is empty and every sample reads
-    // 0% richness.
+    // 0% richness. A fixed seed keeps previews reproducible -- the default
+    // seed (0) uses random_device, which would make every screenshot show a
+    // different planet and defeat visual comparison.
     ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
-    resourceManager.GenerateResourceMap();
+    resourceManager.GenerateResourceMap(PREVIEW_MAP_SEED);
     TimeManager timeManager;
 
     // Place the unit mid-grid so it samples a populated resource cell.

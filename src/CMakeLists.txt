@@ -179,3 +179,34 @@ if(APPLE)
         "-framework OpenGL"
     )
 endif()
+
+# ---------------------------------------------------------------------------
+# colony_inspect: terminal dump of generated game data
+#
+# Prints real ResourceManager / ProspectingGrid numbers so value bugs can be
+# diagnosed from data instead of from reading generation code. Not built for
+# Web. See tools/inspect/README.md.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_inspect)
+
+    target_sources(colony_inspect PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/inspect/inspect_resources.cpp"
+        ResourceManager/resource_manager.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/prospecting_types.cpp
+    )
+
+    set_target_properties(colony_inspect PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(colony_inspect PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_inspect raylib tomlplusplus::tomlplusplus)
+
+    if(NOT WIN32)
+        target_link_libraries(colony_inspect m)
+    endif()
+endif()

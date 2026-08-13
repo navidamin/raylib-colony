@@ -284,6 +284,24 @@ The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture si
 
 **Note:** CMakeLists.txt in src/ may be incomplete - not all .cpp files are listed in target_sources. Verify compilation if adding new files.
 
+## Dev Workflow & Testing Instruments
+
+**Read `docs/dev-workflow.md` before starting UI or gameplay work.** The
+repo has purpose-built instruments so changes can be seen and verified
+without a display:
+
+| Tool | Use it for |
+|------|-----------|
+| `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so screenshots are faithful and reproducible. |
+| `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
+| `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
+| `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
+
+The working loop: **change → render preview → look at the PNG and iterate
+→ show the images → `--all` + build all targets → commit/push (deploy is
+automatic) → playtest on device.** Never claim a visual result without
+rendering it first.
+
 ## Web Builds & Mobile
 
 Before touching `src/minshell.html`, the Pages deploy workflow, or
