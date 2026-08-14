@@ -106,9 +106,43 @@ const Machine& ExcavationSystem::GetActiveMachine() const
     return DigEngine::GetMachine(activeMachine);
 }
 
+AiLevel ExcavationSystem::MaxAiLevel() const
+{
+    return AutoPilot::MaxLevelForTier(tier);
+}
+
+AutoDecision ExcavationSystem::PreviewAuto(const ProspectingSystem& prospecting) const
+{
+    return autoPilot.Decide(prospecting.GetGrid(), prospecting.GetTray(), site,
+                            estimator, worked, aiLevel, tier,
+                            targetResource, selectedDepth);
+}
+
 void ExcavationSystem::SyncToGround(const ProspectingSystem& prospecting)
 {
     EnsureTargetPresent(prospecting);
+
+    if (aiLevel != AiLevel::OFF)
+    {
+        // The automation drives spot, depth, machine and pace. The power cap
+        // stays the player's -- it is a standing constraint on the operation
+        // rather than part of running it.
+        lastDecision = PreviewAuto(prospecting);
+        if (lastDecision.valid)
+        {
+            selectedSpotX = lastDecision.spotX;
+            selectedSpotY = lastDecision.spotY;
+            selectedDepth = lastDecision.depth;
+            activeMachine = lastDecision.machine;
+            pace = lastDecision.pace;
+        }
+        return;
+    }
+
+    lastDecision = AutoDecision();
+
+    // Manual: the player picks the spot, but a worked-out one still advances,
+    // so walking away never stalls the unit entirely.
     if (autoMachine)
     {
         SelectAutoMachine(prospecting);
@@ -190,10 +224,16 @@ DigResult ExcavationSystem::Dig(ProspectingSystem& prospecting,
         selectedDepth = static_cast<DepthLayer>(std::clamp(deepest, 0, 3));
     }
 
+    // Automation costs efficiency against a player making the same calls.
+    float aiEfficiency = AutoPilot::EfficiencyFor(
+        aiLevel == AiLevel::OFF ? AiLevel::OFF
+                                : std::min(aiLevel, MaxAiLevel()));
+
     lastResult = digger.Dig(prospecting.GetGrid(), site, worked,
                             selectedSpotX, selectedSpotY, selectedDepth,
                             targetResource, activeMachine, machineCount,
-                            pace, powerCap, externalMultiplier, deltaTime);
+                            pace, powerCap, externalMultiplier * aiEfficiency,
+                            deltaTime);
 
     worked.Take(selectedSpotX, selectedSpotY, selectedDepth,
                 lastResult.depletionFraction);

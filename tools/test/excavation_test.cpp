@@ -25,6 +25,8 @@
 #include "estimate_engine.h"
 #include "dig_engine.h"
 #include "survey_progress_engine.h"
+#include "auto_pilot.h"
+#include "excavation_constants.h"
 #include "game_constants.h"
 
 #include <cstdio>
@@ -535,6 +537,157 @@ static void TestBlindDiggingBootstrapsSurvey()
            before.surveyProgress, after.surveyProgress);
 }
 
+static void TestAiLadderTreatsUncertaintyDifferently()
+{
+    printf("The AI ladder -- what separates the levels is how they treat the unknown\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SampleTray tray(3);
+    SiteView site(3);
+    EstimateEngine estimator;
+    DigSite worked;
+    AutoPilot pilot;
+
+    const ResourceType target = ResourceType::C;
+
+    AutoDecision off = pilot.Decide(grid, tray, site, estimator, worked,
+                                    AiLevel::OFF, 3, target, DepthLayer::SURFACE);
+    Check(!off.valid, "MANUAL decides nothing");
+    Check(Near(off.efficiency, 1.0f), "MANUAL costs no efficiency");
+
+    AutoDecision basic = pilot.Decide(grid, tray, site, estimator, worked,
+                                      AiLevel::BASIC, 3, target, DepthLayer::SURFACE);
+    AutoDecision trained = pilot.Decide(grid, tray, site, estimator, worked,
+                                        AiLevel::TRAINED, 3, target, DepthLayer::SURFACE);
+
+    Check(basic.valid && trained.valid, "the automation levels decide something");
+    Check(basic.efficiency < trained.efficiency, "a better level costs less efficiency");
+    Check(trained.efficiency < 1.0f, "automation always costs something");
+
+    // Each level must be optimal under ITS OWN criterion. Asserting that the
+    // two disagree would be asserting an accident of this map -- on ground
+    // where the richest spot also reads confidently, they rightly agree.
+    float bestLow = 0.0f;
+    float bestUpper = 0.0f;
+    for (int gy = 0; gy < grid.GetGridSize(); gy++)
+    {
+        for (int gx = 0; gx < grid.GetGridSize(); gx++)
+        {
+            if (!site.IsInReach(gx, gy)) continue;
+            SpotEstimate e = estimator.Estimate(grid, tray, site, gx, gy,
+                                                DepthLayer::SURFACE, target);
+            if (e.low > bestLow) bestLow = e.low;
+            float upper = e.shown + EXC_AI_EXPLORE_BONUS * e.halfWidth;
+            if (upper > bestUpper) bestUpper = upper;
+        }
+    }
+
+    SpotEstimate basicSpot = estimator.Estimate(grid, tray, site, basic.spotX,
+                                                basic.spotY, basic.depth, target);
+    SpotEstimate trainedSpot = estimator.Estimate(grid, tray, site, trained.spotX,
+                                                  trained.spotY, trained.depth, target);
+    float trainedUpper = trainedSpot.shown + EXC_AI_EXPLORE_BONUS * trainedSpot.halfWidth;
+
+    Check(Near(basicSpot.low, bestLow, 1e-2f),
+          "BASIC lands on the best guaranteed floor available");
+    Check(Near(trainedUpper, bestUpper, 1e-2f),
+          "TRAINED lands on the best upside available");
+
+    // Trained pushes the pace where it understands the ground and eases off
+    // where it does not; Basic runs at a fixed fraction whatever happens.
+    const Machine& bm = DigEngine::GetMachine(basic.machine);
+    Check(Near(basic.pace, bm.paceCeiling * EXC_AI_BASIC_PACE, 1e-2f),
+          "BASIC runs at a steady fraction of the ceiling");
+
+    // Expert should find somewhere worth surveying on unsurveyed ground.
+    AutoDecision expert = pilot.Decide(grid, tray, site, estimator, worked,
+                                       AiLevel::EXPERT, 3, target, DepthLayer::SURFACE);
+    Check(expert.surveyHintX >= 0, "EXPERT names somewhere worth surveying");
+    Check(expert.surveyGain > 0.0f, "EXPERT quantifies what surveying could gain");
+
+    // Trained does not offer hints -- that is what the level above buys.
+    Check(trained.surveyHintX < 0, "TRAINED offers no survey hint");
+}
+
+static void TestAiLevelIsCappedByTier()
+{
+    printf("Automation cannot outrun the module tier\n");
+
+    Check(AutoPilot::MaxLevelForTier(0) == AiLevel::BASIC, "tier 0 runs BASIC at most");
+    Check(AutoPilot::MaxLevelForTier(2) == AiLevel::TRAINED, "tier 2 reaches TRAINED");
+    Check(AutoPilot::MaxLevelForTier(3) == AiLevel::EXPERT, "tier 3 reaches EXPERT");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SampleTray tray(3);
+    SiteView site(0);
+    EstimateEngine estimator;
+    DigSite worked;
+    AutoPilot pilot;
+
+    // Ask for EXPERT on a tier-0 module: it must be served BASIC, and pay
+    // BASIC's efficiency, not EXPERT's.
+    AutoDecision capped = pilot.Decide(grid, tray, site, estimator, worked,
+                                       AiLevel::EXPERT, 0, ResourceType::C,
+                                       DepthLayer::SURFACE);
+    Check(Near(capped.efficiency, AutoPilot::EfficiencyFor(AiLevel::BASIC)),
+          "an over-set level is served at the tier's ceiling, and charged for it");
+    Check(capped.surveyHintX < 0, "a capped level does not get the level above's hint");
+}
+
+static void TestSurveyingChangesWhatTheAiDoes()
+{
+    printf("Surveying changes the automation's mind, not just its numbers\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SampleTray tray(3);
+    SiteView site(3);
+    EstimateEngine estimator;
+    DigSite worked;
+    AutoPilot pilot;
+
+    AutoDecision blind = pilot.Decide(grid, tray, site, estimator, worked,
+                                      AiLevel::BASIC, 3, ResourceType::C,
+                                      DepthLayer::SURFACE);
+
+    // Dig out a couple of spots, which makes them known for certain.
+    grid.RecordExcavation(2, 2, DepthLayer::SURFACE, 0.2f);
+    grid.RecordExcavation(6, 6, DepthLayer::SURFACE, 0.2f);
+
+    AutoDecision informed = pilot.Decide(grid, tray, site, estimator, worked,
+                                         AiLevel::BASIC, 3, ResourceType::C,
+                                         DepthLayer::SURFACE);
+
+    // A proven spot's floor IS its true value; an unproven spot's floor is
+    // discounted by the whole width of its range. So once ground is proven,
+    // the cautious level should move onto it unless every unknown spot is
+    // dramatically richer.
+    SpotEstimate provenA = estimator.Estimate(grid, tray, site, 2, 2,
+                                              DepthLayer::SURFACE, ResourceType::C);
+    SpotEstimate provenB = estimator.Estimate(grid, tray, site, 6, 6,
+                                              DepthLayer::SURFACE, ResourceType::C);
+    Check(provenA.isCertain && provenB.isCertain, "digging proved both spots");
+
+    SpotEstimate chosen = estimator.Estimate(grid, tray, site, informed.spotX,
+                                             informed.spotY, informed.depth,
+                                             ResourceType::C);
+    SpotEstimate before = estimator.Estimate(grid, tray, site, blind.spotX,
+                                             blind.spotY, blind.depth,
+                                             ResourceType::C);
+    Check(chosen.low >= before.low,
+          "proving ground never makes the cautious level choose worse");
+
+    float bestProvenLow = std::max(provenA.low, provenB.low);
+    bool movedOntoProven = chosen.isCertain;
+    Check(movedOntoProven || chosen.low >= bestProvenLow,
+          "BASIC works proven ground unless something unproven still has a better floor");
+}
+
 int main()
 {
     printf("\n=== excavation tests ===\n\n");
@@ -552,6 +705,9 @@ int main()
     TestSpotsDeplete();
     TestDiggingWritesBackToProspecting();
     TestBlindDiggingBootstrapsSurvey();
+    TestAiLadderTreatsUncertaintyDifferently();
+    TestAiLevelIsCappedByTier();
+    TestSurveyingChangesWhatTheAiDoes();
 
     printf("\n%d checks, %d failures\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

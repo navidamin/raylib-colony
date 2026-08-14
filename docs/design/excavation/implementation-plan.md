@@ -340,14 +340,46 @@ important comparison for this panel. Fixed.
 A legend under the grid names what the shading means, because brightness and opacity carry
 two different meanings at once and neither is self-evident.
 
-### Phase 6 — AUTO and the AI ladder
+### Phase 6 — AUTO and the AI ladder ✅ DONE
 - `MachineEngine::SelectAuto()` — sensible machine for the spot
 - AI levels from design §7: *Basic* (best known spot, never gambles) → *Trained* (weighs
   unknowns) → *Expert* (also schedules surveys)
 - Efficiency penalty vs player control, consistent with prospecting's default mode
 
-**Done when:** a unit left entirely alone plays a competent game, roughly 15% behind a
-tuned one.
+**Done.** `auto_pilot.{h,cpp}` — a pure engine that returns an `AutoDecision` without
+applying it, so the panel can show what the automation *would* do and the tests can check
+its judgement without digging. **86 checks, 0 failures.**
+
+Excavation is the **first AI implementation in the game** — prospecting's
+`AI_CONFIDENCE_PENALTY` constants exist but nothing reads them — so this sets the pattern
+for `docs/design/ai-automation/`.
+
+The whole ladder turns on **how a level treats what it does not know**:
+
+| Level | Scores a spot by | Efficiency |
+|-------|------------------|-----------|
+| MANUAL | — the player chooses | 1.00 |
+| BASIC | the **worst case** (`low`) — wide uncertainty counts against a spot | 0.85 |
+| TRAINED | the **middle plus upside** (`shown + 0.55 × halfWidth`) — uncertainty attracts | 0.92 |
+| EXPERT | as TRAINED, and names where surveying would pay for itself | 0.97 |
+
+That is pessimism versus optimism-under-uncertainty, and it falls straight out of the
+estimate engine's range — no separate risk model was needed. Automation always costs
+something; attention is never free.
+
+The AI drives spot, depth, machine and pace. **The power cap stays the player's** — it is a
+standing constraint on the operation rather than part of running it.
+
+**A claim the tests killed.** The doc said BASIC "never gambles — an unsurveyed spot has a
+floor of zero". That is false: `low = shown − halfWidth` and `shown` carries a stable bias,
+so a spot whose bias reads high has a *positive* floor even unsurveyed. BASIC is
+**cautious, not abstaining** — it optimises the worst case. The description in the UI was
+corrected to match.
+
+**A test that was asserting an accident.** The first version checked that BASIC and TRAINED
+pick *different* spots. They rightly agree when the richest spot also reads confidently, so
+that was testing this map rather than the rule. Replaced with criterion-optimality: BASIC
+must land on the best available floor, TRAINED on the best available upside.
 
 ### Phase 7 — Balance
 - Calibrate every constant against **dumped real data**, per the guide — no invented numbers

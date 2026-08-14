@@ -140,3 +140,45 @@ struct DigResult
     bool  spotExhausted = false;     // the spot ran out during this tick
     float effectivePace = 0.0f;      // after the power cap was applied
 };
+
+// ---------------------------------------------------------------------------
+// Automation
+// ---------------------------------------------------------------------------
+
+// How much of the operation the module runs for itself.
+//
+// The ladder is about ONE thing: how the automation treats what it does not
+// know. Basic assumes the worst of it. Trained weighs the upside. Expert also
+// notices when the cheapest way forward is to go and find out.
+enum class AiLevel
+{
+    OFF,        // the player chooses the spot and the pace
+    BASIC,      // scores a spot by its worst case; uncertainty counts against
+    TRAINED,    // scores by the upside; uncertainty attracts
+    EXPERT,     // also says where knowing more would pay for itself
+    COUNT
+};
+
+// What the automation decided this tick. Pure data -- the facade applies it,
+// so the decision can be inspected and tested without digging anything.
+struct AutoDecision
+{
+    int spotX = -1;
+    int spotY = -1;
+    DepthLayer depth = DepthLayer::SURFACE;
+    MachineId machine = MachineId::SCOOP;
+    float pace = 1.0f;
+
+    // Where resolving uncertainty would most change what the operation does,
+    // and how much the best spot could improve if it were resolved. EXPERT
+    // only; -1 when there is nothing worth surveying.
+    int surveyHintX = -1;
+    int surveyHintY = -1;
+    float surveyGain = 0.0f;
+
+    // What handing the decision to the machine costs against a player making
+    // it. 1.0 means no penalty.
+    float efficiency = 1.0f;
+
+    bool valid = false;
+};

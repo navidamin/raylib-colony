@@ -3935,6 +3935,58 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
               mouse, EXT_ACCENT_GOLD, true);
     cy += 22.0f;
 
+    // --- Automation ---
+    DrawTextEx(bodyFont, "AUTOMATION", {ctrlX, cy}, FS(9.0f), sp, EXT_HEADER_COLOR);
+    cy += 14.0f;
+
+    AiLevel maxLevel = es->MaxAiLevel();
+    float aiW = (ctrlW - 9.0f) / 4.0f;
+    for (int i = 0; i < 4; i++)
+    {
+        AiLevel level = static_cast<AiLevel>(i);
+        Rectangle ab = {ctrlX + i * (aiW + 3.0f), cy, aiW, 19.0f};
+
+        // OFF is always available -- taking control back is never gated.
+        bool available = (level == AiLevel::OFF) || (i <= static_cast<int>(maxLevel));
+        bool isSelected = (es->aiLevel == level);
+        bool hover = CheckCollisionPointRec(mouse, ab);
+
+        Color fill = isSelected ? Fade(EXT_ACCENT_GREEN, 0.16f) : EXT_PANEL_BG2;
+        if (!available) fill = Fade(EXT_PANEL_BG2, 0.4f);
+        DrawRectangleRounded(ab, 0.3f, 4, fill);
+        if (isSelected)
+        {
+            DrawRectangleRoundedLinesEx(ab, 0.3f, 4, 1.0f, Fade(EXT_ACCENT_GREEN, 0.85f));
+        }
+
+        const char* name = AutoPilot::LevelName(level);
+        float nw = MeasureTextEx(bodyFont, name, FS(7.5f), sp).x;
+        Color textColor = !available ? Fade(EXT_DIM_TEXT, 0.4f)
+                                     : (isSelected ? EXT_ACCENT_GREEN : EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, name, {ab.x + (ab.width - nw) * 0.5f, ab.y + 5.0f},
+                   FS(7.5f), sp, textColor);
+
+        if (hover && available && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            es->aiLevel = level;
+        }
+    }
+    cy += 22.0f;
+
+    // What the current level does, and what handing over costs.
+    DrawTextEx(bodyFont, AutoPilot::LevelDescription(es->aiLevel), {ctrlX, cy},
+               FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.8f));
+    cy += 11.0f;
+
+    float aiEff = AutoPilot::EfficiencyFor(es->aiLevel);
+    if (aiEff < 1.0f)
+    {
+        DrawTextEx(bodyFont, TextFormat("costs %.0f%% output vs deciding yourself",
+                                        (1.0f - aiEff) * 100.0f),
+                   {ctrlX, cy}, FS(8.0f), sp, Fade(EXT_ACCENT_GOLD, 0.8f));
+    }
+    cy += 18.0f;
+
     // --- Machine bay ---
     DrawTextEx(bodyFont, "MACHINE BAY", {ctrlX, cy}, FS(9.0f), sp, EXT_HEADER_COLOR);
 
@@ -4051,6 +4103,18 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         float iw = MeasureTextEx(bodyFont, idle, FS(10.0f), sp).x;
         DrawTextEx(bodyFont, idle, {px + pw - iw, readY}, FS(10.0f), sp,
                    last.throttledByPower ? EXT_ACCENT_GOLD : EXT_DIM_TEXT);
+    }
+
+    // Expert's survey hint, under the readout. This is the level's entire
+    // contribution: it cannot survey, but it can say where looking would pay.
+    const AutoDecision& decision = es->lastDecision;
+    if (decision.surveyHintX >= 0)
+    {
+        const char* hint = TextFormat("SURVEY %d,%d  -  could be %.0f more %s than it reads",
+                                      decision.surveyHintX, decision.surveyHintY,
+                                      decision.surveyGain, targetName);
+        DrawTextEx(bodyFont, hint, {px, readY + 12.0f}, FS(8.5f), sp,
+                   Fade(EXT_ACCENT_VIOLET, 0.9f));
     }
 
     // Out-of-range tooltip last, so it sits above the grid.

@@ -143,3 +143,37 @@ constexpr float EXC_POWER_PER_PACE = 1.2f;
 // Part 1 section 8 -- bulk density climbs 1.30 to 1.92 g/cm3 over the first
 // metre and cohesion rises with it.
 constexpr float EXC_DEPTH_HARDNESS[] = { 1.0f, 0.85f, 0.7f, 0.5f };
+
+// ---------------------------------------------------------------------------
+// Automation
+// ---------------------------------------------------------------------------
+// What automation costs against a player making the same call, by level.
+// Shaped like prospecting's AI_CONFIDENCE_PENALTY: a penalty that shrinks as
+// the automation gets better, never reaching zero -- attention is always worth
+// something.
+//
+// OFF carries no penalty because the player is the one choosing.
+constexpr float EXC_AI_EFFICIENCY[] = { 1.00f, 0.85f, 0.92f, 0.97f };
+
+// Highest automation level each module tier can run. Research is the intended
+// long-term gate (docs/design/ai-automation/); tier stands in until it exists.
+constexpr AiLevel EXC_AI_MAX_LEVEL_PER_TIER[] = {
+    AiLevel::BASIC, AiLevel::BASIC, AiLevel::TRAINED, AiLevel::EXPERT
+};
+
+// How far TRAINED and above lean into uncertainty when scoring a spot: the
+// score uses shown + this x halfWidth, so a wide unknown range is worth
+// investigating rather than avoiding. At 0 the automation is risk-neutral; at
+// 1 it assumes the best case. Between the two it explores without being
+// reckless.
+constexpr float EXC_AI_EXPLORE_BONUS = 0.55f;
+
+// BASIC works at a steady fraction of the machine's ceiling. TRAINED and above
+// scale pace with how well they understand the ground -- push where you know
+// what you are getting, ease off where you do not.
+constexpr float EXC_AI_BASIC_PACE = 0.60f;
+constexpr float EXC_AI_PACE_FLOOR = 0.50f;
+
+// A survey hint is only worth raising when resolving the uncertainty could
+// move the best spot by at least this fraction.
+constexpr float EXC_AI_SURVEY_HINT_THRESHOLD = 0.15f;

@@ -3,6 +3,7 @@
 #include "site_view.h"
 #include "estimate_engine.h"
 #include "dig_engine.h"
+#include "auto_pilot.h"
 #include "resource_types.h"
 
 class ProspectingSystem;
@@ -59,6 +60,14 @@ public:
     bool IsMachineAvailable(MachineId id) const;
     const Machine& GetActiveMachine() const;
 
+    // What the automation would do right now, without doing it. The panel
+    // shows this so the player can see the machine's judgement before handing
+    // over -- and so a survey hint is visible without waiting for a tick.
+    AutoDecision PreviewAuto(const ProspectingSystem& prospecting) const;
+
+    // Highest automation level this tier can run.
+    AiLevel MaxAiLevel() const;
+
     // Bring the facade's displayed state in line with the ground: a target
     // that exists here, and the AUTO machine choice if AUTO is on. Called by
     // the panel as well as the dig tick, so what is shown is never a stale
@@ -90,6 +99,13 @@ public:
 
     MachineId activeMachine = MachineId::SCOOP;
     bool autoMachine = true;      // AUTO until the player picks one
+
+    // Default to BASIC so a unit the player never opens still works competently
+    // -- badly, but competently. Manual is opt-in.
+    AiLevel aiLevel = AiLevel::BASIC;
+
+    // The last decision the automation made, kept for the panel's readout.
+    AutoDecision lastDecision;
     float pace = 1.0f;            // the player's first dial
     float powerCap = 0.0f;        // second dial; 0 = uncapped
 
@@ -98,6 +114,7 @@ private:
     SiteView site;
     EstimateEngine estimator;
     DigEngine digger;
+    AutoPilot autoPilot;
     DigSite worked;
     DigResult lastResult;
 };

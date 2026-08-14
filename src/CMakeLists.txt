@@ -24,6 +24,7 @@ set(COLONY_CORE_SOURCES
     Excavation/site_view.cpp
     Excavation/estimate_engine.cpp
     Excavation/dig_engine.cpp
+    Excavation/auto_pilot.cpp
     Excavation/excavation_system.cpp
     transport_types.cpp
 )
@@ -206,6 +207,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Excavation/site_view.cpp
         Excavation/estimate_engine.cpp
         Excavation/dig_engine.cpp
+        Excavation/auto_pilot.cpp
         Prospecting/survey_progress_engine.cpp
     )
 
