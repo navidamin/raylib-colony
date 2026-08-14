@@ -1,6 +1,14 @@
 # Sprite Manifest — Module Panels for Non-Extraction Units
 
 Status: PLANNED (assets not yet produced)
+
+> **Scope note.** This manifest covers Farming, Energy, Manufacture, and
+> Research. The game instantiates **eight** unit types — see
+> `Sect::CreateInitialUnits` in `src/Sect/sect.cpp`, which is the authoritative
+> list. **Construction, Transport, and Communication** now have named modules
+> and procedural icons but no sprite sets planned here yet. Their hero visuals
+> are the obvious candidates when they are designed: a structure rising through
+> build stages, a hauler with load states, and a dish/signal-strength set.
 Owner: UI / art pipeline
 Related: `tools/crystal_gen/` (the prospecting crystal sprite generator — the
 same pre-render-3D-to-PNG pipeline should produce most of the sets below),

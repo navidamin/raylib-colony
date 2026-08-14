@@ -175,6 +175,18 @@ const std::map<std::string, std::map<ResourceType, float>> MODULE_BASE_COSTS = {
     {"Research", {
         {ResourceType::CONSTRUCTION_MATERIALS, 25.0f},
         {ResourceType::ELECTRONICS, 20.0f}
+    }},
+    {"Construction", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 50.0f},
+        {ResourceType::MACHINERY, 20.0f}
+    }},
+    {"Transport", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 35.0f},
+        {ResourceType::MACHINERY, 25.0f}
+    }},
+    {"Communication", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 20.0f},
+        {ResourceType::ELECTRONICS, 30.0f}
     }}
 };
 

@@ -209,7 +209,7 @@ Units have a modular upgrade system where each unit type has specialized named m
 4. **Operations** - Efficiency modifier (tier 0=0.85 penalty, tier 3=1.2 bonus)
 5. **Directives** - Autonomous control (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, EMERGENCY_HARVEST, THERMAL_SYNC)
 
-**Other unit types** have 5 stub-named modules each (Farming, Energy, Manufacture, Research) using generic production logic.
+**Other unit types** have 5 stub-named modules each, using generic production logic. There are **eight** unit types in total — `Sect::CreateInitialUnits` (`src/Sect/sect.cpp`) is the authoritative list, not the `UnitType` enum, since units are constructed from strings: Extraction, Farming, Energy, Manufacture, Research, Construction, Transport, Communication. All 40 modules are reachable through the module menu; only Extraction's five have bespoke panels.
 
 **Extraction pipeline** (`ProcessExtraction()`):
 1. Survey-gated efficiency: `scanMultiplier = 0.35 + 0.65 × surveyProgress` (+ 0.15 if marked, × objective bonus). Each scan adds progress via diminishing returns formula.

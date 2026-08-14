@@ -46,7 +46,8 @@ static void PrintUsage()
     std::cout
         << "Usage: colony_preview [options]\n"
         << "\n"
-        << "  --unit <type>     Extraction | Farming | Energy | Manufacture | Research\n"
+        << "  --unit <type>     Extraction | Farming | Energy | Manufacture | Research |\n"
+        << "                    Construction | Transport | Communication\n"
         << "                    (default: Extraction)\n"
         << "  --module <name>   Extraction:  prospecting | excavation | beneficiation |\n"
         << "                                 operations | directives\n"
@@ -57,6 +58,12 @@ static void PrintUsage()
         << "                                 logistics | automation\n"
         << "                    Research:    laboratory | analysis | simulation |\n"
         << "                                 archive | publication\n"
+        << "                    Construction: siteprep | foundation | structures |\n"
+        << "                                 fitout | maintenance\n"
+        << "                    Transport:   fleet | routing | depot | servicing |\n"
+        << "                                 dispatch\n"
+        << "                    Communication: antenna | relay | telemetry |\n"
+        << "                                 encryption | network\n"
         << "                    Also: overview | sprites          (default: prospecting)\n"
         << "  --sprite-size <n> crystal sprite size variant     (sprites only, default: 4)\n"
         << "  --sprite-glow <n> crystal sprite glow variant     (sprites only, default: 3)\n"
@@ -177,6 +184,27 @@ static std::string ModuleTypeFromName(const std::string& name)
     if (name == "simulation") return "SIMULATION";
     if (name == "archive") return "ARCHIVE";
     if (name == "publication") return "PUBLICATION";
+
+    // Construction
+    if (name == "siteprep") return "SITE_PREP";
+    if (name == "foundation") return "FOUNDATION";
+    if (name == "structures") return "STRUCTURES";
+    if (name == "fitout") return "FITOUT";
+    if (name == "maintenance") return "MAINTENANCE";
+
+    // Transport
+    if (name == "fleet") return "FLEET";
+    if (name == "routing") return "ROUTING";
+    if (name == "depot") return "DEPOT";
+    if (name == "servicing") return "SERVICING";
+    if (name == "dispatch") return "DISPATCH";
+
+    // Communication
+    if (name == "antenna") return "ANTENNA";
+    if (name == "relay") return "RELAY";
+    if (name == "telemetry") return "TELEMETRY";
+    if (name == "encryption") return "ENCRYPTION";
+    if (name == "network") return "NETWORK";
 
     return "";
 }

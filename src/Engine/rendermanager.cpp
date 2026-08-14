@@ -1336,7 +1336,13 @@ enum class ExtIcon
     // Manufacture
     FURNACE, ROBOT_ARM, MAGNIFIER, PALLET, CHIP,
     // Research
-    CHART, ORB, SERVER_RACK, BROADCAST
+    CHART, ORB, SERVER_RACK, BROADCAST,
+    // Construction
+    STAKES, REBAR, GIRDER, FITOUT, WRENCH,
+    // Transport
+    HAULER, ROUTE_NODES, DEPOT, LIFT, CLIPBOARD,
+    // Communication
+    DISH, RELAY_TOWER, WAVEFORM, PADLOCK, MESH
 };
 
 // Line icon set matching the UI kit. (cx, cy) is the center, s the half-size.
@@ -1757,6 +1763,296 @@ static void ExtDrawIcon(ExtIcon icon, float cx, float cy, float s, Color c)
             }
             break;
         }
+        // --- Construction ---
+        case ExtIcon::STAKES:
+        {
+            // Survey stakes on graded ground, with a level line between them
+            DrawLineEx({cx - s, cy + s * 0.75f}, {cx + s, cy + s * 0.75f}, 1.7f, c);
+            for (int i = -1; i <= 1; i += 2)
+            {
+                float sx = cx + i * s * 0.62f;
+                DrawLineEx({sx, cy + s * 0.75f}, {sx, cy - s * 0.5f}, 1.6f, c);
+                DrawLineEx({sx - s * 0.16f, cy - s * 0.5f}, {sx + s * 0.16f, cy - s * 0.62f},
+                           1.4f, Fade(c, 0.85f));
+            }
+            DrawLineEx({cx - s * 0.62f, cy - s * 0.28f}, {cx + s * 0.62f, cy - s * 0.28f},
+                       1.3f, Fade(c, 0.6f));
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy - s * 0.28f), s * 0.11f, c);
+            break;
+        }
+        case ExtIcon::REBAR:
+        {
+            // Poured footing with a rebar lattice showing through
+            Rectangle slab = {cx - s * 0.92f, cy + s * 0.1f, s * 1.84f, s * 0.72f};
+            DrawRectangleLinesEx(slab, 1.7f, c);
+            for (int i = 0; i < 3; i++)
+            {
+                float gx = slab.x + s * 0.42f + i * s * 0.5f;
+                DrawLineEx({gx, slab.y + slab.height}, {gx, cy - s * 0.72f}, 1.4f, Fade(c, 0.8f));
+            }
+            DrawLineEx({cx - s * 0.7f, cy - s * 0.34f}, {cx + s * 0.7f, cy - s * 0.34f},
+                       1.3f, Fade(c, 0.6f));
+            DrawLineEx({cx - s * 0.7f, cy - s * 0.7f}, {cx + s * 0.7f, cy - s * 0.7f},
+                       1.3f, Fade(c, 0.6f));
+            break;
+        }
+        case ExtIcon::GIRDER:
+        {
+            // Steel frame: two columns, a top beam, and cross bracing
+            DrawLineEx({cx - s * 0.75f, cy + s * 0.85f}, {cx - s * 0.75f, cy - s * 0.7f}, 1.8f, c);
+            DrawLineEx({cx + s * 0.75f, cy + s * 0.85f}, {cx + s * 0.75f, cy - s * 0.7f}, 1.8f, c);
+            DrawLineEx({cx - s * 0.95f, cy - s * 0.7f}, {cx + s * 0.95f, cy - s * 0.7f}, 1.8f, c);
+            DrawLineEx({cx - s * 0.75f, cy - s * 0.7f}, {cx + s * 0.75f, cy + s * 0.3f},
+                       1.3f, Fade(c, 0.6f));
+            DrawLineEx({cx + s * 0.75f, cy - s * 0.7f}, {cx - s * 0.75f, cy + s * 0.3f},
+                       1.3f, Fade(c, 0.6f));
+            DrawLineEx({cx - s * 0.75f, cy + s * 0.3f}, {cx + s * 0.75f, cy + s * 0.3f},
+                       1.3f, Fade(c, 0.75f));
+            break;
+        }
+        case ExtIcon::FITOUT:
+        {
+            // Wall panel being fitted: outlet, conduit run, and a partial panel edge
+            Rectangle wall = {cx - s * 0.9f, cy - s * 0.85f, s * 1.8f, s * 1.7f};
+            DrawRectangleLinesEx(wall, 1.7f, c);
+            DrawLineEx({cx + s * 0.1f, wall.y}, {cx + s * 0.1f, wall.y + wall.height},
+                       1.4f, Fade(c, 0.7f));
+            DrawRectangleLinesEx({cx - s * 0.62f, cy - s * 0.4f, s * 0.42f, s * 0.42f},
+                                 1.4f, Fade(c, 0.9f));
+            DrawLineEx({cx - s * 0.41f, cy + s * 0.02f}, {cx - s * 0.41f, cy + s * 0.6f},
+                       1.3f, Fade(c, 0.7f));
+            DrawLineEx({cx - s * 0.41f, cy + s * 0.6f}, {cx + s * 0.1f, cy + s * 0.6f},
+                       1.3f, Fade(c, 0.7f));
+            DrawLineEx({cx + s * 0.34f, cy - s * 0.5f}, {cx + s * 0.72f, cy - s * 0.5f},
+                       1.3f, Fade(c, 0.55f));
+            DrawLineEx({cx + s * 0.34f, cy - s * 0.14f}, {cx + s * 0.72f, cy - s * 0.14f},
+                       1.3f, Fade(c, 0.55f));
+            break;
+        }
+        case ExtIcon::WRENCH:
+        {
+            // Open-ended spanner laid diagonally
+            Vector2 dir = {0.66f, -0.75f};
+            Vector2 tail = {cx - dir.x * s * 0.85f, cy - dir.y * s * 0.85f};
+            Vector2 head = {cx + dir.x * s * 0.5f, cy + dir.y * s * 0.5f};
+            DrawLineEx(tail, head, 2.4f, c);
+            // Jaw: a broken ring opening away from the shaft
+            Vector2 prev = {0};
+            for (int i = 0; i <= 14; i++)
+            {
+                float a = -0.85f + i / 14.0f * 4.6f;
+                float rot = atan2f(dir.y, dir.x);
+                Vector2 p = {head.x + cosf(a + rot) * s * 0.42f,
+                             head.y + sinf(a + rot) * s * 0.42f};
+                if (i > 0) DrawLineEx(prev, p, 1.8f, c);
+                prev = p;
+            }
+            DrawCircleLines(static_cast<int>(tail.x), static_cast<int>(tail.y), s * 0.2f,
+                            Fade(c, 0.7f));
+            break;
+        }
+
+        // --- Transport ---
+        case ExtIcon::HAULER:
+        {
+            // Cab plus cargo box on two wheels
+            DrawRectangleLinesEx({cx - s * 0.95f, cy - s * 0.55f, s * 1.1f, s * 0.95f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.15f, cy + s * 0.4f}, {cx + s * 0.15f, cy - s * 0.15f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.15f, cy - s * 0.15f}, {cx + s * 0.55f, cy - s * 0.15f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.55f, cy - s * 0.15f}, {cx + s * 0.95f, cy + s * 0.15f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.95f, cy + s * 0.15f}, {cx + s * 0.95f, cy + s * 0.4f}, 1.6f, c);
+            DrawLineEx({cx - s * 0.95f, cy + s * 0.4f}, {cx + s * 0.95f, cy + s * 0.4f}, 1.6f, c);
+            DrawCircleLines(static_cast<int>(cx - s * 0.5f), static_cast<int>(cy + s * 0.62f),
+                            s * 0.26f, c);
+            DrawCircleLines(static_cast<int>(cx + s * 0.58f), static_cast<int>(cy + s * 0.62f),
+                            s * 0.26f, c);
+            break;
+        }
+        case ExtIcon::ROUTE_NODES:
+        {
+            // Waypoints joined by a chosen path, with one alternate branch dimmed
+            Vector2 a = {cx - s * 0.8f, cy + s * 0.6f};
+            Vector2 b = {cx - s * 0.05f, cy - s * 0.1f};
+            Vector2 d = {cx + s * 0.8f, cy - s * 0.7f};
+            Vector2 alt = {cx + s * 0.5f, cy + s * 0.62f};
+            DrawLineEx(a, b, 1.7f, c);
+            DrawLineEx(b, d, 1.7f, c);
+            DrawLineEx(b, alt, 1.3f, Fade(c, 0.4f));
+            for (const Vector2& p : {a, b, d})
+            {
+                DrawCircle(static_cast<int>(p.x), static_cast<int>(p.y), s * 0.16f, c);
+            }
+            DrawCircleLines(static_cast<int>(alt.x), static_cast<int>(alt.y), s * 0.15f,
+                            Fade(c, 0.5f));
+            break;
+        }
+        case ExtIcon::DEPOT:
+        {
+            // Shed with a roller door and a loading apron
+            DrawLineEx({cx - s, cy - s * 0.15f}, {cx, cy - s * 0.85f}, 1.7f, c);
+            DrawLineEx({cx, cy - s * 0.85f}, {cx + s, cy - s * 0.15f}, 1.7f, c);
+            DrawLineEx({cx - s * 0.85f, cy - s * 0.15f}, {cx - s * 0.85f, cy + s * 0.8f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.85f, cy - s * 0.15f}, {cx + s * 0.85f, cy + s * 0.8f}, 1.6f, c);
+            DrawLineEx({cx - s * 0.85f, cy + s * 0.8f}, {cx + s * 0.85f, cy + s * 0.8f}, 1.7f, c);
+            DrawRectangleLinesEx({cx - s * 0.42f, cy + s * 0.1f, s * 0.84f, s * 0.7f}, 1.4f,
+                                 Fade(c, 0.85f));
+            for (int i = 0; i < 2; i++)
+            {
+                float ly = cy + s * 0.32f + i * s * 0.22f;
+                DrawLineEx({cx - s * 0.42f, ly}, {cx + s * 0.42f, ly}, 1.2f, Fade(c, 0.5f));
+            }
+            break;
+        }
+        case ExtIcon::LIFT:
+        {
+            // Vehicle on a service lift: platform raised on a column
+            DrawLineEx({cx - s * 0.85f, cy + s * 0.9f}, {cx + s * 0.85f, cy + s * 0.9f}, 1.7f, c);
+            DrawLineEx({cx, cy + s * 0.9f}, {cx, cy + s * 0.1f}, 2.0f, c);
+            DrawLineEx({cx - s * 0.8f, cy + s * 0.1f}, {cx + s * 0.8f, cy + s * 0.1f}, 1.8f, c);
+            DrawRectangleLinesEx({cx - s * 0.6f, cy - s * 0.55f, s * 1.2f, s * 0.65f}, 1.5f,
+                                 Fade(c, 0.9f));
+            DrawCircleLines(static_cast<int>(cx - s * 0.34f), static_cast<int>(cy - s * 0.55f),
+                            s * 0.17f, Fade(c, 0.7f));
+            DrawCircleLines(static_cast<int>(cx + s * 0.34f), static_cast<int>(cy - s * 0.55f),
+                            s * 0.17f, Fade(c, 0.7f));
+            for (int i = -1; i <= 1; i += 2)
+            {
+                DrawLineEx({cx, cy + s * 0.5f}, {cx + i * s * 0.3f, cy + s * 0.9f},
+                           1.3f, Fade(c, 0.55f));
+            }
+            break;
+        }
+        case ExtIcon::CLIPBOARD:
+        {
+            // Dispatch board: schedule rows with a clock overlay
+            Rectangle board = {cx - s * 0.72f, cy - s * 0.78f, s * 1.44f, s * 1.7f};
+            DrawRectangleLinesEx(board, 1.7f, c);
+            DrawRectangleLinesEx({cx - s * 0.26f, board.y - s * 0.16f, s * 0.52f, s * 0.3f},
+                                 1.4f, c);
+            for (int i = 0; i < 3; i++)
+            {
+                float ly = board.y + s * 0.42f + i * s * 0.34f;
+                DrawLineEx({board.x + s * 0.16f, ly}, {board.x + s * 0.8f, ly}, 1.3f,
+                           Fade(c, 0.8f - i * 0.15f));
+            }
+            DrawCircleLines(static_cast<int>(cx + s * 0.52f), static_cast<int>(cy + s * 0.6f),
+                            s * 0.35f, c);
+            DrawLineEx({cx + s * 0.52f, cy + s * 0.6f}, {cx + s * 0.52f, cy + s * 0.38f}, 1.3f, c);
+            DrawLineEx({cx + s * 0.52f, cy + s * 0.6f}, {cx + s * 0.72f, cy + s * 0.6f}, 1.3f, c);
+            break;
+        }
+
+        // --- Communication ---
+        case ExtIcon::DISH:
+        {
+            // Satellite dish: an elliptical face tilted up-left on a short mast.
+            // Drawn as a filled-outline ellipse rather than a parabola -- at list
+            // size a bare parabola plus mast reads as the letter "A".
+            Vector2 face = {cx - s * 0.12f, cy - s * 0.2f};
+            DrawEllipseLines(static_cast<int>(face.x), static_cast<int>(face.y),
+                             s * 0.72f, s * 0.5f, c);
+            DrawEllipseLines(static_cast<int>(face.x), static_cast<int>(face.y),
+                             s * 0.4f, s * 0.27f, Fade(c, 0.45f));
+            // Feed arm reaching out of the dish to a horn at the focus
+            DrawLineEx(face, {face.x + s * 0.62f, face.y - s * 0.52f}, 1.4f, c);
+            DrawCircle(static_cast<int>(face.x + s * 0.62f),
+                       static_cast<int>(face.y - s * 0.52f), s * 0.13f, c);
+            // Mast and tripod foot
+            DrawLineEx({face.x, face.y + s * 0.42f}, {cx, cy + s * 0.72f}, 1.6f, c);
+            DrawLineEx({cx - s * 0.42f, cy + s * 0.88f}, {cx + s * 0.42f, cy + s * 0.88f}, 1.6f, c);
+            DrawLineEx({cx, cy + s * 0.72f}, {cx - s * 0.3f, cy + s * 0.88f}, 1.3f, Fade(c, 0.8f));
+            DrawLineEx({cx, cy + s * 0.72f}, {cx + s * 0.3f, cy + s * 0.88f}, 1.3f, Fade(c, 0.8f));
+            break;
+        }
+        case ExtIcon::RELAY_TOWER:
+        {
+            // Mast with paired transmission arcs on both sides
+            DrawLineEx({cx - s * 0.42f, cy + s * 0.9f}, {cx - s * 0.12f, cy - s * 0.55f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.42f, cy + s * 0.9f}, {cx + s * 0.12f, cy - s * 0.55f}, 1.6f, c);
+            for (int i = 0; i < 2; i++)
+            {
+                float ly = cy + s * 0.42f - i * s * 0.5f;
+                float half = s * (0.32f - i * 0.08f);
+                DrawLineEx({cx - half, ly}, {cx + half, ly}, 1.3f, Fade(c, 0.7f));
+            }
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy - s * 0.68f), s * 0.13f, c);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                for (int ring = 1; ring <= 2; ring++)
+                {
+                    float r = s * 0.3f * ring;
+                    Vector2 prev = {0};
+                    for (int k = 0; k <= 8; k++)
+                    {
+                        float a = 0.5f + k / 8.0f * 1.4f;
+                        Vector2 p = {cx + side * sinf(a) * r,
+                                     cy - s * 0.68f - cosf(a) * r};
+                        if (k > 0) DrawLineEx(prev, p, 1.3f, Fade(c, 0.8f - ring * 0.22f));
+                        prev = p;
+                    }
+                }
+            }
+            break;
+        }
+        case ExtIcon::WAVEFORM:
+        {
+            // Telemetry trace across a framed screen
+            DrawRectangleLinesEx({cx - s * 0.95f, cy - s * 0.7f, s * 1.9f, s * 1.4f}, 1.6f, c);
+            Vector2 prev = {cx - s * 0.8f, cy};
+            for (int i = 1; i <= 24; i++)
+            {
+                float t = i / 24.0f;
+                float amp = (i % 8 < 4) ? 0.42f : 0.2f;
+                Vector2 p = {cx - s * 0.8f + t * s * 1.6f,
+                             cy - sinf(t * PI * 4.0f) * s * amp};
+                DrawLineEx(prev, p, 1.5f, c);
+                prev = p;
+            }
+            DrawLineEx({cx - s * 0.95f, cy}, {cx - s * 0.8f, cy}, 1.2f, Fade(c, 0.5f));
+            break;
+        }
+        case ExtIcon::PADLOCK:
+        {
+            // Closed padlock with a keyhole
+            Rectangle body = {cx - s * 0.62f, cy - s * 0.1f, s * 1.24f, s * 0.95f};
+            DrawRectangleLinesEx(body, 1.7f, c);
+            Vector2 prev = {cx - s * 0.38f, cy - s * 0.1f};
+            for (int i = 1; i <= 12; i++)
+            {
+                float a = PI - i / 12.0f * PI;
+                Vector2 p = {cx + cosf(a) * s * 0.38f, cy - s * 0.1f - sinf(a) * s * 0.52f};
+                DrawLineEx(prev, p, 1.6f, c);
+                prev = p;
+            }
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy + s * 0.3f), s * 0.15f, c);
+            DrawLineEx({cx, cy + s * 0.42f}, {cx, cy + s * 0.62f}, 1.4f, c);
+            break;
+        }
+        case ExtIcon::MESH:
+        {
+            // Hub-and-spoke network: four outer nodes around a larger hub. A
+            // fully-connected five-node graph was tried first and filled in to a
+            // solid blob at list size -- spokes plus a partial ring stay legible.
+            Vector2 outer[4] = {
+                {cx, cy - s * 0.82f}, {cx + s * 0.82f, cy},
+                {cx, cy + s * 0.82f}, {cx - s * 0.82f, cy}
+            };
+            Vector2 hub = {cx, cy};
+
+            for (int i = 0; i < 4; i++)
+            {
+                DrawLineEx(hub, outer[i], 1.4f, Fade(c, 0.85f));
+                DrawLineEx(outer[i], outer[(i + 1) % 4], 1.0f, Fade(c, 0.3f));
+            }
+            for (const Vector2& n : outer)
+            {
+                DrawCircle(static_cast<int>(n.x), static_cast<int>(n.y), s * 0.16f, c);
+            }
+            DrawCircleLines(static_cast<int>(hub.x), static_cast<int>(hub.y), s * 0.28f, c);
+            DrawCircle(static_cast<int>(hub.x), static_cast<int>(hub.y), s * 0.13f, c);
+            break;
+        }
+
         case ExtIcon::BROADCAST:
         {
             // Publication: transmitter point with expanding wavefronts
@@ -1820,6 +2116,27 @@ static ExtIcon ExtModuleIcon(const std::string& moduleType)
     if (moduleType == "ARCHIVE") return ExtIcon::SERVER_RACK;
     if (moduleType == "PUBLICATION") return ExtIcon::BROADCAST;
 
+    // Construction
+    if (moduleType == "SITE_PREP") return ExtIcon::STAKES;
+    if (moduleType == "FOUNDATION") return ExtIcon::REBAR;
+    if (moduleType == "STRUCTURES") return ExtIcon::GIRDER;
+    if (moduleType == "FITOUT") return ExtIcon::FITOUT;
+    if (moduleType == "MAINTENANCE") return ExtIcon::WRENCH;
+
+    // Transport
+    if (moduleType == "FLEET") return ExtIcon::HAULER;
+    if (moduleType == "ROUTING") return ExtIcon::ROUTE_NODES;
+    if (moduleType == "DEPOT") return ExtIcon::DEPOT;
+    if (moduleType == "SERVICING") return ExtIcon::LIFT;
+    if (moduleType == "DISPATCH") return ExtIcon::CLIPBOARD;
+
+    // Communication
+    if (moduleType == "ANTENNA") return ExtIcon::DISH;
+    if (moduleType == "RELAY") return ExtIcon::RELAY_TOWER;
+    if (moduleType == "TELEMETRY") return ExtIcon::WAVEFORM;
+    if (moduleType == "ENCRYPTION") return ExtIcon::PADLOCK;
+    if (moduleType == "NETWORK") return ExtIcon::MESH;
+
     return ExtIcon::OVERVIEW;
 }
 
@@ -1838,6 +2155,9 @@ static UnitIdentity ExtUnitIdentity(const std::string& unitType)
     if (unitType == "Energy")      return {ExtIcon::BOLT,       "ENERGY UNIT",     EXT_ACCENT_GOLD};
     if (unitType == "Manufacture") return {ExtIcon::ROBOT_ARM,  "MANUFACTURE UNIT", EXT_ACCENT_CYAN};
     if (unitType == "Research")    return {ExtIcon::ORB,        "RESEARCH UNIT",   EXT_ACCENT_VIOLET};
+    if (unitType == "Construction") return {ExtIcon::GIRDER, "CONSTRUCTION UNIT", EXT_ACCENT_GOLD};
+    if (unitType == "Transport")   return {ExtIcon::HAULER,     "TRANSPORT UNIT",  EXT_ACCENT_CYAN};
+    if (unitType == "Communication") return {ExtIcon::DISH, "COMMUNICATION UNIT", EXT_ACCENT_VIOLET};
     return {ExtIcon::OVERVIEW, "UNIT", EXT_ACCENT_CYAN};
 }
 
@@ -1849,6 +2169,9 @@ static const char* ExtUnitBlueprintTag(const std::string& unitType)
     if (unitType == "Energy")      return "UN-2";
     if (unitType == "Manufacture") return "UM-4";
     if (unitType == "Research")    return "UR-5";
+    if (unitType == "Construction") return "UC-6";
+    if (unitType == "Transport")   return "UT-7";
+    if (unitType == "Communication") return "UK-8";
     return "U-0";
 }
 
@@ -2174,14 +2497,167 @@ static void ExtDrawWireframeResearch(Rectangle area, Color c)
     DrawLineEx(project(2.2f, 3.2f, 3.0f), project(4.2f, 3.2f, 3.0f), 1.0f, mid);
 }
 
+// Blueprint of the construction unit: tower crane over a half-built frame.
+static void ExtDrawWireframeConstruction(Rectangle area, Color c)
+{
+    Vector2 origin = {area.x + area.width * 0.5f, area.y + area.height * 0.62f};
+    float scale = std::min(area.width, area.height) * 0.058f;
+    Color dim = Fade(c, 0.35f);
+    Color mid = Fade(c, 0.55f);
+
+    auto project = [&](float wx, float wy, float wz) -> Vector2
+    {
+        return {origin.x + (wx - wy) * 0.866f * scale,
+                origin.y + (wx + wy) * 0.5f * scale - wz * scale};
+    };
+
+    ExtDrawWireBox(origin, scale, -4.0f, -4.0f, 0.0f, 8.0f, 8.0f, 0.8f, dim);
+
+    // Structure under construction: three storeys, the top one only a frame
+    ExtDrawWireBox(origin, scale, -3.0f, -2.4f, 0.8f, 3.6f, 3.6f, 1.3f, mid);
+    ExtDrawWireBox(origin, scale, -3.0f, -2.4f, 2.1f, 3.6f, 3.6f, 1.3f, mid);
+    for (int corner = 0; corner < 4; corner++)
+    {
+        float px2 = (corner == 0 || corner == 3) ? -3.0f : 0.6f;
+        float py2 = (corner < 2) ? -2.4f : 1.2f;
+        DrawLineEx(project(px2, py2, 3.4f), project(px2, py2, 4.7f), 1.0f, dim);
+    }
+    DrawLineEx(project(-3.0f, -2.4f, 4.7f), project(0.6f, -2.4f, 4.7f), 1.0f, dim);
+    DrawLineEx(project(-3.0f, 1.2f, 4.7f), project(0.6f, 1.2f, 4.7f), 1.0f, dim);
+
+    // Tower crane: mast, horizontal jib, counter-jib, and hook line
+    Vector2 mastBase = project(2.8f, 2.8f, 0.8f);
+    Vector2 mastTop = project(2.8f, 2.8f, 7.0f);
+    DrawLineEx(mastBase, mastTop, 1.4f, mid);
+    for (int i = 1; i < 5; i++)
+    {
+        float z = 0.8f + i * 1.24f;
+        DrawLineEx(project(2.4f, 2.8f, z), project(3.2f, 2.8f, z), 1.0f, dim);
+    }
+    Vector2 jibEnd = project(-2.6f, 2.8f, 7.0f);
+    Vector2 counterEnd = project(4.6f, 2.8f, 7.0f);
+    DrawLineEx(mastTop, jibEnd, 1.2f, mid);
+    DrawLineEx(mastTop, counterEnd, 1.2f, dim);
+    DrawLineEx({mastTop.x, mastTop.y - scale * 1.1f}, jibEnd, 1.0f, dim);
+    DrawLineEx({mastTop.x, mastTop.y - scale * 1.1f}, counterEnd, 1.0f, dim);
+    DrawLineEx(mastTop, {mastTop.x, mastTop.y - scale * 1.1f}, 1.0f, mid);
+
+    // Hook and suspended load
+    Vector2 hookTop = project(-1.2f, 2.8f, 7.0f);
+    Vector2 hookBottom = project(-1.2f, 2.8f, 4.0f);
+    DrawLineEx(hookTop, hookBottom, 1.0f, mid);
+    ExtDrawWireBox(origin, scale, -1.7f, 2.3f, 3.2f, 1.0f, 1.0f, 0.8f, c);
+}
+
+// Blueprint of the transport unit: depot shed, apron loop, and parked haulers.
+static void ExtDrawWireframeTransport(Rectangle area, Color c)
+{
+    Vector2 origin = {area.x + area.width * 0.5f, area.y + area.height * 0.62f};
+    float scale = std::min(area.width, area.height) * 0.058f;
+    Color dim = Fade(c, 0.35f);
+    Color mid = Fade(c, 0.55f);
+
+    auto project = [&](float wx, float wy, float wz) -> Vector2
+    {
+        return {origin.x + (wx - wy) * 0.866f * scale,
+                origin.y + (wx + wy) * 0.5f * scale - wz * scale};
+    };
+
+    ExtDrawWireBox(origin, scale, -4.0f, -4.0f, 0.0f, 8.0f, 8.0f, 0.8f, dim);
+
+    // Depot shed with three open bays along the front
+    ExtDrawWireBox(origin, scale, -3.4f, -3.2f, 0.8f, 5.0f, 2.6f, 2.2f, mid);
+    for (int bay = 0; bay < 3; bay++)
+    {
+        float bx = -3.0f + bay * 1.6f;
+        DrawLineEx(project(bx, -0.6f, 0.8f), project(bx, -0.6f, 2.4f), 1.0f, dim);
+        DrawLineEx(project(bx + 1.1f, -0.6f, 0.8f), project(bx + 1.1f, -0.6f, 2.4f), 1.0f, dim);
+        DrawLineEx(project(bx, -0.6f, 2.4f), project(bx + 1.1f, -0.6f, 2.4f), 1.0f, dim);
+    }
+
+    // Apron loop road in front of the bays
+    Vector2 prev = {0};
+    for (int i = 0; i <= 28; i++)
+    {
+        float a = i / 28.0f * 2.0f * PI;
+        Vector2 p = project(0.2f + cosf(a) * 2.9f, 1.8f + sinf(a) * 1.7f, 0.8f);
+        if (i > 0) DrawLineEx(prev, p, 1.0f, mid);
+        prev = p;
+    }
+
+    // Two haulers on the apron, one boxier than the other
+    ExtDrawWireBox(origin, scale, -1.6f, 2.6f, 0.8f, 1.6f, 0.9f, 0.9f, c);
+    ExtDrawWireBox(origin, scale, 1.6f, 0.4f, 0.8f, 1.3f, 0.8f, 0.7f, mid);
+}
+
+// Blueprint of the communication unit: big dish plus a relay mast array.
+static void ExtDrawWireframeCommunication(Rectangle area, Color c)
+{
+    Vector2 origin = {area.x + area.width * 0.5f, area.y + area.height * 0.62f};
+    float scale = std::min(area.width, area.height) * 0.058f;
+    Color dim = Fade(c, 0.35f);
+    Color mid = Fade(c, 0.55f);
+
+    auto project = [&](float wx, float wy, float wz) -> Vector2
+    {
+        return {origin.x + (wx - wy) * 0.866f * scale,
+                origin.y + (wx + wy) * 0.5f * scale - wz * scale};
+    };
+
+    ExtDrawWireBox(origin, scale, -4.0f, -4.0f, 0.0f, 8.0f, 8.0f, 0.8f, dim);
+    ExtDrawWireBox(origin, scale, -2.6f, -1.4f, 0.8f, 3.0f, 3.0f, 1.2f, mid);
+
+    // Steerable dish: concentric rings on a tilted axis, on a pedestal
+    Vector2 dishCentre = {-1.1f, 0.1f};
+    float dishZ = 4.4f;
+    DrawLineEx(project(dishCentre.x, dishCentre.y, 2.0f),
+               project(dishCentre.x, dishCentre.y, dishZ), 1.3f, mid);
+    for (int ring = 1; ring <= 3; ring++)
+    {
+        float rr = 0.62f * ring;
+        Vector2 prev = {0};
+        for (int i = 0; i <= 20; i++)
+        {
+            float a = i / 20.0f * 2.0f * PI;
+            // Tilt the dish face back by squashing one axis and lifting with it
+            Vector2 p = project(dishCentre.x + cosf(a) * rr,
+                                dishCentre.y + sinf(a) * rr * 0.45f,
+                                dishZ + sinf(a) * rr * 0.72f);
+            if (i > 0) DrawLineEx(prev, p, 1.0f, ring == 3 ? mid : dim);
+            prev = p;
+        }
+    }
+    DrawCircle(static_cast<int>(project(dishCentre.x, dishCentre.y, dishZ).x),
+               static_cast<int>(project(dishCentre.x, dishCentre.y, dishZ).y), 1.5f, c);
+
+    // Relay mast array of three guyed poles at descending heights
+    for (int m = 0; m < 3; m++)
+    {
+        float mx = 1.4f + m * 1.1f;
+        float my = 2.6f - m * 0.7f;
+        float mz = 5.4f - m * 1.1f;
+        Vector2 base = project(mx, my, 0.8f);
+        Vector2 top = project(mx, my, mz);
+        DrawLineEx(base, top, 1.1f, mid);
+        DrawCircle(static_cast<int>(top.x), static_cast<int>(top.y), 1.3f, c);
+        for (int guy = -1; guy <= 1; guy += 2)
+        {
+            DrawLineEx(top, project(mx + guy * 0.8f, my + guy * 0.5f, 0.8f), 1.0f, dim);
+        }
+    }
+}
+
 // Control-panel blueprint art, chosen by unit type.
 static void ExtDrawWireframeUnit(Rectangle area, Color c, const std::string& unitType)
 {
-    if (unitType == "Farming")          ExtDrawWireframeFarming(area, c);
-    else if (unitType == "Energy")      ExtDrawWireframeEnergy(area, c);
-    else if (unitType == "Manufacture") ExtDrawWireframeManufacture(area, c);
-    else if (unitType == "Research")    ExtDrawWireframeResearch(area, c);
-    else                                ExtDrawWireframeExtraction(area, c);
+    if (unitType == "Farming")           ExtDrawWireframeFarming(area, c);
+    else if (unitType == "Energy")       ExtDrawWireframeEnergy(area, c);
+    else if (unitType == "Manufacture")  ExtDrawWireframeManufacture(area, c);
+    else if (unitType == "Research")     ExtDrawWireframeResearch(area, c);
+    else if (unitType == "Construction") ExtDrawWireframeConstruction(area, c);
+    else if (unitType == "Transport")    ExtDrawWireframeTransport(area, c);
+    else if (unitType == "Communication") ExtDrawWireframeCommunication(area, c);
+    else                                 ExtDrawWireframeExtraction(area, c);
 }
 
 // ============================================================================

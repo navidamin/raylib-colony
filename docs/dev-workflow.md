@@ -37,13 +37,15 @@ Renders any module panel to a PNG with no display, using the real
 ```bash
 tools/preview/preview.sh --module prospecting --tab lab --tier 3
 tools/preview/preview.sh --unit Energy --module battery --tier 2
-tools/preview/preview.sh --all            # all 25 modules + states, ~90s
+tools/preview/preview.sh --all            # all 40 modules + states, ~2min
 tools/preview/preview.sh --module sprites # crystal sprite contact sheet
 ```
 
-Key flags: `--unit` (`Extraction`/`Farming`/`Energy`/`Manufacture`/`Research`),
-`--module`, `--tab`, `--state` (`empty`/`swept`/`sampled`/`analyzed`),
-`--tier 0-3`, `--energy N` (test cost gating), `--size`, `--out`.
+Key flags: `--unit` (any of the eight unit types — `Extraction`, `Farming`,
+`Energy`, `Manufacture`, `Research`, `Construction`, `Transport`,
+`Communication`), `--module`, `--tab`, `--state`
+(`empty`/`swept`/`sampled`/`analyzed`), `--tier 0-3`, `--energy N` (test cost
+gating), `--size`, `--out`. Run `--help` for the module names per unit.
 
 Module names are unique across unit types, so `--unit` only selects which unit
 is constructed. `--tier 0` on a module that starts unbuilt previews the NOT

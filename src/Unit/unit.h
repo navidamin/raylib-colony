@@ -233,6 +233,9 @@ private:
     void InitializeEnergyModules();
     void InitializeManufactureModules();
     void InitializeResearchModules();
+    void InitializeConstructionModules();
+    void InitializeTransportModules();
+    void InitializeCommunicationModules();
     void InitializeGenericModules();
 
     void UpdateUnitStatus();

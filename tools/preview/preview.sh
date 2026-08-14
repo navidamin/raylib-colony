@@ -72,10 +72,13 @@ if [ "${1:-}" = "--all" ]; then
         done
     }
 
-    RenderUnit Farming     irrigation greenhouse hydroponics harvest storage
-    RenderUnit Energy      solar battery nuclear grid emergency
-    RenderUnit Manufacture fabrication assembly quality logistics automation
-    RenderUnit Research    laboratory analysis simulation archive publication
+    RenderUnit Farming       irrigation greenhouse hydroponics harvest storage
+    RenderUnit Energy        solar battery nuclear grid emergency
+    RenderUnit Manufacture   fabrication assembly quality logistics automation
+    RenderUnit Research      laboratory analysis simulation archive publication
+    RenderUnit Construction  siteprep foundation structures fitout maintenance
+    RenderUnit Transport     fleet routing depot servicing dispatch
+    RenderUnit Communication antenna relay telemetry encryption network
 
     Render --module sprites --out "$OUT_DIR/crystal-sheet.png"
 

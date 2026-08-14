@@ -417,6 +417,18 @@ void Unit::InitializeModules() {
     {
         InitializeResearchModules();
     }
+    else if (unit_type == "Construction")
+    {
+        InitializeConstructionModules();
+    }
+    else if (unit_type == "Transport")
+    {
+        InitializeTransportModules();
+    }
+    else if (unit_type == "Communication")
+    {
+        InitializeCommunicationModules();
+    }
     else
     {
         // Generic fallback for other unit types
@@ -718,6 +730,103 @@ void Unit::InitializeResearchModules() {
             mod.productionRates = mod.maxProductionRates;
             mod.consumptionRates[ResourceType::ENERGY] = parameters.count("EnergyConsumption") ?
                 parameters["EnergyConsumption"] : 10.0f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeConstructionModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> conModules = {
+        {"Site Prep", "SITE_PREP", "Grading, levelling, and site survey."},
+        {"Foundation", "FOUNDATION", "Footings and load-bearing base work."},
+        {"Structures", "STRUCTURES", "Frame erection and structural assembly."},
+        {"Fit-Out", "FITOUT", "Interior systems and habitability work."},
+        {"Maintenance", "MAINTENANCE", "Repair and structural upkeep."}
+    };
+
+    for (size_t i = 0; i < conModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = conModules[i].name;
+        mod.moduleType = conModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.8f;
+        mod.description = conModules[i].desc;
+
+        if (i == 0)  // Site Prep consumes materials and energy
+        {
+            mod.consumptionRates[ResourceType::CONSTRUCTION_MATERIALS] = 2.0f;
+            mod.consumptionRates[ResourceType::ENERGY] = 2.5f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeTransportModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> transModules = {
+        {"Fleet", "FLEET", "Hauler roster and carrying capacity."},
+        {"Routing", "ROUTING", "Path selection across the road network."},
+        {"Depot", "DEPOT", "Loading bays and staging storage."},
+        {"Servicing", "SERVICING", "Vehicle repair and wear management."},
+        {"Dispatch", "DISPATCH", "Scheduling and priority of shipments."}
+    };
+
+    for (size_t i = 0; i < transModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = transModules[i].name;
+        mod.moduleType = transModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.8f;
+        mod.description = transModules[i].desc;
+
+        if (i == 0)  // Fleet burns energy moving cargo
+        {
+            mod.consumptionRates[ResourceType::ENERGY] = 4.0f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeCommunicationModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> commModules = {
+        {"Antenna", "ANTENNA", "Signal acquisition and dish pointing."},
+        {"Relay", "RELAY", "Extends range between distant sects."},
+        {"Telemetry", "TELEMETRY", "Unit and colony status feeds."},
+        {"Encryption", "ENCRYPTION", "Secure channels and key management."},
+        {"Network", "NETWORK", "Bandwidth allocation across the colony."}
+    };
+
+    for (size_t i = 0; i < commModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = commModules[i].name;
+        mod.moduleType = commModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.9f;
+        mod.description = commModules[i].desc;
+
+        if (i == 0)  // Antenna draws steady power to stay pointed
+        {
+            mod.consumptionRates[ResourceType::ENERGY] = 1.5f;
         }
 
         modules.push_back(mod);
