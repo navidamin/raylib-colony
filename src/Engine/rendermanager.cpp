@@ -1,5 +1,6 @@
 #include "rendermanager.h"
 #include "resource_manager.h"
+#include "terrain_synthesis.h"
 #include <algorithm>
 #include <iostream>
 #include <cmath>
@@ -9,10 +10,14 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
       screenHeight(screenHeight),
       fontsLoaded(false),
       tilesLoaded(false),
-      orbitalAssetsLoaded(false)
+      orbitalAssetsLoaded(false),
+      sectTerrainLoaded(false),
+      sectTerrainCellX(-1),
+      sectTerrainCellY(-1)
 {
     orbitalNearTexture = {0};
     orbitalFarTexture = {0};
+    sectTerrainTexture = {0};
 }
 
 void RenderManager::LoadFonts()
@@ -43,6 +48,11 @@ RenderManager::~RenderManager() {
     // Unload moon surface tiles when done
     UnloadMoonTiles();
     UnloadOrbitalAssets();
+
+    if (sectTerrainLoaded)
+    {
+        UnloadTexture(sectTerrainTexture);
+    }
 }
 
 void RenderManager::BeginDraw() {
@@ -440,7 +450,45 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     }
 }
 
+void RenderManager::DrawSectTerrainBackground(Sect* sect)
+{
+    if (!sect) return;
+
+    // Which planet grid cell is this sect standing on?
+    Vector2 pos = sect->GetPosition();
+    int gx = std::clamp((int)(pos.x / (SECT_CORE_RADIUS * 2.0f)), 0,
+                        PLANET_SIZE - 1);
+    int gy = std::clamp((int)(pos.y / (SECT_CORE_RADIUS * 2.0f)), 0,
+                        PLANET_SIZE - 1);
+
+    if (!sectTerrainLoaded || gx != sectTerrainCellX || gy != sectTerrainCellY)
+    {
+        if (sectTerrainLoaded) UnloadTexture(sectTerrainTexture);
+        double lat, lon;
+        TerrainGridCellToLatLon(gx, gy, &lat, &lon);
+        Image ground = GenerateSectTerrain(lat, lon);
+        sectTerrainTexture = LoadTextureFromImage(ground);
+        SetTextureFilter(sectTerrainTexture, TEXTURE_FILTER_BILINEAR);
+        UnloadImage(ground);
+        sectTerrainLoaded = true;
+        sectTerrainCellX = gx;
+        sectTerrainCellY = gy;
+    }
+
+    // Cover the screen; the texture is the sect's full 5 km cell.
+    float scale = std::max(screenWidth / (float)sectTerrainTexture.width,
+                           screenHeight / (float)sectTerrainTexture.height);
+    float drawW = sectTerrainTexture.width * scale;
+    float drawH = sectTerrainTexture.height * scale;
+    Rectangle src = {0, 0, (float)sectTerrainTexture.width,
+                     (float)sectTerrainTexture.height};
+    Rectangle dst = {(screenWidth - drawW) / 2.0f,
+                     (screenHeight - drawH) / 2.0f, drawW, drawH};
+    DrawTexturePro(sectTerrainTexture, src, dst, Vector2{0, 0}, 0.0f, WHITE);
+}
+
 void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
+    DrawSectTerrainBackground(sect);
     if (sect) {
         sect->DrawInSectView(Vector2{screenWidth/2.0f, screenHeight/2.0f});
     }

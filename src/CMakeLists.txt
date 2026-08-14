@@ -16,6 +16,7 @@ target_sources(colony_game PRIVATE
     ResourceManager/resource_manager.cpp
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
+    TerrainGen/terrain_synthesis.cpp
     transport_types.cpp
 )
 
@@ -37,6 +38,7 @@ target_include_directories(colony_game PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
 )
 
@@ -105,6 +107,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         ResourceManager/resource_manager.cpp
         TimeManager/time_manager.cpp
         GameTypes/game_types_loader.cpp
+        TerrainGen/terrain_synthesis.cpp
         transport_types.cpp
     )
 
@@ -124,6 +127,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
         "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
         "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
+        "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
         "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     )
 

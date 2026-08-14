@@ -212,6 +212,39 @@ can score real buildability. DEM caveat: at SECT scale LDEM_16 has
 only ~2.6 px; slopes there need the 118 m LOLA product (runner-fetch
 + per-site tiles).
 
+## In-game embedding (2026-08-13): src/TerrainGen
+
+The amplifier is ported to C++ and wired into the game:
+
+- `src/TerrainGen/terrain_synthesis.{h,cpp}` — the photo-real chain
+  (crop → denoise → sharpen → adaptive contrast → relight + grain,
+  100 → 25 → 5 km ladder) reading the shipped 8K
+  `src/assets/planet/wac_global.jpg`. Deterministic per location
+  (same quantised lat/lon seed as the prototype). Playfield anchor:
+  the 20×20 planet grid is centred on Mare Imbrium
+  (`TERRAIN_ANCHOR_LAT/LON`), `TerrainGridCellToLatLon` gives every
+  cell real coordinates.
+- `RenderManager::DrawSectTerrainBackground` — Sect view generates
+  its cell's 5 km ground on first entry (cached per cell, regenerated
+  on cell change) and draws it under the dome and units.
+- `tools/preview`: `--view sect --cell X,Y` renders the game's Sect
+  view on the generated ground and dumps the raw terrain alongside
+  (`.ground.png`) for comparison against the prototype.
+
+Porting lessons:
+- raylib disables JPG loading by default — `CUSTOMIZE_BUILD ON` +
+  `SUPPORT_FILEFORMAT_JPG ON` in the CPM options, or the WAC silently
+  fails to `LoadImage` and the ground falls back to flat grey.
+- Plain FBM is NOT a pink-noise substitute: normalised FBM
+  concentrates variance in smooth blobs and the ground rendered flat
+  (std 0.010 vs the prototype's 0.031). Mix in a fine per-pixel
+  component (`GrainNoise`), then the C++ ground matches the Python
+  output statistically (mean 0.219/0.236, std 0.028/0.031) and
+  visually.
+- C++ output is *visually* equivalent, not bit-identical: different
+  RNG and bilinear (vs bicubic/Lanczos) resampling. Determinism holds
+  within the game, which is what matters.
+
 ## Open questions
 
 - Palette warmth/hue — currently blue-violet shadows; could shift

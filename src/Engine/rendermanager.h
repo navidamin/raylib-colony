@@ -70,6 +70,13 @@ private:
     void LoadOrbitalAssets();
     void UnloadOrbitalAssets();
 
+    // Generated sect terrain (real-imagery amplification, per grid cell)
+    Texture2D sectTerrainTexture;
+    bool sectTerrainLoaded;
+    int sectTerrainCellX;
+    int sectTerrainCellY;
+    void DrawSectTerrainBackground(Sect* sect);
+
     void DrawDebugActiveArea();
 
     // Extraction unit UI methods
