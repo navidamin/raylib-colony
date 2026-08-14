@@ -245,6 +245,20 @@ Porting lessons:
   RNG and bilinear (vs bicubic/Lanczos) resampling. Determinism holds
   within the game, which is what matters.
 
+## Final surface decisions (2026-08-13, pre-PR)
+
+- **No procedural craters at any level** — after trying dense (noisy)
+  and overlap-rejected (cleaner) small-crater fields at the sect zoom,
+  the user removed them entirely. The surface is carried by regolith
+  grain, undulation, boulder speckle, real-form relighting, cast
+  shadows and albedo speckle, all exposed as `TerrainTuning`
+  (`terrain_synthesis.h`). Presets renderable via
+  `tools/preview --view sect --tune <name>`.
+- **Baseline tuning is the game default.**
+- The one-shot `fetch-dem.yml` workflow was removed after the DEM
+  landed; re-add it from git history if the 118 m LOLA product is
+  wanted later.
+
 ## Open questions
 
 - Palette warmth/hue — currently blue-violet shadows; could shift
