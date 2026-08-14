@@ -17,6 +17,10 @@ project(raylib_game
         VERSION 0.1.0
         LANGUAGES C CXX)
 
+# Local CMake helpers (get_all_installable_targets, used by the MSVC block below)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(Utilities)
+
 # ---- Add dependencies via CPM ----
 ## https://github.com/cpm-cmake/CPM.cmake
 set(CPM_DOWNLOAD_VERSION 0.40.2)
@@ -102,6 +106,14 @@ endif()
 # can run the target from visual studio
 if(MSVC)
     get_all_installable_targets(all_targets)
-    message("all_targets=${all_targets}")
-    set_target_properties(${all_targets} PROPERTIES VS_DEBUGGER_ENVIRONMENT "PATH=$(VC_ExecutablePath_x64);%PATH%")
+    message(STATUS "all_targets=${all_targets}")
+    # Only executables have a debugger environment; applying the property
+    # to every target would touch utility/library targets pointlessly.
+    foreach(_target ${all_targets})
+        get_target_property(_target_type ${_target} TYPE)
+        if(_target_type STREQUAL "EXECUTABLE")
+            set_target_properties(${_target} PROPERTIES
+                VS_DEBUGGER_ENVIRONMENT "PATH=$(VC_ExecutablePath_x64);%PATH%")
+        endif()
+    endforeach()
 endif()
