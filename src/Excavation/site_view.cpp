@@ -147,6 +147,26 @@ SpotView SiteView::Describe(const ProspectingGrid& grid, const SampleTray& tray,
     return view;
 }
 
+float SiteView::GetCellMeanYield(const ProspectingGrid& grid, DepthLayer depth,
+                                 ResourceType target) const
+{
+    int size = grid.GetGridSize();
+    float sum = 0.0f;
+    int count = 0;
+
+    for (int y = 0; y < size; y++)
+    {
+        for (int x = 0; x < size; x++)
+        {
+            if (!IsInReach(x, y)) continue;
+            sum += GetTargetYield(grid, x, y, depth, target);
+            count++;
+        }
+    }
+
+    return count > 0 ? sum / static_cast<float>(count) : 0.0f;
+}
+
 bool SiteView::FindBestReachableSpot(const ProspectingGrid& grid,
                                      DepthLayer depth, ResourceType target,
                                      int& outX, int& outY) const

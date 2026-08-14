@@ -44,9 +44,17 @@ public:
                           int x, int y, DepthLayer depth,
                           ResourceType target) const;
 
-    // Estimate built from a confidence supplied by the caller. Used by tests
-    // and by the AI, which needs to ask "what would this read at confidence X".
-    SpotEstimate EstimateAt(float trueValue, float confidence,
+    // Estimate built from a confidence and a cell average supplied by the
+    // caller. Used by tests and by the AI, which needs to ask "what would this
+    // read at confidence X".
+    //
+    // `cellMean` matters more than it looks. Blurring around the SPOT's own
+    // value leaves a rich spot reading rich even unsurveyed -- measured, a
+    // zero-confidence estimate built that way already captured 95% of the best
+    // spot's value, so surveying could add almost nothing and the module's
+    // central claim was false. Blurring toward the cell average instead means
+    // an unsurveyed spot reads like average ground, whatever it really holds.
+    SpotEstimate EstimateAt(float trueValue, float cellMean, float confidence,
                             int parentGridX, int parentGridY,
                             int x, int y, DepthLayer depth,
                             ResourceType target) const;

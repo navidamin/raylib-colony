@@ -143,6 +143,11 @@ static void TestEstimateSurvivesRebuild()
     Check(allMatch, "all 64 spots read identically after a rebuild");
 }
 
+// A plausible cell average for the synthetic truths below. The estimate blurs
+// toward the cell mean rather than the spot's own value, so the tests have to
+// supply one.
+static const float MEAN_FOR_TESTS = 400.0f;
+
 static void TestRangeContainsTruth()
 {
     printf("The instrument is imprecise, never wrong\n");
@@ -159,15 +164,18 @@ static void TestRangeContainsTruth()
         {
             for (int y = 0; y < 8; y++)
             {
-                float truth = 100.0f + x * 137.0f + y * 29.0f;
-                SpotEstimate e = engine.EstimateAt(truth, confidence, 5, 5, x, y,
+                // Spots the generator could actually produce: between 0.3x
+                // and 2.0x the cell average (SUBCELL_VARIATION's clamp).
+                float t = (x * 8 + y) / 63.0f;
+                float truth = MEAN_FOR_TESTS * (0.3f + 1.7f * t);
+                SpotEstimate e = engine.EstimateAt(truth, MEAN_FOR_TESTS, confidence, 5, 5, x, y,
                                                    DepthLayer::SURFACE, ResourceType::Fe);
 
                 if (truth < e.low - 1e-3f || truth > e.high + 1e-3f)
                 {
                     alwaysContains = false;
                 }
-                if (confidence < 0.9f && std::fabs(e.shown - truth) > 1e-3f)
+                if (confidence < 0.5f && std::fabs(e.shown - truth) > truth * 0.05f)
                 {
                     everWrong = true;   // the point estimate should be biased
                 }
@@ -176,6 +184,32 @@ static void TestRangeContainsTruth()
     }
     Check(alwaysContains, "true value always lies inside the shown range");
     Check(everWrong, "the point estimate is biased when confidence is low");
+
+    // The point of blurring toward the cell average rather than the spot's own
+    // value: at zero confidence, two spots holding very different amounts must
+    // read similarly. Blurring around each spot's own value left a rich spot
+    // reading rich, so a blind player could already pick the best ground --
+    // measured at 95% of the true best, which made surveying near-worthless.
+    SpotEstimate poor = engine.EstimateAt(MEAN_FOR_TESTS * 0.3f, MEAN_FOR_TESTS,
+                                          0.0f, 5, 5, 1, 1,
+                                          DepthLayer::SURFACE, ResourceType::Fe);
+    SpotEstimate rich = engine.EstimateAt(MEAN_FOR_TESTS * 2.0f, MEAN_FOR_TESTS,
+                                          0.0f, 5, 5, 1, 1,
+                                          DepthLayer::SURFACE, ResourceType::Fe);
+    float blindGap = std::fabs(rich.shown - poor.shown);
+    float trueGap = MEAN_FOR_TESTS * 1.7f;
+    Check(blindGap < trueGap * 0.35f,
+          "unsurveyed, a rich spot and a poor one read much alike");
+
+    // And once surveyed they must read apart again, or knowing buys nothing.
+    SpotEstimate poorKnown = engine.EstimateAt(MEAN_FOR_TESTS * 0.3f, MEAN_FOR_TESTS,
+                                               1.0f, 5, 5, 1, 1,
+                                               DepthLayer::SURFACE, ResourceType::Fe);
+    SpotEstimate richKnown = engine.EstimateAt(MEAN_FOR_TESTS * 2.0f, MEAN_FOR_TESTS,
+                                               1.0f, 5, 5, 1, 1,
+                                               DepthLayer::SURFACE, ResourceType::Fe);
+    Check(Near(richKnown.shown - poorKnown.shown, trueGap, 1e-2f),
+          "surveyed, they read exactly as far apart as they really are");
 }
 
 static void TestConfidenceClosesTheRange()
@@ -185,11 +219,11 @@ static void TestConfidenceClosesTheRange()
     EstimateEngine engine;
     const float truth = 1234.0f;
 
-    SpotEstimate blind = engine.EstimateAt(truth, 0.0f, 5, 5, 2, 3,
+    SpotEstimate blind = engine.EstimateAt(truth, truth, 0.0f, 5, 5, 2, 3,
                                            DepthLayer::SURFACE, ResourceType::Fe);
-    SpotEstimate half = engine.EstimateAt(truth, 0.5f, 5, 5, 2, 3,
+    SpotEstimate half = engine.EstimateAt(truth, truth, 0.5f, 5, 5, 2, 3,
                                           DepthLayer::SURFACE, ResourceType::Fe);
-    SpotEstimate known = engine.EstimateAt(truth, 1.0f, 5, 5, 2, 3,
+    SpotEstimate known = engine.EstimateAt(truth, truth, 1.0f, 5, 5, 2, 3,
                                            DepthLayer::SURFACE, ResourceType::Fe);
 
     Check(blind.halfWidth > half.halfWidth, "range narrows as confidence rises");

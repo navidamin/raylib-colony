@@ -55,6 +55,13 @@ constexpr float EXC_SAMPLE_CONFIDENCE_WEIGHT = 1.0f;
 // EstimateEngine, Rule 1.
 constexpr float EXC_MAX_ESTIMATE_SPREAD = 0.6f;
 
+// The span a single spot can occupy relative to the cell average, matching the
+// generator's SUBCELL_VARIATION clamp. An unsurveyed reading can say no more
+// than "somewhere in here", which is exactly what makes surveying worth its
+// cost -- see EstimateEngine::EstimateAt.
+constexpr float EXC_SPOT_MIN_FACTOR = 0.3f;
+constexpr float EXC_SPOT_MAX_FACTOR = 2.0f;
+
 // Confidence at which the range is treated as closed and the spot reads as
 // known. Slightly below 1.0 so a thoroughly surveyed spot does not sit at
 // "almost certain" forever because of floating-point dust.
@@ -177,3 +184,18 @@ constexpr float EXC_AI_PACE_FLOOR = 0.50f;
 // A survey hint is only worth raising when resolving the uncertainty could
 // move the best spot by at least this fraction.
 constexpr float EXC_AI_SURVEY_HINT_THRESHOLD = 0.15f;
+
+// The automation works a face until it is done, rather than re-picking the
+// best spot every tick.
+//
+// A margin-based rule was tried first and does not work: as a spot depletes its
+// score falls, so an untouched spot of equal richness wins the comparison long
+// before the current one is empty. The digging then spreads across the whole
+// lattice, every spot ends up slightly scratched, and nothing is ever worked
+// out -- the advancing pit the design describes never appears. Measured over 20
+// game days: zero spots exhausted out of 256.
+//
+// Abandoning a face only when it is spent also matches how the work actually
+// goes: you do not move a machine because the next patch looks marginally
+// better, you move it when there is nothing left to dig.
+constexpr float EXC_AI_ABANDON_BELOW = 0.02f;

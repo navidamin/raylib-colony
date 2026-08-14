@@ -119,7 +119,8 @@ AutoDecision AutoPilot::Decide(const ProspectingGrid& grid, const SampleTray& tr
                                const SiteView& site, const EstimateEngine& estimator,
                                const DigSite& worked,
                                AiLevel level, int tier,
-                               ResourceType target, DepthLayer currentDepth) const
+                               ResourceType target, DepthLayer currentDepth,
+                               int currentX, int currentY) const
 {
     AutoDecision decision;
     decision.depth = currentDepth;
@@ -174,6 +175,22 @@ AutoDecision AutoPilot::Decide(const ProspectingGrid& grid, const SampleTray& tr
         int centre = gridSize / 2;
         decision.spotX = centre;
         decision.spotY = centre;
+    }
+
+    // Work the current face until it is spent. See EXC_AI_ABANDON_BELOW for
+    // why this is a "stay until empty" rule rather than a margin.
+    if (currentX >= 0 && currentY >= 0 && decision.depth == currentDepth &&
+        site.IsInReach(currentX, currentY))
+    {
+        float left = worked.Remaining(currentX, currentY, currentDepth);
+        float currentScore = ScoreSpot(grid, tray, site, estimator, worked,
+                                       capped, currentX, currentY, currentDepth,
+                                       target);
+        if (left > EXC_AI_ABANDON_BELOW && currentScore > 0.0f)
+        {
+            decision.spotX = currentX;
+            decision.spotY = currentY;
+        }
     }
 
     decision.valid = true;

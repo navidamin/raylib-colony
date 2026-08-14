@@ -193,10 +193,13 @@ static void DumpExcavationView(ResourceManager& rm, int gx, int gy,
             // What the player would be TOLD about that spot at each level of
             // knowledge -- the gamble, in the numbers they actually read.
             EstimateEngine estimator;
+            // The blur is around the CELL AVERAGE, not the spot's own value --
+            // that is what stops an unsurveyed rich spot reading rich.
+            float cellMean = site.GetCellMeanYield(grid, depth, target);
             printf("    what the player reads: ");
             for (float c = 0.0f; c <= 1.001f; c += 0.25f)
             {
-                SpotEstimate e = estimator.EstimateAt(v.targetYield, c,
+                SpotEstimate e = estimator.EstimateAt(v.targetYield, cellMean, c,
                                                       grid.GetParentGridX(),
                                                       grid.GetParentGridY(),
                                                       bx, by, depth, target);

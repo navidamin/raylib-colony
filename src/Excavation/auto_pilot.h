@@ -45,11 +45,15 @@ public:
 
     // Decide this tick. `currentDepth` is where the operation is working now;
     // the decision may move it deeper when a layer is worked out.
+    // `currentX/Y` is the spot being worked now. The decision sticks with it
+    // unless something is clearly better -- see EXC_AI_SWITCH_MARGIN. Pass -1
+    // when there is no current spot.
     AutoDecision Decide(const ProspectingGrid& grid, const SampleTray& tray,
                         const SiteView& site, const EstimateEngine& estimator,
                         const DigSite& worked,
                         AiLevel level, int tier,
-                        ResourceType target, DepthLayer currentDepth) const;
+                        ResourceType target, DepthLayer currentDepth,
+                        int currentX = -1, int currentY = -1) const;
 
 private:
     // Score one spot under a level's attitude to uncertainty.

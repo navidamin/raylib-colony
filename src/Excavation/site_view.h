@@ -53,6 +53,12 @@ public:
                          int x, int y, DepthLayer depth,
                          ResourceType target) const;
 
+    // Average target yield across reachable spots at a depth. This is what a
+    // player can reasonably know WITHOUT surveying -- roughly what this ground
+    // holds -- as opposed to which particular spot holds it.
+    float GetCellMeanYield(const ProspectingGrid& grid, DepthLayer depth,
+                           ResourceType target) const;
+
     // Best reachable spot for a target at a depth, by TRUE value. Used by the
     // inspect dump to show what a perfectly-informed player could reach; the
     // AI in Phase 6 uses the known-value equivalent instead.

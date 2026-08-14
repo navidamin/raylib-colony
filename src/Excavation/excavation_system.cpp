@@ -61,14 +61,49 @@ SpotView ExcavationSystem::DescribeSelected(const ProspectingSystem& prospecting
 
 void ExcavationSystem::SelectBestReachableSpot(const ProspectingSystem& prospecting)
 {
-    int bestX = selectedSpotX;
-    int bestY = selectedSpotY;
+    const ProspectingGrid& grid = prospecting.GetGrid();
 
-    if (site.FindBestReachableSpot(prospecting.GetGrid(), selectedDepth,
-                                   targetResource, bestX, bestY))
+    // Weighted by what is LEFT, not by what was originally there. Without that
+    // this keeps returning a spot that has already been dug out -- which had
+    // the operation grinding away at dead ground and producing nothing, while
+    // reporting itself as working the richest spot on the lattice.
+    float bestScore = -1.0f;
+    int bestX = -1;
+    int bestY = -1;
+
+    for (int y = 0; y < grid.GetGridSize(); y++)
+    {
+        for (int x = 0; x < grid.GetGridSize(); x++)
+        {
+            if (!site.IsInReach(x, y)) continue;
+
+            float left = worked.Remaining(x, y, selectedDepth);
+            if (left <= 0.0f) continue;
+
+            float score = site.GetTargetYield(grid, x, y, selectedDepth,
+                                              targetResource) * left;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestX = x;
+                bestY = y;
+            }
+        }
+    }
+
+    if (bestX >= 0)
     {
         selectedSpotX = bestX;
         selectedSpotY = bestY;
+        return;
+    }
+
+    // This layer is worked out. Go deeper if anything can.
+    int next = static_cast<int>(selectedDepth) + 1;
+    if (next < 4 && site.CanWorkDepth(static_cast<DepthLayer>(next)))
+    {
+        selectedDepth = static_cast<DepthLayer>(next);
+        SelectBestReachableSpot(prospecting);
     }
 }
 
@@ -115,7 +150,8 @@ AutoDecision ExcavationSystem::PreviewAuto(const ProspectingSystem& prospecting)
 {
     return autoPilot.Decide(prospecting.GetGrid(), prospecting.GetTray(), site,
                             estimator, worked, aiLevel, tier,
-                            targetResource, selectedDepth);
+                            targetResource, selectedDepth,
+                            selectedSpotX, selectedSpotY);
 }
 
 void ExcavationSystem::SyncToGround(const ProspectingSystem& prospecting)

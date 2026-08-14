@@ -225,6 +225,49 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
 endif()
 
 # ---------------------------------------------------------------------------
+# colony_sim: a playtest that runs in CI
+#
+# Runs the real excavation and prospecting engines for a fixed number of game
+# days under several different players, prints what each one got, and asserts
+# the ORDERINGS the design claims -- surveying beats digging blind, attention
+# beats automation, tier is worth buying, nobody stalls. Absolute numbers move
+# with every balance pass; the orderings are the design. Not built for Web.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_sim)
+
+    target_sources(colony_sim PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/sim/excavation_sim.cpp"
+        ResourceManager/resource_manager.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/sample_tray.cpp
+        Prospecting/sweep_engine.cpp
+        Prospecting/sampling_engine.cpp
+        Prospecting/lab_engine.cpp
+        Prospecting/survey_progress_engine.cpp
+        Prospecting/prospecting_system.cpp
+        Excavation/site_view.cpp
+        Excavation/estimate_engine.cpp
+        Excavation/dig_engine.cpp
+        Excavation/auto_pilot.cpp
+        Excavation/excavation_system.cpp
+    )
+
+    set_target_properties(colony_sim PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+
+    target_include_directories(colony_sim PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_sim raylib tomlplusplus::tomlplusplus)
+
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(colony_sim m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # colony_inspect: terminal dump of generated game data
 #
 # Prints real ResourceManager / ProspectingGrid numbers so value bugs can be

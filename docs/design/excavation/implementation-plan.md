@@ -381,7 +381,7 @@ pick *different* spots. They rightly agree when the richest spot also reads conf
 that was testing this map rather than the rule. Replaced with criterion-optimality: BASIC
 must land on the best available floor, TRAINED on the best available upside.
 
-### Phase 7 — Balance
+### Phase 7 — Balance *(started: `colony_sim` built, three defects fixed)*
 - Calibrate every constant against **dumped real data**, per the guide — no invented numbers
 - Verify the survey-value arc actually lands at +50% (T0) → +114% (T3) in play
 - Check the `SUBCELL_VARIATION_MAX` ceiling: at 6×6 the best spot is pinned to the 2.0 clamp
@@ -417,6 +417,7 @@ Using the instruments the prospecting branch built (`docs/dev-workflow.md`):
 | `tools/playtest` | Phases 3, 6, 7 — drive a unit to any tier via `DebugUpgradeModuleTier()`, no economy needed |
 | `tools/shell-test` | Phase 5 — web/phone canvas regression |
 | `subcell_distribution_sim.py` | Phase 7 — re-derive survey value if the generator ever changes |
+| **`colony_sim`** | **A playtest that runs in CI.** Runs the real engines for 20 game days under five different players and asserts the design's orderings |
 
 Two things worth asserting in code rather than by eye:
 - **Rule 1** — estimates are stable across calls and across save/load
