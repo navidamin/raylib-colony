@@ -364,5 +364,6 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | Module | Design Directory | Context Trigger |
 |--------|-----------------|-----------------|
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
+| Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
 
 See `docs/design/README.md` for the full planning method explanation.
