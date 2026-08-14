@@ -233,6 +233,12 @@ void ViewManager::SwitchToUnitView(Colony* currentColony, Sect* currentSect, Uni
     }
 }
 
+void ViewManager::SwitchToOrbitalView() {
+    currentView = View::Orbital;
+    // Orbital view doesn't use the world camera — DrawOrbitalView
+    // positions the disc texture in screen space directly.
+}
+
 void ViewManager::SwitchToPlanetView(Colony* currentColony) {
     currentView = View::Planet;
 

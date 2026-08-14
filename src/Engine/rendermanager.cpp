@@ -1,5 +1,6 @@
 #include "rendermanager.h"
 #include "resource_manager.h"
+#include "terrain_synthesis.h"
 #include "resource_types.h"
 #include "survey_progress_engine.h"
 #include <algorithm>
@@ -10,8 +11,15 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
       fontsLoaded(false),
-      tilesLoaded(false)
+      tilesLoaded(false),
+      orbitalAssetsLoaded(false),
+      sectTerrainLoaded(false),
+      sectTerrainCellX(-1),
+      sectTerrainCellY(-1)
 {
+    orbitalNearTexture = {0};
+    orbitalFarTexture = {0};
+    sectTerrainTexture = {0};
 }
 
 void RenderManager::LoadFonts()
@@ -41,6 +49,12 @@ RenderManager::~RenderManager() {
 
     // Unload moon surface tiles when done
     UnloadMoonTiles();
+    UnloadOrbitalAssets();
+
+    if (sectTerrainLoaded)
+    {
+        UnloadTexture(sectTerrainTexture);
+    }
 }
 
 void RenderManager::BeginDraw() {
@@ -438,7 +452,46 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     }
 }
 
+void RenderManager::DrawSectTerrainBackground(Sect* sect)
+{
+    if (!sect) return;
+
+    // Which planet grid cell is this sect standing on?
+    Vector2 pos = sect->GetPosition();
+    int gx = std::clamp((int)(pos.x / (SECT_CORE_RADIUS * 2.0f)), 0,
+                        PLANET_SIZE - 1);
+    int gy = std::clamp((int)(pos.y / (SECT_CORE_RADIUS * 2.0f)), 0,
+                        PLANET_SIZE - 1);
+
+    if (!sectTerrainLoaded || gx != sectTerrainCellX || gy != sectTerrainCellY)
+    {
+        if (sectTerrainLoaded) UnloadTexture(sectTerrainTexture);
+        double lat, lon;
+        TerrainGridCellToLatLon(gx, gy, &lat, &lon);
+        // 512 keeps the screen upscale mild (1280/512 vs 1280/300)
+        Image ground = GenerateSectTerrain(lat, lon, 512);
+        sectTerrainTexture = LoadTextureFromImage(ground);
+        SetTextureFilter(sectTerrainTexture, TEXTURE_FILTER_BILINEAR);
+        UnloadImage(ground);
+        sectTerrainLoaded = true;
+        sectTerrainCellX = gx;
+        sectTerrainCellY = gy;
+    }
+
+    // Cover the screen; the texture is the sect's full 5 km cell.
+    float scale = std::max(screenWidth / (float)sectTerrainTexture.width,
+                           screenHeight / (float)sectTerrainTexture.height);
+    float drawW = sectTerrainTexture.width * scale;
+    float drawH = sectTerrainTexture.height * scale;
+    Rectangle src = {0, 0, (float)sectTerrainTexture.width,
+                     (float)sectTerrainTexture.height};
+    Rectangle dst = {(screenWidth - drawW) / 2.0f,
+                     (screenHeight - drawH) / 2.0f, drawW, drawH};
+    DrawTexturePro(sectTerrainTexture, src, dst, Vector2{0, 0}, 0.0f, WHITE);
+}
+
 void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
+    DrawSectTerrainBackground(sect);
     if (sect) {
         sect->DrawInSectView(Vector2{screenWidth/2.0f, screenHeight/2.0f});
     }
@@ -3189,4 +3242,51 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
             chipX += chipW + 4.0f;
         }
     }
+}
+
+
+// --- Orbital view ---------------------------------------------------------
+
+void RenderManager::LoadOrbitalAssets() {
+    if (orbitalAssetsLoaded) return;
+    orbitalNearTexture = LoadTexture("src/assets/planet/orbital_near.png");
+    orbitalFarTexture  = LoadTexture("src/assets/planet/orbital_far.png");
+    if (orbitalNearTexture.id == 0) {
+        std::cout << "WARNING: failed to load orbital_near.png" << std::endl;
+    }
+    if (orbitalFarTexture.id == 0) {
+        std::cout << "WARNING: failed to load orbital_far.png" << std::endl;
+    }
+    orbitalAssetsLoaded = true;
+}
+
+void RenderManager::UnloadOrbitalAssets() {
+    if (!orbitalAssetsLoaded) return;
+    if (orbitalNearTexture.id != 0) UnloadTexture(orbitalNearTexture);
+    if (orbitalFarTexture.id  != 0) UnloadTexture(orbitalFarTexture);
+    orbitalAssetsLoaded = false;
+}
+
+void RenderManager::DrawOrbitalView() {
+    if (!orbitalAssetsLoaded) {
+        LoadOrbitalAssets();
+    }
+
+    Color spaceBg = {6, 7, 12, 255};
+    ClearBackground(spaceBg);
+
+    // Centre the disc in the screen. The texture is square (1200x1200).
+    // If the screen is smaller in either dimension, the texture overflows
+    // the visible area — that's fine, the disc is still centred.
+    if (orbitalNearTexture.id != 0) {
+        int x = (GetScreenWidth()  - orbitalNearTexture.width)  / 2;
+        int y = (GetScreenHeight() - orbitalNearTexture.height) / 2;
+        DrawTexture(orbitalNearTexture, x, y, WHITE);
+    }
+
+    DrawText("Lunar Orbit",            20, 20, 26, RAYWHITE);
+    DrawText("ENTER  descend to surface",
+             20, GetScreenHeight() - 60, 18, LIGHTGRAY);
+    DrawText("ESC    return to menu",
+             20, GetScreenHeight() - 36, 18, LIGHTGRAY);
 }

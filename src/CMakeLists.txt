@@ -16,6 +16,7 @@ target_sources(colony_game PRIVATE
     ResourceManager/resource_manager.cpp
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
+    TerrainGen/terrain_synthesis.cpp
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
@@ -45,6 +46,7 @@ target_include_directories(colony_game PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
 )
@@ -90,3 +92,65 @@ set_target_properties(colony_game PROPERTIES
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} 
     PROPERTY VS_STARTUP_PROJECT colony_game
 )
+
+# ---------------------------------------------------------------------------
+# colony_preview: offscreen view preview tool
+#
+# Renders a game view to a PNG without a display, so visual work can be
+# reviewed headlessly. See tools/preview/preview.sh.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_preview)
+
+    target_sources(colony_preview PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/preview/preview_main.cpp"
+        Colony/colony.cpp
+        Engine/inputmanager.cpp
+        Engine/viewmanager.cpp
+        Engine/gamemanager.cpp
+        Engine/rendermanager.cpp
+        Planet/planet.cpp
+        Sect/sect.cpp
+        Unit/unit.cpp
+        Unit/unit_ui.cpp
+        ResourceManager/resource_manager.cpp
+        TimeManager/time_manager.cpp
+        GameTypes/game_types_loader.cpp
+        TerrainGen/terrain_synthesis.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/sweep_engine.cpp
+        Prospecting/sampling_engine.cpp
+        Prospecting/lab_engine.cpp
+        Prospecting/survey_progress_engine.cpp
+        Prospecting/prospecting_system.cpp
+        transport_types.cpp
+    )
+
+    set_target_properties(colony_preview PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(colony_preview PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Colony"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Engine"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Planet"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Sect"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Unit"
+        "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
+        "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
+        "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
+        "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+        "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
+    )
+
+    target_link_libraries(colony_preview raylib tomlplusplus::tomlplusplus)
+    if(NOT WIN32)
+        target_link_libraries(colony_preview m)
+    endif()
+endif()

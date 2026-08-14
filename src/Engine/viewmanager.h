@@ -23,6 +23,7 @@ public:
     void SwitchToSectView(Colony* currentColony, Sect* currentSect);
     void SwitchToUnitView(Colony* currentColony, Sect* currentSect, Unit* currentUnit);
     void SwitchToPlanetView(Colony* currentColony);
+    void SwitchToOrbitalView();
 
     Vector2 GetWorldMousePosition();
     Camera2D& GetCamera() { return camera; }
