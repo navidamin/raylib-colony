@@ -93,8 +93,11 @@ if(BUILD_TESTS AND NOT "${PLATFORM}" STREQUAL "Web")
 endif()
 
 # If MSVC is being used, and ASAN is enabled, we need to set the debugger environment so that it behaves well with MSVC's debugger, and we
-# can run the target from visual studio
-if(MSVC)
+# can run the target from visual studio.
+# get_all_installable_targets() comes from the raylib project template's cmake
+# utilities, which this repository does not vendor -- guard the call so the
+# Windows configure step does not hard-fail on an undefined command.
+if(MSVC AND COMMAND get_all_installable_targets)
     get_all_installable_targets(all_targets)
     message("all_targets=${all_targets}")
     set_target_properties(${all_targets} PROPERTIES VS_DEBUGGER_ENVIRONMENT "PATH=$(VC_ExecutablePath_x64);%PATH%")
