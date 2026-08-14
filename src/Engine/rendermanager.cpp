@@ -466,7 +466,8 @@ void RenderManager::DrawSectTerrainBackground(Sect* sect)
         if (sectTerrainLoaded) UnloadTexture(sectTerrainTexture);
         double lat, lon;
         TerrainGridCellToLatLon(gx, gy, &lat, &lon);
-        Image ground = GenerateSectTerrain(lat, lon);
+        // 512 keeps the screen upscale mild (1280/512 vs 1280/300)
+        Image ground = GenerateSectTerrain(lat, lon, 512);
         sectTerrainTexture = LoadTextureFromImage(ground);
         SetTextureFilter(sectTerrainTexture, TEXTURE_FILTER_BILINEAR);
         UnloadImage(ground);

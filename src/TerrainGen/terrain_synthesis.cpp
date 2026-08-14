@@ -321,8 +321,9 @@ static Field CropMacro(double latDeg, double lonDeg, double spanDeg, int res)
 // gain — maria must stay dark, calm plains).
 static void SharpenAdaptive(Field& macro, int res)
 {
+    float k = res / 300.0f;
     Field blur = macro;
-    GaussianBlur(blur, res, res, 5.0f);
+    GaussianBlur(blur, res, res, 5.0f * k);
     for (size_t i = 0; i < macro.size(); i++)
         macro[i] = std::clamp(macro[i] + 0.40f * (macro[i] - blur[i]),
                               0.0f, 1.0f);
@@ -338,20 +339,103 @@ static void SharpenAdaptive(Field& macro, int res)
         v = std::clamp(mid + (v - mid) * gain, 0.0f, 1.0f);
 }
 
-// The anti-matte relight + grain stage (port of _texture_modulate).
-static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp)
+// Small-crater field for zoom levels BELOW the real-data floor
+// (~1.3 km/px): sub-resolution craters exist everywhere on the real
+// moon but the source cannot resolve them, so here invention is
+// honest — it never contradicts data. Real lunar crater profile:
+// flat floor (d < 0.70), power-law wall, tiny gaussian rim.
+static void CarveSmallCraters(Field& height, int res, TerrainRng& rng,
+                              int count, float rMinPx, float rMaxPx,
+                              float depthScale)
 {
+    for (int c = 0; c < count; c++)
+    {
+        float cx = rng.Uniform() * res;
+        float cy = rng.Uniform() * res;
+        // Power-law-ish size mix: most craters small, a few large.
+        float u = rng.Uniform();
+        float r = rMinPx * std::pow(rMaxPx / rMinPx,
+                                    std::pow(u, 2.2f));
+        float age = rng.Uniform();            // 0 fresh .. 1 eroded
+        float sharp = 1.0f - 0.7f * age;
+        float depth = -depthScale * sharp * (0.5f + rng.Uniform());
+        // A fresh deep minority gives the field its punch — without
+        // them everything reads as uniform soft dimples.
+        if (rng.Uniform() < 0.12f) depth *= 1.9f;
+        float rimAmp = 0.05f * sharp * std::fabs(depth) / depthScale;
+        float wallP = 3.5f;
+
+        int x0 = std::max(0, (int)(cx - r * 1.1f));
+        int x1 = std::min(res - 1, (int)(cx + r * 1.1f) + 1);
+        int y0 = std::max(0, (int)(cy - r * 1.1f));
+        int y1 = std::min(res - 1, (int)(cy + r * 1.1f) + 1);
+        for (int y = y0; y <= y1; y++)
+        {
+            for (int x = x0; x <= x1; x++)
+            {
+                float dx = (x - cx) / r;
+                float dy = (y - cy) / r;
+                float d = std::sqrt(dx * dx + dy * dy);
+                float delta = 0.0f;
+                if (d < 0.70f)
+                {
+                    delta = depth;
+                }
+                else if (d < 0.95f)
+                {
+                    float wu = (d - 0.70f) / 0.25f;
+                    delta = depth * (1.0f - std::pow(wu, wallP));
+                }
+                else if (d < 1.05f)
+                {
+                    float g = (d - 1.00f) / 0.05f;
+                    delta = rimAmp * depthScale * std::exp(-g * g);
+                }
+                height[y * res + x] += delta;
+            }
+        }
+    }
+}
+
+// Boulder speckle: tiny sharp bumps; the shared relighting gives each
+// one its lit face and cast-shadow pixel automatically.
+static void SprinkleBoulders(Field& height, int res, TerrainRng& rng,
+                             int count, float amp)
+{
+    for (int b = 0; b < count; b++)
+    {
+        int x = 1 + (int)(rng.Uniform() * (res - 2));
+        int y = 1 + (int)(rng.Uniform() * (res - 2));
+        float a = amp * (0.4f + rng.Uniform());
+        height[y * res + x] += a;
+        if (rng.Uniform() < 0.5f) height[y * res + x + 1] += a * 0.6f;
+        if (rng.Uniform() < 0.3f) height[(y + 1) * res + x] += a * 0.5f;
+    }
+}
+
+// The anti-matte relight + grain stage (port of _texture_modulate).
+// craterCount/boulderCount > 0 adds sub-resolution surface features —
+// only used on zoom levels below the real-data floor.
+static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
+                            int craterCount = 0, float craterRMinPx = 1.5f,
+                            float craterRMaxPx = 12.0f,
+                            float craterDepth = 0.015f,
+                            int boulderCount = 0)
+{
+    // Pixel-based sizes below are tuned at 300 px; k rescales them so
+    // physical feature sizes stay fixed at other resolutions.
+    float k = res / 300.0f;
     Field density((size_t)res * res);
     for (size_t i = 0; i < density.size(); i++)
         density[i] = std::clamp((macro[i] - 0.22f) / 0.45f, 0.15f, 1.0f);
 
     // Height field: smoothed macro as relief proxy + grain + undulation
     Field height = macro;
-    GaussianBlur(height, res, res, 2.5f);
+    GaussianBlur(height, res, res, 2.5f * k);
     for (float& v : height) v = (v - 0.5f) * 0.13f;
 
     Field grain = GrainNoise(res, rng);
-    Field undul = Fbm(res, 3, 64, 0.5f, rng);
+    Field undul = Fbm(res, 3, (int)(64 * k), 0.5f, rng);
     for (size_t i = 0; i < height.size(); i++)
     {
         float rough = 0.45f + 0.55f * density[i];
@@ -359,10 +443,16 @@ static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp)
         height[i] += 0.02f * amp * (undul[i] - 0.5f) * rough;
     }
 
+    if (craterCount > 0)
+        CarveSmallCraters(height, res, rng, craterCount,
+                          craterRMinPx, craterRMaxPx, craterDepth);
+    if (boulderCount > 0)
+        SprinkleBoulders(height, res, rng, boulderCount, 0.010f);
+
     const float z = 110.0f;
     Field hs = Hillshade(height, res, z, 0.6f);
     float flatRef = std::sin(35.0f * DEG2RAD);
-    Field light = CastShadows(height, res, z, 22.0f, 1.5f);
+    Field light = CastShadows(height, res, z, 22.0f * k, 1.5f);
 
     TerrainRng rng2(rng.Next());
     Field speckle = Fbm(res, 2, 4, 0.5f, rng2);
@@ -450,15 +540,32 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res)
         for (int y = 0; y < cw; y++)
             for (int x = 0; x < cw; x++)
                 crop[y * cw + x] = lum[(size_t)(lo + y) * res + (lo + x)];
+        float k = res / 300.0f;
         lum = ResizeBilinear(crop, cw, cw, res, res);
-        GaussianBlur(lum, res, res, 0.6f);
+        GaussianBlur(lum, res, res, 0.6f * k);
         Field blur = lum;
-        GaussianBlur(blur, res, res, 5.0f);
+        GaussianBlur(blur, res, res, 5.0f * k);
         for (size_t i = 0; i < lum.size(); i++)
             lum[i] = std::clamp(lum[i] + 0.40f * (lum[i] - blur[i]),
                                 0.0f, 1.0f);
         TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
-        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl);
+        if (lvl == 1)
+        {
+            // COLONY 25 km, 83 m/px: light sub-resolution cratering
+            // (125-500 m bowls), no boulders yet.
+            TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl,
+                            (int)(40 * k * k), 1.5f * k, 6.0f * k,
+                            0.012f, 0);
+        }
+        else
+        {
+            // SECT 5 km, 17 m/px: the ground the player builds on —
+            // dense small cratering (25-370 m) and boulder speckle.
+            // Deep enough that the biggest bowls catch cast shadow.
+            TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl,
+                            (int)(150 * k * k), 1.5f * k, 22.0f * k,
+                            0.036f, (int)(230 * k * k));
+        }
     }
 
     Image out = GenImageColor(res, res, BLACK);
