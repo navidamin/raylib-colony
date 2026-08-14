@@ -83,12 +83,50 @@ TEST_CASE("IsLayerAccessible respects tier gating", "[types]")
     REQUIRE(IsLayerAccessible(3, DepthLayer::DEEP) == true);
 }
 
-TEST_CASE("GetGridSizeForTier returns correct sizes", "[types]")
+TEST_CASE("GetGridSizeForTier is tier-independent", "[types]")
 {
-    REQUIRE(GetGridSizeForTier(0) == 3);
-    REQUIRE(GetGridSizeForTier(1) == 4);
-    REQUIRE(GetGridSizeForTier(2) == 5);
-    REQUIRE(GetGridSizeForTier(3) == 6);
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        REQUIRE(GetGridSizeForTier(tier) == PROSPECTING_GRID_SIZE);
+    }
+}
+
+TEST_CASE("GetReachForTier returns correct reach", "[types]")
+{
+    REQUIRE(GetReachForTier(0) == 2);
+    REQUIRE(GetReachForTier(1) == 4);
+    REQUIRE(GetReachForTier(2) == 6);
+    REQUIRE(GetReachForTier(3) == 8);
+
+    // Out-of-range tiers clamp rather than read past the table
+    REQUIRE(GetReachForTier(-1) == 2);
+    REQUIRE(GetReachForTier(9) == 8);
+}
+
+TEST_CASE("IsSubCellInReach describes a centred window", "[types]")
+{
+    // Tier 0 reaches only the middle 2x2 block
+    REQUIRE(IsSubCellInReach(3, 3, 0));
+    REQUIRE(IsSubCellInReach(4, 4, 0));
+    REQUIRE_FALSE(IsSubCellInReach(2, 3, 0));
+    REQUIRE_FALSE(IsSubCellInReach(0, 0, 0));
+
+    // Tier 3 reaches the whole lattice
+    for (int y = 0; y < PROSPECTING_GRID_SIZE; y++)
+    {
+        for (int x = 0; x < PROSPECTING_GRID_SIZE; x++)
+        {
+            REQUIRE(IsSubCellInReach(x, y, 3));
+        }
+    }
+}
+
+TEST_CASE("TierRequiredForSubCell matches the reach window", "[types]")
+{
+    REQUIRE(TierRequiredForSubCell(3, 3) == 0);
+    REQUIRE(TierRequiredForSubCell(2, 2) == 1);
+    REQUIRE(TierRequiredForSubCell(1, 1) == 2);
+    REQUIRE(TierRequiredForSubCell(0, 0) == 3);
 }
 
 TEST_CASE("GetTrayCapacityForTier returns correct capacities", "[types]")
