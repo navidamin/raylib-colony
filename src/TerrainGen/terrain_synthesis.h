@@ -32,10 +32,29 @@ const double TERRAIN_CELL_KM = 5.0;        // one grid cell, sect diameter
 // south, matching the game grid's y-down convention).
 void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg);
 
+// Tuning knobs for the surface layers (all multipliers on the
+// baseline, except the weights which are absolute). Craters were
+// removed by user decision 2026-08-13 — the layers left are grain,
+// undulation, boulders, form relief, lighting and speckle.
+struct TerrainTuning
+{
+    float grain = 1.0f;         // regolith roughness (x 0.004 height)
+    float undulation = 1.0f;    // long-wavelength rolling (x 0.02)
+    float boulders = 1.0f;      // boulder count multiplier
+    float boulderAmp = 1.0f;    // boulder bump height multiplier
+    float formRelief = 1.0f;    // real-form relighting strength (x 0.13)
+    float relWeight = 0.38f;    // hillshade contribution (absolute)
+    float lightWeight = 0.55f;  // cast-shadow contribution (absolute)
+    float speckle = 1.0f;       // albedo mottling (x 0.04)
+    float sCurve = 0.20f;       // shadow-deepening mix (absolute)
+};
+
 // Generate the SECT view ground for a location: a res x res RGB image
 // of the 5 km cell, amplified through the real-imagery chain
 // (100 km -> 25 km -> 5 km). Caller owns the Image (UnloadImage).
 // Requires src/assets/planet/wac_global.jpg (loaded once, cached).
-Image GenerateSectTerrain(double latDeg, double lonDeg, int res = 300);
+// tuning == nullptr uses the baseline TerrainTuning.
+Image GenerateSectTerrain(double latDeg, double lonDeg, int res = 300,
+                          const TerrainTuning* tuning = nullptr);
 
 #endif // TERRAIN_SYNTHESIS_H

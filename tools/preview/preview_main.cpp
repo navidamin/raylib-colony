@@ -38,6 +38,7 @@ struct PreviewOptions
     std::string outPath = "preview.png";
     int cellX = 10;    // planet grid cell for --view sect
     int cellY = 10;
+    std::string tune;  // named terrain tuning preset (sect view)
 };
 
 static void PrintUsage()
@@ -47,6 +48,8 @@ static void PrintUsage()
         << "\n"
         << "  --view <name>   orbital | planet | sect (default: orbital)\n"
         << "  --cell <X,Y>    planet grid cell for sect view (default: 10,10)\n"
+        << "  --tune <name>   terrain preset: baseline|silky|rough|rolling|\n"
+        << "                  boulders|dramatic   (sect view)\n"
         << "  --size <WxH>    output resolution       (default: 1280x720)\n"
         << "  --out <path>    output PNG path         (default: preview.png)\n"
         << "  --help          show this message\n";
@@ -71,6 +74,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--out" && hasNext)
         {
             options.outPath = argv[++i];
+        }
+        else if (arg == "--tune" && hasNext)
+        {
+            options.tune = argv[++i];
         }
         else if (arg == "--cell" && hasNext)
         {
@@ -140,8 +147,42 @@ int main(int argc, char** argv)
                       << options.cellY << ") -> lat " << lat
                       << ", lon " << lon << "\n";
             // Raw terrain dump alongside the composed view, for
-            // comparing against the Python prototype's output.
-            Image ground = GenerateSectTerrain(lat, lon);
+            // style comparison. Named presets vary the non-crater
+            // surface layers.
+            TerrainTuning tune;
+            if (options.tune == "silky")
+            {
+                tune.grain = 0.5f; tune.undulation = 0.6f;
+                tune.boulders = 0.0f; tune.speckle = 0.5f;
+                tune.relWeight = 0.30f; tune.lightWeight = 0.45f;
+                tune.sCurve = 0.12f;
+            }
+            else if (options.tune == "rough")
+            {
+                tune.grain = 2.2f; tune.undulation = 1.2f;
+                tune.boulders = 1.5f; tune.boulderAmp = 1.2f;
+                tune.speckle = 1.6f;
+            }
+            else if (options.tune == "rolling")
+            {
+                tune.grain = 0.7f; tune.undulation = 2.8f;
+                tune.boulders = 0.4f; tune.relWeight = 0.50f;
+                tune.speckle = 0.8f;
+            }
+            else if (options.tune == "boulders")
+            {
+                tune.grain = 0.9f; tune.undulation = 0.8f;
+                tune.boulders = 4.0f; tune.boulderAmp = 1.6f;
+                tune.speckle = 1.1f;
+            }
+            else if (options.tune == "dramatic")
+            {
+                tune.grain = 1.4f; tune.undulation = 1.6f;
+                tune.formRelief = 1.5f; tune.relWeight = 0.55f;
+                tune.lightWeight = 0.75f; tune.sCurve = 0.40f;
+                tune.boulders = 1.0f; tune.speckle = 1.2f;
+            }
+            Image ground = GenerateSectTerrain(lat, lon, 512, &tune);
             std::string groundPath = options.outPath + ".ground.png";
             ExportImage(ground, groundPath.c_str());
             UnloadImage(ground);

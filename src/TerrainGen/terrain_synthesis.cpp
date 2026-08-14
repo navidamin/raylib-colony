@@ -344,7 +344,7 @@ static void SharpenAdaptive(Field& macro, int res)
 // moon but the source cannot resolve them, so here invention is
 // honest — it never contradicts data. Real lunar crater profile:
 // flat floor (d < 0.70), power-law wall, tiny gaussian rim.
-static void CarveSmallCraters(Field& height, int res, TerrainRng& rng,
+[[maybe_unused]] static void CarveSmallCraters(Field& height, int res, TerrainRng& rng,
                               int count, float rMinPx, float rMaxPx,
                               float depthScale)
 {
@@ -445,12 +445,10 @@ static void SprinkleBoulders(Field& height, int res, TerrainRng& rng,
 }
 
 // The anti-matte relight + grain stage (port of _texture_modulate).
-// craterCount/boulderCount > 0 adds sub-resolution surface features —
-// only used on zoom levels below the real-data floor.
+// boulderCount > 0 adds sub-resolution boulder speckle — only used on
+// zoom levels below the real-data floor.
 static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
-                            int craterCount = 0, float craterRMinPx = 1.5f,
-                            float craterRMaxPx = 12.0f,
-                            float craterDepth = 0.015f,
+                            const TerrainTuning& tune,
                             int boulderCount = 0)
 {
     // Pixel-based sizes below are tuned at 300 px; k rescales them so
@@ -463,22 +461,21 @@ static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
     // Height field: smoothed macro as relief proxy + grain + undulation
     Field height = macro;
     GaussianBlur(height, res, res, 2.5f * k);
-    for (float& v : height) v = (v - 0.5f) * 0.13f;
+    for (float& v : height) v = (v - 0.5f) * 0.13f * tune.formRelief;
 
     Field grain = GrainNoise(res, rng);
     Field undul = Fbm(res, 3, (int)(64 * k), 0.5f, rng);
     for (size_t i = 0; i < height.size(); i++)
     {
         float rough = 0.45f + 0.55f * density[i];
-        height[i] += 0.004f * amp * grain[i] * rough;
-        height[i] += 0.02f * amp * (undul[i] - 0.5f) * rough;
+        height[i] += 0.004f * amp * tune.grain * grain[i] * rough;
+        height[i] += 0.02f * amp * tune.undulation * (undul[i] - 0.5f) * rough;
     }
 
-    if (craterCount > 0)
-        CarveSmallCraters(height, res, rng, craterCount,
-                          craterRMinPx, craterRMaxPx, craterDepth);
     if (boulderCount > 0)
-        SprinkleBoulders(height, res, rng, boulderCount, 0.010f);
+        SprinkleBoulders(height, res, rng,
+                         (int)(boulderCount * tune.boulders),
+                         0.010f * tune.boulderAmp);
 
     const float z = 110.0f;
     Field hs = Hillshade(height, res, z, 0.6f);
@@ -540,8 +537,11 @@ void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg)
     *lonDeg = lon;
 }
 
-Image GenerateSectTerrain(double latDeg, double lonDeg, int res)
+Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
+                          const TerrainTuning* tuning)
 {
+    TerrainTuning defaults;
+    const TerrainTuning& tune = tuning ? *tuning : defaults;
     Image fallback = GenImageColor(res, res, Color{40, 40, 48, 255});
     if (!EnsureWacLoaded()) return fallback;
 
@@ -558,7 +558,7 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res)
     TerrainRng rng0(seed);
     Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
     SharpenAdaptive(lum, res);
-    TextureModulate(lum, res, rng0, 1.0f);
+    TextureModulate(lum, res, rng0, 1.0f, tune);
 
     for (int lvl = 1; lvl < 3; lvl++)
     {
@@ -580,23 +580,12 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res)
             lum[i] = std::clamp(lum[i] + 0.40f * (lum[i] - blur[i]),
                                 0.0f, 1.0f);
         TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
-        if (lvl == 1)
-        {
-            // COLONY 25 km, 83 m/px: light sub-resolution cratering
-            // (125-500 m bowls), no boulders yet.
-            TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl,
-                            (int)(30 * k * k), 1.5f * k, 6.0f * k,
-                            0.012f, 0);
-        }
-        else
-        {
-            // SECT 5 km, 17 m/px: the ground the player builds on —
-            // dense small cratering (25-370 m) and boulder speckle.
-            // Deep enough that the biggest bowls catch cast shadow.
-            TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl,
-                            (int)(120 * k * k), 1.5f * k, 22.0f * k,
-                            0.036f, (int)(120 * k * k));
-        }
+        // Boulder speckle only at the SECT level (17 m/px); craters
+        // removed by user decision — grain, undulation, boulders and
+        // lighting carry the surface.
+        int boulderBase = (lvl == 2) ? (int)(120 * k * k) : 0;
+        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune,
+                        boulderBase);
     }
 
     Image out = GenImageColor(res, res, BLACK);
