@@ -47,7 +47,7 @@ public:
     // Constructor
     ResourceManager(int gridSize, float cellSize);
 
-    void GenerateResourceMap();
+    void GenerateResourceMap(unsigned int seed = 0);
     std::vector<std::pair<ResourceType, float>> GetResourcesAt(Vector2 worldPos) const;
     std::vector<std::pair<ResourceType, float>> GetResourcesAtGrid(int gridX, int gridY) const;
     void DrawResourceDebug(float scale);  // For debugging resource distribution

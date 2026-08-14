@@ -92,6 +92,7 @@ if(BUILD_TESTS AND NOT "${PLATFORM}" STREQUAL "Web")
         catchorg/Catch2
         GIT_TAG
         v3.5.2
+        OPTIONS "CATCH_INSTALL_DOCS OFF" "CATCH_INSTALL_EXTRAS OFF"
     )
 
     add_subdirectory(tests)

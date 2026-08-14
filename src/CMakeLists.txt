@@ -17,6 +17,14 @@ target_sources(colony_game PRIVATE
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
+    Prospecting/prospecting_types.cpp
+    Prospecting/sample_tray.cpp
+    Prospecting/prospecting_grid.cpp
+    Prospecting/sweep_engine.cpp
+    Prospecting/sampling_engine.cpp
+    Prospecting/lab_engine.cpp
+    Prospecting/survey_progress_engine.cpp
+    Prospecting/prospecting_system.cpp
     transport_types.cpp
 )
 
@@ -40,6 +48,7 @@ target_include_directories(colony_game PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
     "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
 )
 
 # Link libraries
@@ -108,6 +117,14 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         TimeManager/time_manager.cpp
         GameTypes/game_types_loader.cpp
         TerrainGen/terrain_synthesis.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/sweep_engine.cpp
+        Prospecting/sampling_engine.cpp
+        Prospecting/lab_engine.cpp
+        Prospecting/survey_progress_engine.cpp
+        Prospecting/prospecting_system.cpp
         transport_types.cpp
     )
 
@@ -128,6 +145,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
         "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
         "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
         "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     )
 
