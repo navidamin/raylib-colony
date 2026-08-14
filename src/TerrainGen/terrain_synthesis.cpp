@@ -348,14 +348,45 @@ static void CarveSmallCraters(Field& height, int res, TerrainRng& rng,
                               int count, float rMinPx, float rMaxPx,
                               float depthScale)
 {
+    // Placed craters, for overlap rejection: an overlapping crater
+    // field reads as noise, separated bowls read as ground.
+    std::vector<float> px, py, pr;
+    px.reserve(count);
+    py.reserve(count);
+    pr.reserve(count);
+
     for (int c = 0; c < count; c++)
     {
-        float cx = rng.Uniform() * res;
-        float cy = rng.Uniform() * res;
         // Power-law-ish size mix: most craters small, a few large.
         float u = rng.Uniform();
         float r = rMinPx * std::pow(rMaxPx / rMinPx,
                                     std::pow(u, 2.2f));
+        // Rejection placement: keep a clear margin to every earlier
+        // crater (1.25x their summed radii); big first would claim
+        // space better, but a few attempts per crater is enough.
+        float cx = 0.0f, cy = 0.0f;
+        bool placed = false;
+        for (int attempt = 0; attempt < 8 && !placed; attempt++)
+        {
+            cx = rng.Uniform() * res;
+            cy = rng.Uniform() * res;
+            placed = true;
+            for (size_t i = 0; i < px.size(); i++)
+            {
+                float ddx = px[i] - cx;
+                float ddy = py[i] - cy;
+                float minD = (pr[i] + r) * 1.25f;
+                if (ddx * ddx + ddy * ddy < minD * minD)
+                {
+                    placed = false;
+                    break;
+                }
+            }
+        }
+        if (!placed) continue;
+        px.push_back(cx);
+        py.push_back(cy);
+        pr.push_back(r);
         float age = rng.Uniform();            // 0 fresh .. 1 eroded
         float sharp = 1.0f - 0.7f * age;
         float depth = -depthScale * sharp * (0.5f + rng.Uniform());
@@ -554,7 +585,7 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res)
             // COLONY 25 km, 83 m/px: light sub-resolution cratering
             // (125-500 m bowls), no boulders yet.
             TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl,
-                            (int)(40 * k * k), 1.5f * k, 6.0f * k,
+                            (int)(30 * k * k), 1.5f * k, 6.0f * k,
                             0.012f, 0);
         }
         else
@@ -563,8 +594,8 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res)
             // dense small cratering (25-370 m) and boulder speckle.
             // Deep enough that the biggest bowls catch cast shadow.
             TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl,
-                            (int)(150 * k * k), 1.5f * k, 22.0f * k,
-                            0.036f, (int)(230 * k * k));
+                            (int)(120 * k * k), 1.5f * k, 22.0f * k,
+                            0.036f, (int)(120 * k * k));
         }
     }
 
