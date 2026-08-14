@@ -48,7 +48,8 @@ public:
 
     // Work the selected spot for one tick. Applies depletion and moves the
     // selection on when a spot runs out, so an unattended unit keeps producing.
-    DigResult Dig(const ProspectingSystem& prospecting, int machineCount,
+    // Non-const: digging reports back into prospecting's grid (Rule 5).
+    DigResult Dig(ProspectingSystem& prospecting, int machineCount,
                   float externalMultiplier, float deltaTime);
 
     const DigSite& GetWorked() const;

@@ -206,6 +206,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Excavation/site_view.cpp
         Excavation/estimate_engine.cpp
         Excavation/dig_engine.cpp
+        Prospecting/survey_progress_engine.cpp
     )
 
     set_target_properties(colony_test PROPERTIES

@@ -24,6 +24,7 @@
 #include "site_view.h"
 #include "estimate_engine.h"
 #include "dig_engine.h"
+#include "survey_progress_engine.h"
 #include "game_constants.h"
 
 #include <cstdio>
@@ -458,6 +459,82 @@ static void TestSpotsDeplete()
           "digging one spot does not deplete its neighbour");
 }
 
+static void TestDiggingWritesBackToProspecting()
+{
+    printf("Rule 5 -- digging reports back, per depth\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SampleTray tray(3);
+    SiteView site(3);
+    DigEngine engine;
+    DigSite worked;
+
+    const int x = 4, y = 4;
+
+    Check(!grid.GetSubCell(x, y).HasBeenDug(0), "a fresh spot has not been dug");
+    Check(Near(site.GetConfidence(grid, tray, x, y, DepthLayer::SURFACE), 0.0f),
+          "an unsurveyed, undug spot has no confidence");
+    Check(Near(grid.GetExcavatedKnowledge(x, y), 0.0f), "no dug knowledge yet");
+
+    DigResult r = engine.Dig(grid, site, worked, x, y, DepthLayer::SURFACE,
+                             ResourceType::C, MachineId::BUCKET_DRUM, 1,
+                             1.0f, 0.0f, 1.0f, 1.0f);
+    grid.RecordExcavation(x, y, DepthLayer::SURFACE, r.depletionFraction);
+
+    Check(grid.GetSubCell(x, y).HasBeenDug(0), "digging marks the layer worked");
+    Check(Near(site.GetConfidence(grid, tray, x, y, DepthLayer::SURFACE), 1.0f),
+          "a dug layer is known for certain");
+
+    // The point of per-depth confidence: digging the surface says nothing
+    // about what is underneath it.
+    Check(Near(site.GetConfidence(grid, tray, x, y, DepthLayer::MID), 0.0f),
+          "digging the surface reveals nothing deeper");
+    Check(!grid.GetSubCell(x, y).HasBeenDug(2), "the mid layer is still undug");
+
+    // And nothing about the neighbours.
+    Check(!grid.GetSubCell(x + 1, y).HasBeenDug(0), "digging one spot does not reveal its neighbour");
+
+    Check(Near(grid.GetExcavatedKnowledge(x, y), 0.25f),
+          "one dug layer is a quarter of the column");
+
+    for (int d = 1; d < 4; d++)
+    {
+        grid.RecordExcavation(x, y, static_cast<DepthLayer>(d), 0.5f);
+    }
+    Check(Near(grid.GetExcavatedKnowledge(x, y), 1.0f),
+          "digging every layer knows the whole column");
+}
+
+static void TestBlindDiggingBootstrapsSurvey()
+{
+    printf("Rule 3 -- digging blind slowly bootstraps survey progress\n");
+
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    BuildWorld(rm);
+    ProspectingGrid grid(3, 5, 5, rm);
+    SampleTray tray(3);
+
+    CellSurveyResult before = SurveyProgressEngine::Calculate(grid, tray);
+    Check(Near(before.surveyProgress, 0.0f, 1e-2f), "an untouched cell has no survey progress");
+
+    // Dig out a patch without ever sweeping or sampling it.
+    for (int y = 2; y < 6; y++)
+    {
+        for (int x = 2; x < 6; x++)
+        {
+            grid.RecordExcavation(x, y, DepthLayer::SURFACE, 1.0f);
+        }
+    }
+
+    CellSurveyResult after = SurveyProgressEngine::Calculate(grid, tray);
+    Check(after.surveyProgress > before.surveyProgress,
+          "digging raises survey progress without any surveying");
+    printf("        (survey progress %.3f -> %.3f from digging alone)\n",
+           before.surveyProgress, after.surveyProgress);
+}
+
 int main()
 {
     printf("\n=== excavation tests ===\n\n");
@@ -473,6 +550,8 @@ int main()
     TestPowerCapThrottles();
     TestReachAndDepthAreEnforced();
     TestSpotsDeplete();
+    TestDiggingWritesBackToProspecting();
+    TestBlindDiggingBootstrapsSurvey();
 
     printf("\n%d checks, %d failures\n\n", checks, failures);
     return failures == 0 ? 0 : 1;

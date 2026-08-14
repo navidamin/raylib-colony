@@ -250,7 +250,7 @@ directive steers what excavation *aims at* rather than applying a flat +40% to o
 A fallback keeps the old flat per-cell skim for units without an excavation or prospecting
 system, so harnesses and any older path still produce.
 
-### Phase 4 — Write-back to prospecting *(Rule 5)*
+### Phase 4 — Write-back to prospecting ✅ DONE
 The one change that reaches into another module.
 
 - `SubCell` gains a worked state: how much has been taken, per depth
@@ -258,8 +258,38 @@ The one change that reaches into another module.
 - Digging sets that spot/depth confidence to 1.0 and flags it *known by digging*
 - Prospecting's grid renderer gains the distinct mark (100% known **and** emptied)
 
-**Done when:** digging a blind spot visibly changes its state in the prospecting panel, and
-`surveyProgress` rises from digging alone.
+**Done.** **67 checks, 0 failures.** Four small touches in `src/Prospecting/`, one in the
+renderer:
+
+| Change | File |
+|--------|------|
+| `SubCell::workedFraction[4]` + `HasBeenDug(d)` | `prospecting_types.h` |
+| `RecordExcavation()` — the single setter — and `GetExcavatedKnowledge()` | `prospecting_grid.{h,cpp}` |
+| A cell counts as known by whichever route got further: sweep **or** dug | `survey_progress_engine.cpp` |
+| Amber corner wedge for dug spots, plus an `Excavated: n/4 layers` readout | `rendermanager.cpp` |
+
+The dependency runs **one way**: excavation calls `RecordExcavation`, prospecting never
+reaches into excavation.
+
+**Confidence is per depth, and digging respects that.** `SiteView::GetConfidence` returns
+1.0 for a dug layer only — digging the surface says nothing about what lies under it, which
+is what keeps the deep layers a bet long after the surface is mapped.
+
+**Digging bootstraps survey, and self-limits.** Because dug knowledge enters through the
+sweep term, and `SURVEY_SWEEP_WEIGHT` is 0.20, a player who digs the entire lattice at every
+depth and never surveys tops out at **20% survey progress** — about 0.48 extraction
+efficiency against 0.35 for a blind start and 1.0 for a full survey. Exactly Rule 3's shape:
+a legitimate road to knowledge that is distinctly the worse one. The cap falls out of
+prospecting's existing weights rather than anything invented here.
+
+**A gap the render caught.** With the mark drawn but nothing else changed, a fully dug spot
+still read *"Confidence: Very Low"* — because that number measures what the *instruments*
+found, and digging does not raise it. Correct internally, plainly wrong to a player looking
+at ground they had already emptied. Fixed with the amber `Excavated: n/4 layers` line, which
+is also what Rule 5 asked for: the mark has to carry *what was there and how much is gone*,
+not just say "known".
+
+A `worked` preview state renders dug-but-never-surveyed ground so this stays checkable.
 
 ### Phase 5 — The panel
 Built per `docs/guides/ui-panels.md`: procedural primitives, existing design tokens, IMGUI

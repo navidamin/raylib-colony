@@ -161,6 +161,32 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
     SampleTray& tray = system.GetTray();
     float gameTime = system.gameTime;
 
+    // "worked": ground excavation has dug, at varying depths. Distinct from
+    // surveyed ground -- a dug spot is known for certain AND partly emptied,
+    // and the panel must show those as different things.
+    if (state == "worked")
+    {
+        int size = grid.GetGridSize();
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                if (!IsSubCellInReach(x, y, 3)) continue;
+
+                // A spread: some spots barely scratched, some worked out down
+                // the column, most untouched.
+                int layers = (x * 3 + y * 5) % 7;
+                if (layers > 4) layers = 0;
+                for (int d = 0; d < layers && d < 4; d++)
+                {
+                    grid.RecordExcavation(x, y, static_cast<DepthLayer>(d),
+                                          0.3f + 0.2f * ((x + y) % 4));
+                }
+            }
+        }
+        return;
+    }
+
     // "swept" and beyond: run GPR sweeps so the heat map has signal.
     // Band 0 is left unswept so the RUN SWEEP button previews in its
     // enabled state.

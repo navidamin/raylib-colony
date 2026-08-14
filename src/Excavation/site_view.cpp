@@ -53,6 +53,12 @@ float SiteView::GetConfidence(const ProspectingGrid& grid, const SampleTray& tra
 
     const SubCell& cell = grid.GetSubCell(x, y);
 
+    // --- Direct observation ---
+    // A layer that has been dug was seen with its own eyes. Note this is per
+    // DEPTH: digging the surface says nothing about what lies under it, which
+    // is why the deep layers stay a bet long after the surface is mapped.
+    if (cell.HasBeenDug(d)) return 1.0f;
+
     // --- Sweep evidence ---
     // A sweep only reveals the layers its frequency band penetrated, and what
     // it does reveal weakens with depth by the same attenuation the sweep

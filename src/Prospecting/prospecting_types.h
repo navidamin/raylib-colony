@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <map>
 #include <string>
 #include "raylib.h"
@@ -104,6 +105,21 @@ struct SubCell
     int sweepFrequencyBand = -1;
     std::vector<int> sampleIds;
     float aggregateConfidence = 0.0f;
+
+    // How much of each depth layer excavation has dug out, 0-1. Written only
+    // by ProspectingGrid::RecordExcavation, which excavation calls -- the
+    // dependency runs one way, excavation to prospecting, never back.
+    //
+    // A dug layer is known for certain, and known differently from a surveyed
+    // one: a surveyed spot says what is there, a dug spot says what WAS there
+    // and how much has been taken out of it.
+    std::array<float, 4> workedFraction = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    bool HasBeenDug(int depthIndex) const
+    {
+        if (depthIndex < 0 || depthIndex > 3) return false;
+        return workedFraction[depthIndex] > 0.0f;
+    }
 };
 
 // Record of a GPR sweep performed on the grid

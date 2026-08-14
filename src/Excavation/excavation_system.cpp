@@ -144,7 +144,7 @@ void ExcavationSystem::SelectAutoMachine(const ProspectingSystem& prospecting)
     activeMachine = best;
 }
 
-DigResult ExcavationSystem::Dig(const ProspectingSystem& prospecting,
+DigResult ExcavationSystem::Dig(ProspectingSystem& prospecting,
                                 int machineCount, float externalMultiplier,
                                 float deltaTime)
 {
@@ -169,6 +169,16 @@ DigResult ExcavationSystem::Dig(const ProspectingSystem& prospecting,
 
     worked.Take(selectedSpotX, selectedSpotY, selectedDepth,
                 lastResult.depletionFraction);
+
+    // Tell prospecting what was dug. A dug layer is observed directly, so the
+    // spot stops being a guess -- and it reads differently from a surveyed one,
+    // because it also says how much has been taken out.
+    if (lastResult.depletionFraction > 0.0f)
+    {
+        prospecting.GetGrid().RecordExcavation(selectedSpotX, selectedSpotY,
+                                               selectedDepth,
+                                               lastResult.depletionFraction);
+    }
 
     // When a spot runs dry, move on rather than stalling. The player can always
     // override; this only stops an unattended unit producing nothing forever.

@@ -2512,12 +2512,55 @@ static void ProsDrawLockedCell(Rectangle r, bool hover)
     }
 }
 
+// A spot excavation has dug. Known for certain, but known DIFFERENTLY from a
+// surveyed one: a surveyed spot says what is there, a dug spot says what was
+// there and how much has been taken out. Drawn as a hatched corner whose fill
+// tracks how worked out the column is, so "certain and emptied" never reads as
+// "certain and full".
+static void ProsDrawWorkedMark(Rectangle r, const SubCell& cell)
+{
+    float worked = 0.0f;
+    int dugLayers = 0;
+    for (int d = 0; d < 4; d++)
+    {
+        worked += cell.workedFraction[d];
+        if (cell.HasBeenDug(d)) dugLayers++;
+    }
+    if (dugLayers == 0) return;
+
+    worked /= 4.0f;   // 0-1 across the whole depth column
+
+    // Amber, deliberately unlike the cool survey palette -- this is ground you
+    // have taken from, not ground you have measured.
+    Color mark = {228, 164, 74, 255};
+
+    float size = r.width * 0.30f;
+    Vector2 corner = {r.x + r.width - 2.0f, r.y + 2.0f};
+
+    // Filled wedge in the top-right, growing as the column is worked out.
+    DrawTriangle(corner,
+                 {corner.x - size, corner.y},
+                 {corner.x, corner.y + size},
+                 Fade(mark, 0.25f + 0.55f * worked));
+
+    // One tick per layer dug, so depth progress is legible at a glance.
+    for (int i = 0; i < dugLayers; i++)
+    {
+        float t = 2.0f + i * 3.0f;
+        DrawLineEx({corner.x - t, corner.y + 1.0f},
+                   {corner.x - 1.0f, corner.y + t},
+                   1.0f, Fade(mark, 0.9f));
+    }
+}
+
 // Sample/sweep marker in the cell center. Confidence drives the glyph:
 // hollow ring (low) -> ring with core (moderate) -> solid bright dot (high).
 static void ProsDrawCellMarker(Rectangle r, const SubCell& cell)
 {
     Vector2 c = {r.x + r.width / 2.0f, r.y + r.height / 2.0f};
     float base = r.width * 0.18f;
+
+    ProsDrawWorkedMark(r, cell);
 
     if (!cell.sampleIds.empty())
     {
@@ -2871,6 +2914,22 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             ctrlY += 14.0f;
             DrawTextEx(bodyFont, TextFormat("Samples: %d", static_cast<int>(selCell.sampleIds.size())),
                        {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
+
+            // Dug ground is known for certain, but the survey confidence above
+            // does not say so -- that number measures what the INSTRUMENTS
+            // found. Without this line a spot the player has already dug out
+            // still reads "Confidence: Very Low", which is simply wrong to them.
+            int dugLayers = 0;
+            for (int d = 0; d < 4; d++)
+            {
+                if (selCell.HasBeenDug(d)) dugLayers++;
+            }
+            if (dugLayers > 0)
+            {
+                ctrlY += 14.0f;
+                DrawTextEx(bodyFont, TextFormat("Excavated: %d/4 layers", dugLayers),
+                           {ctrlX, ctrlY}, FS(10.0f), sp, Color{228, 164, 74, 255});
+            }
         }
     }
     else if (ps->activeTab == ProspectingTab::SAMPLES)

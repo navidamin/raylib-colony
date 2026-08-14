@@ -30,6 +30,15 @@ public:
 
     float GetTotalRichness(int subX, int subY) const;
 
+    // Excavation reports what it has dug. This is the ONLY way the worked
+    // state is written, and it is called by excavation -- prospecting never
+    // reaches into excavation.
+    void RecordExcavation(int subX, int subY, DepthLayer depth, float fraction);
+
+    // Fraction of a sub-cell's depth column that has been dug out. Digging is
+    // direct observation, so this counts toward how well the cell is known.
+    float GetExcavatedKnowledge(int subX, int subY) const;
+
     void RecordSweep(int frequencyBand, float energyCost, float timestamp);
     const std::vector<SweepRecord>& GetSweepHistory() const;
     bool HasSweptFrequency(int frequencyBand) const;

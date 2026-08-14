@@ -68,6 +68,35 @@ float ProspectingGrid::GetTotalRichness(int subX, int subY) const
     return total;
 }
 
+void ProspectingGrid::RecordExcavation(int subX, int subY, DepthLayer depth,
+                                       float fraction)
+{
+    if (subX < 0 || subX >= gridSize || subY < 0 || subY >= gridSize) return;
+
+    int d = static_cast<int>(depth);
+    if (d < 0 || d > 3) return;
+    if (fraction <= 0.0f) return;
+
+    SubCell& cell = cells[subY][subX];
+    float worked = cell.workedFraction[d] + fraction;
+    cell.workedFraction[d] = worked > 1.0f ? 1.0f : worked;
+}
+
+float ProspectingGrid::GetExcavatedKnowledge(int subX, int subY) const
+{
+    if (subX < 0 || subX >= gridSize || subY < 0 || subY >= gridSize) return 0.0f;
+
+    const SubCell& cell = cells[subY][subX];
+
+    // Each layer dug is a quarter of the column observed directly.
+    int dug = 0;
+    for (int d = 0; d < 4; d++)
+    {
+        if (cell.HasBeenDug(d)) dug++;
+    }
+    return static_cast<float>(dug) / 4.0f;
+}
+
 void ProspectingGrid::RecordSweep(int frequencyBand, float energyCost, float timestamp)
 {
     sweepHistory.push_back({ frequencyBand, energyCost, timestamp });
