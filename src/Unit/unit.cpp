@@ -91,8 +91,11 @@ void Unit::CalculateConsumption() {
     for (int moduleIndex : activeModuleIndices) {
         UnitModule& module = modules[moduleIndex];
 
-        // Clear existing consumption rates for this module
-        module.consumptionRates.clear();
+        // Start from what the module authored for itself, then add the costs
+        // derived from what it produces. Clearing outright here used to delete
+        // every hand-authored rate on units that define no productionCosts
+        // table -- Energy, Manufacture, Construction, Transport, and Core.
+        module.consumptionRates = module.baseConsumptionRates;
 
         // For each production rate in this module
         for (const auto& [producedResource, productionRate] : module.productionRates) {
@@ -277,13 +280,18 @@ void Unit::SetInitialParameters() {
         parameters["ResearchSpeedMultiplier"] = 1.0;
         parameters["BreakthroughChance"] = 0.05;
         parameters["UpgradeEffect"] = 0.2;
-    } else if (unit_type == "Communication") {
-        parameters["TradeCapacity"] = 100;
-        parameters["ExchangeRate"] = 1;
-        parameters["EnergyConsumption"] = 3;
-        parameters["GoodsConsumption"] = 2;
-        parameters["TradeEfficiency"] = 0.9;
-        parameters["UpgradeEffect"] = 0.05;
+    } else if (unit_type == "Core") {
+        // Crew capacity and life-support closure drive everything else; see
+        // docs/design/core/core-master-design.md sections 4 and 6.
+        parameters["CrewCapacity"] = 6;          // people, tier 0
+        parameters["LoopClosure"] = 0.0;         // fraction 0-1, tier 0 is open loop
+        parameters["O2PerCrew"] = 0.35;          // quantity/person/tick, before closure
+        parameters["WaterPerCrew"] = 0.40;       // quantity/person/tick, before closure
+        parameters["FoodPerCrew"] = 0.25;        // quantity/person/tick, no recycling
+        parameters["EnergyConsumption"] = 4;
+        parameters["LabourPerCrew"] = 1.0;       // labour-units/person/tick
+        parameters["Efficiency"] = 0.8;
+        parameters["UpgradeEffect"] = 0.15;
     }
 }
 
@@ -425,14 +433,22 @@ void Unit::InitializeModules() {
     {
         InitializeTransportModules();
     }
-    else if (unit_type == "Communication")
+    else if (unit_type == "Core")
     {
-        InitializeCommunicationModules();
+        InitializeCoreModules();
     }
     else
     {
         // Generic fallback for other unit types
         InitializeGenericModules();
+    }
+
+    // Snapshot the consumption each module authored for itself before anything
+    // recalculates it. CalculateConsumption() rebuilds consumptionRates from
+    // production costs and would otherwise discard these.
+    for (auto& mod : modules)
+    {
+        mod.baseConsumptionRates = mod.consumptionRates;
     }
 
     // Fill in build/upgrade costs and energy draw for any module that did not
@@ -802,31 +818,52 @@ void Unit::InitializeTransportModules() {
     }
 }
 
-void Unit::InitializeCommunicationModules() {
+// The sect's centre dome: converts life support into labour. This is the only
+// unit that is always present, and it is the sink for FOOD / WATER / O2 / ENERGY
+// and the source of MANPOWER. See docs/design/core/core-master-design.md.
+void Unit::InitializeCoreModules() {
     struct ModuleInfo { std::string name; std::string type; std::string desc; };
-    std::vector<ModuleInfo> commModules = {
-        {"Antenna", "ANTENNA", "Signal acquisition and dish pointing."},
-        {"Relay", "RELAY", "Extends range between distant sects."},
-        {"Telemetry", "TELEMETRY", "Unit and colony status feeds."},
-        {"Encryption", "ENCRYPTION", "Secure channels and key management."},
-        {"Network", "NETWORK", "Bandwidth allocation across the colony."}
+    std::vector<ModuleInfo> coreModules = {
+        {"Life Support", "LIFE_SUPPORT", "O2, water, and CO2 loop closure.\nTier 0 is an open loop."},
+        {"Roster", "ROSTER", "Crew, specialists, and unit assignment."},
+        {"Command", "COMMAND", "Standing orders and unit priority."},
+        {"Monitoring", "MONITORING", "Visibility into sect state when away."},
+        {"Safety", "SAFETY", "Radiation dose, shelter, and medical."}
     };
 
-    for (size_t i = 0; i < commModules.size(); i++)
+    float crew = parameters.count("CrewCapacity") ? parameters["CrewCapacity"] : 6.0f;
+    float closure = parameters.count("LoopClosure") ? parameters["LoopClosure"] : 0.0f;
+
+    for (size_t i = 0; i < coreModules.size(); i++)
     {
         UnitModule mod;
-        mod.name = commModules[i].name;
-        mod.moduleType = commModules[i].type;
+        mod.name = coreModules[i].name;
+        mod.moduleType = coreModules[i].type;
         mod.tier = 0;
         mod.level = 1;
+        // Life Support, Roster, and Command are what make a sect habitable at
+        // all, so they exist from the start. Monitoring and Safety are built.
         mod.isBuilt = (i < 3);
         mod.isActive = (i < 3);
-        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.9f;
-        mod.description = commModules[i].desc;
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.8f;
+        mod.description = coreModules[i].desc;
 
-        if (i == 0)  // Antenna draws steady power to stay pointed
+        if (i == 0)  // Life Support: O2 and water draw, reduced by loop closure
         {
-            mod.consumptionRates[ResourceType::ENERGY] = 1.5f;
+            float o2 = parameters.count("O2PerCrew") ? parameters["O2PerCrew"] : 0.35f;
+            float water = parameters.count("WaterPerCrew") ? parameters["WaterPerCrew"] : 0.40f;
+            mod.consumptionRates[ResourceType::O2] = crew * o2 * (1.0f - closure);
+            mod.consumptionRates[ResourceType::WATER] = crew * water * (1.0f - closure);
+            mod.consumptionRates[ResourceType::ENERGY] = parameters.count("EnergyConsumption") ?
+                parameters["EnergyConsumption"] : 4.0f;
+        }
+        else if (i == 1)  // Roster: crew eat, and supply the ring with labour
+        {
+            float food = parameters.count("FoodPerCrew") ? parameters["FoodPerCrew"] : 0.25f;
+            float labour = parameters.count("LabourPerCrew") ? parameters["LabourPerCrew"] : 1.0f;
+            mod.consumptionRates[ResourceType::FOOD] = crew * food;
+            mod.maxProductionRates[ResourceType::MANPOWER] = crew * labour;
+            mod.productionRates = mod.maxProductionRates;
         }
 
         modules.push_back(mod);

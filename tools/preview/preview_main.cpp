@@ -11,6 +11,7 @@
 
 #include "rendermanager.h"
 #include "unit.h"
+#include "sect.h"
 #include "resource_manager.h"
 #include "time_manager.h"
 #include "game_constants.h"
@@ -47,7 +48,7 @@ static void PrintUsage()
         << "Usage: colony_preview [options]\n"
         << "\n"
         << "  --unit <type>     Extraction | Farming | Energy | Manufacture | Research |\n"
-        << "                    Construction | Transport | Communication\n"
+        << "                    Construction | Transport | Core\n"
         << "                    (default: Extraction)\n"
         << "  --module <name>   Extraction:  prospecting | excavation | beneficiation |\n"
         << "                                 operations | directives\n"
@@ -62,9 +63,11 @@ static void PrintUsage()
         << "                                 fitout | maintenance\n"
         << "                    Transport:   fleet | routing | depot | servicing |\n"
         << "                                 dispatch\n"
-        << "                    Communication: antenna | relay | telemetry |\n"
-        << "                                 encryption | network\n"
-        << "                    Also: overview | sprites          (default: prospecting)\n"
+        << "                    Core:        lifesupport | roster | command |\n"
+        << "                                 monitoring | safety\n"
+        << "                    Also: overview | sect | sprites   (default: prospecting)\n"
+        << "                    \"sect\" renders the sect view: Core on the centre dome\n"
+        << "                    plus the ring sockets.\n"
         << "  --sprite-size <n> crystal sprite size variant     (sprites only, default: 4)\n"
         << "  --sprite-glow <n> crystal sprite glow variant     (sprites only, default: 3)\n"
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
@@ -199,12 +202,12 @@ static std::string ModuleTypeFromName(const std::string& name)
     if (name == "servicing") return "SERVICING";
     if (name == "dispatch") return "DISPATCH";
 
-    // Communication
-    if (name == "antenna") return "ANTENNA";
-    if (name == "relay") return "RELAY";
-    if (name == "telemetry") return "TELEMETRY";
-    if (name == "encryption") return "ENCRYPTION";
-    if (name == "network") return "NETWORK";
+    // Core
+    if (name == "lifesupport") return "LIFE_SUPPORT";
+    if (name == "roster") return "ROSTER";
+    if (name == "command") return "COMMAND";
+    if (name == "monitoring") return "MONITORING";
+    if (name == "safety") return "SAFETY";
 
     return "";
 }
@@ -442,12 +445,63 @@ static int RenderSpriteSheet(const PreviewOptions& options)
     return status;
 }
 
+// Renders the sect view rather than a unit panel: the Core on the centre dome
+// surrounded by the ring sockets. Used to check ring geometry, which no other
+// headless harness covers.
+static int RenderSectView(const PreviewOptions& options)
+{
+    SetTraceLogLevel(LOG_WARNING);
+    InitWindow(options.width, options.height, "Colony Sect Preview");
+
+    int status = 0;
+    {
+        RenderManager renderManager(options.width, options.height);
+        renderManager.LoadFonts();
+
+        ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+        resourceManager.GenerateResourceMap(PREVIEW_MAP_SEED);
+        TimeManager timeManager;
+
+        Vector2 sectPosition = {
+            SECT_CORE_RADIUS * 2.0f * 5.0f,
+            SECT_CORE_RADIUS * 2.0f * 5.0f
+        };
+        Sect sect(sectPosition, resourceManager, timeManager);
+
+        for (int frame = 0; frame < 2; frame++)
+        {
+            BeginDrawing();
+            ClearBackground(BLACK);
+            renderManager.DrawSectView(&sect, timeManager);
+            EndDrawing();
+        }
+
+        Image screenshot = LoadImageFromScreen();
+        if (ExportImage(screenshot, options.outPath.c_str()))
+        {
+            std::cout << "Wrote " << options.outPath << " (sect view, "
+                      << sect.GetUnits().size() << " units: Core + "
+                      << (sect.GetUnits().size() - 1) << " ring)\n";
+        }
+        else
+        {
+            std::cout << "Failed to write " << options.outPath << "\n";
+            status = 1;
+        }
+        UnloadImage(screenshot);
+    }
+
+    CloseWindow();
+    return status;
+}
+
 int main(int argc, char** argv)
 {
     PreviewOptions options;
     if (!ParseArgs(argc, argv, options)) return 0;
 
     if (options.module == "sprites") return RenderSpriteSheet(options);
+    if (options.module == "sect") return RenderSectView(options);
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(options.width, options.height, "Colony UI Preview");

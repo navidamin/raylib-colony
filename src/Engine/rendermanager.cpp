@@ -1341,8 +1341,8 @@ enum class ExtIcon
     STAKES, REBAR, GIRDER, FITOUT, WRENCH,
     // Transport
     HAULER, ROUTE_NODES, DEPOT, LIFT, CLIPBOARD,
-    // Communication
-    DISH, RELAY_TOWER, WAVEFORM, PADLOCK, MESH
+    // Core (centre dome)
+    LIFE_LOOP, CREW, COMMAND, WAVEFORM, HAZARD
 };
 
 // Line icon set matching the UI kit. (cx, cy) is the center, s the half-size.
@@ -1942,61 +1942,77 @@ static void ExtDrawIcon(ExtIcon icon, float cx, float cy, float s, Color c)
             break;
         }
 
-        // --- Communication ---
-        case ExtIcon::DISH:
+        // --- Core (centre dome) ---
+        case ExtIcon::LIFE_LOOP:
         {
-            // Satellite dish: an elliptical face tilted up-left on a short mast.
-            // Drawn as a filled-outline ellipse rather than a parabola -- at list
-            // size a bare parabola plus mast reads as the letter "A".
-            Vector2 face = {cx - s * 0.12f, cy - s * 0.2f};
-            DrawEllipseLines(static_cast<int>(face.x), static_cast<int>(face.y),
-                             s * 0.72f, s * 0.5f, c);
-            DrawEllipseLines(static_cast<int>(face.x), static_cast<int>(face.y),
-                             s * 0.4f, s * 0.27f, Fade(c, 0.45f));
-            // Feed arm reaching out of the dish to a horn at the focus
-            DrawLineEx(face, {face.x + s * 0.62f, face.y - s * 0.52f}, 1.4f, c);
-            DrawCircle(static_cast<int>(face.x + s * 0.62f),
-                       static_cast<int>(face.y - s * 0.52f), s * 0.13f, c);
-            // Mast and tripod foot
-            DrawLineEx({face.x, face.y + s * 0.42f}, {cx, cy + s * 0.72f}, 1.6f, c);
-            DrawLineEx({cx - s * 0.42f, cy + s * 0.88f}, {cx + s * 0.42f, cy + s * 0.88f}, 1.6f, c);
-            DrawLineEx({cx, cy + s * 0.72f}, {cx - s * 0.3f, cy + s * 0.88f}, 1.3f, Fade(c, 0.8f));
-            DrawLineEx({cx, cy + s * 0.72f}, {cx + s * 0.3f, cy + s * 0.88f}, 1.3f, Fade(c, 0.8f));
+            // Closed-loop life support: recirculation arrows around a bubble
+            for (int half = 0; half < 2; half++)
+            {
+                Vector2 prev = {0};
+                float base = half * PI;
+                for (int i = 0; i <= 12; i++)
+                {
+                    float a = base + 0.35f + i / 12.0f * 2.2f;
+                    Vector2 p = {cx + cosf(a) * s * 0.78f, cy + sinf(a) * s * 0.78f};
+                    if (i > 0) DrawLineEx(prev, p, 1.6f, c);
+                    prev = p;
+                }
+                // Arrowhead closing each half-loop
+                float tipA = base + 0.35f + 2.2f;
+                Vector2 tip = {cx + cosf(tipA) * s * 0.78f, cy + sinf(tipA) * s * 0.78f};
+                Vector2 back = {cx + cosf(tipA - 0.3f) * s * 0.78f,
+                                cy + sinf(tipA - 0.3f) * s * 0.78f};
+                DrawLineEx(tip, {back.x + (tip.x - cx) * 0.28f, back.y + (tip.y - cy) * 0.28f}, 1.5f, c);
+                DrawLineEx(tip, {back.x - (tip.x - cx) * 0.18f, back.y - (tip.y - cy) * 0.18f}, 1.5f, c);
+            }
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy), s * 0.3f, Fade(c, 0.85f));
+            DrawCircle(static_cast<int>(cx - s * 0.1f), static_cast<int>(cy - s * 0.08f), s * 0.08f, Fade(c, 0.6f));
             break;
         }
-        case ExtIcon::RELAY_TOWER:
+        case ExtIcon::CREW:
         {
-            // Mast with paired transmission arcs on both sides
-            DrawLineEx({cx - s * 0.42f, cy + s * 0.9f}, {cx - s * 0.12f, cy - s * 0.55f}, 1.6f, c);
-            DrawLineEx({cx + s * 0.42f, cy + s * 0.9f}, {cx + s * 0.12f, cy - s * 0.55f}, 1.6f, c);
-            for (int i = 0; i < 2; i++)
+            // Three crew figures, the centre one forward
+            struct Figure { float dx; float dy; float scale; float alpha; };
+            Figure figures[3] = {{-0.62f, 0.1f, 0.82f, 0.65f},
+                                 {0.62f, 0.1f, 0.82f, 0.65f},
+                                 {0.0f, -0.05f, 1.0f, 1.0f}};
+            for (const Figure& f : figures)
             {
-                float ly = cy + s * 0.42f - i * s * 0.5f;
-                float half = s * (0.32f - i * 0.08f);
-                DrawLineEx({cx - half, ly}, {cx + half, ly}, 1.3f, Fade(c, 0.7f));
-            }
-            DrawCircle(static_cast<int>(cx), static_cast<int>(cy - s * 0.68f), s * 0.13f, c);
-            for (int side = -1; side <= 1; side += 2)
-            {
-                for (int ring = 1; ring <= 2; ring++)
+                float fx = cx + f.dx * s;
+                float fy = cy + f.dy * s;
+                float fs = s * f.scale;
+                Color fc = Fade(c, f.alpha);
+                DrawCircleLines(static_cast<int>(fx), static_cast<int>(fy - fs * 0.42f), fs * 0.26f, fc);
+                // Shoulders: a shallow arc under the head
+                Vector2 prev = {0};
+                for (int i = 0; i <= 10; i++)
                 {
-                    float r = s * 0.3f * ring;
-                    Vector2 prev = {0};
-                    for (int k = 0; k <= 8; k++)
-                    {
-                        float a = 0.5f + k / 8.0f * 1.4f;
-                        Vector2 p = {cx + side * sinf(a) * r,
-                                     cy - s * 0.68f - cosf(a) * r};
-                        if (k > 0) DrawLineEx(prev, p, 1.3f, Fade(c, 0.8f - ring * 0.22f));
-                        prev = p;
-                    }
+                    float a = PI + i / 10.0f * PI;
+                    Vector2 p = {fx + cosf(a) * fs * 0.44f, fy + fs * 0.68f + sinf(a) * fs * 0.52f};
+                    if (i > 0) DrawLineEx(prev, p, 1.5f, fc);
+                    prev = p;
                 }
             }
             break;
         }
+        case ExtIcon::COMMAND:
+        {
+            // Rank chevrons over a command console bar
+            for (int i = 0; i < 3; i++)
+            {
+                float cyy = cy - s * 0.55f + i * s * 0.38f;
+                DrawLineEx({cx - s * 0.62f, cyy}, {cx, cyy + s * 0.3f}, 1.8f,
+                           Fade(c, 1.0f - i * 0.22f));
+                DrawLineEx({cx, cyy + s * 0.3f}, {cx + s * 0.62f, cyy}, 1.8f,
+                           Fade(c, 1.0f - i * 0.22f));
+            }
+            DrawLineEx({cx - s * 0.8f, cy + s * 0.82f}, {cx + s * 0.8f, cy + s * 0.82f}, 1.7f, c);
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy + s * 0.82f), s * 0.11f, c);
+            break;
+        }
         case ExtIcon::WAVEFORM:
         {
-            // Telemetry trace across a framed screen
+            // Monitoring: a live trace across a framed screen
             DrawRectangleLinesEx({cx - s * 0.95f, cy - s * 0.7f, s * 1.9f, s * 1.4f}, 1.6f, c);
             Vector2 prev = {cx - s * 0.8f, cy};
             for (int i = 1; i <= 24; i++)
@@ -2011,47 +2027,36 @@ static void ExtDrawIcon(ExtIcon icon, float cx, float cy, float s, Color c)
             DrawLineEx({cx - s * 0.95f, cy}, {cx - s * 0.8f, cy}, 1.2f, Fade(c, 0.5f));
             break;
         }
-        case ExtIcon::PADLOCK:
+        case ExtIcon::HAZARD:
         {
-            // Closed padlock with a keyhole
-            Rectangle body = {cx - s * 0.62f, cy - s * 0.1f, s * 1.24f, s * 0.95f};
-            DrawRectangleLinesEx(body, 1.7f, c);
-            Vector2 prev = {cx - s * 0.38f, cy - s * 0.1f};
-            for (int i = 1; i <= 12; i++)
+            // Radiation trefoil: three blades around a central source
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy), s * 0.19f, c);
+            for (int blade = 0; blade < 3; blade++)
             {
-                float a = PI - i / 12.0f * PI;
-                Vector2 p = {cx + cosf(a) * s * 0.38f, cy - s * 0.1f - sinf(a) * s * 0.52f};
-                DrawLineEx(prev, p, 1.6f, c);
-                prev = p;
+                float mid = -PI * 0.5f + blade * (2.0f * PI / 3.0f);
+                float halfWidth = 0.52f;
+                Vector2 inner1 = {cx + cosf(mid - halfWidth) * s * 0.34f,
+                                  cy + sinf(mid - halfWidth) * s * 0.34f};
+                Vector2 inner2 = {cx + cosf(mid + halfWidth) * s * 0.34f,
+                                  cy + sinf(mid + halfWidth) * s * 0.34f};
+                Vector2 outer1 = {cx + cosf(mid - halfWidth) * s * 0.92f,
+                                  cy + sinf(mid - halfWidth) * s * 0.92f};
+                Vector2 outer2 = {cx + cosf(mid + halfWidth) * s * 0.92f,
+                                  cy + sinf(mid + halfWidth) * s * 0.92f};
+                DrawLineEx(inner1, outer1, 1.5f, c);
+                DrawLineEx(inner2, outer2, 1.5f, c);
+                Vector2 prev = outer1;
+                for (int i = 1; i <= 6; i++)
+                {
+                    float a = mid - halfWidth + i / 6.0f * halfWidth * 2.0f;
+                    Vector2 p = {cx + cosf(a) * s * 0.92f, cy + sinf(a) * s * 0.92f};
+                    DrawLineEx(prev, p, 1.5f, c);
+                    prev = p;
+                }
             }
-            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy + s * 0.3f), s * 0.15f, c);
-            DrawLineEx({cx, cy + s * 0.42f}, {cx, cy + s * 0.62f}, 1.4f, c);
             break;
         }
-        case ExtIcon::MESH:
-        {
-            // Hub-and-spoke network: four outer nodes around a larger hub. A
-            // fully-connected five-node graph was tried first and filled in to a
-            // solid blob at list size -- spokes plus a partial ring stay legible.
-            Vector2 outer[4] = {
-                {cx, cy - s * 0.82f}, {cx + s * 0.82f, cy},
-                {cx, cy + s * 0.82f}, {cx - s * 0.82f, cy}
-            };
-            Vector2 hub = {cx, cy};
 
-            for (int i = 0; i < 4; i++)
-            {
-                DrawLineEx(hub, outer[i], 1.4f, Fade(c, 0.85f));
-                DrawLineEx(outer[i], outer[(i + 1) % 4], 1.0f, Fade(c, 0.3f));
-            }
-            for (const Vector2& n : outer)
-            {
-                DrawCircle(static_cast<int>(n.x), static_cast<int>(n.y), s * 0.16f, c);
-            }
-            DrawCircleLines(static_cast<int>(hub.x), static_cast<int>(hub.y), s * 0.28f, c);
-            DrawCircle(static_cast<int>(hub.x), static_cast<int>(hub.y), s * 0.13f, c);
-            break;
-        }
 
         case ExtIcon::BROADCAST:
         {
@@ -2130,12 +2135,12 @@ static ExtIcon ExtModuleIcon(const std::string& moduleType)
     if (moduleType == "SERVICING") return ExtIcon::LIFT;
     if (moduleType == "DISPATCH") return ExtIcon::CLIPBOARD;
 
-    // Communication
-    if (moduleType == "ANTENNA") return ExtIcon::DISH;
-    if (moduleType == "RELAY") return ExtIcon::RELAY_TOWER;
-    if (moduleType == "TELEMETRY") return ExtIcon::WAVEFORM;
-    if (moduleType == "ENCRYPTION") return ExtIcon::PADLOCK;
-    if (moduleType == "NETWORK") return ExtIcon::MESH;
+    // Core
+    if (moduleType == "LIFE_SUPPORT") return ExtIcon::LIFE_LOOP;
+    if (moduleType == "ROSTER") return ExtIcon::CREW;
+    if (moduleType == "COMMAND") return ExtIcon::COMMAND;
+    if (moduleType == "MONITORING") return ExtIcon::WAVEFORM;
+    if (moduleType == "SAFETY") return ExtIcon::HAZARD;
 
     return ExtIcon::OVERVIEW;
 }
@@ -2157,7 +2162,7 @@ static UnitIdentity ExtUnitIdentity(const std::string& unitType)
     if (unitType == "Research")    return {ExtIcon::ORB,        "RESEARCH UNIT",   EXT_ACCENT_VIOLET};
     if (unitType == "Construction") return {ExtIcon::GIRDER, "CONSTRUCTION UNIT", EXT_ACCENT_GOLD};
     if (unitType == "Transport")   return {ExtIcon::HAULER,     "TRANSPORT UNIT",  EXT_ACCENT_CYAN};
-    if (unitType == "Communication") return {ExtIcon::DISH, "COMMUNICATION UNIT", EXT_ACCENT_VIOLET};
+    if (unitType == "Core")        return {ExtIcon::CREW,       "CORE / HABITAT",  EXT_ACCENT_GREEN};
     return {ExtIcon::OVERVIEW, "UNIT", EXT_ACCENT_CYAN};
 }
 
@@ -2171,7 +2176,7 @@ static const char* ExtUnitBlueprintTag(const std::string& unitType)
     if (unitType == "Research")    return "UR-5";
     if (unitType == "Construction") return "UC-6";
     if (unitType == "Transport")   return "UT-7";
-    if (unitType == "Communication") return "UK-8";
+    if (unitType == "Core")        return "CR-0";
     return "U-0";
 }
 
@@ -2590,8 +2595,8 @@ static void ExtDrawWireframeTransport(Rectangle area, Color c)
     ExtDrawWireBox(origin, scale, 1.6f, 0.4f, 0.8f, 1.3f, 0.8f, 0.7f, mid);
 }
 
-// Blueprint of the communication unit: big dish plus a relay mast array.
-static void ExtDrawWireframeCommunication(Rectangle area, Color c)
+// Blueprint of the Core: pressurised dome with habitat modules and an airlock.
+static void ExtDrawWireframeCore(Rectangle area, Color c)
 {
     Vector2 origin = {area.x + area.width * 0.5f, area.y + area.height * 0.62f};
     float scale = std::min(area.width, area.height) * 0.058f;
@@ -2605,46 +2610,65 @@ static void ExtDrawWireframeCommunication(Rectangle area, Color c)
     };
 
     ExtDrawWireBox(origin, scale, -4.0f, -4.0f, 0.0f, 8.0f, 8.0f, 0.8f, dim);
-    ExtDrawWireBox(origin, scale, -2.6f, -1.4f, 0.8f, 3.0f, 3.0f, 1.2f, mid);
 
-    // Steerable dish: concentric rings on a tilted axis, on a pedestal
-    Vector2 dishCentre = {-1.1f, 0.1f};
-    float dishZ = 4.4f;
-    DrawLineEx(project(dishCentre.x, dishCentre.y, 2.0f),
-               project(dishCentre.x, dishCentre.y, dishZ), 1.3f, mid);
-    for (int ring = 1; ring <= 3; ring++)
+    // Regolith berm ringing the dome -- the radiation shielding
+    Vector2 prevBerm = {0};
+    for (int i = 0; i <= 28; i++)
     {
-        float rr = 0.62f * ring;
+        float a = i / 28.0f * 2.0f * PI;
+        Vector2 p = project(cosf(a) * 3.5f, sinf(a) * 3.5f, 1.1f);
+        if (i > 0) DrawLineEx(prevBerm, p, 1.0f, dim);
+        prevBerm = p;
+    }
+
+    // Main pressurised dome: latitude rings plus meridians
+    const float domeR = 2.7f;
+    const float domeZ = 0.8f;
+    for (int ring = 0; ring < 3; ring++)
+    {
+        float t = ring / 3.0f;
+        float rr = domeR * cosf(t * PI * 0.5f);
+        float rz = domeZ + domeR * sinf(t * PI * 0.5f);
         Vector2 prev = {0};
-        for (int i = 0; i <= 20; i++)
+        for (int i = 0; i <= 24; i++)
         {
-            float a = i / 20.0f * 2.0f * PI;
-            // Tilt the dish face back by squashing one axis and lifting with it
-            Vector2 p = project(dishCentre.x + cosf(a) * rr,
-                                dishCentre.y + sinf(a) * rr * 0.45f,
-                                dishZ + sinf(a) * rr * 0.72f);
-            if (i > 0) DrawLineEx(prev, p, 1.0f, ring == 3 ? mid : dim);
+            float a = i / 24.0f * 2.0f * PI;
+            Vector2 p = project(cosf(a) * rr, sinf(a) * rr, rz);
+            if (i > 0) DrawLineEx(prev, p, 1.0f, ring == 0 ? mid : dim);
             prev = p;
         }
     }
-    DrawCircle(static_cast<int>(project(dishCentre.x, dishCentre.y, dishZ).x),
-               static_cast<int>(project(dishCentre.x, dishCentre.y, dishZ).y), 1.5f, c);
-
-    // Relay mast array of three guyed poles at descending heights
-    for (int m = 0; m < 3; m++)
+    Vector2 apex = project(0.0f, 0.0f, domeZ + domeR);
+    for (int m = 0; m < 6; m++)
     {
-        float mx = 1.4f + m * 1.1f;
-        float my = 2.6f - m * 0.7f;
-        float mz = 5.4f - m * 1.1f;
-        Vector2 base = project(mx, my, 0.8f);
-        Vector2 top = project(mx, my, mz);
-        DrawLineEx(base, top, 1.1f, mid);
-        DrawCircle(static_cast<int>(top.x), static_cast<int>(top.y), 1.3f, c);
-        for (int guy = -1; guy <= 1; guy += 2)
+        float a = m / 6.0f * 2.0f * PI;
+        Vector2 prev = project(cosf(a) * domeR, sinf(a) * domeR, domeZ);
+        for (int i = 1; i <= 6; i++)
         {
-            DrawLineEx(top, project(mx + guy * 0.8f, my + guy * 0.5f, 0.8f), 1.0f, dim);
+            float t = i / 6.0f;
+            float rr = domeR * cosf(t * PI * 0.5f);
+            float rz = domeZ + domeR * sinf(t * PI * 0.5f);
+            Vector2 p = project(cosf(a) * rr, sinf(a) * rr, rz);
+            DrawLineEx(prev, p, 1.0f, mid);
+            prev = p;
         }
     }
+    DrawCircle(static_cast<int>(apex.x), static_cast<int>(apex.y), 1.5f, c);
+
+    // Airlock vestibule and connecting tunnel to the ring
+    ExtDrawWireBox(origin, scale, 2.4f, -0.7f, 0.8f, 1.5f, 1.4f, 1.2f, mid);
+    DrawLineEx(project(2.4f, 0.0f, 1.4f), project(1.6f, 0.0f, 1.4f), 1.0f, mid);
+    DrawLineEx(project(2.4f, -0.7f, 1.4f), project(1.6f, -0.7f, 1.4f), 1.0f, dim);
+
+    // Life-support plant: two tanks and a radiator panel
+    ExtDrawWireBox(origin, scale, -3.6f, 1.6f, 0.8f, 0.9f, 0.9f, 1.6f, dim);
+    ExtDrawWireBox(origin, scale, -2.4f, 1.9f, 0.8f, 0.8f, 0.8f, 1.3f, dim);
+    for (int fin = 0; fin < 4; fin++)
+    {
+        float fx = -3.4f + fin * 0.42f;
+        DrawLineEx(project(fx, -2.6f, 0.8f), project(fx, -2.6f, 2.1f), 1.0f, dim);
+    }
+    DrawLineEx(project(-3.4f, -2.6f, 2.1f), project(-2.14f, -2.6f, 2.1f), 1.0f, mid);
 }
 
 // Control-panel blueprint art, chosen by unit type.
@@ -2656,7 +2680,7 @@ static void ExtDrawWireframeUnit(Rectangle area, Color c, const std::string& uni
     else if (unitType == "Research")     ExtDrawWireframeResearch(area, c);
     else if (unitType == "Construction") ExtDrawWireframeConstruction(area, c);
     else if (unitType == "Transport")    ExtDrawWireframeTransport(area, c);
-    else if (unitType == "Communication") ExtDrawWireframeCommunication(area, c);
+    else if (unitType == "Core")         ExtDrawWireframeCore(area, c);
     else                                 ExtDrawWireframeExtraction(area, c);
 }
 

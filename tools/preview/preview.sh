@@ -78,7 +78,7 @@ if [ "${1:-}" = "--all" ]; then
     RenderUnit Research      laboratory analysis simulation archive publication
     RenderUnit Construction  siteprep foundation structures fitout maintenance
     RenderUnit Transport     fleet routing depot servicing dispatch
-    RenderUnit Communication antenna relay telemetry encryption network
+    RenderUnit Core          lifesupport roster command monitoring safety
 
     Render --module sprites --out "$OUT_DIR/crystal-sheet.png"
 

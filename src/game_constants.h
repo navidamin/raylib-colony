@@ -3,6 +3,7 @@
 
 #include <string>
 #include <map>
+#include <vector>
 #include <iostream>
 #include "resource_types.h"
 
@@ -184,10 +185,33 @@ const std::map<std::string, std::map<ResourceType, float>> MODULE_BASE_COSTS = {
         {ResourceType::CONSTRUCTION_MATERIALS, 35.0f},
         {ResourceType::MACHINERY, 25.0f}
     }},
-    {"Communication", {
-        {ResourceType::CONSTRUCTION_MATERIALS, 20.0f},
-        {ResourceType::ELECTRONICS, 30.0f}
+    {"Core", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 60.0f},
+        {ResourceType::ELECTRONICS, 25.0f}
     }}
+};
+
+// ---------------------------------------------------------------------------
+// Sect composition
+//
+// The sect is one Core (the centre dome, always present) plus a ring of
+// production units. There are SEVEN production types and only SECT_RING_SOCKETS
+// sockets, so every sect is missing at least one thing by construction -- which
+// is what makes the transport network load-bearing by design rather than by
+// balance tuning. See docs/design/core/README.md.
+//
+// Which six a sect gets is intended to become a per-sect specialization choice.
+// Until that exists, every sect is built with SECT_DEFAULT_LOADOUT.
+// ---------------------------------------------------------------------------
+
+const int SECT_RING_SOCKETS = 6;
+
+// Research is the omission: a Research sect should be a deliberate colony
+// investment rather than something every settlement gets for free. Nothing
+// consumes SCIENCE yet (UnlockRegistry is a stub), so this costs no progression
+// today -- revisit when the tech tree goes live.
+const std::vector<std::string> SECT_DEFAULT_LOADOUT = {
+    "Extraction", "Energy", "Farming", "Construction", "Manufacture", "Transport"
 };
 
 
