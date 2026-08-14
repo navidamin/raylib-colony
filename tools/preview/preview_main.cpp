@@ -463,11 +463,30 @@ int main(int argc, char** argv)
         unit.SetSelectedModuleIndex(moduleIndex);
         unit.SetIsInModuleView(true);
 
-        if (moduleType == "PROSPECTING" && unit.HasProspectingSystem())
+        // Ground state is a property of the WORLD, not of whichever panel is
+        // being previewed. Excavation reads the same grid prospecting writes,
+        // so its panel needs the state applied too -- surveyed ground is the
+        // whole point of comparing it against unsurveyed.
+        if (unit.HasProspectingSystem())
         {
             ProspectingSystem* system = unit.GetProspectingSystem();
-            system->activeTab = TabFromName(options.tab);
 
+            // The prospecting rig needs its own tier to survey deeply, and in
+            // an excavation preview nothing else raises it.
+            if (moduleType != "PROSPECTING")
+            {
+                for (size_t i = 0; i < unit.GetModules().size(); i++)
+                {
+                    if (unit.GetModules()[i].moduleType != "PROSPECTING") continue;
+                    for (int t = 0; t < options.tier; t++)
+                    {
+                        unit.DebugUpgradeModuleTier(static_cast<int>(i));
+                    }
+                    break;
+                }
+            }
+
+            system->activeTab = TabFromName(options.tab);
             ApplyProspectingState(*system, options.state);
 
             // Select a cell inside instrument reach, so the cell readout shows

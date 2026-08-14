@@ -2,6 +2,7 @@
 #include "resource_manager.h"
 #include "resource_types.h"
 #include "survey_progress_engine.h"
+#include "excavation_constants.h"
 #include <algorithm>
 #include <iostream>
 #include <cmath>
@@ -3617,150 +3618,461 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // (Survey progress summary now lives in the shared bottom status bar.)
 }
 
+
+// ===========================================================================
+// Excavation panel helpers
+// ===========================================================================
+
+// Yield heat for the excavation grid. Green = rich, slate = poor. Deliberately
+// a different ramp from the sweep heat map: that one shows what the radar
+// heard, this one shows how much of the TARGETED resource a spot holds.
+static Color ExcYieldHeatColor(float normalized)
+{
+    normalized = normalized < 0.0f ? 0.0f : (normalized > 1.0f ? 1.0f : normalized);
+
+    Color poor = {58, 66, 92, 255};
+    Color rich = EXT_ACCENT_GREEN;
+
+    return {
+        static_cast<unsigned char>(poor.r + (rich.r - poor.r) * normalized),
+        static_cast<unsigned char>(poor.g + (rich.g - poor.g) * normalized),
+        static_cast<unsigned char>(poor.b + (rich.b - poor.b) * normalized),
+        255
+    };
+}
+
+// A horizontal slider. Returns true while being dragged, and writes through
+// `value`. IMGUI-style: drawn and hit-tested in one pass.
+static bool ExcSlider(Rectangle track, float& value, float minValue, float maxValue,
+                      Vector2 mouse, Color accent, bool enabled)
+{
+    float span = maxValue - minValue;
+    if (span <= 0.0f) span = 1.0f;
+
+    float t = (value - minValue) / span;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+
+    bool hover = CheckCollisionPointRec(mouse, {track.x - 6.0f, track.y - 9.0f,
+                                                track.width + 12.0f, track.height + 18.0f});
+    bool dragging = enabled && hover && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+
+    if (dragging)
+    {
+        t = (mouse.x - track.x) / track.width;
+        t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        value = minValue + t * span;
+    }
+
+    Color line = enabled ? Fade(accent, 0.30f) : Fade(EXT_DIM_TEXT, 0.25f);
+    Color fill = enabled ? accent : EXT_DIM_TEXT;
+
+    DrawRectangleRounded(track, 1.0f, 4, line);
+    DrawRectangleRounded({track.x, track.y, track.width * t, track.height}, 1.0f, 4,
+                         Fade(fill, 0.85f));
+
+    // Knob: bigger while held, so a touch press is visibly acknowledged.
+    float knobR = dragging ? 7.0f : (hover && enabled ? 6.0f : 5.0f);
+    Vector2 knob = {track.x + track.width * t, track.y + track.height * 0.5f};
+    DrawCircleV(knob, knobR, enabled ? fill : EXT_DIM_TEXT);
+    DrawCircleV(knob, knobR * 0.45f, EXT_PANEL_BG);
+
+    return dragging;
+}
+
 void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
 {
     const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
     const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
     float sp = 1.0f;
-    int padding = 15;
-
-    float yPos = static_cast<float>(y + padding);
+    int padding = EXT_GAP + 14;
     float px = static_cast<float>(x + padding);
-    Vector2 mousePos = GetMousePosition();
+    float pw = static_cast<float>(w - padding * 2);
+    Vector2 mouse = GetMousePosition();
 
-    DrawTextEx(headerFont, "EXCAVATION FLEET", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
-    yPos += 28.0f;
-
-    // Total stats
-    DrawTextEx(bodyFont, TextFormat("Total Regolith Extracted: %.1f kg", unit->GetTotalRegolithExtracted()),
-               {px, yPos}, FS(14.0f), sp, EXT_ACCENT_CYAN);
-    yPos += 25.0f;
-
-    // Fleet table
-    const auto& excavators = unit->GetExcavators();
-    if (excavators.empty())
+    if (!unit->HasExcavationSystem() || !unit->HasProspectingSystem())
     {
-        DrawTextEx(bodyFont, "No excavators deployed", {px, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
+        DrawTextEx(headerFont, "No excavation system.", {px, static_cast<float>(y + padding)},
+                   FS(14.0f), sp, EXT_DIM_TEXT);
         return;
     }
 
-    // Get excavation tier for depth step and max depth
-    int excTier = 0;
-    float maxDepth = 10.0f;
-    for (const auto& mod : unit->GetModules())
+    ExcavationSystem* es = unit->GetExcavationSystem();
+    ProspectingSystem* ps = unit->GetProspectingSystem();
+
+    // Make the displayed state coherent before drawing any of it: a target this
+    // ground actually holds, and the machine AUTO would really pick. Without
+    // this the panel shows the constructor's defaults until the first dig tick.
+    es->SyncToGround(*ps);
+    const ProspectingGrid& grid = ps->GetGrid();
+    const SiteView& site = es->GetSite();
+    const EstimateEngine& estimator = es->GetEstimator();
+    const DigSite& worked = es->GetWorked();
+
+    // --- Header ---
+    float yPos = static_cast<float>(y + padding);
+    ExtDrawIcon(ExtIcon::EXCAVATOR, px + 10.0f, yPos + 10.0f, 10.0f, EXT_ACCENT_CYAN);
+    DrawTextEx(headerFont, "EXCAVATION", {px + 28.0f, yPos + 1.0f}, FS(15.0f), sp, EXT_TEXT);
+
+    // Machine name, right-aligned, so the active tool is readable at a glance
+    // even when the bay is scrolled out of the eye's path.
+    const Machine& active = es->GetActiveMachine();
+    const char* machineLabel = TextFormat("%s%s", es->autoMachine ? "AUTO  " : "", active.displayName);
+    float mlW = MeasureTextEx(bodyFont, machineLabel, FS(10.0f), sp).x;
+    DrawTextEx(bodyFont, machineLabel, {px + pw - mlW, yPos + 4.0f}, FS(10.0f), sp,
+               es->autoMachine ? EXT_DIM_TEXT : EXT_ACCENT_CYAN);
+
+    yPos += 30.0f;
+    float contentY = yPos;
+    float contentH = static_cast<float>(y + h - padding) - yPos - 34.0f;   // leave the readout strip
+
+    int gridSize = grid.GetGridSize();
+
+    // =======================================================================
+    // Left: the ground
+    // =======================================================================
+    float gridAreaW = std::min(pw * 0.56f, contentH - 30.0f);
+    float cellSize = gridAreaW / gridSize;
+    float gridX = px;
+    float gridY = contentY;
+    float cellGap = 5.0f;
+
+    // The grid is shaded by what the player has been TOLD is in each spot, not
+    // by the truth -- otherwise the map would quietly hand over the survey the
+    // player has not paid for. Normalise across reachable spots so the ramp
+    // uses its full range whatever the cell's absolute richness.
+    float bestShown = 0.0f;
+    for (int gy = 0; gy < gridSize; gy++)
     {
-        if (mod.moduleType == "EXCAVATION")
+        for (int gx = 0; gx < gridSize; gx++)
         {
-            excTier = mod.tier;
-            float tierMaxDepths[] = {10.0f, 30.0f, 100.0f, 300.0f};
-            maxDepth = tierMaxDepths[std::min(excTier, 3)];
-            break;
+            if (!site.IsInReach(gx, gy)) continue;
+            SpotEstimate e = estimator.Estimate(grid, ps->GetTray(), site, gx, gy,
+                                                es->selectedDepth, es->targetResource);
+            if (e.shown > bestShown) bestShown = e.shown;
         }
     }
-    float depthSteps[] = {1.0f, 5.0f, 10.0f, 30.0f};
-    float depthStep = depthSteps[std::min(excTier, 3)];
-    float rateStep = 5.0f;
 
-    // Table header
-    DrawTextEx(bodyFont, "ID", {px, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Method", {px + 40.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Depth", {px + 140.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Rate", {px + 270.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Wear", {px + 380.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    yPos += 18.0f;
+    int lockedHoverX = -1;
+    int lockedHoverY = -1;
 
-    DrawLine(static_cast<int>(px), static_cast<int>(yPos),
-             static_cast<int>(px + w - padding * 2), static_cast<int>(yPos), EXT_PANEL_BORDER);
-    yPos += 5.0f;
-
-    float totalRate = 0.0f;
-    float btnW = 20.0f;
-    float btnH = 18.0f;
-
-    for (const auto& exc : excavators)
+    for (int gy = 0; gy < gridSize; gy++)
     {
-        DrawTextEx(bodyFont, TextFormat("#%d", exc.id), {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
-        DrawTextEx(bodyFont, exc.method.c_str(), {px + 40.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
-
-        // --- Depth [-] value [+] ---
-        float depthX = px + 140.0f;
-        Rectangle depthMinus = {depthX, yPos - 1.0f, btnW, btnH};
-        Rectangle depthPlus = {depthX + 90.0f, yPos - 1.0f, btnW, btnH};
-
-        // [-] button
-        Color minusBg = CheckCollisionPointRec(mousePos, depthMinus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
-        DrawRectangleRec(depthMinus, minusBg);
-        DrawRectangleLinesEx(depthMinus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "-", {depthX + 6.0f, yPos}, FS(12.0f), sp, WHITE);
-
-        if (CheckCollisionPointRec(mousePos, depthMinus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        for (int gx = 0; gx < gridSize; gx++)
         {
-            unit->SetExcavatorDepth(exc.id, exc.depth - depthStep);
+            Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
+                                  cellSize - cellGap, cellSize - cellGap};
+            bool hover = CheckCollisionPointRec(mouse, cellRect);
+
+            if (!site.IsInReach(gx, gy))
+            {
+                ProsDrawLockedCell(cellRect, hover);
+                if (hover) { lockedHoverX = gx; lockedHoverY = gy; }
+                continue;
+            }
+
+            SpotEstimate e = estimator.Estimate(grid, ps->GetTray(), site, gx, gy,
+                                                es->selectedDepth, es->targetResource);
+            float normalized = bestShown > 0.0f ? e.shown / bestShown : 0.0f;
+
+            Color fill = ExcYieldHeatColor(normalized);
+
+            // Poorly known ground is drawn faint. The player can see there is
+            // something there without being told how much -- which is the
+            // difference between a map and a survey.
+            fill.a = static_cast<unsigned char>(70.0f + 120.0f * e.confidence);
+
+            // Worked-out ground drains back toward the base colour.
+            float left = worked.Remaining(gx, gy, es->selectedDepth);
+            if (left < 1.0f)
+            {
+                fill.a = static_cast<unsigned char>(fill.a * (0.35f + 0.65f * left));
+            }
+
+            bool selected = (es->selectedSpotX == gx && es->selectedSpotY == gy);
+            ProsDrawCellBase(cellRect, fill, selected, hover);
+            ProsDrawCellMarker(cellRect, grid.GetSubCell(gx, gy));
+
+            if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                es->selectedSpotX = gx;
+                es->selectedSpotY = gy;
+            }
         }
-
-        // Value
-        DrawTextEx(bodyFont, TextFormat("%.0f cm", exc.depth), {depthX + 24.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
-
-        // [+] button
-        Color plusBg = CheckCollisionPointRec(mousePos, depthPlus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
-        DrawRectangleRec(depthPlus, plusBg);
-        DrawRectangleLinesEx(depthPlus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "+", {depthX + 96.0f, yPos}, FS(12.0f), sp, WHITE);
-
-        if (CheckCollisionPointRec(mousePos, depthPlus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            unit->SetExcavatorDepth(exc.id, exc.depth + depthStep);
-        }
-
-        // Max depth label
-        DrawTextEx(bodyFont, TextFormat("/ %.0f", maxDepth), {depthX + 114.0f, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
-
-        // --- Rate [-] value [+] ---
-        float rateX = px + 270.0f;
-        Rectangle rateMinus = {rateX, yPos - 1.0f, btnW, btnH};
-        Rectangle ratePlus = {rateX + 85.0f, yPos - 1.0f, btnW, btnH};
-
-        // [-] button
-        Color rMinBg = CheckCollisionPointRec(mousePos, rateMinus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
-        DrawRectangleRec(rateMinus, rMinBg);
-        DrawRectangleLinesEx(rateMinus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "-", {rateX + 6.0f, yPos}, FS(12.0f), sp, WHITE);
-
-        if (CheckCollisionPointRec(mousePos, rateMinus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            unit->SetExcavatorRate(exc.id, exc.rate - rateStep);
-        }
-
-        // Value
-        DrawTextEx(bodyFont, TextFormat("%.0f", exc.rate), {rateX + 24.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
-
-        // [+] button
-        Color rPlsBg = CheckCollisionPointRec(mousePos, ratePlus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
-        DrawRectangleRec(ratePlus, rPlsBg);
-        DrawRectangleLinesEx(ratePlus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "+", {rateX + 91.0f, yPos}, FS(12.0f), sp, WHITE);
-
-        if (CheckCollisionPointRec(mousePos, ratePlus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            unit->SetExcavatorRate(exc.id, exc.rate + rateStep);
-        }
-
-        // Wear bar
-        DrawWearBar(px + 380.0f, yPos + 1.0f, 60.0f, 12.0f, exc.wear);
-
-        totalRate += exc.rate;
-        yPos += 24.0f;
     }
 
-    yPos += 10.0f;
-    DrawLine(static_cast<int>(px), static_cast<int>(yPos),
-             static_cast<int>(px + w - padding * 2), static_cast<int>(yPos), EXT_PANEL_BORDER);
-    yPos += 8.0f;
+    // --- Depth row, under the grid ---
+    float depthY = gridY + gridSize * cellSize + 4.0f;
+    DrawTextEx(bodyFont, "DEPTH", {gridX, depthY + 4.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
 
-    DrawTextEx(headerFont, TextFormat("Total Rate: %.1f kg/hr", totalRate),
-               {px, yPos}, FS(14.0f), sp, EXT_ACCENT_GREEN);
-    DrawTextEx(bodyFont, TextFormat("Fleet Size: %d", static_cast<int>(excavators.size())),
-               {px + 250.0f, yPos}, FS(13.0f), sp, LIGHTGRAY);
+    const char* depthNames[] = {"SURF", "SHLW", "MID", "DEEP"};
+    float dbX = gridX + 42.0f;
+    for (int d = 0; d < 4; d++)
+    {
+        DepthLayer layer = static_cast<DepthLayer>(d);
+        Rectangle db = {dbX + d * 46.0f, depthY, 42.0f, 20.0f};
+
+        bool reachable = site.CanWorkDepth(layer) &&
+                         DigEngine::CanMachineWorkDepth(es->activeMachine, layer);
+        bool isSelected = (es->selectedDepth == layer);
+        bool hover = CheckCollisionPointRec(mouse, db);
+
+        // Radio treatment: this is "choose one", not "press me". Only the
+        // digging itself acts.
+        Color fill = isSelected ? Fade(EXT_ACCENT_CYAN, 0.16f) : EXT_PANEL_BG2;
+        if (!reachable) fill = Fade(EXT_PANEL_BG2, 0.5f);
+        DrawRectangleRounded(db, 0.3f, 4, fill);
+        if (isSelected)
+        {
+            DrawRectangleRoundedLinesEx(db, 0.3f, 4, 1.0f, Fade(EXT_ACCENT_CYAN, 0.8f));
+        }
+
+        Color textColor = !reachable ? Fade(EXT_DIM_TEXT, 0.45f)
+                                     : (isSelected ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+        float tw = MeasureTextEx(bodyFont, depthNames[d], FS(8.5f), sp).x;
+        DrawTextEx(bodyFont, depthNames[d],
+                   {db.x + (db.width - tw) * 0.5f, db.y + 5.0f}, FS(8.5f), sp, textColor);
+
+        if (reachable && hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            es->selectedDepth = layer;
+        }
+    }
+
+    // A green gradient at variable opacity is not self-explanatory: brightness
+    // and faintness are carrying two different meanings at once, so say which
+    // is which rather than leaving the player to infer it.
+    float legendY = depthY + 26.0f;
+    const char* targetLabel = ResourceTypeToString(es->targetResource);
+
+    DrawRectangleRounded({gridX, legendY + 2.0f, 9.0f, 9.0f}, 0.3f, 4,
+                         Fade(EXT_ACCENT_GREEN, 0.85f));
+    DrawTextEx(bodyFont, TextFormat("more %s", targetLabel), {gridX + 14.0f, legendY},
+               FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.85f));
+
+    float legX = gridX + 14.0f + MeasureTextEx(bodyFont, TextFormat("more %s", targetLabel),
+                                               FS(8.0f), sp).x + 14.0f;
+    DrawRectangleRounded({legX, legendY + 2.0f, 9.0f, 9.0f}, 0.3f, 4,
+                         Fade(EXT_ACCENT_GREEN, 0.22f));
+    DrawTextEx(bodyFont, "faint = unsurveyed", {legX + 14.0f, legendY},
+               FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.85f));
+
+    legX += 14.0f + MeasureTextEx(bodyFont, "faint = unsurveyed", FS(8.0f), sp).x + 14.0f;
+    DrawTriangle({legX + 9.0f, legendY + 2.0f}, {legX, legendY + 2.0f},
+                 {legX + 9.0f, legendY + 11.0f}, Fade(Color{228, 164, 74, 255}, 0.8f));
+    DrawTextEx(bodyFont, "dug", {legX + 14.0f, legendY}, FS(8.0f), sp,
+               Fade(EXT_DIM_TEXT, 0.85f));
+
+    // =======================================================================
+    // Right: the controls
+    // =======================================================================
+    float ctrlX = gridX + gridAreaW + 18.0f;
+    float ctrlW = px + pw - ctrlX;
+    float cy = contentY;
+
+    // --- Target ---
+    DrawTextEx(bodyFont, "TARGET", {ctrlX, cy}, FS(9.0f), sp, EXT_DIM_TEXT);
+    cy += 14.0f;
+
+    // The resources this ground actually holds, so the row is never a list of
+    // things that are not there.
+    std::vector<ResourceType> targets;
+    for (const auto& [type, fraction] : grid.GetGroundTruth(es->selectedSpotX,
+                                                            es->selectedSpotY,
+                                                            es->selectedDepth))
+    {
+        if (fraction > 0.02f) targets.push_back(type);
+    }
+    if (targets.empty()) targets.push_back(es->targetResource);
+
+    float tbW = std::min(58.0f, (ctrlW - 6.0f) / std::max<size_t>(1, targets.size()) - 4.0f);
+    for (size_t i = 0; i < targets.size(); i++)
+    {
+        Rectangle tb = {ctrlX + i * (tbW + 4.0f), cy, tbW, 20.0f};
+        bool isSelected = (targets[i] == es->targetResource);
+        bool hover = CheckCollisionPointRec(mouse, tb);
+
+        DrawRectangleRounded(tb, 0.3f, 4,
+                             isSelected ? Fade(EXT_ACCENT_CYAN, 0.16f) : EXT_PANEL_BG2);
+        if (isSelected)
+        {
+            DrawRectangleRoundedLinesEx(tb, 0.3f, 4, 1.0f, Fade(EXT_ACCENT_CYAN, 0.8f));
+        }
+
+        const char* name = ResourceTypeToString(targets[i]);
+        float nw = MeasureTextEx(bodyFont, name, FS(9.0f), sp).x;
+        DrawTextEx(bodyFont, name, {tb.x + (tb.width - nw) * 0.5f, tb.y + 5.0f},
+                   FS(9.0f), sp, isSelected ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+
+        if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            es->targetResource = targets[i];
+        }
+    }
+    cy += 30.0f;
+
+    // --- Pace ---
+    DrawTextEx(bodyFont, "PACE", {ctrlX, cy}, FS(9.0f), sp, EXT_DIM_TEXT);
+    const char* paceValue = TextFormat("%.2f / %.2f", es->pace, active.paceCeiling);
+    float pvW = MeasureTextEx(bodyFont, paceValue, FS(9.0f), sp).x;
+    DrawTextEx(bodyFont, paceValue, {ctrlX + ctrlW - pvW, cy}, FS(9.0f), sp, EXT_TEXT);
+    cy += 14.0f;
+    ExcSlider({ctrlX, cy, ctrlW, 6.0f}, es->pace, 0.0f, active.paceCeiling,
+              mouse, EXT_ACCENT_CYAN, true);
+    cy += 12.0f;
+    DrawTextEx(bodyFont, "harder digs more, and dirtier", {ctrlX, cy}, FS(8.0f), sp,
+               Fade(EXT_DIM_TEXT, 0.7f));
+    cy += 20.0f;
+
+    // --- Power cap ---
+    DrawTextEx(bodyFont, "POWER CAP", {ctrlX, cy}, FS(9.0f), sp, EXT_DIM_TEXT);
+    const char* capValue = es->powerCap <= 0.0f ? "uncapped"
+                                                : TextFormat("%.1f kW", es->powerCap);
+    float cvW = MeasureTextEx(bodyFont, capValue, FS(9.0f), sp).x;
+    DrawTextEx(bodyFont, capValue, {ctrlX + ctrlW - cvW, cy}, FS(9.0f), sp,
+               es->powerCap > 0.0f ? EXT_ACCENT_GOLD : EXT_TEXT);
+    cy += 14.0f;
+    ExcSlider({ctrlX, cy, ctrlW, 6.0f}, es->powerCap, 0.0f, 40.0f,
+              mouse, EXT_ACCENT_GOLD, true);
+    cy += 22.0f;
+
+    // --- Machine bay ---
+    DrawTextEx(bodyFont, "MACHINE BAY", {ctrlX, cy}, FS(9.0f), sp, EXT_HEADER_COLOR);
+
+    Rectangle autoChip = {ctrlX + ctrlW - 52.0f, cy - 4.0f, 52.0f, 17.0f};
+    bool autoHover = CheckCollisionPointRec(mouse, autoChip);
+    DrawRectangleRounded(autoChip, 0.4f, 4,
+                         es->autoMachine ? Fade(EXT_ACCENT_GREEN, 0.18f) : EXT_PANEL_BG2);
+    DrawRectangleRoundedLinesEx(autoChip, 0.4f, 4, 1.0f,
+                                es->autoMachine ? Fade(EXT_ACCENT_GREEN, 0.8f)
+                                                : Fade(EXT_DIM_TEXT, 0.5f));
+    const char* autoLabel = es->autoMachine ? "AUTO ON" : "AUTO OFF";
+    float alW = MeasureTextEx(bodyFont, autoLabel, FS(7.5f), sp).x;
+    DrawTextEx(bodyFont, autoLabel,
+               {autoChip.x + (autoChip.width - alW) * 0.5f, autoChip.y + 4.0f}, FS(7.5f), sp,
+               es->autoMachine ? EXT_ACCENT_GREEN : EXT_DIM_TEXT);
+    if (autoHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        es->autoMachine = !es->autoMachine;
+    }
+    cy += 20.0f;
+
+    // Two columns -- six machines in one column overflows the card.
+    float cardW = (ctrlW - 6.0f) * 0.5f;
+    for (int i = 0; i < EXC_MACHINE_TABLE_SIZE; i++)
+    {
+        MachineId id = static_cast<MachineId>(i);
+        const Machine& m = DigEngine::GetMachine(id);
+
+        int col = i % 2;
+        int row = i / 2;
+        Rectangle card = {ctrlX + col * (cardW + 6.0f), cy + row * 34.0f, cardW, 30.0f};
+
+        bool available = es->IsMachineAvailable(id);
+        bool isActive = (es->activeMachine == id);
+        bool hover = CheckCollisionPointRec(mouse, card);
+        bool pressed = hover && available && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+
+        Color fill = EXT_PANEL_BG2;
+        if (!available) fill = Fade(EXT_PANEL_BG2, 0.4f);
+        else if (pressed) fill = Fade(EXT_ACCENT_CYAN, 0.28f);
+        else if (isActive) fill = Fade(EXT_ACCENT_CYAN, 0.16f);
+
+        DrawRectangleRounded(card, 0.25f, 4, fill);
+        if (isActive)
+        {
+            DrawRectangleRoundedLinesEx(card, 0.25f, 4, 1.0f, Fade(EXT_ACCENT_CYAN, 0.85f));
+        }
+
+        Color nameColor = !available ? Fade(EXT_DIM_TEXT, 0.4f)
+                                     : (isActive ? EXT_ACCENT_CYAN : EXT_TEXT);
+        DrawTextEx(bodyFont, m.displayName, {card.x + 6.0f, card.y + 3.0f},
+                   FS(8.5f), sp, nameColor);
+
+        // The two stats that decide the choice: how tightly it digs, and how
+        // hard it can be pushed.
+        DrawTextEx(bodyFont, TextFormat("aim %.0f%%   pace %.1f", m.precision * 100.0f, m.paceCeiling),
+                   {card.x + 6.0f, card.y + 16.0f}, FS(7.0f), sp,
+                   available ? Fade(EXT_DIM_TEXT, 0.85f) : Fade(EXT_DIM_TEXT, 0.35f));
+
+        if (!available)
+        {
+            // Name the tier that unlocks it, not a bare number -- "T2" alone
+            // reads as a rating rather than a requirement.
+            const char* lock = TextFormat("TIER %d", m.requiredTier);
+            float lw = MeasureTextEx(bodyFont, lock, FS(7.0f), sp).x;
+            DrawTextEx(bodyFont, lock, {card.x + card.width - lw - 5.0f, card.y + 4.0f},
+                       FS(7.0f), sp, Fade(EXT_ACCENT_GOLD, 0.65f));
+        }
+
+        if (hover && available && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            es->activeMachine = id;
+            es->autoMachine = false;   // picking a machine means taking control
+        }
+    }
+
+    // =======================================================================
+    // The readout -- what you thought was there, against what is arriving.
+    // This one line is the module.
+    // =======================================================================
+    float readY = static_cast<float>(y + h - padding) - 26.0f;
+    DrawLineEx({px, readY - 8.0f}, {px + pw, readY - 8.0f}, 1.0f, Fade(EXT_PANEL_BORDER, 0.6f));
+
+    SpotEstimate sel = es->EstimateSelected(*ps);
+    const DigResult& last = es->GetLastResult();
+    const char* targetName = ResourceTypeToString(es->targetResource);
+
+    const char* expectation = sel.isCertain
+        ? TextFormat("SPOT %d,%d   %s  %.0f  (known)", es->selectedSpotX, es->selectedSpotY,
+                     targetName, sel.shown)
+        : TextFormat("SPOT %d,%d   %s  %.0f  (%.0f-%.0f, %s)", es->selectedSpotX, es->selectedSpotY,
+                     targetName, sel.shown, sel.low, sel.high,
+                     ProsConfLabel(sel.confidence));
+
+    DrawTextEx(bodyFont, expectation, {px, readY}, FS(10.0f), sp,
+               sel.isCertain ? EXT_TEXT : EXT_DIM_TEXT);
+
+    // Right side: what actually came up last tick, and the share of it that
+    // was the thing being aimed at.
+    if (last.totalMass > 0.0f)
+    {
+        float share = last.targetMass / last.totalMass;
+        const char* got = TextFormat("GETTING  %.1f %s  of  %.1f moved   (%.0f%% useful)",
+                                     last.targetMass, targetName, last.totalMass,
+                                     share * 100.0f);
+        float gw = MeasureTextEx(bodyFont, got, FS(10.0f), sp).x;
+        Color gotColor = share > 0.6f ? EXT_ACCENT_GREEN
+                                      : (share > 0.3f ? EXT_TEXT : EXT_ACCENT_GOLD);
+        DrawTextEx(bodyFont, got, {px + pw - gw, readY}, FS(10.0f), sp, gotColor);
+    }
+    else
+    {
+        const char* idle = last.throttledByPower ? "THROTTLED BY POWER CAP" : "IDLE";
+        float iw = MeasureTextEx(bodyFont, idle, FS(10.0f), sp).x;
+        DrawTextEx(bodyFont, idle, {px + pw - iw, readY}, FS(10.0f), sp,
+                   last.throttledByPower ? EXT_ACCENT_GOLD : EXT_DIM_TEXT);
+    }
+
+    // Out-of-range tooltip last, so it sits above the grid.
+    if (lockedHoverX >= 0)
+    {
+        int needTier = TierRequiredForSubCell(lockedHoverX, lockedHoverY);
+        const char* line1 = "OUT OF REACH";
+        const char* line2 = needTier >= 0
+            ? TextFormat("Excavation tier %d reaches here", needTier)
+            : "Unreachable";
+
+        float tw = std::max(MeasureTextEx(headerFont, line1, FS(10.0f), sp).x,
+                            MeasureTextEx(bodyFont, line2, FS(9.0f), sp).x) + 20.0f;
+        float th = 38.0f;
+        Rectangle tip = {mouse.x + 12.0f, mouse.y - th - 6.0f, tw, th};
+        if (tip.x + tip.width > px + pw) tip.x = px + pw - tip.width;
+
+        DrawRectangleRounded(tip, 0.2f, 4, {8, 12, 24, 240});
+        DrawRectangleRoundedLinesEx(tip, 0.2f, 4, 1.0f, Fade(EXT_ACCENT_GOLD, 0.7f));
+        DrawTextEx(headerFont, line1, {tip.x + 10.0f, tip.y + 7.0f}, FS(10.0f), sp, EXT_ACCENT_GOLD);
+        DrawTextEx(bodyFont, line2, {tip.x + 10.0f, tip.y + 21.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
+    }
 }
 
 void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int h)

@@ -30,7 +30,7 @@ public:
     // Look up a machine by id. Always returns something valid.
     static const Machine& GetMachine(MachineId id);
 
-    // Is this machine available at this tier, with the techs unlocked?
+    // Is this machine available at this tier? Tier alone -- see the .cpp.
     static bool IsMachineAvailable(MachineId id, int tier);
 
     // Deepest layer this machine can work.

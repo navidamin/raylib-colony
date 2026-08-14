@@ -106,6 +106,37 @@ const Machine& ExcavationSystem::GetActiveMachine() const
     return DigEngine::GetMachine(activeMachine);
 }
 
+void ExcavationSystem::SyncToGround(const ProspectingSystem& prospecting)
+{
+    EnsureTargetPresent(prospecting);
+    if (autoMachine)
+    {
+        SelectAutoMachine(prospecting);
+    }
+}
+
+void ExcavationSystem::EnsureTargetPresent(const ProspectingSystem& prospecting)
+{
+    const ProspectingGrid& grid = prospecting.GetGrid();
+    auto composition = grid.GetGroundTruth(selectedSpotX, selectedSpotY, selectedDepth);
+
+    auto it = composition.find(targetResource);
+    if (it != composition.end() && it->second > 0.02f) return;
+
+    // Fall back to whatever this spot is mostly made of.
+    ResourceType best = targetResource;
+    float bestFraction = 0.0f;
+    for (const auto& [type, fraction] : composition)
+    {
+        if (fraction > bestFraction)
+        {
+            bestFraction = fraction;
+            best = type;
+        }
+    }
+    targetResource = best;
+}
+
 void ExcavationSystem::SelectAutoMachine(const ProspectingSystem& prospecting)
 {
     // Pick by what the ground and the survey actually call for, rather than by
@@ -148,10 +179,7 @@ DigResult ExcavationSystem::Dig(ProspectingSystem& prospecting,
                                 int machineCount, float externalMultiplier,
                                 float deltaTime)
 {
-    if (autoMachine)
-    {
-        SelectAutoMachine(prospecting);
-    }
+    SyncToGround(prospecting);
 
     // A machine that cannot reach this depth digs nothing at all, which would
     // silently stall an unattended unit. Fall back to the deepest layer the

@@ -59,6 +59,17 @@ public:
     bool IsMachineAvailable(MachineId id) const;
     const Machine& GetActiveMachine() const;
 
+    // Bring the facade's displayed state in line with the ground: a target
+    // that exists here, and the AUTO machine choice if AUTO is on. Called by
+    // the panel as well as the dig tick, so what is shown is never a stale
+    // default the module would not actually use.
+    void SyncToGround(const ProspectingSystem& prospecting);
+
+    // Point the target at something this spot actually contains. A target the
+    // ground does not hold reads as a flat, empty map and gives the player
+    // nothing to choose between.
+    void EnsureTargetPresent(const ProspectingSystem& prospecting);
+
     // Picks a machine that suits the ground and what is known about it. This
     // is the AUTO default -- a player who never opens the machine bay still
     // gets something sensible.

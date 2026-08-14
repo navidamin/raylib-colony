@@ -2,7 +2,6 @@
 #include "excavation_constants.h"
 #include "site_view.h"
 #include "prospecting_grid.h"
-#include "unlock_registry.h"
 
 #include <algorithm>
 
@@ -18,17 +17,14 @@ const Machine& DigEngine::GetMachine(MachineId id)
 
 bool DigEngine::IsMachineAvailable(MachineId id, int tier)
 {
-    const Machine& machine = GetMachine(id);
-    if (tier < machine.requiredTier) return false;
-
-    if (machine.requiredTech && machine.requiredTech[0] != '\0')
-    {
-        if (!UnlockRegistry::Instance().IsUnlocked(machine.requiredTech))
-        {
-            return false;
-        }
-    }
-    return true;
+    // Tier only. The tech that unlocks a machine is the same tech that unlocks
+    // the module tier carrying it (the EXCAVATION module's tierDependencies),
+    // so checking UnlockRegistry here would gate the same thing twice -- and it
+    // made every machine unavailable in the preview and playtest harnesses,
+    // which reach high tiers through DebugUpgradeModuleTier precisely because
+    // that bypasses tech. requiredTech is kept on the table as documentation of
+    // which tech the tier depends on.
+    return tier >= GetMachine(id).requiredTier;
 }
 
 bool DigEngine::CanMachineWorkDepth(MachineId id, DepthLayer depth)

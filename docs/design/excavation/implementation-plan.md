@@ -291,7 +291,7 @@ not just say "known".
 
 A `worked` preview state renders dug-but-never-surveyed ground so this stays checkable.
 
-### Phase 5 — The panel
+### Phase 5 — The panel ✅ DONE
 Built per `docs/guides/ui-panels.md`: procedural primitives, existing design tokens, IMGUI
 discipline, touch-first targets.
 
@@ -301,8 +301,44 @@ discipline, touch-first targets.
 - Target selector, pace slider, power cap slider
 - The bottom line: **expected vs actual**, plus useful-output-per-power
 
-**Done when:** `tools/preview` screenshots look right at every tier, and the panel is usable
-on the phone build.
+**Done.** `DrawExcavationPanel` rewritten — the legacy fleet table is gone. Grid left,
+controls right, the expected-vs-actual line across the bottom. **67 checks, 0 failures.**
+
+The grid is shaded by **what the player has been told**, never by the truth — otherwise the
+map would quietly hand over the survey they had not paid for. Brightness is target-resource
+yield; opacity is confidence; worked-out ground drains back toward the base colour.
+
+**Four things the render caught that the code did not:**
+
+1. **A blank grid.** The default target was Fe and the test cell holds none, so every spot
+   painted empty. Added `EnsureTargetPresent` — a target the ground does not hold gives the
+   player nothing to choose between.
+2. **Every machine locked.** `IsMachineAvailable` checked `UnlockRegistry` *and* tier, but
+   the tech that unlocks a machine is the same tech that unlocks the module tier carrying it
+   — so it gated the same thing twice, and made every machine unavailable in the harnesses,
+   which reach high tiers via `DebugUpgradeModuleTier` precisely because that bypasses tech.
+   Now tier only.
+3. **AUTO showed a stale machine.** `SelectAutoMachine` only ran on a dig tick, so the panel
+   displayed the constructor default until the unit had dug once. Added `SyncToGround`,
+   called by both the panel and the tick.
+4. **The AUTO chip sat on top of a machine card**, and the lock badge read `T2` — which
+   looks like a rating rather than a requirement. Now `TIER 2`.
+
+**Also:** the preview harness applied prospecting state only when previewing the prospecting
+panel. Ground state is a property of the world, not of the panel being looked at, so
+excavation could not be previewed against surveyed ground at all — which is the single most
+important comparison for this panel. Fixed.
+
+**What the screenshots show:**
+
+| State | Reads as |
+|-------|----------|
+| Tier 0 | Only the central 2×2 reachable, everything else dashed and locked; Scoop alone, the rest marked `TIER 1/2/3` |
+| Unsurveyed | `SPOT 4,4  H2  656  (116-1196, Very Low)` — AUTO picks **Bucket Wheel**, the blunt fast machine, because covering ground beats aiming when you cannot aim |
+| Surveyed | `SPOT 4,4  H2  720  (323-1118, Low)` — the range tightens and the estimate moves toward the truth |
+
+A legend under the grid names what the shading means, because brightness and opacity carry
+two different meanings at once and neither is self-evident.
 
 ### Phase 6 — AUTO and the AI ladder
 - `MachineEngine::SelectAuto()` — sensible machine for the spot
