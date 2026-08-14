@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
-# Render a unit module panel to a PNG without a display.
+# Render a unit module panel or a whole game view to a PNG without a display.
 #
 # Wraps the colony_preview binary in a virtual X server with software OpenGL,
 # so it works over SSH, in CI, and inside containers. Builds the tool if it is
 # missing or out of date, then writes the PNG.
 #
 #   tools/preview/preview.sh --module prospecting --tab lab --tier 3
+#   tools/preview/preview.sh --view orbital
 #   tools/preview/preview.sh --all
 #
 # All other flags are forwarded to colony_preview (see --help).
@@ -61,6 +62,10 @@ if [ "${1:-}" = "--all" ]; then
     done
 
     Render --module sprites --out "$OUT_DIR/crystal-sheet.png"
+
+    for view in orbital planet; do
+        Render --view "$view" --out "$OUT_DIR/view-$view.png"
+    done
 
     echo "Done:"
     ls -1 "$OUT_DIR"

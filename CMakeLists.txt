@@ -43,6 +43,12 @@ cpmaddpackage(
         GIT_TAG
         #5.5
         master # use up-to-date branch
+        OPTIONS
+        # JPG loading is off in raylib's default config; the terrain
+        # synthesizer reads the 8K WAC mosaic (src/assets/planet/
+        # wac_global.jpg) at runtime.
+        "CUSTOMIZE_BUILD ON"
+        "SUPPORT_FILEFORMAT_JPG ON"
 )
 
 ## add tomlplusplus (3rd-party) https://github.com/marzer/tomlplusplus

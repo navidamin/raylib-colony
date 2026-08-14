@@ -26,6 +26,7 @@ public:
     void EndDraw();
 
     void DrawMenuView();
+    void DrawOrbitalView();
     void DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
                        InputManager& inputManager, TimeManager& timeManager);
     void DrawColonyView(Camera2D camera, Colony* colony, Planet* planet, std::vector<Colony *> &colonies,
@@ -67,6 +68,20 @@ private:
     std::map<std::string, Texture2D> crystalTextures;
     const Texture2D* GetCrystalTexture(const CrystalVisual& visual);
     void DrawCrystalSprite(const CrystalVisual& visual, Rectangle dest);
+
+    // Orbital view textures (baked by prototypes/planet_visuals/asset_bake.py)
+    Texture2D orbitalNearTexture;
+    Texture2D orbitalFarTexture;
+    bool orbitalAssetsLoaded;
+    void LoadOrbitalAssets();
+    void UnloadOrbitalAssets();
+
+    // Generated sect terrain (real-imagery amplification, per grid cell)
+    Texture2D sectTerrainTexture;
+    bool sectTerrainLoaded;
+    int sectTerrainCellX;
+    int sectTerrainCellY;
+    void DrawSectTerrainBackground(Sect* sect);
 
     void DrawDebugActiveArea();
 
