@@ -45,9 +45,9 @@ public:
 
     // Decide this tick. `currentDepth` is where the operation is working now;
     // the decision may move it deeper when a layer is worked out.
-    // `currentX/Y` is the spot being worked now. The decision sticks with it
-    // unless something is clearly better -- see EXC_AI_SWITCH_MARGIN. Pass -1
-    // when there is no current spot.
+    // `currentX/Y` is the spot being worked now. The decision stays on it until
+    // the face is spent -- see EXC_AI_ABANDON_BELOW for why that is a "work it
+    // out" rule rather than a margin. Pass -1 when there is no current spot.
     AutoDecision Decide(const ProspectingGrid& grid, const SampleTray& tray,
                         const SiteView& site, const EstimateEngine& estimator,
                         const DigSite& worked,

@@ -1,13 +1,15 @@
 # Excavation Mechanics — Science Review & Design Alternatives
 
-> Status: REVIEWED — Part 3 alternatives decided, see [dig-plan-design.md](dig-plan-design.md)
+> Status: REFERENCE — Part 1 is the science behind the machine stats. Part 3's
+> alternatives were superseded; the built design is [excavation-design.md](excavation-design.md)
 > Last Updated: 2026-08-13
 > Parent: [README.md](README.md)
 >
-> **Decision:** Design B chosen as the spine, with Design A reduced to machinery *selection*
-> (presets, not parameter tuning) and Design C deferred. Part 1 remains the science reference
-> for both development levels. Part 5's gaps are superseded by
-> [dig-plan-design.md §6](dig-plan-design.md#6-gaps).
+> **Outcome:** the module that was built keeps this document's Part 1 as the source of the
+> machine stats — counter-rotating drums are precise and low-wear, bucket wheels trade force
+> for volume, percussion buys depth at a steep price. Part 3's A/B/C framing was dropped
+> after two further rounds; see [excavation-design.md](excavation-design.md). Part 5's gaps are superseded by
+> [excavation-design.md §9](excavation-design.md#9-open-questions).
 
 ---
 

@@ -204,7 +204,7 @@ Units have a modular upgrade system where each unit type has specialized named m
 
 **Extraction unit modules** (5 specialized):
 1. **Prospecting** - LIBS scanning, site marking, scan history (`ScanResult` struct), survey progress (0-100%)
-2. **Excavation** - Excavator fleet management (`Excavator` struct), depth/rate control, wear
+2. **Excavation** - Targeted digging on prospecting's 8×8 lattice (`src/Excavation/`): pick a spot and depth, a machine, a target resource and a pace; what comes up is a composition, so a blunt or hurried machine brings more waste. See `docs/design/excavation/`
 3. **Beneficiation** - Separation chain (`SeparationNode` structs: SIZE_SORT, MAGNETIC, ELECTROSTATIC, THERMAL, MRE, DIRECT_OUTPUT)
 4. **Operations** - Efficiency modifier (tier 0=0.85 penalty, tier 3=1.2 bonus)
 5. **Directives** - Autonomous control (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, EMERGENCY_HARVEST, THERMAL_SYNC)
