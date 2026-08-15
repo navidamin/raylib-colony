@@ -400,6 +400,10 @@ int main(int argc, char** argv)
             g_ctx.headless = true;
             g_ctx.shotPrefix = argv[++i];
         }
+        else if (a == "--nodisturb")
+        {
+            SetSiteDisturbanceEnabled(false);
+        }
         else if (a == "--pick" && i + 1 < argc)
         {
             // --pick LAT,LON: land anywhere on the moon without clicking.

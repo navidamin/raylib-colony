@@ -503,8 +503,11 @@ void RenderManager::EnsureTerrainForCell(int gx, int gy)
 
     double lat, lon;
     TerrainGridCellToLatLon(gx, gy, &lat, &lon);
+    // The cell we generate for is occupied, so work its ground over.
+    TerrainSiteDisturbance site;
+    site.enabled = true;
     Image levels[3] = {};
-    GenerateTerrainChain(lat, lon, 512, levels);
+    GenerateTerrainChain(lat, lon, 512, levels, &site);
     for (int i = 0; i < 3; i++)
     {
         terrainLevels[i] = LoadTextureFromImage(levels[i]);

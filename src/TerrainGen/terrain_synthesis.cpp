@@ -6,6 +6,11 @@
 #include <cstring>
 #include <vector>
 
+// Global switch for the site disturbance (playtest comparisons).
+static bool g_siteDisturbEnabled = true;
+void SetSiteDisturbanceEnabled(bool e) { g_siteDisturbEnabled = e; }
+bool IsSiteDisturbanceEnabled() { return g_siteDisturbEnabled; }
+
 // ---------------------------------------------------------------------------
 // Deterministic RNG (xorshift128) — the seed is the location, so the
 // same spot always regenerates the same ground.
@@ -444,12 +449,94 @@ static void SprinkleBoulders(Field& height, int res, TerrainRng& rng,
     }
 }
 
+// Work the ground over a little where the colony operates.
+//
+// The natural terrain is kept — nothing is levelled. Around the core
+// and each unit dome the surface picks up a shallow mound or hollow, a
+// patch of extra roughness, and a gentle undulation across the site as
+// a whole. Everything goes into the HEIGHT field, so the shared sun
+// gives it the shading and small shadows for free.
+static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
+                                 TerrainRng& rng,
+                                 const TerrainSiteDisturbance& site)
+{
+    const float cx = res * 0.5f;
+    const float cy = res * 0.5f;
+    const float siteR = site.siteRadiusKm * pxPerKm;
+    if (siteR < 2.0f) return;          // site smaller than a pixel here
+
+    // Worked spots: the central core plus the ring of unit domes.
+    struct Spot { float x, y, r, amp; };
+    std::vector<Spot> spots;
+    spots.push_back({cx, cy, site.coreRadiusKm * pxPerKm,
+                     site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
+    for (int i = 0; i < site.domeCount; i++)
+    {
+        // Same layout the sect view draws: 8 units, 45 deg apart,
+        // starting at the top and going clockwise.
+        float ang = (90.0f - i * (360.0f / site.domeCount)) * DEG2RAD;
+        float ring = site.ringRadiusKm * pxPerKm;
+        spots.push_back({cx + ring * std::cos(ang),
+                         cy - ring * std::sin(ang),
+                         site.domeWorkKm * pxPerKm,
+                         site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
+    }
+
+    // Two noise fields: soft lumps for undulation, fine grain for the
+    // random alterations. Sampled, not re-rolled per pixel, so the
+    // result stays deterministic for the location.
+    Field lumps = Fbm(res, 3, std::max(4, (int)(res / 12)), 0.55f, rng);
+    Field fine = GrainNoise(res, rng);
+
+    for (int y = 0; y < res; y++)
+    {
+        for (int x = 0; x < res; x++)
+        {
+            size_t i = (size_t)y * res + x;
+
+            // Site-wide falloff: full effect out to ~60% of the site
+            // radius, fading to nothing at its edge.
+            float ds = std::hypot(x - cx, y - cy) / siteR;
+            float siteW = 0.0f;
+            if (ds < 1.0f)
+            {
+                float t = std::clamp((1.0f - ds) / 0.40f, 0.0f, 1.0f);
+                siteW = t * t * (3.0f - 2.0f * t);
+            }
+
+            // Per-dome worked patches, strongest at each dome.
+            float domeW = 0.0f;
+            float spotH = 0.0f;
+            for (const Spot& sp : spots)
+            {
+                float d = std::hypot(x - sp.x, y - sp.y) / std::max(1.0f, sp.r);
+                if (d >= 1.0f) continue;
+                float t = 1.0f - d;
+                float w = t * t * (3.0f - 2.0f * t);
+                domeW = std::max(domeW, w);
+                spotH += sp.amp * w;      // shallow mound or hollow
+            }
+
+            if (siteW <= 0.0f && domeW <= 0.0f) continue;
+
+            // Gentle undulation over the whole site.
+            height[i] += site.undulationAmp * (lumps[i] - 0.5f) * 2.0f * siteW;
+            // Random alterations, concentrated around the domes.
+            height[i] += site.roughAmp * fine[i]
+                         * (0.35f * siteW + 0.65f * domeW);
+            height[i] += spotH;
+        }
+    }
+}
+
 // The anti-matte relight + grain stage (port of _texture_modulate).
 // boulderCount > 0 adds sub-resolution boulder speckle — only used on
 // zoom levels below the real-data floor.
 static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
                             const TerrainTuning& tune,
-                            int boulderCount = 0)
+                            int boulderCount = 0,
+                            const TerrainSiteDisturbance* site = nullptr,
+                            float pxPerKm = 0.0f)
 {
     // Pixel-based sizes below are tuned at 300 px; k rescales them so
     // physical feature sizes stay fixed at other resolutions.
@@ -476,6 +563,9 @@ static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
         SprinkleBoulders(height, res, rng,
                          (int)(boulderCount * tune.boulders),
                          0.010f * tune.boulderAmp);
+
+    if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
+        ApplySiteDisturbance(height, res, pxPerKm, rng, *site);
 
     const float z = 110.0f;
     Field hs = Hillshade(height, res, z, 0.6f);
@@ -613,8 +703,12 @@ void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg)
 // other by construction — that is what makes zooming continuous.
 static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                                   const TerrainTuning& tune,
-                                  Image* outLevels, int wantLevels)
+                                  Image* outLevels, int wantLevels,
+                                  const TerrainSiteDisturbance* site = nullptr)
 {
+    // Levels cover 100 / 25 / 5 km, so a kilometre is a different
+    // number of pixels in each.
+    const float levelSpanKm[3] = {100.0f, 25.0f, 5.0f};
     if (!EnsureWacLoaded())
     {
         for (int i = 0; i < wantLevels; i++)
@@ -632,7 +726,8 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     TerrainRng rng0(seed);
     Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
     SharpenAdaptive(lum, res);
-    TextureModulate(lum, res, rng0, 1.0f, tune);
+    TextureModulate(lum, res, rng0, 1.0f, tune, 0, site,
+                    (float)res / levelSpanKm[0]);
 
     auto emit = [&](int level)
     {
@@ -667,7 +762,8 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                                 0.0f, 1.0f);
         TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
         int boulderBase = (lvl == 2) ? (int)(120 * k * k) : 0;
-        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune, boulderBase);
+        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune, boulderBase,
+                        site, (float)res / levelSpanKm[lvl]);
         emit(lvl);
     }
 
@@ -677,10 +773,11 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
 }
 
 void GenerateTerrainChain(double latDeg, double lonDeg, int res,
-                          Image outLevels[3])
+                          Image outLevels[3],
+                          const TerrainSiteDisturbance* site)
 {
     TerrainTuning defaults;
-    GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3);
+    GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3, site);
 }
 
 Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
