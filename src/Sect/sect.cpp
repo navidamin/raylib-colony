@@ -391,19 +391,68 @@ namespace
         }
     }
 
-    // Per-pixel ray-shaded dome sphere baked into a texture, cached per tint+size.
-    // Lambert diffuse + two-lobe Blinn specular + fresnel rim + bounce light.
-    Texture2D GetBakedDomeTexture(float radiusF, Color base)
+    // Per-dome lighting "character": stable pseudo-random variation of the
+    // key light direction, ambient level, and specular lobes.
+    struct DomeLook
+    {
+        float lx, ly, lz;        // key light direction
+        float hx, hy;            // planar highlight offset (unit-scaled)
+        float broadPow, corePow; // specular lobe exponents
+        float broadInt, coreInt; // specular lobe intensities
+        float ambient;
+    };
+
+    unsigned int HashSeed(const std::string& s)
+    {
+        unsigned int h = 2166136261u;                 // FNV-1a
+        for (char ch : s)
+        {
+            h = (h ^ (unsigned char)ch) * 16777619u;
+        }
+        return h;
+    }
+
+    DomeLook GetDomeLook(unsigned int seed)
+    {
+        auto next = [&seed]()
+        {
+            seed = seed * 1664525u + 1013904223u;
+            return (float)(seed >> 8) / 16777216.0f;
+        };
+
+        DomeLook look;
+        float angle = 4.03f + (next() - 0.5f) * 0.9f;    // top-left +/- ~26 deg
+        float planar = 0.60f + next() * 0.25f;           // how far off-center the light sits
+        look.lx = cosf(angle) * planar;
+        look.ly = sinf(angle) * planar;
+        look.lz = sqrtf(1.0f - planar * planar);
+        look.hx = cosf(angle) * planar;
+        look.hy = sinf(angle) * planar;
+        look.broadPow = 8.0f + next() * 8.0f;
+        look.corePow = 30.0f + next() * 40.0f;
+        look.broadInt = 0.22f + next() * 0.12f;
+        look.coreInt = 0.24f + next() * 0.14f;
+        look.ambient = 0.23f + next() * 0.07f;
+        return look;
+    }
+
+    // Per-pixel ray-shaded dome sphere baked into a texture, cached per
+    // tint+size+seed. Lambert diffuse + two-lobe Blinn specular + fresnel rim
+    // + bounce light.
+    Texture2D GetBakedDomeTexture(float radiusF, Color base, unsigned int seed)
     {
         static std::map<unsigned long long, Texture2D> cache;
 
         int radius = (int)radiusF;
-        unsigned long long key = ((unsigned long long)radius << 32)
-                               | ((unsigned long long)base.r << 16)
-                               | ((unsigned long long)base.g << 8)
-                               | (unsigned long long)base.b;
+        unsigned long long key = ((unsigned long long)radius << 44)
+                               ^ ((unsigned long long)base.r << 36)
+                               ^ ((unsigned long long)base.g << 28)
+                               ^ ((unsigned long long)base.b << 20)
+                               ^ (unsigned long long)(seed & 0xFFFFFu);
         auto it = cache.find(key);
         if (it != cache.end()) return it->second;
+
+        DomeLook look = GetDomeLook(seed);
 
         int size = radius * 2 + 4;
         float cx = size / 2.0f;
@@ -411,10 +460,8 @@ namespace
         float r = (float)radius;
         Image img = GenImageColor(size, size, BLANK);
 
-        // Key light (top-left) and bounce light (from below)
-        float Lx = -0.45f, Ly = -0.55f, Lz = 0.70f;
-        float ll = sqrtf(Lx * Lx + Ly * Ly + Lz * Lz);
-        Lx /= ll; Ly /= ll; Lz /= ll;
+        // Key light (varied per dome) and bounce light (from below)
+        float Lx = look.lx, Ly = look.ly, Lz = look.lz;
         float Bx = 0.30f, By = 0.80f, Bz = 0.52f;
         float bl = sqrtf(Bx * Bx + By * By + Bz * Bz);
         Bx /= bl; By /= bl; Bz /= bl;
@@ -443,12 +490,13 @@ namespace
                 float hl = sqrtf(Hx * Hx + Hy * Hy + Hz * Hz);
                 float ndh = (dx * Hx + dy * Hy + nz * Hz) / hl;
                 if (ndh < 0.0f) ndh = 0.0f;
-                float spec = powf(ndh, 10.0f) * 0.28f + powf(ndh, 45.0f) * 0.30f;
+                float spec = powf(ndh, look.broadPow) * look.broadInt
+                           + powf(ndh, look.corePow) * look.coreInt;
 
                 // Fresnel rim picks up a cool sky tint
                 float fre = powf(1.0f - nz, 3.0f) * 0.40f;
 
-                float lum = 0.26f + 0.80f * dif + 0.16f * dif2;
+                float lum = look.ambient + 0.80f * dif + 0.16f * dif2;
                 float cr = br * lum + 0.55f * fre + spec;
                 float cg = bg * lum + 0.85f * fre + spec;
                 float cb = bb * lum + 0.65f * fre + spec;
@@ -476,10 +524,10 @@ namespace
         return tex;
     }
 
-    // Glossy hex-glass dome sphere in an arbitrary tint
-    void DrawDomeSphere(Vector2 center, float radius, Color base)
+    // Glossy hex-glass dome sphere in an arbitrary tint; seed varies the look
+    void DrawDomeSphere(Vector2 center, float radius, Color base, unsigned int seed = 0)
     {
-        Texture2D tex = GetBakedDomeTexture(radius, base);
+        Texture2D tex = GetBakedDomeTexture(radius, base, seed);
         Rectangle src = {0.0f, 0.0f, (float)tex.width, (float)tex.height};
         Rectangle dst = {center.x - tex.width / 2.0f, center.y - tex.height / 2.0f,
                          (float)tex.width, (float)tex.height};
@@ -490,10 +538,12 @@ namespace
                        Fade(MixColor(base, Color{0, 0, 0, 255}, 0.45f), 0.40f));
         DrawRing(center, radius * 0.88f, radius, 0.0f, 360.0f, 72, Fade(BLACK, 0.15f));
 
-        // Soft wide glare over the pattern (no hard hot spot)
-        DrawEllipse((int)(center.x - radius * 0.28f), (int)(center.y - radius * 0.40f),
-                    radius * 0.34f, radius * 0.19f, Fade(WHITE, 0.08f));
-        DrawEllipse((int)(center.x - radius * 0.30f), (int)(center.y - radius * 0.43f),
+        // Soft wide glare tracking this dome's light direction (no hard hot spot)
+        DomeLook look = GetDomeLook(seed);
+        float gx = center.x + look.hx * radius * 0.70f;
+        float gy = center.y + look.hy * radius * 0.70f;
+        DrawEllipse((int)gx, (int)gy, radius * 0.34f, radius * 0.19f, Fade(WHITE, 0.08f));
+        DrawEllipse((int)(gx - radius * 0.02f), (int)(gy - radius * 0.03f),
                     radius * 0.22f, radius * 0.12f, Fade(WHITE, 0.10f));
     }
 
@@ -618,10 +668,11 @@ namespace
 
         DrawBezel(center, radius * 1.02f, radius * 1.18f);
 
-        // Active domes glow in the unit's accent tint; idle domes go dark slate
+        // Active domes glow in the unit's accent tint; idle domes go dark slate.
+        // Each unit gets its own lighting character from its type name.
         Color base = active ? MixColor(UnitAccentColor(type), Color{20, 24, 26, 255}, 0.35f)
                             : Color{44, 52, 64, 255};
-        DrawDomeSphere(center, radius, base);
+        DrawDomeSphere(center, radius, base, HashSeed(type));
 
         // Unit glyph + label on the dome glass
         Color glyphCol = active ? Color{240, 245, 248, 255} : Color{140, 150, 160, 255};
@@ -701,7 +752,7 @@ void Sect::DrawInSectView(Vector2 position) {
     }
 
     // 5. Central hex-glass dome with the development readout
-    DrawDomeSphere(center, domeRadius, Color{24, 130, 66, 255});
+    DrawDomeSphere(center, domeRadius, Color{24, 130, 66, 255}, HashSeed("SectCore"));
 
     const char* devText = TextFormat("Development: %.1f%%", development_percentage * 100);
     int devFont = (int)(domeRadius * 0.17f);
