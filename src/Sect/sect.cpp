@@ -626,12 +626,23 @@ namespace
         DrawRing(center, radius + 4.0f, radius + 6.0f, 0.0f, 360.0f, 180, Color{78, 83, 87, 255});
         DrawRing(center, radius - 6.0f, radius - 4.0f, 0.0f, 360.0f, 180, Color{78, 83, 87, 255});
 
+        // Crossbar seams with a warm light at their center (per the concept art)
         for (int k = 0; k < 12; k++)
         {
             float a = (15.0f + k * 30.0f) * DEG2RAD;
-            Vector2 p = {center.x + radius * cosf(a), center.y - radius * sinf(a)};
-            DrawCircleV(p, 5.0f, Fade(Color{255, 200, 120, 255}, 0.25f));
-            DrawCircleV(p, 2.2f, Fade(Color{255, 214, 150, 255}, 0.95f));
+            Vector2 dir = {cosf(a), -sinf(a)};
+            Vector2 p = {center.x + radius * dir.x, center.y + radius * dir.y};
+            Vector2 c1 = {center.x + (radius - 7.0f) * dir.x,
+                          center.y + (radius - 7.0f) * dir.y};
+            Vector2 c2 = {center.x + (radius + 7.0f) * dir.x,
+                          center.y + (radius + 7.0f) * dir.y};
+            DrawLineEx(c1, c2, 4.0f, Color{32, 34, 36, 255});
+            DrawLineEx(c1, c2, 1.8f, Color{72, 77, 81, 255});
+
+            DrawCircleV(p, 6.0f, Fade(Color{255, 200, 120, 255}, 0.30f));
+            DrawCircleV(p, 3.4f, Fade(Color{255, 208, 135, 255}, 0.55f));
+            DrawCircleV(p, 1.9f, Color{255, 228, 170, 255});
+            DrawCircleV(Vector2{p.x - 0.6f, p.y - 0.6f}, 0.8f, Fade(WHITE, 0.9f));
         }
     }
 
