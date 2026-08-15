@@ -28,6 +28,7 @@
 #include "game_enums.h"
 #include "terrain_synthesis.h"
 
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -398,6 +399,17 @@ int main(int argc, char** argv)
         {
             g_ctx.headless = true;
             g_ctx.shotPrefix = argv[++i];
+        }
+        else if (a == "--pick" && i + 1 < argc)
+        {
+            // --pick LAT,LON: land anywhere on the moon without clicking.
+            std::string v = argv[++i];
+            size_t sep = v.find(',');
+            if (sep != std::string::npos)
+            {
+                g_ctx.pickLat = atof(v.substr(0, sep).c_str());
+                g_ctx.pickLon = atof(v.substr(sep + 1).c_str());
+            }
         }
     }
 
