@@ -10,6 +10,11 @@ ProspectingSystem::ProspectingSystem(int tier, int parentGridX, int parentGridY,
     , sampler(tier)
     , lab(tier)
 {
+    // Start on a cell the instruments can actually reach, so the cell readout
+    // is meaningful before the player clicks anything.
+    int centre = GetGridSizeForTier(tier) / 2;
+    selectedCellX = centre;
+    selectedCellY = centre;
 }
 
 float ProspectingSystem::GetSurveyProgress() const

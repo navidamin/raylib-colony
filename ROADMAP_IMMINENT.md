@@ -1,8 +1,8 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-02-22
-**Current Sprint:** Prospecting & Extraction Unit Overhaul
-**Timeline:** Phase 1.5 - Extraction Unit Overhaul
+**Last Updated:** 2026-08-13
+**Current Sprint:** Prospecting Rewrite — polish, economy, and tooling
+**Timeline:** Phase 1.5 complete; prospecting Phases 7-8 outstanding
 
 ---
 
@@ -19,24 +19,93 @@ PHASE 0: Foundation & Architecture ███████████████
 └─ Transport network ✅ COMPLETE (~90%)
 
 PHASE 1.5: Extraction Unit Overhaul ████████████████████ 100% ✅ COMPLETE
-├─ Phase A: Foundation (Survey Data & Unlock Registry) ✅ COMPLETE
-├─ Phase B: Site Selection UI ✅ COMPLETE
-├─ Phase C: Module Architecture Overhaul ✅ COMPLETE
-├─ Phase D: Prospecting Module (Tiers 0-3) ✅ COMPLETE (data model + gameplay)
-├─ Phase E: Excavation Module (Tiers 0-3) ✅ COMPLETE (data model)
-├─ Phase F: Beneficiation Module (Tiers 0-3) ✅ COMPLETE (data model)
-├─ Phase G: Operations & Directives ✅ COMPLETE (data model + handlers)
-├─ Phase H: Integration & Pipeline ✅ COMPLETE
+├─ Phases A-H (survey data, site selection, modules, pipeline) ✅ COMPLETE
 ├─ Module-specific UI rendering ✅ COMPLETE (display + interactive controls)
-├─ Balance pass ✅ MOSTLY COMPLETE (bug fix + efficiency rebalance)
-├─ Prospecting gameplay overhaul ✅ COMPLETE (scan-gated extraction, noise, confidence)
-└─ Prospecting Phase 2 ✅ COMPLETE (profiles, accumulation, calibration, depth, campaigns, objectives, AI)
+├─ Extraction UI redesign (dark sci-fi kit) ✅ COMPLETE (2026-08)
+└─ Balance pass ✅ MOSTLY COMPLETE (upgrade costs still untuned)
+
+PROSPECTING REWRITE ████████████████░░░░ ~75% (design Phases 1-6 of 8)
+├─ Phase 1: Data model & sub-cell grid ✅ COMPLETE
+├─ Phase 2: Sweep mechanics (GPR) ✅ COMPLETE
+├─ Phase 3: Sampling & crystal visuals ✅ COMPLETE (sprites rendered 2026-08)
+├─ Phase 4: Lab pipeline ✅ COMPLETE (tools, separations, presets)
+├─ Phase 5: Survey progress aggregation ✅ COMPLETE (scale bug fixed 2026-08)
+├─ Phase 6: UI rendering ✅ COMPLETE (3 tabs, all controls reachable)
+├─ Phase 7: AI / default mode ❌ NOT STARTED
+└─ Phase 8: Objectives system ❌ NOT STARTED
 
 PHASE 1: Core Resource System ██████░░░░░░░░░░░░░░ ~30% NEXT (1.2/1.3 partially addressed)
 PHASE 2: Transport Network █████████████████░░░ ~90% LARGELY COMPLETE
 PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░░░░  0% PLANNED
 ...
 ```
+
+---
+
+## Recent Completions (2026-08)
+
+### Prospecting Polish, Economy & Dev Tooling ✅ COMPLETE
+
+Built on the May 2026 prospecting rewrite (see next section).
+
+**Gameplay / correctness**
+- **Composition scale fix** — `ResourceManager` stores absolute quantities
+  (hundreds–thousands); the prospecting chain assumed 0-1 fractions.
+  Richness was pinned at 100% and compositions rendered as `-36104%`.
+  `ProspectingGrid` now separates `GetGroundTruth()` (composition fractions)
+  from `GetQuantity()` (absolute quantity); sweep signal uses quantity,
+  displayed composition uses fractions. `RICHNESS_NORMALIZATION` recalibrated
+  2.0 → 10000.0 against dumped real data.
+- **Three unreachable features wired up** — CALIBRATE (calibration decayed
+  with no restore path), DISCARD SAMPLE (a full 16/16 tray permanently
+  blocked collecting), and lab PRESETS (`ApplyPreset` had no UI at all).
+- **Energy costs enforced** — sweeps/drills/tools/separations/presets are now
+  charged against unit storage, gated before commit (unaffordable controls
+  grey out), refunded on failed actions, with stored energy shown in the
+  status bar (gold <300 E, red <100 E).
+- **Crystal sprites rendered** — 400 pre-rendered sample sprites were
+  committed but never drawn; the tray showed letters. Now drawn via a lazy
+  texture cache with runtime element tinting.
+
+**UI**
+- Full extraction-unit redesign to the dark sci-fi kit: design tokens,
+  procedural line icons, floating cards, hazard-striped destructive buttons,
+  segmented gauges, wireframe blueprint art.
+- Theme applied to all extraction menus (sweep/samples/lab, excavation,
+  beneficiation, operations, directives, overview).
+- Touch-first feedback (pressed / flash / persistent applied state) and
+  radio-style selection rows.
+
+**Tooling & docs** (see `docs/dev-workflow.md`)
+- `tools/preview/` — headless panel screenshots (~5s for a 12-panel set),
+  fixed world seed for reproducibility
+- `tools/playtest/` — interactive prospecting sandbox, also built for Web and
+  deployed to GitHub Pages `/playtest/` for phone testing
+- `tools/inspect/` — dumps real generated data; found the composition bug
+- `tools/shell-test/` — canvas-fit regression test for `minshell.html`
+- Mobile web fix (SHELL v4): framebuffer pinning + canvas fitting
+- Guides: `docs/guides/ui-panels.md`, `module-architecture.md`,
+  `feature-completeness.md`
+
+### Prospecting Rewrite ✅ COMPLETE (2026-05)
+
+The prospecting system was **rebuilt from scratch** into `src/Prospecting/`
+following `docs/design/prospecting/`. A Core Samples model replaced the
+previous scan-based system.
+
+- New subsystem: `ProspectingGrid`, `SweepEngine`, `SamplingEngine`,
+  `LabEngine`, `SurveyProgressEngine`, `SampleTray`, fronted by the
+  `ProspectingSystem` facade
+- Sweep (GPR bands) → Sample (core drilling, 4 depth layers) → Lab
+  (XRF/LIBS/assay/separations) → survey progress
+- Crystal sample sprite set generated (`tools/crystal_gen`, 400 sprites)
+- Contract with extraction unchanged: `surveyProgress` + `markedSites`
+
+> **⚠️ The sections below describe the pre-rewrite prospecting system.**
+> `PerformLIBSScan`, scan profiles, calibration standards, adaptive infill
+> campaigns, prospecting objectives, and `ProspectingAI` were **removed** in
+> the rewrite. Objectives and AI are planned to return as design Phases 8
+> and 7. Retained for historical context only.
 
 ---
 
@@ -202,6 +271,24 @@ Replaced opaque scanCount/3 extraction formula with transparent **Survey Progres
 **Priority:** LOW
 **Scope:** Texture scaling refinement, active/inactive tint, remaining visual polish
 
+### Prospecting — Remaining Design Phases 📋 OPEN
+**Priority:** MEDIUM
+**Scope:** The two unbuilt phases of `docs/design/prospecting/README.md`
+
+- [ ] **Phase 8: Objectives** — data model, generation from sweep/sample
+      results, progress tracking, reward multipliers into extraction
+- [ ] **Phase 7: AI / default mode** — auto-sweep/sample/lab heuristics,
+      per-stage manual↔AI toggle, efficiency penalty. Design says this needs
+      the full pipeline working first (it now is). See
+      `docs/design/ai-automation/README.md` for the cross-cutting pattern.
+- [ ] Pathfinder tips / clue chaining — `resource-distribution-model.md` is
+      still a STUB and needs design before code
+- [ ] Stratigraphy side panel (core column + correlation lines)
+- [ ] Custom lab pipeline builder (presets exist; drag-to-order does not)
+- [ ] Energy cost balance pass — a full six-tool workup on a 16-slot tray
+      costs ~2,960 E against a 1,000 E starting reserve. Deliberate tension,
+      but unplayed; needs a real session to judge.
+
 ---
 
 ## Previous Completions
@@ -229,20 +316,36 @@ Replaced opaque scanCount/3 extraction formula with transparent **Survey Progres
 3. ~~**Module interactive controls not yet implemented**~~ ✅ RESOLVED 2026-02-01 - All four panels now interactive.
 4. **Debug key (F5)** - Should be removed or gated behind debug build flag before release.
 5. **Message fade path split** - For extraction units, UpdateMessage is called in Unit::Update rather than DrawInUnitView. This works but is a different code path than non-extraction units.
+6. **Non-extraction units use the legacy UI** - Farming/Energy/Manufacture/Research still render through `unit->DrawInUnitView()` (`unit_ui.cpp`), not `RenderManager`, so they get none of the themed chrome or preview-tool support. Route each through `RenderManager` when its real panel is built (see `docs/guides/ui-panels.md`).
+7. **Four unit types are stubs** - Farming, Energy, Manufacture, and Research each have five *named* modules but only generic production logic. This is the largest content gap in the game.
+8. **Prospecting design docs still marked DRAFT/STUB** - Phases 1-6 are implemented; the docs do not say so. `resource-distribution-model.md` is a genuine STUB (pathfinder tips undesigned).
+9. **Roadmaps drifted ~6 months** - This file and `ROADMAP_OVERALL.md` described the pre-rewrite prospecting system until 2026-08-13. Update them at the end of each session per the `CLAUDE.md` catchup procedure.
 
 ---
 
 ## Next Sprint Preview
 
-Phase 1.5 is now fully complete. Next priorities:
-1. **Tune upgrade costs** - Adjust resource costs per tier for engaging progression
-2. **Manual playtesting** - Full pipeline throughput verification at each tier, verify scan-gated extraction and Phase 2 mechanics feel right
-3. **Phase 1: Core Resource System** - Phase 1.2 (resource classification) and 1.3 (flow mechanisms) are partially addressed by the ResourceDescriptor refactor; remaining work: storage capacity (1.1), resource visualization (1.2), transport timing (1.3), consumption/distribution (1.4)
-4. **Phase 3: Advanced Production** - Manufacturing chains, research trees
+The prospecting loop is now playable end-to-end (real data, real costs, no
+dead ends) and testable on desktop, headlessly, and on phone. Candidate next
+moves, roughly in order of value:
 
-### Future Prospecting Ideas (not this phase)
+1. **Playtest prospecting on device** — the loop has never had a real session
+   with working data and enforced costs. Do this before tuning anything.
+2. **Prospecting Phase 8: Objectives** — gives the loop goals and reward
+   multipliers; smaller than Phase 7 and unblocks it.
+3. **Prospecting Phase 7: AI / default mode** — needed before the player owns
+   many sects (see the ×20 scale question in
+   `docs/guides/module-architecture.md`).
+4. **First non-extraction unit panel** — Farming or Energy, built to
+   `docs/guides/module-architecture.md` and `ui-panels.md`. This is the
+   biggest content gap and the best test of whether the guides generalize.
+5. **Phase 1: Core Resource System** — storage capacity (1.1), resource
+   visualization (1.2), transport timing (1.3), consumption/distribution (1.4)
+6. **Save/load** — increasingly painful as systems accumulate
+
+### Future Prospecting Ideas (not scheduled)
 - Global AI Manager that sets policies across all extraction units colony-wide
-- Resource Contour Map (heatmap interpolation) — pairs well with Campaign mode
+- Resource Contour Map (heatmap interpolation)
 - Spectral Interference & Peak Resolution — adds challenge once core systems are solid
 - Subsurface Anomaly Detection (GPR structures: lava tubes, ice deposits)
 - Core Drill Sampling — definitive depth data via excavator commitment

@@ -32,6 +32,11 @@ bool SamplingEngine::CollectSample(ProspectingGrid& grid, SampleTray& tray,
     if (subX < 0 || subX >= size || subY < 0 || subY >= size)
         return false;
 
+    // Out-of-reach sub-cells exist and hold real data, but the drill cannot
+    // get to them until a higher tier extends range.
+    if (!grid.IsInReach(subX, subY))
+        return false;
+
     Sample sample = CreateSample(grid, subX, subY, depth);
 
     if (!tray.AddSample(sample))
@@ -60,7 +65,7 @@ Sample SamplingEngine::CreateSample(const ProspectingGrid& grid,
     s.subCellY = subY;
     s.depthLayer = depth;
     s.trueComposition = grid.GetGroundTruth(subX, subY, depth);
-    s.richness = CalculateRichness(s.trueComposition);
+    s.richness = CalculateRichnessFromQuantity(grid.GetQuantity(subX, subY, depth));
     s.state = SampleState::IN_TRAY;
     s.visual = AssignCrystalVisual(s, grid.GetParentGridX(), grid.GetParentGridY());
     return s;
@@ -105,13 +110,9 @@ CrystalVisual SamplingEngine::AssignCrystalVisual(const Sample& sample,
     return v;
 }
 
-float SamplingEngine::CalculateRichness(const std::map<ResourceType, float>& composition)
+float SamplingEngine::CalculateRichnessFromQuantity(float totalQuantity)
 {
-    float total = 0.0f;
-    for (const auto& [type, abundance] : composition)
-        total += abundance;
-
-    return std::clamp(total / RICHNESS_NORMALIZATION, 0.0f, 1.0f);
+    return std::clamp(totalQuantity / RICHNESS_NORMALIZATION, 0.0f, 1.0f);
 }
 
 ResourceType SamplingEngine::GetDominantElement(const std::map<ResourceType, float>& composition)

@@ -1,8 +1,21 @@
 #pragma once
 
 // Sub-cell grid sizes per prospecting module tier
-constexpr int PROSPECTING_GRID_SIZE[] = { 3, 4, 5, 6 };
-constexpr int PROSPECTING_MAX_GRID_SIZE = 6;
+// The prospecting grid is a FIXED lattice of sub-cells covering the parent
+// planet cell. Sub-cell size never changes; tier extends how far the
+// instruments reach from the sect at the centre, as concentric rings:
+//
+//   T0: core 2x2 (4 cells,   6%)   T2: 6x6 (36 cells,  56%)
+//   T1: 4x4     (16 cells,  25%)   T3: 8x8 (64 cells, 100%)
+//
+// Even sizes nest perfectly (offsets 3/2/1/0), so every tier-up lights up a
+// complete ring. Because the grid is never reallocated, survey data and
+// collected samples survive a tier upgrade.
+constexpr int PROSPECTING_GRID_SIZE = 8;
+constexpr int PROSPECTING_MAX_GRID_SIZE = 8;
+
+// Side length of the reachable square per tier, centred in the grid.
+constexpr int PROSPECTING_REACH_PER_TIER[] = { 2, 4, 6, 8 };
 
 // Sample tray base capacities per tier (before objective bonuses)
 constexpr int TRAY_BASE_CAPACITY[] = { 4, 8, 12, 16 };
@@ -124,4 +137,9 @@ constexpr float LAB_SEPARATION_COST_HEAVY     = 50.0f;
 constexpr float LAB_SEPARATION_COST_VOLATILE  = 45.0f;
 
 // Richness normalization: totalAbundance / factor, clamped to 0-1
-constexpr float RICHNESS_NORMALIZATION = 2.0f;
+// Absolute deposit quantity (summed across elements in one sub-cell layer)
+// that counts as 100% richness. ResourceManager produces roughly 5,000 for an
+// average cell layer and ~13,000 for a cluster core, before sub-cell variation
+// (0.3x-2.0x), so 10,000 puts typical samples mid-range and leaves headroom
+// for genuinely rich finds.
+constexpr float RICHNESS_NORMALIZATION = 10000.0f;

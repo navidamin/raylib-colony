@@ -11,7 +11,9 @@
 #include "resource_manager.h"
 #include "game_enums.h"
 
-#define CHINAROSE (Color){ 160, 70, 104, 255 }
+// Braced init rather than a C99 compound literal: MSVC rejects the
+// (Color){...} form in C++ with error C4576.
+#define CHINAROSE Color{ 160, 70, 104, 255 }
 
 
 class Sect {

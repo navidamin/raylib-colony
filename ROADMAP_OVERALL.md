@@ -170,6 +170,13 @@ Based on `Prospecting_Extraction_Mechanics.md` design document.
 - 📋 Tune upgrade costs per tier (resource amounts)
 - 📋 Manual playtesting: full pipeline throughput verification at each tier
 - 📋 Dependency validation with clear error messages
+- 📋 Energy cost balance pass (costs are now enforced; numbers unplayed)
+
+> **Note:** the prospecting sections above describe the pre-2026-05 system.
+> Prospecting was rebuilt from scratch into `src/Prospecting/`; scan profiles,
+> campaigns, objectives and `ProspectingAI` were removed. See
+> `ROADMAP_IMMINENT.md` and `docs/design/prospecting/README.md` for current
+> state.
 
 **Design Decisions Recorded:**
 - Site selection: Full orbital survey for Colony, light preview for Sect
@@ -556,33 +563,34 @@ See `docs/design/research/README.md` for full interface requirements and open qu
 ## Current Status Summary
 
 **Current Phase:** PHASE 1.5 (Extraction Unit Overhaul) - 100% COMPLETE
+**Prospecting rewrite:** design Phases 1-6 of 8 complete
 **Next Phase:** PHASE 1 (Core Resource System)
 
-**Recent Completions (2026-02-22):**
-- ✅ Survey progress rework — replaced scanCount/3 hard cap with survey progress model (0-100%, diminishing returns, every scan helps), calibration/profiles feed into survey gain, panel UI fixes (tooltip z-order, depth bands, AI relocation)
-- ✅ Prospecting Phase 2 expansion — scan profiles (Quick/Standard/Deep), survey progress, calibration drift & standards, depth profiling (4 layers), adaptive infill campaigns, prospecting objectives (threshold/coverage/gradient), AI auto-management
-- ✅ Prospecting gameplay overhaul — survey-gated extraction (35% unscanned to 100% fully surveyed + 15% marked), tier-dependent noise, Tier 0 enabled, Colony overlay nerfed, geological confidence system (+10% Operations bonus)
-- ✅ ResourceDescriptor table refactor — single source of truth for resource metadata; typed resource flow (Sect↔Colony push/pull) wired up
-- ✅ Interactive extraction controls - scan grid, excavator +/- buttons, beneficiation reorder/toggle, directive card selector
-- ✅ Balance pass - fixed beneficiation double-multiply bug, raised node efficiencies, added 3 missing directive handlers, bumped Ops Tier 3
-- ✅ Extraction UI font scaling - 48pt texture, FS() 1.30x multiplier on all extraction text, enlarged scan log bars with element percentages
-- ✅ Extraction Unit UI Overhaul - dark-themed display panels for all 5 modules
-- ✅ Extraction pipeline (Phases A-H) - data model, site selection, module architecture, integration
-- ✅ Transport network (~90%) - road construction, transport packets, rate limiting
-- ✅ Multiple simultaneous active modules
-- ✅ Data-driven type system (game_types.toml)
-- ✅ Graphics enhancement (~95%)
+**Recent Completions (2026-08-13):**
+- ✅ Prospecting polish & economy — energy costs enforced (charged, gated, refunded), CALIBRATE / DISCARD / lab PRESETS wired to UI (all three had complete engines and no input path), crystal sprites finally rendered
+- ✅ Composition scale fix — `ResourceManager` quantities vs prospecting fractions were conflated; `ProspectingGrid` now separates `GetGroundTruth()` (fractions) from `GetQuantity()` (absolute), `RICHNESS_NORMALIZATION` recalibrated against real data
+- ✅ Extraction UI redesign — dark sci-fi kit across all five module panels plus chrome; touch-first feedback; mobile web canvas fixed (SHELL v4)
+- ✅ Dev tooling — `tools/preview` (headless panel screenshots), `tools/playtest` (interactive sandbox + Web/Pages build), `tools/inspect` (data dumps), `tools/shell-test` (canvas regression)
+- ✅ Development guides — `docs/guides/{ui-panels,module-architecture,feature-completeness}.md`, `docs/dev-workflow.md`, `docs/web-deploy-mobile.md`
 
-**Previous Completions:**
-- Engine refactor into manager subsystems
-- Terrain rendering with tiles
-- BuildNewColony/BuildNewSect functionality
+**Prospecting Rewrite (2026-05):**
+- ✅ Rebuilt from scratch into `src/Prospecting/` per `docs/design/prospecting/` — sweep (GPR) → sampling (core drilling, 4 depth layers) → lab (XRF/LIBS/assay) → survey progress, via 6 engines behind the `ProspectingSystem` facade
+- ✅ Crystal sample sprite set generated (`tools/crystal_gen`, 400 sprites)
+- ⚠️ **Superseded the previous prospecting system.** Scan profiles, calibration standards, adaptive infill campaigns, prospecting objectives, and `ProspectingAI` were removed; objectives and AI return as design Phases 8 and 7.
+
+**Earlier Completions:**
+- ✅ ResourceDescriptor table refactor — single source of truth for resource metadata; typed resource flow (Sect↔Colony push/pull)
+- ✅ Interactive extraction controls, balance pass, extraction pipeline (Phases A-H)
+- ✅ Transport network (~90%), multiple simultaneous active modules
+- ✅ Data-driven type system (game_types.toml), graphics enhancement (~95%)
+- Engine refactor into manager subsystems, terrain rendering, BuildNewColony/BuildNewSect
 
 **Immediate Priorities:**
-1. 📋 Tune upgrade costs per tier (resource amounts)
-2. 📋 Manual playtesting: full pipeline throughput verification (including Phase 2 mechanics)
-3. Phase 1: Core Resource System (storage capacity, resource flow, graceful degradation)
-4. Phase 3: Advanced Production (manufacturing chains, research trees)
+1. 📋 Playtest prospecting on device — first session with real data and enforced costs
+2. 📋 Prospecting Phase 8 (objectives), then Phase 7 (AI / default mode)
+3. 📋 First non-extraction unit panel (Farming or Energy) — largest content gap; tests whether the new guides generalize
+4. Phase 1: Core Resource System (storage capacity, resource flow, graceful degradation)
+5. 📋 Tune upgrade costs per tier; energy cost balance pass
 
 ---
 
@@ -624,6 +632,6 @@ See `docs/design/research/README.md` for full interface requirements and open qu
 
 ---
 
-**Last Updated:** 2026-02-22
+**Last Updated:** 2026-08-13
 **Maintained By:** Development Team
 **Review Cycle:** Weekly updates, major revisions at phase boundaries

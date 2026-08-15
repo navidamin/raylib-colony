@@ -21,7 +21,9 @@ public:
 
     static CrystalVisual AssignCrystalVisual(const Sample& sample,
                                               int parentGridX, int parentGridY);
-    static float CalculateRichness(const std::map<ResourceType, float>& composition);
+    // Richness comes from absolute deposit quantity, not composition
+    // (composition fractions always sum to 1).
+    static float CalculateRichnessFromQuantity(float totalQuantity);
     static ResourceType GetDominantElement(const std::map<ResourceType, float>& composition);
 
 private:
