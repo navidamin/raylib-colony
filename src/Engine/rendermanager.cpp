@@ -3556,17 +3556,34 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                     DrawRectangle(static_cast<int>(barX), static_cast<int>(resY + 2),
                                   static_cast<int>(barW * abundance), static_cast<int>(barH), fillCol);
 
-                    // Show value with precision based on confidence
+                    // Show value with precision based on confidence. Low
+                    // confidence reads as a coarser number in dimmer text
+                    // rather than a "~" prefix: Exo 2 draws the tilde as a
+                    // flat mid-height stroke set off from the digits, which
+                    // at this size reads as a minus sign on a value that can
+                    // never be negative.
                     const char* valText;
+                    Color valCol;
                     if (conf < 0.3f)
-                        valText = TextFormat("~%.0f%%", abundance * 100.0f);
+                    {
+                        // Nearest 5% -- the number itself carries the coarseness
+                        float coarse = roundf(abundance * 100.0f / 5.0f) * 5.0f;
+                        valText = TextFormat("%.0f%%", coarse);
+                        valCol = EXT_DIM_TEXT;
+                    }
                     else if (conf < 0.7f)
+                    {
                         valText = TextFormat("%.0f%%", abundance * 100.0f);
+                        valCol = {190, 195, 215, 255};
+                    }
                     else
+                    {
                         valText = TextFormat("%.1f%%", abundance * 100.0f);
+                        valCol = WHITE;
+                    }
 
                     DrawTextEx(bodyFont, valText,
-                               {barX + barW + 4, resY}, FS(9.0f), sp, WHITE);
+                               {barX + barW + 4, resY}, FS(9.0f), sp, valCol);
                     DrawTextEx(bodyFont, TextFormat("[%.0f%%]", conf * 100.0f),
                                {barX + barW + 50.0f, resY}, FS(8.0f), sp, EXT_DIM_TEXT);
                 }
