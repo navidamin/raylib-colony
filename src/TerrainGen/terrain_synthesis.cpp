@@ -524,32 +524,106 @@ static Color RampColor(float t)
 // Public API
 // ---------------------------------------------------------------------------
 
+static double g_anchorLat = TERRAIN_ANCHOR_LAT;
+static double g_anchorLon = TERRAIN_ANCHOR_LON;
+static unsigned int g_anchorVersion = 1;
+
+void SetTerrainAnchor(double latDeg, double lonDeg)
+{
+    // Keep the playfield off the poles, where the 1/cos(lat) longitude
+    // stretch blows up and the grid would smear.
+    g_anchorLat = std::clamp(latDeg, -78.0, 78.0);
+    g_anchorLon = lonDeg;
+    g_anchorVersion++;
+    TraceLog(LOG_INFO, "TERRAIN: anchor -> %.3f, %.3f (v%u)",
+             g_anchorLat, g_anchorLon, g_anchorVersion);
+}
+
+void GetTerrainAnchor(double* latDeg, double* lonDeg)
+{
+    if (latDeg) *latDeg = g_anchorLat;
+    if (lonDeg) *lonDeg = g_anchorLon;
+}
+
+unsigned int GetTerrainAnchorVersion() { return g_anchorVersion; }
+
+// The orbital disc as baked by prototypes/planet_visuals/asset_bake.py:
+// 1200 px square, 12 px margin, near side (camera lon 0), centred on
+// screen by DrawOrbitalView.
+static const double ORBITAL_DISC_PX = 1200.0;
+static const double ORBITAL_MARGIN_PX = 12.0;
+
+bool OrbitalPickToLatLon(float screenX, float screenY,
+                         int screenWidth, int screenHeight,
+                         double* latDeg, double* lonDeg)
+{
+    double cx = screenWidth / 2.0;
+    double cy = screenHeight / 2.0;
+    double r = ORBITAL_DISC_PX / 2.0 - ORBITAL_MARGIN_PX;
+
+    double xn = (screenX - cx) / r;
+    double yn = -(screenY - cy) / r;          // screen y grows downward
+    double d2 = xn * xn + yn * yn;
+    if (d2 > 0.985 * 0.985) return false;     // outside, or on the limb
+
+    double z = std::sqrt(std::max(0.0, 1.0 - d2));
+    double lat = std::asin(std::clamp(yn, -1.0, 1.0)) / DEG2RAD;
+    double lon = std::atan2(xn, z) / DEG2RAD;  // camera lon 0 = near side
+    if (latDeg) *latDeg = lat;
+    if (lonDeg) *lonDeg = lon;
+    return true;
+}
+
+bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
+                           int screenWidth, int screenHeight,
+                           float* screenX, float* screenY)
+{
+    double lat = latDeg * DEG2RAD;
+    double lon = lonDeg * DEG2RAD;
+    while (lon > PI) lon -= 2.0 * PI;
+    while (lon < -PI) lon += 2.0 * PI;
+
+    double x = std::cos(lat) * std::sin(lon);
+    double y = std::sin(lat);
+    double z = std::cos(lat) * std::cos(lon);
+    if (z <= 0.0) return false;               // far side
+
+    double r = ORBITAL_DISC_PX / 2.0 - ORBITAL_MARGIN_PX;
+    if (screenX) *screenX = (float)(screenWidth / 2.0 + x * r);
+    if (screenY) *screenY = (float)(screenHeight / 2.0 - y * r);
+    return true;
+}
+
 void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg)
 {
     double cellDeg = TERRAIN_CELL_KM / MOON_KM_PER_DEG;   // 0.16489 deg
     // Grid centre is between cells 9 and 10; gy grows south.
     double offX = (gx - 9.5);
     double offY = (gy - 9.5);
-    double lat = TERRAIN_ANCHOR_LAT - offY * cellDeg;
-    double c = std::max(0.2, std::cos(TERRAIN_ANCHOR_LAT * DEG2RAD));
-    double lon = TERRAIN_ANCHOR_LON + offX * cellDeg / c;
+    double lat = g_anchorLat - offY * cellDeg;
+    double c = std::max(0.2, std::cos(g_anchorLat * DEG2RAD));
+    double lon = g_anchorLon + offX * cellDeg / c;
     *latDeg = lat;
     *lonDeg = lon;
 }
 
-Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
-                          const TerrainTuning* tuning)
+// Shared engine: walk the 100 -> 25 -> 5 km ladder, writing an Image
+// for every level requested. Level i+1 is the centre crop of level i's
+// OUTPUT, so real forms flow down and the levels are registered to each
+// other by construction — that is what makes zooming continuous.
+static void GenerateChainInternal(double latDeg, double lonDeg, int res,
+                                  const TerrainTuning& tune,
+                                  Image* outLevels, int wantLevels)
 {
-    TerrainTuning defaults;
-    const TerrainTuning& tune = tuning ? *tuning : defaults;
-    Image fallback = GenImageColor(res, res, Color{40, 40, 48, 255});
-    if (!EnsureWacLoaded()) return fallback;
+    if (!EnsureWacLoaded())
+    {
+        for (int i = 0; i < wantLevels; i++)
+            outLevels[i] = GenImageColor(res, res, Color{40, 40, 48, 255});
+        return;
+    }
 
     double t0 = GetTime();
 
-    // The game-view span ladder: PLANET 100 km -> COLONY 25 km ->
-    // SECT 5 km. Each level crops the centre fraction of the previous
-    // level's OUTPUT — real forms flow down; texture becomes structure.
     const double spans[3] = {100.0 / MOON_KM_PER_DEG,
                              25.0 / MOON_KM_PER_DEG,
                              5.0 / MOON_KM_PER_DEG};
@@ -560,8 +634,21 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
     SharpenAdaptive(lum, res);
     TextureModulate(lum, res, rng0, 1.0f, tune);
 
+    auto emit = [&](int level)
+    {
+        if (level >= wantLevels) return;
+        Image img = GenImageColor(res, res, BLACK);
+        ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        Color* px = (Color*)img.data;
+        for (int i = 0; i < res * res; i++) px[i] = RampColor(lum[i]);
+        outLevels[level] = img;
+    };
+
+    emit(0);
+
     for (int lvl = 1; lvl < 3; lvl++)
     {
+        float k = res / 300.0f;
         float frac = (float)(spans[lvl] / spans[lvl - 1]);
         float half = frac * res / 2.0f;
         int lo = (int)std::lround(res / 2.0f - half);
@@ -571,7 +658,6 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
         for (int y = 0; y < cw; y++)
             for (int x = 0; x < cw; x++)
                 crop[y * cw + x] = lum[(size_t)(lo + y) * res + (lo + x)];
-        float k = res / 300.0f;
         lum = ResizeBilinear(crop, cw, cw, res, res);
         GaussianBlur(lum, res, res, 0.6f * k);
         Field blur = lum;
@@ -580,22 +666,31 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
             lum[i] = std::clamp(lum[i] + 0.40f * (lum[i] - blur[i]),
                                 0.0f, 1.0f);
         TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
-        // Boulder speckle only at the SECT level (17 m/px); craters
-        // removed by user decision — grain, undulation, boulders and
-        // lighting carry the surface.
         int boulderBase = (lvl == 2) ? (int)(120 * k * k) : 0;
-        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune,
-                        boulderBase);
+        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune, boulderBase);
+        emit(lvl);
     }
 
-    Image out = GenImageColor(res, res, BLACK);
-    ImageFormat(&out, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-    Color* px = (Color*)out.data;
-    for (int i = 0; i < res * res; i++) px[i] = RampColor(lum[i]);
-
-    UnloadImage(fallback);
     TraceLog(LOG_INFO,
-             "TERRAIN: sect ground (%.3f, %.3f) generated in %.0f ms",
-             latDeg, lonDeg, (GetTime() - t0) * 1000.0);
-    return out;
+             "TERRAIN: %d level(s) at (%.3f, %.3f) in %.0f ms",
+             wantLevels, latDeg, lonDeg, (GetTime() - t0) * 1000.0);
+}
+
+void GenerateTerrainChain(double latDeg, double lonDeg, int res,
+                          Image outLevels[3])
+{
+    TerrainTuning defaults;
+    GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3);
+}
+
+Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
+                          const TerrainTuning* tuning)
+{
+    TerrainTuning defaults;
+    const TerrainTuning& tune = tuning ? *tuning : defaults;
+    Image levels[3] = {};
+    GenerateChainInternal(latDeg, lonDeg, res, tune, levels, 3);
+    UnloadImage(levels[0]);
+    UnloadImage(levels[1]);
+    return levels[2];
 }

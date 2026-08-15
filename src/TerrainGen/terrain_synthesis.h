@@ -20,17 +20,50 @@
 // The playfield anchor maps the 20x20 planet grid onto a real 100 km
 // region of the moon; each grid cell has real lat/lon coordinates.
 
-// Playfield anchor: centre of the 20x20 planet grid on the real moon.
-// Mare Imbrium — flat mare with a distinctive crater nearby.
+// Default playfield anchor: centre of the 20x20 planet grid on the real
+// moon. Mare Imbrium — flat mare with a distinctive crater nearby. The
+// live anchor is settable, so the player can pick a region from orbit
+// and the whole grid re-registers there.
 const double TERRAIN_ANCHOR_LAT = 32.8;
 const double TERRAIN_ANCHOR_LON = -15.6;
 
 const double MOON_KM_PER_DEG = 30.32268;   // pi * 1737.4 / 180
 const double TERRAIN_CELL_KM = 5.0;        // one grid cell, sect diameter
 
+// The playfield's current centre on the moon. Setting it invalidates any
+// cached terrain (RenderManager re-generates on the next draw).
+void SetTerrainAnchor(double latDeg, double lonDeg);
+void GetTerrainAnchor(double* latDeg, double* lonDeg);
+// Bumped whenever the anchor moves — cheap cache-invalidation token.
+unsigned int GetTerrainAnchorVersion();
+
 // Real lat/lon of a planet grid cell centre (gx, gy in 0..19; gy grows
 // south, matching the game grid's y-down convention).
 void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg);
+
+// Invert the orbital disc projection: turn a screen-space click on the
+// moon disc into real lat/lon. Returns false if the click misses the
+// disc (or lands on the limb, where the projection is degenerate).
+// The disc is drawn centred on screen at 1200 px with a 12 px margin
+// (see prototypes/planet_visuals/asset_bake.py), near side, lon 0.
+bool OrbitalPickToLatLon(float screenX, float screenY,
+                         int screenWidth, int screenHeight,
+                         double* latDeg, double* lonDeg);
+
+// Project lat/lon back onto the orbital disc — the inverse of the above,
+// for drawing the pick marker. Returns false if on the far side.
+bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
+                           int screenWidth, int screenHeight,
+                           float* screenX, float* screenY);
+
+// The three geographic zoom levels, in game terms:
+//   0  PLANET view  100 km   (20x20 cells of 5 km)
+//   1  COLONY view   25 km   (5x5 cells)
+//   2  SECT view      5 km   (one cell)
+// Generating a sect's ground already computes 0 and 1 on the way down,
+// so emitting all three costs nothing extra. Caller owns every Image.
+void GenerateTerrainChain(double latDeg, double lonDeg, int res,
+                          Image outLevels[3]);
 
 // Tuning knobs for the surface layers (all multipliers on the
 // baseline, except the weights which are absolute). Craters were
