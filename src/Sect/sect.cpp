@@ -391,36 +391,110 @@ namespace
         }
     }
 
+    // Per-pixel ray-shaded dome sphere baked into a texture, cached per tint+size.
+    // Lambert diffuse + two-lobe Blinn specular + fresnel rim + bounce light.
+    Texture2D GetBakedDomeTexture(float radiusF, Color base)
+    {
+        static std::map<unsigned long long, Texture2D> cache;
+
+        int radius = (int)radiusF;
+        unsigned long long key = ((unsigned long long)radius << 32)
+                               | ((unsigned long long)base.r << 16)
+                               | ((unsigned long long)base.g << 8)
+                               | (unsigned long long)base.b;
+        auto it = cache.find(key);
+        if (it != cache.end()) return it->second;
+
+        int size = radius * 2 + 4;
+        float cx = size / 2.0f;
+        float cy = size / 2.0f;
+        float r = (float)radius;
+        Image img = GenImageColor(size, size, BLANK);
+
+        // Key light (top-left) and bounce light (from below)
+        float Lx = -0.45f, Ly = -0.55f, Lz = 0.70f;
+        float ll = sqrtf(Lx * Lx + Ly * Ly + Lz * Lz);
+        Lx /= ll; Ly /= ll; Lz /= ll;
+        float Bx = 0.30f, By = 0.80f, Bz = 0.52f;
+        float bl = sqrtf(Bx * Bx + By * By + Bz * Bz);
+        Bx /= bl; By /= bl; Bz /= bl;
+
+        float br = base.r / 255.0f;
+        float bg = base.g / 255.0f;
+        float bb = base.b / 255.0f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x - cx) / r;
+                float dy = (y - cy) / r;
+                float d2 = dx * dx + dy * dy;
+                if (d2 > 1.0f) continue;
+
+                float nz = sqrtf(1.0f - d2);
+                float dif = dx * Lx + dy * Ly + nz * Lz;
+                if (dif < 0.0f) dif = 0.0f;
+                float dif2 = dx * Bx + dy * By + nz * Bz;
+                if (dif2 < 0.0f) dif2 = 0.0f;
+
+                // Blinn half-vector specular (view = +Z), broad sheen + soft core
+                float Hx = Lx, Hy = Ly, Hz = Lz + 1.0f;
+                float hl = sqrtf(Hx * Hx + Hy * Hy + Hz * Hz);
+                float ndh = (dx * Hx + dy * Hy + nz * Hz) / hl;
+                if (ndh < 0.0f) ndh = 0.0f;
+                float spec = powf(ndh, 10.0f) * 0.28f + powf(ndh, 45.0f) * 0.30f;
+
+                // Fresnel rim picks up a cool sky tint
+                float fre = powf(1.0f - nz, 3.0f) * 0.40f;
+
+                float lum = 0.26f + 0.80f * dif + 0.16f * dif2;
+                float cr = br * lum + 0.55f * fre + spec;
+                float cg = bg * lum + 0.85f * fre + spec;
+                float cb = bb * lum + 0.65f * fre + spec;
+                if (cr > 1.0f) cr = 1.0f;
+                if (cg > 1.0f) cg = 1.0f;
+                if (cb > 1.0f) cb = 1.0f;
+
+                // Anti-aliased edge
+                float d = sqrtf(d2);
+                float alpha = (1.0f - d) * r * 1.8f;
+                if (alpha > 1.0f) alpha = 1.0f;
+                if (alpha < 0.0f) alpha = 0.0f;
+
+                ImageDrawPixel(&img, x, y, Color{(unsigned char)(cr * 255.0f),
+                                                 (unsigned char)(cg * 255.0f),
+                                                 (unsigned char)(cb * 255.0f),
+                                                 (unsigned char)(alpha * 255.0f)});
+            }
+        }
+
+        Texture2D tex = LoadTextureFromImage(img);
+        SetTextureFilter(tex, TEXTURE_FILTER_BILINEAR);
+        UnloadImage(img);
+        cache[key] = tex;
+        return tex;
+    }
+
     // Glossy hex-glass dome sphere in an arbitrary tint
     void DrawDomeSphere(Vector2 center, float radius, Color base)
     {
-        Color edge = MixColor(base, Color{0, 0, 0, 255}, 0.62f);
-        Color bright = MixColor(base, Color{255, 255, 255, 255}, 0.30f);
+        Texture2D tex = GetBakedDomeTexture(radius, base);
+        Rectangle src = {0.0f, 0.0f, (float)tex.width, (float)tex.height};
+        Rectangle dst = {center.x - tex.width / 2.0f, center.y - tex.height / 2.0f,
+                         (float)tex.width, (float)tex.height};
+        DrawTexturePro(tex, src, dst, Vector2{0.0f, 0.0f}, 0.0f, WHITE);
 
-        DrawCircleV(center, radius, edge);
+        // Hex glass pattern over the shading
+        DrawHexPattern(center, radius * 0.93f, radius * 0.115f,
+                       Fade(MixColor(base, Color{0, 0, 0, 255}, 0.45f), 0.40f));
+        DrawRing(center, radius * 0.88f, radius, 0.0f, 360.0f, 72, Fade(BLACK, 0.15f));
 
-        const int layers = 22;
-        for (int i = 0; i < layers; i++)
-        {
-            float t = (float)i / (float)(layers - 1);
-            float layerRadius = radius * (0.97f - 0.62f * t);
-            Vector2 layerCenter = {center.x - radius * 0.14f * t,
-                                   center.y - radius * 0.18f * t};
-            DrawCircleV(layerCenter, layerRadius, MixColor(base, bright, t * t));
-        }
-
-        // Hex glass pattern
-        DrawHexPattern(center, radius * 0.94f, radius * 0.13f,
-                       Fade(MixColor(base, Color{0, 0, 0, 255}, 0.45f), 0.55f));
-
-        // Specular highlight (strong glare, top-left)
-        DrawEllipse((int)(center.x - radius * 0.30f), (int)(center.y - radius * 0.42f),
-                    radius * 0.36f, radius * 0.19f, Fade(WHITE, 0.30f));
-        DrawEllipse((int)(center.x - radius * 0.35f), (int)(center.y - radius * 0.47f),
-                    radius * 0.15f, radius * 0.08f, Fade(WHITE, 0.50f));
-
-        // Depth shading toward the rim
-        DrawRing(center, radius * 0.88f, radius, 0.0f, 360.0f, 72, Fade(BLACK, 0.35f));
+        // Soft wide glare over the pattern (no hard hot spot)
+        DrawEllipse((int)(center.x - radius * 0.28f), (int)(center.y - radius * 0.40f),
+                    radius * 0.34f, radius * 0.19f, Fade(WHITE, 0.08f));
+        DrawEllipse((int)(center.x - radius * 0.30f), (int)(center.y - radius * 0.43f),
+                    radius * 0.22f, radius * 0.12f, Fade(WHITE, 0.10f));
     }
 
     // Riveted metal bezel ring
