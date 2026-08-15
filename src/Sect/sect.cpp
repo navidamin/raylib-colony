@@ -571,12 +571,12 @@ namespace
 void Sect::DrawInSectView(Vector2 position) {
     // Dome-station layout: hex-glass domes, connector arms, ring road, entry rails
     float h = (float)GetScreenHeight();
-    Vector2 center = {position.x, position.y - h * 0.045f};
+    Vector2 center = {position.x, position.y - h * 0.04f};
     float domeRadius = h * 0.15f;                    // Central dome
     float collarOut = domeRadius * 1.22f;            // Hub bezel outer edge
     float unitRadius = h * 0.085f;                   // Unit dome
-    float orbitRadius = h * 0.335f;                  // Unit centers
-    float roadRadius = h * 0.415f;                   // Outer ring road
+    float orbitRadius = h * 0.325f;                  // Unit centers
+    float roadRadius = h * 0.443f;                   // Outer ring road (clears unit bezels)
 
     // Precompute node positions (8 units, start at top, clockwise)
     std::vector<Vector2> nodePositions(units.size());
