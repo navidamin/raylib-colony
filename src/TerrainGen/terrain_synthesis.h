@@ -70,6 +70,12 @@ struct TerrainSiteDisturbance
     float ringRadiusKm = 3.30f;    // radius the unit domes sit on
     float coreRadiusKm = 1.70f;    // the central dome
     float domeWorkKm = 1.15f;      // worked ground around each dome
+    // How far the natural ground is calmed inside the site. Not a flat
+    // platform: 0 keeps the wild terrain, 1 would erase it. The point is
+    // to level the elevation swings and their shadows down to a calmer
+    // baseline, then lay the worked undulations on top.
+    float levelAmount = 0.70f;     // damping of natural elevation variation
+    float toneLevelAmount = 0.55f; // damping of imagery contrast/shadows
     float undulationAmp = 0.0075f; // gentle mounds and hollows
     float roughAmp = 0.0045f;      // random fine alterations
     float spotAmp = 0.0060f;       // per-dome mound/hollow depth

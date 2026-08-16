@@ -449,6 +449,50 @@ static void SprinkleBoulders(Field& height, int res, TerrainRng& rng,
     }
 }
 
+// Smooth falloff of the site's influence: full effect through the
+// middle, fading to nothing at the site radius.
+static float SiteWeight(float x, float y, float cx, float cy, float siteR)
+{
+    float d = std::hypot(x - cx, y - cy) / siteR;
+    if (d >= 1.0f) return 0.0f;
+    float t = std::clamp((1.0f - d) / 0.40f, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Calm the imagery inside the site before any relief is derived from
+// it. The macro drives both the base albedo and the form relief, so
+// pulling its contrast toward the local mean levels off the deep
+// natural shadows the site would otherwise sit in.
+static void LevelSiteMacro(Field& macro, int res, float pxPerKm,
+                           const TerrainSiteDisturbance& site)
+{
+    const float cx = res * 0.5f, cy = res * 0.5f;
+    const float siteR = site.siteRadiusKm * pxPerKm;
+    if (siteR < 2.0f || site.toneLevelAmount <= 0.0f) return;
+
+    double sum = 0.0, wsum = 0.0;
+    for (int y = 0; y < res; y++)
+        for (int x = 0; x < res; x++)
+        {
+            float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+            if (w <= 0.0f) continue;
+            sum += macro[(size_t)y * res + x] * w;
+            wsum += w;
+        }
+    if (wsum < 1e-6) return;
+    float mean = (float)(sum / wsum);
+
+    for (int y = 0; y < res; y++)
+        for (int x = 0; x < res; x++)
+        {
+            float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+            if (w <= 0.0f) continue;
+            size_t i = (size_t)y * res + x;
+            float k = site.toneLevelAmount * w;
+            macro[i] = macro[i] * (1.0f - k) + mean * k;
+        }
+}
+
 // Work the ground over a little where the colony operates.
 //
 // The natural terrain is kept — nothing is levelled. Around the core
@@ -482,6 +526,35 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
                          site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
     }
 
+    // Level the natural elevation swings down to a calmer baseline
+    // first, so the worked undulations laid on top actually read
+    // instead of being buried under the wild terrain.
+    if (site.levelAmount > 0.0f)
+    {
+        double hsum = 0.0, hw = 0.0;
+        for (int y = 0; y < res; y++)
+            for (int x = 0; x < res; x++)
+            {
+                float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+                if (w <= 0.0f) continue;
+                hsum += height[(size_t)y * res + x] * w;
+                hw += w;
+            }
+        if (hw > 1e-6)
+        {
+            float mean = (float)(hsum / hw);
+            for (int y = 0; y < res; y++)
+                for (int x = 0; x < res; x++)
+                {
+                    float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+                    if (w <= 0.0f) continue;
+                    size_t i = (size_t)y * res + x;
+                    float k = site.levelAmount * w;
+                    height[i] = height[i] * (1.0f - k) + mean * k;
+                }
+        }
+    }
+
     // Two noise fields: soft lumps for undulation, fine grain for the
     // random alterations. Sampled, not re-rolled per pixel, so the
     // result stays deterministic for the location.
@@ -494,15 +567,7 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
         {
             size_t i = (size_t)y * res + x;
 
-            // Site-wide falloff: full effect out to ~60% of the site
-            // radius, fading to nothing at its edge.
-            float ds = std::hypot(x - cx, y - cy) / siteR;
-            float siteW = 0.0f;
-            if (ds < 1.0f)
-            {
-                float t = std::clamp((1.0f - ds) / 0.40f, 0.0f, 1.0f);
-                siteW = t * t * (3.0f - 2.0f * t);
-            }
+            float siteW = SiteWeight((float)x, (float)y, cx, cy, siteR);
 
             // Per-dome worked patches, strongest at each dome.
             float domeW = 0.0f;
@@ -541,6 +606,9 @@ static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
     // Pixel-based sizes below are tuned at 300 px; k rescales them so
     // physical feature sizes stay fixed at other resolutions.
     float k = res / 300.0f;
+    if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
+        LevelSiteMacro(macro, res, pxPerKm, *site);
+
     Field density((size_t)res * res);
     for (size_t i = 0; i < density.size(); i++)
         density[i] = std::clamp((macro[i] - 0.22f) / 0.45f, 0.15f, 1.0f);
