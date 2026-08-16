@@ -41,6 +41,7 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 
 | Module | Directory | Status |
 |--------|-----------|--------|
+| Reference surveys | `references/` | Research — comparable games and real space-logistics systems |
 | Prospecting | `prospecting/` | Active design |
 | Core (habitat/command) | `core/` | Draft — designed, not built |
 | Research | `research/` | Stub — interface requirements from prospecting AI |
