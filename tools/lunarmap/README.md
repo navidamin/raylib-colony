@@ -84,6 +84,7 @@ craters must sit where the real ones sit.
 | `--style shaded\|color` | photographic relief / LOLA elevation ramp |
 | `--sun AZ,EL` | sun azimuth (cw from north) and elevation (default 315,30) |
 | `--exag F` | vertical exaggeration (default 2.0; 1.0 = true scale) |
+| `--detail F` | sub-floor synthesis strength (default 1.0; 0 = measured data only) |
 | `--ambient F` | shadow-side fill light (default 0.06) |
 | `--tilt` | tilted 3D slab instead of top-down |
 | `--size WxH` | output resolution (default 1200x1200) |
@@ -109,6 +110,16 @@ craters must sit where the real ones sit.
 - Elevations are metres against the 1737.4 km reference radius; the
   HUD legend and window stats print the real range (global:
   −8.98 … +10.69 km).
+- **Sub-floor synthesis** (`--detail`, on by default for regional
+  windows): LDEM_16 resolves nothing under ~1.9 km/px, so zoomed
+  windows come out soft. Below that floor the window synthesizes
+  plausible lunar ground — a fractal regolith spectrum plus a
+  clustered small-crater population (power-law sizes, degraded
+  parabolic bowls with rims). Deterministic per location (anchored to
+  global coordinates, independent of window framing); amplitude fades
+  to zero at wavelengths the real data carries, so the LOLA landforms
+  are textured, never displaced. Detail below ~2 km is *plausible*,
+  not *measured* — use `--detail 0` for the honest instrument view.
 - The near-side map is plate carrée (equirectangular), so high-latitude
   ground stretches east-west; regional `--pick` windows compensate with
   the same 1/cos(lat) widening the game's terrain chain uses.

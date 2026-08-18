@@ -69,6 +69,7 @@ struct MapOptions
     float sunAzimuthDeg = 315.0f;  // clockwise from north (NW default)
     float sunElevationDeg = 30.0f;
     float exaggeration = 2.0f;     // vertical scale multiplier
+    float detail = 1.0f;           // sub-floor synthesis strength (0 = off)
     float ambient = 0.06f;
     int width = 1200;
     int height = 1200;
@@ -94,6 +95,7 @@ static void PrintUsage()
         << "  --style NAME      shaded | color          (default: shaded)\n"
         << "  --sun AZ,EL       sun azimuth/elevation   (default: 315,30)\n"
         << "  --exag F          vertical exaggeration   (default: 2.0)\n"
+        << "  --detail F        sub-floor synthesis     (default: 1.0, 0=off)\n"
         << "  --ambient F       ambient light level     (default: 0.06)\n"
         << "  --tilt            tilted 3D slab view instead of top-down\n"
         << "  --orbit YAW,PITCH tilt camera angles (default: 180,52)\n"
@@ -141,6 +143,7 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
             }
         }
         else if (arg == "--exag" && hasNext) { options.exaggeration = (float)std::atof(argv[++i]); }
+        else if (arg == "--detail" && hasNext) { options.detail = (float)std::atof(argv[++i]); }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
         else if (arg == "--orbit" && hasNext)
@@ -634,7 +637,7 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
         int res = (options.demRes > 0) ? options.demRes : 1024;
         texRes = std::clamp(res, 64, 4096);
         scene.window = dem.Window(options.pickLat, options.pickLon,
-                                  options.spanKm, texRes);
+                                  options.spanKm, texRes, options.detail);
         double spanDeg = options.spanKm * 1000.0 / LOLA_M_PER_DEG;
         double c = std::max(0.2, std::cos(options.pickLat * DEG2RAD));
         scene.lat0 = options.pickLat - spanDeg / 2.0;
