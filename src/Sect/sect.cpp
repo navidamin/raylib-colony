@@ -1,6 +1,7 @@
 #include "sect.h"
 #include "colony.h"
 #include <iostream>
+#include <algorithm>
 
 Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
     : resourceManager(resource),
@@ -247,7 +248,18 @@ void Sect::DrawInColonyView(Vector2 pos) {
 
 
 void Sect::DrawInSectView(Vector2 position) {
-    float coreRadius = GetScreenHeight() * 0.38f;  // Core takes ~76% of screen height diameter
+    // Ring geometry, shared by the dome and the socket ring below. A socket
+    // centre sits at ORBIT_FACTOR from the middle and the socket itself spans
+    // UNIT_FACTOR, so the ring reaches (ORBIT + UNIT) x coreRadius.
+    const float ORBIT_FACTOR = 1.12f;
+    const float UNIT_FACTOR  = 0.32f;
+    const float RING_EXTENT  = ORBIT_FACTOR + UNIT_FACTOR;
+    const float TOP_MARGIN   = 40.0f;   // clears the day counter
+
+    // Cap the core so the topmost socket stays on screen. At 0.38 the top
+    // socket was clipped ~34px off the top edge and could not be clicked.
+    float coreRadius = std::min(GetScreenHeight() * 0.38f,
+                                (GetScreenHeight() * 0.5f - TOP_MARGIN) / RING_EXTENT);
 
     // Draw the main core (dome texture or fallback circle)
     if (domeTexture.id != 0) {
@@ -296,8 +308,8 @@ void Sect::DrawInSectView(Vector2 position) {
     DrawResourceStats(position, coreRadius);
 
     // Draw the units around the core
-    float unitRadius = coreRadius * 0.32f;  // Units are 32% the size of core (larger)
-    float orbitRadius = coreRadius * 1.12f; // Distance from core center to unit center (closer)
+    float unitRadius = coreRadius * UNIT_FACTOR;
+    float orbitRadius = coreRadius * ORBIT_FACTOR;
 
     // The Core sits on the centre dome rather than in the ring. Giving it the
     // centre position here is also what makes the dome clickable, since

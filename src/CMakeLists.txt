@@ -181,6 +181,47 @@ if(APPLE)
 endif()
 
 # ---------------------------------------------------------------------------
+# colony_sectwalk: sect-view walkthrough
+#
+# Boots into the Sect view so every unit and every module can be inspected by
+# hand -- the only harness that covers the whole tree (tools/preview renders
+# one panel at a time). See tools/sectwalk/README.md. Builds for Web too.
+# ---------------------------------------------------------------------------
+add_executable(colony_sectwalk)
+
+target_sources(colony_sectwalk PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/sectwalk/sectwalk_main.cpp"
+    ${COLONY_CORE_SOURCES}
+)
+
+set_target_properties(colony_sectwalk PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(colony_sectwalk PRIVATE ${COLONY_INCLUDE_DIRS})
+
+target_link_libraries(colony_sectwalk raylib tomlplusplus::tomlplusplus)
+
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(colony_sectwalk m)
+endif()
+
+if ("${PLATFORM}" STREQUAL "Web")
+    set_target_properties(colony_sectwalk PROPERTIES SUFFIX ".html")
+    set_target_properties(colony_sectwalk PROPERTIES LINK_FLAGS "${web_link_flags}")
+endif()
+
+if(APPLE)
+    target_link_libraries(colony_sectwalk
+        "-framework IOKit"
+        "-framework Cocoa"
+        "-framework OpenGL"
+    )
+endif()
+
+# ---------------------------------------------------------------------------
 # colony_inspect: terminal dump of generated game data
 #
 # Prints real ResourceManager / ProspectingGrid numbers so value bugs can be

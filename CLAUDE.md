@@ -339,6 +339,7 @@ without a display:
 |------|-----------|
 | `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so screenshots are faithful and reproducible. |
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
+| `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
 | `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
 

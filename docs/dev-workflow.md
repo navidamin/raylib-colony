@@ -43,7 +43,7 @@ tools/preview/preview.sh --module sprites # crystal sprite contact sheet
 
 Key flags: `--unit` (any of the eight unit types — `Extraction`, `Farming`,
 `Energy`, `Manufacture`, `Research`, `Construction`, `Transport`,
-`Communication`), `--module`, `--tab`, `--state`
+`Core`), `--module`, `--tab`, `--state`
 (`empty`/`swept`/`sampled`/`analyzed`), `--tier 0-3`, `--energy N` (test cost
 gating), `--size`, `--out`. Run `--help` for the module names per unit.
 
@@ -54,7 +54,24 @@ BUILT state; any higher tier builds it first.
 The world uses a **fixed seed** (`PREVIEW_MAP_SEED`), so screenshots are
 reproducible and comparable between runs. Full docs: `tools/preview/README.md`.
 
-### 2. `tools/playtest/` — interactive sandbox + phone build
+### 2. `tools/sectwalk/` — walk every unit and module
+
+Boots straight into the Sect view. Click a socket or the Core dome to open a
+unit, click through its module list, `BACK` to return.
+
+```bash
+cmake --build build --target colony_sectwalk && ./build/src/colony_sectwalk
+```
+
+`preview.sh` renders one panel at a time, which is right for iterating on a
+single layout and useless for judging the set. This is the only harness that
+walks all **40 modules across 8 unit types** in sequence. Use it before merging
+UI work that touches more than one unit.
+
+`BUILD ALL` (or `B`) builds every module, since units start with 3 of 5 built.
+Full docs: `tools/sectwalk/README.md`.
+
+### 3. `tools/playtest/` — interactive sandbox + phone build
 
 Boots straight into the prospecting module with a live game loop. Builds
 natively and for Web.
@@ -66,7 +83,7 @@ cmake --build build --target colony_playtest && ./build/src/colony_playtest
 Deployed with the game to GitHub Pages at **`/playtest/`**. Full docs:
 `tools/playtest/README.md`.
 
-### 3. `tools/inspect/` — terminal dump of generated data
+### 4. `tools/inspect/` — terminal dump of generated data
 
 Prints what the generators actually produced: raw `ResourceManager` quantities
 per depth layer, then the `ProspectingGrid` sub-cell view (composition
@@ -82,7 +99,7 @@ Uses the same fixed seed as the preview tool, so its numbers describe the
 world the screenshots show. Reach for this the moment a displayed value looks
 implausible.
 
-### 4. `tools/shell-test/` — web shell canvas regression test
+### 5. `tools/shell-test/` — web shell canvas regression test
 
 Verifies `src/minshell.html` keeps the framebuffer pinned and the canvas
 fitted, at phone and tablet viewports, against a stand-in runtime that fights
@@ -113,7 +130,7 @@ NODE_PATH=/opt/node22/lib/node_modules node tools/shell-test/shell_test.js --sho
 ## Before committing
 
 ```bash
-cmake --build build --target colony_game colony_playtest colony_preview -j4
+cmake --build build --target colony_game colony_playtest colony_preview colony_sectwalk -j4
 tools/preview/preview.sh --all
 ```
 
