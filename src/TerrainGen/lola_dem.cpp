@@ -8,6 +8,9 @@
 #include <cstring>
 #include <fstream>
 
+// MSVC does not expose LOLA_PI without _USE_MATH_DEFINES; carry our own.
+static const double LOLA_PI = 3.14159265358979323846;
+
 // ---------------------------------------------------------------------------
 // Minimal TIFF reader
 //
@@ -298,7 +301,7 @@ LolaWindow LolaDem::WindowDegrees(double lat0, double lat1,
 
     // Physical pixel sizes at the window's centre latitude.
     double midLat = (lat0 + lat1) / 2.0;
-    double c = std::max(0.2, std::cos(midLat * M_PI / 180.0));
+    double c = std::max(0.2, std::cos(midLat * LOLA_PI / 180.0));
     double pxPerDeg = width / 360.0;
     double dyM = LOLA_M_PER_DEG / pxPerDeg;
     double dxM = dyM * c;
@@ -317,7 +320,7 @@ LolaWindow LolaDem::WindowDegrees(double lat0, double lat1,
             double gy = (elev[(size_t)yp * cw + x] - elev[(size_t)ym * cw + x]) / sy;
             double gx = (elev[(size_t)y * cw + xp] - elev[(size_t)y * cw + xm]) / sx;
             slope[(size_t)y * cw + x] =
-                (float)(std::atan(std::hypot(gx, gy)) * 180.0 / M_PI);
+                (float)(std::atan(std::hypot(gx, gy)) * 180.0 / LOLA_PI);
         }
     }
 
@@ -357,7 +360,7 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     out.elevationM.resize((size_t)res * res);
     out.slopeDeg.resize((size_t)res * res);
 
-    const double DEG = M_PI / 180.0;
+    const double DEG = LOLA_PI / 180.0;
     double lat0 = latDeg * DEG;
     double lon0 = lonDeg * DEG;
     double halfM = spanKm * 1000.0 / 2.0;
