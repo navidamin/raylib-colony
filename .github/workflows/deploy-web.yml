@@ -3,7 +3,10 @@ name: Deploy to GitHub Pages
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    # TEMPORARY: the excavation branch deploys so the extraction sandbox can be
+    # played on a phone before it merges. Remove this branch when it lands, or
+    # every push to it replaces the live site.
+    branches: [main, master, claude/excavation-module-design-jhp3v1]
     paths:
       - 'src/**'
       - 'CMakeLists.txt'
@@ -57,6 +60,15 @@ jobs:
         cp build/src/colony_playtest.wasm deploy/playtest/colony_playtest.wasm
         if [ -f build/src/colony_playtest.data ]; then
           cp build/src/colony_playtest.data deploy/playtest/colony_playtest.data
+        fi
+
+        # Whole extraction unit sandbox at /extraction/
+        mkdir -p deploy/extraction
+        cp build/src/colony_extraction.html deploy/extraction/index.html
+        cp build/src/colony_extraction.js deploy/extraction/colony_extraction.js
+        cp build/src/colony_extraction.wasm deploy/extraction/colony_extraction.wasm
+        if [ -f build/src/colony_extraction.data ]; then
+          cp build/src/colony_extraction.data deploy/extraction/colony_extraction.data
         fi
 
     - name: Setup Pages

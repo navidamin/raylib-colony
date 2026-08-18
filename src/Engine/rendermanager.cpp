@@ -4089,9 +4089,16 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     if (last.totalMass > 0.0f)
     {
         float share = last.targetMass / last.totalMass;
-        const char* got = TextFormat("GETTING  %.1f %s  of  %.1f moved   (%.0f%% useful)",
-                                     last.targetMass, targetName, last.totalMass,
-                                     share * 100.0f);
+
+        // Per-DAY rate, not the per-frame mass. A frame moves a fraction of a
+        // unit, so the raw figure rounded to 0.0 and the panel looked broken
+        // while the module was working perfectly well.
+        float frame = GetFrameTime();
+        float perDay = frame > 0.0f ? (TICKS_PER_DAY / frame) : 0.0f;
+
+        const char* got = TextFormat("GETTING  %.0f %s/day  of  %.0f moved   (%.0f%% useful)",
+                                     last.targetMass * perDay, targetName,
+                                     last.totalMass * perDay, share * 100.0f);
         float gw = MeasureTextEx(bodyFont, got, FS(10.0f), sp).x;
         Color gotColor = share > 0.6f ? EXT_ACCENT_GREEN
                                       : (share > 0.3f ? EXT_TEXT : EXT_ACCENT_GOLD);

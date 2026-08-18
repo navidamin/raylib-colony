@@ -187,6 +187,49 @@ if(APPLE)
 endif()
 
 # ---------------------------------------------------------------------------
+# colony_extraction: interactive sandbox for the WHOLE extraction unit
+#
+# The prospecting playtest boots into one module; this boots into the unit with
+# prospecting, excavation and beneficiation all running, so the chain a player
+# experiences -- survey, choose where to dig, watch what arrives -- is testable
+# end to end. Adds time acceleration, because a face takes game days to work
+# out and a survey needs a day to repay itself. Builds for Web like the others.
+# ---------------------------------------------------------------------------
+add_executable(colony_extraction)
+
+target_sources(colony_extraction PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/playtest/extraction_playtest_main.cpp"
+    ${COLONY_CORE_SOURCES}
+)
+
+set_target_properties(colony_extraction PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(colony_extraction PRIVATE ${COLONY_INCLUDE_DIRS})
+target_link_libraries(colony_extraction raylib tomlplusplus::tomlplusplus)
+
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(colony_extraction m)
+endif()
+
+if ("${PLATFORM}" STREQUAL "Web")
+    # Same shell, preloaded assets, and link flags as the game and playtest
+    set_target_properties(colony_extraction PROPERTIES SUFFIX ".html")
+    set_target_properties(colony_extraction PROPERTIES LINK_FLAGS "${web_link_flags}")
+endif()
+
+if(APPLE)
+    target_link_libraries(colony_extraction
+        "-framework IOKit"
+        "-framework Cocoa"
+        "-framework OpenGL"
+    )
+endif()
+
+# ---------------------------------------------------------------------------
 # colony_test: invariant checks for the excavation module
 #
 # No test framework in this repo -- a plain executable with a Check() helper

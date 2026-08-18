@@ -7,13 +7,28 @@ Pages deploy.
 
 ## Pipeline
 
-- Targets `colony_game` and `colony_playtest` both build for
-  `PLATFORM=Web` (emscripten). `src/CMakeLists.txt` shares
+- Targets `colony_game`, `colony_playtest` and `colony_extraction` all
+  build for `PLATFORM=Web` (emscripten). `src/CMakeLists.txt` shares
   `web_link_flags` between them: `--shell-file src/minshell.html`,
   `--preload-file src/assets@src/assets`.
-- `.github/workflows/deploy-web.yml` builds both and publishes to GitHub
-  Pages: game at `/`, playtest at `/playtest/`. Each Pages deploy
-  replaces the whole site.
+- `.github/workflows/deploy-web.yml` builds all three and publishes to
+  GitHub Pages: game at `/`, prospecting sandbox at `/playtest/`, whole
+  extraction unit at `/extraction/`. Each Pages deploy replaces the
+  whole site.
+
+### Adding another web sandbox
+
+Four steps, all small:
+
+1. `add_executable(<name>)` in `src/CMakeLists.txt` with
+   `${COLONY_CORE_SOURCES}`, then inside `if ("${PLATFORM}" STREQUAL "Web")`
+   set `SUFFIX ".html"` and `LINK_FLAGS "${web_link_flags}"`.
+2. Drive the frame with `emscripten_set_main_loop_arg` under
+   `#ifdef __EMSCRIPTEN__` — a `while` loop hangs the browser.
+3. Copy the four artefacts (`.html` → `index.html`, `.js`, `.wasm`, and
+   `.data` if present) into `deploy/<path>/` in the workflow.
+4. Make sure the source path matches the workflow's `paths` filter, or a
+   push touching only your file will not trigger a deploy.
 - The `github-pages` **environment** restricts which branches may
   deploy. A branch deploy failing in ~2s with no steps run = branch not
   in the environment's allowlist (Settings → Environments →
