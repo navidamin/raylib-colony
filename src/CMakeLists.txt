@@ -230,26 +230,34 @@ endif()
 # side map, or any picked region) from the real LOLA elevation model
 # with a lunar shading pipeline. See tools/lunarmap/README.md.
 # ---------------------------------------------------------------------------
-if(NOT "${PLATFORM}" STREQUAL "Web")
-    add_executable(lunar_map)
+add_executable(lunar_map)
 
-    target_sources(lunar_map PRIVATE
-        "${CMAKE_SOURCE_DIR}/tools/lunarmap/lunarmap_main.cpp"
-        TerrainGen/lola_dem.cpp
-    )
+target_sources(lunar_map PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/lunarmap/lunarmap_main.cpp"
+    TerrainGen/lola_dem.cpp
+)
 
-    set_target_properties(lunar_map PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-    )
+set_target_properties(lunar_map PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
 
-    target_include_directories(lunar_map PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
-    )
+target_include_directories(lunar_map PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+)
 
-    target_link_libraries(lunar_map raylib)
-    if(NOT WIN32)
-        target_link_libraries(lunar_map m)
-    endif()
+target_link_libraries(lunar_map raylib)
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(lunar_map m)
+endif()
+
+if("${PLATFORM}" STREQUAL "Web")
+    set_target_properties(lunar_map PROPERTIES SUFFIX ".html")
+    set(lm_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
+    # Only the DEM and the WAC albedo are needed — not the game assets.
+    set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_SOURCE_DIR}/prototypes/planet_visuals/data/lola/ldem_16_uint.tif@prototypes/planet_visuals/data/lola/ldem_16_uint.tif")
+    set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/wac_global.jpg@src/assets/planet/wac_global.jpg --use-preload-plugins")
+    set(lm_link_flags "${lm_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
+    set_target_properties(lunar_map PROPERTIES LINK_FLAGS "${lm_link_flags}")
 endif()

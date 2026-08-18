@@ -55,6 +55,19 @@ xvfb-run -a ...` (the script applies it).
 tools/lunarmap/lunarmap.sh --playtest
 ```
 
+### Web playtest (GitHub Pages)
+
+The deploy workflow (.github/workflows/deploy-web.yml) also builds this
+tool with Emscripten and publishes it at **/lunarmap/** alongside the
+game and the view-ladder playtest, preloading the LOLA DEM + WAC albedo
+(~45 MB download). The web build is interactive: tap the near-side map
+to dive into a 200 km window at that spot, BACK returns; on-screen
+buttons cover style, 3D/map view, sun and exaggeration. Shading avoids
+float textures and uses a GLSL ES 100 shader, so WebGL1 is enough.
+Deploys run from `main`; a feature branch also needs adding to the
+`github-pages` environment's allowed branches before its deploy job
+will run.
+
 Renders the review suite into `build/lunarmap/`: the near side in both
 styles, then Tycho (top-down + tilted), Copernicus, Aristoteles, Mare
 Imbrium (the game's default terrain anchor, both styles) and the south
