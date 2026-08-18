@@ -10,26 +10,27 @@ What changed from v2, and why
 v2 carried a hand-typed table of sprite rectangles and a hand-typed table
 of arc angles. Both are now MEASURED FROM THE IMAGE:
 
+* The background level is measured, not assumed. The sheet is drawn dark
+  on dark and the inside of a road sits about six levels above the
+  background, so a threshold picked by eye either splits every road into
+  its two bright rails or swallows the gutters between pieces.
+
 * Sprite cells are found by slicing the sheet at its background gutters
   (an X-Y cut, then a gap merge inside each cell), so every piece on the
   sheet is selectable and its rectangle is exactly the art. The short
   road in the lower left could not be picked in v2 because its typed
   rectangle missed the art. Nothing is typed here, so it cannot happen.
-  The gap merge is what keeps a road drawn with a dashed centre line one
-  pickable object instead of a row of loose dashes.
 
-* Arc geometry is recovered by fitting a circle to each curved piece:
-  centre, radius, angular span and the two endpoints all come from the
-  pixels. A curve's rotation step is its own measured span, so N
-  rotations chain N copies exactly end to end, whatever the artist drew.
-  A span that lands within a degree of an exact divisor of 360 is
-  snapped to it, so the chain closes rather than drifting.
+* Each curve's turn is measured from its own pixels, and that measurement
+  is its rotation step, so N rotations chain N copies end to end. See
+  centreline() and scan_centre() for how, and README.md for how well.
 
 Run
 ---
-    python3 lunar_layout_editor.py [sheet.png]
+    python3 lunar_layout_editor.py [sheet.png]      # lunar_sheet.png by default
     python3 lunar_layout_editor.py sheet.png --atlas atlas.png   # what it found
-    python3 lunar_layout_editor.py sheet.png --gutter 30         # tune slicing
+    python3 lunar_layout_editor.py sheet.png --demo demo.png     # drive it
+    python3 lunar_layout_editor.py sheet.png --gutter 30 --threshold 40
 
 Deps: pygame, pillow, numpy
 """
@@ -63,7 +64,7 @@ SHEET_CANDIDATES = [
     "a_clean_game_asset_style_reference_sheet_on_a_dark.png",
 ]
 
-BG_THRESHOLD = 52      # pixels darker than this are sheet background
+BG_MARGIN = 6          # how far above the sheet's background art starts
 GUTTER = 22            # px of background that separates two pieces
 MIN_AREA = 700         # px; drops specks and compression noise
 SNAP_RADIUS = 48       # px; how close two ports must be to snap
@@ -71,9 +72,22 @@ SNAP_RADIUS = 48       # px; how close two ports must be to snap
 
 # ------------------------------------------------------- sheet analysis
 
-def ink_mask(rgb):
-    """True where the sheet has art rather than dark background."""
-    return rgb.max(axis=2) >= BG_THRESHOLD
+def background_level(rgb):
+    """The sheet's background brightness: the most common level in it.
+
+    Worth measuring rather than assuming. On a sheet drawn dark-on-dark
+    the inside of a road can sit six levels above the background and no
+    more, so a threshold picked by eye either splits every road into its
+    two bright rails or swallows the gutters between pieces.
+    """
+    v = rgb.max(axis=2)
+    hist = np.bincount(v.ravel(), minlength=256)
+    return int(np.argmax(hist))
+
+
+def ink_mask(rgb, threshold):
+    """True where the sheet has art rather than background."""
+    return rgb.max(axis=2) >= threshold
 
 
 def profile_runs(has_ink, gutter):
@@ -243,24 +257,21 @@ def bin_means(key, val, nbins, min_count=4):
     return np.array(ks), np.array(vs), np.array(ns)
 
 
-def centreline_curvature(pts):
-    """Curvature of a road piece, from the centreline of its ink.
+def centreline(pts):
+    """The centre of the ink along the piece, and the frame it lives in.
 
-    A filled band is a terrible thing to fit a circle to directly: over a
-    short arc the band's own thickness swamps the few pixels of sagitta,
+    A filled band is a bad thing to fit a circle to directly: over a
+    short arc the band's own thickness swamps the few pixels of sagitta
     and an algebraic fit collapses onto the blob's centroid. So the
-    centreline is recovered first — bin the ink along the piece's long
-    axis and take the mean of each bin — and a parabola is fitted to
-    that. Averaging a few hundred pixels per bin puts the centreline well
-    inside a pixel, which is what makes a 3 px sagitta measurable.
+    centreline comes first — bin the ink along the piece's long axis and
+    take the mean of each bin.
 
-    The ends are dropped before fitting. Where the piece is cut off, a
-    bin holds only the corner of the band, so its mean sits off the
-    centreline by several pixels — more than the whole signal on a
-    shallow curve, and enough on its own to flatten the fit into a
-    straight line.
+    The ends are dropped. Where the piece is cut off, a bin holds only
+    the corner of the band, so its mean sits off the centreline by
+    several pixels: more than the whole signal on a shallow curve, and
+    enough on its own to flatten the fit into a straight line.
 
-    Returns (centre_xy, radius) or None if the piece is straight.
+    Returns (mid point, unit normal at it, chord length, sagitta) or None.
     """
     mean, axis, perp = pca_frame(pts)
     rel = pts - mean
@@ -268,28 +279,27 @@ def centreline_curvature(pts):
     bu, bv, bn = bin_means(u, v, 48)
     if len(bu) < 10:
         return None
-    keep = bn >= 0.55 * np.median(bn)
     lo, hi = float(u.min()), float(u.max())
     inset = 0.10 * (hi - lo)
-    keep &= (bu > lo + inset) & (bu < hi - inset)
+    keep = (bn >= 0.55 * np.median(bn)) & (bu > lo + inset) & (bu < hi - inset)
     if keep.sum() < 8:
         return None
     bu, bv = bu[keep], bv[keep]
 
-    a, b, c = np.polyfit(bu, bv, 2)
-    if abs(a) < 1e-9:
-        return None
-    um = float(bu.mean())
-    slope = 2.0 * a * um + b
-    radius = (1.0 + slope * slope) ** 1.5 / (2.0 * abs(a))
+    poly = np.polyfit(bu, bv, 2)
     chord = float(bu.max() - bu.min())
-    sagitta = abs(a) * chord * chord / 4.0
-    if sagitta < 0.8 or radius > 25.0 * chord:
+    sagitta = abs(poly[0]) * chord * chord / 4.0
+    if sagitta < 0.8:
         return None                     # straight within measurement noise
-    n = np.array([-slope, 1.0]) / math.hypot(slope, 1.0) * np.sign(a)
-    cu = um + n[0] * radius
-    cv = (a * um * um + b * um + c) + n[1] * radius
-    return mean + cu * axis + cv * perp, radius
+    um = float(bu.mean())
+    slope = 2.0 * poly[0] * um + poly[1]
+    mid = mean + um * axis + float(np.polyval(poly, um)) * perp
+    n = np.array([-slope, 1.0]) / math.hypot(slope, 1.0)
+    normal = n[0] * axis + n[1] * perp
+    if poly[0] < 0:
+        normal = -normal
+    guess = (1.0 + slope * slope) ** 1.5 / (2.0 * abs(poly[0]))
+    return mid, normal, chord, guess
 
 
 def radial_flatness(pts, centre, nbins=36):
@@ -313,6 +323,28 @@ def radial_flatness(pts, centre, nbins=36):
     return float(br[trim].std()), start, float(rot.max())
 
 
+def scan_centre(pts, mid, normal, chord):
+    """Sweep the centre along the normal and keep the most annular one.
+
+    The circle's centre has to lie on the normal to the centreline, so
+    the search is really one-dimensional: walk out along it and see
+    which distance makes the ink look most like part of a ring. Sweeping
+    beats trusting the parabola's own radius, which is only reliable
+    while the curve is shallow — on a piece that turns far enough for
+    the chord-wise binning to bias the centreline, the parabola can be
+    out by a factor of two and a local search never recovers.
+    """
+    best = None
+    for sign in (1.0, -1.0):
+        for k in range(80):
+            radius = 0.25 * chord * (80.0) ** (k / 79.0)
+            cand = mid + sign * normal * radius
+            score, _, _ = radial_flatness(pts, cand)
+            if best is None or score < best[0]:
+                best = (score, cand, radius)
+    return best[1], best[2]
+
+
 def refine_centre(pts, centre, radius):
     """Pattern search for the centre that makes the ink most annular.
 
@@ -320,8 +352,6 @@ def refine_centre(pts, centre, radius):
     improvement, halve the step when none helps. Beats another algebraic
     circle fit here because the ink is a filled band, not a thin curve.
     """
-    if len(pts) > 4000:
-        pts = pts[np.linspace(0, len(pts) - 1, 4000).astype(int)]
     centre = np.array(centre, dtype=float)
     best, _, _ = radial_flatness(pts, centre)
     step = max(2.0, 0.25 * radius)
@@ -391,9 +421,25 @@ def analyse_shape(mask, box):
                 "radius": r, "centre": (cx, cy), "ports": ports,
                 "size": (w, h)}
 
-    curved = centreline_curvature(pts)
+    curved = centreline(pts)
     if curved is not None:
-        centre, radius, start, span = refine_centre(pts, curved[0], curved[1])
+        mid, normal, chord, guess = curved
+        sample = (pts if len(pts) <= 4000
+                  else pts[np.linspace(0, len(pts) - 1, 4000).astype(int)])
+        # Two starting points, because neither is reliable alone: the
+        # parabola's own radius is good while the curve is shallow and
+        # useless once it turns far enough to bias the binning, and the
+        # sweep is the other way round. Refine from both, keep whichever
+        # ends up looking more like part of a ring.
+        cands = [scan_centre(sample, mid, normal, chord),
+                 (mid + normal * guess, guess)]
+        best = None
+        for c0, r0 in cands:
+            centre, radius, start, span = refine_centre(sample, c0, r0)
+            score, _, _ = radial_flatness(sample, centre)
+            if best is None or score < best[0]:
+                best = (score, centre, radius, start, span)
+        _, centre, radius, start, span = best
         if 2.0 < span < 300.0:
             ports = []
             for a, sign in ((start, -1.0), (start + span, 1.0)):
@@ -421,14 +467,21 @@ def analyse_shape(mask, box):
             "radius": 0.0, "centre": None, "ports": ports, "size": (w, h)}
 
 
-def crop_sprite(sheet_img, box):
-    """Cut the sprite out and knock the dark background transparent."""
+def crop_sprite(sheet_img, box, bg):
+    """Cut the sprite out and fade the background to transparent.
+
+    A ramp rather than a hard cut: on a dark-on-dark sheet the darkest
+    parts of a road are only a few levels above the background, and
+    clipping them leaves the piece full of holes.
+    """
     x0, y0, x1, y1 = box
     crop = sheet_img.crop((x0, y0, x1 + 1, y1 + 1)).convert("RGBA")
-    arr = np.array(crop)
-    arr[arr[:, :, :3].max(axis=2) < BG_THRESHOLD, 3] = 0
+    arr = np.array(crop).astype(np.int32)
+    v = arr[:, :, :3].max(axis=2)
+    arr[:, :, 3] = np.clip((v - bg - 1) * 255 // 5, 0, 255)
     return pygame.image.frombuffer(
-        np.ascontiguousarray(arr).tobytes(), crop.size, "RGBA").convert_alpha()
+        np.ascontiguousarray(arr.astype(np.uint8)).tobytes(),
+        crop.size, "RGBA").convert_alpha()
 
 
 class Sprite:
@@ -464,15 +517,42 @@ def report_atlas(sprites, path):
         print(f"  [{s.index:2d}] {s.label:22s} box={s.box}{extra}")
 
 
-def build_atlas(path, gutter=GUTTER):
+def load_span_overrides(sheet_path):
+    """Hand-corrected arc spans, if the user has written any down.
+
+    The measurement is good to about a degree and a half, which resolves
+    the coarse divisors of 360 but not the fine ones - below roughly 25
+    degrees, 24 / 22.5 / 20 / 18 sit closer together than that. A file
+    named after the sheet, e.g. `lunar_sheet.spans.json` holding
+    {"12": 45, "16": 45}, overrides those sprites by index.
+    """
+    path = os.path.splitext(sheet_path)[0] + ".spans.json"
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        data = json.load(f)
+    print(f"span overrides from {os.path.basename(path)}: {data}")
+    return {int(k): float(v) for k, v in data.items()}
+
+
+def build_atlas(path, gutter=GUTTER, threshold=None):
     img = Image.open(path).convert("RGB")
-    mask = ink_mask(np.array(img))
+    rgb = np.array(img)
+    bg = background_level(rgb)
+    if threshold is None:
+        threshold = bg + BG_MARGIN
+    print(f"background level {bg}, ink threshold {threshold}")
+    mask = ink_mask(rgb, threshold)
+    overrides = load_span_overrides(path)
     sprites = []
     for box in slice_sheet(mask, gutter):
         shape = analyse_shape(mask, box)
-        if shape is not None:
-            sprites.append(Sprite(len(sprites), box, shape,
-                                  crop_sprite(img, box)))
+        if shape is None:
+            continue
+        sprite = Sprite(len(sprites), box, shape, crop_sprite(img, box, bg))
+        if sprite.index in overrides and sprite.is_arc:
+            sprite.span = sprite.rot_step = overrides[sprite.index]
+        sprites.append(sprite)
     return img, sprites
 
 
@@ -622,7 +702,7 @@ def save_layout(placed, path="layout.json"):
 class Editor:
     """The whole editor. Split out so a script can drive it headlessly."""
 
-    def __init__(self, sheet_path, gutter=GUTTER):
+    def __init__(self, sheet_path, gutter=GUTTER, threshold=None):
         pygame.init()
         self.screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
         pygame.display.set_caption("Lunar Base Layout Editor v3")
@@ -630,7 +710,8 @@ class Editor:
         self.small = pygame.font.SysFont("dejavusans", 13)
         self.clock = pygame.time.Clock()
 
-        self.sheet_img, self.sprites = build_atlas(sheet_path, gutter)
+        self.sheet_img, self.sprites = build_atlas(sheet_path, gutter,
+                                                   threshold)
         report_atlas(self.sprites, sheet_path)
 
         sw, sh = self.sheet_img.size
@@ -888,82 +969,103 @@ class Editor:
         print("wrote", path)
 
 
-def demo(sheet, out, gutter=GUTTER):
-    """Drive the editor headlessly and prove the two reported problems.
-
-    1. The small road is picked from the palette and dropped. In v2 its
-       typed rectangle missed the art and it could not be selected.
-    2. A curve is chained by its own measured span until it closes a
-       ring. If the span were asserted rather than measured, the ends
-       would not meet.
-    """
-    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
-    ed = Editor(sheet, gutter)
-    ed.show_ports = True
-
-    roads = [s for s in ed.sprites if s.shape["kind"] == "road"]
-    arcs = [s for s in ed.sprites if s.is_arc]
-    domes = [s for s in ed.sprites if s.shape["kind"] == "dome"]
-    small = min(roads, key=lambda s: s.surface.get_width())
-    print(f"\nsmall road is sprite [{small.index}] {small.label} — picking it")
-
-    ed.place_scale = 0.5
-    core = ed.pick_and_drop(domes[0], (760, 260))
-    # Roads dropped near the dome's rim ports snap onto them.
-    for i, (_, p, _) in enumerate(free_ports(core, ed.placed)):
-        if i % 2:
-            continue
-        probe = Placed(small, (0.0, 0.0), scale=ed.place_scale)
-        off = probe.world_ports()[0][0]
-        ed.pick_and_drop(small, (p[0] - off[0], p[1] - off[1]))
-    print(f"  {len(ed.placed) - 1} copies of it snapped onto the dome rim")
-
-    # Chain one curve until it closes. The count comes from the measured
-    # span, so a wrong measurement shows up as a ring that does not shut.
-    arc = max(arcs, key=lambda s: s.span)
-    n = int(round(360.0 / arc.span))
-    print(f"\nchaining sprite [{arc.index}] {arc.label}: "
-          f"measured {arc.shape['measured']:.2f} deg, step {arc.rot_step:g}, "
-          f"{n} to close 360")
-    ring = []
-    first = ed.pick_and_drop(arc, (700, 600))
-    ring.append(first)
+def chain_ring(ed, arc, at, scale):
+    """Drop copies of one curve, letting each snap to the last."""
+    ed.place_scale = scale
+    n = max(2, int(round(360.0 / arc.span)))
+    ring = [ed.pick_and_drop(arc, at)]
     for _ in range(n - 1):
-        open_ports = free_ports(ring[-1], ring[:-1])
-        target = open_ports[-1][1]
-        probe = Placed(arc, (0.0, 0.0), scale=ed.place_scale)
+        target = free_ports(ring[-1], ring[:-1])[-1][1]
+        probe = Placed(arc, (0.0, 0.0), scale=scale)
         off = probe.world_ports()[0][0]
         ed.pick_and_drop(arc, (target[0] - off[0], target[1] - off[1]))
         ring.append(ed.placed[-1])
     gap = min(math.hypot(a[0] - b[0], a[1] - b[1])
               for a, _ in ring[-1].world_ports()
               for b, _ in ring[0].world_ports())
-    print(f"  ring of {n}: the two loose ends meet within {gap:.1f} px "
-          f"(piece radius {arc.shape['radius'] * ed.place_scale:.0f} px)")
+    return n, gap
 
+
+def demo(sheet, out, gutter=GUTTER, threshold=None):
+    """Drive the editor headlessly and prove the two reported problems.
+
+    1. Every piece on the sheet is pickable, the small road included. In
+       v2 its typed rectangle missed the art and it could not be
+       selected.
+    2. Each curve is chained by its own measured span until it closes a
+       ring. If the spans were asserted rather than measured, the ends
+       would not meet.
+    """
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    ed = Editor(sheet, gutter, threshold)
+
+    roads = [s for s in ed.sprites if s.shape["kind"] == "road"]
+    arcs = [s for s in ed.sprites if s.is_arc]
+    domes = sorted((s for s in ed.sprites if s.shape["kind"] == "dome"),
+                   key=lambda s: -s.surface.get_width())
+    small = min(roads, key=lambda s: s.surface.get_width())
+    print(f"\nsmall road is sprite [{small.index}] {small.label} — picking it")
+
+    # A base: the big dome, a road out of every second rim port, and a
+    # unit dome snapped onto the far end of each road.
+    ed.place_scale = 0.42
+    core = ed.pick_and_drop(domes[0], (760, 420))
+    for i, (_, p, _) in enumerate(free_ports(core, ed.placed)):
+        if i % 2:
+            continue
+        probe = Placed(small, (0.0, 0.0), scale=ed.place_scale)
+        off = probe.world_ports()[0][0]
+        road = ed.pick_and_drop(small, (p[0] - off[0], p[1] - off[1]))
+        end = free_ports(road, ed.placed[:-1])[-1][1]
+        unit = domes[-1]
+        probe = Placed(unit, (0.0, 0.0), scale=ed.place_scale)
+        off = probe.world_ports()[0][0]
+        ed.pick_and_drop(unit, (end[0] - off[0], end[1] - off[1]))
+    print(f"  {len(ed.placed)} pieces snapped into a base")
     ed.selected = None
     ed.shot(out)
+
+    # Then one ring per curve, each chained by its own measured step.
+    ed.clear_map()
+    print("\nchaining every curve into a ring:")
+    spots = [(640, 230), (960, 230), (1250, 230), (740, 640), (1130, 640)]
+    for arc, at in zip(arcs, spots):
+        scale = min(0.5, 95.0 / max(1.0, arc.shape["radius"]))
+        n, gap = chain_ring(ed, arc, at, scale)
+        print(f"  [{arc.index:2d}] measured {arc.shape['measured']:6.2f} deg "
+              f"-> step {arc.rot_step:8g}  x{n} ring closes to {gap:.1f} px")
+    ed.selected = None
+    ed.show_ports = False
+    rings = out.replace(".png", "_rings.png")
+    ed.shot(rings)
     pygame.quit()
 
 
 def main(argv):
-    gutter = GUTTER
-    if "--gutter" in argv:
-        gutter = int(argv[argv.index("--gutter") + 1])
-    sheet = find_sheet([a for a in argv if a != str(gutter)])
+    def opt(name, cast=int, default=None):
+        return cast(argv[argv.index(name) + 1]) if name in argv else default
+
+    gutter = opt("--gutter", int, GUTTER)
+    threshold = opt("--threshold", int, None)
+    flagged = set()
+    for name in ("--gutter", "--threshold", "--atlas", "--demo"):
+        if name in argv:
+            flagged.add(argv[argv.index(name) + 1])
+    sheet = find_sheet([a for a in argv if a not in flagged])
+
     if "--demo" in argv:
-        demo(sheet, argv[argv.index("--demo") + 1], gutter)
+        demo(sheet, opt("--demo", str), gutter, threshold)
         return
     if "--atlas" in argv:
         os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
         pygame.init()
         pygame.display.set_mode((64, 64))
         img = Image.open(sheet).convert("RGB")
-        _, sprites = build_atlas(sheet, gutter)
+        _, sprites = build_atlas(sheet, gutter, threshold)
         report_atlas(sprites, sheet)
-        write_atlas_debug(img, sprites, argv[argv.index("--atlas") + 1])
+        write_atlas_debug(img, sprites, opt("--atlas", str))
         return
-    Editor(sheet, gutter).run()
+    Editor(sheet, gutter, threshold).run()
 
 
 if __name__ == "__main__":
