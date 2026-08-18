@@ -79,6 +79,8 @@ struct MapOptions
     std::string demPath = DEFAULT_DEM_PATH;
     std::string wacPath = DEFAULT_WAC_PATH;
     bool webShader = false;        // force the GLSL ES 100 shader (debug)
+    float orbitYawDeg = 180.0f;    // tilt-view camera angles (--orbit)
+    float orbitPitchDeg = 52.0f;
 };
 
 static void PrintUsage()
@@ -94,6 +96,7 @@ static void PrintUsage()
         << "  --exag F          vertical exaggeration   (default: 2.0)\n"
         << "  --ambient F       ambient light level     (default: 0.06)\n"
         << "  --tilt            tilted 3D slab view instead of top-down\n"
+        << "  --orbit YAW,PITCH tilt camera angles (default: 180,52)\n"
         << "  --size WxH        output resolution       (default: 1200x1200)\n"
         << "  --demres N        shading texture pixels  (default: auto)\n"
         << "  --meshres N       mesh grid resolution    (default: 256)\n"
@@ -140,6 +143,18 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--exag" && hasNext) { options.exaggeration = (float)std::atof(argv[++i]); }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
+        else if (arg == "--orbit" && hasNext)
+        {
+            options.tilt = true;
+            if (std::sscanf(argv[++i], "%f,%f", &options.orbitYawDeg,
+                            &options.orbitPitchDeg) != 2)
+            {
+                std::cerr << "Bad --orbit, expected YAW,PITCH\n";
+                return false;
+            }
+            options.orbitPitchDeg = Clamp(options.orbitPitchDeg,
+                                          10.0f, 88.0f);
+        }
         else if (arg == "--size" && hasNext)
         {
             if (std::sscanf(argv[++i], "%dx%d",
@@ -1031,6 +1046,8 @@ int main(int argc, char** argv)
     }
     app.styleMode = (app.options.style == "color") ? 1 : 0;
     app.tilt = app.options.tilt;
+    app.yawDeg = app.options.orbitYawDeg;
+    app.pitchDeg = app.options.orbitPitchDeg;
     app.pendingExag = app.options.exaggeration;
     std::cerr << TextFormat(
         "lunar_map: window %.1f..%.1f km elevation, %d px shading texture\n",
