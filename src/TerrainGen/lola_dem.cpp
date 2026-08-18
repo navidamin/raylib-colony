@@ -8,7 +8,7 @@
 #include <cstring>
 #include <fstream>
 
-// MSVC does not expose LOLA_PI without _USE_MATH_DEFINES; carry our own.
+// MSVC does not expose M_PI without _USE_MATH_DEFINES; carry our own.
 static const double LOLA_PI = 3.14159265358979323846;
 
 // ---------------------------------------------------------------------------
