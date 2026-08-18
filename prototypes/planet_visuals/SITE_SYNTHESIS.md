@@ -259,6 +259,49 @@ Porting lessons:
   landed; re-add it from git history if the 118 m LOLA product is
   wanted later.
 
+## Continuous descent (2026-08-15): pick from orbit, zoom seamlessly
+
+The chain is wired into the game's views end to end. Clicking the
+orbital disc inverts its baked projection (`OrbitalPickToLatLon`) into
+real lat/lon and re-anchors the playfield there; every view below
+regenerates from that spot. `GenerateTerrainChain` emits all three
+levels the sect generation was already computing and discarding, so:
+
+| Game view | Chain level | Window |
+|-----------|-------------|--------|
+| PLANET | 0 | 100 km, drawn in world space across the 20x20 grid |
+| COLONY | 1 | 25 km, registered on the colony's cell |
+| SECT | 2 | 5 km, screen-filling ground |
+
+Because each level is the centre crop of the one above, the views are
+registered to each other by construction — descending approaches the
+same ground instead of cutting to unrelated tiles. The legacy 3-tile
+shuffle survives only as a fallback if the WAC fails to load.
+
+## Site ground (2026-08-15): levelled off, then worked
+
+**A graded construction platform was built and rejected.** It went
+through pad → berm → raised terrace → grey shading, and the verdict was
+that a built platform is the wrong idea for this game; the whole branch
+of work was reverted. What replaced it (`TerrainSiteDisturbance`):
+
+1. **Level off, don't flatten.** Inside the site the imagery contrast is
+   damped toward its local mean *before any relief is derived from it*
+   — that ordering is what levels off the deep natural shadows — and the
+   height field's elevation swings are damped toward their local mean.
+   Partial by design (0.70 elevation, 0.55 tone), so the terrain's
+   character stays readable.
+2. **Then work the surface.** Gentle undulations across the site, plus a
+   shallow mound or hollow and a patch of altered roughness around the
+   core and each of the eight unit domes, positioned to match the layout
+   the sect view draws.
+3. **No edge.** Both passes fall off smoothly to nothing at the site
+   radius, so the ground calms down rather than ending at a rim.
+
+Lesson worth keeping: *adding* detail could not compete with the wild
+natural relief underneath. Damping what is already there had to come
+first, and the damping has to happen before the stage that consumes it.
+
 ## Open questions
 
 - Palette warmth/hue — currently blue-violet shadows; could shift
@@ -267,7 +310,7 @@ Porting lessons:
 - Intermediate zooms: panels 2–3 are real-only today; a lighter
   stylization pass could unify the whole drill-down's look.
 
-## Game integration sketch (not built)
+## Game integration sketch (superseded — now built, see above)
 
 C++ port mirrors the Python stages 1:1 — crop from the shipped
 `wac_global.jpg`, integer-hash seed from quantised lat/lon, crater

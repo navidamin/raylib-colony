@@ -109,8 +109,10 @@ static ViewNotes NotesForView(int level)
                 {"OK",   "Press R to hop cells and watch it change."},
                 {"GAP",  "Dome and units are flat screen-space discs;"},
                 {"GAP",  "  they sit ON the image, not IN the terrain."},
-                {"GAP",  "No vehicle tracks or disturbed-regolith halo"},
-                {"GAP",  "  (the concept-art look is not built)."},
+                {"OK",   "Ground around the site is levelled off and"},
+                {"OK",   "  worked: undulations plus alterations at"},
+                {"OK",   "  each dome. --nodisturb shows it untouched."},
+                {"GAP",  "No vehicle tracks between the units yet."},
                 {"TODO", "LOLA DEM is 1.9 km/px, so a 5 km cell spans"},
                 {"TODO", "  ~2.6 DEM pixels: slopes here are coarse."},
             }};
