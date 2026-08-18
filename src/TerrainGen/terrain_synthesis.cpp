@@ -451,11 +451,13 @@ static void SprinkleBoulders(Field& height, int res, TerrainRng& rng,
 
 // Smooth falloff of the site's influence: full effect through the
 // middle, fading to nothing at the site radius.
-static float SiteWeight(float x, float y, float cx, float cy, float siteR)
+static float SiteWeight(float x, float y, float cx, float cy,
+                        float workedR, float outerR)
 {
-    float d = std::hypot(x - cx, y - cy) / siteR;
-    if (d >= 1.0f) return 0.0f;
-    float t = std::clamp((1.0f - d) / 0.40f, 0.0f, 1.0f);
+    float d = std::hypot(x - cx, y - cy);
+    if (d <= workedR) return 1.0f;          // fully worked ground
+    if (d >= outerR) return 0.0f;           // untouched
+    float t = 1.0f - (d - workedR) / std::max(1e-3f, outerR - workedR);
     return t * t * (3.0f - 2.0f * t);
 }
 
@@ -467,14 +469,15 @@ static void LevelSiteMacro(Field& macro, int res, float pxPerKm,
                            const TerrainSiteDisturbance& site)
 {
     const float cx = res * 0.5f, cy = res * 0.5f;
-    const float siteR = site.siteRadiusKm * pxPerKm;
-    if (siteR < 2.0f || site.toneLevelAmount <= 0.0f) return;
+    const float workedR = site.workedRadiusKm * pxPerKm;
+    const float outerR = (site.workedRadiusKm + site.fadeKm) * pxPerKm;
+    if (outerR < 2.0f || site.toneLevelAmount <= 0.0f) return;
 
     double sum = 0.0, wsum = 0.0;
     for (int y = 0; y < res; y++)
         for (int x = 0; x < res; x++)
         {
-            float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+            float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
             if (w <= 0.0f) continue;
             sum += macro[(size_t)y * res + x] * w;
             wsum += w;
@@ -485,7 +488,7 @@ static void LevelSiteMacro(Field& macro, int res, float pxPerKm,
     for (int y = 0; y < res; y++)
         for (int x = 0; x < res; x++)
         {
-            float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+            float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
             if (w <= 0.0f) continue;
             size_t i = (size_t)y * res + x;
             float k = site.toneLevelAmount * w;
@@ -506,8 +509,9 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
 {
     const float cx = res * 0.5f;
     const float cy = res * 0.5f;
-    const float siteR = site.siteRadiusKm * pxPerKm;
-    if (siteR < 2.0f) return;          // site smaller than a pixel here
+    const float workedR = site.workedRadiusKm * pxPerKm;
+    const float outerR = (site.workedRadiusKm + site.fadeKm) * pxPerKm;
+    if (outerR < 2.0f) return;         // site smaller than a pixel here
 
     // Worked spots: the central core plus the ring of unit domes.
     struct Spot { float x, y, r, amp; };
@@ -535,7 +539,7 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
         for (int y = 0; y < res; y++)
             for (int x = 0; x < res; x++)
             {
-                float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+                float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
                 if (w <= 0.0f) continue;
                 hsum += height[(size_t)y * res + x] * w;
                 hw += w;
@@ -546,7 +550,7 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
             for (int y = 0; y < res; y++)
                 for (int x = 0; x < res; x++)
                 {
-                    float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+                    float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
                     if (w <= 0.0f) continue;
                     size_t i = (size_t)y * res + x;
                     float k = site.levelAmount * w;
@@ -567,7 +571,7 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
         {
             size_t i = (size_t)y * res + x;
 
-            float siteW = SiteWeight((float)x, (float)y, cx, cy, siteR);
+            float siteW = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
 
             // Per-dome worked patches, strongest at each dome.
             float domeW = 0.0f;
@@ -777,6 +781,25 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     // Levels cover 100 / 25 / 5 km, so a kilometre is a different
     // number of pixels in each.
     const float levelSpanKm[3] = {100.0f, 25.0f, 5.0f};
+
+    // The sect view draws the settlement at 0.63x the physical size the
+    // colony view draws it (both use fixed screen fractions). The site
+    // geometry is calibrated for the colony view, so shrink it to match
+    // for the sect level — otherwise the worked patches sit outside the
+    // 5 km window entirely and the effect cannot be seen there.
+    const float SECT_SITE_SCALE = 0.63f;
+    TerrainSiteDisturbance sectSite;
+    const TerrainSiteDisturbance* siteForLevel[3] = {site, site, site};
+    if (site)
+    {
+        sectSite = *site;
+        sectSite.ringRadiusKm *= SECT_SITE_SCALE;
+        sectSite.coreRadiusKm *= SECT_SITE_SCALE;
+        sectSite.domeWorkKm *= SECT_SITE_SCALE;
+        sectSite.workedRadiusKm *= SECT_SITE_SCALE;
+        sectSite.fadeKm *= SECT_SITE_SCALE;
+        siteForLevel[2] = &sectSite;
+    }
     if (!EnsureWacLoaded())
     {
         for (int i = 0; i < wantLevels; i++)
@@ -794,7 +817,7 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     TerrainRng rng0(seed);
     Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
     SharpenAdaptive(lum, res);
-    TextureModulate(lum, res, rng0, 1.0f, tune, 0, site,
+    TextureModulate(lum, res, rng0, 1.0f, tune, 0, siteForLevel[0],
                     (float)res / levelSpanKm[0]);
 
     auto emit = [&](int level)
@@ -831,7 +854,7 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
         TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
         int boulderBase = (lvl == 2) ? (int)(120 * k * k) : 0;
         TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune, boulderBase,
-                        site, (float)res / levelSpanKm[lvl]);
+                        siteForLevel[lvl], (float)res / levelSpanKm[lvl]);
         emit(lvl);
     }
 

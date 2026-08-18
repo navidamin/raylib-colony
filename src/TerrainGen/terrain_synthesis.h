@@ -66,10 +66,15 @@ bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
 struct TerrainSiteDisturbance
 {
     bool enabled = false;
+    // Geometry is calibrated against the COLONY view, where the whole
+    // site is visible. The sect view draws the same settlement at 0.63x
+    // this physical size (fixed screen fractions, see sect.cpp), so the
+    // chain scales these per level — otherwise the dome patches land
+    // outside the 5 km sect window and the effect is invisible there.
     int domeCount = 8;             // units ringing the sect core
-    float ringRadiusKm = 3.30f;    // radius the unit domes sit on
-    float coreRadiusKm = 1.70f;    // the central dome
-    float domeWorkKm = 1.15f;      // worked ground around each dome
+    float ringRadiusKm = 3.40f;    // radius the unit domes sit on
+    float coreRadiusKm = 1.55f;    // the central dome
+    float domeWorkKm = 1.20f;      // worked ground around each dome
     // How far the natural ground is calmed inside the site. Not a flat
     // platform: 0 keeps the wild terrain, 1 would erase it. The point is
     // to level the elevation swings and their shadows down to a calmer
@@ -79,7 +84,11 @@ struct TerrainSiteDisturbance
     float undulationAmp = 0.0075f; // gentle mounds and hollows
     float roughAmp = 0.0045f;      // random fine alterations
     float spotAmp = 0.0060f;       // per-dome mound/hollow depth
-    float siteRadiusKm = 4.60f;    // nothing is touched beyond this
+    // Full-strength worked ground out to workedRadiusKm — which clears
+    // the ring of unit domes (they reach ~4.34 km here) with margin —
+    // then fades to untouched over the next fadeKm.
+    float workedRadiusKm = 4.95f;  // encompasses the units, plus margin
+    float fadeKm = 1.00f;          // fade band beyond the worked ground
 };
 
 // Global switch + accessor for the site disturbance (playtest compare).
