@@ -71,6 +71,9 @@ static ViewNotes NotesForView(int level)
                 {"OK",   "  would take. CLICK to propose it."},
                 {"OK",   "The box goes solid and asks to confirm -"},
                 {"OK",   "  YES descends, NO or right-click cancels."},
+                {"OK",   "Changed your mind? Just click another spot;"},
+                {"OK",   "  the proposal moves there. Clicking off the"},
+                {"OK",   "  moon cancels. The prompt never traps you."},
                 {"GAP",  "Static disc: no rotation yet, so only the near"},
                 {"GAP",  "  side is reachable (12 baked frames unused)."},
             }};
@@ -271,7 +274,7 @@ struct PickPrompt
 
 static PickPrompt ComputePickPrompt(float px, float py)
 {
-    const float w = 306.0f, h = 104.0f;
+    const float w = 330.0f, h = 124.0f;
     float r = OrbitalBoxRadius();
     float x = px + r + 18.0f;
     float y = py - h / 2.0f;
@@ -284,8 +287,10 @@ static PickPrompt ComputePickPrompt(float px, float py)
     const float bw = 124.0f, bh = 34.0f;
     PickPrompt p;
     p.panel = Rectangle{x, y, w, h};
-    p.yes = Rectangle{x + 14.0f, y + h - bh - 13.0f, bw, bh};
-    p.no = Rectangle{x + w - bw - 14.0f, y + h - bh - 13.0f, bw, bh};
+    // Buttons sit above the hint line, which is inside the panel so it
+    // stays readable over bright terrain.
+    p.yes = Rectangle{x + 14.0f, y + h - bh - 30.0f, bw, bh};
+    p.no = Rectangle{x + w - bw - 14.0f, y + h - bh - 30.0f, bw, bh};
     return p;
 }
 
@@ -350,6 +355,20 @@ static void DrawOrbitalPickMarker(const ViewTestContext& ctx)
     DrawPlayfieldBox(px, py, gold, 3.0f, Color{255, 210, 130, 46});
 
     PickPrompt pr = ComputePickPrompt(px, py);
+
+    // The cursor keeps its ghost box while the prompt is open, so it
+    // reads as "you can still point somewhere else".
+    Vector2 hm = GetMousePosition();
+    if (!CheckCollisionPointRec(hm, pr.panel))
+    {
+        double hlat, hlon;
+        if (OrbitalPickToLatLon(hm.x, hm.y, VT_WIDTH, VT_HEIGHT,
+                                &hlat, &hlon))
+        {
+            DrawPlayfieldBox(hm.x, hm.y, ghost, 1.5f,
+                             Color{255, 220, 150, 22});
+        }
+    }
     DrawRectangleRec(pr.panel, Color{10, 12, 20, 238});
     DrawRectangleLinesEx(pr.panel, 2.0f, gold);
     DrawText("Confirm this landing region?",
@@ -375,9 +394,10 @@ static void DrawOrbitalPickMarker(const ViewTestContext& ctx)
     DrawText("NO", (int)pr.no.x + 50, (int)pr.no.y + 9, 17,
              Color{255, 195, 190, 255});
 
-    DrawText("right-click also cancels", (int)pr.panel.x + 14,
-             (int)pr.panel.y + pr.panel.height + 6, 13,
-             Color{150, 165, 190, 255});
+    DrawText("or click elsewhere to move it  -  right-click cancels",
+             (int)pr.panel.x + 14,
+             (int)(pr.panel.y + pr.panel.height) - 22, 13,
+             Color{165, 180, 205, 255});
 }
 
 static void DrawSectCellBadge(const ViewTestContext& ctx)
@@ -450,20 +470,48 @@ static void HandleInput(ViewTestContext& ctx)
                                                 VT_WIDTH, VT_HEIGHT, &px, &py);
             PickPrompt pr = ComputePickPrompt(px, py);
 
-            if (ascend || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)
-                || (descend && CheckCollisionPointRec(m, pr.no)))
+            bool cancel = ascend || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+
+            if (descend)
             {
-                ctx.pickPending = false;         // cancelled
+                if (onDisc && CheckCollisionPointRec(m, pr.yes))
+                {
+                    SetTerrainAnchor(ctx.pendingLat, ctx.pendingLon);
+                    GetTerrainAnchor(&ctx.pickLat, &ctx.pickLon);
+                    ctx.picked = true;
+                    ctx.pickPending = false;
+                    RebuildSect(ctx);
+                    ctx.level = 1;               // descend into it
+                }
+                else if (CheckCollisionPointRec(m, pr.no))
+                {
+                    cancel = true;
+                }
+                else if (CheckCollisionPointRec(m, pr.panel))
+                {
+                    // Clicking the prompt's own body does nothing, so a
+                    // near-miss on a button is not read as a decision.
+                }
+                else
+                {
+                    // Changed your mind: a click anywhere else on the moon
+                    // simply moves the proposal there — no need to answer
+                    // the prompt first. Off the moon, it cancels.
+                    double lat, lon;
+                    if (OrbitalPickToLatLon(m.x, m.y, VT_WIDTH, VT_HEIGHT,
+                                            &lat, &lon))
+                    {
+                        ctx.pendingLat = lat;
+                        ctx.pendingLon = lon;
+                    }
+                    else
+                    {
+                        cancel = true;
+                    }
+                }
             }
-            else if (onDisc && descend && CheckCollisionPointRec(m, pr.yes))
-            {
-                SetTerrainAnchor(ctx.pendingLat, ctx.pendingLon);
-                GetTerrainAnchor(&ctx.pickLat, &ctx.pickLon);
-                ctx.picked = true;
-                ctx.pickPending = false;
-                RebuildSect(ctx);
-                ctx.level = 1;                   // descend into it
-            }
+
+            if (cancel) ctx.pickPending = false;
             descend = false;
             ascend = false;                      // prompt owns both clicks
         }
@@ -675,8 +723,7 @@ int main(int argc, char** argv)
                 PickPrompt pr = ComputePickPrompt(hx, hy);
                 Demo demos[2] = {
                     {"orbital_hover", false, hx + 150.0f, hy + 90.0f},
-                    {"orbital_confirm", true,
-                     pr.yes.x + pr.yes.width / 2, pr.yes.y + pr.yes.height / 2},
+                    {"orbital_confirm", true, hx - 190.0f, hy + 130.0f},
                 };
 
                 for (const Demo& d : demos)
