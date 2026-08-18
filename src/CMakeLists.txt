@@ -222,3 +222,34 @@ if("${PLATFORM}" STREQUAL "Web")
     set(vt_link_flags "${vt_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
     set_target_properties(colony_viewtest PROPERTIES LINK_FLAGS "${vt_link_flags}")
 endif()
+
+# ---------------------------------------------------------------------------
+# lunar_map: real-elevation lunar map tool (LOLA LDEM_16)
+#
+# Standalone instrument beside the game: renders the actual Moon (near
+# side map, or any picked region) from the real LOLA elevation model
+# with a lunar shading pipeline. See tools/lunarmap/README.md.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(lunar_map)
+
+    target_sources(lunar_map PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/lunarmap/lunarmap_main.cpp"
+        TerrainGen/lola_dem.cpp
+    )
+
+    set_target_properties(lunar_map PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(lunar_map PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+    )
+
+    target_link_libraries(lunar_map raylib)
+    if(NOT WIN32)
+        target_link_libraries(lunar_map m)
+    endif()
+endif()
