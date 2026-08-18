@@ -16,8 +16,10 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
       terrainLoaded(false),
       terrainCellX(-1),
       terrainCellY(-1),
-      terrainAnchorVersion(0)
+      terrainAnchorVersion(0),
+      planetMapLoaded(false)
 {
+    planetMapTexture = {0};
     orbitalNearTexture = {0};
     orbitalFarTexture = {0};
     for (int i = 0; i < 3; i++) terrainLevels[i] = {0};
@@ -53,6 +55,11 @@ RenderManager::~RenderManager() {
     UnloadOrbitalAssets();
 
     UnloadTerrainLevels();
+
+    if (planetMapLoaded)
+    {
+        UnloadTexture(planetMapTexture);
+    }
 }
 
 void RenderManager::BeginDraw() {
@@ -86,6 +93,10 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
 
     if (planet) {  // Guard against null planet
         ClearBackground(BLACK);
+
+        // The whole moon underneath, so zooming out leaves the
+        // playfield and reveals the globe around it.
+        DrawPlanetMapLayer(camera);
 
         // Ground: level 0 of the terrain chain (100 km) spans the whole
         // 20x20 grid, registered on the playfield anchor. This is the
@@ -473,6 +484,89 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         {
             DrawText("MAX LEVEL", panelX + 10, panelY + 55, 16, Color{100, 200, 100, 255});
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Full-planet map
+//
+// The 20x20 grid covers 100 km of real moon centred on the playfield
+// anchor. Extending that same projection across the whole globe gives
+// the planet view something to zoom out INTO: one world space holding
+// both the playfield and the entire moon, aligned exactly where they
+// meet, so zooming out never cuts to a different scene.
+//
+// Longitude uses the anchor's cos(lat) scale, which is what makes the
+// playfield land on the grid exactly. The cost is that the far side of
+// the globe is squashed horizontally by that same factor — acceptable
+// while the map is context rather than a place you operate.
+// ---------------------------------------------------------------------------
+
+static float PlanetUnitsPerDegLat()
+{
+    double latSpanDeg = (PLANET_SIZE * TERRAIN_CELL_KM) / MOON_KM_PER_DEG;
+    return (float)(PLANET_HEIGHT / latSpanDeg);
+}
+
+static float PlanetUnitsPerDegLon()
+{
+    double alat, alon;
+    GetTerrainAnchor(&alat, &alon);
+    (void)alon;
+    return PlanetUnitsPerDegLat()
+           * (float)std::max(0.2, std::cos(alat * DEG2RAD));
+}
+
+// World rect the whole moon occupies (lon -180..180, lat +90..-90).
+static Rectangle PlanetMapWorldRect()
+{
+    double alat, alon;
+    GetTerrainAnchor(&alat, &alon);
+    float updLat = PlanetUnitsPerDegLat();
+    float updLon = PlanetUnitsPerDegLon();
+    float originX = PLANET_WIDTH * 0.5f - (float)(alon + 180.0) * updLon;
+    float originY = PLANET_HEIGHT * 0.5f - (float)(90.0 - alat) * updLat;
+    return Rectangle{originX, originY, 360.0f * updLon, 180.0f * updLat};
+}
+
+void RenderManager::LoadPlanetMap()
+{
+    if (planetMapLoaded) return;
+    Image img = LoadImage("src/assets/planet/wac_global.jpg");
+    if (img.data == nullptr)
+    {
+        planetMapLoaded = true;       // don't retry every frame
+        return;
+    }
+    // 8K is far more than this view needs and costs VRAM; half of one
+    // screen width per 180 degrees is plenty at full zoom-out.
+    ImageResize(&img, 2048, 1024);
+    planetMapTexture = LoadTextureFromImage(img);
+    SetTextureFilter(planetMapTexture, TEXTURE_FILTER_BILINEAR);
+    UnloadImage(img);
+    planetMapLoaded = true;
+}
+
+void RenderManager::DrawPlanetMapLayer(Camera2D camera)
+{
+    LoadPlanetMap();
+    if (planetMapTexture.id == 0) return;
+
+    Rectangle dst = PlanetMapWorldRect();
+    Rectangle src = {0, 0, (float)planetMapTexture.width,
+                     (float)planetMapTexture.height};
+    DrawTexturePro(planetMapTexture, src, dst, Vector2{0, 0}, 0.0f, WHITE);
+
+    // Once the playfield is small on screen, mark it so it stays findable.
+    float playfieldPx = PLANET_WIDTH * camera.zoom;
+    if (playfieldPx < 220.0f)
+    {
+        Color gold = Color{255, 200, 100, 255};
+        float pad = 6.0f / std::max(camera.zoom, 0.0001f);
+        DrawRectangleLinesEx(
+            Rectangle{-pad, -pad, PLANET_WIDTH + pad * 2,
+                      PLANET_HEIGHT + pad * 2},
+            2.0f / std::max(camera.zoom, 0.0001f), gold);
     }
 }
 

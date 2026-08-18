@@ -84,6 +84,14 @@ private:
     void EnsureTerrainForCell(int gx, int gy);
     void UnloadTerrainLevels();
 
+    // Full-planet 2D map (the whole moon, equirectangular) that the
+    // planet view zooms out to. Aligned with the playfield grid where
+    // the two meet, so zooming out is continuous.
+    Texture2D planetMapTexture;
+    bool planetMapLoaded;
+    void LoadPlanetMap();
+    void DrawPlanetMapLayer(Camera2D camera);
+
     void DrawSectTerrainBackground(Sect* sect);
     // World-space ground for the panned views. spanCells is how many
     // 5 km grid cells the level covers (20 for PLANET, 5 for COLONY);

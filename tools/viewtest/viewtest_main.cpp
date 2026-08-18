@@ -10,6 +10,7 @@
 //   1 2 3 4                      jump to Orbital / Planet / Colony / Sect
 //   I                            toggle the issue overlay
 //   R                            re-roll the sect's grid cell (new terrain)
+//   wheel / - / +                planet view: zoom out to the whole moon
 //
 // Build:  cmake --build build --target colony_viewtest
 // Run:    tools/viewtest/viewtest.sh          (headless screenshots)
@@ -83,8 +84,14 @@ static ViewNotes NotesForView(int level)
                 {"OK",   "  stands on, seen from 100 km up."},
                 {"OK",   "Drawn in world space, so it pans and zooms"},
                 {"OK",   "  with the grid instead of sliding."},
+                {"OK",   "ZOOM OUT (wheel, or - / +) all the way to the"},
+                {"OK",   "  whole moon as a 2D map; the playfield stays"},
+                {"OK",   "  marked and aligned exactly where it sits."},
                 {"TODO", "512 px over 100 km = 195 m/px; a dedicated"},
                 {"TODO", "  1024 px bake would sharpen this view."},
+                {"TODO", "Zoomed out, the playfield is visibly sharper"},
+                {"TODO", "  than the raw map around it - the map is not"},
+                {"TODO", "  amplified, only the playfield is."},
             }};
     case 2:
         return {
@@ -137,6 +144,7 @@ struct ViewTestContext
     int cellX = 10;
     int cellY = 10;
     int cellStep = 0;
+    float planetZoomT = 1.0f;    // 1 = playfield fills view, 0 = whole moon
     bool picked = false;         // has the player chosen a region from orbit?
     bool pickPending = false;    // clicked a spot, waiting on confirmation
     double pendingLat = 0.0;     // the spot awaiting confirmation
@@ -395,6 +403,18 @@ static void HandleInput(ViewTestContext& ctx)
     if (IsKeyPressed(KEY_FOUR)) ctx.level = 3;
     if (IsKeyPressed(KEY_I)) ctx.showIssues = !ctx.showIssues;
 
+    // Planet view zooms out to the whole moon and back.
+    if (ctx.level == 1)
+    {
+        float wheel = GetMouseWheelMove();
+        if (wheel != 0.0f) ctx.planetZoomT += wheel * 0.08f;
+        if (IsKeyDown(KEY_MINUS) || IsKeyDown(KEY_KP_SUBTRACT))
+            ctx.planetZoomT -= 0.02f;
+        if (IsKeyDown(KEY_EQUAL) || IsKeyDown(KEY_KP_ADD))
+            ctx.planetZoomT += 0.02f;
+        ctx.planetZoomT = fminf(1.0f, fmaxf(0.0f, ctx.planetZoomT));
+    }
+
     if (IsKeyPressed(KEY_R))
     {
         // Walk a diagonal of distinct cells so the terrain visibly changes.
@@ -477,7 +497,19 @@ static void ApplyViewCamera(ViewTestContext& ctx)
         ctx.camera.target = {PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f};
         // Fill the window width: the playfield is square, the window is
         // 16:9, so height-fitting would letterbox the moon in black.
-        ctx.camera.zoom = VT_WIDTH / (PLANET_SIZE * cellUnits);    // 100 km
+        float zoomPlayfield = VT_WIDTH / (PLANET_SIZE * cellUnits);  // 100 km
+        // Zoomed all the way out, the whole moon fits instead.
+        double latSpanDeg = (PLANET_SIZE * TERRAIN_CELL_KM) / MOON_KM_PER_DEG;
+        double alat, alon;
+        GetTerrainAnchor(&alat, &alon);
+        float updLat = (float)(PLANET_HEIGHT / latSpanDeg);
+        float updLon = updLat * (float)std::max(0.2, cos(alat * DEG2RAD));
+        float zoomGlobe = fmin(VT_WIDTH / (360.0f * updLon),
+                               VT_HEIGHT / (180.0f * updLat)) * 0.92f;
+        // Geometric interpolation, so each wheel notch changes the view
+        // by the same ratio rather than crawling near the globe end.
+        float t = ctx.planetZoomT;
+        ctx.camera.zoom = zoomGlobe * powf(zoomPlayfield / zoomGlobe, t);
     }
     else if (ctx.level == 2)
     {
@@ -606,6 +638,26 @@ int main(int argc, char** argv)
                 ExportImage(shot, path.c_str());
                 UnloadImage(shot);
                 TraceLog(LOG_WARNING, "wrote %s", path.c_str());
+            }
+
+            // Planet-view zoom sweep: playfield -> regional -> globe.
+            {
+                const float ts[3] = {1.0f, 0.5f, 0.0f};
+                const char* zn[3] = {"zoom_playfield", "zoom_mid",
+                                     "zoom_globe"};
+                g_ctx.level = 1;
+                for (int i = 0; i < 3; i++)
+                {
+                    g_ctx.planetZoomT = ts[i];
+                    DrawFrame(g_ctx);
+                    DrawFrame(g_ctx);
+                    Image sh = LoadImageFromScreen();
+                    std::string pth = g_ctx.shotPrefix + "_" + zn[i] + ".png";
+                    ExportImage(sh, pth.c_str());
+                    UnloadImage(sh);
+                    TraceLog(LOG_WARNING, "wrote %s", pth.c_str());
+                }
+                g_ctx.planetZoomT = 1.0f;
             }
 
             // Two extra frames capturing the orbital selection states,
