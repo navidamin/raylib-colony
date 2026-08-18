@@ -65,11 +65,11 @@ static ViewNotes NotesForView(int level)
             "ORBITAL VIEW", "whole moon, ~3,476 km disc",
             {
                 {"OK",   "Real LROC WAC imagery, wrapped to a sphere."},
-                {"OK",   "CLICK ANYWHERE ON THE MOON to choose your"},
-                {"OK",   "  region - the playfield re-anchors there and"},
-                {"OK",   "  every view below regenerates from that spot."},
-                {"OK",   "The marker shows the 100 km playfield you are"},
-                {"OK",   "  about to descend into."},
+                {"OK",   "MOVE over the moon: a ghost box tracks the"},
+                {"OK",   "  cursor showing the 100 km playfield you"},
+                {"OK",   "  would take. CLICK to propose it."},
+                {"OK",   "The box goes solid and asks to confirm -"},
+                {"OK",   "  YES descends, NO or right-click cancels."},
                 {"GAP",  "Static disc: no rotation yet, so only the near"},
                 {"GAP",  "  side is reachable (12 baked frames unused)."},
             }};
@@ -138,6 +138,9 @@ struct ViewTestContext
     int cellY = 10;
     int cellStep = 0;
     bool picked = false;         // has the player chosen a region from orbit?
+    bool pickPending = false;    // clicked a spot, waiting on confirmation
+    double pendingLat = 0.0;     // the spot awaiting confirmation
+    double pendingLon = 0.0;
     double pickLat = 9.6;        // Copernicus - reads at every scale
     double pickLon = -20.0;
     Camera2D camera = {0};
@@ -229,35 +232,144 @@ static void DrawNavBar(const ViewTestContext& ctx)
              x + 14, y + 16, 14, Color{140, 155, 180, 255});
 }
 
-// Draw the chosen region on the orbital disc: a box the size of the
-// 100 km playfield, so the player sees exactly what they are entering.
+// The 100 km playfield box, in pixels of the 1200 px orbital disc.
+static float OrbitalBoxRadius()
+{
+    float discR = 1200.0f / 2.0f - 12.0f;
+    float boxR = (float)(100.0 / 3476.0) * discR * 2.0f;
+    return (boxR < 7.0f) ? 7.0f : boxR;
+}
+
+static void DrawPlayfieldBox(float px, float py, Color line, float thick,
+                             Color fill)
+{
+    float r = OrbitalBoxRadius();
+    Rectangle box = {px - r, py - r, r * 2, r * 2};
+    if (fill.a > 0) DrawRectangleRec(box, fill);
+    DrawRectangleLinesEx(box, thick, line);
+    // Tick marks either side, so the box reads as a reticle.
+    DrawLineEx(Vector2{px - r - 12, py}, Vector2{px - r - 3, py}, thick, line);
+    DrawLineEx(Vector2{px + r + 3, py}, Vector2{px + r + 12, py}, thick, line);
+}
+
+// Geometry of the confirmation prompt, shared by drawing and hit-testing
+// so the buttons cannot drift apart from where they are drawn.
+struct PickPrompt
+{
+    Rectangle panel;
+    Rectangle yes;
+    Rectangle no;
+};
+
+static PickPrompt ComputePickPrompt(float px, float py)
+{
+    const float w = 306.0f, h = 104.0f;
+    float r = OrbitalBoxRadius();
+    float x = px + r + 18.0f;
+    float y = py - h / 2.0f;
+    // Flip to the other side / clamp so the prompt always stays on screen.
+    if (x + w > VT_WIDTH - 12.0f) x = px - r - 18.0f - w;
+    if (x < 12.0f) x = 12.0f;
+    if (y < 12.0f) y = 12.0f;
+    if (y + h > VT_HEIGHT - 56.0f) y = VT_HEIGHT - 56.0f - h;
+
+    const float bw = 124.0f, bh = 34.0f;
+    PickPrompt p;
+    p.panel = Rectangle{x, y, w, h};
+    p.yes = Rectangle{x + 14.0f, y + h - bh - 13.0f, bw, bh};
+    p.no = Rectangle{x + w - bw - 14.0f, y + h - bh - 13.0f, bw, bh};
+    return p;
+}
+
+// Orbital region selection:
+//   hover  - a translucent box tracks the cursor over the moon
+//   click  - the box goes solid and a confirmation prompt appears
+//   yes    - the playfield re-anchors there and we descend
+//   no / right-click - back to hovering
 static void DrawOrbitalPickMarker(const ViewTestContext& ctx)
 {
     if (ctx.level != 0) return;
 
-    float px, py;
-    double lat, lon;
-    GetTerrainAnchor(&lat, &lon);
-    if (!OrbitalLatLonToScreen(lat, lon, VT_WIDTH, VT_HEIGHT, &px, &py))
+    const Color gold = Color{255, 200, 100, 255};
+    const Color ghost = Color{255, 220, 150, 150};
+
+    // The current anchor, dimmed while another spot is being chosen.
+    float ax, ay;
+    double alat, alon;
+    GetTerrainAnchor(&alat, &alon);
+    if (OrbitalLatLonToScreen(alat, alon, VT_WIDTH, VT_HEIGHT, &ax, &ay))
+    {
+        Color c = ctx.pickPending ? Color{200, 170, 110, 110} : gold;
+        DrawPlayfieldBox(ax, ay, c, 2.0f, BLANK);
+        if (!ctx.pickPending)
+        {
+            DrawText(TextFormat("%s  %+.2f, %+.2f",
+                                ctx.picked ? "SELECTED" : "DEFAULT",
+                                alat, alon),
+                     (int)(ax + OrbitalBoxRadius() + 16), (int)(ay - 8), 15,
+                     gold);
+        }
+    }
+
+    if (!ctx.pickPending)
+    {
+        // Hovering: a translucent playfield box follows the cursor
+        // wherever it is over the moon, so you can see exactly what
+        // region you would be taking before committing to it.
+        Vector2 m = GetMousePosition();
+        double lat, lon;
+        if (OrbitalPickToLatLon(m.x, m.y, VT_WIDTH, VT_HEIGHT, &lat, &lon))
+        {
+            DrawPlayfieldBox(m.x, m.y, ghost, 1.5f,
+                             Color{255, 220, 150, 28});
+            DrawText(TextFormat("%+.2f, %+.2f", lat, lon),
+                     (int)(m.x + OrbitalBoxRadius() + 14),
+                     (int)(m.y + OrbitalBoxRadius() - 4), 14, ghost);
+        }
+        DrawText("move over the moon, click to choose a landing region",
+                 20, VT_HEIGHT - 96, 17, Color{200, 210, 230, 255});
         return;
+    }
 
-    // 100 km on a 3,476 km disc, in pixels of the 1200 px disc.
-    float discR = 1200.0f / 2.0f - 12.0f;
-    float boxR = (float)(100.0 / 3476.0) * discR * 2.0f;
-    if (boxR < 7.0f) boxR = 7.0f;
+    // Pending: the box is solid at the chosen spot, and the prompt asks
+    // for confirmation right beside it.
+    float px, py;
+    if (!OrbitalLatLonToScreen(ctx.pendingLat, ctx.pendingLon,
+                               VT_WIDTH, VT_HEIGHT, &px, &py))
+    {
+        return;
+    }
+    DrawPlayfieldBox(px, py, gold, 3.0f, Color{255, 210, 130, 46});
 
-    Color gold = Color{255, 200, 100, 255};
-    DrawRectangleLinesEx(Rectangle{px - boxR, py - boxR, boxR * 2, boxR * 2},
-                         2.0f, gold);
-    DrawLineEx(Vector2{px - boxR - 12, py}, Vector2{px - boxR - 3, py},
-               2.0f, gold);
-    DrawLineEx(Vector2{px + boxR + 3, py}, Vector2{px + boxR + 12, py},
-               2.0f, gold);
-    DrawText(TextFormat("%s  %+.2f, %+.2f",
-                        ctx.picked ? "SELECTED" : "DEFAULT", lat, lon),
-             (int)(px + boxR + 16), (int)(py - 8), 15, gold);
-    DrawText("click the moon to choose a landing region",
-             20, VT_HEIGHT - 96, 17, Color{200, 210, 230, 255});
+    PickPrompt pr = ComputePickPrompt(px, py);
+    DrawRectangleRec(pr.panel, Color{10, 12, 20, 238});
+    DrawRectangleLinesEx(pr.panel, 2.0f, gold);
+    DrawText("Confirm this landing region?",
+             (int)pr.panel.x + 14, (int)pr.panel.y + 12, 18, RAYWHITE);
+    DrawText(TextFormat("%+.2f, %+.2f   -   100 km playfield",
+                        ctx.pendingLat, ctx.pendingLon),
+             (int)pr.panel.x + 14, (int)pr.panel.y + 36, 14,
+             Color{170, 190, 215, 255});
+
+    Vector2 m = GetMousePosition();
+    bool overYes = CheckCollisionPointRec(m, pr.yes);
+    bool overNo = CheckCollisionPointRec(m, pr.no);
+
+    DrawRectangleRec(pr.yes, overYes ? Color{40, 120, 70, 255}
+                                     : Color{26, 60, 40, 255});
+    DrawRectangleLinesEx(pr.yes, 1.5f, Color{110, 220, 140, 255});
+    DrawText("YES", (int)pr.yes.x + 44, (int)pr.yes.y + 9, 17,
+             Color{190, 245, 205, 255});
+
+    DrawRectangleRec(pr.no, overNo ? Color{120, 45, 45, 255}
+                                   : Color{56, 26, 26, 255});
+    DrawRectangleLinesEx(pr.no, 1.5f, Color{255, 130, 120, 255});
+    DrawText("NO", (int)pr.no.x + 50, (int)pr.no.y + 9, 17,
+             Color{255, 195, 190, 255});
+
+    DrawText("right-click also cancels", (int)pr.panel.x + 14,
+             (int)pr.panel.y + pr.panel.height + 6, 13,
+             Color{150, 165, 190, 255});
 }
 
 static void DrawSectCellBadge(const ViewTestContext& ctx)
@@ -307,20 +419,46 @@ static void HandleInput(ViewTestContext& ctx)
         descend = false;
     }
 
-    // On the orbital view a click is a REGION PICK: re-anchor the
-    // playfield to that real lat/lon, then descend into it.
-    if (descend && ctx.level == 0)
+    // Orbital region selection is a two-step commit: the first click
+    // proposes a spot, the prompt confirms it.
+    if (ctx.level == 0)
     {
-        double lat, lon;
-        if (OrbitalPickToLatLon(m.x, m.y, VT_WIDTH, VT_HEIGHT, &lat, &lon))
+        if (ctx.pickPending)
         {
-            SetTerrainAnchor(lat, lon);
-            GetTerrainAnchor(&ctx.pickLat, &ctx.pickLon);
-            ctx.picked = true;
-            RebuildSect(ctx);
-            ctx.level = 1;
+            float px, py;
+            bool onDisc = OrbitalLatLonToScreen(ctx.pendingLat, ctx.pendingLon,
+                                                VT_WIDTH, VT_HEIGHT, &px, &py);
+            PickPrompt pr = ComputePickPrompt(px, py);
+
+            if (ascend || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)
+                || (descend && CheckCollisionPointRec(m, pr.no)))
+            {
+                ctx.pickPending = false;         // cancelled
+            }
+            else if (onDisc && descend && CheckCollisionPointRec(m, pr.yes))
+            {
+                SetTerrainAnchor(ctx.pendingLat, ctx.pendingLon);
+                GetTerrainAnchor(&ctx.pickLat, &ctx.pickLon);
+                ctx.picked = true;
+                ctx.pickPending = false;
+                RebuildSect(ctx);
+                ctx.level = 1;                   // descend into it
+            }
+            descend = false;
+            ascend = false;                      // prompt owns both clicks
         }
-        descend = false;         // a miss stays in orbit
+        else if (descend)
+        {
+            double lat, lon;
+            if (OrbitalPickToLatLon(m.x, m.y, VT_WIDTH, VT_HEIGHT,
+                                    &lat, &lon))
+            {
+                ctx.pendingLat = lat;
+                ctx.pendingLon = lon;
+                ctx.pickPending = true;          // ask before committing
+            }
+            descend = false;                     // a miss stays in orbit
+        }
     }
 
     if (descend && ctx.level < 3) ctx.level++;
@@ -468,6 +606,43 @@ int main(int argc, char** argv)
                 ExportImage(shot, path.c_str());
                 UnloadImage(shot);
                 TraceLog(LOG_WARNING, "wrote %s", path.c_str());
+            }
+
+            // Two extra frames capturing the orbital selection states,
+            // which need a cursor position and so cannot be reached by
+            // the plain per-view sweep above.
+            {
+                g_ctx.level = 0;
+                float hx, hy;
+                OrbitalLatLonToScreen(g_ctx.pickLat, g_ctx.pickLon,
+                                      VT_WIDTH, VT_HEIGHT, &hx, &hy);
+
+                struct Demo { const char* name; bool pending; float mx, my; };
+                // Hover: cursor out over the mare, box tracking it.
+                // Confirm: spot proposed, cursor resting on YES.
+                PickPrompt pr = ComputePickPrompt(hx, hy);
+                Demo demos[2] = {
+                    {"orbital_hover", false, hx + 150.0f, hy + 90.0f},
+                    {"orbital_confirm", true,
+                     pr.yes.x + pr.yes.width / 2, pr.yes.y + pr.yes.height / 2},
+                };
+
+                for (const Demo& d : demos)
+                {
+                    g_ctx.pickPending = d.pending;
+                    g_ctx.pendingLat = g_ctx.pickLat;
+                    g_ctx.pendingLon = g_ctx.pickLon;
+                    SetMousePosition((int)d.mx, (int)d.my);
+                    DrawFrame(g_ctx);
+                    SetMousePosition((int)d.mx, (int)d.my);
+                    DrawFrame(g_ctx);
+                    Image sh = LoadImageFromScreen();
+                    std::string pth = g_ctx.shotPrefix + "_" + d.name + ".png";
+                    ExportImage(sh, pth.c_str());
+                    UnloadImage(sh);
+                    TraceLog(LOG_WARNING, "wrote %s", pth.c_str());
+                }
+                g_ctx.pickPending = false;
             }
         }
         else
