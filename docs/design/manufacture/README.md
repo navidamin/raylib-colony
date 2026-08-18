@@ -11,7 +11,7 @@ Status: DRAFT — frame settled, structure proposed, nothing implemented
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
 | 1 | This README | Unit frame, product catalogue, flow classes, candidate structures | DRAFT |
-| 2 | *(pending)* `manufacture-master-design.md` | Full design against the 13-aspect brief — **write once §8 is resolved** | — |
+| 2 | *(pending)* `manufacture-master-design.md` | Full design against the 13-aspect brief — **write once §9 is resolved** | — |
 
 ---
 
@@ -227,7 +227,115 @@ which currently has no mechanical job.
 
 ---
 
-## 7. Pricing
+## 7. Controlling the network
+
+Manufacture sits at the centre of a directed graph: most edges run one way
+(units consume its output), but a few run back the other way — **Drills** to
+Extraction, **Shredders** to Recycle, lab equipment to Science. Those loop-back
+edges are where deadlock lives, and they are the reason this unit can degenerate
+into a queue of unfillable requests.
+
+### 7.1 The loops are the gameplay, not the obstacle
+
+"Spend this titanium on a drill — more ore forever — or on a beam, the thing I
+need now" is investment-versus-consumption, and it is the decision this unit
+exists to pose. Removing the loops produces an acyclic, safe, inert economy.
+
+Three properties keep a loop from becoming a trap:
+
+| Property | Rule |
+|---|---|
+| **Gain > 1** | One drill must enable enough ore to build *more than one* drill. Gain < 1 is a slow death that looks like progress |
+| **Named and few** | Four loop-back edges is a system; forty is a maze. Loop-backs are an explicit, small, enumerated set — never emergent |
+| **Always an exit** | Imports are the deadlock-breaker of last resort. This is their structural job, beyond flavour |
+
+### 7.2 Four rules that keep it frictionless
+
+**Time-phasing dissolves the circularity.** The dependency is circular in
+topology but not in time — the drill built today uses ore mined yesterday.
+Real MRP handles exactly this. There is no paradox, only a schedule.
+
+**Thermostats do not queue.** A request accumulates; a *condition* does not.
+"Keep 5 drills" is either satisfied or short — no backlog, no ageing list, no
+unattended pile. There cannot be 47 pending orders if there are no orders, only
+target numbers. This is the primary defence against the unit becoming clerical
+work.
+
+**Aggregate by resource, never by requester.** Show `MACHINERY — 5 short`, not
+"Extraction wants 3 drills, Transport wants 2 conveyors, Core wants 5 filters."
+Fourteen subtypes is a readable list; forty requests from eight units is
+bookkeeping. Requester identity is diagnostic detail available on demand, never
+the primary view.
+
+**Doctrine resolves priority, not per-order clicks.** One sect-level setting —
+*Survival / Growth / Export* — deterministically settles every shortage
+conflict: life support before maintenance before expansion before export. One
+choice, hundreds of conflicts resolved, fully predictable.
+
+### 7.3 The gameplay is diagnosis, not clerking
+
+The player never processes orders. They set policy and **find the constraint**.
+
+```
+read state ──▶ spot what is starved ──▶ diagnose why ──▶ one decision ──▶ leave
+```
+
+"Titanium is short" — is the line off, is Extraction not producing Ti, or did
+the drill break unnoticed? Three answers, three fixes. Locating a system's
+bottleneck is the activity; filling orders is not.
+
+**The bottleneck must move as the colony grows.** If it is always energy, the
+player fixes it once and the unit goes quiet. The intended progression is
+energy → titanium → crew → transport capacity → polymer imports, each growth
+phase revealing a new constraint. This is what makes the unit worth revisiting
+late in a run.
+
+Expected action frequency:
+
+| Action | Frequency |
+|---|---|
+| Read the unit's state | Every visit |
+| Respond to a flagged exception | Occasionally |
+| Reassign a line to a recipe | Rarely — changeover costs time and spares, so the choice sticks |
+| Adjust a stock target | Rarely |
+| Change doctrine | Almost never |
+
+### 7.4 Scale: star topology, not mesh
+
+Within a sect, eight units trade instantly and without friction — local, ~14
+edges, no transport cost.
+
+**Between sects, sects must not talk to sects.** Twenty sects meshed is 400
+edges and genuinely unmanageable. Sects trade only with the **colony pool**,
+which already exists in code (`Colony::ReceiveTypedSurplus` /
+`Colony::ProvideTypedResource`). That is 20 edges, not 400. A sect resolves
+demand internally first, then pushes surplus and pulls deficit across one
+boundary.
+
+The graph therefore stays a constant, readable size regardless of colony scale.
+
+### 7.5 Deadlock: name it and offer the exits
+
+The game must never silently strand the player. When a loop breaks, it says so
+and lists the ways out:
+
+> **Extraction stalled — no HeavyDrill.**
+> Ti stock: 0. Options: import a drill (mass 40) · salvage the Conveyor line
+> (recovers 30 Ti) · switch doctrine to Survival
+
+Deadlock detection that names the cycle and enumerates the exits converts the
+genre's worst frustration into a decision with stakes.
+
+### 7.6 Open: how this is presented
+
+The organising principle above is settled. **How the player reads it is not** —
+node-link graph, proportional flow diagram, input/output matrix, tier ladder,
+stock thermostats, line bay, or constraint feed are all candidates, and the
+choice materially changes what the unit feels like. See open question 6 in §8.
+
+---
+
+## 8. Pricing
 
 Manufacture does not set prices. [`../economy/README.md`](../economy/README.md) §1
 does: every product is worth at most **import parity** — what Earth would
@@ -237,7 +345,7 @@ launch-mass bill going down.
 
 ---
 
-## 8. Decided vs open
+## 9. Decided vs open
 
 **Decided (this frame):**
 
@@ -245,6 +353,9 @@ launch-mass bill going down.
 - Flow classes as the organizing axis, not product categories
 - Thermostat as the demand primitive, sourced mechanically first
 - Multi-recipe with priority over one-recipe-per-machine
+- Loop discipline: gain > 1, few named loop-backs, imports as the exit (§7.1)
+- Aggregate demand by resource; doctrine resolves priority (§7.2)
+- Star topology via the colony pool, never sect-to-sect mesh (§7.4)
 
 **Open — resolve before writing the master design:**
 
@@ -255,6 +366,8 @@ launch-mass bill going down.
 | 3 | How many line slots, and does dome tier / crew gate them like ring sockets? |
 | 4 | Rate unit — per tick, per day, or CoI's per-60s? Pick once and hold it everywhere (`module-architecture.md` Part II §2) |
 | 5 | Does Manufacture own O₂ production? Real ISRU makes oxygen a **by-product of metal extraction**, which would rewire it away from Farming and couple life support to industrial throughput |
+| 6 | **How is the network presented?** Node-link graph · proportional flow · I/O matrix · tier ladder · stock thermostats · line bay · constraint feed. The organising rules (§7) hold for any of them, but the choice decides whether the unit reads as a *system*, a *ledger*, or a *workshop* |
+| 7 | Where does **Recycle** live? It appears in the flow sketches but is not one of the seven production units. Candidates: a Manufacture module, or Construction's Salvage |
 
 ---
 
