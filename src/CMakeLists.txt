@@ -13,6 +13,7 @@ set(COLONY_CORE_SOURCES
     ResourceManager/resource_manager.cpp
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
+    TerrainGen/terrain_synthesis.cpp
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
@@ -34,6 +35,7 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
 )
@@ -99,11 +101,12 @@ set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 # ---------------------------------------------------------------------------
-# colony_preview: offscreen UI preview tool
+# colony_preview: offscreen preview tool
 #
-# Renders a single module panel to a PNG without running the game loop, so UI
-# work can be reviewed headlessly (see tools/preview/README.md). Not built for
-# the Web platform, which has no filesystem to export screenshots to.
+# Renders a single module panel (--module) or a whole game view (--view) to a
+# PNG without running the game loop, so UI and terrain work can be reviewed
+# headlessly (see tools/preview/README.md). Not built for the Web platform,
+# which has no filesystem to export screenshots to.
 # ---------------------------------------------------------------------------
 if(NOT "${PLATFORM}" STREQUAL "Web")
     add_executable(colony_preview)

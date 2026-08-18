@@ -72,7 +72,7 @@ TEST_CASE("SweepEngine GetSweepCost returns correct costs", "[sweep]")
     REQUIRE_THAT(engine.GetSweepCost(-1), Catch::Matchers::WithinAbs(0.0f, 0.01f));
 }
 
-TEST_CASE("SweepEngine ExecuteSweep marks all cells as swept", "[sweep]")
+TEST_CASE("SweepEngine ExecuteSweep marks in-reach cells as swept", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
     ProspectingGrid grid(2, 8, 8, rm);
@@ -80,14 +80,22 @@ TEST_CASE("SweepEngine ExecuteSweep marks all cells as swept", "[sweep]")
 
     engine.ExecuteSweep(grid, 0, 100.0f);
 
+    // A sweep covers the tier's reach window only; cells outside it stay dark.
     int size = grid.GetGridSize();
     for (int y = 0; y < size; y++)
     {
         for (int x = 0; x < size; x++)
         {
             const auto& cell = grid.GetSubCell(x, y);
-            REQUIRE(cell.hasBeenSwept);
-            REQUIRE(cell.sweepFrequencyBand == 0);
+            if (grid.IsInReach(x, y))
+            {
+                REQUIRE(cell.hasBeenSwept);
+                REQUIRE(cell.sweepFrequencyBand == 0);
+            }
+            else
+            {
+                REQUIRE_FALSE(cell.hasBeenSwept);
+            }
         }
     }
 }
@@ -142,10 +150,10 @@ TEST_CASE("SweepEngine ExecuteSweep returns valid result", "[sweep]")
     SweepEngine engine(2);
 
     auto result = engine.ExecuteSweep(grid, 0, 100.0f);
-    int size = grid.GetGridSize();
+    int reach = grid.GetReach();
 
     REQUIRE_THAT(result.energyCost, Catch::Matchers::WithinAbs(30.0f, 0.01f));
-    REQUIRE(result.cellsSwept == size * size);
+    REQUIRE(result.cellsSwept == reach * reach);
     REQUIRE(result.anomaliesDetected >= 0);
     REQUIRE(result.avgSignal >= 0.0f);
     REQUIRE(result.avgSignal <= 1.0f);
