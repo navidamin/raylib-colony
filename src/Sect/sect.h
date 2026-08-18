@@ -11,7 +11,10 @@
 #include "resource_manager.h"
 #include "game_enums.h"
 
-#define CHINAROSE (Color){ 160, 70, 104, 255 }
+// CLITERAL is raylib's portability shim: it expands to `(Color)` in C and
+// to nothing in C++. Writing the C compound literal `(Color){...}` directly
+// is a GCC/Clang extension that MSVC rejects outright (error C4576).
+#define CHINAROSE CLITERAL(Color){ 160, 70, 104, 255 }
 
 
 class Sect {
