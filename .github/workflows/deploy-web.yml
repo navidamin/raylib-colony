@@ -3,7 +3,9 @@ name: Deploy to GitHub Pages
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    # lunar-elevation branch added temporarily so the /lunarmap/ playtest
+    # can deploy before merge (the github-pages environment allows it).
+    branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj]
     paths:
       - 'src/**'
       - 'tools/**'
