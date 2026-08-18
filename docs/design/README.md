@@ -42,6 +42,7 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 | Module | Directory | Status |
 |--------|-----------|--------|
 | Prospecting | `prospecting/` | Active design |
+| Sect View | `sect-view/` | Active design — visuals implemented, HUD/hover drafted |
 | Research | `research/` | Stub — interface requirements from prospecting AI |
 | AI Automation | `ai-automation/` | Stub — cross-cutting pattern for all unit AI trees |
 | Excavation | — | Future |

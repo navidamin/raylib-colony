@@ -664,9 +664,9 @@ void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
 
     // Draw UI elements including time
     timeManager.Draw(screenWidth, screenHeight);
-    DrawText("Sect View", 10, 10, 20, BLACK);
-    DrawText("Press U for Unit View", 10, 40, 20, GRAY);
-    DrawText("Press C for Colony View", 10, 70, 20, GRAY);
+    DrawText("Sect View", 10, 10, 20, RAYWHITE);
+    DrawText("Press U for Unit View", 10, 40, 20, LIGHTGRAY);
+    DrawText("Press C for Colony View", 10, 70, 20, LIGHTGRAY);
 
     // Draw sect resource dashboard (left side)
     if (sect)
