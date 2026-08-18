@@ -85,21 +85,25 @@ private:
 
     void DrawDebugActiveArea();
 
-    // Extraction unit UI methods
-    void DrawExtractionUnitView(Unit* unit, TimeManager& timeManager);
-    void DrawExtractionTopBar(Unit* unit, TimeManager& timeManager);
-    void DrawExtractionBottomBar(Unit* unit);
-    void DrawExtractionModuleList(Unit* unit);
-    void DrawExtractionModuleCenter(Unit* unit);
-    void DrawExtractionControlPanel(Unit* unit);
+    // Shared modular unit UI: chrome used by every unit type
+    void DrawModularUnitView(Unit* unit, TimeManager& timeManager);
+    void DrawUnitTopBar(Unit* unit, TimeManager& timeManager);
+    void DrawUnitBottomBar(Unit* unit);
+    void DrawUnitModuleList(Unit* unit);
+    void DrawUnitModuleCenter(Unit* unit);
+    void DrawUnitControlPanel(Unit* unit);
 
-    // Module-specific center panels
+    // Module-specific center panels (Extraction)
     void DrawProspectingPanel(Unit* unit, int x, int y, int w, int h);
     void DrawExcavationPanel(Unit* unit, int x, int y, int w, int h);
     void DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int h);
     void DrawOperationsPanel(Unit* unit, int x, int y, int w, int h);
     void DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h);
-    void DrawExtractionResourceOverview(Unit* unit, int x, int y, int w, int h);
+
+    // Fallback center panel for modules without a bespoke layout yet
+    void DrawGenericModulePanel(Unit* unit, int x, int y, int w, int h);
+
+    void DrawUnitResourceOverview(Unit* unit, int x, int y, int w, int h);
 
     // Styled drawing helpers
     void DrawStyledBar(float x, float y, float w, float h, float value, Color fillColor);

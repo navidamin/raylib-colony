@@ -1,6 +1,7 @@
 #include "sect.h"
 #include "colony.h"
 #include <iostream>
+#include <algorithm>
 
 Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
     : resourceManager(resource),
@@ -128,23 +129,43 @@ void Sect::UpdateRoadConstruction(float deltaTime) {
 }
 
 void Sect::CreateInitialUnits(Vector2& position) {
-    std::vector<std::string> unit_types = {
-        "Extraction", "Farming", "Manufacture", "Transport", "Communication", "Research","Energy", "Construction"
-    };
+    // The Core is the centre dome and is always present -- it is what makes the
+    // sect habitable. The ring holds SECT_RING_SOCKETS production units drawn
+    // from seven types, so every sect is short at least one.
+    // See docs/design/core/README.md.
+    Unit* coreUnit = new Unit("Core", position, resourceManager, timeManager,
+                              resourceStorage, storageCapacity);
+    coreUnit->Start();
+    core = coreUnit;
+    AddUnit(coreUnit);
 
-    // Initialize and stary each unit
-    for (const auto& type : unit_types) {
-        Unit* unit = new Unit(type, position, resourceManager, timeManager, resourceStorage, storageCapacity);
+    for (const auto& type : SECT_DEFAULT_LOADOUT) {
+        Unit* unit = new Unit(type, position, resourceManager, timeManager,
+                              resourceStorage, storageCapacity);
         if (type == "Extraction") {
             unit->Start();
-            core = unit; // Set the Extraction unit as the core
         } else {
             unit->Stop();
         }
         AddUnit(unit);
     }
 
-    std::cout << "All initial units created for the sect." << std::endl;
+    std::cout << "Sect created: Core + " << SECT_DEFAULT_LOADOUT.size()
+              << " ring units." << std::endl;
+}
+
+// Ring units are every unit except the Core, which is drawn on the centre dome.
+std::vector<Unit*> Sect::GetRingUnits() const {
+    std::vector<Unit*> ring;
+    for (Unit* unit : units) {
+        if (unit != core) ring.push_back(unit);
+    }
+    return ring;
+}
+
+// Angle of ring socket `index`, starting at the top and going clockwise.
+float Sect::RingSocketAngle(int index) const {
+    return (90.0f - (index * (360.0f / SECT_RING_SOCKETS))) * DEG2RAD;
 }
 
 
@@ -172,15 +193,16 @@ void Sect::DrawInColonyView(Vector2 pos) {
     float indicatorRadius = coreRadius * 0.35f;
     float orbitRadius = coreRadius * 1.3f;
 
-    for (size_t i = 0; i < units.size(); i++) {
-        float angle = (90.0f - (i * 45.0f)) * DEG2RAD;  // 8 units, 45 degrees apart
+    std::vector<Unit*> ring = GetRingUnits();
+    for (size_t i = 0; i < ring.size(); i++) {
+        float angle = RingSocketAngle(static_cast<int>(i));
         Vector2 indicatorPos = {
             pos.x + orbitRadius * cosf(angle),
             pos.y - orbitRadius * sinf(angle)
         };
 
         // Get unit type for texture lookup
-        std::string unitType = units[i]->GetUnitType();
+        std::string unitType = ring[i]->GetUnitType();
         auto texIt = unitTextures.find(unitType);
 
         // Draw unit (texture or fallback circle)
@@ -197,12 +219,12 @@ void Sect::DrawInColonyView(Vector2 pos) {
             DrawTexturePro(texIt->second, source, dest, origin, 0.0f, WHITE);
 
             // Add green glow ring for active units
-            if (units[i]->GetStatus() == "active") {
+            if (ring[i]->GetStatus() == "active") {
                 DrawCircleLines(indicatorPos.x, indicatorPos.y, indicatorRadius * 1.15f, GREEN);
             }
         } else {
             // Fallback to circle if texture not available
-            if (units[i]->GetStatus() == "active") {
+            if (ring[i]->GetStatus() == "active") {
                 DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, GREEN);
             } else {
                 DrawCircle(indicatorPos.x, indicatorPos.y, indicatorRadius, CHINAROSE);
@@ -226,7 +248,18 @@ void Sect::DrawInColonyView(Vector2 pos) {
 
 
 void Sect::DrawInSectView(Vector2 position) {
-    float coreRadius = GetScreenHeight() * 0.38f;  // Core takes ~76% of screen height diameter
+    // Ring geometry, shared by the dome and the socket ring below. A socket
+    // centre sits at ORBIT_FACTOR from the middle and the socket itself spans
+    // UNIT_FACTOR, so the ring reaches (ORBIT + UNIT) x coreRadius.
+    const float ORBIT_FACTOR = 1.12f;
+    const float UNIT_FACTOR  = 0.32f;
+    const float RING_EXTENT  = ORBIT_FACTOR + UNIT_FACTOR;
+    const float TOP_MARGIN   = 40.0f;   // clears the day counter
+
+    // Cap the core so the topmost socket stays on screen. At 0.38 the top
+    // socket was clipped ~34px off the top edge and could not be clicked.
+    float coreRadius = std::min(GetScreenHeight() * 0.38f,
+                                (GetScreenHeight() * 0.5f - TOP_MARGIN) / RING_EXTENT);
 
     // Draw the main core (dome texture or fallback circle)
     if (domeTexture.id != 0) {
@@ -254,16 +287,42 @@ void Sect::DrawInSectView(Vector2 position) {
             20,
             BLACK);
 
+    // Mark the dome as the Core unit's seat. Without this the Core is clickable
+    // but nothing tells the player it is there -- the same active ring the
+    // socket units use keeps the language consistent.
+    if (core) {
+        float coreHitRadius = coreRadius * 0.55f;
+        Color coreRingColor = core->GetStatus() == "active" ? GREEN : GRAY;
+        DrawCircleLines(position.x, position.y, coreHitRadius, Fade(coreRingColor, 0.8f));
+
+        const char* coreLabel = "CORE";
+        int coreLabelSize = static_cast<int>(coreRadius * 0.10f);
+        DrawText(coreLabel,
+                 position.x - MeasureText(coreLabel, coreLabelSize) / 2,
+                 position.y + coreHitRadius - coreLabelSize - 2,
+                 coreLabelSize,
+                 Fade(BLACK, 0.75f));
+    }
+
     // Draw resource stats in the core
     DrawResourceStats(position, coreRadius);
 
     // Draw the units around the core
-    float unitRadius = coreRadius * 0.32f;  // Units are 32% the size of core (larger)
-    float orbitRadius = coreRadius * 1.12f; // Distance from core center to unit center (closer)
+    float unitRadius = coreRadius * UNIT_FACTOR;
+    float orbitRadius = coreRadius * ORBIT_FACTOR;
 
-    for (size_t i = 0; i < units.size(); ++i) {
+    // The Core sits on the centre dome rather than in the ring. Giving it the
+    // centre position here is also what makes the dome clickable, since
+    // selection hit-tests the position stored on each unit.
+    if (core) {
+        core->SetUnitPosInSectView(position);
+        core->SetUnitRadiusInSectView(coreRadius * 0.55f);
+    }
+
+    std::vector<Unit*> ring = GetRingUnits();
+    for (size_t i = 0; i < ring.size(); ++i) {
         // Start from 90 degrees (top) and go clockwise
-        float angle = (90.0f - (i * 45.0f)) * DEG2RAD;  // 8 units, 45 degrees apart
+        float angle = RingSocketAngle(static_cast<int>(i));
 
         Vector2 unitPos = {
             position.x + orbitRadius * cosf(angle),
@@ -271,11 +330,11 @@ void Sect::DrawInSectView(Vector2 position) {
         };
 
         // Store the position for click detection
-        units[i]->SetUnitPosInSectView(unitPos);
-        units[i]->SetUnitRadiusInSectView(unitRadius);
+        ring[i]->SetUnitPosInSectView(unitPos);
+        ring[i]->SetUnitRadiusInSectView(unitRadius);
 
         // Get unit type for texture lookup
-        std::string unitType = units[i]->GetUnitType();
+        std::string unitType = ring[i]->GetUnitType();
         auto texIt = unitTextures.find(unitType);
 
         // All units render at full brightness for now (no deactivated look)
@@ -296,12 +355,12 @@ void Sect::DrawInSectView(Vector2 position) {
             DrawTexturePro(texIt->second, source, dest, origin, 0.0f, tint);
 
             // Add green glow ring for active units
-            if (units[i]->GetStatus() == "active") {
+            if (ring[i]->GetStatus() == "active") {
                 DrawCircleLines(unitPos.x, unitPos.y, unitRadius * 1.1f, GREEN);
             }
         } else {
             // Fallback to circle if texture not available
-            Color fillColor = units[i]->GetStatus() == "active" ? GREEN : GRAY;
+            Color fillColor = ring[i]->GetStatus() == "active" ? GREEN : GRAY;
             DrawCircle(unitPos.x, unitPos.y, unitRadius, fillColor);
             DrawCircleLines(unitPos.x, unitPos.y, unitRadius, BLACK);
 
@@ -573,7 +632,7 @@ void Sect::LoadTextures() {
         {"Construction", "src/assets/Unit_Thumbnails/constructionUnitX256.png"},
         {"Transport", "src/assets/Unit_Thumbnails/TransportX256.png"},
         {"Research", "src/assets/Unit_Thumbnails/Researchx256.png"},
-        {"Communication", "src/assets/Unit_Thumbnails/commX256.png"}
+        {"Core", "src/assets/Unit_Thumbnails/commX256.png"}
     };
 
     // Load unit textures

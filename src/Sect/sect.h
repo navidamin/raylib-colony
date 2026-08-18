@@ -121,6 +121,10 @@ private:
 
     // Private member functions
     void CreateInitialUnits(Vector2 &position);
+
+    // Ring layout: every unit except the Core, which sits on the centre dome.
+    std::vector<Unit*> GetRingUnits() const;
+    float RingSocketAngle(int index) const;
     void DrawTransparentRightPanel();
     void DrawResourceStats(Vector2 position, float coreRadius);
 

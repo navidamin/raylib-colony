@@ -83,3 +83,7 @@ notes
 #autosaves
 *.autosave
 
+
+# CMake build directories
+build/
+build_*/
