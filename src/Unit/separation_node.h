@@ -46,6 +46,27 @@ struct SeparationNode {
 
         for (const auto& [outType, ratio] : outputRatios)
         {
+            // A node that lists a resource as BOTH input and output is sorting
+            // or passing it through, so it must carry that resource's own
+            // amount forward. Pooling every input and handing the sum to each
+            // output -- which is what this did -- destroyed the composition
+            // entirely: a passthrough node multiplied total mass by the number
+            // of resource types and returned equal amounts of all of them,
+            // whatever went in. Excavation's whole point is choosing ground
+            // rich in what you want, and this erased that choice one stage
+            // later.
+            auto passthrough = inputRatios.find(outType);
+            if (passthrough != inputRatios.end())
+            {
+                auto incoming = input.find(outType);
+                float amount = incoming != input.end() ? incoming->second : 0.0f;
+                output[outType] = amount * passthrough->second * ratio *
+                                  effectiveEfficiency * deltaTime;
+                continue;
+            }
+
+            // A genuine conversion -- the output is something none of the
+            // inputs were, so it is made FROM them and pooling is correct.
             float totalInput = 0.0f;
             for (const auto& [inType, inAmount] : input)
             {

@@ -1234,7 +1234,17 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
 
         // Handle production based on unit type (scaled by efficiency)
         if (unit_type == "Extraction") {
-            ProcessExtraction(deltaTime * efficiencyMultiplier, resourceManager);
+            // ProcessExtraction runs the WHOLE unit's pipeline -- prospecting
+            // gating, excavation, beneficiation, storage -- so it belongs to
+            // the unit, not to a module. Calling it inside the per-module loop
+            // ran it once per active module: with prospecting, excavation and
+            // beneficiation all on, the unit dug three times a tick and every
+            // number downstream was three times too big.
+            //
+            // Run it once, on the module that actually does the digging.
+            if (module.moduleType == "EXCAVATION") {
+                ProcessExtraction(deltaTime * efficiencyMultiplier, resourceManager);
+            }
         }
         else {
             // Normal production for other unit types (scaled by efficiency)

@@ -225,6 +225,35 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
 endif()
 
 # ---------------------------------------------------------------------------
+# colony_playthrough: the whole extraction unit, day by day
+#
+# colony_sim drives the excavation engines directly and skips everything
+# downstream. This drives a real Unit through its real Update(), so sweep ->
+# sample -> lab -> survey -> excavation -> beneficiation -> storage all run.
+# Prints a session log rather than pass/fail. Not built for Web.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_playthrough)
+
+    target_sources(colony_playthrough PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/sim/extraction_playthrough.cpp"
+        ${COLONY_CORE_SOURCES}
+    )
+
+    set_target_properties(colony_playthrough PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+
+    target_include_directories(colony_playthrough PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_playthrough raylib tomlplusplus::tomlplusplus)
+
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(colony_playthrough m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # colony_sim: a playtest that runs in CI
 #
 # Runs the real excavation and prospecting engines for a fixed number of game
