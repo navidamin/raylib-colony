@@ -41,7 +41,10 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 
 | Module | Directory | Status |
 |--------|-----------|--------|
+| Reference surveys | `references/` | Research — comparable games and real space-logistics systems |
 | Prospecting | `prospecting/` | Active design |
+| Economy (cross-cutting) | `economy/` | Draft — pricing frame above the unit designs |
+| Manufacture | `manufacture/` | Draft — frame settled, structure proposed |
 | Core (habitat/command) | `core/` | Draft — designed, not built |
 | Research | `research/` | Stub — interface requirements from prospecting AI |
 | AI Automation | `ai-automation/` | Stub — cross-cutting pattern for all unit AI trees |
@@ -51,7 +54,6 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 | Directives | — | Future |
 | Farming | — | Future |
 | Energy | — | Future |
-| Manufacturing | — | Future |
 
 ## Relationship to Other Docs
 
