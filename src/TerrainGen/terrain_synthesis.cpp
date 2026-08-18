@@ -6,6 +6,11 @@
 #include <cstring>
 #include <vector>
 
+// Global switch for the site disturbance (playtest comparisons).
+static bool g_siteDisturbEnabled = true;
+void SetSiteDisturbanceEnabled(bool e) { g_siteDisturbEnabled = e; }
+bool IsSiteDisturbanceEnabled() { return g_siteDisturbEnabled; }
+
 // ---------------------------------------------------------------------------
 // Deterministic RNG (xorshift128) — the seed is the location, so the
 // same spot always regenerates the same ground.
@@ -444,16 +449,166 @@ static void SprinkleBoulders(Field& height, int res, TerrainRng& rng,
     }
 }
 
+// Smooth falloff of the site's influence: full effect through the
+// middle, fading to nothing at the site radius.
+static float SiteWeight(float x, float y, float cx, float cy, float siteR)
+{
+    float d = std::hypot(x - cx, y - cy) / siteR;
+    if (d >= 1.0f) return 0.0f;
+    float t = std::clamp((1.0f - d) / 0.40f, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Calm the imagery inside the site before any relief is derived from
+// it. The macro drives both the base albedo and the form relief, so
+// pulling its contrast toward the local mean levels off the deep
+// natural shadows the site would otherwise sit in.
+static void LevelSiteMacro(Field& macro, int res, float pxPerKm,
+                           const TerrainSiteDisturbance& site)
+{
+    const float cx = res * 0.5f, cy = res * 0.5f;
+    const float siteR = site.siteRadiusKm * pxPerKm;
+    if (siteR < 2.0f || site.toneLevelAmount <= 0.0f) return;
+
+    double sum = 0.0, wsum = 0.0;
+    for (int y = 0; y < res; y++)
+        for (int x = 0; x < res; x++)
+        {
+            float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+            if (w <= 0.0f) continue;
+            sum += macro[(size_t)y * res + x] * w;
+            wsum += w;
+        }
+    if (wsum < 1e-6) return;
+    float mean = (float)(sum / wsum);
+
+    for (int y = 0; y < res; y++)
+        for (int x = 0; x < res; x++)
+        {
+            float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+            if (w <= 0.0f) continue;
+            size_t i = (size_t)y * res + x;
+            float k = site.toneLevelAmount * w;
+            macro[i] = macro[i] * (1.0f - k) + mean * k;
+        }
+}
+
+// Work the ground over a little where the colony operates.
+//
+// The natural terrain is kept — nothing is levelled. Around the core
+// and each unit dome the surface picks up a shallow mound or hollow, a
+// patch of extra roughness, and a gentle undulation across the site as
+// a whole. Everything goes into the HEIGHT field, so the shared sun
+// gives it the shading and small shadows for free.
+static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
+                                 TerrainRng& rng,
+                                 const TerrainSiteDisturbance& site)
+{
+    const float cx = res * 0.5f;
+    const float cy = res * 0.5f;
+    const float siteR = site.siteRadiusKm * pxPerKm;
+    if (siteR < 2.0f) return;          // site smaller than a pixel here
+
+    // Worked spots: the central core plus the ring of unit domes.
+    struct Spot { float x, y, r, amp; };
+    std::vector<Spot> spots;
+    spots.push_back({cx, cy, site.coreRadiusKm * pxPerKm,
+                     site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
+    for (int i = 0; i < site.domeCount; i++)
+    {
+        // Same layout the sect view draws: 8 units, 45 deg apart,
+        // starting at the top and going clockwise.
+        float ang = (90.0f - i * (360.0f / site.domeCount)) * DEG2RAD;
+        float ring = site.ringRadiusKm * pxPerKm;
+        spots.push_back({cx + ring * std::cos(ang),
+                         cy - ring * std::sin(ang),
+                         site.domeWorkKm * pxPerKm,
+                         site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
+    }
+
+    // Level the natural elevation swings down to a calmer baseline
+    // first, so the worked undulations laid on top actually read
+    // instead of being buried under the wild terrain.
+    if (site.levelAmount > 0.0f)
+    {
+        double hsum = 0.0, hw = 0.0;
+        for (int y = 0; y < res; y++)
+            for (int x = 0; x < res; x++)
+            {
+                float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+                if (w <= 0.0f) continue;
+                hsum += height[(size_t)y * res + x] * w;
+                hw += w;
+            }
+        if (hw > 1e-6)
+        {
+            float mean = (float)(hsum / hw);
+            for (int y = 0; y < res; y++)
+                for (int x = 0; x < res; x++)
+                {
+                    float w = SiteWeight((float)x, (float)y, cx, cy, siteR);
+                    if (w <= 0.0f) continue;
+                    size_t i = (size_t)y * res + x;
+                    float k = site.levelAmount * w;
+                    height[i] = height[i] * (1.0f - k) + mean * k;
+                }
+        }
+    }
+
+    // Two noise fields: soft lumps for undulation, fine grain for the
+    // random alterations. Sampled, not re-rolled per pixel, so the
+    // result stays deterministic for the location.
+    Field lumps = Fbm(res, 3, std::max(4, (int)(res / 12)), 0.55f, rng);
+    Field fine = GrainNoise(res, rng);
+
+    for (int y = 0; y < res; y++)
+    {
+        for (int x = 0; x < res; x++)
+        {
+            size_t i = (size_t)y * res + x;
+
+            float siteW = SiteWeight((float)x, (float)y, cx, cy, siteR);
+
+            // Per-dome worked patches, strongest at each dome.
+            float domeW = 0.0f;
+            float spotH = 0.0f;
+            for (const Spot& sp : spots)
+            {
+                float d = std::hypot(x - sp.x, y - sp.y) / std::max(1.0f, sp.r);
+                if (d >= 1.0f) continue;
+                float t = 1.0f - d;
+                float w = t * t * (3.0f - 2.0f * t);
+                domeW = std::max(domeW, w);
+                spotH += sp.amp * w;      // shallow mound or hollow
+            }
+
+            if (siteW <= 0.0f && domeW <= 0.0f) continue;
+
+            // Gentle undulation over the whole site.
+            height[i] += site.undulationAmp * (lumps[i] - 0.5f) * 2.0f * siteW;
+            // Random alterations, concentrated around the domes.
+            height[i] += site.roughAmp * fine[i]
+                         * (0.35f * siteW + 0.65f * domeW);
+            height[i] += spotH;
+        }
+    }
+}
+
 // The anti-matte relight + grain stage (port of _texture_modulate).
 // boulderCount > 0 adds sub-resolution boulder speckle — only used on
 // zoom levels below the real-data floor.
 static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
                             const TerrainTuning& tune,
-                            int boulderCount = 0)
+                            int boulderCount = 0,
+                            const TerrainSiteDisturbance* site = nullptr,
+                            float pxPerKm = 0.0f)
 {
     // Pixel-based sizes below are tuned at 300 px; k rescales them so
     // physical feature sizes stay fixed at other resolutions.
     float k = res / 300.0f;
+    if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
+        LevelSiteMacro(macro, res, pxPerKm, *site);
+
     Field density((size_t)res * res);
     for (size_t i = 0; i < density.size(); i++)
         density[i] = std::clamp((macro[i] - 0.22f) / 0.45f, 0.15f, 1.0f);
@@ -476,6 +631,9 @@ static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
         SprinkleBoulders(height, res, rng,
                          (int)(boulderCount * tune.boulders),
                          0.010f * tune.boulderAmp);
+
+    if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
+        ApplySiteDisturbance(height, res, pxPerKm, rng, *site);
 
     const float z = 110.0f;
     Field hs = Hillshade(height, res, z, 0.6f);
@@ -524,32 +682,110 @@ static Color RampColor(float t)
 // Public API
 // ---------------------------------------------------------------------------
 
+static double g_anchorLat = TERRAIN_ANCHOR_LAT;
+static double g_anchorLon = TERRAIN_ANCHOR_LON;
+static unsigned int g_anchorVersion = 1;
+
+void SetTerrainAnchor(double latDeg, double lonDeg)
+{
+    // Keep the playfield off the poles, where the 1/cos(lat) longitude
+    // stretch blows up and the grid would smear.
+    g_anchorLat = std::clamp(latDeg, -78.0, 78.0);
+    g_anchorLon = lonDeg;
+    g_anchorVersion++;
+    TraceLog(LOG_INFO, "TERRAIN: anchor -> %.3f, %.3f (v%u)",
+             g_anchorLat, g_anchorLon, g_anchorVersion);
+}
+
+void GetTerrainAnchor(double* latDeg, double* lonDeg)
+{
+    if (latDeg) *latDeg = g_anchorLat;
+    if (lonDeg) *lonDeg = g_anchorLon;
+}
+
+unsigned int GetTerrainAnchorVersion() { return g_anchorVersion; }
+
+// The orbital disc as baked by prototypes/planet_visuals/asset_bake.py:
+// 1200 px square, 12 px margin, near side (camera lon 0), centred on
+// screen by DrawOrbitalView.
+static const double ORBITAL_DISC_PX = 1200.0;
+static const double ORBITAL_MARGIN_PX = 12.0;
+
+bool OrbitalPickToLatLon(float screenX, float screenY,
+                         int screenWidth, int screenHeight,
+                         double* latDeg, double* lonDeg)
+{
+    double cx = screenWidth / 2.0;
+    double cy = screenHeight / 2.0;
+    double r = ORBITAL_DISC_PX / 2.0 - ORBITAL_MARGIN_PX;
+
+    double xn = (screenX - cx) / r;
+    double yn = -(screenY - cy) / r;          // screen y grows downward
+    double d2 = xn * xn + yn * yn;
+    if (d2 > 0.985 * 0.985) return false;     // outside, or on the limb
+
+    double z = std::sqrt(std::max(0.0, 1.0 - d2));
+    double lat = std::asin(std::clamp(yn, -1.0, 1.0)) / DEG2RAD;
+    double lon = std::atan2(xn, z) / DEG2RAD;  // camera lon 0 = near side
+    if (latDeg) *latDeg = lat;
+    if (lonDeg) *lonDeg = lon;
+    return true;
+}
+
+bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
+                           int screenWidth, int screenHeight,
+                           float* screenX, float* screenY)
+{
+    double lat = latDeg * DEG2RAD;
+    double lon = lonDeg * DEG2RAD;
+    while (lon > PI) lon -= 2.0 * PI;
+    while (lon < -PI) lon += 2.0 * PI;
+
+    double x = std::cos(lat) * std::sin(lon);
+    double y = std::sin(lat);
+    double z = std::cos(lat) * std::cos(lon);
+    if (z <= 0.0) return false;               // far side
+
+    double r = ORBITAL_DISC_PX / 2.0 - ORBITAL_MARGIN_PX;
+    if (screenX) *screenX = (float)(screenWidth / 2.0 + x * r);
+    if (screenY) *screenY = (float)(screenHeight / 2.0 - y * r);
+    return true;
+}
+
 void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg)
 {
     double cellDeg = TERRAIN_CELL_KM / MOON_KM_PER_DEG;   // 0.16489 deg
     // Grid centre is between cells 9 and 10; gy grows south.
     double offX = (gx - 9.5);
     double offY = (gy - 9.5);
-    double lat = TERRAIN_ANCHOR_LAT - offY * cellDeg;
-    double c = std::max(0.2, std::cos(TERRAIN_ANCHOR_LAT * DEG2RAD));
-    double lon = TERRAIN_ANCHOR_LON + offX * cellDeg / c;
+    double lat = g_anchorLat - offY * cellDeg;
+    double c = std::max(0.2, std::cos(g_anchorLat * DEG2RAD));
+    double lon = g_anchorLon + offX * cellDeg / c;
     *latDeg = lat;
     *lonDeg = lon;
 }
 
-Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
-                          const TerrainTuning* tuning)
+// Shared engine: walk the 100 -> 25 -> 5 km ladder, writing an Image
+// for every level requested. Level i+1 is the centre crop of level i's
+// OUTPUT, so real forms flow down and the levels are registered to each
+// other by construction — that is what makes zooming continuous.
+static void GenerateChainInternal(double latDeg, double lonDeg, int res,
+                                  const TerrainTuning& tune,
+                                  Image* outLevels, int wantLevels,
+                                  const TerrainSiteDisturbance* site = nullptr)
 {
-    TerrainTuning defaults;
-    const TerrainTuning& tune = tuning ? *tuning : defaults;
-    Image fallback = GenImageColor(res, res, Color{40, 40, 48, 255});
-    if (!EnsureWacLoaded()) return fallback;
+    // Levels cover 100 / 25 / 5 km, so a kilometre is a different
+    // number of pixels in each.
+    const float levelSpanKm[3] = {100.0f, 25.0f, 5.0f};
+    if (!EnsureWacLoaded())
+    {
+        for (int i = 0; i < wantLevels; i++)
+            outLevels[i] = GenImageColor(res, res, Color{40, 40, 48, 255});
+        return;
+    }
 
     double t0 = GetTime();
 
-    // The game-view span ladder: PLANET 100 km -> COLONY 25 km ->
-    // SECT 5 km. Each level crops the centre fraction of the previous
-    // level's OUTPUT — real forms flow down; texture becomes structure.
     const double spans[3] = {100.0 / MOON_KM_PER_DEG,
                              25.0 / MOON_KM_PER_DEG,
                              5.0 / MOON_KM_PER_DEG};
@@ -558,10 +794,24 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
     TerrainRng rng0(seed);
     Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
     SharpenAdaptive(lum, res);
-    TextureModulate(lum, res, rng0, 1.0f, tune);
+    TextureModulate(lum, res, rng0, 1.0f, tune, 0, site,
+                    (float)res / levelSpanKm[0]);
+
+    auto emit = [&](int level)
+    {
+        if (level >= wantLevels) return;
+        Image img = GenImageColor(res, res, BLACK);
+        ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        Color* px = (Color*)img.data;
+        for (int i = 0; i < res * res; i++) px[i] = RampColor(lum[i]);
+        outLevels[level] = img;
+    };
+
+    emit(0);
 
     for (int lvl = 1; lvl < 3; lvl++)
     {
+        float k = res / 300.0f;
         float frac = (float)(spans[lvl] / spans[lvl - 1]);
         float half = frac * res / 2.0f;
         int lo = (int)std::lround(res / 2.0f - half);
@@ -571,7 +821,6 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
         for (int y = 0; y < cw; y++)
             for (int x = 0; x < cw; x++)
                 crop[y * cw + x] = lum[(size_t)(lo + y) * res + (lo + x)];
-        float k = res / 300.0f;
         lum = ResizeBilinear(crop, cw, cw, res, res);
         GaussianBlur(lum, res, res, 0.6f * k);
         Field blur = lum;
@@ -580,22 +829,33 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
             lum[i] = std::clamp(lum[i] + 0.40f * (lum[i] - blur[i]),
                                 0.0f, 1.0f);
         TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
-        // Boulder speckle only at the SECT level (17 m/px); craters
-        // removed by user decision — grain, undulation, boulders and
-        // lighting carry the surface.
         int boulderBase = (lvl == 2) ? (int)(120 * k * k) : 0;
-        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune,
-                        boulderBase);
+        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune, boulderBase,
+                        site, (float)res / levelSpanKm[lvl]);
+        emit(lvl);
     }
 
-    Image out = GenImageColor(res, res, BLACK);
-    ImageFormat(&out, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
-    Color* px = (Color*)out.data;
-    for (int i = 0; i < res * res; i++) px[i] = RampColor(lum[i]);
-
-    UnloadImage(fallback);
     TraceLog(LOG_INFO,
-             "TERRAIN: sect ground (%.3f, %.3f) generated in %.0f ms",
-             latDeg, lonDeg, (GetTime() - t0) * 1000.0);
-    return out;
+             "TERRAIN: %d level(s) at (%.3f, %.3f) in %.0f ms",
+             wantLevels, latDeg, lonDeg, (GetTime() - t0) * 1000.0);
+}
+
+void GenerateTerrainChain(double latDeg, double lonDeg, int res,
+                          Image outLevels[3],
+                          const TerrainSiteDisturbance* site)
+{
+    TerrainTuning defaults;
+    GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3, site);
+}
+
+Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
+                          const TerrainTuning* tuning)
+{
+    TerrainTuning defaults;
+    const TerrainTuning& tune = tuning ? *tuning : defaults;
+    Image levels[3] = {};
+    GenerateChainInternal(latDeg, lonDeg, res, tune, levels, 3);
+    UnloadImage(levels[0]);
+    UnloadImage(levels[1]);
+    return levels[2];
 }

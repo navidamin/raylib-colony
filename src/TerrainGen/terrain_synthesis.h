@@ -20,17 +20,82 @@
 // The playfield anchor maps the 20x20 planet grid onto a real 100 km
 // region of the moon; each grid cell has real lat/lon coordinates.
 
-// Playfield anchor: centre of the 20x20 planet grid on the real moon.
-// Mare Imbrium — flat mare with a distinctive crater nearby.
+// Default playfield anchor: centre of the 20x20 planet grid on the real
+// moon. Mare Imbrium — flat mare with a distinctive crater nearby. The
+// live anchor is settable, so the player can pick a region from orbit
+// and the whole grid re-registers there.
 const double TERRAIN_ANCHOR_LAT = 32.8;
 const double TERRAIN_ANCHOR_LON = -15.6;
 
 const double MOON_KM_PER_DEG = 30.32268;   // pi * 1737.4 / 180
 const double TERRAIN_CELL_KM = 5.0;        // one grid cell, sect diameter
 
+// The playfield's current centre on the moon. Setting it invalidates any
+// cached terrain (RenderManager re-generates on the next draw).
+void SetTerrainAnchor(double latDeg, double lonDeg);
+void GetTerrainAnchor(double* latDeg, double* lonDeg);
+// Bumped whenever the anchor moves — cheap cache-invalidation token.
+unsigned int GetTerrainAnchorVersion();
+
 // Real lat/lon of a planet grid cell centre (gx, gy in 0..19; gy grows
 // south, matching the game grid's y-down convention).
 void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg);
+
+// Invert the orbital disc projection: turn a screen-space click on the
+// moon disc into real lat/lon. Returns false if the click misses the
+// disc (or lands on the limb, where the projection is degenerate).
+// The disc is drawn centred on screen at 1200 px with a 12 px margin
+// (see prototypes/planet_visuals/asset_bake.py), near side, lon 0.
+bool OrbitalPickToLatLon(float screenX, float screenY,
+                         int screenWidth, int screenHeight,
+                         double* latDeg, double* lonDeg);
+
+// Project lat/lon back onto the orbital disc — the inverse of the above,
+// for drawing the pick marker. Returns false if on the far side.
+bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
+                           int screenWidth, int screenHeight,
+                           float* screenX, float* screenY);
+
+// Surface disturbance around an occupied site.
+//
+// Not a graded platform: the natural ground is kept, and only worked
+// over a little where the colony actually operates — gentle undulations
+// across the site, and small random alterations (mounds, hollows,
+// patchy roughness) around each dome. Applied to the HEIGHT field, so
+// the shared sun shades and shadows it like any other terrain.
+struct TerrainSiteDisturbance
+{
+    bool enabled = false;
+    int domeCount = 8;             // units ringing the sect core
+    float ringRadiusKm = 3.30f;    // radius the unit domes sit on
+    float coreRadiusKm = 1.70f;    // the central dome
+    float domeWorkKm = 1.15f;      // worked ground around each dome
+    // How far the natural ground is calmed inside the site. Not a flat
+    // platform: 0 keeps the wild terrain, 1 would erase it. The point is
+    // to level the elevation swings and their shadows down to a calmer
+    // baseline, then lay the worked undulations on top.
+    float levelAmount = 0.70f;     // damping of natural elevation variation
+    float toneLevelAmount = 0.55f; // damping of imagery contrast/shadows
+    float undulationAmp = 0.0075f; // gentle mounds and hollows
+    float roughAmp = 0.0045f;      // random fine alterations
+    float spotAmp = 0.0060f;       // per-dome mound/hollow depth
+    float siteRadiusKm = 4.60f;    // nothing is touched beyond this
+};
+
+// Global switch + accessor for the site disturbance (playtest compare).
+void SetSiteDisturbanceEnabled(bool enabled);
+bool IsSiteDisturbanceEnabled();
+
+// The three geographic zoom levels, in game terms:
+//   0  PLANET view  100 km   (20x20 cells of 5 km)
+//   1  COLONY view   25 km   (5x5 cells)
+//   2  SECT view      5 km   (one cell)
+// Generating a sect's ground already computes 0 and 1 on the way down,
+// so emitting all three costs nothing extra. Caller owns every Image.
+// site == nullptr (or disabled) leaves the ground completely untouched.
+void GenerateTerrainChain(double latDeg, double lonDeg, int res,
+                          Image outLevels[3],
+                          const TerrainSiteDisturbance* site = nullptr);
 
 // Tuning knobs for the surface layers (all multipliers on the
 // baseline, except the weights which are absolute). Craters were

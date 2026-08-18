@@ -70,12 +70,25 @@ private:
     void LoadOrbitalAssets();
     void UnloadOrbitalAssets();
 
-    // Generated sect terrain (real-imagery amplification, per grid cell)
-    Texture2D sectTerrainTexture;
-    bool sectTerrainLoaded;
-    int sectTerrainCellX;
-    int sectTerrainCellY;
+    // Generated terrain (real-imagery amplification).
+    //
+    // One chain per location gives all three geographic views their
+    // ground: level 0 = PLANET (100 km), 1 = COLONY (25 km), 2 = SECT
+    // (5 km). Because each level is the centre of the one above, the
+    // views are registered to each other and zooming is continuous.
+    Texture2D terrainLevels[3];
+    bool terrainLoaded;
+    int terrainCellX;
+    int terrainCellY;
+    unsigned int terrainAnchorVersion;
+    void EnsureTerrainForCell(int gx, int gy);
+    void UnloadTerrainLevels();
+
     void DrawSectTerrainBackground(Sect* sect);
+    // World-space ground for the panned views. spanCells is how many
+    // 5 km grid cells the level covers (20 for PLANET, 5 for COLONY);
+    // centre is the world point the level is registered on.
+    void DrawWorldTerrainLayer(int level, Vector2 centre, float spanCells);
 
     void DrawDebugActiveArea();
 
