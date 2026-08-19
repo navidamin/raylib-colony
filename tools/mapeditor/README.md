@@ -70,12 +70,32 @@ A curve's rotation step is its own measured span, so N rotations chain N
 copies end to end. A span landing near an exact divisor of 360 is taken to
 be that divisor, so a ring closes instead of drifting.
 
-**Where pieces join.** Curves get a port at each end, straights get one at
-each end of the principal axis, and domes get eight around the rim so
-roads can run in from any heading. Dropping a piece within ~48 px of a
-free port rotates it (in whole steps) so the two headings oppose, then
-slides the ports together. Ports that already have something joined to
-them are skipped, so a growing chain extends from its open end.
+**Where pieces join.** The sockets are found, not assumed. On a dome,
+sweep the angles and take the furthest ink in each: anything reaching
+past the rim by six percent is a lug. The big domes have eight, each unit
+dome has exactly one — so a road snapped to a unit dome turns it until
+that socket faces the road. (The rim circle is fitted rather than taken
+from the box centre: a single lug on one side drags the centroid toward
+it, and then the opposite side of the rim reads as another lug.)
+
+The two sides of a joint are deliberately not symmetric, because the art
+is drawn to overlap:
+
+* a dome's port sits on its **rim**, not on the outer face of its lug;
+* a road's port sits where its **rails end** — inboard of the socket
+  bracket, which stands proud of the deck and is found by walking in
+  from the end of the piece.
+
+Put those together and a road brought up to a dome lands its rail ends on
+the rim, with its own socket lying over the dome's lug. Butting the two
+outer faces instead leaves the sockets nose to nose and the road stopping
+short of the dome.
+
+Dropping a piece within ~48 px of a free port rotates it so the two
+headings oppose, then slides the ports together. Curves rotate in whole
+steps of their own span, so a chain of them stays true; everything else
+takes whatever angle the joint needs. Ports that already have something
+joined to them are skipped, so a growing chain extends from its open end.
 
 ## What it measures on this sheet
 
@@ -112,6 +132,30 @@ ever close a ring with it; the step is pulled to the nearest one that can.
 If you know a piece's true angle and disagree with the measurement, write
 it down — a file named after the sheet, `lunar_sheet.spans.json`, holding
 `{"12": 45, "16": 45}`, overrides those sprites by index.
+
+## Does the connector fit the roads?
+
+```
+python3 lunar_layout_editor.py lunar_sheet.png --fit fit.png
+```
+
+builds three chains — unit dome / connector / unit dome, big dome /
+connector / unit dome, and unit dome / plain road / unit dome — and
+writes a close-up of the first joint alongside. Measured off the sheet:
+
+| | |
+|---|---|
+| connector deck | 76 px |
+| long road deck | 78 px |
+| short road deck | 80 px |
+| big dome socket | 56 px |
+| unit dome socket | 42 px |
+
+So yes, they fit: the three straights agree on deck width to within 5%,
+which is a step of a pixel or two at the joint, and they butt cleanly.
+The domes' sockets are narrower than the deck, which is what the socket
+bracket on the connector is for — it covers the dome's lug, and the rails
+carry on from the rim.
 
 ## Checking it against a different sheet
 

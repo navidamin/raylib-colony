@@ -390,6 +390,93 @@ def quantise_span(span, tol=None):
     return best
 
 
+def fit_circle(pts):
+    """Kasa algebraic circle fit through points that lie on a circle."""
+    a = np.column_stack([pts[:, 0], pts[:, 1], np.ones(len(pts))])
+    b = pts[:, 0] ** 2 + pts[:, 1] ** 2
+    sol, *_ = np.linalg.lstsq(a, b, rcond=None)
+    cx, cy = sol[0] / 2.0, sol[1] / 2.0
+    return np.array([cx, cy]), math.sqrt(max(1e-6, sol[2] + cx * cx + cy * cy))
+
+
+def analyse_dome(pts, w, h, nbins=180, lug=1.06):
+    """A dome's rim, and the sockets sticking out of it.
+
+    The sockets are where roads actually plug in, so they are found
+    rather than assumed: sweep the angles, take the furthest ink in each,
+    and anything reaching past the rim by six percent is a lug. A unit
+    dome has exactly one, and a road snapped to it turns the dome so that
+    socket faces the road.
+
+    The centre comes from a circle fit to the rim, not the centroid: a
+    single lug on one side drags the centroid toward it, and then the
+    opposite side of the rim reads as another lug.
+    """
+    centre = pts.mean(axis=0)
+    rim = 0.25 * (w + h)
+    for _ in range(3):
+        rel = pts - centre
+        rad = np.hypot(rel[:, 0], rel[:, 1])
+        ang = np.degrees(np.arctan2(rel[:, 1], rel[:, 0])) % 360.0
+        idx = np.clip((ang / 360.0 * nbins).astype(int), 0, nbins - 1)
+        reach = np.array([rad[idx == b].max() if (idx == b).any() else 0.0
+                          for b in range(nbins)])
+        rim = float(np.median(reach[reach > 0]))
+        on_rim = pts[(rad > 0.93 * rim) & (rad < 1.03 * rim)]
+        if len(on_rim) < 24:
+            break
+        centre, _ = fit_circle(on_rim)
+
+    # Re-measure from the settled centre: the lug test compares reach
+    # against the rim, so both have to be seen from the same place.
+    rel = pts - centre
+    rad = np.hypot(rel[:, 0], rel[:, 1])
+    ang = np.degrees(np.arctan2(rel[:, 1], rel[:, 0])) % 360.0
+    idx = np.clip((ang / 360.0 * nbins).astype(int), 0, nbins - 1)
+    reach = np.array([rad[idx == b].max() if (idx == b).any() else 0.0
+                      for b in range(nbins)])
+    rim = float(np.median(reach[reach > 0]))
+
+    out = reach > rim * lug
+    runs, b = [], 0
+    while b < nbins:
+        if out[b]:
+            start = b
+            while b < nbins and out[b]:
+                b += 1
+            runs.append((start, b - 1))
+        else:
+            b += 1
+    if len(runs) > 1 and out[0] and out[nbins - 1]:     # a lug across 0 deg
+        runs = [(runs[-1][0] - nbins, runs[0][1])] + runs[1:-1]
+    runs = [r for r in runs if 2 <= (r[1] - r[0] + 1) <= 45]
+
+    ports, socket_w = [], 0.0
+    for start, end in runs:
+        mid = math.radians(((start + end) / 2.0 % nbins) * 360.0 / nbins)
+        span = [i % nbins for i in range(start, end + 1)]
+        r = float(reach[span].max())
+        # How wide the socket is where a road would meet it - the number
+        # that says whether a road plugged in here overhangs.
+        socket_w = max(socket_w, 2.0 * r * math.sin(
+            math.radians(len(span) * 360.0 / nbins / 2.0)))
+        # The port sits on the RIM, not on the lug's outer face. A road
+        # brought here lands its rail ends on the rim and its own socket
+        # then lies over the dome's lug, which is how the art is drawn to
+        # go together - butting the two outer faces instead leaves the
+        # two sockets nose to nose with the road stopping short.
+        ports.append(((centre[0] + rim * math.cos(mid),
+                       centre[1] + rim * math.sin(mid)),
+                      (math.cos(mid), math.sin(mid))))
+    if not ports:                       # a dome with no visible socket
+        for k in range(8):
+            a = math.radians(k * 45.0)
+            ports.append(((centre[0] + rim * math.cos(a),
+                           centre[1] + rim * math.sin(a)),
+                          (math.cos(a), math.sin(a))))
+    return centre, rim, ports, socket_w
+
+
 def analyse_shape(mask, box):
     """Recover a piece's geometry from its pixels.
 
@@ -410,16 +497,11 @@ def analyse_shape(mask, box):
     # its rim, so roads can be run into it from any of eight headings.
     fill = len(xs) / float(w * h)
     if fill > 0.55 and max(w, h) < 1.5 * min(w, h):
-        cx, cy = w / 2.0, h / 2.0
-        r = 0.25 * (w + h)
-        ports = []
-        for k in range(8):
-            a = math.radians(k * 45.0)
-            ports.append(((cx + r * math.cos(a), cy + r * math.sin(a)),
-                          (math.cos(a), math.sin(a))))
+        centre, rim, ports, socket_w = analyse_dome(pts, w, h)
         return {"kind": "dome", "arc": False, "span": 0.0, "measured": 0.0,
-                "radius": r, "centre": (cx, cy), "ports": ports,
-                "size": (w, h)}
+                "radius": rim, "width": socket_w,
+                "centre": (float(centre[0]), float(centre[1])),
+                "ports": ports, "size": (w, h)}
 
     curved = centreline(pts)
     if curved is not None:
@@ -448,23 +530,82 @@ def analyse_shape(mask, box):
                                centre[1] + radius * math.sin(math.radians(a))),
                               (math.cos(t), math.sin(t))))
             return {"kind": "arc", "arc": True, "span": quantise_span(span),
-                    "measured": span, "radius": float(radius),
+                    "measured": span, "radius": float(radius), "width": 0.0,
                     "centre": (float(centre[0]), float(centre[1])),
                     "ports": ports, "size": (w, h)}
 
     # Straight piece: principal axis, then the centreline point at each end.
-    mean, axis, _ = pca_frame(pts)
+    mean, axis, perp = pca_frame(pts)
     proj = (pts - mean) @ axis
     lo, hi = float(proj.min()), float(proj.max())
+    # Deck width, measured across the middle third so the end sockets -
+    # which stand proud of the rails - do not inflate it. This is the
+    # number that says whether two straight pieces butt together cleanly.
+    across = (pts - mean) @ perp
+    middle = np.abs(proj) < 0.17 * (hi - lo)
+    width = (float(across[middle].max() - across[middle].min())
+             if middle.sum() > 20 else float(across.max() - across.min()))
+
+    # Where the rails stop. A socketed piece carries a bracket at each
+    # end that stands proud of the deck, and the rails end at the inside
+    # of it. That is the point which has to land on a dome's rim, so the
+    # bracket ends up lying over the dome's lug rather than nose to nose
+    # with it. A plain road has no bracket and its rails run to the end.
+    nb = max(8, int(hi - lo))
+    slot = np.clip(((proj - lo) / (hi - lo) * nb).astype(int), 0, nb - 1)
+    reach = np.zeros(nb)
+    for b in range(nb):
+        sel = slot == b
+        if sel.any():
+            # Extent, not twice the largest offset: the piece's centroid
+            # is not always on its centreline, and doubling from an
+            # off-centre origin invents height that is not there.
+            reach[b] = float(across[sel].max() - across[sel].min())
+    proud = reach > width * 1.06
+
+    def bracket_end(flags):
+        """How far in the end bracket reaches, in columns.
+
+        Walk inward from the first proud column, tolerating short gaps -
+        a bracket's rounded corners and its hollow middle both drop below
+        full height for a few columns, and the outermost columns of all
+        are the corner radius, so the walk cannot start at the very end.
+        Nothing proud near the end means there is no bracket, which is
+        the case for the plain roads; without that check a single noisy
+        column halfway along would be read as one and trim the piece by
+        a third.
+        """
+        head = np.flatnonzero(flags[:max(10, len(flags) // 10)])
+        if not len(head):
+            return 0
+        last, gap = int(head[0]), 0
+        for i in range(int(head[0]), len(flags)):
+            if flags[i]:
+                last, gap = i, 0
+            else:
+                gap += 1
+                if gap > 5:
+                    break
+        return last + 1
+
+    span = max(4, nb // 4)
+    rail_lo = lo + bracket_end(proud[:span]) * (hi - lo) / nb
+    rail_hi = hi - bracket_end(proud[::-1][:span]) * (hi - lo) / nb
+
     ports = []
-    for target, sign in ((lo, -1.0), (hi, 1.0)):
+    for target, sign in ((rail_lo, -1.0), (rail_hi, 1.0)):
+        # Exactly on the rail end along the piece, centred across it.
+        # Averaging the nearby ink instead would pull the port a few
+        # pixels inboard, and those pixels are the overlap.
         sel = np.abs(proj - target) < max(2.0, 0.04 * (hi - lo))
-        p = pts[sel].mean(axis=0)
+        off = float(across[sel].mean()) if sel.any() else 0.0
+        p = mean + target * axis + off * perp
         d = axis * sign
         ports.append(((float(p[0]), float(p[1])),
                       (float(d[0]), float(d[1]))))
     return {"kind": "road", "arc": False, "span": 0.0, "measured": 0.0,
-            "radius": 0.0, "centre": None, "ports": ports, "size": (w, h)}
+            "radius": 0.0, "width": width, "centre": None, "ports": ports,
+            "size": (w, h)}
 
 
 def crop_sprite(sheet_img, box, bg):
@@ -495,8 +636,12 @@ class Sprite:
         self.is_arc = shape["arc"]
         self.span = shape["span"]
         # A curve's rotation quantum is its own arc span, so chaining N
-        # copies closes exactly. Straight pieces get a plain 15 degrees.
+        # copies closes exactly. Everything else rotates in plain 15
+        # degree steps by hand, but snaps to whatever angle the joint
+        # actually needs - a dome has to be able to turn its socket to
+        # face the road, whatever heading the road arrived on.
         self.rot_step = self.span if (self.is_arc and self.span > 1.0) else 15.0
+        self.snap_free = not self.is_arc
         w, h = surface.get_size()
         self.centre = (w / 2.0, h / 2.0)
         self.ports = shape["ports"]
@@ -506,14 +651,20 @@ class Sprite:
         w, h = self.surface.get_size()
         if self.is_arc:
             return f"arc {self.span:g} deg  r{self.shape['radius']:.0f}"
-        return f"{self.shape['kind']} {w}x{h}"
+        if self.shape["kind"] == "road":
+            return f"road {w}x{h} deck {self.shape['width']:.0f}"
+        return (f"dome {w}x{h} r{self.shape['radius']:.0f} "
+                f"socket {self.shape['width']:.0f}")
 
 
 def report_atlas(sprites, path):
     print(f"{os.path.basename(path)}: detected {len(sprites)} sprites")
     for s in sprites:
-        extra = (f"   measured {s.shape['measured']:.2f} deg -> step "
-                 f"{s.rot_step:g}" if s.is_arc else "")
+        if s.is_arc:
+            extra = (f"   measured {s.shape['measured']:.2f} deg -> step "
+                     f"{s.rot_step:g}")
+        else:
+            extra = f"   {len(s.ports)} port(s)"
         print(f"  [{s.index:2d}] {s.label:22s} box={s.box}{extra}")
 
 
@@ -649,8 +800,11 @@ def snap_to_neighbours(obj, others, radius=SNAP_RADIUS):
     want = math.degrees(math.atan2(-target_head[1], -target_head[0]))
     have = math.degrees(math.atan2(my_head[1], my_head[0]))
     delta = (want - have + 180.0) % 360.0 - 180.0
-    step = obj.sprite.rot_step
-    obj.angle = (obj.angle + round(delta / step) * step) % 360.0
+    if obj.sprite.snap_free:
+        obj.angle = (obj.angle + delta) % 360.0
+    else:
+        step = obj.sprite.rot_step
+        obj.angle = (obj.angle + round(delta / step) * step) % 360.0
 
     mp = obj.world_ports()[port_i][0]
     obj.pos[0] += target_pos[0] - mp[0]
@@ -969,6 +1123,33 @@ class Editor:
         print("wrote", path)
 
 
+def aim(obj, direction):
+    """Turn a piece so one of its ports faces the given direction."""
+    best = max(obj.world_ports(),
+               key=lambda p: p[1][0] * direction[0] + p[1][1] * direction[1])
+    want = math.degrees(math.atan2(direction[1], direction[0]))
+    have = math.degrees(math.atan2(best[1][1], best[1][0]))
+    obj.angle = (obj.angle + (want - have + 180.0) % 360.0 - 180.0) % 360.0
+    return obj
+
+
+def attach(ed, sprite, anchor, scale, toward=None):
+    """Drop a piece onto a free port of an already placed one.
+
+    `toward` picks which free port to leave from when the anchor has
+    several - a big dome has eight sockets and only one of them is the
+    way the chain is heading.
+    """
+    ed.place_scale = scale
+    open_ports = free_ports(anchor, ed.placed)
+    if toward is not None:
+        open_ports.sort(key=lambda p: -(p[2][0] * toward[0] + p[2][1] * toward[1]))
+    target = open_ports[0][1]
+    probe = Placed(sprite, (0.0, 0.0), scale=scale)
+    off = min(probe.world_ports(), key=lambda p: p[0][0])[0]
+    return ed.pick_and_drop(sprite, (target[0] - off[0], target[1] - off[1]))
+
+
 def chain_ring(ed, arc, at, scale):
     """Drop copies of one curve, letting each snap to the last."""
     ed.place_scale = scale
@@ -1041,6 +1222,66 @@ def demo(sheet, out, gutter=GUTTER, threshold=None):
     pygame.quit()
 
 
+def fit_test(sheet, out, gutter=GUTTER, threshold=None):
+    """Butt the connector against the plain roads and see if it fits.
+
+    The connector is the piece with a socket at each end; the plain roads
+    have none. Whether they can be run together is a question about the
+    art, so the answer is measured (deck widths) and drawn (three chains
+    a joint at a time), not asserted.
+    """
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    ed = Editor(sheet, gutter, threshold)
+
+    roads = sorted((s for s in ed.sprites if s.shape["kind"] == "road"),
+                   key=lambda s: -s.surface.get_width())
+    domes = sorted((s for s in ed.sprites if s.shape["kind"] == "dome"),
+                   key=lambda s: -s.surface.get_width())
+    connector, long_road, short_road = roads[0], roads[1], roads[2]
+    big, unit = domes[0], domes[-1]
+
+    print("\ndeck widths, measured across the middle of each piece:")
+    for r in (connector, long_road, short_road):
+        print(f"  [{r.index:2d}] {r.label}")
+    decks = [r.shape["width"] for r in roads]
+    print(f"  spread {min(decks):.0f}-{max(decks):.0f} px "
+          f"({(max(decks) - min(decks)) / max(decks) * 100:.0f}% mismatch)")
+    print(f"  big dome socket  {big.shape['width']:.0f} px")
+    print(f"  unit dome socket {unit.shape['width']:.0f} px")
+
+    east = (1.0, 0.0)
+    scale = 0.42
+    rows = [
+        ("unit - connector - unit", [unit, connector, unit]),
+        ("big  - connector - unit", [big, connector, unit]),
+        ("unit - plain road - unit", [unit, long_road, unit]),
+    ]
+    y = 190
+    for title, seq in rows:
+        ed.place_scale = scale
+        head = aim(ed.pick_and_drop(seq[0], (560, y)), east)
+        prev = head
+        for piece in seq[1:]:
+            prev = attach(ed, piece, prev, scale, toward=east)
+        print(f"  {title}: {len(seq)} pieces, "
+              f"ends at x={prev.pos[0]:.0f}")
+        y += 260
+    ed.selected = None
+    ed.shot(out)
+
+    # A close look at the joint, where any mismatch in deck width shows.
+    # A close look at the first joint, where the connector's socket lies
+    # over the dome's and the rails meet the rim.
+    surf = pygame.image.load(out)
+    zoom = pygame.Surface((200, 100))
+    zoom.blit(surf, (0, 0), pygame.Rect(515, 140, 200, 100))
+    zoom = pygame.transform.scale(zoom, (1200, 600))
+    joint = out.replace(".png", "_joint.png")
+    pygame.image.save(zoom, joint)
+    print("wrote", joint)
+    pygame.quit()
+
+
 def main(argv):
     def opt(name, cast=int, default=None):
         return cast(argv[argv.index(name) + 1]) if name in argv else default
@@ -1048,11 +1289,14 @@ def main(argv):
     gutter = opt("--gutter", int, GUTTER)
     threshold = opt("--threshold", int, None)
     flagged = set()
-    for name in ("--gutter", "--threshold", "--atlas", "--demo"):
+    for name in ("--gutter", "--threshold", "--atlas", "--demo", "--fit"):
         if name in argv:
             flagged.add(argv[argv.index(name) + 1])
     sheet = find_sheet([a for a in argv if a not in flagged])
 
+    if "--fit" in argv:
+        fit_test(sheet, opt("--fit", str), gutter, threshold)
+        return
     if "--demo" in argv:
         demo(sheet, opt("--demo", str), gutter, threshold)
         return
