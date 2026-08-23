@@ -389,9 +389,13 @@ struct TerrainScene
 
 // worldW/worldH and exaggeration arrive pre-multiplied by the scene's
 // worldScale, so vertex heights stay proportional to the ground plane.
+// Heights are centred on the window's mid elevation: at small spans the
+// world scale magnifies absolute elevations (a -2.7 km site in a 1 km
+// window would sit 1080 units below the origin, outside the far clip).
 static Mesh BuildTerrainMesh(const LolaWindow& window, float worldW,
                              float worldH, float exaggeration, int gridRes)
 {
+    float centerElevM = (window.minElevationM + window.maxElevationM) / 2.0f;
     int nx = gridRes, nz = gridRes;
     Mesh mesh = { 0 };
     mesh.vertexCount = nx * nz;
@@ -412,7 +416,8 @@ static Mesh BuildTerrainMesh(const LolaWindow& window, float worldW,
             float u = (float)i / (nx - 1);
             int sx = std::min(res - 1, (int)(u * (res - 1) + 0.5f));
             int sy = std::min(res - 1, (int)(v * (res - 1) + 0.5f));
-            float elev = window.elevationM[(size_t)sy * res + sx];
+            float elev = window.elevationM[(size_t)sy * res + sx]
+                         - centerElevM;
             int k = j * nx + i;
             mesh.vertices[k * 3 + 0] = (u - 0.5f) * worldW;
             mesh.vertices[k * 3 + 1] = elev * kmPerMetre;
@@ -797,7 +802,10 @@ static void DrawHud(const TerrainScene& scene, const MapOptions& options,
     DrawRectangle(bx, by, barPx, 4, ink);
     DrawRectangle(bx, by - 4, 2, 12, ink);
     DrawRectangle(bx + barPx - 2, by - 4, 2, 12, ink);
-    DrawText(TextFormat("%.0f km", niceKm), bx + barPx + 8, by - 6, 14, ink);
+    const char* barLabel = (niceKm >= 1.0f)
+        ? TextFormat("%.0f km", niceKm)
+        : TextFormat("%.0f m", niceKm * 1000.0f);
+    DrawText(barLabel, bx + barPx + 8, by - 6, 14, ink);
 
     // Elevation legend (colour style): gradient strip, km labels.
     if (styleMode == 1)
