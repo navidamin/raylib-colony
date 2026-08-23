@@ -598,9 +598,25 @@ static float DetailBoulders(double u, double v, double cellKm,
                         cellKm;
             double py = (gy + 0.1 + 0.8 * DetailHash01(gx, gy, salt + 2)) *
                         cellKm;
-            double diamKm = cellKm * (0.10 + 0.22 *
+            double diamKm = cellKm * (0.10 + 0.38 *
                                       DetailHash01(gx, gy, salt + 3));
-            double r = std::hypot(u - px, v - py) / (diamKm * 0.5);
+            double bx = u - px, by = v - py;
+            if (std::fabs(bx) + std::fabs(by) > diamKm * 2.0) continue;
+            // Irregular rock, not a dome: random elongation and
+            // orientation, and a lobed outline from two angular
+            // harmonics.
+            double theta = 6.2831853 * DetailHash01(gx, gy, salt + 6);
+            double ct = std::cos(theta), st = std::sin(theta);
+            double ax = (ct * bx + st * by) /
+                        (1.0 + 0.55 * DetailHash01(gx, gy, salt + 7));
+            double ay = -st * bx + ct * by;
+            double ang = std::atan2(ay, ax);
+            double lobes = 1.0
+                + 0.20 * std::sin(2.0 * ang +
+                                  6.2831853 * DetailHash01(gx, gy, salt + 8))
+                + 0.15 * std::sin(3.0 * ang +
+                                  6.2831853 * DetailHash01(gx, gy, salt + 9));
+            double r = std::hypot(ax, ay) / (diamKm * 0.5 * lobes);
             if (r >= 2.0) continue;
             // Height ~ a third of the diameter: a rock sitting in the
             // regolith, not a spike.
