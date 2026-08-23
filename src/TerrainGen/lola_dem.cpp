@@ -544,19 +544,32 @@ static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
                         cellKm;
             double diamKm = cellKm * (0.22 + 0.65 *
                                       DetailHash01(gx, gy, salt + 3));
-            double r = std::hypot(u - px, v - py) / (diamKm * 0.5);
-            if (r >= 1.6) continue;
-            // Degradation: most small craters are old and shallow.
-            float degr = 0.20f + 0.80f * DetailHash01(gx, gy, salt + 4);
-            float depthM = (float)(diamKm * 1000.0) * 0.09f * degr;
-            float rimM = depthM * 0.22f;
+            // Slightly elliptical, so the population is not a field of
+            // perfect circles.
+            double ex = 1.0 + 0.18 * (DetailHash01(gx, gy, salt + 5) - 0.5);
+            double r = std::hypot((u - px) * ex, (v - py) / ex) /
+                       (diamKm * 0.5);
+            if (r >= 1.5) continue;
+            // Age: billions of years of gardening leave most small
+            // craters as shallow, soft, rimless dishes — only a rare
+            // fresh few keep a deep bowl and a raised rim.
+            float age = DetailHash01(gx, gy, salt + 4);
+            float freshness = age * age * age;
+            float depthM = (float)(diamKm * 1000.0) *
+                           (0.055f + 0.075f * freshness);
             if (r < 1.0)
             {
-                // Parabolic bowl: -depth at centre, 0 at the rim crest.
-                h += depthM * (float)(r * r - 1.0);
+                // Cosine dish: smooth at the centre AND at the edge, so
+                // no embossed crest ring where the bowl meets the ground.
+                h -= depthM * 0.5f *
+                     (1.0f + std::cos((float)r * 3.14159265f));
             }
-            float rimT = (float)(r - 1.05) / 0.35f;
-            h += rimM * std::exp(-rimT * rimT * 4.0f);
+            float rimM = depthM * 0.30f * freshness;
+            if (rimM > 0.001f)
+            {
+                float rimT = (float)(r - 1.02) / 0.24f;
+                h += rimM * std::exp(-rimT * rimT * 4.0f);
+            }
         }
     }
     return h;

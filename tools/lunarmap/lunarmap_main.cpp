@@ -253,6 +253,7 @@ uniform vec3 sunDirection;     // toward the sun, normalised
 uniform vec3 sunColor;
 uniform float ambient;
 uniform float styleFlag;       // 0 shaded, 1 colour elevation
+uniform float curveStrength;   // crater-rim emphasis (map scales only)
 
 // Hash-based value noise — cheap regolith variation, several scales.
 float Hash(vec2 p)
@@ -312,7 +313,10 @@ void main()
 
     vec4 shade = TEX(shadeMap, uv);
     vec3 normal = normalize(shade.xyz * 2.0 - 1.0);
-    float curve = (shade.w * 2.0 - 1.0) * 0.12;
+    // Curvature emphasis helps landform legibility at map scales but
+    // reads as a sourceless glow around rims in close-ups — real
+    // photographs shade directionally only. Faded out when zoomed in.
+    float curve = (shade.w * 2.0 - 1.0) * 0.12 * curveStrength;
 
     // Harsh lunar sunlight: pure Lambert, low ambient, no haze.
     float NdotL = max(dot(normal, sunDirection), 0.0);
@@ -381,7 +385,7 @@ struct TerrainScene
     float worldScale = 1.0f;       // world units per km
     double lat0 = 0.0, lat1 = 0.0, lon0 = 0.0, lon1 = 0.0;
     int locTexel = 0, locSunDir = 0, locSunColor = 0;
-    int locAmbient = 0, locStyle = 0;
+    int locAmbient = 0, locStyle = 0, locCurve = 0;
 
     float ScaledW() const { return worldWidthKm * worldScale; }
     float ScaledH() const { return worldHeightKm * worldScale; }
@@ -688,6 +692,7 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.locSunColor = GetShaderLocation(scene.shader, "sunColor");
     scene.locAmbient = GetShaderLocation(scene.shader, "ambient");
     scene.locStyle = GetShaderLocation(scene.shader, "styleFlag");
+    scene.locCurve = GetShaderLocation(scene.shader, "curveStrength");
 
     BuildSceneGeometry(scene, options);
     return true;
@@ -709,6 +714,12 @@ static void ApplyShaderState(const TerrainScene& scene,
     SetShaderValue(scene.shader, scene.locAmbient, &options.ambient,
                    SHADER_UNIFORM_FLOAT);
     SetShaderValue(scene.shader, scene.locStyle, &styleFlag,
+                   SHADER_UNIFORM_FLOAT);
+    // Full rim emphasis at >= 100 km windows, none below 20 km.
+    float curveStrength = scene.nearside
+        ? 1.0f
+        : Clamp((scene.worldWidthKm - 20.0f) / 80.0f, 0.0f, 1.0f);
+    SetShaderValue(scene.shader, scene.locCurve, &curveStrength,
                    SHADER_UNIFORM_FLOAT);
 }
 
