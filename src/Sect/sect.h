@@ -17,41 +17,6 @@
 #define CHINAROSE CLITERAL(Color){ 160, 70, 104, 255 }
 
 
-// Which way a unit dome faces.
-//
-// A unit dome carries a single socket, and it has to look back at the
-// sect core so the connector arm meets it square. That follows entirely
-// from where the unit stands relative to the core: no state to keep, no
-// index to pass around, and it stays right if a unit is ever moved off
-// the even ring.
-//
-// Screen space, so y grows downward, and the angle is degrees clockwise
-// from the +x axis - the convention raylib's rotations already use.
-inline float UnitSocketDirection(Vector2 unitPos, Vector2 corePos)
-{
-    return atan2f(corePos.y - unitPos.y, corePos.x - unitPos.x) * RAD2DEG;
-}
-
-// Where that socket sits on the dome's rim.
-inline Vector2 UnitSocketPosition(Vector2 unitPos, Vector2 corePos,
-                                  float rimRadius)
-{
-    float a = UnitSocketDirection(unitPos, corePos) * DEG2RAD;
-    return Vector2{ unitPos.x + cosf(a) * rimRadius,
-                    unitPos.y + sinf(a) * rimRadius };
-}
-
-// The rotation to draw a unit dome SPRITE at, so its socket ends up
-// pointing at the core. socketAngleInArt is where the socket sits in the
-// source art, measured the same way: the dome sheet draws it at the
-// bottom of the sprite, which is +90 degrees with y down.
-inline float UnitSpriteRotation(Vector2 unitPos, Vector2 corePos,
-                                float socketAngleInArt = 90.0f)
-{
-    return UnitSocketDirection(unitPos, corePos) - socketAngleInArt;
-}
-
-
 class Sect {
 public:
     // constructor
