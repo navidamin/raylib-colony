@@ -45,6 +45,15 @@
           display: flex;
           align-items: center;
           justify-content: center;
+          /* Pinned to the visual viewport rather than sized by the document.
+             A body taller than the screen combined with overflow:hidden clips
+             the bottom of the game with nothing to indicate it, and leaves the
+             canvas rect disagreeing with what is on screen. */
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
         }
         canvas.emscripten {
           border: 0px none;
@@ -174,8 +183,34 @@
 
                     updateDebug(c);
 
-                    var vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
-                    var vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+                    // Take the SMALLEST height any source reports, not the
+                    // first one that exists. innerHeight and visualViewport
+                    // can both exceed what is actually on screen (browser
+                    // chrome, a shorter layout viewport), and fitting to a
+                    // too-tall figure scales the canvas past the visible
+                    // area -- which, with overflow:hidden, silently clips the
+                    // bottom of the game rather than showing a scrollbar.
+                    var heights = [window.innerHeight];
+                    var widths = [window.innerWidth];
+                    if (window.visualViewport)
+                    {
+                        heights.push(window.visualViewport.height);
+                        widths.push(window.visualViewport.width);
+                    }
+                    if (document.documentElement)
+                    {
+                        if (document.documentElement.clientHeight > 0)
+                        {
+                            heights.push(document.documentElement.clientHeight);
+                        }
+                        if (document.documentElement.clientWidth > 0)
+                        {
+                            widths.push(document.documentElement.clientWidth);
+                        }
+                    }
+
+                    var vw = Math.min.apply(null, widths);
+                    var vh = Math.min.apply(null, heights);
                     var scale = Math.min(vw / c.width, vh / c.height);
                     var w = Math.floor(c.width * scale) + 'px';
                     var h = Math.floor(c.height * scale) + 'px';
