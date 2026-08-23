@@ -38,6 +38,14 @@ const VIEWPORTS = [
     { name: 'tablet',          width: 1024, height: 768, dpr: 2 },
 ];
 
+// Desktop viewports for the CSS-size check below. The canvas is scaled UP
+// here, which is the case that goes wrong: a collapse to the natural 1280
+// cancels the pointer division instead of merely shifting it.
+const DESKTOP_VIEWPORTS = [
+    { name: 'desktop-1920',  width: 1920, height: 919 },
+    { name: 'desktop-1680',  width: 1680, height: 1050 },
+];
+
 // Stands in for the Emscripten/raylib runtime, behaving as badly as the real
 // one did on iOS: repaints constantly, and repeatedly mirrors the CSS size
 // into the framebuffer attributes while stomping the style with 'important'.
@@ -134,11 +142,55 @@ async function main() {
         await page.close();
     }
 
+    // -------------------------------------------------------------------
+    // The canvas must keep its fitted CSS size even while the inline style
+    // is stripped.
+    //
+    // raylib converts a pointer event with
+    //   position.x = (targetX / cssWidth) * screen.width
+    // reading cssWidth from getBoundingClientRect INSIDE the handler
+    // (rcore_web_emscripten.c). Emscripten's updateCanvasDimensions calls
+    // style.removeProperty('width'), which strips even an important inline
+    // style; with no inline width the canvas collapses to its natural 1280,
+    // the division cancels, and the game silently receives unscaled
+    // coordinates -- an error growing with distance from the origin.
+    //
+    // Firefox on Windows hit this in the wild while every after-the-fact
+    // reading looked healthy, because the MutationObserver repairs the style
+    // before anything else can measure it. So measure the way raylib does:
+    // strip and read in ONE synchronous block, leaving no room for repair.
+    // A stylesheet rule is what survives this; an inline style cannot.
+    // -------------------------------------------------------------------
+    for (const vp of DESKTOP_VIEWPORTS) {
+        const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
+        await page.goto('file://' + pagePath);
+        await page.waitForTimeout(4000);
+
+        const measured = await page.evaluate(() => {
+            const c = document.getElementById('canvas');
+            c.style.removeProperty('width');
+            c.style.removeProperty('height');
+            return Math.round(c.getBoundingClientRect().width);
+        });
+
+        const wantFit = Math.floor(GAME_W * Math.min(vp.width / GAME_W, vp.height / GAME_H));
+        const ok = Math.abs(measured - wantFit) <= 2;
+        if (!ok) failures++;
+
+        console.log(`${ok ? 'PASS' : 'FAIL'}  ${vp.name.padEnd(16)} ` +
+                    `css-width-while-stripped=${measured} (want ${wantFit})`);
+        if (!ok) {
+            console.log(`      canvas collapsed toward its natural ${GAME_W}px;`);
+            console.log('      pointer coordinates will reach the game unscaled');
+        }
+        await page.close();
+    }
+
     await browser.close();
 
     console.log(failures === 0
         ? '\nAll viewports OK.'
-        : `\n${failures} viewport(s) failed.`);
+        : `\n${failures} check(s) failed.`);
     process.exit(failures === 0 ? 0 : 1);
 }
 

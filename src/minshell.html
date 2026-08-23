@@ -176,6 +176,9 @@
                 var GAME_W = 1280;
                 var GAME_H = 720;
 
+                // Stylesheet rule carrying the fitted size; see fitCanvas.
+                var fitRule = null;
+
                 function fitCanvas()
                 {
                     var c = document.getElementById('canvas');
@@ -221,6 +224,33 @@
                     var w = Math.floor(c.width * scale) + 'px';
                     var h = Math.floor(c.height * scale) + 'px';
 
+                    // The fitted size also goes in a real stylesheet rule, and
+                    // this is what makes the fit safe rather than merely
+                    // likely. Emscripten's updateCanvasDimensions calls
+                    // canvas.style.removeProperty('width'), which strips even
+                    // an important INLINE style -- but it cannot touch a rule
+                    // in a stylesheet. So when the inline size is stripped, the
+                    // rule underneath still holds the canvas at the fitted size
+                    // instead of letting it collapse to width:auto.
+                    //
+                    // This matters because raylib divides by the canvas's
+                    // measured CSS width to convert a pointer position (see the
+                    // capture-phase note below). A momentary collapse to the
+                    // natural 1280 makes that division cancel out, and the game
+                    // silently receives unscaled coordinates.
+                    //
+                    // Later in document order than the <style> in <head>, so it
+                    // wins the cascade against width/height:auto !important.
+                    var rule = 'canvas.emscripten{width:' + w + '!important;'
+                             + 'height:' + h + '!important;}';
+                    if (!fitRule)
+                    {
+                        fitRule = document.createElement('style');
+                        fitRule.id = 'canvasFitRule';
+                        document.head.appendChild(fitRule);
+                    }
+                    if (fitRule.textContent !== rule) fitRule.textContent = rule;
+
                     // Guard: only touch style when wrong, so the observer
                     // below does not loop on our own writes.
                     if (c.style.getPropertyValue('width') !== w ||
@@ -235,34 +265,38 @@
                     }
                 }
 
-                // Emscripten scales pointer coordinates by
-                // canvas.width / rect.width, read SYNCHRONOUSLY inside its own
-                // event handler (library_browser.js, calculateMouseCoords). If
-                // anything has resized the framebuffer to match the CSS size,
-                // that ratio collapses to 1 and the game receives raw CSS
-                // pixels: an error that grows with distance from the origin and
-                // flips sign as the canvas crosses the game's own width.
+                // raylib turns a pointer event into a game coordinate like this
+                // (rcore_web_emscripten.c, EmscriptenMouseMoveCallback):
                 //
-                // Re-asserting on a poll is not enough, because the value only
-                // has to be wrong at the instant the handler reads it. Do it in
-                // the capture phase instead, which runs before any handler
-                // registered on the canvas or bubbling up to window/document.
-                function pinFramebuffer()
-                {
-                    var el = document.getElementById('canvas');
-                    if (!el) return;
-                    // Guarded: assigning canvas.width clears the buffer, so only
-                    // touch it when it has actually drifted. The game repaints
-                    // every frame, so a corrective clear is invisible anyway.
-                    if (el.width !== GAME_W) el.width = GAME_W;
-                    if (el.height !== GAME_H) el.height = GAME_H;
-                }
-
+                //   emscripten_get_element_css_size(canvasId, &cssW, &cssH);
+                //   position.x = (targetX / cssW) * screen.width;
+                //
+                // targetX is in CSS pixels relative to the canvas, so the whole
+                // thing hinges on cssW -- which emscripten answers with
+                // getBoundingClientRect().width, read SYNCHRONOUSLY inside the
+                // handler.
+                //
+                // Emscripten's own updateCanvasDimensions calls
+                // style.removeProperty('width'), which strips even an important
+                // inline style. With no inline width the stylesheet's
+                // width:auto applies and the rect collapses to the canvas's
+                // natural size -- 1280 -- so the division cancels out and the
+                // game receives raw CSS pixels: an error that grows with
+                // distance from the origin and flips sign as the displayed
+                // canvas crosses 1280 wide.
+                //
+                // The MutationObserver repairs it a moment later, which is why
+                // every after-the-fact reading looks healthy. But the style only
+                // has to be missing at the instant the handler reads it, so
+                // re-assert in the CAPTURE phase, which runs before any handler
+                // on the canvas itself. fitCanvas restores both the framebuffer
+                // and the inline size, and is guarded so a correct state costs
+                // nothing; it also reads no layout, so this adds no reflow.
                 var pointerEvents = ['mousemove', 'mousedown', 'mouseup', 'click',
                                      'wheel', 'touchstart', 'touchmove', 'touchend'];
                 for (var i = 0; i < pointerEvents.length; i++)
                 {
-                    window.addEventListener(pointerEvents[i], pinFramebuffer, true);
+                    window.addEventListener(pointerEvents[i], fitCanvas, true);
                 }
 
                 if (debugEnabled)

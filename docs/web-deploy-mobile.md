@@ -80,6 +80,52 @@ A persistent enforcer, not a one-shot:
 **If the game's base resolution ever changes, update `GAME_W/GAME_H` in
 minshell.html.**
 
+## The pointer-coordinate bug (Firefox, Aug 2026)
+
+A fourth way the three sizes bite, found after the fit was already correct.
+Symptom: clicks and hovers land away from the real cursor, the error grows
+with x and y, and it flips sign as the displayed canvas crosses 1280 wide.
+
+raylib converts a pointer event like this
+(`rcore_web_emscripten.c`, `EmscriptenMouseMoveCallback` -- note this file,
+not the older `rcore_web.c`):
+
+```c
+float mouseCssX = (float)mouseEvent->targetX;      // CSS px, canvas-relative
+emscripten_get_element_css_size(platform.canvasId, &cssWidth, &cssHeight);
+CORE.Input.Mouse.currentPosition.x = (mouseCssX/(float)cssWidth)*CORE.Window.screen.width;
+```
+
+`emscripten_get_element_css_size` is `getBoundingClientRect().width`
+(`library_html5.js`), read **synchronously inside the handler**. Emscripten's
+own `updateCanvasDimensions` calls `canvas.style.removeProperty('width')`,
+which strips even an `!important` **inline** style -- and with no inline width
+the stylesheet's `width: auto` applies, so the rect collapses to the canvas's
+natural 1280. The division cancels and the game receives raw CSS pixels.
+
+Two things made this hard to see:
+
+- The `MutationObserver` repairs the style immediately after, so every
+  after-the-fact reading -- badge included -- shows the healthy value. The
+  badge's own listener is bubble-phase and runs *after* raylib's, which is on
+  the canvas in the capture phase.
+- Chromium never reproduces it: its microtask checkpoint runs the observer
+  *between* event listeners, healing the style before raylib can measure.
+
+**The fix**: put the fitted size in a real **stylesheet rule**, not only an
+inline style. `removeProperty` cannot touch a stylesheet, so when the inline
+size is stripped the rule underneath still holds the canvas at the fitted
+size. This removes the race rather than trying to win it. The shell also
+re-asserts `fitCanvas` in the capture phase of pointer events as a second
+line of defence.
+
+`tools/shell-test` covers it: it strips the inline style and measures the rect
+in one synchronous block, the way raylib does, and asserts the fitted width
+survives. That check fails on the pre-fix shell and passes on the current one.
+
+**Diagnosing it again**: `?debug=1` plus the sandbox's F9 crosshair. If
+`game sees` matches `rel` rather than `expect`, the CSS size collapsed.
+
 ## The diagnostic badge
 
 `#shellDebug` overlays live geometry:
