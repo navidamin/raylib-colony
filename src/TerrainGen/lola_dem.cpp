@@ -588,22 +588,26 @@ static float SynthesizeDetail(double u, double v, float pixKm,
     double wave = nativeKm * 4.0;          // fade-in starts here
     for (int level = 0; level < 16 && wave >= 2.0 * pixKm; level++)
     {
-        // 0 where the DEM already resolves this wavelength, 1 below it.
+        // 0 where the DEM still resolves this wavelength, 1 below its
+        // effective (Nyquist-ish) floor at ~1.5x the native pixel.
         float fade = (float)std::clamp(
-            (nativeKm * 4.0 - wave) / (nativeKm * 3.0),
+            (nativeKm * 4.0 - wave) / (nativeKm * 2.5),
             0.0, 1.0);
         if (fade > 0.0f)
         {
-            // Fractal regolith undulation.
-            float amp = 5.0f * (float)wave;    // metres per km wavelength
-            float band = amp * (0.6f + 0.4f * slopeBoost) *
+            // Fractal regolith undulation, scaled to the Moon's
+            // self-affine spectrum: calm on level maria, strong on the
+            // rough ground the real slope reports.
+            float amp = (7.0f + 18.0f * slopeBoost) * (float)wave;
+            float band = amp *
                          DetailNoise(u, v, wave, 0x51u + (uint32_t)level);
             // Hummocky ground: half-rectified noise reads as soft
             // mounds and rock lumps scattered on the plain, not as
             // symmetric static.
             float lumpN = DetailNoise(u, v, wave * 0.7,
                                       0xB00Bu + (uint32_t)level);
-            band += 6.5f * (float)wave * std::max(0.0f, lumpN);
+            band += (7.0f + 10.0f * slopeBoost) * (float)wave *
+                    std::max(0.0f, lumpN);
             // Craters only above ~a 30-100 m floor — smaller ones read
             // as noise speckle, not landforms.
             if (wave >= 0.12)
@@ -717,6 +721,21 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     GaussianBlur(out.elevationM, res, res,
                  (upX > 1.5f) ? 0.6f * upX : 0.0f,
                  (upY > 1.5f) ? 0.6f * upY : 0.0f);
+
+    // Unsharp mask: the bilinear upsample + anti-lattice blur smear
+    // even the contrast the data genuinely resolves, which reads as an
+    // out-of-focus photo. Amplify the band just above the native scale
+    // back up (this sharpens real landforms only — nothing invented).
+    float upMax = std::max(upX, upY);
+    if (upMax > 1.5f)
+    {
+        std::vector<float> low = out.elevationM;
+        GaussianBlur(low, res, res, 1.3f * upMax, 1.3f * upMax);
+        for (size_t k = 0; k < out.elevationM.size(); k++)
+        {
+            out.elevationM[k] += 0.7f * (out.elevationM[k] - low[k]);
+        }
+    }
 
     // Synthesize sub-floor detail on top of the (smoothed) real ground.
     // Runs after the blur so it is not smoothed away; the real slope of
