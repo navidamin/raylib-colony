@@ -425,5 +425,7 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
 | Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
+| Manufacture | `docs/design/manufacture/README.md` | Working on `InitializeManufactureModules`, recipes, production lines, or the `TYPED` resource subtypes |
+| Economy (cross-cutting) | `docs/design/economy/README.md` | Working on trade, colony reserves, sect specialization, site-selection scoring, or any pricing question |
 
 See `docs/design/README.md` for the full planning method explanation.
