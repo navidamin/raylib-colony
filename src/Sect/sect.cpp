@@ -225,100 +225,565 @@ void Sect::DrawInColonyView(Vector2 pos) {
 }
 
 
-void Sect::DrawInSectView(Vector2 position) {
-    float coreRadius = GetScreenHeight() * 0.38f;  // Core takes ~76% of screen height diameter
-
-    // Draw the main core (dome texture or fallback circle)
-    if (domeTexture.id != 0) {
-        // Draw dome texture centered on position, scaled to fit coreRadius
-        float textureDiameter = coreRadius * 2.0f;
-        Rectangle source = {0.0f, 0.0f, (float)domeTexture.width, (float)domeTexture.height};
-        Rectangle dest = {
-            position.x - coreRadius,
-            position.y - coreRadius,
-            textureDiameter,
-            textureDiameter
+// ---------------------------------------------------------------------------
+// Sect view "orbital layout" visuals — everything below is drawn procedurally
+// with raylib primitives (no sprites required).
+// ---------------------------------------------------------------------------
+namespace
+{
+    Color MixColor(Color a, Color b, float t)
+    {
+        return Color{
+            (unsigned char)(a.r + (b.r - a.r) * t),
+            (unsigned char)(a.g + (b.g - a.g) * t),
+            (unsigned char)(a.b + (b.b - a.b) * t),
+            (unsigned char)(a.a + (b.a - a.a) * t)
         };
-        Vector2 origin = {0.0f, 0.0f};
-        DrawTexturePro(domeTexture, source, dest, origin, 0.0f, WHITE);
-    } else {
-        // Fallback to circle if texture not loaded
-        DrawCircle(position.x, position.y, coreRadius, GRAY);
-        DrawCircleLines(position.x, position.y, coreRadius, BLACK);
     }
 
-    // Draw core information
-    DrawText(TextFormat("Development: %.1f%%", development_percentage * 100),
-            position.x - MeasureText("Development: 100.0%", 20)/2,
-            position.y - 10,
-            20,
-            BLACK);
+    Color UnitAccentColor(const std::string& type)
+    {
+        if (type == "Extraction")    return Color{255, 168, 64, 255};   // amber
+        if (type == "Farming")       return Color{124, 220, 92, 255};   // green
+        if (type == "Manufacture")   return Color{255, 122, 84, 255};   // coral
+        if (type == "Transport")     return Color{72, 208, 190, 255};   // teal
+        if (type == "Communication") return Color{84, 200, 255, 255};   // cyan
+        if (type == "Research")      return Color{168, 214, 255, 255};  // ice blue
+        if (type == "Energy")        return Color{64, 150, 255, 255};   // blue
+        if (type == "Construction")  return Color{255, 210, 80, 255};   // yellow
+        return Color{200, 200, 200, 255};
+    }
 
-    // Draw resource stats in the core
-    DrawResourceStats(position, coreRadius);
+    // Small glowing status light (green LED look)
+    void DrawLed(Vector2 p, float r, Color c)
+    {
+        DrawCircleV(p, r * 2.0f, Fade(c, 0.25f));
+        DrawCircleV(p, r, c);
+        DrawCircleV(Vector2{p.x - r * 0.3f, p.y - r * 0.3f}, r * 0.35f, Fade(WHITE, 0.7f));
+    }
 
-    // Draw the units around the core
-    float unitRadius = coreRadius * 0.32f;  // Units are 32% the size of core (larger)
-    float orbitRadius = coreRadius * 1.12f; // Distance from core center to unit center (closer)
+    // Procedural icon for each unit type, drawn inside a [-1,1] box scaled by s
+    void DrawUnitGlyph(const std::string& type, Vector2 c, float s, Color col)
+    {
+        auto P = [&](float x, float y) { return Vector2{c.x + x * s, c.y + y * s}; };
+        float lw = s * 0.22f;
+        float thin = s * 0.14f;
+        Color faceDark = Color{20, 24, 22, 255};
 
-    for (size_t i = 0; i < units.size(); ++i) {
-        // Start from 90 degrees (top) and go clockwise
-        float angle = (90.0f - (i * 45.0f)) * DEG2RAD;  // 8 units, 45 degrees apart
+        if (type == "Extraction")
+        {
+            // Drill derrick over a bore hole
+            DrawLineEx(P(-0.6f, 0.75f), P(0.0f, -0.75f), lw, col);
+            DrawLineEx(P(0.6f, 0.75f), P(0.0f, -0.75f), lw, col);
+            DrawLineEx(P(-0.14f, -0.15f), P(0.14f, -0.15f), thin * 0.8f, col);
+            DrawLineEx(P(-0.38f, 0.4f), P(0.38f, 0.4f), thin * 0.8f, col);
+            DrawLineEx(P(0.0f, -0.75f), P(0.0f, 0.25f), thin * 0.8f, col);
+            DrawTriangle(P(0.16f, 0.25f), P(-0.16f, 0.25f), P(0.0f, 0.62f), col);
+            DrawLineEx(P(-0.8f, 0.8f), P(0.8f, 0.8f), thin, col);
+        }
+        else if (type == "Farming")
+        {
+            // Sprout with two side leaves
+            DrawLineEx(P(0.0f, 0.7f), P(0.0f, -0.25f), lw, col);
+            DrawTriangle(P(0.0f, -0.45f), P(-0.7f, -0.6f), P(0.0f, 0.0f), col);
+            DrawTriangle(P(0.0f, 0.0f), P(0.7f, -0.6f), P(0.0f, -0.45f), col);
+            DrawTriangle(P(0.0f, -0.95f), P(-0.22f, -0.35f), P(0.22f, -0.35f), col);
+            DrawLineEx(P(-0.55f, 0.7f), P(0.55f, 0.7f), thin, col);
+        }
+        else if (type == "Manufacture")
+        {
+            // Factory with sawtooth roof and chimney
+            DrawRectangleRec(Rectangle{c.x - 0.72f * s, c.y + 0.02f * s, 1.44f * s, 0.62f * s}, col);
+            for (int k = 0; k < 3; k++)
+            {
+                float x0 = -0.72f + k * 0.48f;
+                DrawTriangle(P(x0, -0.42f), P(x0, 0.05f), P(x0 + 0.44f, 0.05f), col);
+            }
+            DrawRectangleRec(Rectangle{c.x + 0.30f * s, c.y - 0.78f * s, 0.18f * s, 0.85f * s}, col);
+            for (int k = 0; k < 3; k++)
+            {
+                DrawRectangleRec(Rectangle{c.x + (-0.55f + k * 0.42f) * s, c.y + 0.18f * s,
+                                           0.22f * s, 0.28f * s}, faceDark);
+            }
+        }
+        else if (type == "Transport")
+        {
+            // Cargo truck
+            DrawRectangleRec(Rectangle{c.x - 0.78f * s, c.y - 0.35f * s, 1.0f * s, 0.62f * s}, col);
+            DrawRectangleRec(Rectangle{c.x + 0.28f * s, c.y - 0.28f * s, 0.44f * s, 0.55f * s}, col);
+            DrawRectangleRec(Rectangle{c.x + 0.36f * s, c.y - 0.20f * s, 0.24f * s, 0.18f * s}, faceDark);
+            float wheelY = 0.42f;
+            float wheelXs[3] = {-0.5f, -0.05f, 0.5f};
+            for (float wx : wheelXs)
+            {
+                DrawCircleV(P(wx, wheelY), 0.17f * s, col);
+                DrawCircleV(P(wx, wheelY), 0.07f * s, faceDark);
+            }
+        }
+        else if (type == "Communication")
+        {
+            // Broadcast tower with beacon and signal dots
+            DrawLineEx(P(-0.42f, 0.7f), P(0.0f, -0.55f), lw * 0.8f, col);
+            DrawLineEx(P(0.42f, 0.7f), P(0.0f, -0.55f), lw * 0.8f, col);
+            DrawLineEx(P(-0.30f, 0.35f), P(0.30f, 0.35f), thin * 0.8f, col);
+            DrawLineEx(P(-0.20f, 0.05f), P(0.20f, 0.05f), thin * 0.8f, col);
+            DrawLineEx(P(-0.10f, -0.25f), P(0.10f, -0.25f), thin * 0.8f, col);
+            DrawCircleV(P(0.0f, -0.68f), 0.10f * s, col);
+            DrawCircleV(P(-0.30f, -0.88f), 0.05f * s, col);
+            DrawCircleV(P(0.30f, -0.88f), 0.05f * s, col);
+            DrawCircleV(P(-0.48f, -0.68f), 0.04f * s, col);
+            DrawCircleV(P(0.48f, -0.68f), 0.04f * s, col);
+        }
+        else if (type == "Research")
+        {
+            // Erlenmeyer flask with liquid
+            DrawRectangleRec(Rectangle{c.x - 0.12f * s, c.y - 0.85f * s, 0.24f * s, 0.5f * s}, col);
+            DrawTriangle(P(-0.12f, -0.35f), P(-0.55f, 0.62f), P(0.55f, 0.62f), col);
+            DrawTriangle(P(-0.12f, -0.35f), P(0.55f, 0.62f), P(0.12f, -0.35f), col);
+            DrawLineEx(P(-0.22f, -0.85f), P(0.22f, -0.85f), thin, col);
+            DrawTriangle(P(-0.40f, 0.28f), P(-0.55f, 0.62f), P(0.55f, 0.62f), Fade(WHITE, 0.28f));
+            DrawTriangle(P(-0.40f, 0.28f), P(0.55f, 0.62f), P(0.40f, 0.28f), Fade(WHITE, 0.28f));
+            DrawCircleV(P(0.05f, 0.12f), 0.05f * s, Fade(WHITE, 0.5f));
+        }
+        else if (type == "Energy")
+        {
+            // Lightning bolt
+            DrawTriangle(P(0.45f, -0.95f), P(-0.4f, 0.15f), P(0.12f, 0.15f), col);
+            DrawTriangle(P(0.4f, -0.15f), P(-0.12f, -0.15f), P(-0.45f, 0.95f), col);
+        }
+        else if (type == "Construction")
+        {
+            // Tower crane lifting a block
+            DrawLineEx(P(-0.3f, 0.75f), P(-0.3f, -0.6f), lw, col);
+            DrawLineEx(P(-0.65f, -0.6f), P(0.65f, -0.6f), lw, col);
+            DrawLineEx(P(-0.3f, -0.25f), P(0.5f, -0.6f), thin * 0.8f, col);
+            DrawLineEx(P(0.5f, -0.6f), P(0.5f, 0.05f), thin * 0.7f, col);
+            DrawRectangleRec(Rectangle{c.x + 0.38f * s, c.y + 0.05f * s, 0.24f * s, 0.24f * s}, col);
+            DrawLineEx(P(-0.6f, 0.78f), P(0.05f, 0.78f), thin, col);
+        }
+        else
+        {
+            // Unknown unit type: simple diamond placeholder
+            DrawTriangle(P(0.0f, -0.7f), P(-0.7f, 0.0f), P(0.7f, 0.0f), col);
+            DrawTriangle(P(0.7f, 0.0f), P(-0.7f, 0.0f), P(0.0f, 0.7f), col);
+        }
+    }
 
-        Vector2 unitPos = {
-            position.x + orbitRadius * cosf(angle),
-            position.y - orbitRadius * sinf(angle)  // Subtract because Y grows downward
+    // Honeycomb "glass" pattern clipped to a circle
+    void DrawHexPattern(Vector2 c, float radius, float cell, Color col)
+    {
+        float dx = cell * 1.732f;
+        float dy = cell * 1.5f;
+        int nx = (int)(radius / dx) + 1;
+        int ny = (int)(radius / dy) + 1;
+
+        for (int gy = -ny; gy <= ny; gy++)
+        {
+            float offset = ((gy & 1) != 0) ? dx * 0.5f : 0.0f;
+            for (int gx = -nx; gx <= nx; gx++)
+            {
+                Vector2 hc = {c.x + gx * dx + offset, c.y + gy * dy};
+                float ddx = hc.x - c.x;
+                float ddy = hc.y - c.y;
+                if (sqrtf(ddx * ddx + ddy * ddy) > radius - cell) continue;
+                DrawPolyLinesEx(hc, 6, cell, 90.0f, 1.0f, col);
+            }
+        }
+    }
+
+    // Per-dome lighting "character": stable pseudo-random variation of the
+    // key light direction, ambient level, and specular lobes.
+    struct DomeLook
+    {
+        float lx, ly, lz;        // key light direction
+        float hx, hy;            // planar highlight offset (unit-scaled)
+        float broadPow, corePow; // specular lobe exponents
+        float broadInt, coreInt; // specular lobe intensities
+        float ambient;
+    };
+
+    unsigned int HashSeed(const std::string& s)
+    {
+        unsigned int h = 2166136261u;                 // FNV-1a
+        for (char ch : s)
+        {
+            h = (h ^ (unsigned char)ch) * 16777619u;
+        }
+        return h;
+    }
+
+    DomeLook GetDomeLook(unsigned int seed)
+    {
+        auto next = [&seed]()
+        {
+            seed = seed * 1664525u + 1013904223u;
+            return (float)(seed >> 8) / 16777216.0f;
         };
 
-        // Store the position for click detection
-        units[i]->SetUnitPosInSectView(unitPos);
-        units[i]->SetUnitRadiusInSectView(unitRadius);
+        DomeLook look;
+        float angle = 4.03f + (next() - 0.5f) * 0.9f;    // top-left +/- ~26 deg
+        float planar = 0.60f + next() * 0.25f;           // how far off-center the light sits
+        look.lx = cosf(angle) * planar;
+        look.ly = sinf(angle) * planar;
+        look.lz = sqrtf(1.0f - planar * planar);
+        look.hx = cosf(angle) * planar;
+        look.hy = sinf(angle) * planar;
+        look.broadPow = 8.0f + next() * 8.0f;
+        look.corePow = 30.0f + next() * 40.0f;
+        look.broadInt = 0.22f + next() * 0.12f;
+        look.coreInt = 0.24f + next() * 0.14f;
+        look.ambient = 0.23f + next() * 0.07f;
+        return look;
+    }
 
-        // Get unit type for texture lookup
-        std::string unitType = units[i]->GetUnitType();
-        auto texIt = unitTextures.find(unitType);
+    // Per-pixel ray-shaded dome sphere baked into a texture, cached per
+    // tint+size+seed. Lambert diffuse + two-lobe Blinn specular + fresnel rim
+    // + bounce light.
+    Texture2D GetBakedDomeTexture(float radiusF, Color base, unsigned int seed)
+    {
+        static std::map<unsigned long long, Texture2D> cache;
 
-        // All units render at full brightness for now (no deactivated look)
-        Color tint = WHITE;
+        int radius = (int)radiusF;
+        unsigned long long key = ((unsigned long long)radius << 44)
+                               ^ ((unsigned long long)base.r << 36)
+                               ^ ((unsigned long long)base.g << 28)
+                               ^ ((unsigned long long)base.b << 20)
+                               ^ (unsigned long long)(seed & 0xFFFFFu);
+        auto it = cache.find(key);
+        if (it != cache.end()) return it->second;
 
-        // Draw the unit (texture or fallback circle)
-        if (texIt != unitTextures.end() && texIt->second.id != 0) {
-            // Draw unit texture
-            float textureDiameter = unitRadius * 2.0f;
-            Rectangle source = {0.0f, 0.0f, (float)texIt->second.width, (float)texIt->second.height};
-            Rectangle dest = {
-                unitPos.x - unitRadius,
-                unitPos.y - unitRadius,
-                textureDiameter,
-                textureDiameter
-            };
-            Vector2 origin = {0.0f, 0.0f};
-            DrawTexturePro(texIt->second, source, dest, origin, 0.0f, tint);
+        DomeLook look = GetDomeLook(seed);
 
-            // Add green glow ring for active units
-            if (units[i]->GetStatus() == "active") {
-                DrawCircleLines(unitPos.x, unitPos.y, unitRadius * 1.1f, GREEN);
+        int size = radius * 2 + 4;
+        float cx = size / 2.0f;
+        float cy = size / 2.0f;
+        float r = (float)radius;
+        Image img = GenImageColor(size, size, BLANK);
+
+        // Key light (varied per dome) and bounce light (from below)
+        float Lx = look.lx, Ly = look.ly, Lz = look.lz;
+        float Bx = 0.30f, By = 0.80f, Bz = 0.52f;
+        float bl = sqrtf(Bx * Bx + By * By + Bz * Bz);
+        Bx /= bl; By /= bl; Bz /= bl;
+
+        float br = base.r / 255.0f;
+        float bg = base.g / 255.0f;
+        float bb = base.b / 255.0f;
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x - cx) / r;
+                float dy = (y - cy) / r;
+                float d2 = dx * dx + dy * dy;
+                if (d2 > 1.0f) continue;
+
+                float nz = sqrtf(1.0f - d2);
+                float dif = dx * Lx + dy * Ly + nz * Lz;
+                if (dif < 0.0f) dif = 0.0f;
+                float dif2 = dx * Bx + dy * By + nz * Bz;
+                if (dif2 < 0.0f) dif2 = 0.0f;
+
+                // Blinn half-vector specular (view = +Z), broad sheen + soft core
+                float Hx = Lx, Hy = Ly, Hz = Lz + 1.0f;
+                float hl = sqrtf(Hx * Hx + Hy * Hy + Hz * Hz);
+                float ndh = (dx * Hx + dy * Hy + nz * Hz) / hl;
+                if (ndh < 0.0f) ndh = 0.0f;
+                float spec = powf(ndh, look.broadPow) * look.broadInt
+                           + powf(ndh, look.corePow) * look.coreInt;
+
+                // Fresnel rim picks up a cool sky tint
+                float fre = powf(1.0f - nz, 3.0f) * 0.40f;
+
+                float lum = look.ambient + 0.80f * dif + 0.16f * dif2;
+                float cr = br * lum + 0.55f * fre + spec;
+                float cg = bg * lum + 0.85f * fre + spec;
+                float cb = bb * lum + 0.65f * fre + spec;
+                if (cr > 1.0f) cr = 1.0f;
+                if (cg > 1.0f) cg = 1.0f;
+                if (cb > 1.0f) cb = 1.0f;
+
+                // Anti-aliased edge
+                float d = sqrtf(d2);
+                float alpha = (1.0f - d) * r * 1.8f;
+                if (alpha > 1.0f) alpha = 1.0f;
+                if (alpha < 0.0f) alpha = 0.0f;
+
+                ImageDrawPixel(&img, x, y, Color{(unsigned char)(cr * 255.0f),
+                                                 (unsigned char)(cg * 255.0f),
+                                                 (unsigned char)(cb * 255.0f),
+                                                 (unsigned char)(alpha * 255.0f)});
             }
-        } else {
-            // Fallback to circle if texture not available
-            Color fillColor = units[i]->GetStatus() == "active" ? GREEN : GRAY;
-            DrawCircle(unitPos.x, unitPos.y, unitRadius, fillColor);
-            DrawCircleLines(unitPos.x, unitPos.y, unitRadius, BLACK);
-
-            // Draw first letter of unit type (only for fallback)
-            const char* unitTypeStr = unitType.c_str();
-            char firstLetter[2] = {unitTypeStr[0], '\0'};
-
-            // Center the letter in the circle
-            int fontSize = (int)(unitRadius);
-            Vector2 textSize = MeasureTextEx(GetFontDefault(), firstLetter, fontSize, 1);
-            Vector2 textPos = {
-                unitPos.x - textSize.x/2,
-                unitPos.y - textSize.y/2
-            };
-
-            DrawText(firstLetter, textPos.x, textPos.y, fontSize, BLACK);
         }
+
+        Texture2D tex = LoadTextureFromImage(img);
+        SetTextureFilter(tex, TEXTURE_FILTER_BILINEAR);
+        UnloadImage(img);
+        cache[key] = tex;
+        return tex;
+    }
+
+    // Glossy hex-glass dome sphere in an arbitrary tint; seed varies the look
+    void DrawDomeSphere(Vector2 center, float radius, Color base, unsigned int seed = 0)
+    {
+        Texture2D tex = GetBakedDomeTexture(radius, base, seed);
+        Rectangle src = {0.0f, 0.0f, (float)tex.width, (float)tex.height};
+        Rectangle dst = {center.x - tex.width / 2.0f, center.y - tex.height / 2.0f,
+                         (float)tex.width, (float)tex.height};
+        DrawTexturePro(tex, src, dst, Vector2{0.0f, 0.0f}, 0.0f, WHITE);
+
+        // Hex glass pattern over the shading
+        DrawHexPattern(center, radius * 0.93f, radius * 0.115f,
+                       Fade(MixColor(base, Color{0, 0, 0, 255}, 0.45f), 0.40f));
+        DrawRing(center, radius * 0.88f, radius, 0.0f, 360.0f, 72, Fade(BLACK, 0.15f));
+
+        // Soft wide glare tracking this dome's light direction (no hard hot spot)
+        DomeLook look = GetDomeLook(seed);
+        float gx = center.x + look.hx * radius * 0.70f;
+        float gy = center.y + look.hy * radius * 0.70f;
+        DrawEllipse((int)gx, (int)gy, radius * 0.34f, radius * 0.19f, Fade(WHITE, 0.08f));
+        DrawEllipse((int)(gx - radius * 0.02f), (int)(gy - radius * 0.03f),
+                    radius * 0.22f, radius * 0.12f, Fade(WHITE, 0.10f));
+    }
+
+    // Riveted metal bezel ring
+    void DrawBezel(Vector2 center, float rIn, float rOut)
+    {
+        DrawRing(center, rIn, rOut, 0.0f, 360.0f, 96, Color{52, 55, 58, 255});
+        DrawRing(center, rOut - 2.0f, rOut, 0.0f, 360.0f, 96, Color{80, 85, 89, 255});
+        DrawRing(center, rIn, rIn + 2.0f, 0.0f, 360.0f, 96, Color{30, 32, 34, 255});
+
+        float rb = (rIn + rOut) / 2.0f;
+        float bolt = (rOut - rIn) * 0.16f;
+        for (int k = 0; k < 12; k++)
+        {
+            float a = (15.0f + k * 30.0f) * DEG2RAD;
+            Vector2 p = {center.x + rb * cosf(a), center.y - rb * sinf(a)};
+            DrawCircleV(p, bolt, Color{88, 93, 98, 255});
+            DrawCircleV(Vector2{p.x - bolt * 0.3f, p.y - bolt * 0.3f}, bolt * 0.45f,
+                        Color{130, 135, 140, 255});
+        }
+    }
+
+    // Mechanical connector arm between the hub collar and a unit bezel
+    void DrawConnectorArm(Vector2 a, Vector2 b, float width, bool active)
+    {
+        Vector2 d = {b.x - a.x, b.y - a.y};
+        float len = sqrtf(d.x * d.x + d.y * d.y);
+        if (len < 1.0f) return;
+        Vector2 n = {-d.y / len, d.x / len};
+
+        DrawLineEx(a, b, width, Color{46, 49, 52, 255});
+        for (int sgn = -1; sgn <= 1; sgn += 2)
+        {
+            Vector2 e1 = {a.x + n.x * sgn * width / 2.0f, a.y + n.y * sgn * width / 2.0f};
+            Vector2 e2 = {b.x + n.x * sgn * width / 2.0f, b.y + n.y * sgn * width / 2.0f};
+            DrawLineEx(e1, e2, 2.0f, Color{76, 81, 85, 255});
+        }
+
+        // Crossbars
+        int steps = (int)(len / 9.0f);
+        for (int k = 1; k < steps; k++)
+        {
+            float t = (float)k / (float)steps;
+            Vector2 p1 = {a.x + d.x * t + n.x * width * 0.42f,
+                          a.y + d.y * t + n.y * width * 0.42f};
+            Vector2 p2 = {a.x + d.x * t - n.x * width * 0.42f,
+                          a.y + d.y * t - n.y * width * 0.42f};
+            DrawLineEx(p1, p2, 1.5f, Color{60, 64, 68, 255});
+        }
+
+        // Center conduit: glows green when the unit is active
+        Color glow = active ? Color{92, 230, 120, 255} : Color{58, 62, 66, 255};
+        DrawLineEx(a, b, width * 0.18f, glow);
+        if (active)
+        {
+            DrawLineEx(a, b, width * 0.40f, Fade(glow, 0.20f));
+        }
+    }
+
+    // Socket where an arm docks to the collar: LED shows the unit status
+    void DrawSocket(Vector2 p, float r, bool active)
+    {
+        DrawCircleV(p, r, Color{40, 43, 46, 255});
+        DrawRing(p, r * 0.8f, r, 0.0f, 360.0f, 32, Color{68, 72, 76, 255});
+        if (active)
+        {
+            DrawLed(p, r * 0.55f, Color{92, 230, 120, 255});
+        }
+        else
+        {
+            DrawCircleV(p, r * 0.5f, Color{30, 33, 35, 255});
+            DrawCircleLines((int)p.x, (int)p.y, r * 0.5f, Color{60, 64, 68, 255});
+        }
+    }
+
+    // Outer ring road with warm running lights
+    void DrawRingRoad(Vector2 center, float radius)
+    {
+        DrawRing(center, radius - 5.0f, radius + 5.0f, 0.0f, 360.0f, 180, Color{48, 51, 54, 255});
+        DrawRing(center, radius + 4.0f, radius + 6.0f, 0.0f, 360.0f, 180, Color{78, 83, 87, 255});
+        DrawRing(center, radius - 6.0f, radius - 4.0f, 0.0f, 360.0f, 180, Color{78, 83, 87, 255});
+
+        // Crossbar seams with a warm light at their center (per the concept art)
+        for (int k = 0; k < 12; k++)
+        {
+            float a = (15.0f + k * 30.0f) * DEG2RAD;
+            Vector2 dir = {cosf(a), -sinf(a)};
+            Vector2 p = {center.x + radius * dir.x, center.y + radius * dir.y};
+            Vector2 c1 = {center.x + (radius - 7.0f) * dir.x,
+                          center.y + (radius - 7.0f) * dir.y};
+            Vector2 c2 = {center.x + (radius + 7.0f) * dir.x,
+                          center.y + (radius + 7.0f) * dir.y};
+            DrawLineEx(c1, c2, 4.0f, Color{32, 34, 36, 255});
+            DrawLineEx(c1, c2, 1.8f, Color{72, 77, 81, 255});
+
+            DrawCircleV(p, 6.0f, Fade(Color{255, 200, 120, 255}, 0.30f));
+            DrawCircleV(p, 3.4f, Fade(Color{255, 208, 135, 255}, 0.55f));
+            DrawCircleV(p, 1.9f, Color{255, 228, 170, 255});
+            DrawCircleV(Vector2{p.x - 0.6f, p.y - 0.6f}, 0.8f, Fade(WHITE, 0.9f));
+        }
+    }
+
+    // Vertical entry rail with crossties and a gate box
+    void DrawEntryRail(float x, float yTop, float yBottom)
+    {
+        for (float y = yTop; y < yBottom; y += 12.0f)
+        {
+            DrawLineEx(Vector2{x - 9.0f, y}, Vector2{x + 9.0f, y}, 3.0f, Color{33, 35, 37, 255});
+        }
+        for (int sgn = -1; sgn <= 1; sgn += 2)
+        {
+            float rx = x + sgn * 5.0f;
+            DrawLineEx(Vector2{rx, yTop}, Vector2{rx, yBottom}, 3.5f, Color{46, 49, 52, 255});
+            DrawLineEx(Vector2{rx, yTop}, Vector2{rx, yBottom}, 1.2f, Color{78, 83, 87, 255});
+        }
+
+        // Gate box (past the bottom station so it stays visible)
+        float gy = yTop + 42.0f;
+        DrawRectangleRounded(Rectangle{x - 10.0f, gy, 20.0f, 26.0f}, 0.3f, 4,
+                             Color{50, 54, 58, 255});
+        DrawRectangleRounded(Rectangle{x - 7.0f, gy + 4.0f, 14.0f, 8.0f}, 0.4f, 4,
+                             Color{34, 37, 39, 255});
+        DrawCircleV(Vector2{x - 6.0f, gy + 21.0f}, 1.8f, Fade(Color{255, 214, 150, 255}, 0.95f));
+        DrawCircleV(Vector2{x + 6.0f, gy + 21.0f}, 1.8f, Fade(Color{255, 214, 150, 255}, 0.95f));
+    }
+
+    // A unit station: riveted bezel + tinted hex-glass dome + glyph + label
+    void DrawUnitDomeStation(Vector2 center, float radius, const std::string& type, bool active)
+    {
+        // Drop shadow onto the terrain
+        DrawCircleV(Vector2{center.x + radius * 0.08f, center.y + radius * 0.14f},
+                    radius * 1.18f, Fade(BLACK, 0.40f));
+
+        DrawBezel(center, radius * 1.02f, radius * 1.18f);
+
+        // Active domes glow in the unit's accent tint; idle domes go dark slate.
+        // Each unit gets its own lighting character from its type name.
+        Color base = active ? MixColor(UnitAccentColor(type), Color{20, 24, 26, 255}, 0.35f)
+                            : Color{44, 52, 64, 255};
+        DrawDomeSphere(center, radius, base, HashSeed(type));
+
+        // Unit glyph + label on the dome glass
+        Color glyphCol = active ? Color{240, 245, 248, 255} : Color{140, 150, 160, 255};
+        DrawUnitGlyph(type, Vector2{center.x, center.y - radius * 0.18f}, radius * 0.34f, glyphCol);
+
+        const char* label = type.c_str();
+        int fontSize = (int)(radius * 0.24f);
+        if (fontSize < 10) fontSize = 10;
+        while (fontSize > 8 && MeasureText(label, fontSize) > (int)(radius * 1.5f))
+        {
+            fontSize--;
+        }
+        int tw = MeasureText(label, fontSize);
+        DrawText(label, (int)(center.x - tw / 2.0f) + 1, (int)(center.y + radius * 0.32f) + 1,
+                 fontSize, Fade(BLACK, 0.5f));
+        DrawText(label, (int)(center.x - tw / 2.0f), (int)(center.y + radius * 0.32f),
+                 fontSize, glyphCol);
+    }
+}
+
+void Sect::DrawInSectView(Vector2 position) {
+    // Dome-station layout: hex-glass domes, connector arms, ring road, entry rails
+    float h = (float)GetScreenHeight();
+    Vector2 center = {position.x, position.y - h * 0.04f};
+    float domeRadius = h * 0.15f;                    // Central dome
+    float collarOut = domeRadius * 1.22f;            // Hub bezel outer edge
+    float unitRadius = h * 0.085f;                   // Unit dome
+    float orbitRadius = h * 0.325f;                  // Unit centers
+    float roadRadius = h * 0.443f;                   // Outer ring road (clears unit bezels)
+
+    // Precompute node positions (8 units, start at top, clockwise)
+    std::vector<Vector2> nodePositions(units.size());
+    for (size_t i = 0; i < units.size(); ++i)
+    {
+        float angle = (90.0f - (i * 45.0f)) * DEG2RAD;
+        nodePositions[i] = Vector2{
+            center.x + orbitRadius * cosf(angle),
+            center.y - orbitRadius * sinf(angle)   // Y grows downward
+        };
+    }
+
+    // 1. Outer ring road and the entry rails leading off-screen
+    DrawRingRoad(center, roadRadius);
+    float railTop = center.y + roadRadius - 8.0f;
+    DrawEntryRail(center.x - unitRadius * 0.5f, railTop, h);
+    DrawEntryRail(center.x + unitRadius * 0.5f, railTop, h);
+
+    // 2. Connector arms from the hub collar to each unit bezel
+    for (size_t i = 0; i < units.size(); ++i)
+    {
+        bool active = units[i]->GetStatus() == "active";
+        Vector2 d = {nodePositions[i].x - center.x, nodePositions[i].y - center.y};
+        float len = sqrtf(d.x * d.x + d.y * d.y);
+        Vector2 dir = {d.x / len, d.y / len};
+        Vector2 a = {center.x + dir.x * collarOut * 0.98f,
+                     center.y + dir.y * collarOut * 0.98f};
+        Vector2 b = {nodePositions[i].x - dir.x * unitRadius * 1.05f,
+                     nodePositions[i].y - dir.y * unitRadius * 1.05f};
+        DrawConnectorArm(a, b, unitRadius * 0.30f, active);
+    }
+
+    // 3. Hub bezel with a soft green halo
+    DrawCircleV(center, collarOut, Color{38, 41, 44, 255});
+    DrawBezel(center, domeRadius * 1.02f, collarOut);
+    DrawRing(center, collarOut, collarOut * 1.03f, 0.0f, 360.0f, 96,
+             Fade(Color{110, 255, 150, 255}, 0.20f));
+
+    // 4. Sockets on the collar, LED per unit status
+    for (size_t i = 0; i < units.size(); ++i)
+    {
+        float angle = (90.0f - (i * 45.0f)) * DEG2RAD;
+        Vector2 socketPos = {
+            center.x + collarOut * 1.02f * cosf(angle),
+            center.y - collarOut * 1.02f * sinf(angle)
+        };
+        DrawSocket(socketPos, unitRadius * 0.17f, units[i]->GetStatus() == "active");
+    }
+
+    // 5. Central hex-glass dome with the development readout
+    DrawDomeSphere(center, domeRadius, Color{24, 130, 66, 255}, HashSeed("SectCore"));
+
+    const char* devText = TextFormat("Development: %.1f%%", development_percentage * 100);
+    int devFont = (int)(domeRadius * 0.17f);
+    if (devFont < 14) devFont = 14;
+    int devWidth = MeasureText(devText, devFont);
+    DrawText(devText, (int)(center.x - devWidth / 2.0f) + 1,
+             (int)(center.y - devFont / 2.0f) + 1, devFont, Fade(BLACK, 0.45f));
+    DrawText(devText, (int)(center.x - devWidth / 2.0f),
+             (int)(center.y - devFont / 2.0f), devFont, Color{225, 240, 228, 255});
+
+    // 6. Unit dome stations
+    for (size_t i = 0; i < units.size(); ++i)
+    {
+        // Store the position for click detection
+        units[i]->SetUnitPosInSectView(nodePositions[i]);
+        units[i]->SetUnitRadiusInSectView(unitRadius * 1.18f);
+
+        DrawUnitDomeStation(nodePositions[i], unitRadius,
+                            units[i]->GetUnitType(),
+                            units[i]->GetStatus() == "active");
     }
 
     // Draw the transparent right panel
@@ -378,14 +843,16 @@ void Sect::DrawTransparentRightPanel() {
         (float)panelWidth,
         (float)GetScreenHeight()
     };
-    DrawRectangleRec(panel, Fade(WHITE, 0.5f));
+    DrawRectangleRec(panel, Fade(Color{12, 15, 17, 255}, 0.72f));
+    DrawLineEx(Vector2{panel.x, 0.0f}, Vector2{panel.x, panel.height}, 1.0f,
+               Fade(Color{92, 230, 120, 255}, 0.45f));
 
     // Draw panel content (e.g., notifications, alerts)
-    DrawText("Updates",
+    DrawText("UPDATES",
             GetScreenWidth() - panelWidth + 10,
             10,
-            20,
-            BLACK);
+            16,
+            Color{180, 230, 200, 255});
 }
 
 float Sect::GetStorageUsage(ResourceType type) const {

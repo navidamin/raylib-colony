@@ -213,3 +213,71 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         target_link_libraries(colony_inspect m)
     endif()
 endif()
+
+# ---------------------------------------------------------------------------
+# colony_viewtest: view-ladder playtest (Orbital -> Planet -> Colony -> Sect)
+#
+# Playable build that walks the geographic views and overlays the known
+# issues per view. Annotations are playtest-only commentary.
+# ---------------------------------------------------------------------------
+add_executable(colony_viewtest)
+
+target_sources(colony_viewtest PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/viewtest/viewtest_main.cpp"
+    Colony/colony.cpp
+    Engine/inputmanager.cpp
+    Engine/viewmanager.cpp
+    Engine/gamemanager.cpp
+    Engine/rendermanager.cpp
+    Planet/planet.cpp
+    Sect/sect.cpp
+    Unit/unit.cpp
+    Unit/unit_ui.cpp
+    ResourceManager/resource_manager.cpp
+    TimeManager/time_manager.cpp
+    GameTypes/game_types_loader.cpp
+    TerrainGen/terrain_synthesis.cpp
+    Prospecting/prospecting_types.cpp
+    Prospecting/sample_tray.cpp
+    Prospecting/prospecting_grid.cpp
+    Prospecting/sweep_engine.cpp
+    Prospecting/sampling_engine.cpp
+    Prospecting/lab_engine.cpp
+    Prospecting/survey_progress_engine.cpp
+    Prospecting/prospecting_system.cpp
+    transport_types.cpp
+)
+
+set_target_properties(colony_viewtest PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(colony_viewtest PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Colony"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Engine"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Planet"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Sect"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Unit"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
+    "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+    "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
+)
+
+target_link_libraries(colony_viewtest raylib tomlplusplus::tomlplusplus)
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(colony_viewtest m)
+endif()
+
+if("${PLATFORM}" STREQUAL "Web")
+    set_target_properties(colony_viewtest PROPERTIES SUFFIX ".html")
+    set(vt_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
+    set(vt_link_flags "${vt_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@src/assets --use-preload-plugins")
+    set(vt_link_flags "${vt_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
+    set_target_properties(colony_viewtest PROPERTIES LINK_FLAGS "${vt_link_flags}")
+endif()

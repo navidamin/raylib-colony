@@ -1,4 +1,5 @@
 #include "viewmanager.h"
+#include "terrain_synthesis.h"
 
 ViewManager::ViewManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
@@ -41,13 +42,24 @@ void ViewManager::HandlePlanetViewCamera(InputManager& inputManager, Planet* pla
         float prevZoom = camera.zoom;
         camera.zoom += wheel * 0.1f;
 
-        // Calculate maximum zoom to always see the whole planet
-        float minZoomX = screenWidth / PLANET_WIDTH;
-        float minZoomY = screenHeight / PLANET_HEIGHT;
-        float minZoom = std::min(minZoomX, minZoomY) * 0.9f;  // 90% to add padding
+        // Zoom that fits the 100 km playfield on screen.
+        float fitX = screenWidth / PLANET_WIDTH;
+        float fitY = screenHeight / PLANET_HEIGHT;
+        float fitPlayfield = std::min(fitX, fitY) * 0.9f;
 
-        // Set maximum zoom to something reasonable
-        float maxZoom = minZoom * 5.0f;  // Adjust this multiplier as needed
+        // The planet view can now pull all the way out to the whole moon,
+        // which the map layer draws around the playfield. The globe spans
+        // 360 degrees of longitude at the anchor's scale.
+        double latSpanDeg = (PLANET_SIZE * TERRAIN_CELL_KM) / MOON_KM_PER_DEG;
+        double anchorLat, anchorLon;
+        GetTerrainAnchor(&anchorLat, &anchorLon);
+        float updLat = (float)(PLANET_HEIGHT / latSpanDeg);
+        float updLon = updLat * (float)std::max(0.2, std::cos(anchorLat * DEG2RAD));
+        float globeW = 360.0f * updLon;
+        float globeH = 180.0f * updLat;
+        float minZoom = std::min(screenWidth / globeW, screenHeight / globeH) * 0.92f;
+
+        float maxZoom = fitPlayfield * 5.0f;
 
         camera.zoom = Clamp(camera.zoom, minZoom, maxZoom);
 

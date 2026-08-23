@@ -6,6 +6,7 @@ on:
     branches: [main, master]
     paths:
       - 'src/**'
+      - 'tools/**'
       - 'CMakeLists.txt'
       - 'tools/playtest/**'
       - '.github/workflows/deploy-web.yml'
@@ -48,6 +49,14 @@ jobs:
         # .data file contains preloaded assets
         if [ -f build/src/colony_game.data ]; then
           cp build/src/colony_game.data deploy/colony_game.data
+        fi
+        # View-ladder playtest at /viewtest/ (annotated Orbital->Sect walk)
+        mkdir -p deploy/viewtest
+        cp build/src/colony_viewtest.html deploy/viewtest/index.html
+        cp build/src/colony_viewtest.js deploy/viewtest/colony_viewtest.js
+        cp build/src/colony_viewtest.wasm deploy/viewtest/colony_viewtest.wasm
+        if [ -f build/src/colony_viewtest.data ]; then
+          cp build/src/colony_viewtest.data deploy/viewtest/colony_viewtest.data
         fi
 
         # Prospecting playtest sandbox at /playtest/
