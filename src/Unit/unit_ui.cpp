@@ -1,4 +1,5 @@
 #include "unit.h"
+#include "unlock_registry.h"
 
 void Unit::DrawTopBar() {
     const int barHeight = 60;
@@ -758,10 +759,23 @@ void Unit::HandleModuleActivation(int moduleIndex) {
 }
 
 bool Unit::CanUpgradeModule(const UnitModule& module) {
-    if (!module.isBuilt || module.level >= 5) return false;
+    if (!module.isBuilt || module.tier >= 3) return false;
 
-    // Safely check if next level costs exist
-    auto costIter = module.upgradeCosts.find(module.level + 1);
+    // Gate on tier, matching what UpgradeModuleTier actually spends. Keying this
+    // off module.level instead always probed tier 2's costs, because level stays
+    // at 1 while tier advances.
+    int nextTier = module.tier + 1;
+
+    // Tech dependencies are enforced by UpgradeModuleTier; check them here too so
+    // the button reflects whether the upgrade would actually go through.
+    auto& registry = UnlockRegistry::Instance();
+    for (const auto& dep : module.tierDependencies) {
+        if (!registry.IsUnlocked(dep)) {
+            return false;
+        }
+    }
+
+    auto costIter = module.upgradeCosts.find(nextTier);
     if (costIter == module.upgradeCosts.end()) {
         return false;
     }
@@ -829,30 +843,31 @@ void Unit::BuildModule(int moduleIndex) {
         return;
     }
 
-    bool inquiryRequired = false;
-    std::map<ResourceType, float> requiredResources;
-    // Check resources
+    // Gate before committing: every cost must be covered by unit storage. The
+    // comparison here used to be inverted, and the build then completed
+    // unconditionally below -- so an affordable module was built without paying
+    // and an unaffordable one was built anyway, driving storage negative.
+    std::map<ResourceType, float> shortfall;
     for (const auto& [resource, amount] : costIter->second) {
-        if (amount < resourceStorage[resource]) {
-            inquiryRequired = true;
-            requiredResources[resource] = amount;
+        if (resourceStorage[resource] < amount) {
+            shortfall[resource] = amount - resourceStorage[resource];
         }
-
     }
 
-    if (!inquiryRequired) {
-        // Consume resources
-        for (const auto& [resource, amount] : costIter->second) {
-            resourceStorage[resource] -= amount;
-        }
-
-        module.isBuilt = true;
-        module.level = 1;
-        ShowMessage(module.name + "Module was built successfully!");
-    } else{
-        ShowMessage(module.name + "Anticipating resources from Sect!");
+    if (!shortfall.empty()) {
+        // Sect-level resource requests are not wired up yet, so the build simply
+        // does not happen and the module stays unbuilt.
+        ResourceType firstMissing = shortfall.begin()->first;
+        ShowMessage(TextFormat("%s needs %.0f more %s.",
+                               module.name.c_str(),
+                               shortfall.begin()->second,
+                               ResourceTypeToString(firstMissing)));
+        return;
     }
 
+    for (const auto& [resource, amount] : costIter->second) {
+        resourceStorage[resource] -= amount;
+    }
 
     module.isBuilt = true;
     module.level = 1;

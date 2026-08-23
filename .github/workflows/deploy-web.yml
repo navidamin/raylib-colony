@@ -8,6 +8,7 @@ on:
       - 'src/**'
       - 'tools/**'
       - 'CMakeLists.txt'
+      - 'tools/playtest/**'
       - '.github/workflows/deploy-web.yml'
 
 permissions:
@@ -56,6 +57,15 @@ jobs:
         cp build/src/colony_viewtest.wasm deploy/viewtest/colony_viewtest.wasm
         if [ -f build/src/colony_viewtest.data ]; then
           cp build/src/colony_viewtest.data deploy/viewtest/colony_viewtest.data
+        fi
+
+        # Prospecting playtest sandbox at /playtest/
+        mkdir -p deploy/playtest
+        cp build/src/colony_playtest.html deploy/playtest/index.html
+        cp build/src/colony_playtest.js deploy/playtest/colony_playtest.js
+        cp build/src/colony_playtest.wasm deploy/playtest/colony_playtest.wasm
+        if [ -f build/src/colony_playtest.data ]; then
+          cp build/src/colony_playtest.data deploy/playtest/colony_playtest.data
         fi
 
     - name: Setup Pages

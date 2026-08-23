@@ -3,21 +3,39 @@
 #include "test_helpers.h"
 #include <cmath>
 
-TEST_CASE("ProspectingGrid initializes with correct size per tier", "[grid]")
+TEST_CASE("ProspectingGrid lattice size is fixed across tiers", "[grid]")
 {
     auto rm = MakeTestResourceManager();
 
-    ProspectingGrid g0(0, 5, 5, rm);
-    REQUIRE(g0.GetGridSize() == 3);
+    // The lattice no longer refines with tier -- every tier sees the same
+    // 8x8 sub-cell grid, and tier instead widens the reachable window.
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        ProspectingGrid grid(tier, 5, 5, rm);
+        REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
+        REQUIRE(grid.GetReach() == PROSPECTING_REACH_PER_TIER[tier]);
+    }
+}
 
-    ProspectingGrid g1(1, 5, 5, rm);
-    REQUIRE(g1.GetGridSize() == 4);
+TEST_CASE("ProspectingGrid reach window is centred and grows with tier", "[grid]")
+{
+    auto rm = MakeTestResourceManager();
 
-    ProspectingGrid g2(2, 5, 5, rm);
-    REQUIRE(g2.GetGridSize() == 5);
+    // Centre sub-cells are reachable at every tier, corners only at tier 3.
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        ProspectingGrid grid(tier, 5, 5, rm);
+        REQUIRE(grid.IsInReach(3, 3));
+        REQUIRE(grid.IsInReach(4, 4));
+    }
 
-    ProspectingGrid g3(3, 5, 5, rm);
-    REQUIRE(g3.GetGridSize() == 6);
+    ProspectingGrid t0(0, 5, 5, rm);
+    REQUIRE_FALSE(t0.IsInReach(0, 0));
+    REQUIRE_FALSE(t0.IsInReach(PROSPECTING_GRID_SIZE - 1, PROSPECTING_GRID_SIZE - 1));
+
+    ProspectingGrid t3(3, 5, 5, rm);
+    REQUIRE(t3.IsInReach(0, 0));
+    REQUIRE(t3.IsInReach(PROSPECTING_GRID_SIZE - 1, PROSPECTING_GRID_SIZE - 1));
 }
 
 TEST_CASE("ProspectingGrid stores parent cell coordinates", "[grid]")
@@ -34,14 +52,24 @@ TEST_CASE("ProspectingGrid sub-cell distribution averages near parent value", "[
     auto rm = MakeTestResourceManager();
     int px = 10, py = 10;
 
-    ProspectingGrid grid(2, px, py, rm); // 5x5 grid
+    ProspectingGrid grid(2, px, py, rm);
     int size = grid.GetGridSize();
 
     auto parentResources = rm.GetResourcesAtGridLayer(px, py, DepthLayer::SURFACE);
 
+    // The grid reports composition fractions while ResourceManager reports
+    // absolute quantities, so compare against the parent's own fraction.
+    float parentTotal = 0.0f;
+    for (const auto& [type, parentAbundance] : parentResources)
+    {
+        parentTotal += parentAbundance;
+    }
+    REQUIRE(parentTotal > 0.0f);
+
     for (const auto& [type, parentAbundance] : parentResources)
     {
         if (parentAbundance < 0.01f) continue;
+        float parentFraction = parentAbundance / parentTotal;
 
         float sum = 0.0f;
         int count = 0;
@@ -60,9 +88,37 @@ TEST_CASE("ProspectingGrid sub-cell distribution averages near parent value", "[
         }
 
         float avg = sum / count;
-        // Average should be within 50% of parent value (clusters shift mass around)
-        REQUIRE(avg > parentAbundance * 0.3f);
-        REQUIRE(avg < parentAbundance * 2.0f);
+        // Average should stay near the parent fraction (clusters shift mass around)
+        REQUIRE(avg > parentFraction * 0.3f);
+        REQUIRE(avg < parentFraction * 2.0f);
+    }
+}
+
+TEST_CASE("ProspectingGrid ground truth is a normalized composition", "[grid]")
+{
+    auto rm = MakeTestResourceManager();
+    ProspectingGrid grid(3, 10, 10, rm);
+    int size = grid.GetGridSize();
+
+    for (int y = 0; y < size; y++)
+    {
+        for (int x = 0; x < size; x++)
+        {
+            auto gt = grid.GetGroundTruth(x, y, DepthLayer::SURFACE);
+            if (gt.empty()) continue;
+
+            float sum = 0.0f;
+            for (const auto& [type, fraction] : gt)
+            {
+                REQUIRE(fraction >= 0.0f);
+                REQUIRE(fraction <= 1.0f);
+                sum += fraction;
+            }
+            REQUIRE_THAT(sum, Catch::Matchers::WithinAbs(1.0f, 0.001f));
+
+            // Absolute quantity is reported separately and is unnormalized
+            REQUIRE(grid.GetQuantity(x, y, DepthLayer::SURFACE) > 0.0f);
+        }
     }
 }
 
@@ -106,6 +162,19 @@ TEST_CASE("ProspectingGrid values are within clamped range", "[grid]")
 
     auto parentResources = rm.GetResourcesAtGridLayer(8, 8, DepthLayer::SURFACE);
 
+    float parentTotal = 0.0f;
+    for (const auto& [type, parentAbundance] : parentResources)
+    {
+        parentTotal += parentAbundance;
+    }
+    REQUIRE(parentTotal > 0.0f);
+
+    // Each element is scaled by a weight in [MIN, MAX] before the cell is
+    // normalized, so a fraction can drift from the parent fraction by at most
+    // MAX/MIN in either direction once the shared denominator is accounted for.
+    const float ratioMin = SUBCELL_VARIATION_MIN / SUBCELL_VARIATION_MAX;
+    const float ratioMax = SUBCELL_VARIATION_MAX / SUBCELL_VARIATION_MIN;
+
     for (int y = 0; y < size; y++)
     {
         for (int x = 0; x < size; x++)
@@ -119,9 +188,10 @@ TEST_CASE("ProspectingGrid values are within clamped range", "[grid]")
                     if (pt == type) { parentVal = pv; break; }
                 }
                 if (parentVal < 0.001f) continue;
+                float parentFraction = parentVal / parentTotal;
 
-                REQUIRE(val >= parentVal * SUBCELL_VARIATION_MIN - 0.001f);
-                REQUIRE(val <= parentVal * SUBCELL_VARIATION_MAX + 0.001f);
+                REQUIRE(val >= parentFraction * ratioMin - 0.001f);
+                REQUIRE(val <= parentFraction * ratioMax + 0.001f);
             }
         }
     }
@@ -130,24 +200,35 @@ TEST_CASE("ProspectingGrid values are within clamped range", "[grid]")
 TEST_CASE("ProspectingGrid out-of-bounds returns empty", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm); // 3x3
+    ProspectingGrid grid(0, 5, 5, rm);
 
     auto gt = grid.GetGroundTruth(-1, 0, DepthLayer::SURFACE);
     REQUIRE(gt.empty());
 
-    gt = grid.GetGroundTruth(3, 0, DepthLayer::SURFACE);
+    gt = grid.GetGroundTruth(PROSPECTING_GRID_SIZE, 0, DepthLayer::SURFACE);
     REQUIRE(gt.empty());
+
+    REQUIRE(grid.GetQuantity(-1, 0, DepthLayer::SURFACE) == 0.0f);
+    REQUIRE(grid.GetQuantity(0, PROSPECTING_GRID_SIZE, DepthLayer::SURFACE) == 0.0f);
 }
 
-TEST_CASE("ProspectingGrid ResizeForTier changes grid size", "[grid]")
+TEST_CASE("ProspectingGrid ResizeForTier widens reach and preserves the lattice", "[grid]")
 {
     auto rm = MakeTestResourceManager();
     ProspectingGrid grid(0, 5, 5, rm);
-    REQUIRE(grid.GetGridSize() == 3);
+    REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
+    REQUIRE(grid.GetReach() == PROSPECTING_REACH_PER_TIER[0]);
+    REQUIRE_FALSE(grid.IsInReach(1, 1));
+
+    // Survey data survives an upgrade, so record a sweep before resizing.
+    grid.GetSubCellMut(3, 3).hasBeenSwept = true;
 
     grid.ResizeForTier(2);
-    REQUIRE(grid.GetGridSize() == 5);
     REQUIRE(grid.GetTier() == 2);
+    REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
+    REQUIRE(grid.GetReach() == PROSPECTING_REACH_PER_TIER[2]);
+    REQUIRE(grid.IsInReach(1, 1));
+    REQUIRE(grid.GetSubCell(3, 3).hasBeenSwept);
 
     // Ground truth should be accessible at valid coordinates after resize
     // (may be empty if parent cell has no resources — test that it doesn't crash)

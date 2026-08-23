@@ -38,6 +38,7 @@ public:
         std::string description;
         std::vector<std::string> tierDependencies;         // Tech names required for next tier
         std::map<ResourceType, float> consumptionRates;
+        std::map<ResourceType, float> baseConsumptionRates;  // authored at init; survives CalculateConsumption()
         std::map<ResourceType, float> productionRates;
         std::map<ResourceType, float> maxProductionRates;
         std::map<int, std::map<ResourceType, float>> upgradeCosts;
@@ -87,6 +88,7 @@ public:
 
     // Module Processing functions
     void InitializeModules();
+    void ApplyPlaceholderModuleCosts();
     void InitializeFutureModules();
     bool UpgradeModule(int moduleIndex);
     bool UpgradeModuleTier(int moduleIndex);
@@ -232,6 +234,10 @@ private:
     void InitializeEnergyModules();
     void InitializeManufactureModules();
     void InitializeResearchModules();
+    void InitializeConstructionModules();
+    void InitializeTransportModules();
+    void InitializeCoreModules();
+    void InitializeCommunicationModules();
     void InitializeGenericModules();
 
     void UpdateUnitStatus();

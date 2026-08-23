@@ -163,13 +163,24 @@ static ViewTestContext g_ctx;
 
 static void RebuildSect(ViewTestContext& ctx)
 {
-    delete ctx.sect;
+    // The colony owns whatever it is given: Colony::~Colony deletes its
+    // sects. So the sect is built once, handed over, and moved after
+    // that - never deleted here, and never replaced behind the colony's
+    // back. Deleting it here left the colony holding a freed pointer,
+    // which it then freed again on the way out.
     Vector2 pos = {(ctx.cellX + 0.5f) * SECT_CORE_RADIUS * 2.0f,
                    (ctx.cellY + 0.5f) * SECT_CORE_RADIUS * 2.0f};
-    ctx.sect = new Sect(pos, *ctx.resourceManager, *ctx.timeManager);
-    if (ctx.colony && ctx.colony->GetSects().empty())
+    if (ctx.sect == nullptr)
     {
-        ctx.colony->AddSect(ctx.sect);
+        ctx.sect = new Sect(pos, *ctx.resourceManager, *ctx.timeManager);
+        if (ctx.colony)
+        {
+            ctx.colony->AddSect(ctx.sect);
+        }
+    }
+    else
+    {
+        ctx.sect->SetPosition(pos);
     }
 }
 
@@ -757,7 +768,7 @@ int main(int argc, char** argv)
 #endif
         }
 
-        delete g_ctx.sect;
+        // The colony frees its sects; this pointer is only a handle.
         g_ctx.sect = nullptr;
     }
 

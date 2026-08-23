@@ -129,5 +129,17 @@ int GetSizeLevel(float richness);
 Color GetElementColor(ResourceType element);
 const DepthLayerInfo& GetDepthLayerInfo(DepthLayer layer);
 bool IsLayerAccessible(int tier, DepthLayer layer);
+// Grid dimensions are fixed; tier only changes reach. Kept as a function so
+// call sites read the same as before.
 int GetGridSizeForTier(int tier);
+
+// Side length of the reachable square at this tier (centred in the grid).
+int GetReachForTier(int tier);
+
+// Is this sub-cell within instrument reach at the given tier? Cells outside
+// reach exist and hold real data, but cannot be swept or drilled yet.
+bool IsSubCellInReach(int subX, int subY, int tier);
+
+// Lowest tier that brings this sub-cell into reach; -1 if always reachable.
+int TierRequiredForSubCell(int subX, int subY);
 int GetTrayCapacityForTier(int tier);

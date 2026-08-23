@@ -91,8 +91,11 @@ void Unit::CalculateConsumption() {
     for (int moduleIndex : activeModuleIndices) {
         UnitModule& module = modules[moduleIndex];
 
-        // Clear existing consumption rates for this module
-        module.consumptionRates.clear();
+        // Start from what the module authored for itself, then add the costs
+        // derived from what it produces. Clearing outright here used to delete
+        // every hand-authored rate on units that define no productionCosts
+        // table -- Energy, Manufacture, Construction, Transport, and Core.
+        module.consumptionRates = module.baseConsumptionRates;
 
         // For each production rate in this module
         for (const auto& [producedResource, productionRate] : module.productionRates) {
@@ -284,6 +287,18 @@ void Unit::SetInitialParameters() {
         parameters["GoodsConsumption"] = 2;
         parameters["TradeEfficiency"] = 0.9;
         parameters["UpgradeEffect"] = 0.05;
+    } else if (unit_type == "Core") {
+        // Crew capacity and life-support closure drive everything else; see
+        // docs/design/core/core-master-design.md sections 4 and 6.
+        parameters["CrewCapacity"] = 6;          // people, tier 0
+        parameters["LoopClosure"] = 0.0;         // fraction 0-1, tier 0 is open loop
+        parameters["O2PerCrew"] = 0.35;          // quantity/person/tick, before closure
+        parameters["WaterPerCrew"] = 0.40;       // quantity/person/tick, before closure
+        parameters["FoodPerCrew"] = 0.25;        // quantity/person/tick, no recycling
+        parameters["EnergyConsumption"] = 4;
+        parameters["LabourPerCrew"] = 1.0;       // labour-units/person/tick
+        parameters["Efficiency"] = 0.8;
+        parameters["UpgradeEffect"] = 0.15;
     }
 }
 
@@ -417,11 +432,39 @@ void Unit::InitializeModules() {
     {
         InitializeResearchModules();
     }
+    else if (unit_type == "Construction")
+    {
+        InitializeConstructionModules();
+    }
+    else if (unit_type == "Transport")
+    {
+        InitializeTransportModules();
+    }
+    else if (unit_type == "Core")
+    {
+        InitializeCoreModules();
+    }
+    else if (unit_type == "Communication")
+    {
+        InitializeCommunicationModules();
+    }
     else
     {
         // Generic fallback for other unit types
         InitializeGenericModules();
     }
+
+    // Snapshot the consumption each module authored for itself before anything
+    // recalculates it. CalculateConsumption() rebuilds consumptionRates from
+    // production costs and would otherwise discard these.
+    for (auto& mod : modules)
+    {
+        mod.baseConsumptionRates = mod.consumptionRates;
+    }
+
+    // Fill in build/upgrade costs and energy draw for any module that did not
+    // define its own, so the module menu's controls work for every unit type.
+    ApplyPlaceholderModuleCosts();
 
     // Update unit status based on module states
     UpdateUnitStatus();
@@ -430,6 +473,37 @@ void Unit::InitializeModules() {
     if (!activeModuleIndices.empty())
     {
         CalculateConsumption();
+    }
+}
+
+// Applies the placeholder cost curve from game_constants.h to every module that
+// has no upgradeCosts of its own. A module that defines its own table keeps it,
+// so designed modules override this without a special case.
+void Unit::ApplyPlaceholderModuleCosts() {
+    auto baseIter = MODULE_BASE_COSTS.find(unit_type);
+    if (baseIter == MODULE_BASE_COSTS.end())
+    {
+        return;
+    }
+    const auto& baseCosts = baseIter->second;
+
+    for (auto& mod : modules)
+    {
+        if (mod.upgradeCosts.empty())
+        {
+            for (int tier = 1; tier <= 3; tier++)
+            {
+                for (const auto& [resource, amount] : baseCosts)
+                {
+                    mod.upgradeCosts[tier][resource] = amount * MODULE_TIER_COST_SCALE[tier];
+                }
+            }
+        }
+
+        if (mod.energyRequired <= 0.0f)
+        {
+            mod.energyRequired = MODULE_TIER_ENERGY[std::min(std::max(mod.tier, 0), 3)];
+        }
     }
 }
 
@@ -690,6 +764,156 @@ void Unit::InitializeResearchModules() {
     }
 }
 
+void Unit::InitializeConstructionModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> conModules = {
+        {"Site Prep", "SITE_PREP", "Grading, levelling, and site survey."},
+        {"Foundation", "FOUNDATION", "Footings and load-bearing base work."},
+        {"Structures", "STRUCTURES", "Frame erection and structural assembly."},
+        {"Fit-Out", "FITOUT", "Interior systems and habitability work."},
+        {"Maintenance", "MAINTENANCE", "Repair and structural upkeep."}
+    };
+
+    for (size_t i = 0; i < conModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = conModules[i].name;
+        mod.moduleType = conModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.8f;
+        mod.description = conModules[i].desc;
+
+        if (i == 0)  // Site Prep consumes materials and energy
+        {
+            mod.consumptionRates[ResourceType::CONSTRUCTION_MATERIALS] = 2.0f;
+            mod.consumptionRates[ResourceType::ENERGY] = 2.5f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeTransportModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> transModules = {
+        {"Fleet", "FLEET", "Hauler roster and carrying capacity."},
+        {"Routing", "ROUTING", "Path selection across the road network."},
+        {"Depot", "DEPOT", "Loading bays and staging storage."},
+        {"Servicing", "SERVICING", "Vehicle repair and wear management."},
+        {"Dispatch", "DISPATCH", "Scheduling and priority of shipments."}
+    };
+
+    for (size_t i = 0; i < transModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = transModules[i].name;
+        mod.moduleType = transModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.8f;
+        mod.description = transModules[i].desc;
+
+        if (i == 0)  // Fleet burns energy moving cargo
+        {
+            mod.consumptionRates[ResourceType::ENERGY] = 4.0f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeCommunicationModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> commModules = {
+        {"Antenna", "ANTENNA", "Signal acquisition and dish pointing."},
+        {"Relay", "RELAY", "Extends range between distant sects."},
+        {"Telemetry", "TELEMETRY", "Unit and colony status feeds."},
+        {"Encryption", "ENCRYPTION", "Secure channels and key management."},
+        {"Network", "NETWORK", "Bandwidth allocation across the colony."}
+    };
+
+    for (size_t i = 0; i < commModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = commModules[i].name;
+        mod.moduleType = commModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.9f;
+        mod.description = commModules[i].desc;
+
+        if (i == 0)  // Antenna draws steady power to stay pointed
+        {
+            mod.consumptionRates[ResourceType::ENERGY] = 1.5f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+// The sect's centre dome: converts life support into labour. This is the only
+// unit that is always present, and it is the sink for FOOD / WATER / O2 / ENERGY
+// and the source of MANPOWER. See docs/design/core/core-master-design.md.
+void Unit::InitializeCoreModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> coreModules = {
+        {"Life Support", "LIFE_SUPPORT", "O2, water, and CO2 loop closure.\nTier 0 is an open loop."},
+        {"Roster", "ROSTER", "Crew, specialists, and unit assignment."},
+        {"Command", "COMMAND", "Standing orders and unit priority."},
+        {"Monitoring", "MONITORING", "Visibility into sect state when away."},
+        {"Safety", "SAFETY", "Radiation dose, shelter, and medical."}
+    };
+
+    float crew = parameters.count("CrewCapacity") ? parameters["CrewCapacity"] : 6.0f;
+    float closure = parameters.count("LoopClosure") ? parameters["LoopClosure"] : 0.0f;
+
+    for (size_t i = 0; i < coreModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = coreModules[i].name;
+        mod.moduleType = coreModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        // Life Support, Roster, and Command are what make a sect habitable at
+        // all, so they exist from the start. Monitoring and Safety are built.
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.8f;
+        mod.description = coreModules[i].desc;
+
+        if (i == 0)  // Life Support: O2 and water draw, reduced by loop closure
+        {
+            float o2 = parameters.count("O2PerCrew") ? parameters["O2PerCrew"] : 0.35f;
+            float water = parameters.count("WaterPerCrew") ? parameters["WaterPerCrew"] : 0.40f;
+            mod.consumptionRates[ResourceType::O2] = crew * o2 * (1.0f - closure);
+            mod.consumptionRates[ResourceType::WATER] = crew * water * (1.0f - closure);
+            mod.consumptionRates[ResourceType::ENERGY] = parameters.count("EnergyConsumption") ?
+                parameters["EnergyConsumption"] : 4.0f;
+        }
+        else if (i == 1)  // Roster: crew eat, and supply the ring with labour
+        {
+            float food = parameters.count("FoodPerCrew") ? parameters["FoodPerCrew"] : 0.25f;
+            float labour = parameters.count("LabourPerCrew") ? parameters["LabourPerCrew"] : 1.0f;
+            mod.consumptionRates[ResourceType::FOOD] = crew * food;
+            mod.maxProductionRates[ResourceType::MANPOWER] = crew * labour;
+            mod.productionRates = mod.maxProductionRates;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
 void Unit::InitializeGenericModules() {
     UnitModule basicModule;
     basicModule.name = "Basic " + unit_type;
@@ -816,6 +1040,12 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
         rate *= tierMultiplier / tierMults[std::min(module.tier - 1, 3)];  // Incremental increase
     }
     module.productionRates = module.maxProductionRates;
+
+    // Higher tiers run heavier equipment, so the energy draw grows with them.
+    // Scaled from the module's own tier-0 figure rather than replaced, so a
+    // module that declared a bespoke draw keeps its relative size.
+    module.energyRequired *= MODULE_TIER_ENERGY[std::min(module.tier, 3)]
+                           / MODULE_TIER_ENERGY[std::min(module.tier - 1, 3)];
 
     // Update description based on tier
     if (module.moduleType == "PROSPECTING")
@@ -970,6 +1200,11 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
         rate *= tierMultiplier / tierMults[std::min(module.tier - 1, 3)];
     }
     module.productionRates = module.maxProductionRates;
+
+    // Keep energy in step with UpgradeModuleTier, so previews and playtests
+    // show the same draw a real upgrade would produce.
+    module.energyRequired *= MODULE_TIER_ENERGY[std::min(module.tier, 3)]
+                           / MODULE_TIER_ENERGY[std::min(module.tier - 1, 3)];
 
     if (module.moduleType == "PROSPECTING")
     {
