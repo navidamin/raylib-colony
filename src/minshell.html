@@ -155,9 +155,15 @@
                     var r = c.getBoundingClientRect();
                     var relX = e.pageX - (window.scrollX + r.left);
                     var relY = e.pageY - (window.scrollY + r.top);
+                    // ratio is the whole ballgame: it must be framebuffer/CSS.
+                    // A ratio of 1.00 with a rect that is not 1280 wide means
+                    // the framebuffer has drifted onto the CSS size and the
+                    // game is being handed raw CSS pixels.
+                    var ratio = c.width / r.width;
                     pointerLine = 'page=' + Math.round(e.pageX) + ',' + Math.round(e.pageY)
                         + ' rel=' + Math.round(relX) + ',' + Math.round(relY)
-                        + ' expect=' + Math.round(relX * (c.width / r.width)) + ','
+                        + ' ratio=' + ratio.toFixed(3)
+                        + ' expect=' + Math.round(relX * ratio) + ','
                                      + Math.round(relY * (c.height / r.height));
                     updateDebug(c);
                 }
@@ -227,6 +233,36 @@
                     {
                         c.style.setProperty('height', h, 'important');
                     }
+                }
+
+                // Emscripten scales pointer coordinates by
+                // canvas.width / rect.width, read SYNCHRONOUSLY inside its own
+                // event handler (library_browser.js, calculateMouseCoords). If
+                // anything has resized the framebuffer to match the CSS size,
+                // that ratio collapses to 1 and the game receives raw CSS
+                // pixels: an error that grows with distance from the origin and
+                // flips sign as the canvas crosses the game's own width.
+                //
+                // Re-asserting on a poll is not enough, because the value only
+                // has to be wrong at the instant the handler reads it. Do it in
+                // the capture phase instead, which runs before any handler
+                // registered on the canvas or bubbling up to window/document.
+                function pinFramebuffer()
+                {
+                    var el = document.getElementById('canvas');
+                    if (!el) return;
+                    // Guarded: assigning canvas.width clears the buffer, so only
+                    // touch it when it has actually drifted. The game repaints
+                    // every frame, so a corrective clear is invisible anyway.
+                    if (el.width !== GAME_W) el.width = GAME_W;
+                    if (el.height !== GAME_H) el.height = GAME_H;
+                }
+
+                var pointerEvents = ['mousemove', 'mousedown', 'mouseup', 'click',
+                                     'wheel', 'touchstart', 'touchmove', 'touchend'];
+                for (var i = 0; i < pointerEvents.length; i++)
+                {
+                    window.addEventListener(pointerEvents[i], pinFramebuffer, true);
                 }
 
                 if (debugEnabled)
