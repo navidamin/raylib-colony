@@ -70,6 +70,7 @@ struct MapOptions
     float sunElevationDeg = 30.0f;
     float exaggeration = 2.0f;     // vertical scale multiplier
     float detail = 1.0f;           // sub-floor synthesis strength (0 = off)
+    std::string interp = "catrom"; // catrom | bspline | lanczos | fractal
     float ambient = 0.06f;
     int width = 1200;
     int height = 1200;
@@ -144,6 +145,7 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         }
         else if (arg == "--exag" && hasNext) { options.exaggeration = (float)std::atof(argv[++i]); }
         else if (arg == "--detail" && hasNext) { options.detail = (float)std::atof(argv[++i]); }
+        else if (arg == "--interp" && hasNext) { options.interp = argv[++i]; }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
         else if (arg == "--orbit" && hasNext)
@@ -1055,6 +1057,15 @@ int main(int argc, char** argv)
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(app.options.width, app.options.height,
                "lunar_map - LOLA elevation");
+
+    if (app.options.interp == "bspline")
+        LolaSetInterpolation(LolaInterp::BSPLINE);
+    else if (app.options.interp == "lanczos")
+        LolaSetInterpolation(LolaInterp::LANCZOS);
+    else if (app.options.interp == "fractal")
+        LolaSetInterpolation(LolaInterp::FRACTAL);
+    else
+        LolaSetInterpolation(LolaInterp::CATROM);
 
     if (!app.dem.Load(app.options.demPath))
     {

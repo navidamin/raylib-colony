@@ -25,6 +25,17 @@
 #include <vector>
 
 const double LOLA_MOON_RADIUS_M = 1737400.0;
+
+// Reconstruction filter used when a window is sampled past the data's
+// native resolution (comparison instrument; CATROM is the default).
+enum class LolaInterp
+{
+    CATROM = 0,     // cubic through the points (sharp, mild overshoot)
+    BSPLINE = 1,    // approximating cubic (softest, no overshoot)
+    LANCZOS = 2,    // windowed sinc (crispest, some ringing)
+    FRACTAL = 3,    // CATROM + relief-conditioned stochastic residual
+};
+void LolaSetInterpolation(LolaInterp mode);
 const double LOLA_M_PER_DEG = 30322.68;    // pi * 1737.4 km / 180
 
 // A resampled window of real terrain: elevation (metres vs the

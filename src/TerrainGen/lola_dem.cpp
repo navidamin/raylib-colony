@@ -27,6 +27,56 @@ static float CatmullRom(float p0, float p1, float p2, float p3, float t)
                    (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
 }
 
+// Uniform cubic B-spline: approximates (does not pass through) the
+// points — the smoothest reconstruction, zero overshoot.
+static float BSpline(float p0, float p1, float p2, float p3, float t)
+{
+    float t2 = t * t;
+    float t3 = t2 * t;
+    return ((1.0f - 3.0f * t + 3.0f * t2 - t3) * p0 +
+            (4.0f - 6.0f * t2 + 3.0f * t3) * p1 +
+            (1.0f + 3.0f * t + 3.0f * t2 - 3.0f * t3) * p2 +
+            t3 * p3) / 6.0f;
+}
+
+// Lanczos-3 windowed sinc over 6 taps: preserves the most in-band
+// frequency content of any practical filter (crispest, mild ringing).
+static float Lanczos6(const float* p, float t)
+{
+    float acc = 0.0f, wsum = 0.0f;
+    for (int k = -2; k <= 3; k++)
+    {
+        float x = (float)k - t;
+        float w;
+        if (std::fabs(x) < 1e-5f) w = 1.0f;
+        else
+        {
+            float pix = 3.14159265f * x;
+            w = 3.0f * std::sin(pix) * std::sin(pix / 3.0f) / (pix * pix);
+        }
+        acc += w * p[k + 2];
+        wsum += w;
+    }
+    return acc / wsum;
+}
+
+static LolaInterp g_interp = LolaInterp::CATROM;
+
+void LolaSetInterpolation(LolaInterp mode) { g_interp = mode; }
+
+// One reconstruction step over a 6-tap row (taps at offsets -2..3
+// around the interval [0,1] between taps 2 and 3 of p).
+static float Interp1D(const float* p, float t)
+{
+    switch (g_interp)
+    {
+        case LolaInterp::BSPLINE: return BSpline(p[1], p[2], p[3], p[4], t);
+        case LolaInterp::LANCZOS: return Lanczos6(p, t);
+        default: return CatmullRom(p[1], p[2], p[3], p[4], t);
+    }
+}
+
+
 
 // ---------------------------------------------------------------------------
 // Minimal TIFF reader
@@ -336,14 +386,14 @@ float LolaDem::OverlaySample(const DemOverlay& ov, double latDeg,
         yy = std::clamp(yy, 0, ov.height - 1);
         return (float)r[(size_t)yy * ov.width + xx] * 0.5f - 10000.0f;
     };
-    float rows[4];
-    for (int j = 0; j < 4; j++)
+    float rows[6], taps[6];
+    for (int j = 0; j < 6; j++)
     {
-        int yy = y1 - 1 + j;
-        rows[j] = CatmullRom(dec(x1 - 1, yy), dec(x1, yy),
-                             dec(x1 + 1, yy), dec(x1 + 2, yy), fx);
+        int yy = y1 - 2 + j;
+        for (int i = 0; i < 6; i++) taps[i] = dec(x1 - 2 + i, yy);
+        rows[j] = Interp1D(taps, fx);
     }
-    return CatmullRom(rows[0], rows[1], rows[2], rows[3], fy);
+    return Interp1D(rows, fy);
 }
 
 const LolaDem::DemOverlay* LolaDem::OverlayFor(double latDeg, double lonDeg,
@@ -394,14 +444,14 @@ float LolaDem::GlobalElevationM(double latDeg, double lonDeg) const
     int y1 = (int)std::floor(y);
     float fx = (float)(x - x1);
     float fy = (float)(y - y1);
-    float rows[4];
-    for (int j = 0; j < 4; j++)
+    float rows[6], taps[6];
+    for (int j = 0; j < 6; j++)
     {
-        int yy = y1 - 1 + j;
-        rows[j] = CatmullRom(Sample(x1 - 1, yy), Sample(x1, yy),
-                             Sample(x1 + 1, yy), Sample(x1 + 2, yy), fx);
+        int yy = y1 - 2 + j;
+        for (int i = 0; i < 6; i++) taps[i] = Sample(x1 - 2 + i, yy);
+        rows[j] = Interp1D(taps, fx);
     }
-    return CatmullRom(rows[0], rows[1], rows[2], rows[3], fy);
+    return Interp1D(rows, fy);
 }
 
 float LolaDem::ElevationM(double latDeg, double lonDeg) const
@@ -825,6 +875,52 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     // No smoothing pass and no unsharp compensation: the Catmull-Rom
     // sampler is slope-continuous, so an upsampled window has no
     // interpolation lattice to hide — and nothing gets blurred.
+
+    // FRACTAL reconstruction: on top of the CATROM base, add a
+    // stochastic residual between the measured points whose amplitude
+    // follows the LOCAL measured relief — rough ground gets rough
+    // infill, smooth ground stays smooth. Classic conditioned
+    // subdivision, expressed as banded noise below the native scale.
+    if (g_interp == LolaInterp::FRACTAL)
+    {
+        double dMs = spanKm * 1000.0 / (res - 1);
+        std::vector<float> resid((size_t)res * res, 0.0f);
+        for (int j = 0; j < res; j++)
+        {
+            int jm = std::max(0, j - 1), jp = std::min(res - 1, j + 1);
+            for (int i = 0; i < res; i++)
+            {
+                int im = std::max(0, i - 1), ip = std::min(res - 1, i + 1);
+                size_t k = (size_t)j * res + i;
+                double gx = (out.elevationM[(size_t)j * res + ip] -
+                             out.elevationM[(size_t)j * res + im]) /
+                            (dMs * (ip - im));
+                double gy = (out.elevationM[(size_t)jp * res + i] -
+                             out.elevationM[(size_t)jm * res + i]) /
+                            (dMs * (jp - jm));
+                // Height swing of the real ground over one native cell.
+                float localRelief = (float)(std::hypot(gx, gy) *
+                                            nativeYKm * 1000.0);
+                float amp = 0.16f * localRelief;
+                double wave = nativeYKm / 1.5;
+                float total = 0.0f;
+                for (int oct = 0; oct < 5 && wave >= 2.0 * spanKm / res;
+                     oct++)
+                {
+                    total += amp * DetailNoise(gu.empty() ? i * dMs : gu[k],
+                                               gu.empty() ? j * dMs : gv[k],
+                                               wave, 0xF2AC7A1u + oct);
+                    amp *= 0.55f;
+                    wave *= 0.5;
+                }
+                resid[k] = total;
+            }
+        }
+        for (size_t k = 0; k < resid.size(); k++)
+        {
+            out.elevationM[k] += resid[k];
+        }
+    }
 
     // Synthesize sub-floor detail on top of the (smoothed) real ground.
     // Runs after the blur so it is not smoothed away; the real slope of
