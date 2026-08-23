@@ -123,8 +123,23 @@ line of defence.
 in one synchronous block, the way raylib does, and asserts the fitted width
 survives. That check fails on the pre-fix shell and passes on the current one.
 
+**The fix that actually holds**: stop depending on raylib's measurement. The
+shell publishes `window.__colonyMouse` in the capture phase of every pointer
+event, converting with the fitted size *it just chose* rather than a measured
+rect, and the game reads that through `ColonyGetMousePosition()`
+(`src/web_mouse.h`). Use that helper, never raylib's `GetMousePosition()`
+directly -- it falls back to raylib when the global is absent, so an older
+cached shell is never worse than before. `InputManager::GetMousePosition()`
+already delegates to it, so anything going through the input manager is
+covered.
+
+The stylesheet rule stays as defence in depth, but it is not what the game
+relies on.
+
 **Diagnosing it again**: `?debug=1` plus the sandbox's F9 crosshair. If
-`game sees` matches `rel` rather than `expect`, the CSS size collapsed.
+`game sees` matches `rel` rather than `expect`, the CSS size collapsed. Check
+the badge's version first -- it reads `SHELL v5`; anything older is a cached
+page, not a live bug.
 
 ## The diagnostic badge
 

@@ -23,6 +23,7 @@
 // same ground blind and surveyed without grinding the sweep loop twice.
 
 #include "raylib.h"
+#include "web_mouse.h"
 #include "rendermanager.h"
 #include "resource_manager.h"
 #include "time_manager.h"
@@ -145,7 +146,7 @@ static void InstantSurvey(Unit& unit)
 // Small clickable chip; returns true when clicked or tapped this frame.
 static bool Chip(Rectangle r, const char* label, Color accent, bool active)
 {
-    Vector2 mouse = GetMousePosition();
+    Vector2 mouse = ColonyGetMousePosition();
     bool hover = CheckCollisionPointRec(mouse, r);
     bool held = hover && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
 
@@ -223,7 +224,7 @@ static void UpdateDrawFrame(void* arg)
     // since the game draws no cursor of its own. F9 hides it.
     if (ctx.showPointer)
     {
-        Vector2 mouse = GetMousePosition();
+        Vector2 mouse = ColonyGetMousePosition();
         Color probe = {255, 60, 200, 255};
         DrawLineEx({mouse.x - 14.0f, mouse.y}, {mouse.x + 14.0f, mouse.y}, 1.0f, probe);
         DrawLineEx({mouse.x, mouse.y - 14.0f}, {mouse.x, mouse.y + 14.0f}, 1.0f, probe);

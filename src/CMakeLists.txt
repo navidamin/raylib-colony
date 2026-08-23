@@ -27,6 +27,7 @@ set(COLONY_CORE_SOURCES
     Excavation/auto_pilot.cpp
     Excavation/excavation_system.cpp
     transport_types.cpp
+    web_mouse.cpp
 )
 
 set(COLONY_INCLUDE_DIRS

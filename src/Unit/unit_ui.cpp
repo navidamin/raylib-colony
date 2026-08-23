@@ -1,4 +1,5 @@
 #include "unit.h"
+#include "web_mouse.h"
 
 void Unit::DrawTopBar() {
     const int barHeight = 60;
@@ -230,7 +231,7 @@ void Unit::DrawControlPanel() {
             };
 
             bool canUpgrade = CanUpgradeModule(module);
-            bool isHovered = CheckCollisionPointRec(GetMousePosition(), upgradeButton);
+            bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), upgradeButton);
 
             // Apply hover effect to button color
             Color buttonColor = canUpgrade ?
@@ -261,7 +262,7 @@ void Unit::DrawControlPanel() {
 
             // Draw button with hover effect
             Color buttonColor = module.isActive ? RED : GREEN;
-            if (CheckCollisionPointRec(GetMousePosition(), toggleButton)) {
+            if (CheckCollisionPointRec(ColonyGetMousePosition(), toggleButton)) {
                 // Lighten the color when hovering
                 buttonColor = module.isActive ?
                     ColorBrightness(RED, 0.2f) :
@@ -376,7 +377,7 @@ void Unit::DrawControlPanel() {
 
                     // Draw button with appropriate color
                     Color buttonColor = isCurrentRate ? GREEN : GRAY;
-                    if (CheckCollisionPointRec(GetMousePosition(), buttonRect)) {
+                    if (CheckCollisionPointRec(ColonyGetMousePosition(), buttonRect)) {
                         buttonColor = Fade(buttonColor, 0.7f);
                         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                             module.productionRates[resource] = buttonRate;
@@ -422,7 +423,7 @@ void Unit::DrawModuleList() {
         static_cast<float>(buttonHeight)
     };
 
-    bool isUnitHovered = CheckCollisionPointRec(GetMousePosition(), unitButtonRect);
+    bool isUnitHovered = CheckCollisionPointRec(ColonyGetMousePosition(), unitButtonRect);
     Color unitButtonColor = isUnitHovered ? Fade(BLUE, 0.7f) : BLUE;
 
     DrawRectangleRec(unitButtonRect, unitButtonColor);
@@ -456,7 +457,7 @@ void Unit::DrawModuleList() {
         };
 
         // Check for hover
-        bool isHovered = CheckCollisionPointRec(GetMousePosition(), buttonRect);
+        bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), buttonRect);
         bool isSelected = isInModuleView && selectedModuleIndex == i;
 
         // Determine button color based on state
@@ -671,7 +672,7 @@ void Unit::DrawModuleDetails() {
     };
 
     Color buttonColor = module.isBuilt ? BLUE : GRAY;
-    bool isStatsHovered = CheckCollisionPointRec(GetMousePosition(), statsButton) && module.isBuilt;
+    bool isStatsHovered = CheckCollisionPointRec(ColonyGetMousePosition(), statsButton) && module.isBuilt;
     if (isStatsHovered) {
         buttonColor = Fade(buttonColor, 0.7f);
     }
@@ -728,7 +729,7 @@ void Unit::UpdateMessage(float deltaTime) {
 }
 
 bool Unit::IsModuleButtonClicked(Rectangle buttonRect) {
-    Vector2 mousePoint = GetMousePosition();
+    Vector2 mousePoint = ColonyGetMousePosition();
     return CheckCollisionPointRec(mousePoint, buttonRect) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 

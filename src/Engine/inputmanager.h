@@ -2,6 +2,7 @@
 #define INPUT_MANAGER_H
 
 #include "raylib.h"
+#include "web_mouse.h"
 #include "raymath.h"
 #include <iostream>
 
@@ -16,7 +17,7 @@ public:
     bool IsInfoKeyPressed() const { return IsKeyDown(KEY_TAB); }
     bool IsCommandPressed() const { return IsKeyDown(KEY_LEFT_CONTROL); }
 
-    Vector2 GetMousePosition() const { return ::GetMousePosition(); }
+    Vector2 GetMousePosition() const { return ::ColonyGetMousePosition(); }
     Vector2 GetMouseDelta() const { return ::GetMouseDelta(); }
     bool IsMouseDragging() const { return isDragging; }
     Vector2 GetDragStart() const { return dragStart; }

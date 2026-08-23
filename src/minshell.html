@@ -103,7 +103,7 @@
         <div id="shellDebug" style="display:none;position:fixed;top:4px;left:4px;z-index:9999;
              font:10px monospace;color:rgba(255,255,255,0.65);
              background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
-             pointer-events:none;">SHELL v4 loading...</div>
+             pointer-events:none;">SHELL v5 loading...</div>
         <script type='text/javascript'>
             // Fit the fixed-size framebuffer canvas to the device viewport,
             // preserving aspect ratio. Emscripten/raylib write their own
@@ -125,7 +125,7 @@
                     var d = debugEl;
                     if (!d || !c) return;
                     var r = c.getBoundingClientRect();
-                    d.textContent = 'SHELL v4'
+                    d.textContent = 'SHELL v5'
                         + ' cnv=' + c.width + 'x' + c.height
                         + ' style=' + c.style.getPropertyValue('width') + '/'
                                     + c.style.getPropertyPriority('width')
@@ -179,6 +179,13 @@
                 // Stylesheet rule carrying the fitted size; see fitCanvas.
                 var fitRule = null;
 
+                // The fitted CSS size, remembered rather than re-measured.
+                // publishPointer converts with these, so the conversion does
+                // not depend on a getBoundingClientRect that may have
+                // collapsed. Seeded with the natural size for the first event.
+                var fittedW = GAME_W;
+                var fittedH = GAME_H;
+
                 function fitCanvas()
                 {
                     var c = document.getElementById('canvas');
@@ -221,8 +228,10 @@
                     var vw = Math.min.apply(null, widths);
                     var vh = Math.min.apply(null, heights);
                     var scale = Math.min(vw / c.width, vh / c.height);
-                    var w = Math.floor(c.width * scale) + 'px';
-                    var h = Math.floor(c.height * scale) + 'px';
+                    fittedW = Math.floor(c.width * scale);
+                    fittedH = Math.floor(c.height * scale);
+                    var w = fittedW + 'px';
+                    var h = fittedH + 'px';
 
                     // The fitted size also goes in a real stylesheet rule, and
                     // this is what makes the fit safe rather than merely
@@ -297,6 +306,38 @@
                 for (var i = 0; i < pointerEvents.length; i++)
                 {
                     window.addEventListener(pointerEvents[i], fitCanvas, true);
+                }
+
+                // Publish the game-space pointer position for the game to read
+                // directly, so it never has to trust raylib's measurement of
+                // the canvas. The scale comes from fittedW/fittedH -- the size
+                // this code just chose -- rather than from a measured rect, so
+                // a collapsed rect cannot corrupt it. Only the origin is
+                // measured, and the origin was never the part that broke.
+                //
+                // The game prefers this when present and falls back to raylib
+                // otherwise (see src/web_mouse.cpp), so an older cached shell
+                // is no worse than before.
+                function publishPointer(e)
+                {
+                    var el = document.getElementById('canvas');
+                    if (!el || !fittedW || !fittedH) return;
+
+                    var r = el.getBoundingClientRect();
+                    var point = e;
+                    if (e.touches && e.touches.length > 0) point = e.touches[0];
+                    else if (e.changedTouches && e.changedTouches.length > 0) point = e.changedTouches[0];
+                    if (point.clientX === undefined) return;
+
+                    window.__colonyMouse = {
+                        x: (point.clientX - r.left) * (GAME_W / fittedW),
+                        y: (point.clientY - r.top) * (GAME_H / fittedH)
+                    };
+                }
+
+                for (var j = 0; j < pointerEvents.length; j++)
+                {
+                    window.addEventListener(pointerEvents[j], publishPointer, true);
                 }
 
                 if (debugEnabled)

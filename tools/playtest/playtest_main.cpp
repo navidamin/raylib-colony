@@ -19,6 +19,7 @@
 // and is playable on phone/tablet -- taps map to clicks.
 
 #include "raylib.h"
+#include "web_mouse.h"
 
 #include "rendermanager.h"
 #include "unit.h"
@@ -89,7 +90,7 @@ static std::unique_ptr<Unit> MakeUnit(PlaytestContext& ctx)
 // Small clickable chip; returns true when clicked/tapped this frame.
 static bool PlaytestButton(Rectangle r, const char* label, Color accent)
 {
-    Vector2 mouse = GetMousePosition();
+    Vector2 mouse = ColonyGetMousePosition();
     bool hover = CheckCollisionPointRec(mouse, r);
 
     DrawRectangleRounded(r, 0.35f, 4, hover ? Color{20, 56, 96, 255} : Color{14, 30, 52, 255});

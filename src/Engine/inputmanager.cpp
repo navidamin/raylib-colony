@@ -1,4 +1,5 @@
 #include "inputmanager.h"
+#include "web_mouse.h"
 
 InputManager::InputManager()
     : lastClickTime(0),
@@ -24,7 +25,7 @@ void InputManager::Update() {
 
 bool InputManager::IsDoubleClick() {
     double currentTime = GetTime();
-    Vector2 currentPosition = GetMousePosition();
+    Vector2 currentPosition = ColonyGetMousePosition();
 
     double timeDiff = currentTime - lastClickTime;
     float distance = Vector2Distance(lastClickPosition, currentPosition);
@@ -48,7 +49,7 @@ bool InputManager::IsDoubleClick() {
 }
 
 void InputManager::StartDragging() {
-    dragStart = GetMousePosition();
+    dragStart = ColonyGetMousePosition();
     isDragging = true;
 }
 

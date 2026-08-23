@@ -1,4 +1,5 @@
 #include "rendermanager.h"
+#include "web_mouse.h"
 #include "resource_manager.h"
 #include "resource_types.h"
 #include "survey_progress_engine.h"
@@ -500,7 +501,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
 
             if (canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                Vector2 mouse = GetMousePosition();
+                Vector2 mouse = ColonyGetMousePosition();
                 if (CheckCollisionPointRec(mouse, btnRect))
                 {
                     colony->UpgradeReserves();
@@ -606,7 +607,7 @@ void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
             // Check click
             if (canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                Vector2 mouse = GetMousePosition();
+                Vector2 mouse = ColonyGetMousePosition();
                 if (CheckCollisionPointRec(mouse, btnRect))
                 {
                     sect->UpgradeStorage();
@@ -1834,7 +1835,7 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
 
     // "UNIT OVERVIEW" button: icon + label + chevron
     Rectangle overviewBtn = {innerX, yPos, innerW, 44.0f};
-    bool overviewHovered = CheckCollisionPointRec(GetMousePosition(), overviewBtn);
+    bool overviewHovered = CheckCollisionPointRec(ColonyGetMousePosition(), overviewBtn);
     bool overviewSelected = !unit->IsInModuleView();
 
     DrawRectangleRounded(overviewBtn, 0.2f, 4,
@@ -1872,7 +1873,7 @@ void RenderManager::DrawExtractionModuleList(Unit* unit)
         const auto& mod = modules[i];
 
         Rectangle btn = {innerX, yPos, innerW, 62.0f};
-        bool isHovered = CheckCollisionPointRec(GetMousePosition(), btn);
+        bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), btn);
         bool isSelected = unit->IsInModuleView() && selectedIdx == static_cast<int>(i);
 
         Color btnBg;
@@ -2021,7 +2022,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     {
         Rectangle buildBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
         bool canBuild = unit->PublicCanBuildModule(idx);
-        bool isHovered = CheckCollisionPointRec(GetMousePosition(), buildBtn);
+        bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), buildBtn);
 
         Color btnColor = canBuild ? Color{14, 40, 70, 255} : Color{16, 22, 38, 255};
         if (isHovered && canBuild) btnColor = Color{20, 56, 96, 255};
@@ -2073,7 +2074,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
     {
         Rectangle upgradeBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
         bool canUpgrade = unit->PublicCanUpgradeModule(idx);
-        bool isHovered = CheckCollisionPointRec(GetMousePosition(), upgradeBtn);
+        bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), upgradeBtn);
 
         Color btnColor = canUpgrade ? Color{14, 40, 70, 255} : Color{16, 22, 38, 255};
         if (isHovered && canUpgrade) btnColor = Color{20, 56, 96, 255};
@@ -2132,7 +2133,7 @@ void RenderManager::DrawExtractionControlPanel(Unit* unit)
 
     // Activate/Deactivate toggle: hazard-striped danger/confirm button
     Rectangle toggleBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
-    bool isHovered = CheckCollisionPointRec(GetMousePosition(), toggleBtn);
+    bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), toggleBtn);
 
     bool danger = mod.isActive;
     Color fillCol = danger ? Color{52, 12, 16, 255} : Color{12, 44, 26, 255};
@@ -2605,7 +2606,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     auto* ps = unit->GetProspectingSystem();
     ps->gameTime += GetFrameTime();
-    Vector2 mouse = GetMousePosition();
+    Vector2 mouse = ColonyGetMousePosition();
 
     // --- Header: icon + title, calibration gauge on the right ---
     float yPos = static_cast<float>(y + padding);
@@ -3687,7 +3688,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     int padding = EXT_GAP + 14;
     float px = static_cast<float>(x + padding);
     float pw = static_cast<float>(w - padding * 2);
-    Vector2 mouse = GetMousePosition();
+    Vector2 mouse = ColonyGetMousePosition();
 
     if (!unit->HasExcavationSystem() || !unit->HasProspectingSystem())
     {
@@ -4155,7 +4156,7 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
 
     float yPos = static_cast<float>(y + padding);
     float px = static_cast<float>(x + padding);
-    Vector2 mousePos = GetMousePosition();
+    Vector2 mousePos = ColonyGetMousePosition();
 
     DrawTextEx(headerFont, "SEPARATION CHAIN", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 28.0f;
@@ -4368,7 +4369,7 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
 
     float yPos = static_cast<float>(y + padding);
     float px = static_cast<float>(x + padding);
-    Vector2 mousePos = GetMousePosition();
+    Vector2 mousePos = ColonyGetMousePosition();
 
     DrawTextEx(headerFont, "ACTIVE DIRECTIVES", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 28.0f;
