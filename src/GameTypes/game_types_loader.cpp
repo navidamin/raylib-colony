@@ -240,7 +240,8 @@ UnitType GameTypesLoader::StringToUnitType(const std::string& str) const {
         {"Transport", UnitType::Transport},
         {"Manufacture", UnitType::Manufacture},
         {"Research", UnitType::Research},
-        {"Commerce", UnitType::Commerce}
+        {"Core", UnitType::Core},
+        {"Communication", UnitType::Communication}
     };
 
     auto it = mapping.find(str);

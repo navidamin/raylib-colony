@@ -61,6 +61,27 @@ if [ "${1:-}" = "--all" ]; then
                --out "$OUT_DIR/$module-t3.png"
     done
 
+    # One panel per module for the units that still use the generic panel, so a
+    # chrome or icon regression shows up on any of the 20 stub modules.
+    RenderUnit()
+    {
+        unit="$1"
+        shift
+        for module in "$@"; do
+            Render --unit "$unit" --module "$module" --tier 2 \
+                   --out "$OUT_DIR/${unit,,}-$module-t2.png"
+        done
+    }
+
+    RenderUnit Farming       irrigation greenhouse hydroponics harvest storage
+    RenderUnit Energy        solar battery nuclear grid emergency
+    RenderUnit Manufacture   fabrication assembly quality logistics automation
+    RenderUnit Research      laboratory analysis simulation archive publication
+    RenderUnit Construction  siteprep foundation structures fitout maintenance
+    RenderUnit Transport     fleet routing depot servicing dispatch
+    RenderUnit Communication antenna relay telemetry encryption network
+    RenderUnit Core          lifesupport roster command monitoring safety
+
     Render --module sprites --out "$OUT_DIR/crystal-sheet.png"
 
     for view in orbital planet; do

@@ -209,7 +209,7 @@ Units have a modular upgrade system where each unit type has specialized named m
 4. **Operations** - Efficiency modifier (tier 0=0.85 penalty, tier 3=1.2 bonus)
 5. **Directives** - Autonomous control (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, EMERGENCY_HARVEST, THERMAL_SYNC)
 
-**Other unit types** have 5 stub-named modules each (Farming, Energy, Manufacture, Research) using generic production logic.
+**Other unit types** have 5 stub-named modules each, using generic production logic. There are **eight** unit types in total — `Sect::CreateInitialUnits` (`src/Sect/sect.cpp`) is the authoritative list, not the `UnitType` enum, since units are constructed from strings: Extraction, Farming, Energy, Manufacture, Research, Construction, Transport, Communication. All 40 modules are reachable through the module menu; only Extraction's five have bespoke panels.
 
 **Extraction pipeline** (`ProcessExtraction()`):
 1. Survey-gated efficiency: `scanMultiplier = 0.35 + 0.65 × surveyProgress` (+ 0.15 if marked, × objective bonus). Each scan adds progress via diminishing returns formula.
@@ -316,9 +316,12 @@ to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
 6. Render every state (`--tier`, `--state`, `--energy`) and **look at the PNGs**
 7. Check against [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md)
 
-*Non-extraction units currently draw via the legacy `unit->DrawInUnitView()`
-path (`unit_ui.cpp`). Route a real panel through `RenderManager` instead — that
-is what provides the shared chrome, theme, and preview-tool support.*
+*Every unit type now draws through the shared modular chrome
+(`DrawModularUnitView`). Modules without a bespoke centre panel fall back to
+`DrawGenericModulePanel`, which renders the module's real data (tier arc,
+throughput, energy, tech deps) and marks itself PRELIMINARY. Replacing that
+fallback with a real panel is step 2 above — the legacy `unit->DrawInUnitView()`
+path in `unit_ui.cpp` is no longer reached.*
 
 **Building a new gameplay module:** (see [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md))
 1. `src/<Module>/` with constants / types / pure-logic engines / facade
@@ -394,6 +397,7 @@ without a display:
 |------|-----------|
 | `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so screenshots are faithful and reproducible. |
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
+| `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
 | `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
 
@@ -420,5 +424,6 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 |--------|-----------------|-----------------|
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
+| Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
 
 See `docs/design/README.md` for the full planning method explanation.

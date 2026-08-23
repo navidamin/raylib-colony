@@ -10,7 +10,8 @@ enum class UnitType {
     Transport,
     Manufacture,
     Research,
-    Commerce
+    Core,
+    Communication
 };
 
 
