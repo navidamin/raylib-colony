@@ -61,7 +61,7 @@ static void PrintUsage()
         << "Usage: colony_preview [options]\n"
         << "\n"
         << "  --unit <type>     Extraction | Farming | Energy | Manufacture | Research |\n"
-        << "                    Construction | Transport | Core\n"
+        << "                    Construction | Transport | Communication | Core\n"
         << "                    (default: Extraction)\n"
         << "  --module <name>   Extraction:  prospecting | excavation | beneficiation |\n"
         << "                                 operations | directives\n"
@@ -76,6 +76,8 @@ static void PrintUsage()
         << "                                 fitout | maintenance\n"
         << "                    Transport:   fleet | routing | depot | servicing |\n"
         << "                                 dispatch\n"
+        << "                    Communication: antenna | relay | telemetry |\n"
+        << "                                 encryption | network\n"
         << "                    Core:        lifesupport | roster | command |\n"
         << "                                 monitoring | safety\n"
         << "                    Also: overview | sprites          (default: prospecting)\n"
@@ -237,6 +239,13 @@ static std::string ModuleTypeFromName(const std::string& name)
     if (name == "depot") return "DEPOT";
     if (name == "servicing") return "SERVICING";
     if (name == "dispatch") return "DISPATCH";
+
+    // Communication
+    if (name == "antenna") return "ANTENNA";
+    if (name == "relay") return "RELAY";
+    if (name == "telemetry") return "TELEMETRY";
+    if (name == "encryption") return "ENCRYPTION";
+    if (name == "network") return "NETWORK";
 
     // Core
     if (name == "lifesupport") return "LIFE_SUPPORT";

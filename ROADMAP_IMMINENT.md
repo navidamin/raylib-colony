@@ -1,8 +1,8 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-08-13
-**Current Sprint:** Prospecting Rewrite — polish, economy, and tooling
-**Timeline:** Phase 1.5 complete; prospecting Phases 7-8 outstanding
+**Last Updated:** 2026-08-18
+**Current Sprint:** Prospecting & Extraction Unit Overhaul
+**Timeline:** Phase 1.5 - Extraction Unit Overhaul
 
 ---
 
@@ -41,6 +41,25 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 ```
 
 ---
+
+## Recent Completions (2026-08-18)
+
+### Sect View Visual Redesign ✅ COMPLETE
+
+- **Orbital layout** - Sect view rebuilt as a hub-and-spoke base: central
+  hex-glass dome (development readout), 8 unit dome stations, connector arms
+  with status conduits and socket LEDs, outer ring road with crossbar lamp
+  seams, twin entry rails with gate boxes. Fully procedural (no sprite assets).
+- **Ray-shaded domes** - Per-pixel sphere lighting (Lambert + two-lobe Blinn
+  specular + fresnel + bounce) baked into cached textures per tint/size/seed;
+  per-unit lighting character seeded from unit type name.
+- **Procedural unit glyphs** - 8 icon drawings (derrick, sprout, factory,
+  truck, tower, flask, bolt, crane) replacing texture thumbnails in this view.
+- **Design docs** - New `docs/design/sect-view/` module (HUD element
+  inventory, surroundings brainstorm, hover tooltip design) registered in the
+  design index and CLAUDE.md auto-context table.
+- Follow-up work is planned in `docs/design/sect-view/sect-view-elements.md`
+  (tooltip card frame, blocker detection, alert badges).
 
 ## Recent Completions (2026-08)
 

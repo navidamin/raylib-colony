@@ -43,6 +43,7 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 |--------|-----------|--------|
 | Reference surveys | `references/` | Research — comparable games and real space-logistics systems |
 | Prospecting | `prospecting/` | Active design |
+| Sect View | `sect-view/` | Active design — visuals implemented, HUD/hover drafted |
 | Economy (cross-cutting) | `economy/` | Draft — pricing frame above the unit designs |
 | Manufacture | `manufacture/` | Draft — frame settled, structure proposed |
 | Core (habitat/command) | `core/` | Draft — designed, not built |

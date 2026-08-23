@@ -280,6 +280,13 @@ void Unit::SetInitialParameters() {
         parameters["ResearchSpeedMultiplier"] = 1.0;
         parameters["BreakthroughChance"] = 0.05;
         parameters["UpgradeEffect"] = 0.2;
+    } else if (unit_type == "Communication") {
+        parameters["TradeCapacity"] = 100;
+        parameters["ExchangeRate"] = 1;
+        parameters["EnergyConsumption"] = 3;
+        parameters["GoodsConsumption"] = 2;
+        parameters["TradeEfficiency"] = 0.9;
+        parameters["UpgradeEffect"] = 0.05;
     } else if (unit_type == "Core") {
         // Crew capacity and life-support closure drive everything else; see
         // docs/design/core/core-master-design.md sections 4 and 6.
@@ -436,6 +443,10 @@ void Unit::InitializeModules() {
     else if (unit_type == "Core")
     {
         InitializeCoreModules();
+    }
+    else if (unit_type == "Communication")
+    {
+        InitializeCommunicationModules();
     }
     else
     {
@@ -811,6 +822,38 @@ void Unit::InitializeTransportModules() {
         if (i == 0)  // Fleet burns energy moving cargo
         {
             mod.consumptionRates[ResourceType::ENERGY] = 4.0f;
+        }
+
+        modules.push_back(mod);
+        if (mod.isActive) activeModuleIndices.insert(static_cast<int>(i));
+    }
+}
+
+void Unit::InitializeCommunicationModules() {
+    struct ModuleInfo { std::string name; std::string type; std::string desc; };
+    std::vector<ModuleInfo> commModules = {
+        {"Antenna", "ANTENNA", "Signal acquisition and dish pointing."},
+        {"Relay", "RELAY", "Extends range between distant sects."},
+        {"Telemetry", "TELEMETRY", "Unit and colony status feeds."},
+        {"Encryption", "ENCRYPTION", "Secure channels and key management."},
+        {"Network", "NETWORK", "Bandwidth allocation across the colony."}
+    };
+
+    for (size_t i = 0; i < commModules.size(); i++)
+    {
+        UnitModule mod;
+        mod.name = commModules[i].name;
+        mod.moduleType = commModules[i].type;
+        mod.tier = 0;
+        mod.level = 1;
+        mod.isBuilt = (i < 3);
+        mod.isActive = (i < 3);
+        mod.efficiency = parameters.count("Efficiency") ? parameters["Efficiency"] : 0.9f;
+        mod.description = commModules[i].desc;
+
+        if (i == 0)  // Antenna draws steady power to stay pointed
+        {
+            mod.consumptionRates[ResourceType::ENERGY] = 1.5f;
         }
 
         modules.push_back(mod);

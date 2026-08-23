@@ -219,6 +219,47 @@ Units have a modular upgrade system where each unit type has specialized named m
 
 **Tier upgrades** (`UpgradeModuleTier()`): Check `UnlockRegistry` for required techs, deduct resource costs, increment tier.
 
+### Terrain Generation (src/TerrainGen/)
+
+The planet's surface is **generated from real lunar imagery**, not from
+tile art. `terrain_synthesis.{h,cpp}` amplifies the shipped LROC WAC
+mosaic (`src/assets/planet/wac_global.jpg`): the real imagery supplies
+every landform, and below its ~1.3 km/px resolution floor the synthesizer
+re-sharpens, relights and adds regolith grain. Deterministic per
+location — the same coordinates always regenerate the same ground, so
+nothing is stored.
+
+**Scale system** (anchored on the sect being 5 km across):
+
+| | |
+|---|---|
+| 1 world unit | 50 m |
+| grid cell (sect + units) | 5 km = 100 world units |
+| PLANET view | 20x20 cells = 100 km |
+| COLONY view | 5x5 cells = 25 km |
+| SECT view | 1 cell = 5 km |
+
+**One chain feeds three views.** `GenerateTerrainChain` walks
+100 → 25 → 5 km, each level the centre crop of the one above, and emits
+all three: level 0 is the Planet backdrop, 1 the Colony, 2 the Sect.
+Because they are registered to each other by construction, zooming
+approaches the same ground instead of cutting to a different scene.
+`RenderManager` caches one chain per grid cell.
+
+**Real coordinates.** The 20x20 grid is anchored on a real lat/lon
+(`SetTerrainAnchor`, settable — clicking the orbital disc re-anchors the
+playfield there via `OrbitalPickToLatLon`). `TerrainGridCellToLatLon`
+gives any cell its true coordinates. Elevation/slope ground truth from
+NASA's LOLA model lives in `prototypes/planet_visuals/elevation.py`.
+
+**Occupied sites** get `TerrainSiteDisturbance`: the natural ground is
+levelled off (relief and imagery contrast damped toward local means,
+partially — not a platform) and then worked with undulations plus
+alterations around each dome. A graded construction platform was tried
+and rejected; see SITE_SYNTHESIS.md before re-proposing one.
+
+Design record: `prototypes/planet_visuals/SITE_SYNTHESIS.md`.
+
 ### Unlock Registry
 
 `UnlockRegistry` (src/UnlockRegistry/unlock_registry.h) is a header-only singleton that stubs the tech dependency system until Research units are fully implemented. Contains 14 available techs (Spectroscopy, Geophysics, SwarmAI, etc.). Debug key F5 cycles through unlocks.
@@ -226,6 +267,22 @@ Units have a modular upgrade system where each unit type has specialized named m
 ### Extraction UI Font Scaling
 
 The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture size with bilinear filtering. All `DrawTextEx`/`MeasureTextEx` size parameters in extraction view methods are wrapped with `FS()` — a simple multiplier returning `baseSize * 1.30f` (XL preset). This keeps text comfortably readable at the dark-themed panel layout. `FS()` is defined in `RenderManager` and only applies to extraction view methods, not site selection or other views.
+
+## Visual Testing Instruments
+
+Never claim a visual result without rendering it. Two headless tools
+drive the real `RenderManager`, so what they export is what the game
+draws:
+
+| Tool | Use |
+|------|-----|
+| `tools/preview/preview.sh` | one view in isolation (`--view orbital\|planet\|sect`, `--cell X,Y`) |
+| `tools/viewtest/viewtest.sh` | the whole Orbital → Planet → Colony → Sect descent, with per-view issue notes; `--pick LAT,LON` lands it anywhere on the moon |
+
+Both need software GL: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+xvfb-run -a ...` (the scripts apply it). `colony_viewtest` also deploys
+to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
+`tools/viewtest/README.md`.
 
 ## Coding Conventions
 
@@ -299,6 +356,7 @@ path in `unit_ui.cpp` is no longer reached.*
 - `src/Colony/`, `src/Sect/`, `src/Unit/`, `src/Planet/` - Game entities
 - `src/ResourceManager/` - Resource generation, tracking, and orbital survey data
 - `src/TimeManager/` - Game time and production scheduling
+- `src/TerrainGen/` - Real-imagery terrain synthesis (see Terrain Generation above)
 - `src/UnlockRegistry/` - Stub tech dependency system (header-only singleton)
 - `src/Unit/separation_node.h` - Beneficiation separation node types and processing
 - `src/InquiryManager/` - (Purpose unclear from headers, investigate if modifying)
@@ -365,6 +423,7 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | Module | Design Directory | Context Trigger |
 |--------|-----------------|-----------------|
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
+| Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
 | Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
 | Manufacture | `docs/design/manufacture/README.md` | Working on `InitializeManufactureModules`, recipes, production lines, or the `TYPED` resource subtypes |
 | Economy (cross-cutting) | `docs/design/economy/README.md` | Working on trade, colony reserves, sect specialization, site-selection scoring, or any pricing question |
