@@ -9,7 +9,9 @@ on:
     #
     # The whole site is replaced on every deploy, whichever branch ran last --
     # so a later push on another branch takes /extraction/ down again until
-    # this branch deploys once more.
+    # this branch deploys once more. The lunar-elevation branch was listed
+    # here too and is paused on its own copy of this file for that reason;
+    # it goes back when the excavation branch merges.
     branches: [main, master, claude/excavation-module-design-jhp3v1]
     paths:
       - 'src/**'
