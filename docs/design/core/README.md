@@ -5,6 +5,14 @@
 > module panels in `rendermanager.cpp`), read this README first to load design
 > context.
 
+> **Build status:** the Core's five modules exist and are reachable
+> (`Unit::InitializeCoreModules`), but no sect constructs a Core unit yet.
+> `Sect::CreateInitialUnits` builds eight production units around the dome and
+> still assigns Extraction to `Sect::core`; the centre dome is decoration.
+> Wiring the Core in means changing that roster and giving the dome its own
+> unit — a change the sect view's socket ring has to absorb. Until then this
+> document describes the intended design, not the running game.
+
 ## Table of Contents
 
 | # | Document | Description | Status |

@@ -13,13 +13,16 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
       fontsLoaded(false),
       tilesLoaded(false),
       orbitalAssetsLoaded(false),
-      sectTerrainLoaded(false),
-      sectTerrainCellX(-1),
-      sectTerrainCellY(-1)
+      terrainLoaded(false),
+      terrainCellX(-1),
+      terrainCellY(-1),
+      terrainAnchorVersion(0),
+      planetMapLoaded(false)
 {
+    planetMapTexture = {0};
     orbitalNearTexture = {0};
     orbitalFarTexture = {0};
-    sectTerrainTexture = {0};
+    for (int i = 0; i < 3; i++) terrainLevels[i] = {0};
 }
 
 void RenderManager::LoadFonts()
@@ -59,9 +62,11 @@ RenderManager::~RenderManager() {
 
     UnloadOrbitalAssets();
 
-    if (sectTerrainLoaded)
+    UnloadTerrainLevels();
+
+    if (planetMapLoaded)
     {
-        UnloadTexture(sectTerrainTexture);
+        UnloadTexture(planetMapTexture);
     }
 }
 
@@ -165,15 +170,28 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
     if (planet) {  // Guard against null planet
         ClearBackground(BLACK);
 
-        // Load and render moon tiles if not already loaded
-        if (!tilesLoaded) {
-            LoadMoonTiles();
-            GenerateTilePattern();
-            tilesLoaded = true;
-        }
+        // The whole moon underneath, so zooming out leaves the
+        // playfield and reveals the globe around it.
+        DrawPlanetMapLayer(camera);
 
-        // Render the tiled moon surface
-        RenderMoonSurface();
+        // Ground: level 0 of the terrain chain (100 km) spans the whole
+        // 20x20 grid, registered on the playfield anchor. This is the
+        // same generated ground the sect stands on, seen from 100 km —
+        // so zooming in approaches it instead of cutting to tiles.
+        EnsureTerrainForCell(PLANET_SIZE / 2, PLANET_SIZE / 2);
+        if (terrainLoaded && terrainLevels[0].id != 0) {
+            DrawWorldTerrainLayer(0,
+                Vector2{PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f},
+                (float)PLANET_SIZE);
+        } else {
+            // Fallback: the legacy 3-tile shuffle.
+            if (!tilesLoaded) {
+                LoadMoonTiles();
+                GenerateTilePattern();
+                tilesLoaded = true;
+            }
+            RenderMoonSurface();
+        }
 /*
         // Draw grid
         for (int i = 0; i <= PLANET_SIZE; i++) {
@@ -224,15 +242,32 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     BeginMode2D(camera);
 
     if (colony) {
-        // Load and render moon tiles if not already loaded
-        if (!tilesLoaded) {
-            LoadMoonTiles();
-            GenerateTilePattern();
-            tilesLoaded = true;
+        // Ground: level 1 of the chain (25 km) centred on the colony —
+        // the same ground as the planet view above and the sect below,
+        // one zoom step closer.
+        Vector2 colonyCentre = colony->GetSects().empty()
+            ? Vector2{PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f}
+            : colony->GetSects()[0]->GetPosition();
+        int cgx = std::clamp((int)(colonyCentre.x / (SECT_CORE_RADIUS * 2.0f)),
+                             0, PLANET_SIZE - 1);
+        int cgy = std::clamp((int)(colonyCentre.y / (SECT_CORE_RADIUS * 2.0f)),
+                             0, PLANET_SIZE - 1);
+        EnsureTerrainForCell(cgx, cgy);
+        if (terrainLoaded && terrainLevels[1].id != 0) {
+            // The level is registered on its cell centre, not the sect's
+            // arbitrary position, so it lines up with the grid.
+            Vector2 cellCentre = {
+                (cgx + 0.5f) * SECT_CORE_RADIUS * 2.0f,
+                (cgy + 0.5f) * SECT_CORE_RADIUS * 2.0f};
+            DrawWorldTerrainLayer(1, cellCentre, 5.0f);
+        } else {
+            if (!tilesLoaded) {
+                LoadMoonTiles();
+                GenerateTilePattern();
+                tilesLoaded = true;
+            }
+            RenderMoonSurface();
         }
-
-        // Render the tiled moon surface
-        RenderMoonSurface();
 
         // Calculate visible area in world coordinates
         Vector2 topLeft = GetScreenToWorld2D({0, 0}, camera);
@@ -528,42 +563,173 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     }
 }
 
+// ---------------------------------------------------------------------------
+// Full-planet map
+//
+// The 20x20 grid covers 100 km of real moon centred on the playfield
+// anchor. Extending that same projection across the whole globe gives
+// the planet view something to zoom out INTO: one world space holding
+// both the playfield and the entire moon, aligned exactly where they
+// meet, so zooming out never cuts to a different scene.
+//
+// Longitude uses the anchor's cos(lat) scale, which is what makes the
+// playfield land on the grid exactly. The cost is that the far side of
+// the globe is squashed horizontally by that same factor — acceptable
+// while the map is context rather than a place you operate.
+// ---------------------------------------------------------------------------
+
+static float PlanetUnitsPerDegLat()
+{
+    double latSpanDeg = (PLANET_SIZE * TERRAIN_CELL_KM) / MOON_KM_PER_DEG;
+    return (float)(PLANET_HEIGHT / latSpanDeg);
+}
+
+static float PlanetUnitsPerDegLon()
+{
+    double alat, alon;
+    GetTerrainAnchor(&alat, &alon);
+    (void)alon;
+    return PlanetUnitsPerDegLat()
+           * (float)std::max(0.2, std::cos(alat * DEG2RAD));
+}
+
+// World rect the whole moon occupies (lon -180..180, lat +90..-90).
+static Rectangle PlanetMapWorldRect()
+{
+    double alat, alon;
+    GetTerrainAnchor(&alat, &alon);
+    float updLat = PlanetUnitsPerDegLat();
+    float updLon = PlanetUnitsPerDegLon();
+    float originX = PLANET_WIDTH * 0.5f - (float)(alon + 180.0) * updLon;
+    float originY = PLANET_HEIGHT * 0.5f - (float)(90.0 - alat) * updLat;
+    return Rectangle{originX, originY, 360.0f * updLon, 180.0f * updLat};
+}
+
+void RenderManager::LoadPlanetMap()
+{
+    if (planetMapLoaded) return;
+    Image img = LoadImage("src/assets/planet/wac_global.jpg");
+    if (img.data == nullptr)
+    {
+        planetMapLoaded = true;       // don't retry every frame
+        return;
+    }
+    // 8K is far more than this view needs and costs VRAM; half of one
+    // screen width per 180 degrees is plenty at full zoom-out.
+    ImageResize(&img, 2048, 1024);
+    planetMapTexture = LoadTextureFromImage(img);
+    SetTextureFilter(planetMapTexture, TEXTURE_FILTER_BILINEAR);
+    UnloadImage(img);
+    planetMapLoaded = true;
+}
+
+void RenderManager::DrawPlanetMapLayer(Camera2D camera)
+{
+    LoadPlanetMap();
+    if (planetMapTexture.id == 0) return;
+
+    Rectangle dst = PlanetMapWorldRect();
+    Rectangle src = {0, 0, (float)planetMapTexture.width,
+                     (float)planetMapTexture.height};
+    DrawTexturePro(planetMapTexture, src, dst, Vector2{0, 0}, 0.0f, WHITE);
+
+    // Once the playfield is small on screen, mark it so it stays findable.
+    float playfieldPx = PLANET_WIDTH * camera.zoom;
+    if (playfieldPx < 220.0f)
+    {
+        Color gold = Color{255, 200, 100, 255};
+        float pad = 6.0f / std::max(camera.zoom, 0.0001f);
+        DrawRectangleLinesEx(
+            Rectangle{-pad, -pad, PLANET_WIDTH + pad * 2,
+                      PLANET_HEIGHT + pad * 2},
+            2.0f / std::max(camera.zoom, 0.0001f), gold);
+    }
+}
+
+void RenderManager::UnloadTerrainLevels()
+{
+    if (!terrainLoaded) return;
+    for (int i = 0; i < 3; i++)
+    {
+        if (terrainLevels[i].id != 0) UnloadTexture(terrainLevels[i]);
+        terrainLevels[i] = {0};
+    }
+    terrainLoaded = false;
+}
+
+// Generate (and cache) the whole 100 / 25 / 5 km chain registered on a
+// grid cell. Regenerates when the cell changes or the playfield anchor
+// moves (the player picking a new region from orbit).
+void RenderManager::EnsureTerrainForCell(int gx, int gy)
+{
+    unsigned int anchorVersion = GetTerrainAnchorVersion();
+    if (terrainLoaded && gx == terrainCellX && gy == terrainCellY
+        && anchorVersion == terrainAnchorVersion)
+    {
+        return;
+    }
+
+    UnloadTerrainLevels();
+
+    double lat, lon;
+    TerrainGridCellToLatLon(gx, gy, &lat, &lon);
+    // The cell we generate for is occupied, so work its ground over.
+    TerrainSiteDisturbance site;
+    site.enabled = true;
+    Image levels[3] = {};
+    GenerateTerrainChain(lat, lon, 512, levels, &site);
+    for (int i = 0; i < 3; i++)
+    {
+        terrainLevels[i] = LoadTextureFromImage(levels[i]);
+        SetTextureFilter(terrainLevels[i], TEXTURE_FILTER_BILINEAR);
+        UnloadImage(levels[i]);
+    }
+    terrainLoaded = true;
+    terrainCellX = gx;
+    terrainCellY = gy;
+    terrainAnchorVersion = anchorVersion;
+}
+
+// Draw a chain level as world-space ground. Called inside BeginMode2D,
+// so it pans and zooms with the camera exactly like the entities on it.
+void RenderManager::DrawWorldTerrainLayer(int level, Vector2 centre,
+                                          float spanCells)
+{
+    if (!terrainLoaded || level < 0 || level > 2) return;
+    if (terrainLevels[level].id == 0) return;
+
+    float cellUnits = SECT_CORE_RADIUS * 2.0f;      // 100 units = 5 km
+    float span = spanCells * cellUnits;
+    Rectangle src = {0, 0, (float)terrainLevels[level].width,
+                     (float)terrainLevels[level].height};
+    Rectangle dst = {centre.x - span / 2.0f, centre.y - span / 2.0f,
+                     span, span};
+    DrawTexturePro(terrainLevels[level], src, dst, Vector2{0, 0}, 0.0f,
+                   WHITE);
+}
+
 void RenderManager::DrawSectTerrainBackground(Sect* sect)
 {
     if (!sect) return;
 
-    // Which planet grid cell is this sect standing on?
     Vector2 pos = sect->GetPosition();
     int gx = std::clamp((int)(pos.x / (SECT_CORE_RADIUS * 2.0f)), 0,
                         PLANET_SIZE - 1);
     int gy = std::clamp((int)(pos.y / (SECT_CORE_RADIUS * 2.0f)), 0,
                         PLANET_SIZE - 1);
+    EnsureTerrainForCell(gx, gy);
+    if (!terrainLoaded || terrainLevels[2].id == 0) return;
 
-    if (!sectTerrainLoaded || gx != sectTerrainCellX || gy != sectTerrainCellY)
-    {
-        if (sectTerrainLoaded) UnloadTexture(sectTerrainTexture);
-        double lat, lon;
-        TerrainGridCellToLatLon(gx, gy, &lat, &lon);
-        // 512 keeps the screen upscale mild (1280/512 vs 1280/300)
-        Image ground = GenerateSectTerrain(lat, lon, 512);
-        sectTerrainTexture = LoadTextureFromImage(ground);
-        SetTextureFilter(sectTerrainTexture, TEXTURE_FILTER_BILINEAR);
-        UnloadImage(ground);
-        sectTerrainLoaded = true;
-        sectTerrainCellX = gx;
-        sectTerrainCellY = gy;
-    }
-
-    // Cover the screen; the texture is the sect's full 5 km cell.
-    float scale = std::max(screenWidth / (float)sectTerrainTexture.width,
-                           screenHeight / (float)sectTerrainTexture.height);
-    float drawW = sectTerrainTexture.width * scale;
-    float drawH = sectTerrainTexture.height * scale;
-    Rectangle src = {0, 0, (float)sectTerrainTexture.width,
-                     (float)sectTerrainTexture.height};
+    // Sect view is screen-space: the 5 km cell fills the screen.
+    float scale = std::max(screenWidth / (float)terrainLevels[2].width,
+                           screenHeight / (float)terrainLevels[2].height);
+    float drawW = terrainLevels[2].width * scale;
+    float drawH = terrainLevels[2].height * scale;
+    Rectangle src = {0, 0, (float)terrainLevels[2].width,
+                     (float)terrainLevels[2].height};
     Rectangle dst = {(screenWidth - drawW) / 2.0f,
                      (screenHeight - drawH) / 2.0f, drawW, drawH};
-    DrawTexturePro(sectTerrainTexture, src, dst, Vector2{0, 0}, 0.0f, WHITE);
+    DrawTexturePro(terrainLevels[2], src, dst, Vector2{0, 0}, 0.0f, WHITE);
 }
 
 void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
@@ -574,9 +740,9 @@ void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
 
     // Draw UI elements including time
     timeManager.Draw(screenWidth, screenHeight);
-    DrawText("Sect View", 10, 10, 20, BLACK);
-    DrawText("Press U for Unit View", 10, 40, 20, GRAY);
-    DrawText("Press C for Colony View", 10, 70, 20, GRAY);
+    DrawText("Sect View", 10, 10, 20, RAYWHITE);
+    DrawText("Press U for Unit View", 10, 40, 20, LIGHTGRAY);
+    DrawText("Press C for Colony View", 10, 70, 20, LIGHTGRAY);
 
     // Draw sect resource dashboard (left side)
     if (sect)
@@ -1396,7 +1562,9 @@ enum class ExtIcon
     // Transport
     HAULER, ROUTE_NODES, DEPOT, LIFT, CLIPBOARD,
     // Core (centre dome)
-    LIFE_LOOP, CREW, COMMAND, WAVEFORM, HAZARD
+    LIFE_LOOP, CREW, COMMAND, WAVEFORM, HAZARD,
+    // Communication
+    DISH, RELAY_TOWER, PADLOCK, MESH
 };
 
 // Line icon set matching the UI kit. (cx, cy) is the center, s the half-size.
@@ -1996,6 +2164,100 @@ static void ExtDrawIcon(ExtIcon icon, float cx, float cy, float s, Color c)
             break;
         }
 
+        // --- Communication ---
+        case ExtIcon::DISH:
+        {
+            // Satellite dish: an elliptical face tilted up-left on a short mast.
+            // Drawn as a filled-outline ellipse rather than a parabola -- at list
+            // size a bare parabola plus mast reads as the letter "A".
+            Vector2 face = {cx - s * 0.12f, cy - s * 0.2f};
+            DrawEllipseLines(static_cast<int>(face.x), static_cast<int>(face.y),
+                             s * 0.72f, s * 0.5f, c);
+            DrawEllipseLines(static_cast<int>(face.x), static_cast<int>(face.y),
+                             s * 0.4f, s * 0.27f, Fade(c, 0.45f));
+            // Feed arm reaching out of the dish to a horn at the focus
+            DrawLineEx(face, {face.x + s * 0.62f, face.y - s * 0.52f}, 1.4f, c);
+            DrawCircle(static_cast<int>(face.x + s * 0.62f),
+                       static_cast<int>(face.y - s * 0.52f), s * 0.13f, c);
+            // Mast and tripod foot
+            DrawLineEx({face.x, face.y + s * 0.42f}, {cx, cy + s * 0.72f}, 1.6f, c);
+            DrawLineEx({cx - s * 0.42f, cy + s * 0.88f}, {cx + s * 0.42f, cy + s * 0.88f}, 1.6f, c);
+            DrawLineEx({cx, cy + s * 0.72f}, {cx - s * 0.3f, cy + s * 0.88f}, 1.3f, Fade(c, 0.8f));
+            DrawLineEx({cx, cy + s * 0.72f}, {cx + s * 0.3f, cy + s * 0.88f}, 1.3f, Fade(c, 0.8f));
+            break;
+        }
+        case ExtIcon::RELAY_TOWER:
+        {
+            // Mast with paired transmission arcs on both sides
+            DrawLineEx({cx - s * 0.42f, cy + s * 0.9f}, {cx - s * 0.12f, cy - s * 0.55f}, 1.6f, c);
+            DrawLineEx({cx + s * 0.42f, cy + s * 0.9f}, {cx + s * 0.12f, cy - s * 0.55f}, 1.6f, c);
+            for (int i = 0; i < 2; i++)
+            {
+                float ly = cy + s * 0.42f - i * s * 0.5f;
+                float half = s * (0.32f - i * 0.08f);
+                DrawLineEx({cx - half, ly}, {cx + half, ly}, 1.3f, Fade(c, 0.7f));
+            }
+            DrawCircle(static_cast<int>(cx), static_cast<int>(cy - s * 0.68f), s * 0.13f, c);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                for (int ring = 1; ring <= 2; ring++)
+                {
+                    float r = s * 0.3f * ring;
+                    Vector2 prev = {0};
+                    for (int k = 0; k <= 8; k++)
+                    {
+                        float a = 0.5f + k / 8.0f * 1.4f;
+                        Vector2 p = {cx + side * sinf(a) * r,
+                                     cy - s * 0.68f - cosf(a) * r};
+                        if (k > 0) DrawLineEx(prev, p, 1.3f, Fade(c, 0.8f - ring * 0.22f));
+                        prev = p;
+                    }
+                }
+            }
+            break;
+        }
+        case ExtIcon::PADLOCK:
+        {
+            // Closed padlock with a keyhole
+            Rectangle body = {cx - s * 0.62f, cy - s * 0.1f, s * 1.24f, s * 0.95f};
+            DrawRectangleLinesEx(body, 1.7f, c);
+            Vector2 prev = {cx - s * 0.38f, cy - s * 0.1f};
+            for (int i = 1; i <= 12; i++)
+            {
+                float a = PI - i / 12.0f * PI;
+                Vector2 p = {cx + cosf(a) * s * 0.38f, cy - s * 0.1f - sinf(a) * s * 0.52f};
+                DrawLineEx(prev, p, 1.6f, c);
+                prev = p;
+            }
+            DrawCircleLines(static_cast<int>(cx), static_cast<int>(cy + s * 0.3f), s * 0.15f, c);
+            DrawLineEx({cx, cy + s * 0.42f}, {cx, cy + s * 0.62f}, 1.4f, c);
+            break;
+        }
+        case ExtIcon::MESH:
+        {
+            // Hub-and-spoke network: four outer nodes around a larger hub. A
+            // fully-connected five-node graph was tried first and filled in to a
+            // solid blob at list size -- spokes plus a partial ring stay legible.
+            Vector2 outer[4] = {
+                {cx, cy - s * 0.82f}, {cx + s * 0.82f, cy},
+                {cx, cy + s * 0.82f}, {cx - s * 0.82f, cy}
+            };
+            Vector2 hub = {cx, cy};
+
+            for (int i = 0; i < 4; i++)
+            {
+                DrawLineEx(hub, outer[i], 1.4f, Fade(c, 0.85f));
+                DrawLineEx(outer[i], outer[(i + 1) % 4], 1.0f, Fade(c, 0.3f));
+            }
+            for (const Vector2& n : outer)
+            {
+                DrawCircle(static_cast<int>(n.x), static_cast<int>(n.y), s * 0.16f, c);
+            }
+            DrawCircleLines(static_cast<int>(hub.x), static_cast<int>(hub.y), s * 0.28f, c);
+            DrawCircle(static_cast<int>(hub.x), static_cast<int>(hub.y), s * 0.13f, c);
+            break;
+        }
+
         // --- Core (centre dome) ---
         case ExtIcon::LIFE_LOOP:
         {
@@ -2189,6 +2451,13 @@ static ExtIcon ExtModuleIcon(const std::string& moduleType)
     if (moduleType == "SERVICING") return ExtIcon::LIFT;
     if (moduleType == "DISPATCH") return ExtIcon::CLIPBOARD;
 
+    // Communication
+    if (moduleType == "ANTENNA") return ExtIcon::DISH;
+    if (moduleType == "RELAY") return ExtIcon::RELAY_TOWER;
+    if (moduleType == "TELEMETRY") return ExtIcon::WAVEFORM;
+    if (moduleType == "ENCRYPTION") return ExtIcon::PADLOCK;
+    if (moduleType == "NETWORK") return ExtIcon::MESH;
+
     // Core
     if (moduleType == "LIFE_SUPPORT") return ExtIcon::LIFE_LOOP;
     if (moduleType == "ROSTER") return ExtIcon::CREW;
@@ -2217,6 +2486,7 @@ static UnitIdentity ExtUnitIdentity(const std::string& unitType)
     if (unitType == "Construction") return {ExtIcon::GIRDER, "CONSTRUCTION UNIT", EXT_ACCENT_GOLD};
     if (unitType == "Transport")   return {ExtIcon::HAULER,     "TRANSPORT UNIT",  EXT_ACCENT_CYAN};
     if (unitType == "Core")        return {ExtIcon::CREW,       "CORE / HABITAT",  EXT_ACCENT_GREEN};
+    if (unitType == "Communication") return {ExtIcon::DISH, "COMMUNICATION UNIT", EXT_ACCENT_VIOLET};
     return {ExtIcon::OVERVIEW, "UNIT", EXT_ACCENT_CYAN};
 }
 
@@ -2231,6 +2501,7 @@ static const char* ExtUnitBlueprintTag(const std::string& unitType)
     if (unitType == "Construction") return "UC-6";
     if (unitType == "Transport")   return "UT-7";
     if (unitType == "Core")        return "CR-0";
+    if (unitType == "Communication") return "UK-8";
     return "U-0";
 }
 
@@ -2725,6 +2996,62 @@ static void ExtDrawWireframeCore(Rectangle area, Color c)
     DrawLineEx(project(-3.4f, -2.6f, 2.1f), project(-2.14f, -2.6f, 2.1f), 1.0f, mid);
 }
 
+static void ExtDrawWireframeCommunication(Rectangle area, Color c)
+{
+    Vector2 origin = {area.x + area.width * 0.5f, area.y + area.height * 0.62f};
+    float scale = std::min(area.width, area.height) * 0.058f;
+    Color dim = Fade(c, 0.35f);
+    Color mid = Fade(c, 0.55f);
+
+    auto project = [&](float wx, float wy, float wz) -> Vector2
+    {
+        return {origin.x + (wx - wy) * 0.866f * scale,
+                origin.y + (wx + wy) * 0.5f * scale - wz * scale};
+    };
+
+    ExtDrawWireBox(origin, scale, -4.0f, -4.0f, 0.0f, 8.0f, 8.0f, 0.8f, dim);
+    ExtDrawWireBox(origin, scale, -2.6f, -1.4f, 0.8f, 3.0f, 3.0f, 1.2f, mid);
+
+    // Steerable dish: concentric rings on a tilted axis, on a pedestal
+    Vector2 dishCentre = {-1.1f, 0.1f};
+    float dishZ = 4.4f;
+    DrawLineEx(project(dishCentre.x, dishCentre.y, 2.0f),
+               project(dishCentre.x, dishCentre.y, dishZ), 1.3f, mid);
+    for (int ring = 1; ring <= 3; ring++)
+    {
+        float rr = 0.62f * ring;
+        Vector2 prev = {0};
+        for (int i = 0; i <= 20; i++)
+        {
+            float a = i / 20.0f * 2.0f * PI;
+            // Tilt the dish face back by squashing one axis and lifting with it
+            Vector2 p = project(dishCentre.x + cosf(a) * rr,
+                                dishCentre.y + sinf(a) * rr * 0.45f,
+                                dishZ + sinf(a) * rr * 0.72f);
+            if (i > 0) DrawLineEx(prev, p, 1.0f, ring == 3 ? mid : dim);
+            prev = p;
+        }
+    }
+    DrawCircle(static_cast<int>(project(dishCentre.x, dishCentre.y, dishZ).x),
+               static_cast<int>(project(dishCentre.x, dishCentre.y, dishZ).y), 1.5f, c);
+
+    // Relay mast array of three guyed poles at descending heights
+    for (int m = 0; m < 3; m++)
+    {
+        float mx = 1.4f + m * 1.1f;
+        float my = 2.6f - m * 0.7f;
+        float mz = 5.4f - m * 1.1f;
+        Vector2 base = project(mx, my, 0.8f);
+        Vector2 top = project(mx, my, mz);
+        DrawLineEx(base, top, 1.1f, mid);
+        DrawCircle(static_cast<int>(top.x), static_cast<int>(top.y), 1.3f, c);
+        for (int guy = -1; guy <= 1; guy += 2)
+        {
+            DrawLineEx(top, project(mx + guy * 0.8f, my + guy * 0.5f, 0.8f), 1.0f, dim);
+        }
+    }
+}
+
 // Control-panel blueprint art, chosen by unit type.
 static void ExtDrawWireframeUnit(Rectangle area, Color c, const std::string& unitType)
 {
@@ -2735,6 +3062,7 @@ static void ExtDrawWireframeUnit(Rectangle area, Color c, const std::string& uni
     else if (unitType == "Construction") ExtDrawWireframeConstruction(area, c);
     else if (unitType == "Transport")    ExtDrawWireframeTransport(area, c);
     else if (unitType == "Core")         ExtDrawWireframeCore(area, c);
+    else if (unitType == "Communication") ExtDrawWireframeCommunication(area, c);
     else                                 ExtDrawWireframeExtraction(area, c);
 }
 

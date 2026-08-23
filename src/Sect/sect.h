@@ -11,9 +11,10 @@
 #include "resource_manager.h"
 #include "game_enums.h"
 
-// Braced init rather than a C99 compound literal: MSVC rejects the
-// (Color){...} form in C++ with error C4576.
-#define CHINAROSE Color{ 160, 70, 104, 255 }
+// CLITERAL is raylib's portability shim: it expands to `(Color)` in C and
+// to nothing in C++. Writing the C compound literal `(Color){...}` directly
+// is a GCC/Clang extension that MSVC rejects outright (error C4576).
+#define CHINAROSE CLITERAL(Color){ 160, 70, 104, 255 }
 
 
 class Sect {
@@ -121,10 +122,6 @@ private:
 
     // Private member functions
     void CreateInitialUnits(Vector2 &position);
-
-    // Ring layout: every unit except the Core, which sits on the centre dome.
-    std::vector<Unit*> GetRingUnits() const;
-    float RingSocketAngle(int index) const;
     void DrawTransparentRightPanel();
     void DrawResourceStats(Vector2 position, float coreRadius);
 

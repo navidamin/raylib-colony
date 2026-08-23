@@ -237,6 +237,7 @@ private:
     void InitializeConstructionModules();
     void InitializeTransportModules();
     void InitializeCoreModules();
+    void InitializeCommunicationModules();
     void InitializeGenericModules();
 
     void UpdateUnitStatus();
