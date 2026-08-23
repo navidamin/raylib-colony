@@ -608,6 +608,24 @@ def analyse_shape(mask, box):
             "size": (w, h)}
 
 
+def is_lit(sheet_img, box, bg):
+    """Whether a piece's glass is lit (green) rather than dark.
+
+    The sheet draws every dome twice, once powered and once idle, and
+    they are the same shape - only the colour separates them. A sect's
+    core is an idle grey dome with lit units around it, so the editor
+    has to be able to tell which is which.
+    """
+    x0, y0, x1, y1 = box
+    arr = np.array(sheet_img.crop((x0, y0, x1 + 1, y1 + 1))).astype(int)
+    bright = arr.max(axis=2) > bg + 30
+    if bright.sum() < 50:
+        return False
+    g = arr[:, :, 1][bright]
+    other = np.maximum(arr[:, :, 0], arr[:, :, 2])[bright]
+    return bool((g - other).mean() > 12)
+
+
 def crop_sprite(sheet_img, box, bg):
     """Cut the sprite out and fade the background to transparent.
 
@@ -628,8 +646,9 @@ def crop_sprite(sheet_img, box, bg):
 class Sprite:
     """One pickable piece, entirely derived from the sheet."""
 
-    def __init__(self, index, box, shape, surface):
+    def __init__(self, index, box, shape, surface, lit=False):
         self.index = index
+        self.lit = lit
         self.box = box
         self.shape = shape
         self.surface = surface
@@ -653,8 +672,8 @@ class Sprite:
             return f"arc {self.span:g} deg  r{self.shape['radius']:.0f}"
         if self.shape["kind"] == "road":
             return f"road {w}x{h} deck {self.shape['width']:.0f}"
-        return (f"dome {w}x{h} r{self.shape['radius']:.0f} "
-                f"socket {self.shape['width']:.0f}")
+        return (f"dome {w}x{h} {'lit' if self.lit else 'idle'} "
+                f"r{self.shape['radius']:.0f}")
 
 
 def report_atlas(sprites, path):
@@ -700,7 +719,8 @@ def build_atlas(path, gutter=GUTTER, threshold=None):
         shape = analyse_shape(mask, box)
         if shape is None:
             continue
-        sprite = Sprite(len(sprites), box, shape, crop_sprite(img, box, bg))
+        sprite = Sprite(len(sprites), box, shape, crop_sprite(img, box, bg),
+                        is_lit(img, box, bg))
         if sprite.index in overrides and sprite.is_arc:
             sprite.span = sprite.rot_step = overrides[sprite.index]
         sprites.append(sprite)
@@ -1133,6 +1153,24 @@ def aim(obj, direction):
     return obj
 
 
+def face_centre(obj, centre):
+    """Turn a unit dome so its socket points at the core.
+
+    This is the whole rule, and it needs nothing but the two positions:
+    the socket has to look back down the line to the middle of the sect.
+    `sprite.ports[0]` is where the art puts the socket in its own frame,
+    so the rotation is just the difference between the direction the
+    socket wants to face and the direction it faces unrotated.
+    """
+    (px, py), _ = obj.sprite.ports[0]
+    cx, cy = obj.sprite.centre
+    in_art = math.degrees(math.atan2(py - cy, px - cx))
+    to_core = math.degrees(math.atan2(centre[1] - obj.pos[1],
+                                      centre[0] - obj.pos[0]))
+    obj.angle = (to_core - in_art) % 360.0
+    return obj
+
+
 def attach(ed, sprite, anchor, scale, toward=None):
     """Drop a piece onto a free port of an already placed one.
 
@@ -1282,6 +1320,55 @@ def fit_test(sheet, out, gutter=GUTTER, threshold=None):
     pygame.quit()
 
 
+def ring_setup(sheet, out, gutter=GUTTER, threshold=None):
+    """The sect: a core dome, a connector on every socket, a unit on each.
+
+    Every unit dome is turned by face_centre, from its position alone.
+    Snapping would have turned it too - it is the same joint either way -
+    so the two are compared afterwards, which is the check that the
+    position-only rule really is equivalent.
+    """
+    os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+    ed = Editor(sheet, gutter, threshold)
+
+    roads = sorted((s for s in ed.sprites if s.shape["kind"] == "road"),
+                   key=lambda s: -s.surface.get_width())
+    domes = sorted((s for s in ed.sprites if s.shape["kind"] == "dome"),
+                   key=lambda s: -s.surface.get_width())
+    connector = roads[0]
+    big = [s for s in domes if s.surface.get_width() > 200]
+    small = [s for s in domes if s.surface.get_width() <= 200]
+    # An idle core with lit units around it, as in the reference shot.
+    core_sprite = next((s for s in big if not s.lit), big[0])
+    units = [s for s in small if s.lit] or small
+
+    scale = 0.30
+    centre = (960.0, 450.0)
+    ed.place_scale = scale
+    core = ed.pick_and_drop(core_sprite, centre)
+
+    worst = 0.0
+    for i, (_, socket, heading) in enumerate(free_ports(core, ed.placed)):
+        arm = attach(ed, connector, core, scale,
+                     toward=heading)
+        end = free_ports(arm, ed.placed[:-1])[-1][1]
+        unit = units[i % len(units)]
+        probe = Placed(unit, (0.0, 0.0), scale=scale)
+        off = probe.world_ports()[0][0]
+        dome = ed.pick_and_drop(unit, (end[0] - off[0], end[1] - off[1]))
+        snapped = dome.angle
+        face_centre(dome, core.pos)
+        drift = abs((snapped - dome.angle + 180.0) % 360.0 - 180.0)
+        worst = max(worst, drift)
+
+    print(f"\n{len(ed.placed)} pieces: 1 core, 8 connectors, 8 units")
+    print(f"  each unit turned by face_centre from its position alone;")
+    print(f"  largest disagreement with what snapping chose: {worst:.2f} deg")
+    ed.selected = None
+    ed.shot(out)
+    pygame.quit()
+
+
 def main(argv):
     def opt(name, cast=int, default=None):
         return cast(argv[argv.index(name) + 1]) if name in argv else default
@@ -1289,11 +1376,15 @@ def main(argv):
     gutter = opt("--gutter", int, GUTTER)
     threshold = opt("--threshold", int, None)
     flagged = set()
-    for name in ("--gutter", "--threshold", "--atlas", "--demo", "--fit"):
+    for name in ("--gutter", "--threshold", "--atlas", "--demo", "--fit",
+                 "--ring"):
         if name in argv:
             flagged.add(argv[argv.index(name) + 1])
     sheet = find_sheet([a for a in argv if a not in flagged])
 
+    if "--ring" in argv:
+        ring_setup(sheet, opt("--ring", str), gutter, threshold)
+        return
     if "--fit" in argv:
         fit_test(sheet, opt("--fit", str), gutter, threshold)
         return

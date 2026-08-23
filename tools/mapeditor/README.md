@@ -133,6 +133,38 @@ If you know a piece's true angle and disagree with the measurement, write
 it down — a file named after the sheet, `lunar_sheet.spans.json`, holding
 `{"12": 45, "16": 45}`, overrides those sprites by index.
 
+## The sect: a ring of units around the core
+
+```
+python3 lunar_layout_editor.py lunar_sheet.png --ring ring.png
+```
+
+builds the whole thing — an idle core dome, a connector on each of its
+eight sockets, a lit unit dome on the end of each — and turns every unit
+so its socket looks back at the core.
+
+The turn is computed from the unit's position and nothing else:
+
+```python
+def face_centre(obj, centre):
+    (px, py), _ = obj.sprite.ports[0]      # socket, in the art's frame
+    cx, cy = obj.sprite.centre
+    in_art = math.degrees(math.atan2(py - cy, px - cx))
+    to_core = math.degrees(math.atan2(centre[1] - obj.pos[1],
+                                      centre[0] - obj.pos[0]))
+    obj.angle = (to_core - in_art) % 360.0
+```
+
+Snapping would have turned each unit too — it is the same joint either
+way — so the ring build compares the two afterwards. They agree to within
+**0.94°**, which is the check that the position-only rule really is
+equivalent, and it is the rule the game uses (`UnitSocketDirection` in
+`src/Sect/sect.h`).
+
+Which dome is which comes off the art as well: the sheet draws every dome
+twice, powered and idle, identical in shape, so they are told apart by
+colour — a sect is an idle core with lit units around it.
+
 ## Does the connector fit the roads?
 
 ```

@@ -671,7 +671,8 @@ namespace
     }
 
     // A unit station: riveted bezel + tinted hex-glass dome + glyph + label
-    void DrawUnitDomeStation(Vector2 center, float radius, const std::string& type, bool active)
+    void DrawUnitDomeStation(Vector2 center, float radius, const std::string& type,
+                             bool active, Vector2 corePos)
     {
         // Drop shadow onto the terrain
         DrawCircleV(Vector2{center.x + radius * 0.08f, center.y + radius * 0.14f},
@@ -684,6 +685,12 @@ namespace
         Color base = active ? MixColor(UnitAccentColor(type), Color{20, 24, 26, 255}, 0.35f)
                             : Color{44, 52, 64, 255};
         DrawDomeSphere(center, radius, base, HashSeed(type));
+
+        // The dome's one socket, turned to face the core so the connector
+        // arm lands on it. Which way that is comes from the unit's
+        // position alone - see UnitSocketDirection in sect.h.
+        DrawSocket(UnitSocketPosition(center, corePos, radius * 1.18f),
+                   radius * 0.17f, active);
 
         // Unit glyph + label on the dome glass
         Color glyphCol = active ? Color{240, 245, 248, 255} : Color{140, 150, 160, 255};
@@ -740,8 +747,10 @@ void Sect::DrawInSectView(Vector2 position) {
         Vector2 dir = {d.x / len, d.y / len};
         Vector2 a = {center.x + dir.x * collarOut * 0.98f,
                      center.y + dir.y * collarOut * 0.98f};
-        Vector2 b = {nodePositions[i].x - dir.x * unitRadius * 1.05f,
-                     nodePositions[i].y - dir.y * unitRadius * 1.05f};
+        // Ends on the unit's socket rather than short of it, so the
+        // socket covers the joint the way the art is drawn to.
+        Vector2 b = {nodePositions[i].x - dir.x * unitRadius * 1.18f,
+                     nodePositions[i].y - dir.y * unitRadius * 1.18f};
         DrawConnectorArm(a, b, unitRadius * 0.30f, active);
     }
 
@@ -783,7 +792,8 @@ void Sect::DrawInSectView(Vector2 position) {
 
         DrawUnitDomeStation(nodePositions[i], unitRadius,
                             units[i]->GetUnitType(),
-                            units[i]->GetStatus() == "active");
+                            units[i]->GetStatus() == "active",
+                            center);
     }
 
     // Draw the transparent right panel
