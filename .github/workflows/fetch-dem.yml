@@ -1,0 +1,48 @@
+name: Fetch DEM data
+
+# Fetches high-resolution SLDEM2015 crops from the NASA PDS (the dev
+# containers cannot reach those hosts) and commits them back to the
+# branch that asked. Trigger: edit prototypes/planet_visuals/data/lola/
+# REQUEST and push, or dispatch manually.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'prototypes/planet_visuals/data/lola/REQUEST'
+      - 'tools/lunarmap/fetch_sldem.py'
+      - '.github/workflows/fetch-dem.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-dem-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GDAL
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gdal-bin python3-gdal python3-numpy
+
+      - name: Fetch requested DEM crops
+        run: python3 tools/lunarmap/fetch_sldem.py
+
+      - name: Commit results
+        run: |
+          git config user.name "fetch-dem workflow"
+          git config user.email "actions@github.com"
+          git add prototypes/planet_visuals/data/lola/
+          if git diff --cached --quiet; then
+            echo "nothing new to commit"
+            exit 0
+          fi
+          git commit -m "Add SLDEM2015 DEM crops from fetch-dem workflow"
+          git push

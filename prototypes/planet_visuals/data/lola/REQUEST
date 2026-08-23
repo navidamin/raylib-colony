@@ -1,0 +1,4 @@
+# Regional SLDEM2015 (59 m/px) crops fetched by .github/workflows/fetch-dem.yml
+# name  latDeg  lonDeg  spanDeg
+tycho    -43.30  -11.40  8.0
+imbrium   32.80  -15.60  6.0
