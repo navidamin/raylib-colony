@@ -530,7 +530,7 @@ static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
     // uniform bubble-wrap a constant occupancy produces.
     float cluster = 0.5f + 0.5f * DetailNoise(u, v, cellKm * 9.0,
                                               salt + 900u);
-    float occupancy = 0.12f + 0.45f * cluster * cluster;
+    float occupancy = 0.05f + 0.28f * cluster * cluster;
     float h = 0.0f;
     for (int dy = -1; dy <= 1; dy++)
     {
@@ -575,6 +575,42 @@ static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
     return h;
 }
 
+// Boulder contribution at (u, v): sparse hard positive bumps (rocks
+// half-buried in regolith), strongly clustered into fields. Returns
+// metres.
+static float DetailBoulders(double u, double v, double cellKm,
+                            uint32_t salt)
+{
+    int32_t cx = (int32_t)std::floor(u / cellKm);
+    int32_t cy = (int32_t)std::floor(v / cellKm);
+    // Boulder fields are patchy: most ground has none at all.
+    float cluster = 0.5f + 0.5f * DetailNoise(u, v, cellKm * 14.0,
+                                              salt + 700u);
+    float occupancy = 0.45f * cluster * cluster * cluster;
+    float h = 0.0f;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int32_t gx = cx + dx, gy = cy + dy;
+            if (DetailHash01(gx, gy, salt) > occupancy) continue;
+            double px = (gx + 0.1 + 0.8 * DetailHash01(gx, gy, salt + 1)) *
+                        cellKm;
+            double py = (gy + 0.1 + 0.8 * DetailHash01(gx, gy, salt + 2)) *
+                        cellKm;
+            double diamKm = cellKm * (0.10 + 0.22 *
+                                      DetailHash01(gx, gy, salt + 3));
+            double r = std::hypot(u - px, v - py) / (diamKm * 0.5);
+            if (r >= 2.0) continue;
+            // Height ~ a third of the diameter: a rock sitting in the
+            // regolith, not a spike.
+            float bumpM = (float)(diamKm * 1000.0) * 0.35f;
+            h += bumpM * std::exp(-(float)(r * r) * 1.8f);
+        }
+    }
+    return h;
+}
+
 // Total synthetic relief (metres) at one global point. `pixKm` bounds
 // the finest band (nothing under ~2 output pixels — it would alias),
 // `nativeKm` is the resolution floor of the real data underfoot (the
@@ -594,12 +630,32 @@ static float SynthesizeDetail(double u, double v, float pixKm,
             0.0, 1.0);
         if (fade > 0.0f)
         {
-            float amp = 7.0f * (float)wave;    // metres per km wavelength
-            float noise = amp * (0.6f + 0.4f * slopeBoost) *
-                          DetailNoise(u, v, wave, 0x51u + (uint32_t)level);
-            float craters = DetailCraters(u, v, wave,
-                                          0xC7A7E5u + (uint32_t)level * 7u);
-            total += fade * (noise + craters);
+            // Fractal regolith undulation.
+            float amp = 5.0f * (float)wave;    // metres per km wavelength
+            float band = amp * (0.6f + 0.4f * slopeBoost) *
+                         DetailNoise(u, v, wave, 0x51u + (uint32_t)level);
+            // Hummocky ground: half-rectified noise reads as soft
+            // mounds and rock lumps scattered on the plain, not as
+            // symmetric static.
+            float lumpN = DetailNoise(u, v, wave * 0.7,
+                                      0xB00Bu + (uint32_t)level);
+            band += 6.5f * (float)wave * std::max(0.0f, lumpN);
+            // Craters only above ~a 30-100 m floor — smaller ones read
+            // as noise speckle, not landforms.
+            if (wave >= 0.12)
+            {
+                band += DetailCraters(u, v, wave,
+                                      0xC7A7E5u + (uint32_t)level * 7u);
+            }
+            // Boulder fields take over in the finest bands — but only
+            // once a rock spans a few output pixels: smaller reads as
+            // pepper noise, not geology.
+            if (wave <= 0.07 && wave >= 30.0 * pixKm)
+            {
+                band += DetailBoulders(u, v, wave,
+                                       0x0B01DE5u + (uint32_t)level * 5u);
+            }
+            total += fade * band;
         }
         wave *= 0.5;
     }
