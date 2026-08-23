@@ -575,58 +575,6 @@ static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
     return h;
 }
 
-// Boulder contribution at (u, v): sparse hard positive bumps (rocks
-// half-buried in regolith), strongly clustered into fields. Returns
-// metres.
-static float DetailBoulders(double u, double v, double cellKm,
-                            uint32_t salt)
-{
-    int32_t cx = (int32_t)std::floor(u / cellKm);
-    int32_t cy = (int32_t)std::floor(v / cellKm);
-    // Boulder fields are patchy: most ground has none at all.
-    float cluster = 0.5f + 0.5f * DetailNoise(u, v, cellKm * 14.0,
-                                              salt + 700u);
-    float occupancy = 0.45f * cluster * cluster * cluster;
-    float h = 0.0f;
-    for (int dy = -1; dy <= 1; dy++)
-    {
-        for (int dx = -1; dx <= 1; dx++)
-        {
-            int32_t gx = cx + dx, gy = cy + dy;
-            if (DetailHash01(gx, gy, salt) > occupancy) continue;
-            double px = (gx + 0.1 + 0.8 * DetailHash01(gx, gy, salt + 1)) *
-                        cellKm;
-            double py = (gy + 0.1 + 0.8 * DetailHash01(gx, gy, salt + 2)) *
-                        cellKm;
-            double diamKm = cellKm * (0.10 + 0.38 *
-                                      DetailHash01(gx, gy, salt + 3));
-            double bx = u - px, by = v - py;
-            if (std::fabs(bx) + std::fabs(by) > diamKm * 2.0) continue;
-            // Irregular rock, not a dome: random elongation and
-            // orientation, and a lobed outline from two angular
-            // harmonics.
-            double theta = 6.2831853 * DetailHash01(gx, gy, salt + 6);
-            double ct = std::cos(theta), st = std::sin(theta);
-            double ax = (ct * bx + st * by) /
-                        (1.0 + 0.55 * DetailHash01(gx, gy, salt + 7));
-            double ay = -st * bx + ct * by;
-            double ang = std::atan2(ay, ax);
-            double lobes = 1.0
-                + 0.20 * std::sin(2.0 * ang +
-                                  6.2831853 * DetailHash01(gx, gy, salt + 8))
-                + 0.15 * std::sin(3.0 * ang +
-                                  6.2831853 * DetailHash01(gx, gy, salt + 9));
-            double r = std::hypot(ax, ay) / (diamKm * 0.5 * lobes);
-            if (r >= 2.0) continue;
-            // Height ~ a third of the diameter: a rock sitting in the
-            // regolith, not a spike.
-            float bumpM = (float)(diamKm * 1000.0) * 0.35f;
-            h += bumpM * std::exp(-(float)(r * r) * 1.8f);
-        }
-    }
-    return h;
-}
-
 // Total synthetic relief (metres) at one global point. `pixKm` bounds
 // the finest band (nothing under ~2 output pixels — it would alias),
 // `nativeKm` is the resolution floor of the real data underfoot (the
@@ -662,14 +610,6 @@ static float SynthesizeDetail(double u, double v, float pixKm,
             {
                 band += DetailCraters(u, v, wave,
                                       0xC7A7E5u + (uint32_t)level * 7u);
-            }
-            // Boulder fields take over in the finest bands — but only
-            // once a rock spans a few output pixels: smaller reads as
-            // pepper noise, not geology.
-            if (wave <= 0.07 && wave >= 30.0 * pixKm)
-            {
-                band += DetailBoulders(u, v, wave,
-                                       0x0B01DE5u + (uint32_t)level * 5u);
             }
             total += fade * band;
         }
