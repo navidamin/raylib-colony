@@ -645,7 +645,12 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     }
     else
     {
-        int res = (options.demRes > 0) ? options.demRes : 1024;
+        // The shading texture must OUT-resolve the frame: at 1024 the
+        // GPU stretched it ~1.2x onto a 1200 px screen and the normal
+        // differencing low-passed another 2x — a permanent soft-focus
+        // no interpolant could beat. 2048 puts both below one screen
+        // pixel.
+        int res = (options.demRes > 0) ? options.demRes : 2048;
         texRes = std::clamp(res, 64, 4096);
         scene.window = dem.Window(options.pickLat, options.pickLon,
                                   options.spanKm, texRes, options.detail);
