@@ -6,6 +6,10 @@ on:
     # TEMPORARY: the excavation branch deploys so the extraction sandbox can be
     # played on a phone before it merges. Remove this branch when it lands, or
     # every push to it replaces the live site.
+    #
+    # The whole site is replaced on every deploy, whichever branch ran last --
+    # so a later push on another branch takes /extraction/ down again until
+    # this branch deploys once more.
     branches: [main, master, claude/excavation-module-design-jhp3v1]
     paths:
       - 'src/**'
