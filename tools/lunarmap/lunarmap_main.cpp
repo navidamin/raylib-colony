@@ -1042,6 +1042,15 @@ int main(int argc, char** argv)
         CloseWindow();
         return 1;
     }
+    // High-resolution SLDEM2015 crops (fetched by the fetch-dem
+    // workflow) refine any window that lands on them.
+    {
+        std::string lolaDir = app.options.demPath.substr(
+            0, app.options.demPath.find_last_of("/\\"));
+        int n = app.dem.LoadOverlays(lolaDir);
+        if (n > 0) std::cerr << "lunar_map: " << n
+                             << " high-res overlay(s) active\n";
+    }
     if (!BuildScene(app.options, app.dem, app.scene))
     {
         CloseWindow();

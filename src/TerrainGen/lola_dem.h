@@ -48,6 +48,18 @@ public:
     // stderr) if the file is missing or not the expected layout.
     bool Load(const std::string& path);
 
+    // Scans a directory for high-resolution regional overlays fetched
+    // by the fetch-dem workflow (sldem_*_512.tif + .json sidecar with
+    // lat/lon bounds). Overlays refine ElevationM inside their bounds
+    // (feather-blended to the global DEM at the edges) and raise the
+    // resolution floor windows synthesize below. Returns how many
+    // loaded.
+    int LoadOverlays(const std::string& dir);
+
+    // Finest data resolution (km per DEM pixel) available at a point:
+    // the overlay's if one covers it, the global grid's otherwise.
+    double NativeKmAt(double latDeg, double lonDeg) const;
+
     bool IsLoaded() const { return width > 0; }
     int Width() const { return width; }
     int Height() const { return height; }
@@ -77,15 +89,32 @@ public:
                              int outW, int outH) const;
 
 private:
+    struct DemOverlay
+    {
+        int width = 0;
+        int height = 0;
+        std::vector<uint16_t> raw;
+        double lat0 = 0.0, lat1 = 0.0;    // south, north (degrees)
+        double lon0 = 0.0, lon1 = 0.0;    // west, east (-180..180)
+    };
+
     float Decode(uint16_t raw) const
     {
         return (float)raw * 0.5f - 10000.0f;
     }
     float Sample(int x, int y) const;    // decoded, wrapped/clamped
+    float GlobalElevationM(double latDeg, double lonDeg) const;
+    // Overlay covering the point, and its bilinear sample + edge
+    // feather weight (0 at the boundary, 1 well inside).
+    const DemOverlay* OverlayFor(double latDeg, double lonDeg,
+                                 float* feather) const;
+    static float OverlaySample(const DemOverlay& ov, double latDeg,
+                               double lonDeg);
 
     int width = 0;
     int height = 0;
     std::vector<uint16_t> raw;
+    std::vector<DemOverlay> overlays;
 };
 
 #endif // LOLA_DEM_H

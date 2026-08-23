@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 
 // MSVC does not expose M_PI without _USE_MATH_DEFINES; carry our own.
@@ -65,17 +67,13 @@ uint32_t ReadArrayValue(const std::vector<uint8_t>& file,
 
 }    // namespace
 
-bool LolaDem::Load(const std::string& path)
+// Parse a little-endian, uncompressed, strip-organised 16-bit TIFF
+// into a raster. Shared by the global DEM and the overlay crops.
+static bool ParseTiffU16(const std::string& path, int& outW, int& outH,
+                         std::vector<uint16_t>& outRaw)
 {
     std::ifstream in(path, std::ios::binary);
-    if (!in)
-    {
-        std::fprintf(stderr,
-                     "LolaDem: %s missing — run the fetch-dem workflow "
-                     "(push a change to data/lola/REQUEST) and pull.\n",
-                     path.c_str());
-        return false;
-    }
+    if (!in) return false;
     std::vector<uint8_t> file((std::istreambuf_iterator<char>(in)),
                               std::istreambuf_iterator<char>());
     if (file.size() < 8 || file[0] != 'I' || file[1] != 'I' ||
@@ -95,6 +93,7 @@ bool LolaDem::Load(const std::string& path)
     uint16_t entryCount = ReadU16(file.data() + ifdOffset);
 
     TiffEntry stripOffsets, stripCounts;
+    int width = 0, height = 0;
     uint32_t bits = 0, compression = 1, samplesPerPixel = 1, rowsPerStrip = 0;
     for (uint16_t i = 0; i < entryCount; i++)
     {
@@ -126,12 +125,11 @@ bool LolaDem::Load(const std::string& path)
                      "spp=%u %dx%d)\n",
                      path.c_str(), bits, compression, samplesPerPixel,
                      width, height);
-        width = height = 0;
         return false;
     }
     if (rowsPerStrip == 0) rowsPerStrip = (uint32_t)height;
 
-    raw.assign((size_t)width * height, 0);
+    outRaw.assign((size_t)width * height, 0);
     uint32_t row = 0;
     for (uint32_t s = 0; s < stripOffsets.count && row < (uint32_t)height; s++)
     {
@@ -143,18 +141,138 @@ bool LolaDem::Load(const std::string& path)
         {
             std::fprintf(stderr, "LolaDem: truncated strip %u in %s\n",
                          s, path.c_str());
-            width = height = 0;
             return false;
         }
         const uint8_t* src = file.data() + offset;
-        uint16_t* dst = raw.data() + (size_t)row * width;
+        uint16_t* dst = outRaw.data() + (size_t)row * width;
         for (uint32_t k = 0; k < rows * (uint32_t)width; k++)
         {
             dst[k] = ReadU16(src + 2 * k);
         }
         row += rows;
     }
+    outW = width;
+    outH = height;
     return true;
+}
+
+bool LolaDem::Load(const std::string& path)
+{
+    if (!ParseTiffU16(path, width, height, raw))
+    {
+        std::fprintf(stderr,
+                     "LolaDem: %s missing or unreadable — run the fetch-dem "
+                     "workflow (push a change to data/lola/REQUEST) and "
+                     "pull.\n", path.c_str());
+        width = height = 0;
+        return false;
+    }
+    return true;
+}
+
+// Pull one numeric field out of a sidecar JSON without a JSON library:
+// the sidecars are machine-written, flat, and tiny.
+static bool JsonNumber(const std::string& text, const char* key,
+                       double* out)
+{
+    std::string needle = std::string("\"") + key + "\":";
+    size_t p = text.find(needle);
+    if (p == std::string::npos) return false;
+    *out = std::atof(text.c_str() + p + needle.size());
+    return true;
+}
+
+int LolaDem::LoadOverlays(const std::string& dir)
+{
+    int loaded = 0;
+    // The fetch-dem naming convention is fixed; scan for the sidecars
+    // by trying REQUEST-style names is fragile, so instead read the
+    // directory (C++17).
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
+    {
+        std::string path = entry.path().string();
+        size_t n = path.size();
+        if (n < 5 || path.compare(n - 5, 5, ".json") != 0) continue;
+        std::string base = entry.path().filename().string();
+        if (base.rfind("sldem_", 0) != 0) continue;
+
+        std::ifstream jin(path);
+        if (!jin) continue;
+        std::string text((std::istreambuf_iterator<char>(jin)),
+                         std::istreambuf_iterator<char>());
+        DemOverlay ov;
+        if (!JsonNumber(text, "lat0", &ov.lat0) ||
+            !JsonNumber(text, "lat1", &ov.lat1) ||
+            !JsonNumber(text, "lon0", &ov.lon0) ||
+            !JsonNumber(text, "lon1", &ov.lon1))
+        {
+            std::fprintf(stderr, "LolaDem: %s missing bounds, skipped\n",
+                         path.c_str());
+            continue;
+        }
+        std::string tif = path.substr(0, n - 5) + ".tif";
+        if (!ParseTiffU16(tif, ov.width, ov.height, ov.raw)) continue;
+        std::fprintf(stderr,
+                     "LolaDem: overlay %s %dx%d (%.2f..%.2f, %.2f..%.2f)\n",
+                     base.c_str(), ov.width, ov.height,
+                     ov.lat0, ov.lat1, ov.lon0, ov.lon1);
+        overlays.push_back(std::move(ov));
+        loaded++;
+    }
+    return loaded;
+}
+
+float LolaDem::OverlaySample(const DemOverlay& ov, double latDeg,
+                             double lonDeg)
+{
+    double x = (lonDeg - ov.lon0) / (ov.lon1 - ov.lon0) * ov.width - 0.5;
+    double y = (ov.lat1 - latDeg) / (ov.lat1 - ov.lat0) * ov.height - 0.5;
+    int x0 = std::clamp((int)std::floor(x), 0, ov.width - 2);
+    int y0 = std::clamp((int)std::floor(y), 0, ov.height - 2);
+    float fx = std::clamp((float)(x - x0), 0.0f, 1.0f);
+    float fy = std::clamp((float)(y - y0), 0.0f, 1.0f);
+    const uint16_t* r = ov.raw.data();
+    auto dec = [](uint16_t v) { return (float)v * 0.5f - 10000.0f; };
+    float q00 = dec(r[(size_t)y0 * ov.width + x0]);
+    float q10 = dec(r[(size_t)y0 * ov.width + x0 + 1]);
+    float q01 = dec(r[(size_t)(y0 + 1) * ov.width + x0]);
+    float q11 = dec(r[(size_t)(y0 + 1) * ov.width + x0 + 1]);
+    float top = q00 * (1.0f - fx) + q10 * fx;
+    float bot = q01 * (1.0f - fx) + q11 * fx;
+    return top * (1.0f - fy) + bot * fy;
+}
+
+const LolaDem::DemOverlay* LolaDem::OverlayFor(double latDeg, double lonDeg,
+                                               float* feather) const
+{
+    const double FEATHER_DEG = 0.12;    // blend band inside the boundary
+    for (const DemOverlay& ov : overlays)
+    {
+        if (latDeg < ov.lat0 || latDeg > ov.lat1 ||
+            lonDeg < ov.lon0 || lonDeg > ov.lon1) continue;
+        double edge = std::min(
+            std::min(latDeg - ov.lat0, ov.lat1 - latDeg),
+            std::min(lonDeg - ov.lon0, ov.lon1 - lonDeg));
+        if (feather)
+        {
+            *feather = (float)std::clamp(edge / FEATHER_DEG, 0.0, 1.0);
+        }
+        return &ov;
+    }
+    if (feather) *feather = 0.0f;
+    return nullptr;
+}
+
+double LolaDem::NativeKmAt(double latDeg, double lonDeg) const
+{
+    const DemOverlay* ov = OverlayFor(latDeg, lonDeg, nullptr);
+    if (ov != nullptr)
+    {
+        double ppd = ov->height / (ov->lat1 - ov->lat0);
+        return LOLA_M_PER_DEG / ppd / 1000.0;
+    }
+    return LOLA_M_PER_DEG / (width / 360.0) / 1000.0;
 }
 
 float LolaDem::Sample(int x, int y) const
@@ -165,7 +283,7 @@ float LolaDem::Sample(int x, int y) const
     return Decode(raw[(size_t)y * width + x]);
 }
 
-float LolaDem::ElevationM(double latDeg, double lonDeg) const
+float LolaDem::GlobalElevationM(double latDeg, double lonDeg) const
 {
     double x = (lonDeg + 180.0) / 360.0 * width;
     double y = (90.0 - latDeg) / 180.0 * height;
@@ -178,6 +296,18 @@ float LolaDem::ElevationM(double latDeg, double lonDeg) const
     float top = q00 * (1.0f - fx) + q10 * fx;
     float bot = q01 * (1.0f - fx) + q11 * fx;
     return top * (1.0f - fy) + bot * fy;
+}
+
+float LolaDem::ElevationM(double latDeg, double lonDeg) const
+{
+    float feather = 0.0f;
+    const DemOverlay* ov = OverlayFor(latDeg, lonDeg, &feather);
+    float global = GlobalElevationM(latDeg, lonDeg);
+    if (ov == nullptr || feather <= 0.0f) return global;
+    float fine = OverlaySample(*ov, latDeg, lonDeg);
+    // Feather to the global DEM at the overlay boundary — a hard edge
+    // would shade as a cliff.
+    return global + (fine - global) * feather;
 }
 
 // Bilinear resample of a float field (w x h) to (outW x outH).
@@ -358,8 +488,6 @@ LolaWindow LolaDem::WindowDegrees(double lat0, double lat1,
 // landforms stay the backbone and are never displaced, only textured.
 // ---------------------------------------------------------------------------
 
-static const double LOLA_NATIVE_KM = 1.895;   // DEM pixel at the equator
-
 static uint32_t DetailHash(int32_t x, int32_t y, uint32_t salt)
 {
     uint32_t h = (uint32_t)x * 0x8da6b343u ^ (uint32_t)y * 0xd8163841u ^
@@ -436,17 +564,20 @@ static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
 
 // Total synthetic relief (metres) at one global point. `pixKm` bounds
 // the finest band (nothing under ~2 output pixels — it would alias),
+// `nativeKm` is the resolution floor of the real data underfoot (the
+// synthesis only fades in below what that data resolves), and
 // `slopeBoost` roughens crater walls relative to maria.
 static float SynthesizeDetail(double u, double v, float pixKm,
-                              float strength, float slopeBoost)
+                              float nativeKm, float strength,
+                              float slopeBoost)
 {
     float total = 0.0f;
-    double wave = LOLA_NATIVE_KM * 4.0;    // fade-in starts here
-    for (int level = 0; level < 12 && wave >= 2.0 * pixKm; level++)
+    double wave = nativeKm * 4.0;          // fade-in starts here
+    for (int level = 0; level < 16 && wave >= 2.0 * pixKm; level++)
     {
         // 0 where the DEM already resolves this wavelength, 1 below it.
         float fade = (float)std::clamp(
-            (LOLA_NATIVE_KM * 4.0 - wave) / (LOLA_NATIVE_KM * 3.0),
+            (nativeKm * 4.0 - wave) / (nativeKm * 3.0),
             0.0, 1.0);
         if (fade > 0.0f)
         {
@@ -529,10 +660,15 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     }
 
     // Anti-lattice smoothing, matched to how far the output oversamples
-    // the DEM's native spacing (per axis: columns shrink with cos lat).
+    // the native spacing of the finest data covering the window centre
+    // (per axis: global-DEM columns shrink with cos lat; the overlay
+    // crops are near-square already).
     double outKm = spanKm / res;
-    double nativeYKm = LOLA_M_PER_DEG / (width / 360.0) / 1000.0;
-    double nativeXKm = nativeYKm * std::max(0.05, std::cos(lat0));
+    double nativeYKm = NativeKmAt(latDeg, lonDeg);
+    bool onOverlay = OverlayFor(latDeg, lonDeg, nullptr) != nullptr;
+    double nativeXKm = onOverlay
+        ? nativeYKm
+        : nativeYKm * std::max(0.05, std::cos(lat0));
     float upX = (float)(nativeXKm / outKm);
     float upY = (float)(nativeYKm / outKm);
     GaussianBlur(out.elevationM, res, res,
@@ -566,7 +702,8 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
                 float slopeBoost = (float)std::min(
                     1.0, std::hypot(sgx, sgy) / 0.14);
                 detail[k] = SynthesizeDetail(
-                    gu[k], gv[k], pixKm, detailStrength, slopeBoost);
+                    gu[k], gv[k], pixKm, (float)nativeYKm,
+                    detailStrength, slopeBoost);
             }
         }
         for (size_t k = 0; k < detail.size(); k++)
