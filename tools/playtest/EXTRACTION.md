@@ -63,6 +63,20 @@ Five specific things to judge:
 5. **Does the pit advance?** At ×20, worked-out spots should visibly drain and
    the operation should move to a fresh face on its own.
 
+## Diagnosing "the mouse hits the wrong place" on the web
+
+A magenta crosshair marks where the *game* thinks the cursor is, with a
+readout of `screen` and `render` size along the bottom. **F9** toggles it.
+Load the page with `?debug=1` to add the shell's own view in the top-left
+badge: the raw page coordinates, the position relative to the canvas, and
+the coordinates emscripten should be handing the game.
+
+If the crosshair sits under the real pointer, input is fine and the problem
+is in a panel's hit-testing. If it sits away from it, compare the badge's
+`expect=` against the crosshair's `game sees` — the ratio between them names
+the layer that is wrong (see `docs/web-deploy-mobile.md` for the three
+canvas sizes involved).
+
 ## What this sandbox is not
 
 There is no sect, so energy is supplied on a trickle with a cap. That is

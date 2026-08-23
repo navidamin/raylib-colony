@@ -128,7 +128,29 @@
                                       + Math.round(window.visualViewport.height)
                                       + '@' + Math.round(window.visualViewport.offsetTop)
                                     : 'none')
-                        + ' dpr=' + window.devicePixelRatio;
+                        + ' dpr=' + window.devicePixelRatio
+                        + (pointerLine ? '\n' + pointerLine : '');
+                }
+
+                // Live pointer mapping. The game is reported to receive
+                // (page - rect.topLeft) * framebuffer/rect -- which is the
+                // arithmetic emscripten does before handing coordinates to
+                // raylib. Showing all three lets a screenshot say whether the
+                // game's idea of the cursor matches the real one, and if not,
+                // by exactly what factor.
+                var pointerLine = '';
+                function trackPointer(e)
+                {
+                    var c = document.getElementById('canvas');
+                    if (!c) return;
+                    var r = c.getBoundingClientRect();
+                    var relX = e.pageX - (window.scrollX + r.left);
+                    var relY = e.pageY - (window.scrollY + r.top);
+                    pointerLine = 'page=' + Math.round(e.pageX) + ',' + Math.round(e.pageY)
+                        + ' rel=' + Math.round(relX) + ',' + Math.round(relY)
+                        + ' expect=' + Math.round(relX * (c.width / r.width)) + ','
+                                     + Math.round(relY * (c.height / r.height));
+                    updateDebug(c);
                 }
 
                 // The game renders a fixed-size framebuffer; resize plumbing
@@ -170,6 +192,12 @@
                     {
                         c.style.setProperty('height', h, 'important');
                     }
+                }
+
+                if (debugEnabled)
+                {
+                    window.addEventListener('mousemove', trackPointer);
+                    if (debugEl) debugEl.style.whiteSpace = 'pre';
                 }
 
                 window.addEventListener('resize', fitCanvas);

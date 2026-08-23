@@ -60,6 +60,7 @@ struct Ctx
     int speed = 1;
     const char* shotPath = nullptr;
     bool done = false;
+    bool showPointer = true;
 };
 
 static int FindModule(Unit& unit, const std::string& type)
@@ -186,6 +187,8 @@ static void UpdateDrawFrame(void* arg)
     bool wantSurvey = IsKeyPressed(KEY_S);
     bool wantReset = IsKeyPressed(KEY_R);
 
+    if (IsKeyPressed(KEY_F9)) ctx.showPointer = !ctx.showPointer;
+
     if (IsKeyPressed(KEY_ONE)) ctx.speed = 1;
     if (IsKeyPressed(KEY_TWO)) ctx.speed = 5;
     if (IsKeyPressed(KEY_THREE)) ctx.speed = 20;
@@ -212,6 +215,26 @@ static void UpdateDrawFrame(void* arg)
     if (s3) ctx.speed = 20;
 
     wantReset |= Chip({bx + 358.0f, by, 60.0f, 28.0f}, "RESET", {255, 200, 80, 255}, false);
+
+    // Where the game believes the cursor is. On the web the canvas is CSS-
+    // scaled to fit the viewport while the framebuffer stays fixed, so a
+    // coordinate bug anywhere in that chain shows up as this crosshair
+    // sitting away from the real pointer -- which is otherwise invisible,
+    // since the game draws no cursor of its own. F9 hides it.
+    if (ctx.showPointer)
+    {
+        Vector2 mouse = GetMousePosition();
+        Color probe = {255, 60, 200, 255};
+        DrawLineEx({mouse.x - 14.0f, mouse.y}, {mouse.x + 14.0f, mouse.y}, 1.0f, probe);
+        DrawLineEx({mouse.x, mouse.y - 14.0f}, {mouse.x, mouse.y + 14.0f}, 1.0f, probe);
+        DrawCircleLines(static_cast<int>(mouse.x), static_cast<int>(mouse.y), 5.0f, probe);
+
+        const char* readout = TextFormat("game sees %d,%d   screen %dx%d   render %dx%d",
+                                         static_cast<int>(mouse.x), static_cast<int>(mouse.y),
+                                         GetScreenWidth(), GetScreenHeight(),
+                                         GetRenderWidth(), GetRenderHeight());
+        DrawText(readout, 8, GetScreenHeight() - 18, 12, probe);
+    }
 
     EndDrawing();
     ctx.frame++;
