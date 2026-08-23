@@ -110,6 +110,7 @@ private:
                                  float* feather) const;
     static float OverlaySample(const DemOverlay& ov, double latDeg,
                                double lonDeg);
+    static void DestripeOverlay(DemOverlay& ov);
 
     int width = 0;
     int height = 0;

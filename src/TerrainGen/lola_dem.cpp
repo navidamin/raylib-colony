@@ -13,6 +13,21 @@
 // MSVC does not expose M_PI without _USE_MATH_DEFINES; carry our own.
 static const double LOLA_PI = 3.14159265358979323846;
 
+// Catmull-Rom: a smooth curve through the four samples around the
+// interval between p1 and p2. Unlike a linear ramp its slope varies
+// continuously, so upsampled windows need no anti-lattice blur — the
+// single biggest source of the out-of-focus look bilinear had.
+static float CatmullRom(float p0, float p1, float p2, float p3, float t)
+{
+    float t2 = t * t;
+    float t3 = t2 * t;
+    return 0.5f * ((2.0f * p1) +
+                   (-p0 + p2) * t +
+                   (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2 +
+                   (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
+}
+
+
 // ---------------------------------------------------------------------------
 // Minimal TIFF reader
 //
@@ -182,6 +197,87 @@ static bool JsonNumber(const std::string& text, const char* key,
     return true;
 }
 
+// Remove SLDEM2015's coherent along-track striping (Kaguya TC seams):
+// a stripe is a whole column (or row) offset by a fraction of a metre
+// to a few metres. Averaging each line over the full crop isolates
+// that offset from real terrain (which averages out over thousands of
+// samples); subtracting the high-pass of the line means kills the
+// stripes while leaving genuine regional slope untouched. Runs once at
+// load, in half-metre integer units.
+static void DestripeLines(std::vector<double>& mean, int n)
+{
+    // High-pass: line mean minus a ~31-sample smoothed version.
+    std::vector<double> smooth(n);
+    const int r = 15;
+    for (int i = 0; i < n; i++)
+    {
+        double acc = 0.0;
+        int cnt = 0;
+        for (int k = -r; k <= r; k++)
+        {
+            int idx = std::clamp(i + k, 0, n - 1);
+            acc += mean[idx];
+            cnt++;
+        }
+        smooth[i] = acc / cnt;
+    }
+    for (int i = 0; i < n; i++) mean[i] -= smooth[i];
+}
+
+void LolaDem::DestripeOverlay(DemOverlay& ov)
+{
+    int w = ov.width, h = ov.height;
+    // 3x3 median despeckle at NATIVE resolution first: SLDEM carries
+    // per-pixel stereo-correlation noise (Kaguya TC matching), which a
+    // slope-continuous upsample faithfully magnifies into rectilinear
+    // crunch. A median kills single-pixel outliers but keeps edges —
+    // unlike blurring after the upsample, which smeared everything.
+    {
+        std::vector<uint16_t> src = ov.raw;
+        for (int y = 0; y < h; y++)
+        {
+            int ym = std::max(0, y - 1), yp = std::min(h - 1, y + 1);
+            for (int x = 0; x < w; x++)
+            {
+                int xm = std::max(0, x - 1), xp = std::min(w - 1, x + 1);
+                uint16_t v[9] = {
+                    src[(size_t)ym * w + xm], src[(size_t)ym * w + x],
+                    src[(size_t)ym * w + xp], src[(size_t)y * w + xm],
+                    src[(size_t)y * w + x],   src[(size_t)y * w + xp],
+                    src[(size_t)yp * w + xm], src[(size_t)yp * w + x],
+                    src[(size_t)yp * w + xp] };
+                std::nth_element(v, v + 4, v + 9);
+                ov.raw[(size_t)y * w + x] = v[4];
+            }
+        }
+    }
+    std::vector<double> colMean(w, 0.0), rowMean(h, 0.0);
+    for (int y = 0; y < h; y++)
+    {
+        const uint16_t* row = ov.raw.data() + (size_t)y * w;
+        double acc = 0.0;
+        for (int x = 0; x < w; x++)
+        {
+            acc += row[x];
+            colMean[x] += row[x];
+        }
+        rowMean[y] = acc / w;
+    }
+    for (int x = 0; x < w; x++) colMean[x] /= h;
+    DestripeLines(colMean, w);
+    DestripeLines(rowMean, h);
+    for (int y = 0; y < h; y++)
+    {
+        uint16_t* row = ov.raw.data() + (size_t)y * w;
+        for (int x = 0; x < w; x++)
+        {
+            double v = row[x] - colMean[x] - rowMean[y];
+            row[x] = (uint16_t)std::clamp(v + 0.5, 0.0, 65535.0);
+        }
+    }
+}
+
+
 int LolaDem::LoadOverlays(const std::string& dir)
 {
     int loaded = 0;
@@ -213,6 +309,7 @@ int LolaDem::LoadOverlays(const std::string& dir)
         }
         std::string tif = path.substr(0, n - 5) + ".tif";
         if (!ParseTiffU16(tif, ov.width, ov.height, ov.raw)) continue;
+        DestripeOverlay(ov);
         std::fprintf(stderr,
                      "LolaDem: overlay %s %dx%d (%.2f..%.2f, %.2f..%.2f)\n",
                      base.c_str(), ov.width, ov.height,
@@ -228,19 +325,25 @@ float LolaDem::OverlaySample(const DemOverlay& ov, double latDeg,
 {
     double x = (lonDeg - ov.lon0) / (ov.lon1 - ov.lon0) * ov.width - 0.5;
     double y = (ov.lat1 - latDeg) / (ov.lat1 - ov.lat0) * ov.height - 0.5;
-    int x0 = std::clamp((int)std::floor(x), 0, ov.width - 2);
-    int y0 = std::clamp((int)std::floor(y), 0, ov.height - 2);
-    float fx = std::clamp((float)(x - x0), 0.0f, 1.0f);
-    float fy = std::clamp((float)(y - y0), 0.0f, 1.0f);
+    int x1 = (int)std::floor(x);
+    int y1 = (int)std::floor(y);
+    float fx = std::clamp((float)(x - x1), 0.0f, 1.0f);
+    float fy = std::clamp((float)(y - y1), 0.0f, 1.0f);
     const uint16_t* r = ov.raw.data();
-    auto dec = [](uint16_t v) { return (float)v * 0.5f - 10000.0f; };
-    float q00 = dec(r[(size_t)y0 * ov.width + x0]);
-    float q10 = dec(r[(size_t)y0 * ov.width + x0 + 1]);
-    float q01 = dec(r[(size_t)(y0 + 1) * ov.width + x0]);
-    float q11 = dec(r[(size_t)(y0 + 1) * ov.width + x0 + 1]);
-    float top = q00 * (1.0f - fx) + q10 * fx;
-    float bot = q01 * (1.0f - fx) + q11 * fx;
-    return top * (1.0f - fy) + bot * fy;
+    auto dec = [&](int xx, int yy)
+    {
+        xx = std::clamp(xx, 0, ov.width - 1);
+        yy = std::clamp(yy, 0, ov.height - 1);
+        return (float)r[(size_t)yy * ov.width + xx] * 0.5f - 10000.0f;
+    };
+    float rows[4];
+    for (int j = 0; j < 4; j++)
+    {
+        int yy = y1 - 1 + j;
+        rows[j] = CatmullRom(dec(x1 - 1, yy), dec(x1, yy),
+                             dec(x1 + 1, yy), dec(x1 + 2, yy), fx);
+    }
+    return CatmullRom(rows[0], rows[1], rows[2], rows[3], fy);
 }
 
 const LolaDem::DemOverlay* LolaDem::OverlayFor(double latDeg, double lonDeg,
@@ -285,17 +388,20 @@ float LolaDem::Sample(int x, int y) const
 
 float LolaDem::GlobalElevationM(double latDeg, double lonDeg) const
 {
-    double x = (lonDeg + 180.0) / 360.0 * width;
-    double y = (90.0 - latDeg) / 180.0 * height;
-    int x0 = (int)std::floor(x);
-    int y0 = (int)std::floor(y);
-    float fx = (float)(x - x0);
-    float fy = (float)(y - y0);
-    float q00 = Sample(x0, y0), q10 = Sample(x0 + 1, y0);
-    float q01 = Sample(x0, y0 + 1), q11 = Sample(x0 + 1, y0 + 1);
-    float top = q00 * (1.0f - fx) + q10 * fx;
-    float bot = q01 * (1.0f - fx) + q11 * fx;
-    return top * (1.0f - fy) + bot * fy;
+    double x = (lonDeg + 180.0) / 360.0 * width - 0.5;
+    double y = (90.0 - latDeg) / 180.0 * height - 0.5;
+    int x1 = (int)std::floor(x);
+    int y1 = (int)std::floor(y);
+    float fx = (float)(x - x1);
+    float fy = (float)(y - y1);
+    float rows[4];
+    for (int j = 0; j < 4; j++)
+    {
+        int yy = y1 - 1 + j;
+        rows[j] = CatmullRom(Sample(x1 - 1, yy), Sample(x1, yy),
+                             Sample(x1 + 1, yy), Sample(x1 + 2, yy), fx);
+    }
+    return CatmullRom(rows[0], rows[1], rows[2], rows[3], fy);
 }
 
 float LolaDem::ElevationM(double latDeg, double lonDeg) const
@@ -715,27 +821,10 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     double nativeYKm = onOverlay
         ? NativeKmAt(latDeg, lonDeg)
         : LOLA_M_PER_DEG / (width / 360.0) / 1000.0;
-    double nativeXKm = onOverlay ? nativeYKm : nativeYKm * cLat;
-    float upX = (float)(nativeXKm / outKm);
-    float upY = (float)(nativeYKm / outKm);
-    GaussianBlur(out.elevationM, res, res,
-                 (upX > 1.5f) ? 0.6f * upX : 0.0f,
-                 (upY > 1.5f) ? 0.6f * upY : 0.0f);
 
-    // Unsharp mask: the bilinear upsample + anti-lattice blur smear
-    // even the contrast the data genuinely resolves, which reads as an
-    // out-of-focus photo. Amplify the band just above the native scale
-    // back up (this sharpens real landforms only — nothing invented).
-    float upMax = std::max(upX, upY);
-    if (upMax > 1.5f)
-    {
-        std::vector<float> low = out.elevationM;
-        GaussianBlur(low, res, res, 1.3f * upMax, 1.3f * upMax);
-        for (size_t k = 0; k < out.elevationM.size(); k++)
-        {
-            out.elevationM[k] += 0.7f * (out.elevationM[k] - low[k]);
-        }
-    }
+    // No smoothing pass and no unsharp compensation: the Catmull-Rom
+    // sampler is slope-continuous, so an upsampled window has no
+    // interpolation lattice to hide — and nothing gets blurred.
 
     // Synthesize sub-floor detail on top of the (smoothed) real ground.
     // Runs after the blur so it is not smoothed away; the real slope of
