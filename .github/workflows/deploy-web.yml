@@ -3,9 +3,14 @@ name: Deploy to GitHub Pages
 on:
   workflow_dispatch:
   push:
-    # lunar-elevation branch added temporarily so the /lunarmap/ playtest
-    # can deploy before merge (the github-pages environment allows it).
-    branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj]
+    # PAUSED: this branch was listed so the /lunarmap/ playtest could be
+    # opened on a phone before merge. The excavation branch needs the site
+    # for its own sandbox, and one repo has one Pages site -- with both
+    # branches listed, whichever pushed last cancelled the other's build
+    # (concurrency group "pages", cancel-in-progress). Nothing else this
+    # branch does depends on Pages. Put it back when the site is free:
+    #   branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj]
+    branches: [main, master]
     paths:
       - 'src/**'
       - 'tools/**'
