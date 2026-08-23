@@ -58,8 +58,16 @@ public:
     // Resample a window square in km (lon span widened by 1/cos(lat))
     // to res x res. Slope is computed at the DEM's native resolution,
     // then resampled — resampling first would flatten it.
+    //
+    // detailStrength > 0 synthesizes surface detail below the DEM's
+    // ~1.9 km/px floor: a fractal regolith spectrum plus a scattered
+    // small-crater population, deterministic per location (anchored to
+    // global coordinates, so the same ground regenerates identically
+    // whatever the window framing). The real LOLA landforms stay the
+    // backbone; synthesis only fades in at wavelengths the data cannot
+    // resolve. 1.0 is the calibrated look, 0 disables.
     LolaWindow Window(double latDeg, double lonDeg, double spanKm,
-                      int res) const;
+                      int res, float detailStrength = 0.0f) const;
 
     // Resample an explicit lat/lon rectangle (degrees) to outW x outH.
     // Used for the full near side (lat -90..90, lon -90..90), where a

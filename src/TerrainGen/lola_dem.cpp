@@ -8,6 +8,9 @@
 #include <cstring>
 #include <fstream>
 
+// MSVC does not expose M_PI without _USE_MATH_DEFINES; carry our own.
+static const double LOLA_PI = 3.14159265358979323846;
+
 // ---------------------------------------------------------------------------
 // Minimal TIFF reader
 //
@@ -298,7 +301,7 @@ LolaWindow LolaDem::WindowDegrees(double lat0, double lat1,
 
     // Physical pixel sizes at the window's centre latitude.
     double midLat = (lat0 + lat1) / 2.0;
-    double c = std::max(0.2, std::cos(midLat * M_PI / 180.0));
+    double c = std::max(0.2, std::cos(midLat * LOLA_PI / 180.0));
     double pxPerDeg = width / 360.0;
     double dyM = LOLA_M_PER_DEG / pxPerDeg;
     double dxM = dyM * c;
@@ -317,7 +320,7 @@ LolaWindow LolaDem::WindowDegrees(double lat0, double lat1,
             double gy = (elev[(size_t)yp * cw + x] - elev[(size_t)ym * cw + x]) / sy;
             double gx = (elev[(size_t)y * cw + xp] - elev[(size_t)y * cw + xm]) / sx;
             slope[(size_t)y * cw + x] =
-                (float)(std::atan(std::hypot(gx, gy)) * 180.0 / M_PI);
+                (float)(std::atan(std::hypot(gx, gy)) * 180.0 / LOLA_PI);
         }
     }
 
@@ -341,12 +344,130 @@ LolaWindow LolaDem::WindowDegrees(double lat0, double lat1,
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// Detail synthesis below the DEM floor
+//
+// LDEM_16 resolves nothing under ~1.9 km/px, so zoomed windows come out
+// soft. Below that floor we synthesize plausible lunar ground: a
+// fractal regolith spectrum plus a scattered small-crater population
+// (power-law sizes, parabolic bowls with raised rims). Everything is a
+// pure function of global coordinates — quantized lattice cells in a
+// km-scaled lat/lon frame — so the same location regenerates the same
+// ground for any window centre, span or resolution. Amplitude fades to
+// zero at wavelengths the real data already carries; the LOLA
+// landforms stay the backbone and are never displaced, only textured.
+// ---------------------------------------------------------------------------
+
+static const double LOLA_NATIVE_KM = 1.895;   // DEM pixel at the equator
+
+static uint32_t DetailHash(int32_t x, int32_t y, uint32_t salt)
+{
+    uint32_t h = (uint32_t)x * 0x8da6b343u ^ (uint32_t)y * 0xd8163841u ^
+                 salt * 0xcb1ab31fu;
+    h ^= h >> 13; h *= 0x9e3779b1u; h ^= h >> 16;
+    return h;
+}
+
+static float DetailHash01(int32_t x, int32_t y, uint32_t salt)
+{
+    return (float)(DetailHash(x, y, salt) & 0xFFFFFF) / 16777215.0f;
+}
+
+// Single-octave value noise on a lattice of `waveKm`, smoothstepped.
+static float DetailNoise(double u, double v, double waveKm, uint32_t salt)
+{
+    double gu = u / waveKm, gv = v / waveKm;
+    int32_t x0 = (int32_t)std::floor(gu), y0 = (int32_t)std::floor(gv);
+    float fx = (float)(gu - x0), fy = (float)(gv - y0);
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fy = fy * fy * (3.0f - 2.0f * fy);
+    float n00 = DetailHash01(x0, y0, salt);
+    float n10 = DetailHash01(x0 + 1, y0, salt);
+    float n01 = DetailHash01(x0, y0 + 1, salt);
+    float n11 = DetailHash01(x0 + 1, y0 + 1, salt);
+    float top = n00 + (n10 - n00) * fx;
+    float bot = n01 + (n11 - n01) * fx;
+    return (top + (bot - top) * fy) * 2.0f - 1.0f;    // -1..1
+}
+
+// Crater contribution at (u, v) from the jittered-grid population of
+// one size band (cells of `cellKm`). Degraded bowls: parabolic floor,
+// gaussian rim. Returns metres.
+static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
+{
+    int32_t cx = (int32_t)std::floor(u / cellKm);
+    int32_t cy = (int32_t)std::floor(v / cellKm);
+    // Crater fields cluster: a slow density modulation keeps some
+    // patches busy and leaves others nearly clean, instead of the
+    // uniform bubble-wrap a constant occupancy produces.
+    float cluster = 0.5f + 0.5f * DetailNoise(u, v, cellKm * 9.0,
+                                              salt + 900u);
+    float occupancy = 0.12f + 0.45f * cluster * cluster;
+    float h = 0.0f;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int32_t gx = cx + dx, gy = cy + dy;
+            if (DetailHash01(gx, gy, salt) > occupancy) continue;
+            double px = (gx + 0.15 + 0.7 * DetailHash01(gx, gy, salt + 1)) *
+                        cellKm;
+            double py = (gy + 0.15 + 0.7 * DetailHash01(gx, gy, salt + 2)) *
+                        cellKm;
+            double diamKm = cellKm * (0.22 + 0.65 *
+                                      DetailHash01(gx, gy, salt + 3));
+            double r = std::hypot(u - px, v - py) / (diamKm * 0.5);
+            if (r >= 1.6) continue;
+            // Degradation: most small craters are old and shallow.
+            float degr = 0.20f + 0.80f * DetailHash01(gx, gy, salt + 4);
+            float depthM = (float)(diamKm * 1000.0) * 0.09f * degr;
+            float rimM = depthM * 0.22f;
+            if (r < 1.0)
+            {
+                // Parabolic bowl: -depth at centre, 0 at the rim crest.
+                h += depthM * (float)(r * r - 1.0);
+            }
+            float rimT = (float)(r - 1.05) / 0.35f;
+            h += rimM * std::exp(-rimT * rimT * 4.0f);
+        }
+    }
+    return h;
+}
+
+// Total synthetic relief (metres) at one global point. `pixKm` bounds
+// the finest band (nothing under ~2 output pixels — it would alias),
+// `slopeBoost` roughens crater walls relative to maria.
+static float SynthesizeDetail(double u, double v, float pixKm,
+                              float strength, float slopeBoost)
+{
+    float total = 0.0f;
+    double wave = LOLA_NATIVE_KM * 4.0;    // fade-in starts here
+    for (int level = 0; level < 12 && wave >= 2.0 * pixKm; level++)
+    {
+        // 0 where the DEM already resolves this wavelength, 1 below it.
+        float fade = (float)std::clamp(
+            (LOLA_NATIVE_KM * 4.0 - wave) / (LOLA_NATIVE_KM * 3.0),
+            0.0, 1.0);
+        if (fade > 0.0f)
+        {
+            float amp = 7.0f * (float)wave;    // metres per km wavelength
+            float noise = amp * (0.6f + 0.4f * slopeBoost) *
+                          DetailNoise(u, v, wave, 0x51u + (uint32_t)level);
+            float craters = DetailCraters(u, v, wave,
+                                          0xC7A7E5u + (uint32_t)level * 7u);
+            total += fade * (noise + craters);
+        }
+        wave *= 0.5;
+    }
+    return strength * total;
+}
+
 // Regional windows sample through an azimuthal equidistant projection
 // centred on the pick: every output pixel is a true ground offset in
 // km, so windows stay square-in-km at any latitude — including the
 // poles, where an equirectangular crop degenerates into a smear.
 LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
-                           int res) const
+                           int res, float detailStrength) const
 {
     LolaWindow out;
     if (!IsLoaded() || res < 2) return out;
@@ -357,10 +478,20 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     out.elevationM.resize((size_t)res * res);
     out.slopeDeg.resize((size_t)res * res);
 
-    const double DEG = M_PI / 180.0;
+    const double DEG = LOLA_PI / 180.0;
     double lat0 = latDeg * DEG;
     double lon0 = lonDeg * DEG;
     double halfM = spanKm * 1000.0 / 2.0;
+    // Global km-scaled coordinates per pixel, kept for the synthesis
+    // pass: quantizing these (not window-local ones) is what makes the
+    // synthetic ground identical across window framings.
+    std::vector<double> gu, gv;
+    if (detailStrength > 0.0f)
+    {
+        gu.resize((size_t)res * res);
+        gv.resize((size_t)res * res);
+    }
+    const double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
     for (int j = 0; j < res; j++)
     {
         // Row 0 is the window's northern edge.
@@ -388,6 +519,12 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
             }
             out.elevationM[(size_t)j * res + i] =
                 ElevationM(lat / DEG, lon / DEG);
+            if (detailStrength > 0.0f)
+            {
+                gu[(size_t)j * res + i] =
+                    (lon / DEG) * kmPerDeg * std::cos(lat);
+                gv[(size_t)j * res + i] = (lat / DEG) * kmPerDeg;
+            }
         }
     }
 
@@ -401,6 +538,42 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     GaussianBlur(out.elevationM, res, res,
                  (upX > 1.5f) ? 0.6f * upX : 0.0f,
                  (upY > 1.5f) ? 0.6f * upY : 0.0f);
+
+    // Synthesize sub-floor detail on top of the (smoothed) real ground.
+    // Runs after the blur so it is not smoothed away; the real slope of
+    // the smoothed field roughens the synthesis on crater walls.
+    if (detailStrength > 0.0f)
+    {
+        float pixKm = (float)(spanKm / res);
+        double dMs = spanKm * 1000.0 / (res - 1);
+        // Separate buffer: slopeBoost must read the pristine real
+        // field, not rows already carrying synthetic relief.
+        std::vector<float> detail((size_t)res * res);
+        for (int j = 0; j < res; j++)
+        {
+            int jm = std::max(0, j - 1), jp = std::min(res - 1, j + 1);
+            for (int i = 0; i < res; i++)
+            {
+                int im = std::max(0, i - 1), ip = std::min(res - 1, i + 1);
+                size_t k = (size_t)j * res + i;
+                double sgx = (out.elevationM[(size_t)j * res + ip] -
+                              out.elevationM[(size_t)j * res + im]) /
+                             (dMs * (ip - im));
+                double sgy = (out.elevationM[(size_t)jp * res + i] -
+                              out.elevationM[(size_t)jm * res + i]) /
+                             (dMs * (jp - jm));
+                // 0 on level maria, ~1 on steep real walls (>= ~8 deg).
+                float slopeBoost = (float)std::min(
+                    1.0, std::hypot(sgx, sgy) / 0.14);
+                detail[k] = SynthesizeDetail(
+                    gu[k], gv[k], pixKm, detailStrength, slopeBoost);
+            }
+        }
+        for (size_t k = 0; k < detail.size(); k++)
+        {
+            out.elevationM[k] += detail[k];
+        }
+    }
 
     // Slope straight off the (smoothed) output grid — uniform metric
     // spacing is the point of the projection.

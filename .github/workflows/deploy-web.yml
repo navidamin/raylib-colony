@@ -3,7 +3,9 @@ name: Deploy to GitHub Pages
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    # lunar-elevation branch added temporarily so the /lunarmap/ playtest
+    # can deploy before merge (the github-pages environment allows it).
+    branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj]
     paths:
       - 'src/**'
       - 'tools/**'
@@ -56,6 +58,15 @@ jobs:
         cp build/src/colony_viewtest.wasm deploy/viewtest/colony_viewtest.wasm
         if [ -f build/src/colony_viewtest.data ]; then
           cp build/src/colony_viewtest.data deploy/viewtest/colony_viewtest.data
+        fi
+        # Real-elevation lunar map (LOLA DEM) at /lunarmap/
+        mkdir -p deploy/lunarmap
+        cp build/src/lunar_map.html deploy/lunarmap/index.html
+        cp build/src/lunar_map.js deploy/lunarmap/lunar_map.js
+        cp build/src/lunar_map.wasm deploy/lunarmap/lunar_map.wasm
+        # .data file preloads the LOLA DEM and WAC albedo
+        if [ -f build/src/lunar_map.data ]; then
+          cp build/src/lunar_map.data deploy/lunarmap/lunar_map.data
         fi
 
     - name: Setup Pages
