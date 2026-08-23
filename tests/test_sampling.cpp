@@ -271,18 +271,24 @@ TEST_CASE("Crystal visual element color matches dominant element", "[sampling]")
     REQUIRE(s->visual.elementColor.b == expected.b);
 }
 
-TEST_CASE("CalculateRichness normalizes correctly", "[sampling]")
+TEST_CASE("CalculateRichnessFromQuantity normalizes correctly", "[sampling]")
 {
-    std::map<ResourceType, float> empty;
-    REQUIRE_THAT(SamplingEngine::CalculateRichness(empty),
+    // Richness is derived from the absolute QUANTITY in the ground, not from
+    // a composition map -- composition entries are fractions summing to ~1, so
+    // feeding them in made every sample read equally rich. The old signature
+    // took the map and this test went with it.
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(0.0f),
                  Catch::Matchers::WithinAbs(0.0f, 0.001f));
 
-    std::map<ResourceType, float> moderate = {
-        {ResourceType::Fe, 0.5f}, {ResourceType::Si, 0.5f}
-    };
-    float expected = std::min(1.0f, 1.0f / RICHNESS_NORMALIZATION);
-    REQUIRE_THAT(SamplingEngine::CalculateRichness(moderate),
-                 Catch::Matchers::WithinAbs(expected, 0.001f));
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(RICHNESS_NORMALIZATION * 0.5f),
+                 Catch::Matchers::WithinAbs(0.5f, 0.001f));
+
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(RICHNESS_NORMALIZATION),
+                 Catch::Matchers::WithinAbs(1.0f, 0.001f));
+
+    // Clamped, so an unusually rich cell cannot report more than full.
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(RICHNESS_NORMALIZATION * 10.0f),
+                 Catch::Matchers::WithinAbs(1.0f, 0.001f));
 }
 
 TEST_CASE("GetDominantElement returns highest abundance", "[sampling]")

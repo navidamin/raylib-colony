@@ -18,6 +18,15 @@ add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/Prospecting/lab_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/survey_progress_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/prospecting_system.cpp
+    # unit.h includes excavation_system.h, so anything compiling unit.h needs
+    # these -- which is most of this library.
+    ${CMAKE_SOURCE_DIR}/src/Excavation/site_view.cpp
+    ${CMAKE_SOURCE_DIR}/src/Excavation/estimate_engine.cpp
+    ${CMAKE_SOURCE_DIR}/src/Excavation/dig_engine.cpp
+    ${CMAKE_SOURCE_DIR}/src/Excavation/auto_pilot.cpp
+    ${CMAKE_SOURCE_DIR}/src/Excavation/excavation_system.cpp
+    # unit_ui.cpp resolves the pointer through ColonyGetMousePosition().
+    ${CMAKE_SOURCE_DIR}/src/web_mouse.cpp
 )
 
 set_target_properties(colony_testlib PROPERTIES
@@ -38,6 +47,7 @@ target_include_directories(colony_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src/GameTypes
     ${CMAKE_SOURCE_DIR}/src/UnlockRegistry
     ${CMAKE_SOURCE_DIR}/src/Prospecting
+    ${CMAKE_SOURCE_DIR}/src/Excavation
 )
 
 target_link_libraries(colony_testlib PUBLIC raylib tomlplusplus::tomlplusplus)

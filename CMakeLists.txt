@@ -92,6 +92,38 @@ if(BUILD_TESTS AND NOT "${PLATFORM}" STREQUAL "Web")
     add_subdirectory(tests)
 endif()
 
+# get_all_installable_targets came from the cpp-best-practices template and was
+# never copied in with it, so every MSVC configure died here with "Unknown CMake
+# command" before compiling anything -- the Windows job has never once got past
+# this line. Defined locally rather than dropped, since the block below is a
+# real convenience when debugging an ASAN build from Visual Studio.
+macro(get_all_targets_recursive targets dir)
+    get_property(subdirectories DIRECTORY ${dir} PROPERTY SUBDIRECTORIES)
+    foreach(subdir ${subdirectories})
+        get_all_targets_recursive(${targets} ${subdir})
+    endforeach()
+    get_property(current_targets DIRECTORY ${dir} PROPERTY BUILDSYSTEM_TARGETS)
+    list(APPEND ${targets} ${current_targets})
+endmacro()
+
+function(get_all_installable_targets out_var)
+    set(found_targets)
+    get_all_targets_recursive(found_targets ${CMAKE_CURRENT_SOURCE_DIR})
+
+    # INTERFACE and IMPORTED targets reject most properties, so setting one on
+    # them is an error rather than a no-op. Keep only what can carry it.
+    set(settable_targets)
+    foreach(target ${found_targets})
+        get_target_property(type ${target} TYPE)
+        get_target_property(imported ${target} IMPORTED)
+        if(NOT type STREQUAL "INTERFACE_LIBRARY" AND NOT imported)
+            list(APPEND settable_targets ${target})
+        endif()
+    endforeach()
+
+    set(${out_var} ${settable_targets} PARENT_SCOPE)
+endfunction()
+
 # If MSVC is being used, and ASAN is enabled, we need to set the debugger environment so that it behaves well with MSVC's debugger, and we
 # can run the target from visual studio
 if(MSVC)

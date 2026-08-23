@@ -128,7 +128,10 @@ TEST_CASE("ProspectingSystem SetTier propagates to all engines", "[wiring]")
     ps->SetTier(2);
     REQUIRE(ps->GetTier() == 2);
     REQUIRE(ps->GetGrid().GetTier() == 2);
-    REQUIRE(ps->GetGrid().GetGridSize() == PROSPECTING_GRID_SIZE[2]);
+    // The lattice is a fixed 8x8 at every tier -- tier extends how far of it
+    // is in REACH, not how finely it is divided. PROSPECTING_GRID_SIZE was a
+    // per-tier array back when tier changed the resolution.
+    REQUIRE(ps->GetGrid().GetGridSize() == PROSPECTING_GRID_SIZE);
     REQUIRE(ps->GetSweep().GetTier() == 2);
     REQUIRE(ps->GetSampler().GetTier() == 2);
     REQUIRE(ps->GetLab().GetTier() == 2);
