@@ -664,11 +664,29 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     // (per axis: global-DEM columns shrink with cos lat; the overlay
     // crops are near-square already).
     double outKm = spanKm / res;
-    double nativeYKm = NativeKmAt(latDeg, lonDeg);
-    bool onOverlay = OverlayFor(latDeg, lonDeg, nullptr) != nullptr;
-    double nativeXKm = onOverlay
-        ? nativeYKm
-        : nativeYKm * std::max(0.05, std::cos(lat0));
+    // The fine native applies only when the WHOLE window sits on an
+    // overlay — keying a part-covered window to the fine data would
+    // leave the coarse outskirts under-smoothed (lattice artifacts).
+    double spanDeg = spanKm * 1000.0 / LOLA_M_PER_DEG;
+    double cLat = std::max(0.2, std::cos(lat0));
+    bool onOverlay = true;
+    for (int cy = -1; cy <= 1 && onOverlay; cy += 2)
+    {
+        for (int cx = -1; cx <= 1; cx += 2)
+        {
+            if (OverlayFor(latDeg + cy * spanDeg / 2.0,
+                           lonDeg + cx * spanDeg / (2.0 * cLat),
+                           nullptr) == nullptr)
+            {
+                onOverlay = false;
+                break;
+            }
+        }
+    }
+    double nativeYKm = onOverlay
+        ? NativeKmAt(latDeg, lonDeg)
+        : LOLA_M_PER_DEG / (width / 360.0) / 1000.0;
+    double nativeXKm = onOverlay ? nativeYKm : nativeYKm * cLat;
     float upX = (float)(nativeXKm / outKm);
     float upY = (float)(nativeYKm / outKm);
     GaussianBlur(out.elevationM, res, res,
