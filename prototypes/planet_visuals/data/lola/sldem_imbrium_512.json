@@ -1,0 +1,11 @@
+{
+  "product": "SLDEM2015 512 ppd (LOLA + Kaguya TC merged DEM)",
+  "tile": "SLDEM2015_512_30N_60N_315_360",
+  "lat0": 30,
+  "lat1": 35.8,
+  "lon0": -18.600000000000023,
+  "lon1": -12.600000000000023,
+  "ppd": 512,
+  "encoding": "uint16 half-metre: metres = raw * 0.5 - 10000",
+  "median_diff_vs_ldem16_m": 3.1
+}
