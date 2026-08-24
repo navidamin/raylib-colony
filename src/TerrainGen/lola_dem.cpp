@@ -274,9 +274,51 @@ static void DestripeLines(std::vector<double>& mean, int n)
     for (int i = 0; i < n; i++) mean[i] -= smooth[i];
 }
 
-static bool g_despeckle = true;
+static bool g_despeckle = false;
 
 void LolaSetDespeckle(bool enabled) { g_despeckle = enabled; }
+
+static int g_overlayDecim = 1;
+
+void LolaSetOverlayDecimation(int factor)
+{
+    g_overlayDecim = (factor < 1) ? 1 : factor;
+}
+
+// Box-average an overlay raster down by an integer factor.
+static void DecimateOverlay(int& w, int& h, std::vector<uint16_t>& raw,
+                            int n)
+{
+    if (n <= 1) return;
+    int nw = (w / n > 0) ? w / n : 1;
+    int nh = (h / n > 0) ? h / n : 1;
+    std::vector<uint16_t> out((size_t)nw * nh);
+    for (int y = 0; y < nh; y++)
+    {
+        for (int x = 0; x < nw; x++)
+        {
+            double acc = 0.0;
+            int cnt = 0;
+            for (int j = 0; j < n; j++)
+            {
+                int sy = y * n + j;
+                if (sy >= h) break;
+                for (int i = 0; i < n; i++)
+                {
+                    int sx = x * n + i;
+                    if (sx >= w) break;
+                    acc += raw[(size_t)sy * w + sx];
+                    cnt++;
+                }
+            }
+            double v = acc / (cnt > 0 ? cnt : 1);
+            out[(size_t)y * nw + x] =
+                (uint16_t)std::clamp(v + 0.5, 0.0, 65535.0);
+        }
+    }
+    w = nw; h = nh;
+    raw.swap(out);
+}
 
 void LolaDem::DestripeOverlay(DemOverlay& ov)
 {
@@ -364,6 +406,7 @@ int LolaDem::LoadOverlays(const std::string& dir)
         }
         std::string tif = path.substr(0, n - 5) + ".tif";
         if (!ParseTiffU16(tif, ov.width, ov.height, ov.raw)) continue;
+        DecimateOverlay(ov.width, ov.height, ov.raw, g_overlayDecim);
         DestripeOverlay(ov);
         std::fprintf(stderr,
                      "LolaDem: overlay %s %dx%d (%.2f..%.2f, %.2f..%.2f)\n",

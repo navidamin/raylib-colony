@@ -53,6 +53,13 @@ void LolaSetTextureMode(LolaTexture mode);
 // The median removes sensor speckle but also erases real features up
 // to ~2 samples across; this exists to measure that trade.
 void LolaSetDespeckle(bool enabled);
+
+// Box-downsample every overlay by this integer factor at load, so the
+// same ground can be rendered at deliberately coarser DEM resolution
+// (1 = native 59 m, 4 = 237 m, 16 = 947 m). The synthesis floor and
+// the HUD follow automatically: both read the overlay's own pixels
+// per degree.
+void LolaSetOverlayDecimation(int factor);
 const double LOLA_M_PER_DEG = 30322.68;    // pi * 1737.4 km / 180
 
 // A resampled window of real terrain: elevation (metres vs the

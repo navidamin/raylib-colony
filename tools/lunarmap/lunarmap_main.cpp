@@ -76,7 +76,8 @@ struct MapOptions
     float detail = 1.0f;           // sub-floor synthesis strength (0 = off)
     std::string interp = "catrom"; // catrom | bspline | lanczos | fractal
     std::string texture = "noise"; // noise | craters
-    bool despeckle = true;         // --nodespeckle to disable
+    bool despeckle = false;        // --despeckle to enable
+    int demDecim = 1;              // --demdecim N: coarsen overlays
     float ambient = 0.06f;
     int width = 1200;
     int height = 1200;
@@ -104,7 +105,8 @@ static void PrintUsage()
         << "  --exag F          vertical exaggeration   (default: 1.0)\n"
         << "  --detail F        sub-floor synthesis     (default: 1.0, 0=off)\n"
         << "  --texture NAME    noise | craters         (default: noise)\n"
-        << "  --nodespeckle     skip the 3x3 median on overlay crops\n"
+        << "  --despeckle       apply the 3x3 median to overlay crops\n"
+        << "  --demdecim N      coarsen overlays Nx (1=59m, 4=237m)\n"
         << "  --ambient F       ambient light level     (default: 0.06)\n"
         << "  --tilt            tilted 3D slab view instead of top-down\n"
         << "  --orbit YAW,PITCH tilt camera angles (default: 180,52)\n"
@@ -156,6 +158,8 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--interp" && hasNext) { options.interp = argv[++i]; }
         else if (arg == "--texture" && hasNext) { options.texture = argv[++i]; }
         else if (arg == "--nodespeckle") { options.despeckle = false; }
+        else if (arg == "--despeckle") { options.despeckle = true; }
+        else if (arg == "--demdecim" && hasNext) { options.demDecim = std::atoi(argv[++i]); }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
         else if (arg == "--orbit" && hasNext)
@@ -1112,6 +1116,7 @@ int main(int argc, char** argv)
                "lunar_map - LOLA elevation");
 
     LolaSetDespeckle(app.options.despeckle);
+    LolaSetOverlayDecimation(app.options.demDecim);
     LolaSetTextureMode(app.options.texture == "craters"
                        ? LolaTexture::CRATERS : LolaTexture::NOISE);
     if (app.options.interp == "bspline")
