@@ -1,6 +1,6 @@
 # Prospecting — Implementation Plan: Resource Classification
 
-> Status: PLANNED — not started
+> Status: **C1–C4 BUILT** (2026-08-24) · panel and playtest landed
 > Last Updated: 2026-08-24
 > Parent: [README.md](README.md)
 > Companion: [excavation-design.md §3](../excavation/excavation-design.md#the-three-classes-and-one-colour-key)
@@ -75,7 +75,7 @@ hue + class lightness band; class rotates the element's hue) before settling on 
 Four phases. Nothing here is blocking for anyone else, and each phase is independently
 verifiable.
 
-### Phase C1 — The type and the classifier
+### Phase C1 — The type and the classifier ✅ DONE
 
 - `enum class ResourceClass { UNCLASSIFIED, INFERRED, INDICATED, MEASURED }` in
   `prospecting_types.h`, beside `ConfidenceLevel`
@@ -88,7 +88,7 @@ verifiable.
 never disagrees with the `ConfidenceLevel` it is grouped from. That test is the whole point
 of deriving rather than re-thresholding.
 
-### Phase C2 — The theme token
+### Phase C2 — The theme token ✅ DONE
 
 - `EXT_CLASS_INFERRED = {124, 143, 214, 255}` in `rendermanager.cpp`, beside the other
   `EXT_*` colours
@@ -100,7 +100,7 @@ of deriving rather than re-thresholding.
 same thing. The muted violet is deliberate — Inferred is the class the eye should settle on
 least.
 
-### Phase C3 — The prospecting panel
+### Phase C3 — The prospecting panel ✅ DONE
 
 - Grid cells carry their class colour
 - The confidence readout names the class alongside the existing level text
@@ -111,7 +111,7 @@ least.
 dug spot, and a spot dug but never surveyed — and **look at the PNGs**. Per
 `docs/dev-workflow.md`, never claim a visual result without rendering it.
 
-### Phase C4 — The per-element roll-up
+### Phase C4 — The per-element roll-up ✅ DONE (roll-up + playtest; icon ring still to draw)
 
 The ring on the resource icon needs a per-element tonnage split by class:
 
@@ -175,11 +175,45 @@ and obvious in a test.
 
 ---
 
-## 8. Open
+## 8. What Building It Changed
 
-- `[?]` Should **Worked** be a fifth `ResourceClass` value, or stay a separate flag? It is
-  orthogonal — a worked spot has a class *and* is emptied — so a separate flag is probably
-  right, and `workedFraction` already carries it
+Three things the plan did not anticipate, all resolved in the code.
+
+**Per-depth confidence had the wrong owner.** The plan assumed prospecting
+already had the field it needed to classify. It did not — `SiteView::GetConfidence`
+in *excavation* was computing it, from inputs that are all prospecting state:
+the sub-cell, its sweep band, the sample tray. The depth physics already lived
+in prospecting; only the two evidence weights sat in excavation. Those moved to
+`prospecting_constants.h` with `EXC_*` aliases kept, the arithmetic moved
+verbatim to `GetDepthConfidence()`, and `SiteView` now delegates. One
+implementation, so the drift this plan exists to prevent cannot happen on that
+axis either.
+
+**The two-channel question answered itself, loudly.** The plan flagged that the
+grid already shades by yield and asked for both to be rendered before deciding.
+Rendering them showed a direct collision: the sweep-heat ramp ran navy → cyan →
+**green** → magenta, so green meant *both* "strong signal" and "Measured", and
+cyan is already the selection accent. Resolved the way the plan said to — class
+wins. Signal is now a single-hue plum luminance ramp (intensity); class is hue,
+on a ring drawn over it. Two variables, two channels.
+
+**A dug spot read as a contradiction.** With the class shown, `MEASURED` sat
+directly above `Confidence: Very Low`. Both were true — the class counts
+digging, that number measures what the *instruments* found — but together they
+read as a bug. Relabelled `Instruments:`, which is what it always was.
+
+---
+
+## 9. Open
+
+- ✅ **Worked stays a separate flag.** It is orthogonal — a worked spot has a class *and* is
+  emptied — and `workedFraction` already carries it. `ResourceClass` stays four values.
+- `[?]` The **icon ring** — C4's roll-up drawn as a three-segment ring on a resource icon —
+  is not built. `GetClassSplit()` and the playtest's stacked bar prove the data; the ring
+  needs an element switcher, which the panel does not have yet
+- `[?]` `ClassSplit` is recomputed on demand, not cached. It is a full lattice sweep, so it
+  wants invalidate-on-survey caching before it goes anywhere that runs per frame — the
+  playtest gets away with it at 8×8 × 4 depths
 - `[?]` Does the depth map roll up to a **single class per column** anywhere, and if so by
   what rule — worst layer, or the shallowest unworked one? Only matters if a summary view
   appears above the four-layer map

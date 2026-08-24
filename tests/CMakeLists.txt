@@ -69,6 +69,7 @@ add_executable(colony_tests
     test_prospecting_integration.cpp
     test_survey_progress.cpp
     test_prospecting_wiring.cpp
+    test_resource_class.cpp
 )
 
 set_target_properties(colony_tests PROPERTIES

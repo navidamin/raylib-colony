@@ -8,8 +8,15 @@
 // Controls (also shown in-game):
 //   Mouse/touch - operate the panel (tabs, grid cells, bands, tools)
 //   TIER UP button or T - upgrade prospecting tier (0 -> 3)
+//   DIG SPOT button or D - dig the selected cell at the selected depth
 //   RESET button or R   - reset the run (fresh grid, tier 0)
 //   ESC                 - quit (native build)
+//
+// The RESOURCE STATEMENT panel (bottom left) is the point of the sandbox: it
+// shows, per element, how much tonnage is Measured / Indicated / Inferred at
+// the current tier. Sweeping and sampling move tonnage leftward along that
+// bar, and DIG SPOT converts one spot outright. Watching that bar move is
+// how you feel whether surveying is worth its cost.
 //
 // Build & run (native):
 //   cmake -B build && cmake --build build --target colony_playtest
@@ -26,10 +33,15 @@
 #include "resource_manager.h"
 #include "time_manager.h"
 #include "game_constants.h"
+#include "prospecting_system.h"
+#include "prospecting_grid.h"
+#include "resource_types.h"
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -103,6 +115,111 @@ static bool PlaytestButton(Rectangle r, const char* label, Color accent)
     return hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 }
 
+// The three named classes, in the colour key the panel and the design docs
+// both use. Duplicated here rather than exported from the renderer because
+// the playtest is a harness, not part of the game's UI.
+static Color PlaytestClassColor(ResourceClass cls)
+{
+    switch (cls)
+    {
+        case ResourceClass::MEASURED:  return Color{ 80, 230, 150, 255};
+        case ResourceClass::INDICATED: return Color{255, 200,  80, 255};
+        case ResourceClass::INFERRED:  return Color{124, 143, 214, 255};
+        default:                       return Color{ 70,  84, 104, 255};
+    }
+}
+
+// Resource statement: per element, tonnage split by how well it is known.
+//
+// This is GetClassSplit() made visible. Without it the classification work is
+// engine-implemented but not player-reachable -- you could not tell from the
+// panel alone whether a sweep had actually converted anything.
+static void PlaytestDrawStatement(Unit& unit, float x, float y, float w, float h)
+{
+    const ProspectingSystem* ps = unit.GetProspectingSystem();
+    if (!ps) return;
+
+    const ProspectingGrid& grid = ps->GetGrid();
+    const SampleTray& tray = ps->GetTray();
+    int tier = ps->GetTier();
+
+    DrawRectangleRounded({x, y, w, h}, 0.06f, 4, Color{10, 14, 26, 235});
+    DrawRectangleRoundedLinesEx({x, y, w, h}, 0.06f, 4, 1.0f, Color{30, 44, 66, 255});
+    DrawText("RESOURCE STATEMENT", static_cast<int>(x + 10), static_cast<int>(y + 8),
+             10, Color{80, 225, 255, 255});
+
+    // Which elements this parent cell actually has. Centre of the lattice is
+    // always in reach, so it is a safe probe at any tier.
+    std::map<ResourceType, float> present =
+        grid.GetGroundTruth(PROSPECTING_GRID_SIZE / 2, PROSPECTING_GRID_SIZE / 2,
+                            DepthLayer::SURFACE);
+
+    struct Row { ResourceType type; ClassSplit split; float total; };
+    std::vector<Row> rows;
+    for (const auto& kv : present)
+    {
+        ClassSplit split = GetClassSplit(grid, tray, kv.first, tier);
+        float total = split.Total();
+        if (total <= 0.0f) continue;
+        rows.push_back({kv.first, split, total});
+    }
+
+    // Biggest deposits first -- the statement should lead with what matters.
+    std::sort(rows.begin(), rows.end(),
+              [](const Row& a, const Row& b) { return a.total > b.total; });
+
+    // Only so many rows fit. Say how many were dropped rather than silently
+    // truncating, which would read as "these are all of them".
+    const size_t MAX_ROWS = 4;
+    size_t hidden = rows.size() > MAX_ROWS ? rows.size() - MAX_ROWS : 0;
+    if (rows.size() > MAX_ROWS) rows.resize(MAX_ROWS);
+
+    float maxTotal = 0.0f;
+    for (const Row& r : rows) maxTotal = std::max(maxTotal, r.total);
+    if (maxTotal <= 0.0f) return;
+
+    float rowY = y + 21.0f;
+    const float rowH = 11.0f;
+    const float labelW = 34.0f;
+    const float barX = x + 10.0f + labelW;
+    const float barMaxW = w - labelW - 76.0f;
+
+    for (const Row& r : rows)
+    {
+        DrawText(ResourceTypeToString(r.type), static_cast<int>(x + 10),
+                 static_cast<int>(rowY + 1), 10, Color{180, 198, 220, 255});
+
+        // Bar length is tonnage, so a small deposit cannot look like a big one
+        // just because it happens to be well surveyed.
+        float barW = barMaxW * (r.total / maxTotal);
+        float segX = barX;
+        const ResourceClass order[4] = { ResourceClass::MEASURED, ResourceClass::INDICATED,
+                                         ResourceClass::INFERRED, ResourceClass::UNCLASSIFIED };
+        for (ResourceClass cls : order)
+        {
+            float segW = barW * (r.split.Get(cls) / r.total);
+            if (segW <= 0.0f) continue;
+            DrawRectangleRec({segX, rowY, segW, 7.0f}, PlaytestClassColor(cls));
+            segX += segW;
+        }
+        DrawRectangleLinesEx({barX, rowY, barW, 7.0f}, 1.0f, Color{26, 34, 52, 255});
+
+        // The number the player is actually trying to grow.
+        float committablePct = 100.0f * r.split.Committable() / r.total;
+        DrawText(TextFormat("%3.0f%%", committablePct),
+                 static_cast<int>(barX + barMaxW + 8.0f), static_cast<int>(rowY - 1), 10,
+                 committablePct > 0.5f ? Color{80, 230, 150, 255} : Color{70, 84, 104, 255});
+
+        rowY += rowH;
+    }
+
+    DrawText(hidden > 0 ? TextFormat("%% = measured + indicated   (+%d more)",
+                                     static_cast<int>(hidden))
+                        : "% = measured + indicated",
+             static_cast<int>(x + 10), static_cast<int>(y + h - 12.0f), 9,
+             Color{90, 106, 130, 255});
+}
+
 static void UpdateDrawFrame(void* arg)
 {
     PlaytestContext& ctx = *static_cast<PlaytestContext*>(arg);
@@ -119,6 +236,7 @@ static void UpdateDrawFrame(void* arg)
 
     bool wantTierUp = IsKeyPressed(KEY_T);
     bool wantReset = IsKeyPressed(KEY_R);
+    bool wantDig = IsKeyPressed(KEY_D);
 
     BeginDrawing();
     ClearBackground(BLACK);
@@ -128,6 +246,12 @@ static void UpdateDrawFrame(void* arg)
     float bx = ctx.screenWidth - 460.0f;
     wantTierUp |= PlaytestButton({bx, 14.0f, 80.0f, 28.0f}, "TIER UP", {80, 225, 255, 255});
     wantReset |= PlaytestButton({bx + 88.0f, 14.0f, 70.0f, 28.0f}, "RESET", {255, 200, 80, 255});
+    wantDig |= PlaytestButton({bx + 166.0f, 14.0f, 80.0f, 28.0f}, "DIG SPOT",
+                              {80, 230, 150, 255});
+
+    // Drawn after the panel, in the empty strip below the module list. Sized
+    // to clear the DIRECTIVES card above it and the panel border below.
+    PlaytestDrawStatement(*ctx.unit, 18.0f, 497.0f, 250.0f, 80.0f);
 
     EndDrawing();
     ctx.frame++;
@@ -137,6 +261,35 @@ static void UpdateDrawFrame(void* arg)
         int idx = FindProspectingModule(*ctx.unit);
         if (idx >= 0) ctx.unit->DebugUpgradeModuleTier(idx);
     }
+    // Sandbox shortcut for what the excavation module will do properly: dig
+    // the selected spot so its class flips to MEASURED, and watch the
+    // statement bar move. Digging is direct observation, so it is the fastest
+    // way to feel the difference between knowing and guessing.
+    if (wantDig)
+    {
+        ProspectingSystem* ps = ctx.unit->GetProspectingSystem();
+        if (ps && ps->selectedCellX >= 0 && ps->selectedCellY >= 0)
+        {
+            ProspectingGrid& grid = ps->GetGrid();
+            if (grid.IsInReach(ps->selectedCellX, ps->selectedCellY))
+            {
+                grid.RecordExcavation(ps->selectedCellX, ps->selectedCellY,
+                                      ps->selectedDepth, 1.0f);
+                ctx.unit->PublicShowMessage(
+                    TextFormat("[PLAYTEST] Dug (%d,%d) - that layer is now MEASURED",
+                               ps->selectedCellX, ps->selectedCellY));
+            }
+            else
+            {
+                ctx.unit->PublicShowMessage("[PLAYTEST] That spot is out of reach");
+            }
+        }
+        else
+        {
+            ctx.unit->PublicShowMessage("[PLAYTEST] Select a grid cell first");
+        }
+    }
+
     if (wantReset)
     {
         ctx.storage.clear();

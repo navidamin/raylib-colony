@@ -1298,6 +1298,26 @@ static const Color EXT_ACCENT_GOLD   = {255, 200, 80, 255};
 static const Color EXT_ACCENT_RED    = {235, 70, 70, 255};
 static const Color EXT_ACCENT_VIOLET = {170, 110, 255, 255};
 static const Color EXT_DIM_TEXT      = {120, 138, 165, 255};
+
+// Inferred needs its own token. EXT_ACCENT_VIOLET {170,110,255} cannot be
+// reused -- it is within a few units of EXT_HEADER_COLOR {168,130,255}, so
+// section headings and Inferred ground would read as the same thing. The
+// muted violet is deliberate: Inferred is the class the eye should settle
+// on least.
+static const Color EXT_CLASS_INFERRED = {124, 143, 214, 255};
+
+// One colour key for the three named classes, used identically by the grid,
+// the readout and the resource ring. Green is minable now, violet is not.
+static Color ExtClassColor(ResourceClass cls)
+{
+    switch (cls)
+    {
+        case ResourceClass::MEASURED:  return EXT_ACCENT_GREEN;
+        case ResourceClass::INDICATED: return EXT_ACCENT_GOLD;
+        case ResourceClass::INFERRED:  return EXT_CLASS_INFERRED;
+        default:                       return EXT_DIM_TEXT;
+    }
+}
 static const Color EXT_TEXT          = {225, 235, 245, 255};
 
 // Layout constants
@@ -2380,15 +2400,24 @@ static const Color PROS_BTN_DISABLED    = {64, 84, 106, 255};
 static const Color PROS_MSG_STATUS      = {85, 85, 85, 255};
 static const Color PROS_MSG_ALERT       = {204, 170, 68, 255};
 
+// Sweep signal, as a single-hue luminance ramp.
+//
+// It used to run navy -> cyan -> green -> magenta, which collided head-on
+// with the class ring drawn over it: green meant both "strong signal" and
+// "Measured", and cyan is already the selection accent. Two variables on the
+// same cell need two different channels, so signal is now INTENSITY along one
+// plum family and class is HUE on the ring. Per the implementation plan, when
+// shade and class clash, class wins -- the signal number is on the readout
+// anyway, and confidence has no other home.
 static Color ProsSweepHeatColor(float signal)
 {
-    if (signal < 0.05f) return {13, 13, 59, 102};
-    if (signal < 0.15f) return {27, 27, 107, 102};
-    if (signal < 0.30f) return {34, 68, 170, 102};
-    if (signal < 0.50f) return {0, 204, 221, 102};
-    if (signal < 0.70f) return {0, 255, 170, 102};
-    if (signal < 0.85f) return {255, 0, 170, 102};
-    return {255, 102, 221, 102};
+    if (signal < 0.05f) return {16,  14,  42, 102};
+    if (signal < 0.15f) return {38,  22,  72, 102};
+    if (signal < 0.30f) return {68,  30, 104, 102};
+    if (signal < 0.50f) return {108, 38, 132, 102};
+    if (signal < 0.70f) return {154, 46, 152, 102};
+    if (signal < 0.85f) return {200, 58, 168, 102};
+    return {242, 86, 190, 102};
 }
 
 static Color ProsElementColor(ResourceType type)
@@ -2454,6 +2483,23 @@ static bool ProsChargeEnergy(Unit* unit, float cost, const char* action)
 }
 
 // Rounded grid cell base: state-driven fill, hover/selection borders.
+// The class ring.
+//
+// The cell's FILL already carries sweep signal, so class goes on the border
+// instead of competing for the same pixels: how much is there is the shade,
+// how well you know it is the ring. Unclassified ground draws no ring at all,
+// which is what makes surveyed ground stand out from blind ground at a
+// glance across the whole lattice.
+static void ProsDrawClassRing(Rectangle r, ResourceClass cls)
+{
+    if (cls == ResourceClass::UNCLASSIFIED) return;
+
+    Color c = ExtClassColor(cls);
+    float thickness = (cls == ResourceClass::MEASURED) ? 2.2f : 1.6f;
+    DrawRectangleRoundedLinesEx({r.x + 1.0f, r.y + 1.0f, r.width - 2.0f, r.height - 2.0f},
+                                0.22f, 4, thickness, c);
+}
+
 static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
 {
     DrawRectangleRounded(r, 0.22f, 4, {12, 15, 28, 255});
@@ -2715,6 +2761,14 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
                 bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
                 ProsDrawCellBase(cellRect, fill, selected, hover);
+
+                // How well this spot is known at the depth being looked at.
+                // Per depth, not per column -- a mapped surface says nothing
+                // about what lies under it.
+                float depthConf = GetDepthConfidence(grid, ps->GetTray(), gx, gy,
+                                                     ps->selectedDepth);
+                ProsDrawClassRing(cellRect, GetResourceClass(depthConf));
+
                 ProsDrawCellMarker(cellRect, cell);
 
                 if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -2908,12 +2962,78 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             ctrlY += 18.0f;
 
             const SubCell& selCell = grid.GetSubCell(ps->selectedCellX, ps->selectedCellY);
+
+            // The class, in the colour the grid is already using. This is the
+            // line the player acts on: green commits, violet is a bet.
+            float selConf = GetDepthConfidence(grid, ps->GetTray(),
+                                               ps->selectedCellX, ps->selectedCellY,
+                                               ps->selectedDepth);
+            ResourceClass selClass = GetResourceClass(selConf);
+            DrawTextEx(headerFont, ResourceClassName(selClass),
+                       {ctrlX, ctrlY}, FS(11.0f), sp, ExtClassColor(selClass));
+            if (!IsCommittable(selClass))
+            {
+                float nameW = MeasureTextEx(headerFont, ResourceClassName(selClass),
+                                            FS(11.0f), sp).x;
+                DrawTextEx(bodyFont, "not minable", {ctrlX + nameW + 8.0f, ctrlY + 1.0f},
+                           FS(9.0f), sp, Fade(EXT_DIM_TEXT, 0.85f));
+            }
+            ctrlY += 18.0f;
+
             DrawTextEx(bodyFont, TextFormat("Signal: %.2f", selCell.sweepSignal),
                        {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
             ctrlY += 14.0f;
-            DrawTextEx(bodyFont, TextFormat("Confidence: %s", ProsConfLabel(selCell.aggregateConfidence)),
+            // Named "Instruments", not "Confidence". This number is what the
+            // sweep and the lab found; the class above also counts digging,
+            // so a dug spot reads MEASURED here while the instruments still
+            // say Very Low. Both are true, and the label is what stops them
+            // looking like a contradiction.
+            DrawTextEx(bodyFont, TextFormat("Instruments: %s", ProsConfLabel(selCell.aggregateConfidence)),
                        {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
             ctrlY += 14.0f;
+
+            // Class per depth, as a strip. Confidence is per depth, so a spot
+            // can be Measured at the surface and Unclassified below it -- the
+            // single number above cannot show that, and it is exactly what
+            // decides whether a deep dig is a plan or a gamble.
+            {
+                const char* layerInitial[4] = {"S", "H", "M", "D"};
+                float chipW = 26.0f;
+                float chipH = 16.0f;
+                ctrlY += 4.0f;
+                DrawTextEx(bodyFont, "CLASS BY DEPTH", {ctrlX, ctrlY}, FS(9.0f), sp,
+                           Fade(EXT_DIM_TEXT, 0.8f));
+                ctrlY += 13.0f;
+                float stripX = ctrlX;
+                for (int d = 0; d < 4; d++)
+                {
+                    Rectangle chip = {stripX + d * (chipW + 4.0f), ctrlY, chipW, chipH};
+                    bool accessible = (d < MAX_DEPTH_PER_TIER[grid.GetTier()]);
+                    if (!accessible)
+                    {
+                        DrawRectangleRounded(chip, 0.3f, 4, {18, 22, 34, 255});
+                        DrawRectangleRoundedLinesEx(chip, 0.3f, 4, 1.0f, {34, 40, 58, 255});
+                        continue;
+                    }
+
+                    float c = GetDepthConfidence(grid, ps->GetTray(),
+                                                 ps->selectedCellX, ps->selectedCellY,
+                                                 static_cast<DepthLayer>(d));
+                    ResourceClass dc = GetResourceClass(c);
+                    Color col = ExtClassColor(dc);
+
+                    DrawRectangleRounded(chip, 0.3f, 4, Fade(col, 0.22f));
+                    DrawRectangleRoundedLinesEx(chip, 0.3f, 4,
+                                                d == static_cast<int>(ps->selectedDepth) ? 1.6f : 1.0f,
+                                                col);
+                    float lw = MeasureTextEx(bodyFont, layerInitial[d], FS(9.0f), sp).x;
+                    DrawTextEx(bodyFont, layerInitial[d],
+                               {chip.x + (chipW - lw) * 0.5f, chip.y + 3.0f},
+                               FS(9.0f), sp, col);
+                }
+                ctrlY += chipH + 6.0f;
+            }
+
             DrawTextEx(bodyFont, TextFormat("Samples: %d", static_cast<int>(selCell.sampleIds.size())),
                        {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
 

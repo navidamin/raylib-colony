@@ -45,7 +45,9 @@ TEST_CASE("SamplingEngine CollectSample adds to tray", "[sampling]")
     SamplingEngine engine(2);
 
     REQUIRE(tray.IsEmpty());
-    REQUIRE(engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE));
+    // (3,3) is the centre 2x2, which every tier can reach. (0,0) is a corner
+    // and is out of reach until T3 -- the lattice is fixed and tier is a ring.
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     REQUIRE(tray.GetCount() == 1);
 }
 
@@ -56,11 +58,15 @@ TEST_CASE("SamplingEngine CollectSample fails on full tray", "[sampling]")
     SampleTray tray(0);
     SamplingEngine engine(0);
 
+    // The four cells of the T0 reach ring, so the tray fills before reach
+    // becomes the reason a collection is refused.
+    const int spots[4][2] = { {3,3}, {4,3}, {3,4}, {4,4} };
     for (int i = 0; i < 4; i++)
-        REQUIRE(engine.CollectSample(grid, tray, i % 3, 0, DepthLayer::SURFACE));
+        REQUIRE(engine.CollectSample(grid, tray, spots[i][0], spots[i][1],
+                                     DepthLayer::SURFACE));
 
     REQUIRE(tray.IsFull());
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE));
+    REQUIRE_FALSE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
 }
 
 TEST_CASE("SamplingEngine CollectSample fails on inaccessible depth", "[sampling]")
@@ -70,7 +76,9 @@ TEST_CASE("SamplingEngine CollectSample fails on inaccessible depth", "[sampling
     SampleTray tray(0);
     SamplingEngine engine(0);
 
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, 0, 0, DepthLayer::SHALLOW));
+    // In reach at T0, so DEPTH is the only thing that can refuse it -- which
+    // is what this test is about. (0,0) would also fail, for the wrong reason.
+    REQUIRE_FALSE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SHALLOW));
     REQUIRE(tray.IsEmpty());
 }
 
@@ -113,8 +121,9 @@ TEST_CASE("Collected sample starts with zero confidence", "[sampling]")
     SampleTray tray(1);
     SamplingEngine engine(1);
 
-    engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     const Sample* s = tray.GetSampleByIndex(0);
+    REQUIRE(s != nullptr);
 
     REQUIRE(s->elementConfidence.empty());
     REQUIRE_THAT(s->GetAggregateConfidence(), Catch::Matchers::WithinAbs(0.0f, 0.001f));
@@ -179,7 +188,7 @@ TEST_CASE("Crystal visual glow starts at 0", "[sampling]")
     SampleTray tray(1);
     SamplingEngine engine(1);
 
-    engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     REQUIRE(tray.GetSampleByIndex(0)->visual.glowLevel == 0);
 }
 
@@ -190,8 +199,9 @@ TEST_CASE("Crystal visual size matches richness", "[sampling]")
     SampleTray tray(2);
     SamplingEngine engine(2);
 
-    engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     const Sample* s = tray.GetSampleByIndex(0);
+    REQUIRE(s != nullptr);
 
     REQUIRE(s->visual.sizeLevel == GetSizeLevel(s->richness));
 }
@@ -261,8 +271,9 @@ TEST_CASE("Crystal visual element color matches dominant element", "[sampling]")
     SampleTray tray(2);
     SamplingEngine engine(2);
 
-    engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     const Sample* s = tray.GetSampleByIndex(0);
+    REQUIRE(s != nullptr);
 
     ResourceType dominant = SamplingEngine::GetDominantElement(s->trueComposition);
     Color expected = GetElementColor(dominant);
