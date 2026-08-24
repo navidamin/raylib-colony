@@ -36,6 +36,18 @@ enum class LolaInterp
     FRACTAL = 3,    // CATROM + relief-conditioned stochastic residual
 };
 void LolaSetInterpolation(LolaInterp mode);
+
+// How the sub-floor surface texture is generated.
+//   NOISE   - fractal value noise carpet (continuous undulation)
+//   CRATERS - a saturated impact population as the primary relief,
+//             with noise demoted to grain between the craters. This is
+//             how the real surface is actually built at 10-500 m.
+enum class LolaTexture
+{
+    NOISE = 0,
+    CRATERS = 1,
+};
+void LolaSetTextureMode(LolaTexture mode);
 const double LOLA_M_PER_DEG = 30322.68;    // pi * 1737.4 km / 180
 
 // A resampled window of real terrain: elevation (metres vs the

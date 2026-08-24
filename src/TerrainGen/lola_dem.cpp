@@ -739,10 +739,112 @@ static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
 // sample right here, and `hurst` the exponent of its measured
 // power law — together they continue the ground's own spectrum below
 // the data floor instead of guessing an amplitude.
+static LolaTexture g_texture = LolaTexture::NOISE;
+
+void LolaSetTextureMode(LolaTexture mode) { g_texture = mode; }
+
+// A SATURATED impact population, used as the primary relief rather than
+// as decoration on a noise carpet. Two things make this read as ground
+// rather than as brushwork:
+//   - the surface is mostly flat and interrupted by discrete objects,
+//     which is what the real Moon is at 10-500 m; a noise field is the
+//     opposite (everywhere undulating, nothing anywhere to lock onto)
+//   - depth is set by the crater's own diameter (d/D 0.03 ancient to
+//     0.20 fresh), so it is physically absolute, not spectrally scaled
+// Later impacts erase earlier ones, so the deepest bowl wins rather
+// than bowls summing — without that, a saturated field digs runaway
+// pits wherever craters overlap.
+static float DetailCraterField(double u, double v, double cellKm,
+                               uint32_t salt)
+{
+    int32_t cx = (int32_t)std::floor(u / cellKm);
+    int32_t cy = (int32_t)std::floor(v / cellKm);
+    float cluster = 0.5f + 0.5f * DetailNoise(u, v, cellKm * 11.0,
+                                              salt + 900u);
+    float occupancy = 0.30f + 0.45f * cluster;
+    float bowl = 0.0f;      // deepest wins
+    float relief = 0.0f;    // rims and ejecta accumulate
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int32_t gx = cx + dx, gy = cy + dy;
+            if (DetailHash01(gx, gy, salt) > occupancy) continue;
+            double px = (gx + 0.12 + 0.76 * DetailHash01(gx, gy, salt + 1)) *
+                        cellKm;
+            double py = (gy + 0.12 + 0.76 * DetailHash01(gx, gy, salt + 2)) *
+                        cellKm;
+            double diamKm = cellKm * (0.30 + 0.70 *
+                                      DetailHash01(gx, gy, salt + 3));
+            double ex = 1.0 + 0.16 * (DetailHash01(gx, gy, salt + 5) - 0.5);
+            double r = std::hypot((u - px) * ex, (v - py) / ex) /
+                       (diamKm * 0.5);
+            if (r >= 1.8) continue;
+            // Most craters are ancient: age^3 keeps the fresh, sharp,
+            // rimmed ones rare, which is what a gardened surface looks
+            // like after billions of years.
+            float age = DetailHash01(gx, gy, salt + 4);
+            float freshness = age * age * age;
+            float depthM = (float)(diamKm * 1000.0) *
+                           (0.030f + 0.170f * freshness);
+            if (r < 1.0)
+            {
+                float b = -depthM * 0.5f *
+                          (1.0f + std::cos((float)r * 3.14159265f));
+                bowl = std::min(bowl, b);
+            }
+            float rimM = depthM * 0.34f * freshness;
+            if (rimM > 0.001f)
+            {
+                float rimT = (float)(r - 1.03) / 0.22f;
+                relief += rimM * std::exp(-rimT * rimT * 4.0f);
+                // Ejecta apron — the low skirt that makes a fresh crater
+                // read as an object sitting ON the ground rather than a
+                // dent punched into it.
+                if (r > 1.0)
+                {
+                    float e = (float)(r - 1.0) / 0.8f;
+                    float k = std::max(0.0f, 1.0f - e);
+                    relief += rimM * 0.35f * k * k;
+                }
+            }
+        }
+    }
+    return bowl + relief;
+}
+
 static float SynthesizeDetail(double u, double v, float pixKm,
                               float nativeKm, float strength,
                               float roughM, float hurst)
 {
+    if (g_texture == LolaTexture::CRATERS)
+    {
+        // Craters carry the relief; noise is only the grain between
+        // them. Bands start ABOVE the data floor here (unlike the noise
+        // path) because the DEM's own response is already rolling off
+        // for a decade above its grid — 60-500 m craters are weak in
+        // the data and absent from synthesis, so this fills that gap
+        // progressively: nothing at 4x native, full weight at 1x down.
+        float total = 0.0f;
+        double wave = nativeKm * 4.0;
+        for (int level = 0; level < 18 && wave >= 3.0 * pixKm; level++)
+        {
+            float w = (float)std::clamp(
+                std::log2(nativeKm * 4.0 / wave) / 2.0, 0.0, 1.0);
+            if (w > 0.0f)
+            {
+                total += w * DetailCraterField(
+                    u, v, wave, 0xC7A7E5u + (uint32_t)level * 7u);
+                float amp = roughM *
+                            std::pow((float)(wave / nativeKm), hurst) * 0.30f;
+                total += w * 0.25f * amp *
+                         DetailNoise(u, v, wave, 0x51u + (uint32_t)level);
+            }
+            wave *= 0.5;
+        }
+        return strength * total;
+    }
+
     float total = 0.0f;
     // Start AT the data floor, not above it: octaves coarser than one
     // native sample are the real data's job, and synthesizing there
