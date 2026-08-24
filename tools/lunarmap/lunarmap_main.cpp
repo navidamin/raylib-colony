@@ -68,7 +68,11 @@ struct MapOptions
     std::string style = "shaded";  // shaded | color
     float sunAzimuthDeg = 315.0f;  // clockwise from north (NW default)
     float sunElevationDeg = 30.0f;
-    float exaggeration = 2.0f;     // vertical scale multiplier
+    // True scale. 2.0 was inflating broad landforms into swollen
+    // mounds — doubling every slope before the normals are built
+    // exaggerates exactly the low-frequency shapes, which reads as
+    // "melted". Raise it deliberately for map-scale legibility.
+    float exaggeration = 1.0f;     // vertical scale multiplier
     float detail = 1.0f;           // sub-floor synthesis strength (0 = off)
     std::string interp = "catrom"; // catrom | bspline | lanczos | fractal
     std::string texture = "noise"; // noise | craters
@@ -97,7 +101,7 @@ static void PrintUsage()
         << "  --span KM         regional window size    (default: 200)\n"
         << "  --style NAME      shaded | color          (default: shaded)\n"
         << "  --sun AZ,EL       sun azimuth/elevation   (default: 315,30)\n"
-        << "  --exag F          vertical exaggeration   (default: 2.0)\n"
+        << "  --exag F          vertical exaggeration   (default: 1.0)\n"
         << "  --detail F        sub-floor synthesis     (default: 1.0, 0=off)\n"
         << "  --texture NAME    noise | craters         (default: noise)\n"
         << "  --nodespeckle     skip the 3x3 median on overlay crops\n"
