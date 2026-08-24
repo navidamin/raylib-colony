@@ -7,7 +7,7 @@
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
 | 1 | [excavation-design.md](excavation-design.md) | **The design.** Panel + place + gamble + machinery, with the rules that keep the gamble honest | DRAFT |
-| 2 | [implementation-plan.md](implementation-plan.md) | **How to build it.** Branch merge, architecture, 7 phases, testing, risks | DRAFT |
+| 2 | [implementation-plan.md](implementation-plan.md) | **How to build it.** Branch merge, architecture, 9 phases, testing, risks. Phases 1-6 done; 8 small; 9 (access) loose by design | DRAFT |
 | 3 | [design-options.md](design-options.md) | Round 1 exploration: 16 aspects, then 4 options compared | SUPERSEDED |
 | 4 | [design-options-v2.md](design-options-v2.md) | Round 2 exploration: three variants of the panel direction | SUPERSEDED |
 | 5 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |

@@ -13,6 +13,7 @@
 | 5 | [resource-distribution-model.md](resource-distribution-model.md) | Pathfinder correlations, geological coherence, clue chaining, map init | STUB — undesigned, blocks pathfinder tips |
 | 6 | [ai-default-mode.md](ai-default-mode.md) | AI delegation logic, default behavior, efficiency penalties, heuristics | DESIGNED, NOT BUILT (Phase 7) |
 | 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | IMPLEMENTED (restyled 2026-08; no stratigraphy panel) |
+| 8 | [implementation-plan.md](implementation-plan.md) | **Resource classification.** Measured / Indicated / Inferred as a grouping of the existing confidence bands, on a colour key shared with excavation | PLANNED |
 
 ## Design Summary
 

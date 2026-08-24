@@ -117,7 +117,8 @@ Reproduce with `docs/design/excavation/subcell_distribution_sim.py`.
 
 ## 3. Build Order
 
-Seven phases. Each is independently verifiable; the game stays playable throughout.
+Nine phases. Each is independently verifiable; the game stays playable throughout.
+Phases 1-6 are done; 7 is in progress; 8 is small; **9 is deliberately loose — see §9.**
 
 ### Phase 1 — Read-only adapter ✅ DONE
 Prove excavation can see prospecting's grid before changing anything.
@@ -387,6 +388,81 @@ must land on the best available floor, TRAINED on the best available upside.
 - Check the `SUBCELL_VARIATION_MAX` ceiling: at 6×6 the best spot is pinned to the 2.0 clamp
   82% of the time, so raise the clamp rather than the grid if T3 needs headroom
 
+### Phase 8 — Classes on the grid *(small, and gated on prospecting)*
+Cosmetic to build, and the payoff is disproportionate: it puts a visual on the gamble, which
+is the module's central pillar and currently has no key.
+
+- Needs `GetResourceClass()` from
+  [prospecting's classification plan](../prospecting/implementation-plan.md) Phase C1 —
+  **that is the only dependency**, and it is a few lines
+- Grid spots carry their class colour alongside the existing targeted-yield shading. Two
+  channels, two questions: *how good* (shade) and *how sure* (class)
+- The bottom readout names the class — `B2 · Iron 40–70% · INFERRED` — so *"I knew this was
+  a bet"* is legible after the fact, which is what Rule 4 asks for
+- The resource icon's three-segment ring needs prospecting Phase C4's roll-up
+
+**Verify with `tools/preview`** at every tier and every class, and look at the PNGs.
+
+> **Watch the two-channel load.** The grid already shades by targeted-resource yield (§2). If
+> shade and class fight each other visually, class wins — the yield number is on the readout
+> anyway, and confidence is the thing with no other home. Render it before deciding.
+
+### Phase 9 — Access *(designed in shape, not in detail — see §9)*
+
+> **This phase is deliberately loose.** [excavation-design.md §2](excavation-design.md#depth-costs-access)
+> settles *what* access is and *why* it belongs; it does not settle the numbers, the
+> ownership, or the UI. Treat what follows as the shape of the work, not a build order to
+> follow blindly. **Do not start Phase 9 until §9's open questions are answered** — most of
+> them change the data model, not just the tuning.
+
+The rule: a spot at depth `d` is workable only if connected, by strip or by shaft.
+
+**9a — Strip. The cheap half, and it is nearly free.**
+
+Phase 4 already shipped `SubCell::workedFraction[4]` and `HasBeenDug(int)`
+(`prospecting_types.h:116-122`). Strip connectivity is a read over state that exists:
+
+```cpp
+// a spot is stripped when every layer above it in its column is worked out
+bool IsStripped(const SubCell& c, int depth)
+{
+    for (int d = 0; d < depth; ++d)
+    {
+        if (c.workedFraction[d] < STRIP_COMPLETE_FRACTION) return false;
+    }
+    return true;
+}
+```
+
+One constant (`STRIP_COMPLETE_FRACTION` — is a 90%-worked layer stripped, or must it be
+100%?) and one predicate. No new state, no cross-module change. **9a could ship on its own**
+and would already make depth cost something.
+
+**9b — The shaft. Where the real work is.**
+
+Everything here is genuinely undecided, so it is listed as questions rather than steps:
+
+| Piece | What is unclear |
+|-------|----------------|
+| Where it lives | A `Shaft` struct on the excavation facade, or state on the grid? Per unit or per sect (§9)? |
+| What it opens | Design says the 3×3 centred on it, down to a chosen depth. Untested against the cluster sizes the generator actually produces — a 3×3 may cover a whole ore body, or a corner of one |
+| What it costs | CONSTRUCTION_MATERIALS + build days + standing power. All three scale with depth **faster than linearly**. No numbers yet, and there should not be until Phase 7's real data exists |
+| How it is built | A build queue on the panel, or an instant spend with a timer? Nothing in the module has a build queue today |
+| How it renders | A mark on the grid plus its 3×3 footprint, per the §5 mock-up. Needs a preview pass |
+| Whether it can be undone | Design leans toward demolish-for-partial-refund on a long timer. Not decided |
+
+**9c — Gating the dig.** Wherever `dig_engine` accepts a target, it also has to reject an
+unconnected one, with a reason the panel can show (*"2 layers above"* / *"no shaft in
+range"*). Small, but it is the change that makes 9a and 9b matter — engine-implemented is
+not player-reachable.
+
+**Why access is worth the trouble.** Without it, excavation and prospecting make the same
+decision with a different verb — *click the spot with the best number.* A drill hole is a
+needle and goes anywhere; a working face is a volume and must connect to the surface. Access
+is the one mechanic excavation has that prospecting structurally cannot. It also gives
+surveying a second and much sharper reason to exist: surveying to pick a spot is worth
++33–130%, while surveying to **site a shaft** is worth the whole build.
+
 ---
 
 ## 4. Sequencing Notes
@@ -394,6 +470,10 @@ must land on the best available floor, TRAINED on the best available upside.
 ```
 Phase 1 ─▶ 2 ─▶ 3 ─▶ 4 ─▶ 6 ─▶ 7
                  └──▶ 5 (can run parallel to 4 and 6)
+
+                            prospecting C1 ─▶ 8
+                                     4 ─▶ 9a ─▶ 9c
+                                          9b ─▶ 9c   (blocked on §9)
 ```
 
 - **Phases 1–3 change no other module.** If the plan stalls, everything up to here is still
@@ -403,6 +483,12 @@ Phase 1 ─▶ 2 ─▶ 3 ─▶ 4 ─▶ 6 ─▶ 7
   still active.
 - **Phase 5 can start once Phase 3 produces real numbers** — it needs data to render, not
   the write-back.
+- **Phase 8 waits only on prospecting C1**, which is a few lines. It is the cheapest
+  remaining win in the module.
+- **Phase 9a can ship alone.** It reads Phase 4's `workedFraction` and needs nothing new,
+  so depth starts costing something long before shafts exist.
+- **Phase 9b is not ready to build.** Its open questions in §9 change the data model, so
+  starting it early means writing it twice. 9a first, then answer §9, then 9b.
 
 ---
 
@@ -416,7 +502,7 @@ Using the instruments the prospecting branch built (`docs/dev-workflow.md`):
 | `tools/preview` | Phase 5 — headless screenshots of the panel at each tier |
 | `tools/playtest` | Phases 3, 6, 7 — drive a unit to any tier via `DebugUpgradeModuleTier()`, no economy needed |
 | `tools/shell-test` | Phase 5 — web/phone canvas regression |
-| `subcell_distribution_sim.py` | Phase 7 — re-derive survey value if the generator ever changes |
+| `subcell_distribution_sim.py` | Phase 7 — re-derive survey value if the generator ever changes. Phase 9b — measure real cluster footprints before fixing the shaft's 3×3 |
 | **`colony_sim`** | **A playtest that runs in CI.** Runs the real engines for 20 game days under five different players and asserts the design's orderings |
 
 Two things worth asserting in code rather than by eye:
@@ -435,6 +521,9 @@ Two things worth asserting in code rather than by eye:
 | **The blur becomes a slot machine** | Rule 1 has a unit test, not just a note in the doc |
 | **The panel gets crowded** — grid + machines + 2 sliders + target + readout | Machinery is optional and AUTO by default; consider a collapsed machine bay at low tier |
 | **The renderer moved 1,600 lines** | Merge first (§0), then build the panel against the new code |
+| **Access turns into busywork** — every dig needing a setup step | 9a is free (reads existing state) and dormant at T0; AUTO strips or proposes a shaft so a player who ignores access still plays a complete game |
+| **The shaft's 3×3 is the wrong size** — covers a whole ore body, or a corner | Measure real cluster footprints with `subcell_distribution_sim.py` **before** fixing the number |
+| **Two colour channels fight on the grid** — yield shade vs class | Render both before deciding; class wins if they clash (Phase 8) |
 
 ---
 
@@ -459,4 +548,46 @@ Nothing built so far depends on their answer — excavation only *reads*.
 
 - `[?]` What is a spot's total yield before it exhausts? Sets how often the player moves, and needs calibrating against the real quantities (`colony_inspect` shows 760–44,000 per spot depending on the cell)
 
-The first three are needed **before Phase 3**. The fourth can wait for Phase 5.
+---
+
+## 9. Open Before Phase 9b (Access)
+
+**These change the data model, not just the tuning.** Phase 9b should not start until they
+are answered — building it first means building it twice. Phase 9a (strip) depends on none
+of them and can proceed.
+
+**Ownership**
+- `[?]` Is a shaft **per unit** or **per sect**? Per unit is simpler and keeps each
+  extraction unit self-contained. Per sect makes siting a settlement-level decision and lets
+  two units share one way in — more interesting, and a bigger change. *Leaning per unit
+  unless a reason appears.*
+- `[?]` Does the shaft live on the excavation facade or on `ProspectingGrid`? The grid is
+  shared, which argues for the facade; but the grid is also what persists, which argues the
+  other way.
+
+**Shape**
+- `[?]` Is the footprint really 3×3? Measure the generator's actual cluster sizes with
+  `subcell_distribution_sim.py` first. If a typical ore body is 2×2, a 3×3 shaft trivialises
+  siting; if it is 5×5, one shaft is never enough and the mechanic becomes a tax.
+- `[?]` Does a shaft open its footprint at **every** depth down to its own, or only at its
+  terminal depth? Every depth is more forgiving and probably right.
+- `[?]` Can shafts be built outside excavation's reach ring? Consistency with §2 says no.
+
+**Economy**
+- `[?]` Is stripped material **kept**? The design's table assumes yes. If it were not,
+  stripping would be pure cost and shafts would always win — which collapses the choice.
+- `[?]` `STRIP_COMPLETE_FRACTION` — is a 90%-worked layer stripped, or must it be 100%? 100%
+  is cleaner to explain; 90% avoids a frustrating last sliver.
+- `[?]` Does the standing power draw scale with depth, with footprint, or neither?
+- `[?]` Can a shaft be abandoned or moved? Leaning: demolish for a partial materials refund
+  on a long timer, so a bad siting is expensive rather than permanent.
+
+**Interface**
+- `[?]` Does the module need a **build queue**, or is a shaft an instant spend plus a timer?
+  Nothing in excavation has a queue today, and adding one is a bigger change than it looks.
+- `[?]` How does the panel show *why* a spot is unavailable? *"2 layers above"* and *"no
+  shaft in range"* are different problems with different fixes, and the readout has one line.
+
+**Balance, and therefore last**
+- `[?]` Every shaft cost figure. Per the module's own rule, calibrate against dumped data in
+  Phase 7 rather than guessing now.
