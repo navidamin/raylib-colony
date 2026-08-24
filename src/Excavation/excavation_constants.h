@@ -1,6 +1,7 @@
 #pragma once
 
 #include "excavation_types.h"
+#include "prospecting_constants.h"
 
 // Excavation tier tables and tuning constants.
 //
@@ -37,13 +38,12 @@
 // If prospecting ever stores confidence per depth directly, SiteView::
 // GetConfidence is the single place to change.
 
-// Weight applied to sweep-derived confidence relative to sample-derived.
-// Sweeps are broad and cheap; samples are local and definitive, so a sweep
-// alone should never read as well-known.
-constexpr float EXC_SWEEP_CONFIDENCE_WEIGHT = 0.6f;
-
-// A sample taken at a spot+depth is direct evidence, so it carries full weight.
-constexpr float EXC_SAMPLE_CONFIDENCE_WEIGHT = 1.0f;
+// Aliases. The weights themselves live in prospecting_constants.h, because
+// what a sweep and a sample tell you is a prospecting fact -- excavation is
+// only a reader of it. Kept under the EXC_ names so existing call sites and
+// tests are unchanged.
+constexpr float EXC_SWEEP_CONFIDENCE_WEIGHT  = PROSPECT_SWEEP_CONFIDENCE_WEIGHT;
+constexpr float EXC_SAMPLE_CONFIDENCE_WEIGHT = PROSPECT_SAMPLE_CONFIDENCE_WEIGHT;
 
 // ---------------------------------------------------------------------------
 // Estimates (the gamble)

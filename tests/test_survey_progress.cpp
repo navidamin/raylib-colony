@@ -47,7 +47,7 @@ TEST_CASE("Sample-only produces sample component only", "[survey]")
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
 
     CellSurveyResult result = SurveyProgressEngine::Calculate(grid, tray);
     REQUIRE(result.sweepConfidence == 0.0f);
@@ -66,7 +66,7 @@ TEST_CASE("Testing component requires analyzed samples", "[survey]")
     SamplingEngine sampler(1);
     LabEngine lab(1);
 
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     Sample* sample = tray.GetSampleByIndex(0);
 
     // Before lab analysis
@@ -93,7 +93,7 @@ TEST_CASE("Survey progress is weighted sum of components", "[survey]")
     LabEngine lab(2);
 
     sweep.ExecuteSweep(grid, 0, 100.0f);
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     lab.ApplyTool(*tray.GetSampleByIndex(0), AnalysisTool::XRF, 200.0f);
 
     CellSurveyResult result = SurveyProgressEngine::Calculate(grid, tray);
@@ -130,7 +130,7 @@ TEST_CASE("Sweep and sampling stages increase survey progress", "[survey]")
     float p1 = SurveyProgressEngine::Calculate(grid, tray).surveyProgress;
     REQUIRE(p1 > p0);
 
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     float p2 = SurveyProgressEngine::Calculate(grid, tray).surveyProgress;
     REQUIRE(p2 > p1);
 }
@@ -143,7 +143,7 @@ TEST_CASE("Lab analysis adds testing component to progress", "[survey]")
     SamplingEngine sampler(2);
     LabEngine lab(2);
 
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     Sample* sample = tray.GetSampleByIndex(0);
 
     float beforeLab = SurveyProgressEngine::Calculate(grid, tray).testingConfidence;
@@ -183,10 +183,10 @@ TEST_CASE("More samples increase sample component", "[survey]")
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     float after1 = SurveyProgressEngine::ComputeSampleComponent(grid, tray);
 
-    sampler.CollectSample(grid, tray, 1, 1, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     float after2 = SurveyProgressEngine::ComputeSampleComponent(grid, tray);
 
     // Coverage increases; combined product should not decrease
@@ -201,7 +201,7 @@ TEST_CASE("Better lab analysis increases testing component", "[survey]")
     SamplingEngine sampler(2);
     LabEngine lab(2);
 
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     Sample* sample = tray.GetSampleByIndex(0);
 
     lab.ApplyTool(*sample, AnalysisTool::VISUAL_INSPECTION, 100.0f);
@@ -292,7 +292,7 @@ TEST_CASE("Removed samples don't count toward testing component", "[survey]")
     LabEngine lab(2);
 
     // Collect and analyze with LIBS for guaranteed confidence gain
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
     lab.ApplyTool(*tray.GetSampleByIndex(0), AnalysisTool::LIBS_PULSE, 100.0f);
 
     float testingBefore = SurveyProgressEngine::ComputeTestingComponent(grid, tray);

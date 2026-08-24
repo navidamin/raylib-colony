@@ -45,55 +45,12 @@ bool SiteView::CanWorkDepth(DepthLayer depth) const
 float SiteView::GetConfidence(const ProspectingGrid& grid, const SampleTray& tray,
                               int x, int y, DepthLayer depth) const
 {
-    int size = grid.GetGridSize();
-    if (x < 0 || x >= size || y < 0 || y >= size) return 0.0f;
-
-    int d = static_cast<int>(depth);
-    if (d < 0 || d > 3) return 0.0f;
-
-    const SubCell& cell = grid.GetSubCell(x, y);
-
-    // --- Direct observation ---
-    // A layer that has been dug was seen with its own eyes. Note this is per
-    // DEPTH: digging the surface says nothing about what lies under it, which
-    // is why the deep layers stay a bet long after the surface is mapped.
-    if (cell.HasBeenDug(d)) return 1.0f;
-
-    // --- Sweep evidence ---
-    // A sweep only reveals the layers its frequency band penetrated, and what
-    // it does reveal weakens with depth by the same attenuation the sweep
-    // engine itself uses.
-    float sweepConfidence = 0.0f;
-    if (cell.hasBeenSwept && cell.sweepFrequencyBand >= 0)
-    {
-        int band = std::clamp(cell.sweepFrequencyBand, 0, SWEEP_FREQUENCY_BANDS - 1);
-        if (d < SWEEP_DEPTH_PENETRATION[band])
-        {
-            float attenuation = 1.0f / (1.0f + d * SWEEP_DEPTH_ATTENUATION);
-            sweepConfidence = cell.aggregateConfidence * attenuation *
-                              EXC_SWEEP_CONFIDENCE_WEIGHT;
-        }
-    }
-
-    // --- Sample evidence ---
-    // Samples are direct evidence, but only for the exact spot and depth they
-    // were taken at.
-    float sampleConfidence = 0.0f;
-    const std::vector<Sample>& samples = tray.GetSamples();
-    for (const Sample& sample : samples)
-    {
-        if (sample.subCellX != x || sample.subCellY != y) continue;
-        if (sample.depthLayer != depth) continue;
-
-        float aggregate = sample.GetAggregateConfidence();
-        sampleConfidence = std::max(sampleConfidence,
-                                    aggregate * EXC_SAMPLE_CONFIDENCE_WEIGHT);
-    }
-
-    // Independent evidence combines rather than replaces.
-    float combined = 1.0f - (1.0f - sweepConfidence) * (1.0f - sampleConfidence);
-    return std::clamp(combined, 0.0f, 1.0f);
+    // One implementation, owned by prospecting -- every input is prospecting
+    // state, and a second copy here would be free to drift. The weights it
+    // uses are the same numbers EXC_*_CONFIDENCE_WEIGHT now alias.
+    return ::GetDepthConfidence(grid, tray, x, y, depth);
 }
+
 
 float SiteView::GetTargetYield(const ProspectingGrid& grid,
                                int x, int y, DepthLayer depth,

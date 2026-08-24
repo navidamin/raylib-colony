@@ -83,3 +83,6 @@ notes
 #autosaves
 *.autosave
 
+
+# Test build tree (cmake -B build-tests -DBUILD_TESTS=ON)
+build-tests/

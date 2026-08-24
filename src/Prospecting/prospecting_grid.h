@@ -6,6 +6,8 @@
 #include "prospecting_types.h"
 #include "resource_manager.h"
 
+class SampleTray;
+
 class ProspectingGrid
 {
 public:
@@ -76,3 +78,44 @@ private:
     static uint32_t HashSeed(int px, int py, int depth, int resourceIdx);
     static uint32_t LCG(uint32_t seed);
 };
+
+// What is known about one spot at ONE depth.
+//
+// The grid keeps a single aggregateConfidence per sub-cell, so this
+// reconstructs the per-depth view from sweep evidence (attenuated by depth,
+// and only for layers the swept band penetrated) combined with sample
+// evidence (samples taken at this exact spot and depth). A dug layer is
+// direct observation and returns 1.0 -- per depth, so digging the surface
+// says nothing about what lies under it.
+//
+// This lives in prospecting because every input is prospecting state.
+// Excavation's SiteView::GetConfidence delegates here rather than keeping its
+// own copy; if confidence is ever stored per depth directly, this is still
+// the only function to change.
+float GetDepthConfidence(const ProspectingGrid& grid, const SampleTray& tray,
+                         int x, int y, DepthLayer depth);
+
+// Yield of one resource at a spot: absolute quantity x composition fraction.
+// The product is the number worth choosing between spots on -- quantity alone
+// is much flatter, because each resource clusters separately. Naming it here
+// keeps the units trap (module-architecture.md Part II) in one place.
+float GetSubCellYield(const ProspectingGrid& grid, int x, int y,
+                      DepthLayer depth, ResourceType type);
+
+// Tonnage of one resource split by how well it is known. Summed over every
+// sub-cell within reach at `tier`, across every depth that tier can see.
+struct ClassSplit
+{
+    float measured = 0.0f;
+    float indicated = 0.0f;
+    float inferred = 0.0f;
+    float unclassified = 0.0f;
+
+    float Total() const;
+    float Committable() const;      // measured + indicated
+    float Get(ResourceClass cls) const;
+};
+
+ClassSplit GetClassSplit(const ProspectingGrid& grid, const SampleTray& tray,
+                         ResourceType type, int tier);
+

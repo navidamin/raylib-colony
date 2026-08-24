@@ -118,6 +118,31 @@ constexpr float SWEEP_BLUR_PER_BAND = 0.15f;
 // Depth signal attenuation: attenuation = 1 / (1 + depth * factor)
 constexpr float SWEEP_DEPTH_ATTENUATION = 0.5f;
 
+// How much each kind of evidence is worth when reconstructing what is known
+// about a spot at a given depth. These describe what a sweep and a sample
+// TELL you, which is a prospecting fact, so they live here and excavation
+// aliases them -- one number, so the two modules cannot drift apart.
+//
+// Sweeps are broad and cheap; samples are local and definitive, so a sweep
+// alone should never read as well-known.
+constexpr float PROSPECT_SWEEP_CONFIDENCE_WEIGHT  = 0.6f;
+
+// A sample taken at a spot+depth is direct evidence, so it carries full weight.
+constexpr float PROSPECT_SAMPLE_CONFIDENCE_WEIGHT = 1.0f;
+
+// ---------------------------------------------------------------------------
+// Resource classification
+//
+// The three named classes are a GROUPING of the CONFIDENCE_THRESHOLD_* bands
+// above, never a second set of thresholds -- see GetResourceClass(). That is
+// what keeps the coarse reading and the fine one from ever disagreeing.
+//
+//   Measured      > 0.80    CERTAIN
+//   Indicated     > 0.40    MODERATE + HIGH
+//   Inferred      > 0.20    LOW
+//   Unclassified <= 0.20    VERY_LOW
+// ---------------------------------------------------------------------------
+
 // Anomaly detection: cells above mean + threshold * stddev
 constexpr float SWEEP_ANOMALY_THRESHOLD = 1.5f;
 

@@ -1,4 +1,5 @@
 #include "prospecting_grid.h"
+#include "sample_tray.h"
 #include <cmath>
 #include <algorithm>
 
@@ -274,4 +275,138 @@ uint32_t ProspectingGrid::HashSeed(int px, int py, int depth, int resourceIdx)
 uint32_t ProspectingGrid::LCG(uint32_t seed)
 {
     return seed * 1664525u + 1013904223u;
+}
+
+// ---------------------------------------------------------------------------
+// Per-depth confidence, classification and roll-up
+//
+// Moved here from Excavation/site_view.cpp unchanged: every input is
+// prospecting state, and two copies of this arithmetic is exactly the drift
+// the single-threshold rule exists to prevent.
+// ---------------------------------------------------------------------------
+
+float GetDepthConfidence(const ProspectingGrid& grid, const SampleTray& tray,
+                         int x, int y, DepthLayer depth)
+{
+    int size = grid.GetGridSize();
+    if (x < 0 || x >= size || y < 0 || y >= size) return 0.0f;
+
+    int d = static_cast<int>(depth);
+    if (d < 0 || d > 3) return 0.0f;
+
+    const SubCell& cell = grid.GetSubCell(x, y);
+
+    // --- Direct observation ---
+    if (cell.HasBeenDug(d)) return 1.0f;
+
+    // --- Sweep evidence ---
+    float sweepConfidence = 0.0f;
+    if (cell.hasBeenSwept && cell.sweepFrequencyBand >= 0)
+    {
+        int band = cell.sweepFrequencyBand;
+        if (band < 0) band = 0;
+        if (band > SWEEP_FREQUENCY_BANDS - 1) band = SWEEP_FREQUENCY_BANDS - 1;
+
+        if (d < SWEEP_DEPTH_PENETRATION[band])
+        {
+            float attenuation = 1.0f / (1.0f + d * SWEEP_DEPTH_ATTENUATION);
+            sweepConfidence = cell.aggregateConfidence * attenuation *
+                              PROSPECT_SWEEP_CONFIDENCE_WEIGHT;
+        }
+    }
+
+    // --- Sample evidence ---
+    float sampleConfidence = 0.0f;
+    const std::vector<Sample>& samples = tray.GetSamples();
+    for (const Sample& sample : samples)
+    {
+        if (sample.subCellX != x || sample.subCellY != y) continue;
+        if (sample.depthLayer != depth) continue;
+
+        float aggregate = sample.GetAggregateConfidence();
+        float weighted = aggregate * PROSPECT_SAMPLE_CONFIDENCE_WEIGHT;
+        if (weighted > sampleConfidence) sampleConfidence = weighted;
+    }
+
+    // Independent evidence combines rather than replaces.
+    float combined = 1.0f - (1.0f - sweepConfidence) * (1.0f - sampleConfidence);
+    if (combined < 0.0f) combined = 0.0f;
+    if (combined > 1.0f) combined = 1.0f;
+    return combined;
+}
+
+float GetSubCellYield(const ProspectingGrid& grid, int x, int y,
+                      DepthLayer depth, ResourceType type)
+{
+    // quantity (absolute) x composition (fraction). Neither alone is a yield.
+    float quantity = grid.GetQuantity(x, y, depth);
+    if (quantity <= 0.0f) return 0.0f;
+
+    std::map<ResourceType, float> composition = grid.GetGroundTruth(x, y, depth);
+    auto it = composition.find(type);
+    if (it == composition.end()) return 0.0f;
+
+    return quantity * it->second;
+}
+
+float ClassSplit::Total() const
+{
+    return measured + indicated + inferred + unclassified;
+}
+
+float ClassSplit::Committable() const
+{
+    return measured + indicated;
+}
+
+float ClassSplit::Get(ResourceClass cls) const
+{
+    switch (cls)
+    {
+        case ResourceClass::MEASURED:  return measured;
+        case ResourceClass::INDICATED: return indicated;
+        case ResourceClass::INFERRED:  return inferred;
+        default:                       return unclassified;
+    }
+}
+
+ClassSplit GetClassSplit(const ProspectingGrid& grid, const SampleTray& tray,
+                         ResourceType type, int tier)
+{
+    ClassSplit split;
+
+    if (tier < 0) tier = 0;
+    if (tier > 3) tier = 3;
+
+    int size = grid.GetGridSize();
+    int maxDepth = MAX_DEPTH_PER_TIER[tier];
+
+    for (int y = 0; y < size; y++)
+    {
+        for (int x = 0; x < size; x++)
+        {
+            // Ground the instruments cannot reach is not part of the statement.
+            if (!IsSubCellInReach(x, y, tier)) continue;
+
+            for (int d = 0; d < maxDepth; d++)
+            {
+                DepthLayer depth = static_cast<DepthLayer>(d);
+
+                float yield = GetSubCellYield(grid, x, y, depth, type);
+                if (yield <= 0.0f) continue;
+
+                float confidence = GetDepthConfidence(grid, tray, x, y, depth);
+
+                switch (GetResourceClass(confidence))
+                {
+                    case ResourceClass::MEASURED:  split.measured     += yield; break;
+                    case ResourceClass::INDICATED: split.indicated    += yield; break;
+                    case ResourceClass::INFERRED:  split.inferred     += yield; break;
+                    default:                       split.unclassified += yield; break;
+                }
+            }
+        }
+    }
+
+    return split;
 }

@@ -56,6 +56,20 @@ enum class ConfidenceLevel
     CERTAIN     // 0.81 - 1.00
 };
 
+// How well a spot is known, in the language a decision is actually made in.
+//
+// This is a GROUPING of ConfidenceLevel above, never a second banding of the
+// same number -- see GetResourceClass(). Borrowed from how real resource
+// statements are written (JORC, NI 43-101), where the classes carry a rule
+// the player inherits: Inferred ground cannot be committed to.
+enum class ResourceClass
+{
+    UNCLASSIFIED,   // VERY_LOW           -- blind, only the cell average is known
+    INFERRED,       // LOW                -- a bet
+    INDICATED,      // MODERATE + HIGH    -- worth digging, not worth a shaft
+    MEASURED        // CERTAIN            -- commit
+};
+
 // Crystal visual encoding for pre-rendered sample sprites
 struct CrystalVisual
 {
@@ -140,6 +154,16 @@ struct DepthLayerInfo
 
 ShapeFamily GetPrimaryShapeFamily(DepthLayer layer);
 ConfidenceLevel GetConfidenceLevel(float confidence);
+
+// Derived from GetConfidenceLevel, NOT from thresholds of its own. Written
+// this way on purpose: one set of boundaries means the coarse reading and the
+// fine one can never contradict each other, and there is nothing to keep in
+// sync when either is tuned. tests/test_resource_class.cpp asserts it.
+ResourceClass GetResourceClass(float confidence);
+const char* ResourceClassName(ResourceClass cls);
+
+// Inferred ground cannot be committed to -- the one rule the classes carry.
+bool IsCommittable(ResourceClass cls);
 int GetGlowLevel(float confidence);
 int GetSizeLevel(float richness);
 Color GetElementColor(ResourceType element);

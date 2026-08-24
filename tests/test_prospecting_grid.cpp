@@ -7,17 +7,13 @@ TEST_CASE("ProspectingGrid initializes with correct size per tier", "[grid]")
 {
     auto rm = MakeTestResourceManager();
 
-    ProspectingGrid g0(0, 5, 5, rm);
-    REQUIRE(g0.GetGridSize() == 3);
-
-    ProspectingGrid g1(1, 5, 5, rm);
-    REQUIRE(g1.GetGridSize() == 4);
-
-    ProspectingGrid g2(2, 5, 5, rm);
-    REQUIRE(g2.GetGridSize() == 5);
-
-    ProspectingGrid g3(3, 5, 5, rm);
-    REQUIRE(g3.GetGridSize() == 6);
+    // Fixed lattice at every tier -- see prospecting_constants.h.
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        ProspectingGrid g(tier, 5, 5, rm);
+        REQUIRE(g.GetGridSize() == PROSPECTING_GRID_SIZE);
+        REQUIRE(g.GetTier() == tier);
+    }
 }
 
 TEST_CASE("ProspectingGrid stores parent cell coordinates", "[grid]")
@@ -59,10 +55,12 @@ TEST_CASE("ProspectingGrid sub-cell distribution averages near parent value", "[
             }
         }
 
+        // GetGroundTruth returns composition FRACTIONS; parentAbundance is an
+        // absolute quantity. Comparing them directly is the units trap named
+        // in module-architecture.md Part II, so compare fractions to 1.0.
         float avg = sum / count;
-        // Average should be within 50% of parent value (clusters shift mass around)
-        REQUIRE(avg > parentAbundance * 0.3f);
-        REQUIRE(avg < parentAbundance * 2.0f);
+        REQUIRE(avg > 0.0f);
+        REQUIRE(avg <= 1.0f);
     }
 }
 
@@ -120,8 +118,12 @@ TEST_CASE("ProspectingGrid values are within clamped range", "[grid]")
                 }
                 if (parentVal < 0.001f) continue;
 
-                REQUIRE(val >= parentVal * SUBCELL_VARIATION_MIN - 0.001f);
-                REQUIRE(val <= parentVal * SUBCELL_VARIATION_MAX + 0.001f);
+                // The variation clamp applies to the WEIGHT on abundance, so
+                // it has to be checked on the yield product -- quantity x
+                // composition -- not on the composition fraction alone.
+                float yield = grid.GetQuantity(x, y, DepthLayer::SURFACE) * val;
+                REQUIRE(yield >= parentVal * SUBCELL_VARIATION_MIN - 0.001f);
+                REQUIRE(yield <= parentVal * SUBCELL_VARIATION_MAX + 0.001f);
             }
         }
     }
@@ -130,29 +132,31 @@ TEST_CASE("ProspectingGrid values are within clamped range", "[grid]")
 TEST_CASE("ProspectingGrid out-of-bounds returns empty", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm); // 3x3
+    ProspectingGrid grid(0, 5, 5, rm);
 
     auto gt = grid.GetGroundTruth(-1, 0, DepthLayer::SURFACE);
     REQUIRE(gt.empty());
 
-    gt = grid.GetGroundTruth(3, 0, DepthLayer::SURFACE);
+    // One past the fixed lattice. Note this is BOUNDS, not reach: a cell can
+    // be in bounds and still out of the instruments' reach at a low tier.
+    gt = grid.GetGroundTruth(PROSPECTING_GRID_SIZE, 0, DepthLayer::SURFACE);
     REQUIRE(gt.empty());
 }
 
-TEST_CASE("ProspectingGrid ResizeForTier changes grid size", "[grid]")
+TEST_CASE("ResizeForTier changes reach and keeps the lattice", "[grid]")
 {
     auto rm = MakeTestResourceManager();
     ProspectingGrid grid(0, 5, 5, rm);
-    REQUIRE(grid.GetGridSize() == 3);
+    REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
+
+    // A tier upgrade must not reallocate the grid, or survey data and the
+    // sample links pointing into it would be lost.
+    grid.RecordExcavation(4, 4, DepthLayer::SURFACE, 0.5f);
 
     grid.ResizeForTier(2);
-    REQUIRE(grid.GetGridSize() == 5);
     REQUIRE(grid.GetTier() == 2);
-
-    // Ground truth should be accessible at valid coordinates after resize
-    // (may be empty if parent cell has no resources — test that it doesn't crash)
-    auto gt = grid.GetGroundTruth(2, 2, DepthLayer::SURFACE);
-    (void)gt;
+    REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
+    REQUIRE(grid.GetSubCell(4, 4).workedFraction[0] == 0.5f);
 }
 
 TEST_CASE("ProspectingGrid deterministic: same inputs produce same results", "[grid]")

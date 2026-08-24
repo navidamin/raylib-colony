@@ -83,12 +83,36 @@ TEST_CASE("IsLayerAccessible respects tier gating", "[types]")
     REQUIRE(IsLayerAccessible(3, DepthLayer::DEEP) == true);
 }
 
-TEST_CASE("GetGridSizeForTier returns correct sizes", "[types]")
+TEST_CASE("the lattice is fixed; tier changes reach, not size", "[types]")
 {
-    REQUIRE(GetGridSizeForTier(0) == 3);
-    REQUIRE(GetGridSizeForTier(1) == 4);
-    REQUIRE(GetGridSizeForTier(2) == 5);
-    REQUIRE(GetGridSizeForTier(3) == 6);
+    // The grid is never reallocated, which is what lets survey data and
+    // collected samples survive a tier upgrade.
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        REQUIRE(GetGridSizeForTier(tier) == PROSPECTING_GRID_SIZE);
+    }
+
+    // What tier actually buys is a wider ring out from the sect at the centre.
+    REQUIRE(GetReachForTier(0) == 2);
+    REQUIRE(GetReachForTier(1) == 4);
+    REQUIRE(GetReachForTier(2) == 6);
+    REQUIRE(GetReachForTier(3) == 8);
+
+    // Even sizes nest, so every tier-up lights a complete ring around what
+    // the previous tier could already see.
+    for (int tier = 0; tier < 3; tier++)
+    {
+        for (int y = 0; y < PROSPECTING_GRID_SIZE; y++)
+        {
+            for (int x = 0; x < PROSPECTING_GRID_SIZE; x++)
+            {
+                if (IsSubCellInReach(x, y, tier))
+                {
+                    REQUIRE(IsSubCellInReach(x, y, tier + 1));
+                }
+            }
+        }
+    }
 }
 
 TEST_CASE("GetTrayCapacityForTier returns correct capacities", "[types]")
