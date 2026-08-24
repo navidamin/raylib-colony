@@ -314,7 +314,7 @@ void main()
 {
     vec2 uv = fragTexCoord;
 
-    vec4 shade = TEX(shadeMap, uv);
+    vec4 shade = TEX(shadeMap, uv - 0.5 * texelSize);
     vec3 normal = normalize(shade.xyz * 2.0 - 1.0);
     // Curvature emphasis helps landform legibility at map scales but
     // reads as a sourceless glow around rims in close-ups — real
@@ -489,8 +489,22 @@ static Texture2D BuildShadeTexture(const LolaWindow& window,
             float hR = e[(size_t)y * res + xp];
             float hU = e[(size_t)ym * res + x];
             float hD = e[(size_t)yp * res + x];
-            float gx = (hR - hL) / (dxM * (xp - xm)) * exaggeration;
-            float gy = (hD - hU) / (dyM * (yp - ym)) * exaggeration;
+            // Half-offset quad difference, NOT a central difference:
+            // (h[x+1]-h[x-1])/2 has MTF sinc(2f), which is exactly ZERO
+            // at the 2-texel wavelength — the finest synthesized octave
+            // was being deleted on arrival. The quad gradient sits at
+            // the texel corner (MTF 0.637 there) and the shader
+            // compensates with a half-texel lookup offset.
+            int xq = std::min(res - 1, x + 1);
+            int yq = std::min(res - 1, y + 1);
+            float h00 = e[(size_t)y * res + x];
+            float h10 = e[(size_t)y * res + xq];
+            float h01 = e[(size_t)yq * res + x];
+            float h11 = e[(size_t)yq * res + xq];
+            float gx = ((h10 + h11) - (h00 + h01)) * 0.5f / dxM *
+                       exaggeration;
+            float gy = ((h01 + h11) - (h00 + h10)) * 0.5f / dyM *
+                       exaggeration;
             Vector3 n = Vector3Normalize(Vector3{ -gx, 1.0f, -gy });
             float lap = hL + hR + hU + hD - 4.0f * h;
             float curve = Clamp(-lap * 3.0f * exaggeration / dxM,

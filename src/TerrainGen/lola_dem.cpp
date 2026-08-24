@@ -749,7 +749,7 @@ static float SynthesizeDetail(double u, double v, float pixKm,
     // double-counts relief that is already in the elevation field
     // (which is what made the first spectral build look like bark).
     double wave = nativeKm;
-    for (int level = 0; level < 16 && wave >= 2.0 * pixKm; level++)
+    for (int level = 0; level < 16 && wave >= 3.0 * pixKm; level++)
     {
         // 0 where the DEM still resolves this wavelength, 1 below its
         // effective (Nyquist-ish) floor at ~1.5x the native pixel.
@@ -773,9 +773,13 @@ static float SynthesizeDetail(double u, double v, float pixKm,
             float lumpN = DetailNoise(u, v, wave * 0.7,
                                       0xB00Bu + (uint32_t)level);
             band += 0.3f * amp * std::max(0.0f, lumpN);
-            // Craters only above ~a 30-100 m floor — smaller ones read
-            // as noise speckle, not landforms.
-            if (wave >= 0.12)
+            // Craters above a ~30 m floor — smaller ones read as noise
+            // speckle, not landforms. NOTE this gate used to be 0.12 km,
+            // which no octave on a 59 m SLDEM overlay ever satisfies
+            // (wave starts AT nativeKm = 0.059 and halves): Tycho and
+            // Imbrium — the only high-res ground we have — were
+            // generating no synthetic craters at all.
+            if (wave >= 0.03)
             {
                 band += DetailCraters(u, v, wave,
                                       0xC7A7E5u + (uint32_t)level * 7u);
@@ -949,13 +953,20 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
         // number for the window.
         double s1 = 0.0, s2 = 0.0;
         int n1 = 0, n2 = 0;
+        // Measure at 4x and 8x the native sample, NOT 1x and 2x: a
+        // stereo DEM rolls off approaching its own grid, so the data
+        // reaches only ~0.74/0.80 of its true power law at 1x/2x.
+        // Fitting there reads H too steep (~0.90 vs the true ~0.77)
+        // AND deflates the amplitude anchor — together about half the
+        // energy the fine octaves should carry.
+        int lagA = 4 * lag, lagB = 8 * lag;
         for (int j = 0; j < res; j += 4)
         {
-            for (int i = 0; i + 2 * lag < res; i += 4)
+            for (int i = 0; i + lagB < res; i += 4)
             {
                 size_t k = (size_t)j * res + i;
-                double d1 = out.elevationM[k + lag] - out.elevationM[k];
-                double d2 = out.elevationM[k + 2 * lag] - out.elevationM[k];
+                double d1 = out.elevationM[k + lagA] - out.elevationM[k];
+                double d2 = out.elevationM[k + lagB] - out.elevationM[k];
                 s1 += d1 * d1; n1++;
                 s2 += d2 * d2; n2++;
             }
@@ -976,13 +987,17 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
         // Local roughness: RMS relief the real data carries over one
         // native sample AT EACH POINT, so a crater wall and the mare
         // beside it get different synthetic amplitudes.
+        // Sampled at 4x the native lag (clear of the roll-off) and then
+        // walked back down the fitted power law to the native scale,
+        // which removes the ~0.74 anchor deflation.
         std::vector<float> rough((size_t)res * res, 0.0f);
+        const float roughToNative = std::pow(0.25f, hurst);
         for (int j = 0; j < res; j++)
         {
-            int jm = std::max(0, j - lag), jp = std::min(res - 1, j + lag);
+            int jm = std::max(0, j - lagA), jp = std::min(res - 1, j + lagA);
             for (int i = 0; i < res; i++)
             {
-                int im = std::max(0, i - lag), ip = std::min(res - 1, i + lag);
+                int im = std::max(0, i - lagA), ip = std::min(res - 1, i + lagA);
                 size_t k = (size_t)j * res + i;
                 float h = out.elevationM[k];
                 float mad = 0.25f *
@@ -990,12 +1005,13 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
                      std::fabs(h - out.elevationM[(size_t)j * res + im]) +
                      std::fabs(out.elevationM[(size_t)jp * res + i] - h) +
                      std::fabs(h - out.elevationM[(size_t)jm * res + i]));
-                rough[k] = 1.25f * mad;    // MAD -> RMS for gaussian-ish
+                // MAD -> RMS for gaussian-ish, then 4x lag -> native.
+                rough[k] = 1.25f * mad * roughToNative;
             }
         }
         // Smooth the amplitude field itself, or its own graininess
         // modulates the synthesis and reads as blotching.
-        GaussianBlur(rough, res, res, (float)lag, (float)lag);
+        GaussianBlur(rough, res, res, (float)lagA, (float)lagA);
 
         std::vector<float> detail((size_t)res * res);
         for (int j = 0; j < res; j++)
