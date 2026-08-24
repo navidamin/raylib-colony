@@ -32,8 +32,9 @@ Prospecting tells you which spot is worth it — if you paid for prospecting. Fu
 | **Place** | Which spot in the 8×8 lattice, and how deep. Reach is a tier ring, not a dial |
 | **The gamble** | Digging without having paid to survey first — not random noise, a choice to skip a cost |
 | **Machinery** | Six machines with different depth, precision, pace and wear. Optional; AUTO by default |
+| **Access** | Deep ground must connect to the surface — strip the column, or sink a shaft that opens a 3×3 block. Tier buys lateral reach; access buys depth |
 
-The three lock together through one machine stat: **precision**. A sloppy machine digs
+The first four lock together through one machine stat: **precision**. A sloppy machine digs
 wider than you aimed and averages your chosen spot with its neighbours — throwing away the
 survey you paid for. So *"should I survey?"* and *"which machine?"* become the same question.
 
@@ -47,6 +48,22 @@ gamble becomes structural: dig further than you can survey and you're working gr
 no way to learn about first. At tier 0 the grid's best spot is inside reach only **7%** of
 the time, so early game isn't about surveying — it's about being pinned to whatever lies
 under the sect.
+
+**Access is the vertical half, and it is what excavation has that prospecting cannot.** A
+drill hole is a needle and goes anywhere; a working face is a volume and must connect to the
+surface. A spot at depth is workable only once it's been stripped (every spot above it in the
+column worked out) or a **shaft** has been sunk nearby, opening a 3×3 block down to the depth
+you paid for. Siting that shaft is the module's highest-stakes decision, and since depth
+re-rolls the ore clusters, siting one on unsurveyed deep ground bets the whole build rather
+than one spot's machine time. At tier 0 the system is dormant — there is only one depth.
+
+Confidence is presented as **three named classes** rather than a raw number — Measured /
+Indicated / Inferred — on **one colour key shared by three surfaces**: the ring on the
+resource icon, the four-layer depth map, and the excavation grid. Because the ring summarises
+exactly the field the map details, the player can tell at a glance which elements are drilled
+out and which are guesses without opening anything. That only works because colour is spent
+on class; the element identifies itself through the icon, the tinted rock wall and the shape
+of the relief instead.
 
 The background fact behind the machine stats: **on the Moon a digger cannot push.** At 1/6
 gravity a machine barely weighs anything, so it can't lean on a blade the way an Earth

@@ -1,7 +1,7 @@
 # Excavation — The Design
 
 > Status: DRAFT — the agreed frame, firmed up
-> Last Updated: 2026-08-13 (revised for the fixed-lattice reach model)
+> Last Updated: 2026-08-24 (added §2 access, and the three confidence classes in §3)
 > Parent: [README.md](README.md)
 >
 > Supersedes [design-options.md](design-options.md) and
@@ -14,7 +14,7 @@
 > **You point a machine at a spot in the ground and tune how hard it works.**
 > **Prospecting tells you which spot is worth it — if you paid for prospecting.**
 
-Three pillars, and each one is real rather than invented:
+Five pillars, and each one is real rather than invented:
 
 | Pillar | What it is | Where it comes from |
 |--------|-----------|--------------------|
@@ -22,6 +22,7 @@ Three pillars, and each one is real rather than invented:
 | **Place** | Which spot in the grid, and how deep. No reach, no names | Prospecting's grid — already built |
 | **The gamble** | Digging without having paid to survey first | Prospecting costs energy and time; skipping it is a real choice |
 | **Machinery** | A stable of machines with genuinely different jobs | The `Excavator` struct and the four `method` strings already in the code |
+| **Access** | Deep ground has to be connected to the surface — stripped, or reached by a built shaft | The one thing a working face needs that a drill hole doesn't |
 
 ### What was wrong before, and is now fixed
 
@@ -74,6 +75,81 @@ idea:
 So the two tiers become a real build decision — *upgrade prospecting to know more, or
 excavation to reach further?* — and the gamble stops depending only on a statistical blur.
 It becomes a place on the map you can see and can't yet learn about.
+
+### Depth costs access
+
+Reach is lateral. **Access is vertical, and it is not free.**
+
+A drill hole is a needle: it goes wherever you point it and needs nothing but a rig on the
+surface. A working face is a volume, and a volume has to connect to the surface. That single
+asymmetry is the main thing keeping excavation from being prospecting with a different verb
+— without it, both modules reduce to *click the spot with the best number*.
+
+**The rule: a spot at depth `d` is workable only if it is connected.** There are two ways to
+connect it, and they are a real choice rather than a progression.
+
+| Way in | What it costs | When it's right |
+|--------|--------------|-----------------|
+| **Strip** — work out every spot above it in the same column first | Time and machine-hours spent on low-grade overburden. You keep everything you dig | One good spot; shallow ground; or the layers above are worth something on their own |
+| **Sink an access** — a built shaft at one spot, down to a depth you choose | CONSTRUCTION_MATERIALS, a long build, and a standing power draw for as long as it exists | A whole ore body at depth, worked over a long time |
+
+**Strip needs no new state.** A spot is stripped when every spot above it in its column is
+worked out — which is exactly the `worked` flag Rule 5 already requires. So the cheap half of
+access costs nothing to implement; it reads state the module has to keep anyway.
+
+**A shaft opens a neighbourhood, not a column.** Sinking one at (x, y) down to depth `d`
+makes the **3×3 block centred on it** workable at every depth down to `d`. That is what turns
+siting into the highest-stakes decision in the module, and it locks onto the clustered ground
+described in §3: **ore bodies are blobs, so one well-sited shaft serves a whole blob and a
+badly-sited one serves a corner of it.**
+
+| Shaft depth | Opens | Roughly |
+|-------------|-------|---------|
+| To layer 2 | 9 spots × 2 depths | Cheap, quick, usually strip is better |
+| To layer 3 | 9 spots × 3 depths | The normal mid-game shaft |
+| To layer 4 | 9 spots × 4 depths | Expensive, slow, and the deepest ground is also the least surveyed |
+
+> Balance note: cost and build time should scale with depth **faster than linearly**, so that
+> a layer-4 shaft is a campaign decision and not a default. Exact figures belong to the
+> balance pass; the shape is what matters here.
+
+### Why access makes the gamble bigger, not just slower
+
+Sinking a shaft is a **commitment made before the payoff is known**, which is a different
+kind of bet from digging one blind spot:
+
+- Digging blind risks **one spot's worth** of machine time. You find out quickly and you
+  keep whatever came up.
+- Sinking blind risks **the whole build** — materials, days, and a standing power draw — on
+  ground you may not have surveyed at that depth. And per §3, *depth re-rolls the clusters*,
+  so a rich layer 1 tells you nothing about layer 3.
+
+That gives surveying a second, much sharper reason to exist. Surveying to pick a spot is
+worth +33% to +130% (the table below). Surveying **to site a shaft** is worth the entire
+build. It is the first point in the module where the player has a strong reason to survey
+ground they cannot yet dig.
+
+**It also makes the two modules' upgrades stop competing on one axis.** Prospecting tier buys
+knowledge, excavation tier buys lateral reach, and access buys depth — three purchases, three
+different reasons.
+
+### Keeping access friendly
+
+Access must not complicate the opening. It doesn't:
+
+| Tier | Depths available | Shafts | What access feels like |
+|------|-----------------|--------|----------------------|
+| **T0** | 1 (surface only) | — | Invisible. There is nothing below to reach |
+| **T1** | 2 | 1 | "I can strip down to layer 2, or build one way in" |
+| **T2** | 3 | 2 | Siting starts to matter |
+| **T3** | 4 | 4 | Planning an operation around where the ways in are |
+
+At tier 0 the whole system is dormant, because `MAX_DEPTH_PER_TIER[0]` is 1 — there is no
+depth to be locked out of. The first shaft arrives exactly when the second depth does.
+
+AUTO handles it the same way it handles machines: it strips when stripping is cheaper and
+proposes a shaft when it isn't, so a player who never thinks about access still plays a
+complete game.
 
 ---
 
@@ -131,11 +207,11 @@ When excavation works a spot at a depth, it sets that spot's confidence to **1.0
 it as *known by digging* — visually distinct from *known by surveying*, because the two mean
 different things:
 
-| State | Confidence | What it tells the player |
-|-------|-----------|-------------------------|
-| Unsurveyed | low | A guess, with a wide range |
-| Surveyed | rising | What's there, and it's still there |
-| **Dug** | **1.0, marked** | What was there — and how much you've taken out of it |
+| State | Confidence | Class shown | What it tells the player |
+|-------|-----------|-------------|-------------------------|
+| Unsurveyed | low | Unclassified → Inferred | A guess, with a wide range |
+| Surveyed | rising | Indicated → Measured | What's there, and it's still there |
+| **Dug** | **1.0, marked** | **Worked** | What was there — and how much you've taken out of it |
 
 A spot that is 100% known *and emptied* is very different information from one that is 100%
 known *and full*, so the mark has to carry that, not just say "known".
@@ -143,6 +219,62 @@ known *and full*, so the mark has to carry that, not just say "known".
 This has a useful side effect: since `surveyProgress` already gates extraction efficiency,
 **digging blind slowly bootstraps your own efficiency.** A player who never surveys still
 improves, just the expensive way — which is exactly the shape Rule 3 describes.
+
+### The three classes, and one colour key
+
+Rule 2 makes confidence a number. The player does not act on a number — they act on
+*"can I commit to this?"* So confidence is presented in **three named bands**, borrowed
+straight from how real resource statements are written (JORC, NI 43-101):
+
+| Class | `aggregateConfidence` | Spread at the band's floor | Colour | What the player does |
+|-------|----------------------|---------------------------|--------|---------------------|
+| **Measured** | ≥ 0.75 | ≤ 0.25 × maxSpread | `EXT_ACCENT_GREEN` {80,230,150} | Commit. Point the precise machine here |
+| **Indicated** | 0.45 – 0.75 | ≤ 0.55 × maxSpread | `EXT_ACCENT_GOLD` {255,200,80} | Probably. Worth digging, not worth a shaft |
+| **Inferred** | 0.15 – 0.45 | ≤ 0.85 × maxSpread | `EXT_CLASS_INFERRED` {124,143,214} | A bet. Dig it with something wide and cheap |
+| **Unclassified** | < 0.15 | — | `EXT_DIM_TEXT` {120,138,165} | Blind. You know only the cell average |
+| **Worked** | 1.0, and emptied | none | distinct hatch, per Rule 5 | Nothing left to decide |
+
+> `EXT_CLASS_INFERRED` is a new token. `EXT_ACCENT_VIOLET` {170,110,255} cannot be reused —
+> it is within a few units of `EXT_HEADER_COLOR` {168,130,255}, so section headings and
+> Inferred ground would read as the same thing. The muted violet is deliberate: Inferred is
+> the class you are meant to notice *least*.
+
+**The bands are presentation, not new state.** They are thresholds on the confidence the grid
+already stores. Nothing in Rules 1–5 changes; this only gives the numbers a name and a colour.
+
+#### Why the bands earn their place
+
+**They put a visual on the gamble.** The gamble is currently the module's central pillar and
+has no key — the player is asked to weigh certainty with nothing on screen that names it.
+Green / amber / violet says *commit / probably / betting* at a glance, on a 12 m square, with
+no text.
+
+**They give the shaft decision a vocabulary.** "Don't sink a shaft into violet ground" is a
+rule a player can learn in one bad build and then apply forever. Without named bands the same
+lesson is a vague feeling about a shading gradient.
+
+**One key, three surfaces.** This is the real reason. The same three colours carry the same
+meaning at three completely different scales:
+
+| Surface | What the colour is doing |
+|---------|-------------------------|
+| The **resource icon** in the element switcher | A three-segment ring: how much of this element is Measured / Indicated / Inferred. Readable at 40 px |
+| The **depth map** (four stacked layers) | Per-spot class, so the shape of what you know is visible at a glance |
+| The **excavation grid** in the panel | Per-spot class, so target selection and survey planning use one key |
+
+Because the ring is a summary of exactly the field the map shows in detail, a player can
+glance at the icon bar and know which elements are drilled out and which are guesses —
+**without opening anything.** That is only possible because colour was spent on class rather
+than on element. If colour identified the element instead, the ring and the map would be
+saying different things and the summary would be worthless.
+
+The element identifies itself where it costs no per-cell channel: the icon, the tint on the
+rock wall, the panel heading, and the shape of the relief — which is different for every
+element anyway, because per §3 every resource has its hot spot somewhere else.
+
+> Note on terminology: real codes convert *Measured resource* + economics into a *Proven
+> reserve*. The game has a cutoff, so that mapping exists — but it adds a word without adding
+> a decision, so the design stops at three classes.
 
 ### Why anyone would dig blind
 
@@ -290,25 +422,30 @@ One screen, three regions.
 ┌─────────────────────────┬────────────────────────────────┐
 │  THE GRID               │  MACHINE BAY            [AUTO] │
 │  ┌─┬─┬─┬─┬─┐            │  ┌────────┐ ┌────────┐         │
-│  │ │▓│ │░│ │  ← spots   │  │ Drum   │ │ Wheel  │  ...    │
-│  ├─┼─┼─┼─┼─┤    shaded  │  │ ●●●○○  │ │ ●●●●○  │         │
-│  │░│█│▓│ │ │    by how  │  └────────┘ └────────┘         │
-│  ├─┼─┼─┼─┼─┤    well    ├────────────────────────────────┤
-│  │ │ │░│▓│ │    known   │  TARGET   [ Iron ▾ ]           │
+│  │·│▒│·│▓│·│  ← spots   │  │ Drum   │ │ Wheel  │  ...    │
+│  ├─┼─┼─┼─┼─┤    in the  │  │ ●●●○○  │ │ ●●●●○  │         │
+│  │▓│█│▒│·│·│    class   │  └────────┘ └────────┘         │
+│  ├─┼─┼─┼─┼─┤    colour  ├────────────────────────────────┤
+│  │·│⌷│▓│▒│·│            │  TARGET   [ Iron ▾ ]           │
 │  └─┴─┴─┴─┴─┘            │  PACE     ──────●────          │
 │  DEPTH  [1][2][3][4]    │  POWER    ────●──────          │
+│  ■ Meas ■ Ind ■ Inf ⌷shaft                               │
 ├─────────────────────────┴────────────────────────────────┤
-│  B2 · Iron 40–70%  (guessing)      →  getting 31%        │
-│  0.42 useful per power                                   │
+│  B2 · Iron 40–70%  · INFERRED      →  getting 31%        │
+│  0.42 useful per power   · reached by strip (2 above)    │
 └──────────────────────────────────────────────────────────┘
 ```
 
-- **Grid** — spots shaded by how well they're known. Unsurveyed spots show a wide range;
-  surveyed ones show a number. Dug-out spots are visibly worked
+- **Grid** — every spot carries its **class colour**, the same green/amber/violet used by the
+  depth map and by the ring on the resource icon. Unsurveyed spots show a wide range;
+  Measured spots show a number. Dug-out spots are visibly worked
+- **Access marks** — a shaft is drawn on the grid at its spot, with the 3×3 it opens; spots
+  reachable only by stripping say how many layers stand above them
 - **Machine bay** — cards, AUTO by default
 - **Panel** — target, pace, power cap
 - **The bottom line is the whole module**: what you thought was there, against what you're
-  actually getting
+  actually getting — with the class named, so *"I knew this was a bet"* is legible after the
+  fact
 
 ---
 
@@ -316,10 +453,10 @@ One screen, three regions.
 
 | Tier | Grid | Machines | Panel | The feel |
 |------|------|----------|-------|----------|
-| **T0** | Pick a spot, surface only | 1, no choice, manual repair | Pace only | Point and dig |
-| **T1** | 2 depths | 2 running, pick types, AUTO available | + power cap | The first real machinery choice |
-| **T2** | 3 depths | 4 running, background repairs | + target selector | Optimizing |
-| **T3** | All 4 depths | 8 running, auto-rotation | + saved presets | Running an operation |
+| **T0** | Pick a spot, surface only. No access system | 1, no choice, manual repair | Pace only | Point and dig |
+| **T1** | 2 depths, 1 shaft | 2 running, pick types, AUTO available | + power cap | The first real machinery choice, and the first way in |
+| **T2** | 3 depths, 2 shafts | 4 running, background repairs | + target selector | Optimizing, and siting |
+| **T3** | All 4 depths, 4 shafts | 8 running, auto-rotation | + saved presets | Running an operation |
 
 ---
 
@@ -334,7 +471,7 @@ same interface, and research improves *how well it chooses*, not what it's allow
 | Off | Player sets everything |
 | Basic | Picks the best **known** spot. Never gambles. Safe, slow |
 | Trained | Weighs unknown spots by their potential — will gamble when the odds are good |
-| Expert | Also schedules surveys, so it decides *when knowing is worth the delay* |
+| Expert | Also schedules surveys, so it decides *when knowing is worth the delay* — and sites shafts, which is the same judgement with a much bigger stake |
 
 That top level is the interesting one, because it's the same judgement the player makes.
 The AI's quality is legible: watch whether it gambles when you would have.
@@ -360,6 +497,13 @@ all still multiply in and keep their current meaning, so those modules keep work
 
 **Needs deciding before building**
 - `[?]` Does the power cap draw on the sect's shared pool, or is it a local budget?
+- `[?]` Access: is a shaft **per unit** or **per sect**? Per unit is simpler and keeps each
+  extraction unit self-contained; per sect makes siting a settlement-level decision and lets
+  two units share one way in. Per unit unless a reason appears
+- `[?]` Can a shaft be abandoned or moved? If not, a bad siting is permanent — which is
+  strong medicine. Probably: demolish for a partial materials refund, on a long timer
+- `[?]` Does the material stripped on the way down get **kept**? The table above assumes yes.
+  If it didn't, stripping would be pure cost and shafts would always win
 - `[?]` When a spot's result disappoints, is it revealed gradually as you dig, or at the end? Slow dread vs sharp surprise — changes how the gamble feels.
 - `[?]` Can several machines work different spots at once, or do they stack on one spot? Stacking is simpler; splitting is more interesting and needs more UI.
 
@@ -369,8 +513,18 @@ all still multiply in and keep their current meaning, so those modules keep work
 - ✅ Reach is a **tier-gated ring**, not a slider — and excavation reads it with its *own* tier, which makes the gamble structural
 - ✅ Confidence varies **per spot and per depth**, so Rule 2 blurs per depth
 - ✅ Dug spots write confidence 1.0 back into prospecting's grid, shown with a distinct mark (Rule 5)
+- ✅ Confidence is shown as **three named classes**, not a raw number — Measured / Indicated /
+  Inferred, on one colour key shared by the resource icon ring, the depth map and the
+  excavation grid. Presentation only; no new state
+- ✅ **Depth is gated by access, not by tier alone.** Strip through the column, or sink a
+  shaft that opens a 3×3 block. Strip reads the `worked` flag Rule 5 already needs
 
 **Needs building on the prospecting side**
+- `[?]` The class thresholds (0.75 / 0.45 / 0.15) should live in `prospecting_constants.h`
+  alongside `aggregateConfidence`, not in the renderer — both modules classify the same field
+  and must not drift apart
+- `[?]` `EXT_CLASS_INFERRED` {124,143,214} is a new theme token in `rendermanager.cpp`; the
+  other three classes reuse existing ones
 - `[?]` `SubCell` needs a "worked" state — how much has been taken out, at which depths — for Rule 5's mark to render
 - `[?]` Who owns the writeback: does excavation call into `ProspectingGrid`, or does prospecting poll excavation? A single setter on the grid is probably cleanest
 - `[?]` Can excavation dig outside *prospecting's* reach if its own tier allows? The design above says yes — that's where the gamble lives — but prospecting currently refuses to sweep or drill out-of-reach cells, so the two modules need to agree that reach is per-module
