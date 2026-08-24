@@ -388,6 +388,18 @@ must land on the best available floor, TRAINED on the best available upside.
 - Check the `SUBCELL_VARIATION_MAX` ceiling: at 6×6 the best spot is pinned to the 2.0 clamp
   82% of the time, so raise the clamp rather than the grid if T3 needs headroom
 
+**Two measurements from `colony_measure_clusters`, worth acting on here:**
+
+| Finding | Why it matters |
+|---------|---------------|
+| `SUBCELL_VARIATION_MAX` binds in **98.9%** of fields | The ceiling is not an outlier guard, it is the shape of essentially every ore body. Raising it is the only lever on peak richness — the grid cannot supply more |
+| `SUBCELL_VARIATION_MIN` binds in **25.6%** of fields | It is doing real work in a quarter of fields, but the `maxInfluence = 0.1f` floor in `GenerateLayerDistribution` keeps the other three quarters above it. Barren ground bottoms out at w ≈ 0.41 on average, not 0.3 — so raising MIN would change less than it appears |
+
+A consequence worth knowing before tuning either: normalisation sets the pre-clamp mean of
+`w` to 1.0, then clamping the peak *down* pulls the post-clamp mean to **0.875**. So the
+best sub-cell reads **2.30× the mean**, not 2.0×, and any balance target expressed against
+"the mean" has to use the post-clamp figure.
+
 ### Phase 8 — Classes on the grid *(small, and gated on prospecting)*
 Cosmetic to build, and the payoff is disproportionate: it puts a visual on the gamble, which
 is the module's central pillar and currently has no key.
@@ -502,7 +514,8 @@ Using the instruments the prospecting branch built (`docs/dev-workflow.md`):
 | `tools/preview` | Phase 5 — headless screenshots of the panel at each tier |
 | `tools/playtest` | Phases 3, 6, 7 — drive a unit to any tier via `DebugUpgradeModuleTier()`, no economy needed |
 | `tools/shell-test` | Phase 5 — web/phone canvas regression |
-| `subcell_distribution_sim.py` | Phase 7 — re-derive survey value if the generator ever changes. Phase 9b — measure real cluster footprints before fixing the shaft's 3×3 |
+| `subcell_distribution_sim.py` | Phase 7 — re-derive survey value if the generator ever changes |
+| **`colony_measure_clusters`** | **Ore body footprint on the real lattice.** Best-placed N×N capture, rich-ground bounding boxes, and which variation clamp actually binds. Run it before changing `SUBCELL_VARIATION_*` or the shaft footprint |
 | **`colony_sim`** | **A playtest that runs in CI.** Runs the real engines for 20 game days under five different players and asserts the design's orderings |
 
 Two things worth asserting in code rather than by eye:
@@ -522,7 +535,7 @@ Two things worth asserting in code rather than by eye:
 | **The panel gets crowded** — grid + machines + 2 sliders + target + readout | Machinery is optional and AUTO by default; consider a collapsed machine bay at low tier |
 | **The renderer moved 1,600 lines** | Merge first (§0), then build the panel against the new code |
 | **Access turns into busywork** — every dig needing a setup step | 9a is free (reads existing state) and dormant at T0; AUTO strips or proposes a shaft so a player who ignores access still plays a complete game |
-| **The shaft's 3×3 is the wrong size** — covers a whole ore body, or a corner | Measure real cluster footprints with `subcell_distribution_sim.py` **before** fixing the number |
+| ~~**The shaft's 3×3 is the wrong size**~~ | **Retired.** Measured: 3×3 opens 30.8% of a field, bodies average 4.8×4.8, so a shaft opens a door rather than taking the body |
 | **Two colour channels fight on the grid** — yield shade vs class | Render both before deciding; class wins if they clash (Phase 8) |
 
 ---
@@ -566,9 +579,14 @@ of them and can proceed.
   other way.
 
 **Shape**
-- `[?]` Is the footprint really 3×3? Measure the generator's actual cluster sizes with
-  `subcell_distribution_sim.py` first. If a typical ore body is 2×2, a 3×3 shaft trivialises
-  siting; if it is 5×5, one shaft is never enough and the mechanic becomes a tax.
+- ✅ **The footprint is 3×3.** Measured with `colony_measure_clusters` over the full
+  population — 400 planet cells × 4 depths × every resource, 8,948 fields at the standard
+  seed. A best-placed 3×3 opens **30.8%** of a field's yield from **14%** of the lattice
+  (2.2× concentration); 4×4 opens 47.2% and starts to solve the body rather than open it.
+  Rich ground averages 15 of 64 sub-cells in a **4.8 × 4.8** box and fits inside a 3×3 only
+  **7%** of the time, so a shaft is a way *in*, never a way to take the whole thing. Siting
+  well is worth ~2.2× over siting at random. Details in
+  [excavation-design.md §2](excavation-design.md#depth-costs-access).
 - `[?]` Does a shaft open its footprint at **every** depth down to its own, or only at its
   terminal depth? Every depth is more forgiving and probably right.
 - `[?]` Can shafts be built outside excavation's reach ring? Consistency with §2 says no.

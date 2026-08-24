@@ -98,16 +98,47 @@ worked out — which is exactly the `worked` flag Rule 5 already requires. So th
 access costs nothing to implement; it reads state the module has to keep anyway.
 
 **A shaft opens a neighbourhood, not a column.** Sinking one at (x, y) down to depth `d`
-makes the **3×3 block centred on it** workable at every depth down to `d`. That is what turns
-siting into the highest-stakes decision in the module, and it locks onto the clustered ground
-described in §3: **ore bodies are blobs, so one well-sited shaft serves a whole blob and a
-badly-sited one serves a corner of it.**
+makes the **3×3 block centred on it** workable at every depth down to `d`.
+
+**3×3 is measured, not guessed.** `colony_measure_clusters` reads the real generator across
+all 400 planet cells × 4 depths × every resource — 8,948 fields, the full population at the
+standard seed:
+
+| Footprint | Share of the lattice | Share of a field's yield, best-placed | Concentration |
+|-----------|---------------------|--------------------------------------|--------------|
+| 2×2 | 6% | 14.3% | 2.3× |
+| **3×3** | **14%** | **30.8%** | **2.2×** |
+| 4×4 | 25% | 47.2% | 1.9× |
+| 5×5 | 39% | 61.3% | 1.6× |
+
+A perfectly-sited 3×3 opens **under a third** of what is there, at more than double the
+average yield density. It is the last footprint on the good part of that curve — 4×4 starts
+to feel like it solves the ore body rather than opening a door into it.
+
+**A shaft cannot swallow a body — and that is the good news.** Rich ground (sub-cells at
+≥ 1.5× the field's mean) averages **15 of 64 sub-cells in a 4.8 × 4.8 bounding box**, and
+fits inside a 3×3 only **7%** of the time. So one shaft is a way *in*, never a way to take
+the whole thing: working a body out means a second shaft, or a shaft plus stripping, or
+accepting the third you can reach. **Shafts compose rather than solve**, which keeps siting a
+recurring decision instead of a single puzzle solved once per body.
+
+> An earlier draft of this section claimed *"one well-sited shaft serves a whole blob."*
+> The measurement says otherwise and the text above is the corrected version.
+
+Siting still matters: a *randomly* placed 3×3 gets its 14% area share, a well-sited one gets
+30.8%, so choosing well is worth **~2.2×**. Enough to reward surveying at depth, not so much
+that a mediocre site is unrecoverable.
 
 | Shaft depth | Opens | Roughly |
 |-------------|-------|---------|
 | To layer 2 | 9 spots × 2 depths | Cheap, quick, usually strip is better |
 | To layer 3 | 9 spots × 3 depths | The normal mid-game shaft |
 | To layer 4 | 9 spots × 4 depths | Expensive, slow, and the deepest ground is also the least surveyed |
+
+Depth re-rolls the clusters (§3), so the 3×3 that is rich at layer 2 is **not** the 3×3 that
+is rich at layer 4. A shaft sunk to layer 4 opens four independently-placed ore bodies' worth
+of ground, most of which will be ordinary. That is the deep shaft's real cost, and it is
+structural rather than a price tag.
 
 > Balance note: cost and build time should scale with depth **faster than linearly**, so that
 > a layer-4 shaft is a campaign decision and not a default. Exact figures belong to the

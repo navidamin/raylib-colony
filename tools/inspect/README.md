@@ -35,3 +35,32 @@ minutes:
 
 Neither was visible from reading code. When a displayed value looks
 implausible, run this first.
+
+
+---
+
+## `colony_measure_clusters`
+
+Answers *"how big is an ore body on the 8×8 lattice?"* from the real generator.
+
+```bash
+cmake --build build --target colony_measure_clusters
+./build/src/colony_measure_clusters          # all 400 planet cells (the full population)
+./build/src/colony_measure_clusters 100      # a 10x10 corner, for a quick look
+```
+
+Built for one question from excavation's Phase 9b: an access shaft opens a 3×3 block of
+sub-cells — is that the right size? Reading the generator could not answer it; the field the
+player actually optimises is `GetQuantity × GetGroundTruth[resource]`, and what that looks
+like after normalisation and clamping is not obvious from the code.
+
+Prints, over every (parent cell × depth × resource) field:
+
+- **best-placed N×N capture** for N = 2..5 — what a shaft of that footprint, sited perfectly,
+  would open
+- **rich ground** — count and bounding box of sub-cells at ≥ 1.5× the field mean
+- **the weight field `w`** with abundance divided out, and which of
+  `SUBCELL_VARIATION_MIN` / `MAX` actually binds
+
+It also dumps one raw 8×8 field at the end, so the summary can be checked against numbers
+instead of trusted. Run it before changing `SUBCELL_VARIATION_*` or the shaft footprint.

@@ -74,6 +74,20 @@ Uses the same fixed seed as the preview tool, so its numbers describe the
 world the screenshots show. Reach for this the moment a displayed value looks
 implausible.
 
+**`colony_measure_clusters`** answers distribution questions the same way —
+statistics over the whole planet rather than a dump of one cell:
+
+```bash
+cmake --build build --target colony_measure_clusters
+./build/src/colony_measure_clusters       # all 400 cells x 4 depths x every resource
+```
+
+Best-placed N×N capture, rich-ground bounding boxes, and which of
+`SUBCELL_VARIATION_MIN` / `MAX` actually binds. It was written to size the
+excavation shaft's footprint and it ends with a raw 8×8 dump, so the summary
+can be checked rather than trusted. Run it before changing any generator
+constant.
+
 ### 4. `tools/shell-test/` — web shell canvas regression test
 
 Verifies `src/minshell.html` keeps the framebuffer pinned and the canvas

@@ -374,3 +374,34 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         target_link_libraries(colony_inspect m)
     endif()
 endif()
+
+# ---------------------------------------------------------------------------
+# colony_measure_clusters: how big is an ore body on the 8x8 lattice?
+#
+# Answers excavation-design.md Phase 9b's footprint question from the real
+# generator rather than a model of it. Not built for Web.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_measure_clusters)
+
+    target_sources(colony_measure_clusters PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/inspect/measure_clusters.cpp"
+        ResourceManager/resource_manager.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+    )
+
+    set_target_properties(colony_measure_clusters PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(colony_measure_clusters PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_measure_clusters raylib tomlplusplus::tomlplusplus)
+
+    if(NOT WIN32)
+        target_link_libraries(colony_measure_clusters m)
+    endif()
+endif()
