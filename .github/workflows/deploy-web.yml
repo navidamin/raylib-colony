@@ -12,6 +12,12 @@ on:
     # this branch deploys once more. The lunar-elevation branch was listed
     # here too and is paused on its own copy of this file for that reason;
     # it goes back when the excavation branch merges.
+    #
+    # MAIN does the same thing, and cannot be paused: merging PR #7 replaced
+    # the site with main's build, which has no /extraction/ in it. Every merge
+    # to main will do that again. Nothing here can fix it -- one repo has one
+    # Pages site, and the only real end to the ping-pong is merging this
+    # branch so /extraction/ ships from main like everything else.
     branches: [main, master, claude/excavation-module-design-jhp3v1]
     paths:
       - 'src/**'
