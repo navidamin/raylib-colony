@@ -274,6 +274,10 @@ static void DestripeLines(std::vector<double>& mean, int n)
     for (int i = 0; i < n; i++) mean[i] -= smooth[i];
 }
 
+static bool g_despeckle = true;
+
+void LolaSetDespeckle(bool enabled) { g_despeckle = enabled; }
+
 void LolaDem::DestripeOverlay(DemOverlay& ov)
 {
     int w = ov.width, h = ov.height;
@@ -282,6 +286,7 @@ void LolaDem::DestripeOverlay(DemOverlay& ov)
     // slope-continuous upsample faithfully magnifies into rectilinear
     // crunch. A median kills single-pixel outliers but keeps edges —
     // unlike blurring after the upsample, which smeared everything.
+    if (g_despeckle)
     {
         std::vector<uint16_t> src = ov.raw;
         for (int y = 0; y < h; y++)

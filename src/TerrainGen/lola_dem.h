@@ -48,6 +48,11 @@ enum class LolaTexture
     CRATERS = 1,
 };
 void LolaSetTextureMode(LolaTexture mode);
+
+// Disable the 3x3 median despeckle applied to overlay crops on load.
+// The median removes sensor speckle but also erases real features up
+// to ~2 samples across; this exists to measure that trade.
+void LolaSetDespeckle(bool enabled);
 const double LOLA_M_PER_DEG = 30322.68;    // pi * 1737.4 km / 180
 
 // A resampled window of real terrain: elevation (metres vs the

@@ -72,6 +72,7 @@ struct MapOptions
     float detail = 1.0f;           // sub-floor synthesis strength (0 = off)
     std::string interp = "catrom"; // catrom | bspline | lanczos | fractal
     std::string texture = "noise"; // noise | craters
+    bool despeckle = true;         // --nodespeckle to disable
     float ambient = 0.06f;
     int width = 1200;
     int height = 1200;
@@ -99,6 +100,7 @@ static void PrintUsage()
         << "  --exag F          vertical exaggeration   (default: 2.0)\n"
         << "  --detail F        sub-floor synthesis     (default: 1.0, 0=off)\n"
         << "  --texture NAME    noise | craters         (default: noise)\n"
+        << "  --nodespeckle     skip the 3x3 median on overlay crops\n"
         << "  --ambient F       ambient light level     (default: 0.06)\n"
         << "  --tilt            tilted 3D slab view instead of top-down\n"
         << "  --orbit YAW,PITCH tilt camera angles (default: 180,52)\n"
@@ -149,6 +151,7 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--detail" && hasNext) { options.detail = (float)std::atof(argv[++i]); }
         else if (arg == "--interp" && hasNext) { options.interp = argv[++i]; }
         else if (arg == "--texture" && hasNext) { options.texture = argv[++i]; }
+        else if (arg == "--nodespeckle") { options.despeckle = false; }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
         else if (arg == "--orbit" && hasNext)
@@ -391,6 +394,7 @@ struct TerrainScene
     Texture2D albedoTex = { 0 };
     Shader shader = { 0 };
     bool nearside = true;
+    double nativeKm = 0.0;         // finest data actually feeding this window
     float worldWidthKm = 0.0f;     // east-west extent (real km)
     float worldHeightKm = 0.0f;    // north-south extent (real km)
     float worldScale = 1.0f;       // world units per km
@@ -686,6 +690,9 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
         scene.worldWidthKm = (float)options.spanKm;
         scene.worldHeightKm = (float)options.spanKm;
     }
+    scene.nativeKm = options.nearside
+        ? LOLA_M_PER_DEG / (dem.Width() / 360.0) / 1000.0
+        : dem.NativeKmAt(options.pickLat, options.pickLon);
     if (scene.window.elevationM.empty())
     {
         std::cerr << "DEM window extraction failed\n";
@@ -820,14 +827,20 @@ static void DrawHud(const TerrainScene& scene, const MapOptions& options,
     const Color ink = Color{ 235, 235, 235, 255 };
     const Color dim = Color{ 170, 170, 170, 255 };
 
+    // Name the dataset actually feeding THIS window, not a fixed
+    // string: a regional pick on an SLDEM2015 crop is 59 m data, and
+    // labelling it LDEM_16 (1.9 km) misreports the tool's own input.
+    const char* source = (scene.nativeKm < 0.5)
+        ? TextFormat("SLDEM2015 %.0f m", scene.nativeKm * 1000.0)
+        : TextFormat("LOLA LDEM_16 %.1f km", scene.nativeKm);
     const char* title = scene.nearside
-        ? "MOON - NEAR SIDE  |  LOLA LDEM_16 (real elevation)"
-        : TextFormat("MOON  %.2f%c  %.2f%c  |  %.0f km window  |  LOLA LDEM_16",
+        ? TextFormat("MOON - NEAR SIDE  |  %s (real elevation)", source)
+        : TextFormat("MOON  %.2f%c  %.2f%c  |  %.0f km window  |  %s",
                      std::fabs(scene.window.latDeg),
                      (scene.window.latDeg >= 0.0) ? 'N' : 'S',
                      std::fabs(scene.window.lonDeg),
                      (scene.window.lonDeg >= 0.0) ? 'E' : 'W',
-                     options.spanKm);
+                     options.spanKm, source);
     DrawText(title, 14, 12, 18, ink);
     DrawText(TextFormat("sun az %.0f  el %.0f   exag x%.1f   %s",
                         options.sunAzimuthDeg, options.sunElevationDeg,
@@ -1094,6 +1107,7 @@ int main(int argc, char** argv)
     InitWindow(app.options.width, app.options.height,
                "lunar_map - LOLA elevation");
 
+    LolaSetDespeckle(app.options.despeckle);
     LolaSetTextureMode(app.options.texture == "craters"
                        ? LolaTexture::CRATERS : LolaTexture::NOISE);
     if (app.options.interp == "bspline")
