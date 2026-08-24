@@ -226,21 +226,34 @@ Rule 2 makes confidence a number. The player does not act on a number — they a
 *"can I commit to this?"* So confidence is presented in **three named bands**, borrowed
 straight from how real resource statements are written (JORC, NI 43-101):
 
-| Class | `aggregateConfidence` | Spread at the band's floor | Colour | What the player does |
+| Class | `aggregateConfidence` | Existing `ConfidenceLevel` | Colour | What the player does |
 |-------|----------------------|---------------------------|--------|---------------------|
-| **Measured** | ≥ 0.75 | ≤ 0.25 × maxSpread | `EXT_ACCENT_GREEN` {80,230,150} | Commit. Point the precise machine here |
-| **Indicated** | 0.45 – 0.75 | ≤ 0.55 × maxSpread | `EXT_ACCENT_GOLD` {255,200,80} | Probably. Worth digging, not worth a shaft |
-| **Inferred** | 0.15 – 0.45 | ≤ 0.85 × maxSpread | `EXT_CLASS_INFERRED` {124,143,214} | A bet. Dig it with something wide and cheap |
-| **Unclassified** | < 0.15 | — | `EXT_DIM_TEXT` {120,138,165} | Blind. You know only the cell average |
-| **Worked** | 1.0, and emptied | none | distinct hatch, per Rule 5 | Nothing left to decide |
+| **Measured** | > 0.80 | `CERTAIN` | `EXT_ACCENT_GREEN` {80,230,150} | Commit. Point the precise machine here |
+| **Indicated** | 0.40 – 0.80 | `MODERATE` + `HIGH` | `EXT_ACCENT_GOLD` {255,200,80} | Probably. Worth digging, not worth a shaft |
+| **Inferred** | 0.20 – 0.40 | `LOW` | `EXT_CLASS_INFERRED` {124,143,214} | A bet. Dig it with something wide and cheap |
+| **Unclassified** | ≤ 0.20 | `VERY_LOW` | `EXT_DIM_TEXT` {120,138,165} | Blind. You know only the cell average |
+| **Worked** | 1.0, and emptied | — | distinct hatch, per Rule 5 | Nothing left to decide |
+
+> **The boundaries are the ones already in the code.** `prospecting_constants.h:47-50`
+> defines `CONFIDENCE_THRESHOLD_LOW/MODERATE/HIGH/CERTAIN` at 0.20 / 0.40 / 0.60 / 0.80, and
+> `GetConfidenceLevel()` already bands the same field five ways for crystal glow. The three
+> classes are a **grouping of those bands, not a second opinion on them** — so the two
+> readings cannot contradict each other and there are no new constants to keep in sync. An
+> earlier draft of this section proposed 0.75 / 0.45 / 0.15; that was written before reading
+> the existing enum and is superseded.
 
 > `EXT_CLASS_INFERRED` is a new token. `EXT_ACCENT_VIOLET` {170,110,255} cannot be reused —
 > it is within a few units of `EXT_HEADER_COLOR` {168,130,255}, so section headings and
 > Inferred ground would read as the same thing. The muted violet is deliberate: Inferred is
 > the class you are meant to notice *least*.
 
-**The bands are presentation, not new state.** They are thresholds on the confidence the grid
-already stores. Nothing in Rules 1–5 changes; this only gives the numbers a name and a colour.
+At each band's floor, Rule 2's `spread = maxSpread × (1 − confidence)` gives **≤ 0.20 ×
+maxSpread** for Measured, **≤ 0.60 ×** for Indicated and **≤ 0.80 ×** for Inferred — so the
+names describe an actual range the player will see, not a mood.
+
+**The bands are presentation, not new state.** They are a grouping of thresholds the grid
+already applies. Nothing in Rules 1–5 changes; this only gives the numbers a name and a
+colour.
 
 #### Why the bands earn their place
 
@@ -520,9 +533,9 @@ all still multiply in and keep their current meaning, so those modules keep work
   shaft that opens a 3×3 block. Strip reads the `worked` flag Rule 5 already needs
 
 **Needs building on the prospecting side**
-- `[?]` The class thresholds (0.75 / 0.45 / 0.15) should live in `prospecting_constants.h`
-  alongside `aggregateConfidence`, not in the renderer — both modules classify the same field
-  and must not drift apart
+- `[?]` `ResourceClass` (the 3-band grouping) belongs in `prospecting_types.h` beside
+  `ConfidenceLevel`, deriving from the same `CONFIDENCE_THRESHOLD_*` constants — both modules
+  classify one field and a second set of thresholds would let them drift apart
 - `[?]` `EXT_CLASS_INFERRED` {124,143,214} is a new theme token in `rendermanager.cpp`; the
   other three classes reuse existing ones
 - `[?]` `SubCell` needs a "worked" state — how much has been taken out, at which depths — for Rule 5's mark to render
