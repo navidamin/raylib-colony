@@ -256,6 +256,7 @@ uniform vec3 sunColor;
 uniform float ambient;
 uniform float styleFlag;       // 0 shaded, 1 colour elevation
 uniform float curveStrength;   // crater-rim emphasis (map scales only)
+uniform float albedoStrength;  // WAC contribution (map scales only)
 
 // Hash-based value noise — cheap regolith variation, several scales.
 float Hash(vec2 p)
@@ -347,10 +348,15 @@ void main()
 
     // Photographic style: real albedo pulled toward neutral gray,
     // sun-lit, with crater emphasis and regolith grain.
+    // The WAC mosaic is 1.33 km/px: below ~20 km windows it supplies
+    // fewer than 15 texels across the frame, so stretching it paints
+    // huge soft tonal blobs unrelated to the ground — the single
+    // biggest source of the "expressionist" wash. Faded out close in.
     vec3 albedo = TEX(albedoMap, uv).rgb;
     float gray = dot(albedo, vec3(0.299, 0.587, 0.114));
     // WAC brightness already encodes its own sun; use it gently.
-    vec3 surface = mix(vec3(0.62), mix(vec3(gray), albedo, 0.55), 0.75);
+    vec3 surface = mix(vec3(0.62), mix(vec3(gray), albedo, 0.55),
+                       0.75 * albedoStrength);
     // Regolith grain fades with the light: noise on a night side only
     // reads as streaking, not texture.
     surface *= 1.0 + variation * (0.25 + 0.75 * lit);
@@ -387,7 +393,7 @@ struct TerrainScene
     float worldScale = 1.0f;       // world units per km
     double lat0 = 0.0, lat1 = 0.0, lon0 = 0.0, lon1 = 0.0;
     int locTexel = 0, locSunDir = 0, locSunColor = 0;
-    int locAmbient = 0, locStyle = 0, locCurve = 0;
+    int locAmbient = 0, locStyle = 0, locCurve = 0, locAlbedoStr = 0;
 
     float ScaledW() const { return worldWidthKm * worldScale; }
     float ScaledH() const { return worldHeightKm * worldScale; }
@@ -700,6 +706,7 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.locAmbient = GetShaderLocation(scene.shader, "ambient");
     scene.locStyle = GetShaderLocation(scene.shader, "styleFlag");
     scene.locCurve = GetShaderLocation(scene.shader, "curveStrength");
+    scene.locAlbedoStr = GetShaderLocation(scene.shader, "albedoStrength");
 
     BuildSceneGeometry(scene, options);
     return true;
@@ -727,6 +734,13 @@ static void ApplyShaderState(const TerrainScene& scene,
         ? 1.0f
         : Clamp((scene.worldWidthKm - 20.0f) / 80.0f, 0.0f, 1.0f);
     SetShaderValue(scene.shader, scene.locCurve, &curveStrength,
+                   SHADER_UNIFORM_FLOAT);
+    // WAC carries real regional albedo only while many of its 1.33 km
+    // texels span the frame: full at >= 100 km, gone by 20 km.
+    float albedoStrength = scene.nearside
+        ? 1.0f
+        : Clamp((scene.worldWidthKm - 20.0f) / 80.0f, 0.0f, 1.0f);
+    SetShaderValue(scene.shader, scene.locAlbedoStr, &albedoStrength,
                    SHADER_UNIFORM_FLOAT);
 }
 

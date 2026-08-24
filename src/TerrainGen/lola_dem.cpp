@@ -734,14 +734,21 @@ static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
 // Total synthetic relief (metres) at one global point. `pixKm` bounds
 // the finest band (nothing under ~2 output pixels — it would alias),
 // `nativeKm` is the resolution floor of the real data underfoot (the
-// synthesis only fades in below what that data resolves), and
-// `slopeBoost` roughens crater walls relative to maria.
+// synthesis only fades in below what that data resolves). `roughM` is
+// the RMS relief the REAL data actually carries over one native
+// sample right here, and `hurst` the exponent of its measured
+// power law — together they continue the ground's own spectrum below
+// the data floor instead of guessing an amplitude.
 static float SynthesizeDetail(double u, double v, float pixKm,
                               float nativeKm, float strength,
-                              float slopeBoost)
+                              float roughM, float hurst)
 {
     float total = 0.0f;
-    double wave = nativeKm * 4.0;          // fade-in starts here
+    // Start AT the data floor, not above it: octaves coarser than one
+    // native sample are the real data's job, and synthesizing there
+    // double-counts relief that is already in the elevation field
+    // (which is what made the first spectral build look like bark).
+    double wave = nativeKm;
     for (int level = 0; level < 16 && wave >= 2.0 * pixKm; level++)
     {
         // 0 where the DEM still resolves this wavelength, 1 below its
@@ -751,10 +758,13 @@ static float SynthesizeDetail(double u, double v, float pixKm,
             0.0, 1.0);
         if (fade > 0.0f)
         {
-            // Fractal regolith undulation, scaled to the Moon's
-            // self-affine spectrum: calm on level maria, strong on the
-            // rough ground the real slope reports.
-            float amp = (7.0f + 18.0f * slopeBoost) * (float)wave;
+            // Continue the ground's OWN measured power law downward:
+            // relief at wavelength w = (relief at the native scale) x
+            // (w / native)^H. Rough walls stay rough, maria stay calm,
+            // and the fine scales carry the energy the real spectrum
+            // says they should — which hand-tuned constants never did.
+            float amp = roughM *
+                        std::pow((float)(wave / nativeKm), hurst) * 0.30f;
             float band = amp *
                          DetailNoise(u, v, wave, 0x51u + (uint32_t)level);
             // Hummocky ground: half-rectified noise reads as soft
@@ -762,8 +772,7 @@ static float SynthesizeDetail(double u, double v, float pixKm,
             // symmetric static.
             float lumpN = DetailNoise(u, v, wave * 0.7,
                                       0xB00Bu + (uint32_t)level);
-            band += (7.0f + 10.0f * slopeBoost) * (float)wave *
-                    std::max(0.0f, lumpN);
+            band += 0.3f * amp * std::max(0.0f, lumpN);
             // Craters only above ~a 30-100 m floor — smaller ones read
             // as noise speckle, not landforms.
             if (wave >= 0.12)
@@ -928,29 +937,75 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     if (detailStrength > 0.0f)
     {
         float pixKm = (float)(spanKm / res);
-        double dMs = spanKm * 1000.0 / (res - 1);
-        // Separate buffer: slopeBoost must read the pristine real
-        // field, not rows already carrying synthetic relief.
+
+        // --- Measure the real ground's spectrum in this window ---
+        // Lag of one native sample, in output pixels. Everything below
+        // this is the synthesis's to own; at and above it the data
+        // speaks, and we make the synthesis continue what it says.
+        int lag = std::max(1, (int)std::lround(nativeYKm / pixKm));
+
+        // Global Hurst exponent: RMS height difference grows as L^H, so
+        // H = log2( rms(2L) / rms(L) ). Sampled sparsely — this is one
+        // number for the window.
+        double s1 = 0.0, s2 = 0.0;
+        int n1 = 0, n2 = 0;
+        for (int j = 0; j < res; j += 4)
+        {
+            for (int i = 0; i + 2 * lag < res; i += 4)
+            {
+                size_t k = (size_t)j * res + i;
+                double d1 = out.elevationM[k + lag] - out.elevationM[k];
+                double d2 = out.elevationM[k + 2 * lag] - out.elevationM[k];
+                s1 += d1 * d1; n1++;
+                s2 += d2 * d2; n2++;
+            }
+        }
+        float hurst = 0.75f;
+        if (n1 > 8 && n2 > 8 && s1 > 1e-9)
+        {
+            double r1 = std::sqrt(s1 / n1), r2 = std::sqrt(s2 / n2);
+            if (r1 > 1e-6 && r2 > r1 * 1.001)
+            {
+                hurst = (float)(std::log2(r2 / r1));
+            }
+        }
+        // Real terrain sits well inside this range; clamp so a noisy
+        // or near-flat window cannot produce a runaway exponent.
+        hurst = std::clamp(hurst, 0.35f, 1.0f);
+
+        // Local roughness: RMS relief the real data carries over one
+        // native sample AT EACH POINT, so a crater wall and the mare
+        // beside it get different synthetic amplitudes.
+        std::vector<float> rough((size_t)res * res, 0.0f);
+        for (int j = 0; j < res; j++)
+        {
+            int jm = std::max(0, j - lag), jp = std::min(res - 1, j + lag);
+            for (int i = 0; i < res; i++)
+            {
+                int im = std::max(0, i - lag), ip = std::min(res - 1, i + lag);
+                size_t k = (size_t)j * res + i;
+                float h = out.elevationM[k];
+                float mad = 0.25f *
+                    (std::fabs(out.elevationM[(size_t)j * res + ip] - h) +
+                     std::fabs(h - out.elevationM[(size_t)j * res + im]) +
+                     std::fabs(out.elevationM[(size_t)jp * res + i] - h) +
+                     std::fabs(h - out.elevationM[(size_t)jm * res + i]));
+                rough[k] = 1.25f * mad;    // MAD -> RMS for gaussian-ish
+            }
+        }
+        // Smooth the amplitude field itself, or its own graininess
+        // modulates the synthesis and reads as blotching.
+        GaussianBlur(rough, res, res, (float)lag, (float)lag);
+
         std::vector<float> detail((size_t)res * res);
         for (int j = 0; j < res; j++)
         {
-            int jm = std::max(0, j - 1), jp = std::min(res - 1, j + 1);
             for (int i = 0; i < res; i++)
             {
-                int im = std::max(0, i - 1), ip = std::min(res - 1, i + 1);
                 size_t k = (size_t)j * res + i;
-                double sgx = (out.elevationM[(size_t)j * res + ip] -
-                              out.elevationM[(size_t)j * res + im]) /
-                             (dMs * (ip - im));
-                double sgy = (out.elevationM[(size_t)jp * res + i] -
-                              out.elevationM[(size_t)jm * res + i]) /
-                             (dMs * (jp - jm));
-                // 0 on level maria, ~1 on steep real walls (>= ~8 deg).
-                float slopeBoost = (float)std::min(
-                    1.0, std::hypot(sgx, sgy) / 0.14);
                 detail[k] = SynthesizeDetail(
                     gu[k], gv[k], pixKm, (float)nativeYKm,
-                    detailStrength, slopeBoost);
+                    detailStrength, rough[k], hurst);
             }
         }
         for (size_t k = 0; k < detail.size(); k++)
