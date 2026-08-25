@@ -1249,9 +1249,17 @@ static Color LayerColor(int layer, float v01)
 {
     v01 = Clamp(v01, 0.0f, 1.0f);
     if (layer == 0)          // hydrogen: cold blue -> cyan -> white
-        return Color{ (unsigned char)(30 + 200 * v01 * v01),
-                      (unsigned char)(60 + 175 * v01),
-                      (unsigned char)(110 + 145 * powf(v01, 0.6f)), 255 };
+    {
+        // Stretched to the DATA's range, not to the absolute scale --
+        // the field sits around 0.1-0.3 because cold traps are sparse, so
+        // a 0..1 ramp puts the whole map in its dark end where
+        // neighbouring cells are indistinguishable. Standard practice for
+        // any data viewer, and it changes only the colour, not the value.
+        float t = powf(Clamp(v01 * 2.6f, 0.0f, 1.0f), 0.78f);
+        return Color{ (unsigned char)(20 + 215 * t * t),
+                      (unsigned char)(45 + 195 * t),
+                      (unsigned char)(95 + 160 * powf(t, 0.6f)), 255 };
+    }
     if (layer == 1)          // iron: dark -> orange
         return Color{ (unsigned char)(40 + 205 * powf(v01, 0.7f)),
                       (unsigned char)(30 + 130 * v01),
@@ -1315,13 +1323,46 @@ static void DrawDataLayer(int layer, double gridKm, const SurveyCursor& cursor,
 // has stopped sharpening. Seeing a 45 km ring around a 1.5 km base is
 // the whole argument in one glance.
 static void DrawFootprintRing(double footprintKm, const SurveyCursor& cursor,
-                              const SurveyViewport& viewport, Color tint)
+                              const SurveyViewport& viewport,
+                              const char* instrument, Color tint)
 {
     if (footprintKm <= cursor.footprintKm) return;
     float pxPerKm = SurveyPixelsPerKm(viewport, cursor.windowSpanKm);
     Rectangle r = SurveyCursorRect(cursor, viewport);
     float cx = r.x + r.width * 0.5f, cy = r.y + r.height * 0.5f;
     float radius = (float)(footprintKm * 0.5) * pxPerKm;
+
+    // Past a couple of levels the footprint is wider than the whole
+    // view, so the ring falls off the frame -- and its absence would
+    // read as "no limit here", the opposite of the truth. Say it on the
+    // frame edge instead.
+    if (footprintKm > cursor.windowSpanKm)
+    {
+        Rectangle f = { viewport.x + 5.0f, viewport.y + 5.0f,
+                        viewport.width - 10.0f, viewport.height - 10.0f };
+        float dash = 16.0f;
+        for (float x = f.x; x < f.x + f.width; x += dash * 2.0f)
+        {
+            float w = fminf(dash, f.x + f.width - x);
+            DrawRectangleRec(Rectangle{ x, f.y, w, 3.0f }, tint);
+            DrawRectangleRec(Rectangle{ x, f.y + f.height - 3.0f, w, 3.0f }, tint);
+        }
+        for (float y = f.y; y < f.y + f.height; y += dash * 2.0f)
+        {
+            float h = fminf(dash, f.y + f.height - y);
+            DrawRectangleRec(Rectangle{ f.x, y, 3.0f, h }, tint);
+            DrawRectangleRec(Rectangle{ f.x + f.width - 3.0f, y, 3.0f, h }, tint);
+        }
+        const char* msg = TextFormat("%s FOOTPRINT %.3g km  -  WIDER THAN THIS VIEW",
+                                     instrument, footprintKm);
+        int tw = MeasureText(msg, 15);
+        float bx = f.x + (f.width - tw) * 0.5f - 10.0f;
+        float by = f.y + f.height - 34.0f;
+        DrawRectangle((int)bx, (int)by, tw + 20, 24, Color{ 12, 12, 16, 215 });
+        DrawText(msg, (int)bx + 10, (int)by + 5, 15, tint);
+        return;
+    }
+
     for (int k = 0; k < 96; k++)
     {
         float a0 = (float)k / 96.0f * 2.0f * PI;
@@ -1420,7 +1461,7 @@ static void DrawSurveyCursorNav(const SurveyCursor& cursor,
         double window = (ins.footprintKm > cursor.footprintKm)
                         ? ins.footprintKm : cursor.footprintKm;
         float v01 = FieldMean(i, lat, lon, window, 7);
-        float b01 = FieldBand(i, lat, lon, window, cursor.footprintKm);
+        float b01 = FieldBand(i, lat, lon, ins.footprintKm, cursor.footprintKm);
         float value = ins.lo + (ins.hi - ins.lo) * v01;
         float band = (ins.hi - ins.lo) * b01;
         bool frozen = (ins.footprintKm > cursor.footprintKm);
@@ -1676,7 +1717,8 @@ static int RenderLadder(AppState& app)
         if (opts.layer >= 0 && opts.layer < LAYER_COUNT && !opts.truth)
         {
             DrawFootprintRing(INSTRUMENTS[opts.layer].footprintKm, *cursor,
-                              viewport, Color{ 255, 200, 130, 190 });
+                              viewport, INSTRUMENTS[opts.layer].name,
+                              Color{ 255, 200, 130, 190 });
         }
         DrawSurveyCursorNav(*cursor, viewport, opts.width, opts.height);
         EndTextureMode();
