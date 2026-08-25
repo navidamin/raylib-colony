@@ -49,10 +49,16 @@ being sited, not a navigation target.
 Level 4 → 5 is the existing 5 km sect cell (`TERRAIN_CELL_KM`), so the
 ladder lands exactly on the game's established grid.
 
-`[?]` **Snap or free?** Levels 1–3 are naturally free-moving. Level 4
-should probably snap to the 20×20 sect grid, since the cell is a real
-game entity. Level 5 must be free — the whole point is choosing *where
-in the cell* the base sits.
+**DECIDED — grid-snap.** The cursor snaps to the grid at every
+navigation level (1–4): each level's grid is the set of footprints of
+the level below, so the cursor always lands on a whole child region
+rather than straddling two. This makes the ladder a clean tree, makes
+aggregates exact (a footprint is always a whole number of cells), and
+makes descent unambiguous.
+
+Level 5 remains **free-moving** — the whole point of the final step is
+choosing *where within* the 5 km cell the base sits, and the buildable
+ground may be a corner of it.
 
 ---
 
@@ -102,9 +108,14 @@ not *browsing*:
   terrain chain already supports it — the same lat/lon regenerates the
   same ground at any span.
 
-`[?]` **Committed or reversible descent?** Reversible is friendlier;
-committed adds weight to the choice. Suggest reversible during
-exploration and committed only at level 5 (with a confirm step).
+**DECIDED — reversible.** Ascending is always allowed and costs
+nothing; the player can wander the ladder freely. Only the final build
+at level 5 is a commitment, and it takes an explicit confirm.
+
+Consequence for implementation: the descent path must be a stack, not a
+single current position. Ascending restores the parent view *with its
+cursor where the player left it*, so backing out of one region and
+trying its neighbour does not reset the whole descent.
 
 ---
 
@@ -165,10 +176,33 @@ Implement as a display-time transformation of the true value, seeded
 deterministically per cursor cell so it does not shimmer as the mouse
 moves. **Do not** perturb the stored data — only the presentation.
 
-`[?]` Should high-altitude readouts be *biased* (systematically wrong)
-or merely *imprecise* (noisy but unbiased)? Bias creates genuine
-surprises on arrival; imprecision is fairer. Suggest imprecise, with
-rare biased outliers as a later gameplay hook.
+`[?]` **Imprecise, biased, or neither?** Three models, in increasing
+order of how much they can annoy a player:
+
+1. **Resolution-limited (no injected error).** The coarse readout shows
+   the true mean of a large area, plus its spread. Nothing is wrong —
+   it simply is not the value at any one point inside. "Fe 38% ±14
+   across this region" honestly says *there is something good in here
+   somewhere*, which is itself the invitation to descend.
+2. **Imprecise.** True value plus zero-mean noise, shrinking with each
+   level. Never misleading, but the error is invented rather than
+   earned.
+3. **Biased.** Error with a direction, so a site can look good from
+   orbit and disappoint on arrival. Physically authentic — a neutron
+   spectrometer's footprint is tens of km, so small rich deposits really
+   do get diluted and under-read — and it creates memorable failures.
+   Unfair-feeling unless the player can learn *why* it happens.
+
+**Recommendation: start with (1).** The aggregation already produces
+genuine variance, so the descent payoff is free and can never feel like
+the game lied. Add (3) later on a single named resource (hydrogen is
+the natural candidate, with the footprint-dilution reason surfaced in
+the UI) if scouting needs more risk. Avoid (2) — it has the cost of
+uncertainty without the honesty of (1) or the drama of (3).
+
+This means §4.3's table should present **mean ± spread**, with the
+spread narrowing as the footprint shrinks, rather than a fabricated
+confidence band.
 
 ---
 

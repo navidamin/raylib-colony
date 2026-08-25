@@ -49,8 +49,11 @@ is committed.
 
 ## Open questions
 
-Tracked with `[?]` in the master design. The largest ones:
+Tracked with `[?]` in the master design.
 
-- `[?]` Does the cursor snap to the grid or move freely?
-- `[?]` Is descent committed (one-way) or freely reversible?
-- `[?]` How much resource information should be *wrong* at high altitude?
+**Decided:** cursor grid-snaps at navigation levels and moves freely at
+level 5; descent is fully reversible and only the final build commits.
+
+**Still open:** `[?]` whether high-altitude readouts are merely
+resolution-limited (recommended), imprecise, or actively biased — see
+§4.3.
