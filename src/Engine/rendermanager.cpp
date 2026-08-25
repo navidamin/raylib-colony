@@ -2500,6 +2500,144 @@ static void ProsDrawClassRing(Rectangle r, ResourceClass cls)
                                 0.22f, 4, thickness, c);
 }
 
+// ---------------------------------------------------------------------------
+// The block model: four depth layers as exploded isometric plates.
+//
+// Replaces the flat one-depth-at-a-time grid. Three channels carry three
+// variables and none of them fight:
+//
+//     height of the surface  = grade      how good
+//     colour of the surface  = class      how sure
+//     position in the stack  = depth      how hard to reach
+//
+// Height for grade is what makes it legible at a glance: an ore body becomes
+// a hill, and a hill has an obvious peak, shape and extent. Sixty-four shaded
+// squares do not. See docs/design/prospecting/block-model-design.md.
+// ---------------------------------------------------------------------------
+
+struct BlockCell
+{
+    float grade = 0.0f;          // targeted-resource yield, normalised 0-1
+    ResourceClass cls = ResourceClass::UNCLASSIFIED;
+};
+
+// Screen geometry for the stack. GAP is DERIVED, never hand-tuned: an
+// isometric diamond of an NxN lattice is 2*N*tileY tall, and relief lifts its
+// surface up to reliefMax above its own base plane, so the next plate can only
+// begin below both plus a visible clearance. Hand-tuning this is exactly how
+// plates end up silently overlapping.
+struct BlockModelGeom
+{
+    float tileX = 0.0f, tileY = 0.0f, relief = 0.0f, gap = 0.0f;
+    float originX = 0.0f, originY = 0.0f;
+    int   size = 8;
+
+    Vector2 Iso(float gx, float gy, int layer, float lift) const
+    {
+        return { originX + (gx - gy) * tileX,
+                 originY + (gx + gy) * tileY + layer * gap - lift };
+    }
+};
+
+static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, float h)
+{
+    BlockModelGeom g;
+    g.size = gridSize;
+
+    // Fit the whole stack inside the area given, then derive the gap from it.
+    g.tileX = (w - 84.0f) / (2.0f * gridSize);
+    // Flatter than a 2:1 isometric on purpose. Four exploded plates plus their
+    // relief have to fit one panel, and every degree of extra tilt costs
+    // vertical budget that then gets scaled back out of the width -- at 0.46
+    // the stack shrank 42% and the model used less than half the space it had.
+    g.tileY = g.tileX * 0.28f;
+    float diamondH = 2.0f * gridSize * g.tileY;
+    g.relief = std::max(13.0f, diamondH * 0.30f);
+    const float clearance = 7.0f;
+    g.gap = diamondH + g.relief + clearance;
+
+    float stackH = 3.0f * g.gap + diamondH + g.relief;
+    float scale = std::min(1.0f, (h - 14.0f) / stackH);
+    g.tileX *= scale; g.tileY *= scale; g.relief *= scale; g.gap *= scale;
+
+    g.originX = x + 74.0f + gridSize * g.tileX;
+    g.originY = y + g.relief * scale + 6.0f;
+    return g;
+}
+
+// One plate. Painter's algorithm front-to-back within the plate; corner
+// heights are averaged from the blocks that touch them, so the surface reads
+// as ground rather than as data resolution.
+static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockCell>& cells,
+                               int layer, float maxGrade, Font labelFont, float sp,
+                               const char* depthLabel, const char* geologyLabel,
+                               std::vector<Rectangle>* hitBoxes, std::vector<int>* hitIndex)
+{
+    const int N = g.size;
+    const float fade = powf(0.84f, static_cast<float>(layer));
+
+    auto cornerLift = [&](int i, int j) -> float
+    {
+        float sum = 0.0f; int n = 0;
+        for (int dj = -1; dj <= 0; dj++)
+            for (int di = -1; di <= 0; di++)
+            {
+                int a = i + di, b = j + dj;
+                if (a < 0 || b < 0 || a >= N || b >= N) continue;
+                sum += cells[b * N + a].grade; n++;
+            }
+        if (n == 0) return 0.0f;
+        return (sum / n) / std::max(maxGrade, 0.0001f) * g.relief;
+    };
+
+    for (int j = 0; j < N; j++)
+    {
+        for (int i = 0; i < N; i++)
+        {
+            const BlockCell& c = cells[j * N + i];
+            Vector2 q[4] = {
+                g.Iso(static_cast<float>(i),     static_cast<float>(j),     layer, cornerLift(i,   j)),
+                g.Iso(static_cast<float>(i + 1), static_cast<float>(j),     layer, cornerLift(i+1, j)),
+                g.Iso(static_cast<float>(i + 1), static_cast<float>(j + 1), layer, cornerLift(i+1, j+1)),
+                g.Iso(static_cast<float>(i),     static_cast<float>(j + 1), layer, cornerLift(i,   j+1))
+            };
+
+            Color base = ExtClassColor(c.cls);
+            float lit = (0.30f + 0.70f * std::min(c.grade / std::max(maxGrade, 0.0001f), 1.0f)) * fade;
+            Color fill = {
+                static_cast<unsigned char>(EXT_PANEL_BG.r + (base.r - EXT_PANEL_BG.r) * lit),
+                static_cast<unsigned char>(EXT_PANEL_BG.g + (base.g - EXT_PANEL_BG.g) * lit),
+                static_cast<unsigned char>(EXT_PANEL_BG.b + (base.b - EXT_PANEL_BG.b) * lit),
+                255 };
+
+            // Two triangles rather than a quad -- raylib fills triangles only,
+            // and the winding has to be consistent or faces drop out.
+            DrawTriangle(q[0], q[3], q[2], fill);
+            DrawTriangle(q[0], q[2], q[1], fill);
+            DrawLineEx(q[0], q[1], 0.6f, fill);
+            DrawLineEx(q[1], q[2], 0.6f, fill);
+
+            if (hitBoxes && hitIndex)
+            {
+                float minX = std::min(std::min(q[0].x, q[1].x), std::min(q[2].x, q[3].x));
+                float maxX = std::max(std::max(q[0].x, q[1].x), std::max(q[2].x, q[3].x));
+                float minY = std::min(std::min(q[0].y, q[1].y), std::min(q[2].y, q[3].y));
+                float maxY = std::max(std::max(q[0].y, q[1].y), std::max(q[2].y, q[3].y));
+                hitBoxes->push_back({minX, minY, maxX - minX, maxY - minY});
+                hitIndex->push_back(j * N + i);
+            }
+        }
+    }
+
+    // Depth ruling out to the left edge of this plate
+    Vector2 leftCorner = g.Iso(0.0f, static_cast<float>(N), layer, 0.0f);
+    float labelX = g.originX - N * g.tileX - 68.0f;
+    for (float dx = labelX + 44.0f; dx < leftCorner.x - 5.0f; dx += 6.0f)
+        DrawLineEx({dx, leftCorner.y}, {dx + 2.5f, leftCorner.y}, 1.0f, Fade(EXT_ACCENT_CYAN, 0.28f));
+    DrawTextEx(labelFont, depthLabel, {labelX, leftCorner.y - 11.0f}, 11.0f, sp, EXT_ACCENT_CYAN);
+    DrawTextEx(labelFont, geologyLabel, {labelX, leftCorner.y + 1.0f}, 8.0f, sp, EXT_DIM_TEXT);
+}
+
 static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
 {
     DrawRectangleRounded(r, 0.22f, 4, {12, 15, 28, 255});
@@ -2720,105 +2858,118 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     if (ps->activeTab == ProspectingTab::SWEEP)
     {
-        // === SWEEP TAB ===
-        float gridAreaW = std::min(pw * 0.58f, contentH - 10.0f);
-        float cellSize = gridAreaW / gridSize;
+        // === SWEEP TAB -- the block model ===
+        float modelW = pw * 0.60f;
+        float modelH = contentH - 30.0f;
         float gridX = px;
         float gridY = contentY;
 
-        // Tracked while drawing so the out-of-range tooltip can be drawn last
-        int lockedHoverX = -1;
-        int lockedHoverY = -1;
-
-        float cellGap = 5.0f;
-        for (int gy = 0; gy < gridSize; gy++)
+        // Which element the relief is showing. Confidence -- and so the class
+        // envelopes -- are the same for every element, because one core is
+        // assayed for all of them; only the height field and the tonnage
+        // change. Until the switcher exists, show the cell's richest.
+        ResourceType shown = ResourceType::Fe;
         {
-            for (int gx = 0; gx < gridSize; gx++)
+            float best = -1.0f;
+            for (const auto& kv : grid.GetGroundTruth(gridSize / 2, gridSize / 2,
+                                                      DepthLayer::SURFACE))
             {
-                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
-                                      cellSize - cellGap, cellSize - cellGap};
+                if (kv.second > best) { best = kv.second; shown = kv.first; }
+            }
+        }
 
-                bool hover = CheckCollisionPointRec(mouse, cellRect);
+        BlockModelGeom geom = ProsBlockGeom(gridSize, gridX, gridY, modelW, modelH);
 
-                if (!grid.IsInReach(gx, gy))
+        // Build all four layers first so one grade scale covers the stack --
+        // per-layer normalisation would make a barren layer look as rich as
+        // the ore, which is the whole thing the relief is meant to show.
+        std::vector<std::vector<BlockCell>> layers(4);
+        float maxGrade = 0.0001f;
+        for (int L = 0; L < 4; L++)
+        {
+            layers[L].resize(gridSize * gridSize);
+            DepthLayer depth = static_cast<DepthLayer>(L);
+            bool reachable = (L < MAX_DEPTH_PER_TIER[grid.GetTier()]);
+            for (int gy = 0; gy < gridSize; gy++)
+            {
+                for (int gx = 0; gx < gridSize; gx++)
                 {
-                    ProsDrawLockedCell(cellRect, hover);
-                    if (hover)
-                    {
-                        lockedHoverX = gx;
-                        lockedHoverY = gy;
-                    }
-                    continue;
-                }
-
-                const SubCell& cell = grid.GetSubCell(gx, gy);
-                Color fill = {0, 0, 0, 0};
-                if (cell.hasBeenSwept)
-                {
-                    fill = ProsSweepHeatColor(cell.sweepSignal);
-                    fill.a = 115;   // muted plum over the dark base, per the mock
-                }
-
-                bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
-                ProsDrawCellBase(cellRect, fill, selected, hover);
-
-                // How well this spot is known at the depth being looked at.
-                // Per depth, not per column -- a mapped surface says nothing
-                // about what lies under it.
-                float depthConf = GetDepthConfidence(grid, ps->GetTray(), gx, gy,
-                                                     ps->selectedDepth);
-                ProsDrawClassRing(cellRect, GetResourceClass(depthConf));
-
-                ProsDrawCellMarker(cellRect, cell);
-
-                if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    ps->selectedCellX = gx;
-                    ps->selectedCellY = gy;
+                    BlockCell& c = layers[L][gy * gridSize + gx];
+                    if (!reachable) continue;
+                    c.grade = GetSubCellYield(grid, gx, gy, depth, shown);
+                    c.cls = GetResourceClass(
+                        GetDepthConfidence(grid, ps->GetTray(), gx, gy, depth));
+                    maxGrade = std::max(maxGrade, c.grade);
                 }
             }
         }
 
-        // Reach legend under the grid
-        float legendY = gridY + gridSize * cellSize + 2.0f;
-        DrawTextEx(bodyFont,
-                   TextFormat("SURVEY RANGE  %dx%d of %dx%d",
-                              grid.GetReach(), grid.GetReach(), gridSize, gridSize),
-                   {gridX, legendY}, FS(9.0f), sp, EXT_DIM_TEXT);
-        if (grid.GetReach() < gridSize)
+        static const char* depthLabels[4]   = {"0 m", "12 m", "34 m", "68 m"};
+        static const char* geologyLabels[4] = {"REGOLITH", "MEGAREG.", "FRACTURED", "INTACT"};
+
+        std::vector<Rectangle> hitBoxes;
+        std::vector<int> hitIndex;
+        for (int L = 0; L < 4; L++)
         {
-            const char* rangeHint = "Higher tiers extend range";
-            float hintW = MeasureTextEx(bodyFont, rangeHint, FS(9.0f), sp).x;
-            DrawTextEx(bodyFont, rangeHint,
-                       {gridX + gridAreaW - cellGap - hintW, legendY}, FS(9.0f), sp,
-                       Fade(EXT_DIM_TEXT, 0.7f));
+            ProsDrawBlockLayer(geom, layers[L], L, maxGrade, bodyFont, sp,
+                               depthLabels[L], geologyLabels[L],
+                               L == static_cast<int>(ps->selectedDepth) ? &hitBoxes : nullptr,
+                               L == static_cast<int>(ps->selectedDepth) ? &hitIndex : nullptr);
         }
 
-        // Out-of-range tooltip, drawn last so it sits above the grid
-        if (lockedHoverX >= 0)
+        // Selecting a block on the layer currently in focus
+        for (size_t k = 0; k < hitBoxes.size(); k++)
         {
-            int needTier = TierRequiredForSubCell(lockedHoverX, lockedHoverY);
-            const char* line1 = "OUT OF RANGE";
-            const char* line2 = needTier >= 0
-                ? TextFormat("Tier %d extends survey range here", needTier)
-                : "Unreachable";
-
-            float w = std::max(MeasureTextEx(headerFont, line1, FS(10.0f), sp).x,
-                               MeasureTextEx(bodyFont, line2, FS(9.0f), sp).x) + 20.0f;
-            float h = 38.0f;
-            float tx = std::min(mouse.x + 14.0f, px + pw - w);
-            float ty = std::min(mouse.y + 14.0f, static_cast<float>(y + h) - 48.0f);
-
-            DrawRectangleRounded({tx, ty, w, h}, 0.2f, 4, {12, 18, 32, 245});
-            DrawRectangleRoundedLinesEx({tx, ty, w, h}, 0.2f, 4, 1.0f, EXT_PANEL_BORDER);
-            DrawTextEx(headerFont, line1, {tx + 10.0f, ty + 7.0f}, FS(10.0f), sp, EXT_ACCENT_GOLD);
-            DrawTextEx(bodyFont, line2, {tx + 10.0f, ty + 21.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
+            if (!CheckCollisionPointRec(mouse, hitBoxes[k])) continue;
+            int gx = hitIndex[k] % gridSize, gy = hitIndex[k] / gridSize;
+            if (!grid.IsInReach(gx, gy)) continue;
+            DrawRectangleLinesEx(hitBoxes[k], 1.0f, Fade(PROS_HOVER_BORDER, 0.9f));
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+            {
+                ps->selectedCellX = gx;
+                ps->selectedCellY = gy;
+            }
         }
 
-        // Sweep controls (right of grid)
-        float ctrlX = gridX + gridAreaW + 15.0f;
+        // Marker on the selected block, on every layer, so a column reads
+        if (ps->selectedCellX >= 0 && ps->selectedCellY >= 0)
+        {
+            for (int L = 0; L < MAX_DEPTH_PER_TIER[grid.GetTier()]; L++)
+            {
+                Vector2 c = geom.Iso(ps->selectedCellX + 0.5f, ps->selectedCellY + 0.5f, L, 0.0f);
+                DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 4.5f,
+                                L == static_cast<int>(ps->selectedDepth)
+                                    ? EXT_ACCENT_CYAN : Fade(EXT_ACCENT_CYAN, 0.4f));
+            }
+        }
+
+        // Legend under the stack. Two rows -- the element line and the class
+        // swatches collided when they shared one.
+        float legendY = gridY + modelH + 2.0f;
+        DrawTextEx(bodyFont, TextFormat("%s   height = grade   colour = class",
+                                        ResourceTypeToString(shown)),
+                   {gridX, legendY}, FS(8.5f), sp, EXT_DIM_TEXT);
+
+        float swX = gridX;
+        float swY = legendY + 12.0f;
+        const ResourceClass legendCls[3] = { ResourceClass::MEASURED,
+                                             ResourceClass::INDICATED,
+                                             ResourceClass::INFERRED };
+        for (int k = 0; k < 3; k++)
+        {
+            DrawRectangleRounded({swX, swY + 1.0f, 7.0f, 7.0f}, 0.3f, 4,
+                                 ExtClassColor(legendCls[k]));
+            const char* nm = ResourceClassName(legendCls[k]);
+            DrawTextEx(bodyFont, nm, {swX + 10.0f, swY - 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+            swX += 10.0f + MeasureTextEx(bodyFont, nm, FS(8.0f), sp).x + 10.0f;
+        }
+        DrawTextEx(bodyFont, TextFormat("REACH %dx%d", grid.GetReach(), grid.GetReach()),
+                   {swX + 4.0f, swY - 1.0f}, FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.7f));
+
+        // Sweep controls (right of the model)
+        float ctrlX = gridX + modelW + 15.0f;
         float ctrlY = contentY;
-        float ctrlW = pw - gridAreaW - 15.0f;
+        float ctrlW = pw - modelW - 15.0f;
 
         DrawTextEx(headerFont, "FREQUENCY BAND", {ctrlX, ctrlY}, FS(12.0f), sp, EXT_HEADER_COLOR);
         ctrlY += 22.0f;

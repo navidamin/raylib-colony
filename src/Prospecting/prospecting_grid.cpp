@@ -123,7 +123,20 @@ void ProspectingGrid::ResizeForTier(int newTier)
     // reallocated -- which is what preserves sweep data, confidence, and the
     // sub-cell links held by collected samples across an upgrade. (The
     // previous size-changing grid wiped all of that on every tier-up.)
+    int oldTier = tier;
     tier = newTier;
+
+    // ...but the DEPTH layers are a different matter. GenerateSubCellDistribution
+    // only fills layers the tier of the day could reach, so a grid built at T0
+    // and upgraded to T3 had three empty layers for the rest of the game: deep
+    // drilling returned nothing, and nothing said why. Regenerating is safe and
+    // idempotent -- GenerateLayerDistribution overwrites each layer with fresh
+    // absolute values before the normalisation pass -- and it touches only the
+    // resource arrays, never SubCell, so sweep and sample state still survive.
+    if (newTier > oldTier)
+    {
+        GenerateSubCellDistribution();
+    }
 }
 
 void ProspectingGrid::AllocateGrid()
