@@ -63,3 +63,9 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 | `Prospecting_Extraction_Mechanics.md` | Project root | Legacy v2 extraction design (comprehensive, pre-redesign) |
 | `CONVENTIONS.md` | Project root | Coding style rules |
 | `docs/` snapshots | `docs/` | Historical state snapshots and test reports |
+
+### site-selection/
+
+The descent from orbital view to a committed 1 km build footprint: the
+survey cursor, how resource and terrain data aggregate at each scale,
+and the commit step. See [site-selection/README.md](site-selection/README.md).

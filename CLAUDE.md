@@ -352,5 +352,6 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 |--------|-----------------|-----------------|
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
+| Site Selection | `docs/design/site-selection/README.md` | Working on the orbital/site-selection descent, the survey cursor, `DrawSiteSelectionView`, or placement gating |
 
 See `docs/design/README.md` for the full planning method explanation.
