@@ -78,6 +78,7 @@ struct MapOptions
     std::string texture = "noise"; // noise | craters
     bool despeckle = false;        // --despeckle to enable
     int demDecim = 1;              // --demdecim N: coarsen overlays
+    bool survey = false;           // --survey: site report, no render
     float ambient = 0.06f;
     int width = 1200;
     int height = 1200;
@@ -107,6 +108,7 @@ static void PrintUsage()
         << "  --texture NAME    noise | craters         (default: noise)\n"
         << "  --despeckle       apply the 3x3 median to overlay crops\n"
         << "  --demdecim N      coarsen overlays Nx (1=59m, 4=237m)\n"
+        << "  --survey          print a buildability report, no render\n"
         << "  --ambient F       ambient light level     (default: 0.06)\n"
         << "  --tilt            tilted 3D slab view instead of top-down\n"
         << "  --orbit YAW,PITCH tilt camera angles (default: 180,52)\n"
@@ -159,6 +161,7 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--texture" && hasNext) { options.texture = argv[++i]; }
         else if (arg == "--nodespeckle") { options.despeckle = false; }
         else if (arg == "--despeckle") { options.despeckle = true; }
+        else if (arg == "--survey") { options.survey = true; }
         else if (arg == "--demdecim" && hasNext) { options.demDecim = std::atoi(argv[++i]); }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
@@ -1142,6 +1145,32 @@ int main(int argc, char** argv)
         if (n > 0) std::cerr << "lunar_map: " << n
                              << " high-res overlay(s) active\n";
     }
+
+    if (app.options.survey)
+    {
+        TerrainBuildability b = app.dem.EvaluateSite(
+            app.options.pickLat, app.options.pickLon, app.options.spanKm);
+        std::printf("SITE  %.3f %.3f   footprint %.1f km\n",
+                    app.options.pickLat, app.options.pickLon,
+                    app.options.spanKm);
+        std::printf("  elevation      %8.0f m\n", b.elevationM);
+        std::printf("  slope mean/max %8.2f / %.2f deg\n",
+                    b.meanSlopeDeg, b.maxSlopeDeg);
+        std::printf("  relief         %8.0f m\n", b.reliefM);
+        std::printf("  roughness      %8.1f m (RMS off best-fit plane)\n",
+                    b.roughnessM);
+        std::printf("  illumination   %8.1f %%%s\n", b.illumination * 100.0f,
+                    b.isPsr ? "   *** PSR: permanently shadowed ***" : "");
+        std::printf("  longest night  %8.1f Earth days\n",
+                    b.longestNightDays);
+        std::printf("  earth visible  %8.1f %% of libration\n",
+                    b.earthVisibility * 100.0f);
+        std::printf("  open sky       %8.1f %%\n", b.skyFraction * 100.0f);
+        std::printf("  BUILD SCORE    %8.2f\n", b.buildScore);
+        CloseWindow();
+        return 0;
+    }
+
     if (!BuildScene(app.options, app.dem, app.scene))
     {
         CloseWindow();

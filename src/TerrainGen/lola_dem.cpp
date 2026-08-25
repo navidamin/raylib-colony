@@ -945,6 +945,237 @@ static float SynthesizeDetail(double u, double v, float pixKm,
 // centred on the pick: every output pixel is a true ground offset in
 // km, so windows stay square-in-km at any latitude — including the
 // poles, where an equirectangular crop degenerates into a smear.
+// ---------------------------------------------------------------------------
+// Site assessment
+// ---------------------------------------------------------------------------
+
+// Walk a great circle from (lat1,lon1) along an azimuth for an angular
+// distance c (radians), returning the destination in radians.
+static void ForwardGeodesic(double lat1, double lon1, double az, double c,
+                            double* lat2, double* lon2)
+{
+    double sinLat = std::sin(lat1) * std::cos(c) +
+                    std::cos(lat1) * std::sin(c) * std::cos(az);
+    *lat2 = std::asin(std::clamp(sinLat, -1.0, 1.0));
+    *lon2 = lon1 + std::atan2(std::sin(az) * std::sin(c) * std::cos(lat1),
+                              std::cos(c) - std::sin(lat1) * sinLat);
+}
+
+// Elevation angle from an observer at height h1 to a point at angular
+// distance c with height h2, on a sphere of radius R. Naturally includes
+// the horizon drop from curvature, which is what makes a 60 km skyline
+// meaningful rather than a flat-earth approximation.
+static double ElevationAngle(double c, double h1, double h2)
+{
+    double r1 = LOLA_MOON_RADIUS_M + h1;
+    double r2 = LOLA_MOON_RADIUS_M + h2;
+    if (c < 1e-9) return 0.0;
+    return std::atan2(std::cos(c) - r1 / r2, std::sin(c));
+}
+
+TerrainBuildability LolaDem::EvaluateSite(double latDeg, double lonDeg,
+                                          double footprintKm,
+                                          double horizonKm) const
+{
+    TerrainBuildability out;
+    if (!IsLoaded()) return out;
+
+    const double DEG = LOLA_PI / 180.0;
+    const double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
+    out.elevationM = ElevationM(latDeg, lonDeg);
+
+    // --- 1. Local terrain over the footprint -------------------------
+    // Sampled directly from the DEM: buildability must reflect measured
+    // ground, so this deliberately bypasses Window()'s synthesis.
+    const int N = 33;
+    std::vector<float> z((size_t)N * N);
+    double stepKm = footprintKm / (N - 1);
+    double cosLat = std::max(0.05, std::cos(latDeg * DEG));
+    for (int j = 0; j < N; j++)
+    {
+        double dNorth = (j - (N - 1) / 2.0) * stepKm;
+        for (int i = 0; i < N; i++)
+        {
+            double dEast = (i - (N - 1) / 2.0) * stepKm;
+            double la = latDeg + dNorth / kmPerDeg;
+            double lo = lonDeg + dEast / (kmPerDeg * cosLat);
+            z[(size_t)j * N + i] = ElevationM(la, lo);
+        }
+    }
+
+    auto mm = std::minmax_element(z.begin(), z.end());
+    out.reliefM = *mm.second - *mm.first;
+
+    double dM = stepKm * 1000.0;
+    double slopeSum = 0.0;
+    double slopeMax = 0.0;
+    for (int j = 0; j < N; j++)
+    {
+        int jm = std::max(0, j - 1), jp = std::min(N - 1, j + 1);
+        for (int i = 0; i < N; i++)
+        {
+            int im = std::max(0, i - 1), ip = std::min(N - 1, i + 1);
+            double gx = (z[(size_t)j * N + ip] - z[(size_t)j * N + im]) /
+                        (dM * (ip - im));
+            double gy = (z[(size_t)jp * N + i] - z[(size_t)jm * N + i]) /
+                        (dM * (jp - jm));
+            double slope = std::atan(std::hypot(gx, gy)) / DEG;
+            slopeSum += slope;
+            slopeMax = std::max(slopeMax, slope);
+        }
+    }
+    out.meanSlopeDeg = (float)(slopeSum / (N * N));
+    out.maxSlopeDeg = (float)slopeMax;
+
+    // Roughness: RMS residual after removing the best-fit plane, i.e.
+    // how bumpy the site is once its overall tilt is taken out. A ramp
+    // can be graded; a boulder field cannot.
+    double sx = 0, sy = 0, sz = 0, sxx = 0, sxy = 0, syy = 0, sxz = 0, syz = 0;
+    for (int j = 0; j < N; j++)
+    {
+        for (int i = 0; i < N; i++)
+        {
+            double x = (i - (N - 1) / 2.0), y = (j - (N - 1) / 2.0);
+            double v = z[(size_t)j * N + i];
+            sx += x; sy += y; sz += v;
+            sxx += x * x; sxy += x * y; syy += y * y;
+            sxz += x * v; syz += y * v;
+        }
+    }
+    double n = (double)(N * N);
+    double det = sxx * syy - sxy * sxy;
+    double a = 0.0, b = 0.0, c0 = sz / n;
+    if (std::fabs(det) > 1e-9)
+    {
+        a = (sxz * syy - syz * sxy) / det;
+        b = (syz * sxx - sxz * sxy) / det;
+        c0 = (sz - a * sx - b * sy) / n;
+    }
+    double resid = 0.0;
+    for (int j = 0; j < N; j++)
+    {
+        for (int i = 0; i < N; i++)
+        {
+            double x = (i - (N - 1) / 2.0), y = (j - (N - 1) / 2.0);
+            double d = z[(size_t)j * N + i] - (a * x + b * y + c0);
+            resid += d * d;
+        }
+    }
+    out.roughnessM = (float)std::sqrt(resid / n);
+
+    // --- 2. Horizon mask ---------------------------------------------
+    // Highest skyline angle in each azimuth. This one product yields
+    // illumination, PSR status and Earth line of sight.
+    const int AZ = 72;                       // 5 degree steps
+    std::vector<double> horizon(AZ, -LOLA_PI);
+    double lat0 = latDeg * DEG, lon0 = lonDeg * DEG;
+    for (int k = 0; k < AZ; k++)
+    {
+        double az = 2.0 * LOLA_PI * k / AZ;
+        double best = -LOLA_PI / 2.0;
+        // Step out with growing stride: near ground sets the skyline
+        // most often, far ground only matters for tall distant relief.
+        for (double d = footprintKm * 0.5; d <= horizonKm; d *= 1.12)
+        {
+            double c = (d * 1000.0) / LOLA_MOON_RADIUS_M;
+            double la, lo;
+            ForwardGeodesic(lat0, lon0, az, c, &la, &lo);
+            double h = ElevationM(la / DEG, lo / DEG);
+            double e = ElevationAngle(c, out.elevationM, h);
+            best = std::max(best, e);
+        }
+        horizon[k] = std::max(best, 0.0 * DEG);   // never below flat
+    }
+
+    double skyAcc = 0.0;
+    for (int k = 0; k < AZ; k++)
+    {
+        skyAcc += std::cos(std::max(0.0, horizon[k]));
+    }
+    out.skyFraction = (float)(skyAcc / AZ);
+
+    // --- 3. Illumination over a lunar year ---------------------------
+    // Sample the sun around the sky (hour angle) and across its small
+    // 1.54 deg declination swing.
+    const int H_STEPS = 96, D_STEPS = 5;
+    int lit = 0, total = 0;
+    int runDark = 0, worstDark = 0;
+    for (int di = 0; di < D_STEPS; di++)
+    {
+        double dec = (D_STEPS == 1) ? 0.0
+            : (-1.54 + 3.08 * di / (D_STEPS - 1)) * DEG;
+        for (int hi = 0; hi < H_STEPS; hi++)
+        {
+            double H = 2.0 * LOLA_PI * hi / H_STEPS;
+            double sinAlt = std::sin(lat0) * std::sin(dec) +
+                            std::cos(lat0) * std::cos(dec) * std::cos(H);
+            double alt = std::asin(std::clamp(sinAlt, -1.0, 1.0));
+            double az = std::atan2(
+                -std::cos(dec) * std::sin(H),
+                std::sin(dec) * std::cos(lat0) -
+                    std::cos(dec) * std::sin(lat0) * std::cos(H));
+            if (az < 0.0) az += 2.0 * LOLA_PI;
+            int k = ((int)std::lround(az / (2.0 * LOLA_PI) * AZ)) % AZ;
+            bool isLit = (alt > horizon[k]);
+            total++;
+            if (isLit)
+            {
+                lit++;
+                runDark = 0;
+            }
+            else
+            {
+                runDark++;
+                worstDark = std::max(worstDark, runDark);
+            }
+        }
+    }
+    out.illumination = (float)lit / std::max(1, total);
+    out.isPsr = (lit == 0);
+    // 29.53 Earth days per lunar day.
+    out.longestNightDays = (float)(29.53 * worstDark / H_STEPS);
+
+    // --- 4. Earth visibility -----------------------------------------
+    // Earth hangs near the sub-Earth point (0N, 0E); libration swings it
+    // about 8 degrees, so sample that circle and ask how often the link
+    // clears the skyline.
+    int seen = 0, tries = 0;
+    for (int li = 0; li < 16; li++)
+    {
+        double phase = 2.0 * LOLA_PI * li / 16.0;
+        double subLat = 8.0 * DEG * std::sin(phase);
+        double subLon = 8.0 * DEG * std::cos(phase);
+        double cosD = std::sin(lat0) * std::sin(subLat) +
+                      std::cos(lat0) * std::cos(subLat) *
+                          std::cos(lon0 - subLon);
+        double d = std::acos(std::clamp(cosD, -1.0, 1.0));
+        double alt = LOLA_PI / 2.0 - d;          // Earth is effectively at infinity
+        double az = std::atan2(
+            std::sin(subLon - lon0) * std::cos(subLat),
+            std::cos(lat0) * std::sin(subLat) -
+                std::sin(lat0) * std::cos(subLat) * std::cos(subLon - lon0));
+        if (az < 0.0) az += 2.0 * LOLA_PI;
+        int k = ((int)std::lround(az / (2.0 * LOLA_PI) * AZ)) % AZ;
+        tries++;
+        if (alt > 0.0 && alt > horizon[k]) seen++;
+    }
+    out.earthVisibility = (float)seen / std::max(1, tries);
+
+    // --- 5. Overall score --------------------------------------------
+    // Slope dominates: below 5 deg is pad-flat, past 15 deg nothing gets
+    // built. Roughness and relief are secondary penalties, and a site
+    // with no sun at all cannot power itself however flat it is.
+    float slopeTerm = std::clamp(1.0f - (out.meanSlopeDeg - 3.0f) / 12.0f,
+                                 0.0f, 1.0f);
+    float roughTerm = std::clamp(1.0f - out.roughnessM / 120.0f, 0.0f, 1.0f);
+    float reliefTerm = std::clamp(1.0f - out.reliefM / 800.0f, 0.0f, 1.0f);
+    float powerTerm = std::clamp(out.illumination / 0.5f, 0.0f, 1.0f);
+    out.buildScore = slopeTerm * (0.55f + 0.2f * roughTerm +
+                                  0.15f * reliefTerm + 0.10f * powerTerm);
+    out.buildScore = std::clamp(out.buildScore, 0.0f, 1.0f);
+    return out;
+}
+
 LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
                            int res, float detailStrength) const
 {

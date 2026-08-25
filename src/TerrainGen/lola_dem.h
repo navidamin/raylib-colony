@@ -76,6 +76,34 @@ struct LolaWindow
     float maxElevationM = 0.0f;
 };
 
+// Site assessment derived from REAL elevation only — never from the
+// synthesis. What the game gates on is then the same ground the player
+// is looking at, instead of an unrelated random number.
+struct TerrainBuildability
+{
+    // --- local terrain over the footprint ---
+    float meanSlopeDeg = 0.0f;
+    float maxSlopeDeg = 0.0f;
+    float reliefM = 0.0f;        // max - min elevation across the footprint
+    float roughnessM = 0.0f;     // RMS residual after a least-squares plane
+    float elevationM = 0.0f;     // centre elevation vs the reference radius
+
+    // --- ray-marched from the skyline ---
+    // The sun stays within 1.54 deg of the lunar equator, so whether a
+    // site is lit is decided by local topography, not by season: ridges
+    // bake, crater floors can be dark forever.
+    float illumination = 0.0f;       // fraction of a lunar year sunlit
+    float longestNightDays = 0.0f;   // longest unbroken darkness, Earth days
+    // Earth barely moves in a lunar sky (libration wobbles it ~8 deg), so
+    // this is the fraction of that wobble with a direct-to-Earth line of
+    // sight. 0 means the site needs a relay satellite.
+    float earthVisibility = 0.0f;
+    float skyFraction = 0.0f;        // open sky above the horizon mask
+
+    bool isPsr = false;          // permanently shadowed region
+    float buildScore = 0.0f;     // 0 unbuildable .. 1 ideal
+};
+
 class LolaDem
 {
 public:
@@ -115,6 +143,14 @@ public:
     // resolve. 1.0 is the calibrated look, 0 disables.
     LolaWindow Window(double latDeg, double lonDeg, double spanKm,
                       int res, float detailStrength = 0.0f) const;
+
+    // Assess a site for construction from measured elevation alone.
+    // footprintKm is the settlement's own extent (the game's 5 km sect);
+    // horizonKm how far out the skyline is ray-marched for illumination
+    // and comms line of sight.
+    TerrainBuildability EvaluateSite(double latDeg, double lonDeg,
+                                     double footprintKm = 5.0,
+                                     double horizonKm = 60.0) const;
 
     // Resample an explicit lat/lon rectangle (degrees) to outW x outH.
     // Used for the full near side (lat -90..90, lon -90..90), where a
