@@ -79,6 +79,13 @@ struct MapOptions
     bool despeckle = false;        // --despeckle to enable
     int demDecim = 1;              // --demdecim N: coarsen overlays
     bool survey = false;           // --survey: site report, no render
+    // Placement cursor: the footprint the player is about to commit to.
+    // Default 1.5 km ~ the sect core (terrain_synthesis coreRadiusKm),
+    // the part that actually has to sit on good ground.
+    bool place = false;
+    double placeDxKm = 0.0;        // cursor offset east of window centre
+    double placeDyKm = 0.0;        // cursor offset north of window centre
+    double footprintKm = 1.5;
     float ambient = 0.06f;
     int width = 1200;
     int height = 1200;
@@ -109,6 +116,8 @@ static void PrintUsage()
         << "  --despeckle       apply the 3x3 median to overlay crops\n"
         << "  --demdecim N      coarsen overlays Nx (1=59m, 4=237m)\n"
         << "  --survey          print a buildability report, no render\n"
+        << "  --place DX,DY     placement cursor, km east/north of centre\n"
+        << "  --footprint KM    cursor footprint size    (default: 1.5)\n"
         << "  --ambient F       ambient light level     (default: 0.06)\n"
         << "  --tilt            tilted 3D slab view instead of top-down\n"
         << "  --orbit YAW,PITCH tilt camera angles (default: 180,52)\n"
@@ -162,6 +171,17 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--nodespeckle") { options.despeckle = false; }
         else if (arg == "--despeckle") { options.despeckle = true; }
         else if (arg == "--survey") { options.survey = true; }
+        else if (arg == "--place" && hasNext)
+        {
+            options.place = true;
+            if (std::sscanf(argv[++i], "%lf,%lf",
+                            &options.placeDxKm, &options.placeDyKm) != 2)
+            {
+                std::cerr << "Bad --place, expected DX,DY in km\n";
+                return false;
+            }
+        }
+        else if (arg == "--footprint" && hasNext) { options.footprintKm = std::atof(argv[++i]); }
         else if (arg == "--demdecim" && hasNext) { options.demDecim = std::atoi(argv[++i]); }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
@@ -954,6 +974,88 @@ static bool ScreenToLatLon(const TerrainScene& scene, float zoom,
 // Rendering + interactive loop
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Placement cursor
+//
+// The footprint the player is about to commit to, judged against the
+// real DEM underneath it and drawn green or red. The readout names the
+// specific limit that failed rather than just refusing.
+// ---------------------------------------------------------------------------
+
+struct PlacementVerdict
+{
+    bool allowed = false;
+    const char* reason = "";
+};
+
+static PlacementVerdict JudgeSite(const TerrainBuildability& b)
+{
+    PlacementVerdict v;
+    if (b.meanSlopeDeg > 8.0f) { v.reason = "TOO STEEP (mean slope)"; return v; }
+    if (b.maxSlopeDeg > 25.0f) { v.reason = "TOO STEEP (local face)"; return v; }
+    if (b.roughnessM > 40.0f)  { v.reason = "GROUND TOO BROKEN";      return v; }
+    if (b.reliefM > 400.0f)    { v.reason = "RELIEF TOO GREAT";       return v; }
+    if (b.isPsr)               { v.reason = "PERMANENT SHADOW";       return v; }
+    v.allowed = true;
+    v.reason = "SITE OK - BUILD ALLOWED";
+    return v;
+}
+
+static void DrawPlacementCursor(const MapOptions& options, const LolaDem& dem,
+                                int screenW, int screenH)
+{
+    const double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
+    double lat = options.pickLat + options.placeDyKm / kmPerDeg;
+    double cosLat = std::max(0.05, std::cos(options.pickLat * DEG2RAD));
+    double lon = options.pickLon + options.placeDxKm / (kmPerDeg * cosLat);
+
+    TerrainBuildability b = dem.EvaluateSite(lat, lon, options.footprintKm,
+                                             30.0);
+    PlacementVerdict v = JudgeSite(b);
+    Color tint = v.allowed ? Color{ 60, 235, 120, 255 }
+                           : Color{ 255, 70, 70, 255 };
+
+    // World km -> screen: the top-down camera maps the whole span onto
+    // the frame, north up.
+    float pxPerKm = screenH / (float)options.spanKm;
+    float cx = screenW * 0.5f + (float)options.placeDxKm * pxPerKm;
+    float cy = screenH * 0.5f - (float)options.placeDyKm * pxPerKm;
+    float half = (float)(options.footprintKm * 0.5) * pxPerKm;
+
+    Rectangle r = { cx - half, cy - half, half * 2.0f, half * 2.0f };
+    DrawRectangleRec(r, Color{ tint.r, tint.g, tint.b, 38 });
+    DrawRectangleLinesEx(r, 3.0f, tint);
+    float t = half * 0.35f;
+    for (int i = 0; i < 4; i++)
+    {
+        float ox = (i & 1) ? r.x + r.width : r.x;
+        float oy = (i & 2) ? r.y + r.height : r.y;
+        float sx = (i & 1) ? -1.0f : 1.0f;
+        float sy = (i & 2) ? -1.0f : 1.0f;
+        DrawLineEx(Vector2{ ox, oy }, Vector2{ ox + sx * t, oy }, 5.0f, tint);
+        DrawLineEx(Vector2{ ox, oy }, Vector2{ ox, oy + sy * t }, 5.0f, tint);
+    }
+    DrawCircleV(Vector2{ cx, cy }, 3.0f, tint);
+
+    int pw = 348, ph = 138;
+    int px = screenW - pw - 16, py = 78;
+    Color dim = Color{ 210, 210, 210, 255 };
+    DrawRectangle(px, py, pw, ph, Color{ 12, 12, 16, 215 });
+    DrawRectangleLinesEx(Rectangle{ (float)px, (float)py, (float)pw,
+                                    (float)ph }, 2.0f, tint);
+    DrawText(v.reason, px + 12, py + 10, 19, tint);
+    DrawText(TextFormat("footprint    %.1f km", options.footprintKm),
+             px + 12, py + 38, 15, dim);
+    DrawText(TextFormat("slope mean   %.2f deg  (max 8)", b.meanSlopeDeg),
+             px + 12, py + 58, 15, b.meanSlopeDeg > 8.0f ? tint : dim);
+    DrawText(TextFormat("slope peak   %.2f deg  (max 25)", b.maxSlopeDeg),
+             px + 12, py + 77, 15, b.maxSlopeDeg > 25.0f ? tint : dim);
+    DrawText(TextFormat("roughness    %.1f m    (max 40)", b.roughnessM),
+             px + 12, py + 96, 15, b.roughnessM > 40.0f ? tint : dim);
+    DrawText(TextFormat("relief       %.0f m    (max 400)", b.reliefM),
+             px + 12, py + 115, 15, b.reliefM > 400.0f ? tint : dim);
+}
+
 static void DrawScene(TerrainScene& scene, const MapOptions& options,
                       int styleMode, const Camera3D& camera)
 {
@@ -1198,6 +1300,11 @@ int main(int argc, char** argv)
         DrawScene(app.scene, app.options, app.styleMode, camera);
         DrawHud(app.scene, app.options, app.styleMode, app.options.width,
                 app.options.height, app.zoom);
+        if (app.options.place)
+        {
+            DrawPlacementCursor(app.options, app.dem, app.options.width,
+                                app.options.height);
+        }
         EndTextureMode();
 
         Image shot = LoadImageFromTexture(target.texture);
