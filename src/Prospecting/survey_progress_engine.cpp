@@ -7,12 +7,13 @@ CellSurveyResult SurveyProgressEngine::Calculate(const ProspectingGrid& grid,
     CellSurveyResult result;
     result.sweepConfidence = ComputeSweepComponent(grid);
     result.sampleConfidence = ComputeSampleComponent(grid, tray);
+    // Kept reporting so the field still means something to anything reading
+    // it, but it no longer contributes -- see SURVEY_TESTING_WEIGHT.
     result.testingConfidence = ComputeTestingComponent(grid, tray);
 
     result.surveyProgress = std::clamp(
         SURVEY_SWEEP_WEIGHT * result.sweepConfidence
-      + SURVEY_SAMPLE_WEIGHT * result.sampleConfidence
-      + SURVEY_TESTING_WEIGHT * result.testingConfidence,
+      + SURVEY_SAMPLE_WEIGHT * result.sampleConfidence,
         0.0f, 1.0f);
 
     return result;

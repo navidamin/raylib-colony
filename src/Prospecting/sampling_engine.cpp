@@ -67,6 +67,18 @@ Sample SamplingEngine::CreateSample(const ProspectingGrid& grid,
     s.trueComposition = grid.GetGroundTruth(subX, subY, depth);
     s.richness = CalculateRichnessFromQuantity(grid.GetQuantity(subX, subY, depth));
     s.state = SampleState::IN_TRAY;
+
+    // A recovered core is rock you are holding. Its composition is KNOWN --
+    // there is nothing further for the player to decide about reading it, and
+    // analytical precision is a percent or two while the uncertainty BETWEEN
+    // holes is total. The lab stage used to gate this; it modelled the small
+    // uncertainty and made the drill look like it might not tell you what you
+    // had just pulled out. See docs/design/prospecting/block-model-design.md.
+    for (const auto& [type, abundance] : s.trueComposition)
+    {
+        s.elementConfidence[type] = 1.0f;
+    }
+
     s.visual = AssignCrystalVisual(s, grid.GetParentGridX(), grid.GetParentGridY());
     return s;
 }

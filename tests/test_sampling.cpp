@@ -114,7 +114,7 @@ TEST_CASE("Collected sample has ground truth composition", "[sampling]")
     }
 }
 
-TEST_CASE("Collected sample starts with zero confidence", "[sampling]")
+TEST_CASE("A recovered core comes out of the ground assayed", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
     ProspectingGrid grid(1, 5, 5, rm);
@@ -125,8 +125,15 @@ TEST_CASE("Collected sample starts with zero confidence", "[sampling]")
     const Sample* s = tray.GetSampleByIndex(0);
     REQUIRE(s != nullptr);
 
-    REQUIRE(s->elementConfidence.empty());
-    REQUIRE_THAT(s->GetAggregateConfidence(), Catch::Matchers::WithinAbs(0.0f, 0.001f));
+    // A core is rock you are holding. The lab stage used to gate this, and it
+    // modelled the wrong uncertainty: analytical precision is a percent or
+    // two, while the uncertainty BETWEEN holes is total.
+    REQUIRE_FALSE(s->elementConfidence.empty());
+    for (const auto& [type, abundance] : s->trueComposition)
+    {
+        REQUIRE(s->elementConfidence.at(type) == 1.0f);
+    }
+    REQUIRE_THAT(s->GetAggregateConfidence(), Catch::Matchers::WithinAbs(1.0f, 0.001f));
 }
 
 TEST_CASE("Collected sample richness is in valid range", "[sampling]")
@@ -181,7 +188,7 @@ TEST_CASE("Collected sample registered in sub-cell sampleIds", "[sampling]")
     REQUIRE(grid.GetSubCell(1, 1).sampleIds.size() == 2);
 }
 
-TEST_CASE("Crystal visual glow starts at 0", "[sampling]")
+TEST_CASE("Crystal visual glow reflects a fully known core", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
     ProspectingGrid grid(1, 5, 5, rm);
@@ -189,7 +196,10 @@ TEST_CASE("Crystal visual glow starts at 0", "[sampling]")
     SamplingEngine engine(1);
 
     REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
-    REQUIRE(tray.GetSampleByIndex(0)->visual.glowLevel == 0);
+    // Glow is derived from confidence, and a recovered core is fully known, so
+    // it now pins at the top. The channel no longer varies -- worth
+    // repurposing (richness? depth?) rather than leaving it constant.
+    REQUIRE(tray.GetSampleByIndex(0)->visual.glowLevel == 4);
 }
 
 TEST_CASE("Crystal visual size matches richness", "[sampling]")

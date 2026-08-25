@@ -64,21 +64,20 @@ TEST_CASE("Testing component requires analyzed samples", "[survey]")
     ProspectingGrid grid(1, 5, 5, rm);
     SampleTray tray(1);
     SamplingEngine sampler(1);
-    LabEngine lab(1);
 
+    // The lab is retired, so the testing component has nothing left to
+    // measure: nothing ever writes an analysis history. It is kept reporting
+    // zero rather than deleted, and its weight folded into sampling -- see
+    // SURVEY_TESTING_WEIGHT.
+    REQUIRE(SURVEY_TESTING_WEIGHT == 0.0f);
     REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
-    Sample* sample = tray.GetSampleByIndex(0);
+    REQUIRE(SurveyProgressEngine::ComputeTestingComponent(grid, tray) == 0.0f);
 
-    // Before lab analysis
-    float beforeTesting = SurveyProgressEngine::ComputeTestingComponent(grid, tray);
-    REQUIRE(beforeTesting == 0.0f);
-
-    // After lab analysis — testing component increases if sample has significant elements
-    lab.ApplyTool(*sample, AnalysisTool::LIBS_PULSE, 100.0f);
-    float afterTesting = SurveyProgressEngine::ComputeTestingComponent(grid, tray);
-    REQUIRE(afterTesting >= beforeTesting);
-    if (sample->GetAggregateConfidence() > 0.0f)
-        REQUIRE(afterTesting > 0.0f);
+    // ...and the weights still sum to a reachable 1.0. If they did not, a
+    // fully cored cell would top out below full survey progress forever, which
+    // reads as a balance problem rather than a leftover constant.
+    REQUIRE_THAT(SURVEY_SWEEP_WEIGHT + SURVEY_SAMPLE_WEIGHT,
+                 Catch::Matchers::WithinAbs(1.0f, 0.0001f));
 }
 
 // --- Weighted formula ---
@@ -193,24 +192,55 @@ TEST_CASE("More samples increase sample component", "[survey]")
     REQUIRE(after2 >= after1);
 }
 
-TEST_CASE("Better lab analysis increases testing component", "[survey]")
+TEST_CASE("A core makes its own spot certain", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
     ProspectingGrid grid(2, 5, 5, rm);
     SampleTray tray(2);
     SamplingEngine sampler(2);
-    LabEngine lab(2);
+
+    float before = GetDepthConfidence(grid, tray, 3, 3, DepthLayer::SURFACE);
+    REQUIRE(GetResourceClass(before) == ResourceClass::UNCLASSIFIED);
 
     REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
-    Sample* sample = tray.GetSampleByIndex(0);
 
-    lab.ApplyTool(*sample, AnalysisTool::VISUAL_INSPECTION, 100.0f);
-    float afterVisual = SurveyProgressEngine::ComputeTestingComponent(grid, tray);
+    // Rock you are holding. No further step, no lab, no decision.
+    REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 3, 3, DepthLayer::SURFACE))
+            == ResourceClass::MEASURED);
 
-    lab.ApplyTool(*sample, AnalysisTool::LIBS_PULSE, 200.0f);
-    float afterLIBS = SurveyProgressEngine::ComputeTestingComponent(grid, tray);
+    // ...and only at that spot and that depth. A core says nothing about the
+    // layer beneath it, which is what keeps deep ground a bet.
+    REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 3, 3, DepthLayer::MID))
+            == ResourceClass::UNCLASSIFIED);
+}
 
-    REQUIRE(afterLIBS > afterVisual);
+TEST_CASE("A wide sweep never classifies on its own", "[survey]")
+{
+    ResourceManager rm = MakeTestResourceManager();
+    ProspectingGrid grid(3, 5, 5, rm);
+    SampleTray tray(3);
+    SweepEngine sweep(3);
+
+    // Every band, as hard as the instrument can be run.
+    for (int band = 0; band < SWEEP_FREQUENCY_BANDS; band++)
+    {
+        if (sweep.CanSweep(grid, band)) sweep.ExecuteSweep(grid, band, 100.0f);
+    }
+
+    // A surface reading may make ground look interesting. It may never make it
+    // count -- you cannot put tonnage in a statement on the strength of one.
+    int size = grid.GetGridSize();
+    for (int y = 0; y < size; y++)
+    {
+        for (int x = 0; x < size; x++)
+        {
+            for (int d = 0; d < 4; d++)
+            {
+                float c = GetDepthConfidence(grid, tray, x, y, static_cast<DepthLayer>(d));
+                REQUIRE(GetResourceClass(c) == ResourceClass::UNCLASSIFIED);
+            }
+        }
+    }
 }
 
 // --- Marked site qualification ---

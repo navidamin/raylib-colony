@@ -53,9 +53,17 @@ constexpr float CONFIDENCE_THRESHOLD_CERTAIN   = 0.80f;
 constexpr float CONFIDENCE_SURVEY_MULTIPLIER[] = { 0.2f, 0.4f, 0.7f, 0.9f, 1.0f };
 
 // Survey progress component max contributions
+// How the three routes to knowledge divide survey progress.
+//
+// TESTING is retired. It measured how far a core had been through the lab,
+// and the lab is gone: a recovered core is rock you are holding, so it comes
+// out of the ground assayed. Its 0.30 folds into sampling rather than being
+// deleted, or a fully cored cell would top out at 0.70 forever -- which would
+// have silently capped extraction efficiency and looked like a balance issue
+// rather than a leftover.
 constexpr float SURVEY_SWEEP_WEIGHT   = 0.20f;
-constexpr float SURVEY_SAMPLE_WEIGHT  = 0.50f;
-constexpr float SURVEY_TESTING_WEIGHT = 0.30f;
+constexpr float SURVEY_SAMPLE_WEIGHT  = 0.80f;
+constexpr float SURVEY_TESTING_WEIGHT = 0.00f;
 
 // Fraction of sub-cells that must be sampled for full sample coverage
 constexpr float SURVEY_SAMPLE_COVERAGE_TARGET = 0.25f;
@@ -129,6 +137,13 @@ constexpr float PROSPECT_SWEEP_CONFIDENCE_WEIGHT  = 0.6f;
 
 // A sample taken at a spot+depth is direct evidence, so it carries full weight.
 constexpr float PROSPECT_SAMPLE_CONFIDENCE_WEIGHT = 1.0f;
+
+// A wide surface sweep may never, on its own, classify ground. You cannot put
+// tonnage in a resource statement on the strength of a surface reading -- real
+// resource codes forbid it, and it is also the better game: it keeps a
+// permanent reason to drill. So sweep-derived confidence is capped just below
+// the Inferred threshold. Combined with a core it still rises normally.
+constexpr float PROSPECT_SWEEP_CONFIDENCE_CAP = CONFIDENCE_THRESHOLD_LOW - 0.01f;
 
 // ---------------------------------------------------------------------------
 // Resource classification

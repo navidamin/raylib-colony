@@ -325,6 +325,11 @@ float GetDepthConfidence(const ProspectingGrid& grid, const SampleTray& tray,
             float attenuation = 1.0f / (1.0f + d * SWEEP_DEPTH_ATTENUATION);
             sweepConfidence = cell.aggregateConfidence * attenuation *
                               PROSPECT_SWEEP_CONFIDENCE_WEIGHT;
+
+            // Suggests, never proves. Capped below the Inferred threshold so a
+            // sweep alone can make ground look interesting without ever making
+            // it count -- radar and LIBS point, only a core classifies.
+            sweepConfidence = std::min(sweepConfidence, PROSPECT_SWEEP_CONFIDENCE_CAP);
         }
     }
 
