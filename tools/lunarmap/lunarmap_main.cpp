@@ -1037,8 +1037,11 @@ static void DrawPlacementCursor(const MapOptions& options, const LolaDem& dem,
     }
     DrawCircleV(Vector2{ cx, cy }, 3.0f, tint);
 
+    // Keep the readout on the opposite side to the cursor, so the panel
+    // never covers the footprint it is describing.
     int pw = 348, ph = 138;
-    int px = screenW - pw - 16, py = 78;
+    int px = (cx < screenW * 0.5f) ? screenW - pw - 16 : 16;
+    int py = 78;
     Color dim = Color{ 210, 210, 210, 255 };
     DrawRectangle(px, py, pw, ph, Color{ 12, 12, 16, 215 });
     DrawRectangleLinesEx(Rectangle{ (float)px, (float)py, (float)pw,
