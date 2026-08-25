@@ -244,38 +244,186 @@ Neither, and the split is the point:
 Which makes the commit at level 5 a real decision under real uncertainty:
 **you know exactly what the ground is, and only roughly what is in it.**
 
-#### Presentation consequences
+#### The band widens as the value freezes
 
-- Terrain rows show a value that visibly sharpens as the player descends.
-- Resource rows carry their instrument's name and footprint
-  (`NEUTRON · 45 km`) and **grey out further sharpening** once the cursor
-  is inside the footprint, so the freeze reads as physics rather than as
-  a bug.
-- The instrument footprint is drawn on the map as a faint circle around
-  the cursor at the levels where it is larger than the cursor. This is
-  the single most important piece of the whole idea: it makes the limit
-  visible instead of merely stated.
-- Spread is shown as an error band on each bar, and it stops narrowing
-  when the window stops shrinking.
+The freeze alone is not enough — a number that simply stops changing
+looks like a bug. What actually happens below an instrument's floor is
+sharper than that, and it is the honest answer to the player's real
+question.
+
+Descending does not change the measurement, but it **changes the question
+being asked of it**. At level 3 the player is asking "what is in this
+25 km cell?", and a 45 km mean is a decent answer. At level 5 they are
+asking "what is under this 1.5 km base?", and the same 45 km mean is a
+much worse answer to that question — not because the data degraded, but
+because the question got thirty times sharper while the data did not.
+
+So below the floor:
+
+- the **value stays fixed** — it is the same measurement, and the game
+  must not pretend otherwise;
+- the **uncertainty band widens** — because the spread of cursor-sized
+  patches inside that footprint is what the player is now exposed to.
+
+Terrain rows and resource rows therefore move in **opposite directions**
+on the same panel as the player descends: terrain bands close, resource
+bands open. That contrast is the clearest possible statement of what the
+descent does and does not buy, and it needs no text at all.
+
+Nothing is invented here either. The band is:
+
+```
+band = standard deviation of cursor-sized patches within the
+       instrument footprint
+```
+
+which the game can compute directly, because it generates the field. It
+is exactly the quantity a geologist would quote, it widens on its own as
+the cursor shrinks, and it saturates at the field's own variance. No
+seeded noise, no per-level fudge factor.
+
+#### Making the limit visible without a popup
+
+Three redundant cues, none of them modal:
+
+1. **The data layer goes blocky.** Render each quantity on *its own
+   measurement grid*. Terrain keeps resolving all the way down; the
+   hydrogen layer turns into 45 km blocks and then into one flat block
+   filling the whole screen. Every player has seen a raster hit its
+   resolution and understands instantly that there is no more detail
+   there. This is the strongest device and it costs no UI space.
+2. **The instrument footprint drawn on the map** — a faint ring around
+   the cursor wherever the footprint is larger than the cursor. Seeing a
+   45 km ring around a 1.5 km base explains the whole mechanic in one
+   glance.
+3. **The widening band** on the bar, opposite in motion to the terrain
+   rows beside it.
+
+A row label carrying the instrument and its footprint (`NEUTRON · 45 km
+avg`) is the fourth, weakest cue — worth having as the precise statement,
+but it should never be the *only* one.
 
 #### What this does NOT solve
 
 Terrain can still be brute-forced: descend on everything and you will map
-every buildable cell. Two things keep that unattractive, and neither is a
-charge on the camera:
+every buildable cell. The coarse terrain readout is what keeps that
+unattractive — mean **and max** slope over the footprint tells you a
+region hides a cliff without descending, so you descend to find *where*,
+not *whether*.
 
-1. The coarse terrain readout is genuinely informative — mean **and max**
-   slope over the footprint tells you a region hides a cliff without
-   descending. You descend to find *where*, not *whether*.
-2. If a real cost is wanted later, put it on **survey coverage, not on
-   zoom**: the orbital data does not exist until a satellite has passed
-   over that ground. That is physically true (LRO's maps were built over
-   years), it makes the scarce thing *information* rather than camera
-   movement, and it leaves the descent free — which the reversibility
-   decision in §3.3 already requires.
+A cost on descent is **rejected**. The survey is a pre-existing dataset
+the player inherits — measured before they arrived, with instruments they
+did not choose. Coverage is not a resource and instruments are not a
+decision, so there is nothing legitimate to charge for. Descending stays
+free, which §3.3's reversibility already requires.
 
 **STATUS: proposed, supersedes the earlier "resolution-limited" decision.
 Awaiting confirmation before step 2 is built against it.**
+
+---
+
+### 4.4 What the instrument floors force us to decide next
+
+The floors are not just a display rule — they reach into the resource
+generator, the archetype classifier and the prospecting hand-off. In
+rough order of how badly each one can sink the idea:
+
+#### 1. Each level now answers a DIFFERENT question
+
+This is the biggest consequence, and it is a gain. A 45 km neutron
+footprint over the game's 100 km playfield means hydrogen has perhaps
+four or five independent values across the *entire* 20x20 grid. At sect
+scale the hydrogen map is essentially flat.
+
+That is not a problem to engineer around — it is the ladder telling us
+what each level is for:
+
+| Levels | The question | Decided by |
+|--------|--------------|------------|
+| 1–3 | *Which region?* volatiles, bulk composition, KREEP | instrument-limited data |
+| 4–5 | *Which ground?* slope, relief, illumination, PSR | fully resolved data |
+
+Choose your **region** for what is in it; choose your **site** for what
+you can build on. §8 listed "aggregate readouts look identical across
+levels" as a risk — this removes it far better than a confidence layer
+would have.
+
+#### 2. The generator must put structure BELOW the floor
+
+If composition varies only smoothly over hundreds of km, a 45 km
+footprint captures it almost perfectly and the entire mechanic is inert —
+the band would be narrow everywhere and nothing would ever surprise
+anyone. **The mechanic only bites if the resource field has real
+structure at scales the instruments cannot see.**
+
+This is a requirement on `ResourceManager`'s cluster generation, not on
+the UI, and it is the single most important implementation consequence
+here. Concretely: hydrogen wants small, high-contrast concentrations
+(cold traps are metres to km across, not tens of km), so the field needs
+power at 1–10 km. Iron and titanium genuinely do vary at basin scale, so
+they can stay smooth.
+
+`[?]` How much sub-footprint contrast is enough to be interesting without
+being arbitrary? Needs playtesting against a real distribution.
+
+#### 3. Terrain becomes a proxy for chemistry — the actual skill
+
+You cannot measure hydrogen at 1.5 km. You *can* see, at 59 m, that a
+crater floor is permanently shadowed. Cold traps are where volatiles
+survive, so **the sharp data predicts the blurry data**.
+
+That is the deepest thing this model creates: the player learns to read
+terrain as evidence about composition, which makes descending genuinely
+informative about chemistry *indirectly*, without ever faking a
+measurement. Worth designing for on purpose — the archetype hints, the
+PSR flag and the thermal rows should all be legible as chemistry clues,
+not just as buildability rows.
+
+#### 4. Not everything should be blurry
+
+If every number is uncertain the player has nothing to plan with. A
+gradient of trustworthiness across the panel is what makes the panel
+readable:
+
+- **Trustworthy:** slope, relief, illumination, PSR (measured, sharp).
+- **Fairly trustworthy:** Fe / Ti — they track mare vs highland, which is
+  *visible in the imagery*. A player who learns to read dark mare as
+  iron-rich is using a real skill on real data.
+- **Barely trustworthy:** hydrogen. Highest stakes, worst resolution.
+  This is where the gamble lives, and it should be the only place.
+
+#### 5. The archetype must inherit the floor
+
+`SiteArchetype` is derived from composition, so it cannot be sharper than
+the composition it is derived from. If the archetype label sharpens as
+the player descends it leaks information the instruments do not have.
+Classify on the instrument-footprint aggregate, not the cursor.
+
+#### 6. The uncertainty has to bite, and prospecting is what resolves it
+
+If a wrong guess never costs anything, the band is decoration. The chain
+should be: the orbital number was never wrong, only coarse → the base is
+built → **prospecting measures the local truth** → it may be well below
+what the region average implied.
+
+This is a clean hand-off to `docs/design/prospecting/`, whose survey
+progress mechanic already exists and whose entire purpose becomes
+*breaking the instrument floor*. It also sets a hard UI rule: the site
+readout must never present a footprint average as if it were a local
+measurement, or the reveal reads as the game cheating rather than as the
+player learning what "45 km average" meant.
+
+`[?]` Is the gamble avoidable? If the player can always found a cheap
+scout base, prospect, and only then commit, the uncertainty is a slower
+toll again. Suggested shape: the **first** colony is a real commitment;
+later ones can be scouted first. That is also a natural difficulty curve.
+
+#### 7. Implementation note — cost of a large aggregation window
+
+A 45 km footprint re-aggregated on every mouse move is a lot of grid
+samples per frame. A summed-area table over the survey grid makes it
+O(1) per quantity; variance needs a second table of squares. Cheap,
+standard, and worth doing in step 2 rather than retrofitting.
 
 ---
 

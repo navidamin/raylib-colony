@@ -71,7 +71,12 @@ at level 5; descent is fully reversible and only the final build commits.
 per zoom level** (§4.3). Descending is a camera move, not an instrument
 change, so it resolves terrain completely and never resolves chemistry:
 resource readouts are averaged over their *instrument's* footprint, which
-stays far larger than the base. Nothing is biased or noised — the
-dilution is a true mean of a real area. This supersedes the earlier
-"resolution-limited" decision, which made uncertainty a function of zoom
-and so made it a toll rather than a decision.
+stays far larger than the base. Below that floor the value freezes and
+the **uncertainty band widens** — the measurement did not degrade, the
+question got sharper. Terrain bands close as resource bands open, which
+states what the descent buys without a word of text. Nothing is biased or
+noised. This supersedes the earlier "resolution-limited" decision, which
+made uncertainty a function of zoom and so made it a toll rather than a
+decision. §4.4 lists what the floors force us to decide next — chiefly
+that the resource generator must put structure *below* the instrument
+floor or the whole mechanic is inert.
