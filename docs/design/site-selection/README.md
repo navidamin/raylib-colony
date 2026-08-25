@@ -65,7 +65,13 @@ is committed.
 Tracked with `[?]` in the master design. None outstanding.
 
 **Decided:** the cursor grid-snaps at navigation levels and moves freely
-at level 5; descent is fully reversible and only the final build
-commits; readouts are **resolution-limited** — a coarse level shows the
-true mean of its footprint plus the footprint's measured spread, with no
-invented error (§4.3).
+at level 5; descent is fully reversible and only the final build commits.
+
+**Proposed, awaiting confirmation:** confidence is **per quantity, not
+per zoom level** (§4.3). Descending is a camera move, not an instrument
+change, so it resolves terrain completely and never resolves chemistry:
+resource readouts are averaged over their *instrument's* footprint, which
+stays far larger than the base. Nothing is biased or noised — the
+dilution is a true mean of a real area. This supersedes the earlier
+"resolution-limited" decision, which made uncertainty a function of zoom
+and so made it a toll rather than a decision.

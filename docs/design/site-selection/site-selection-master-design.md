@@ -144,10 +144,12 @@ visualising the interaction (§7).
 
 ### 4.2 Aggregation rule
 
-Sample the underlying survey grid over the cursor footprint and reduce:
+Sample the underlying survey grid over the **aggregation window** (§4.3)
+and reduce:
 
-- **Resources:** area-weighted **mean** — they are abundances, and a
-  mean is what "how much is in this region" means.
+- **Resources:** area-weighted **mean**, plus the **standard deviation**
+  over the same window. They are abundances; a mean is what "how much is
+  in this region" means, and the spread is what makes the mean honest.
 - **Slope:** report **mean and max**. Max matters because one cliff can
   disqualify a site that averages flat.
 - **Illumination / Earth visibility:** **mean**, but flag the *best* cell
@@ -156,62 +158,124 @@ Sample the underlying survey grid over the cursor footprint and reduce:
 - **Archetype:** **modal** (most common), with a count so "mixed" reads
   as mixed rather than as a weak single answer.
 
-At coarse levels the footprint covers many grid cells; at level 5 it
-covers a fraction of one, so the readout falls through to a direct
-`EvaluateSite` call at the cursor's own footprint size — exactly what
-the `lunar_map --place` prototype already does.
+For terrain the window shrinks with the cursor, so at level 5 the readout
+falls through to a direct `EvaluateSite` call at the cursor's own
+footprint — exactly what the `lunar_map --place` prototype does. For
+resources it does **not**; see below.
 
-### 4.3 Confidence — the reason to descend
+### 4.3 Confidence — what descending actually buys
 
-Aggregates should be shown with **decreasing uncertainty** as the player
-descends. Without this, descending is a chore; with it, descending buys
-information.
+An earlier draft made confidence a function of zoom level: the deeper you
+go, the sharper the number. That model does not survive contact with the
+rest of the design. **If uncertainty falls monotonically with an action
+that is free and reversible, it is not uncertainty — it is a toll.** The
+optimal play is to descend on everything, back out, and descend again;
+the coarse readouts never inform a decision, they just stand between the
+player and a number they are always allowed to have. Adding *bias* to the
+coarse readout does not fix this. It makes the toll feel unfair as well
+as tedious, and the player's counter-strategy is unchanged: zoom in and
+ignore what the high levels said.
 
-| Level | Presented as | Uncertainty |
-|-------|--------------|-------------|
-| 1–2 | Coarse bars, no numbers | wide measured spread |
-| 3 | Bars + rounded numbers | measured spread |
-| 4 | Numbers | measured spread |
-| 5 | Exact values | none — one footprint, one value |
+The premise is what is wrong. **Descending is a camera move, not an
+instrument change.** Looking harder at a map does not give you a better
+neutron spectrometer. What actually sets the sharpness of a number is
+*which instrument measured it*, and that does not care where the camera
+is.
 
-The uncertainty shown is the footprint's own **measured spread**, not a
-transformation of the value. Nothing perturbs the stored data.
+So confidence is **per quantity, not per level**. Each has its own
+resolution floor, fixed by its instrument, and the descent walks past
+those floors one at a time.
 
-**DECIDED — resolution-limited (model 1 below).** Three models were
-considered, in increasing order of how much they can annoy a player:
+| Quantity | Source | Approx. footprint | Sharpens until |
+|----------|--------|-------------------|----------------|
+| Elevation, slope, relief, roughness | LOLA / SLDEM2015 | ~59 m | **level 5 — fully resolved** |
+| Illumination, PSR, longest night, Earth visibility | ray-marched from LOLA | ~59 m (needs ~60 km of horizon context) | **level 5 — fully resolved** |
+| Surface mineralogy | M3 (Chandrayaan-1) | ~140 m | level 5 — but surface only, weathering-confounded |
+| Thermal inertia, rock abundance | Diviner | ~200 m | level 5 |
+| Elemental abundance (Fe, Ti, Th, K) | gamma-ray spectrometer | tens of km | **level 3 — frozen below** |
+| Hydrogen / volatiles | neutron spectrometer | ~45 km | **level 2–3 — frozen below** |
+| Subsurface structure, regolith depth, ice at depth | nothing from orbit | — | **never — prospecting's job** |
 
-1. **Resolution-limited (no injected error).** The coarse readout shows
-   the true mean of a large area, plus its spread. Nothing is wrong —
-   it simply is not the value at any one point inside. "Fe 38% ±14
-   across this region" honestly says *there is something good in here
-   somewhere*, which is itself the invitation to descend.
-2. **Imprecise.** True value plus zero-mean noise, shrinking with each
-   level. Never misleading, but the error is invented rather than
-   earned.
-3. **Biased.** Error with a direction, so a site can look good from
-   orbit and disappoint on arrival. Physically authentic — a neutron
-   spectrometer's footprint is tens of km, so small rich deposits really
-   do get diluted and under-read — and it creates memorable failures.
-   Unfair-feeling unless the player can learn *why* it happens.
+*(Footprints are order-of-magnitude and must be checked against the real
+instrument papers before they are hard-coded.)*
 
-The aggregation already produces genuine variance, so the descent
-payoff comes for free and can never feel like the game lied. Model (3)
-may be added later on a single named resource — hydrogen is the natural
-candidate, with the footprint-dilution reason surfaced in the UI — if
-scouting needs more risk. Model (2) is rejected outright: it has the
-cost of uncertainty without the honesty of (1) or the drama of (3).
+**The aggregation window is therefore per quantity:**
 
-Consequences:
+```
+window = max(cursor footprint, instrument footprint)
+```
 
-- The table above presents **mean ± spread**, where the spread is the
-  *measured* standard deviation over the footprint, not a fabricated
-  confidence band. It narrows on its own as the footprint shrinks.
-- `SurveyAggregate` (§5, step 2) must therefore carry a spread
-  alongside every mean, computed in the same pass.
-- **Step 6 of the implementation plan disappears** as a separate step:
-  there is no display-time perturbation layer to build. What remains is
-  presentation — how many significant figures each level shows, and
-  whether the spread is drawn as a bar or a number.
+Terrain rows use the cursor. Resource rows stop shrinking once the cursor
+is smaller than the instrument, and from there the number simply stops
+changing as the player descends.
+
+#### Why this is better than either "imprecise" or "biased"
+
+- **Nothing is injected.** Every number shown is a true mean of a real
+  area. The game never lies, and never needs a seeded noise function.
+- **Dilution falls out for free, in the physically correct direction.** A
+  1.5 km rich deposit averaged over a 45 km neutron footprint really does
+  read low. That is the memorable-failure appeal of the old model (3)
+  without its unfairness, because the cause is visible: draw the
+  instrument footprint on the map and the player can see it is thirty
+  times the size of the base.
+- **It is learnable.** "The neutron footprint is 45 km; that number will
+  never get sharper from up here" is a rule a player can hold, act on,
+  and eventually exploit.
+- **Descending stays worth doing** — it resolves terrain completely, and
+  terrain is what gates the build.
+- **Descending stops being exhaustible.** No amount of zooming resolves
+  the chemistry, so brute-forcing the ladder buys nothing beyond what the
+  coarse resource readout already said.
+
+#### Direct answer to "biased no matter how far I zoom?"
+
+Neither, and the split is the point:
+
+- **Terrain: fully resolvable.** Zoom to level 5 and the slope, relief,
+  illumination and PSR status are measured truth. Ascending loses nothing
+  — that knowledge is not taken away.
+- **Chemistry: permanently blurred**, at a floor well above the site
+  scale. Not biased, not noisy — *averaged*, honestly, over an area much
+  larger than the base. It will read low over a small rich deposit and
+  high over a small poor one, and it will do that for ever.
+- **Subsurface: not observable at all.**
+
+Which makes the commit at level 5 a real decision under real uncertainty:
+**you know exactly what the ground is, and only roughly what is in it.**
+
+#### Presentation consequences
+
+- Terrain rows show a value that visibly sharpens as the player descends.
+- Resource rows carry their instrument's name and footprint
+  (`NEUTRON · 45 km`) and **grey out further sharpening** once the cursor
+  is inside the footprint, so the freeze reads as physics rather than as
+  a bug.
+- The instrument footprint is drawn on the map as a faint circle around
+  the cursor at the levels where it is larger than the cursor. This is
+  the single most important piece of the whole idea: it makes the limit
+  visible instead of merely stated.
+- Spread is shown as an error band on each bar, and it stops narrowing
+  when the window stops shrinking.
+
+#### What this does NOT solve
+
+Terrain can still be brute-forced: descend on everything and you will map
+every buildable cell. Two things keep that unattractive, and neither is a
+charge on the camera:
+
+1. The coarse terrain readout is genuinely informative — mean **and max**
+   slope over the footprint tells you a region hides a cliff without
+   descending. You descend to find *where*, not *whether*.
+2. If a real cost is wanted later, put it on **survey coverage, not on
+   zoom**: the orbital data does not exist until a satellite has passed
+   over that ground. That is physically true (LRO's maps were built over
+   years), it makes the scarce thing *information* rather than camera
+   movement, and it leaves the descent free — which the reversibility
+   decision in §3.3 already requires.
+
+**STATUS: proposed, supersedes the earlier "resolution-limited" decision.
+Awaiting confirmation before step 2 is built against it.**
 
 ---
 
@@ -266,9 +330,14 @@ mouse takes.
 
 ### Step 2 — Aggregation
 - `SurveyAggregate AggregateOver(latMin, latMax, lonMin, lonMax)` in
-  `ResourceManager`, implementing §4.2.
-- At level 5, bypass the grid and call `LolaDem::EvaluateSite` directly.
-- **Verify:** printed aggregates for a known cell match a manual mean.
+  `ResourceManager`, implementing §4.2 — mean **and spread** per quantity.
+- Per-quantity aggregation windows: `max(cursor, instrument footprint)`
+  (§4.3). An instrument table alongside the resource descriptors.
+- At level 5, bypass the grid and call `LolaDem::EvaluateSite` directly
+  for the terrain rows; resource rows keep their instrument window.
+- **Verify:** printed aggregates for a known cell match a manual mean,
+  and a resource row's value stops changing once the cursor is inside its
+  instrument footprint.
 
 ### Step 3 — Readout panel
 - Shared panel renderer: resource bars, terrain rows, archetype, and
@@ -289,13 +358,17 @@ mouse takes.
 - **Verify:** green site builds, red site refuses with a named reason.
 
 ### Step 6 — Presentation sharpening
-No perturbation layer (see §4.3): the spread is real, so this step is
-purely how it is shown.
+No perturbation layer (see §4.3): every number is a true mean, so this
+step is purely how the limits are shown.
 - Significant figures per level (bars only → rounded → exact).
-- Spread rendered as an error band on each resource bar.
-- **Verify:** the band narrows monotonically as the player descends onto
-  one spot, and the mean it brackets never jumps outside the parent's
-  band.
+- Spread rendered as an error band on each bar.
+- Instrument name + footprint on every resource row; the row greys out
+  once the cursor is inside its footprint.
+- The instrument footprint drawn as a faint circle around the cursor
+  wherever it is larger than the cursor.
+- **Verify:** terrain bands narrow all the way to level 5; resource bands
+  stop narrowing at their instrument's floor, and the player can see why
+  without reading a tooltip.
 
 ---
 
