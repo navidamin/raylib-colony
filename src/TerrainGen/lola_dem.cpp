@@ -734,7 +734,10 @@ static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
     // uniform bubble-wrap a constant occupancy produces.
     float cluster = 0.5f + 0.5f * DetailNoise(u, v, cellKm * 9.0,
                                               salt + 900u);
-    float occupancy = 0.05f + 0.28f * cluster * cluster;
+    // Playtest call: 60% fewer microcraters. Density only — the size
+    // floor and the degraded-dish profile are unchanged, so the ones
+    // that remain look the same, there are just far fewer of them.
+    float occupancy = 0.02f + 0.112f * cluster * cluster;
     float h = 0.0f;
     for (int dy = -1; dy <= 1; dy++)
     {
