@@ -90,6 +90,13 @@ struct MapOptions
     // Survey ladder: walk the descent (500 km -> 5 km window) with the
     // cursor aimed at one target, one PNG per level.
     bool ladder = false;
+    // Data-layer test: -1 none, else an index into INSTRUMENTS. --truth
+    // renders the field at full resolution instead of on the
+    // instrument's measurement grid -- the "what is actually there"
+    // control image.
+    int layer = -1;
+    bool truth = false;
+    int layerAlpha = 145;
     float ambient = 0.06f;
     int width = 1200;
     int height = 1200;
@@ -123,6 +130,9 @@ static void PrintUsage()
         << "  --place DX,DY     placement cursor, km east/north of centre\n"
         << "  --footprint KM    cursor footprint size    (default: 1.5)\n"
         << "  --ladder          walk the survey descent, one PNG per level\n"
+        << "  --layer N         data layer 0=hydrogen 1=iron 2=rock abundance\n"
+        << "  --truth           draw the layer at full resolution, not its grid\n"
+        << "  --layeralpha N    layer opacity 0-255      (default: 145)\n"
         << "  --ambient F       ambient light level     (default: 0.06)\n"
         << "  --tilt            tilted 3D slab view instead of top-down\n"
         << "  --orbit YAW,PITCH tilt camera angles (default: 180,52)\n"
@@ -188,6 +198,9 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         }
         else if (arg == "--footprint" && hasNext) { options.footprintKm = std::atof(argv[++i]); }
         else if (arg == "--ladder") { options.ladder = true; }
+        else if (arg == "--layer" && hasNext) { options.layer = std::atoi(argv[++i]); }
+        else if (arg == "--truth") { options.truth = true; }
+        else if (arg == "--layeralpha" && hasNext) { options.layerAlpha = std::atoi(argv[++i]); }
         else if (arg == "--demdecim" && hasNext) { options.demDecim = std::atoi(argv[++i]); }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
@@ -1066,6 +1079,261 @@ static void DrawPlacementCursor(const MapOptions& options, const LolaDem& dem,
 }
 
 // ---------------------------------------------------------------------------
+// Data layers and their instruments
+//
+// The test behind docs/design/site-selection §4.3: a quantity is only as
+// sharp as the instrument that measured it, and zooming is a camera move,
+// not an instrument change. Each layer is drawn on ITS OWN measurement
+// grid, so terrain keeps resolving while the neutron layer turns into
+// 45 km blocks and finally into one flat block filling the frame.
+//
+// The field itself is synthetic -- the real composition maps are not in
+// this repo -- but that is the point of the test: it lets the sub-floor
+// structure be dialled deliberately, which is the open question the
+// design flags (does the generator put anything below the floor?).
+// ---------------------------------------------------------------------------
+
+struct SurveyInstrument
+{
+    const char* name;
+    const char* quantity;
+    const char* unit;
+    double footprintKm;
+    float lo, hi;           // display range
+};
+
+// Footprints are order-of-magnitude, as the design says: a neutron
+// spectrometer sees tens of km, a gamma-ray spectrometer not much better,
+// a thermal radiometer a couple of hundred metres.
+static const SurveyInstrument INSTRUMENTS[3] =
+{
+    { "NEUTRON", "hydrogen",       "ppm",  45.0,   0.0f, 500.0f },
+    { "GAMMA",   "iron",           "wt%",  30.0,   3.0f,  22.0f },
+    { "DIVINER", "rock abundance", "%",     0.2,   0.0f,  12.0f },
+};
+static const int LAYER_COUNT = 3;
+
+static float LayerHash(int x, int y, int seed)
+{
+    unsigned int h = (unsigned int)(x * 374761393 + y * 668265263 + seed * 1442695040888963407ull);
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return (float)((h ^ (h >> 16)) & 0xFFFFFF) / (float)0xFFFFFF;
+}
+
+// Value noise on a km grid, smoothstep-interpolated.
+static float LayerNoise(double xKm, double yKm, double cellKm, int seed)
+{
+    double gx = xKm / cellKm, gy = yKm / cellKm;
+    int x0 = (int)std::floor(gx), y0 = (int)std::floor(gy);
+    float fx = (float)(gx - x0), fy = (float)(gy - y0);
+    fx = fx * fx * (3.0f - 2.0f * fx);
+    fy = fy * fy * (3.0f - 2.0f * fy);
+    float a = LayerHash(x0, y0, seed), b = LayerHash(x0 + 1, y0, seed);
+    float c = LayerHash(x0, y0 + 1, seed), d = LayerHash(x0 + 1, y0 + 1, seed);
+    return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+}
+
+// Global km coordinates, so the field and its measurement grid are
+// anchored to the moon rather than to the window.
+static void LayerGlobalKm(double latDeg, double lonDeg, double* xKm, double* yKm)
+{
+    double cosLat = std::cos(latDeg * DEG2RAD);
+    if (cosLat < 0.05) cosLat = 0.05;
+    *xKm = lonDeg * 30.32268 * cosLat;
+    *yKm = latDeg * 30.32268;
+}
+
+// 0..1. The spectra differ on purpose:
+//   hydrogen -- most of its power at 4-15 km, well under the 45 km
+//               footprint, and made patchy because cold traps are sparse
+//   iron     -- basin-scale, so a 30 km footprint captures it nearly
+//               perfectly and the band stays narrow
+//   rock     -- fine, and its instrument is fine too: fully resolvable
+static float CompositionField01(int layer, double latDeg, double lonDeg)
+{
+    double x, y;
+    LayerGlobalKm(latDeg, lonDeg, &x, &y);
+    float v;
+    if (layer == 0)
+    {
+        v = 0.30f * LayerNoise(x, y, 300.0, 11)
+          + 0.18f * LayerNoise(x, y,  60.0, 12)
+          + 0.28f * LayerNoise(x, y,  13.0, 13)
+          + 0.24f * LayerNoise(x, y,   4.5, 14);
+        v = powf(Clamp(v, 0.0f, 1.0f), 2.3f);   // sparse, high-contrast
+    }
+    else if (layer == 1)
+    {
+        v = 0.55f * LayerNoise(x, y, 420.0, 21)
+          + 0.31f * LayerNoise(x, y, 130.0, 22)
+          + 0.14f * LayerNoise(x, y,  34.0, 23);
+    }
+    else
+    {
+        v = 0.45f * LayerNoise(x, y, 40.0, 31)
+          + 0.33f * LayerNoise(x, y,  2.0, 32)
+          + 0.22f * LayerNoise(x, y,  0.4, 33);
+        v = powf(Clamp(v, 0.0f, 1.0f), 1.7f);
+    }
+    return Clamp(v, 0.0f, 1.0f);
+}
+
+// Mean of the field over a square window, sampled on a grid.
+static float FieldMean(int layer, double latDeg, double lonDeg,
+                       double sizeKm, int samples)
+{
+    double cosLat = std::cos(latDeg * DEG2RAD);
+    if (cosLat < 0.05) cosLat = 0.05;
+    double sum = 0.0;
+    for (int j = 0; j < samples; j++)
+    {
+        for (int i = 0; i < samples; i++)
+        {
+            double dx = ((i + 0.5) / samples - 0.5) * sizeKm;
+            double dy = ((j + 0.5) / samples - 0.5) * sizeKm;
+            sum += CompositionField01(layer, latDeg + dy / 30.32268,
+                                      lonDeg + dx / (30.32268 * cosLat));
+        }
+    }
+    return (float)(sum / (samples * samples));
+}
+
+// The band the design asks for: the standard deviation of CURSOR-SIZED
+// patches inside the INSTRUMENT footprint. It widens on its own as the
+// cursor shrinks, because the player is asking a sharper question of the
+// same measurement -- no invented noise anywhere.
+static float FieldBand(int layer, double latDeg, double lonDeg,
+                       double footprintKm, double cursorKm)
+{
+    // One rule, both directions. The band is the spread of the SMALLER
+    // of (cursor, instrument footprint) sampled across the LARGER:
+    //
+    //   cursor < footprint -> patches of cursor size across the
+    //       footprint. Widens as the cursor shrinks: the player is
+    //       asking a sharper question of the same measurement.
+    //   cursor > footprint -> patches of footprint size across the
+    //       cursor. Narrows as the cursor shrinks: the instrument
+    //       resolves the ground and the question is closing in on it.
+    //
+    // Terrain rows therefore close while resource rows open, with no
+    // special case and nothing injected.
+    double patchKm = (cursorKm < footprintKm) ? cursorKm : footprintKm;
+    double spreadKm = (cursorKm < footprintKm) ? footprintKm : cursorKm;
+    if (patchKm <= 0.0 || spreadKm <= patchKm) return 0.0f;
+
+    const int patches = 9;
+    double cosLat = std::cos(latDeg * DEG2RAD);
+    if (cosLat < 0.05) cosLat = 0.05;
+
+    double sum = 0.0, sum2 = 0.0;
+    int n = 0;
+    for (int j = 0; j < patches; j++)
+    {
+        for (int i = 0; i < patches; i++)
+        {
+            double dx = ((i + 0.5) / patches - 0.5) * (spreadKm - patchKm);
+            double dy = ((j + 0.5) / patches - 0.5) * (spreadKm - patchKm);
+            float m = FieldMean(layer, latDeg + dy / 30.32268,
+                                lonDeg + dx / (30.32268 * cosLat),
+                                patchKm, 3);
+            sum += m; sum2 += (double)m * m; n++;
+        }
+    }
+    if (n < 2) return 0.0f;
+    double mean = sum / n;
+    double var = sum2 / n - mean * mean;
+    return (float)std::sqrt(var > 0.0 ? var : 0.0);
+}
+
+static Color LayerColor(int layer, float v01)
+{
+    v01 = Clamp(v01, 0.0f, 1.0f);
+    if (layer == 0)          // hydrogen: cold blue -> cyan -> white
+        return Color{ (unsigned char)(30 + 200 * v01 * v01),
+                      (unsigned char)(60 + 175 * v01),
+                      (unsigned char)(110 + 145 * powf(v01, 0.6f)), 255 };
+    if (layer == 1)          // iron: dark -> orange
+        return Color{ (unsigned char)(40 + 205 * powf(v01, 0.7f)),
+                      (unsigned char)(30 + 130 * v01),
+                      (unsigned char)(35 + 30 * v01), 255 };
+    return Color{ (unsigned char)(60 + 190 * v01),      // rock: grey -> yellow
+                  (unsigned char)(60 + 175 * v01),
+                  (unsigned char)(70 + 25 * v01), 255 };
+}
+
+// Draw one layer on its own measurement grid, anchored globally so the
+// blocks belong to the moon and do not swim when the window moves.
+// gridKm <= 0 renders the field at full resolution -- the "what is
+// actually there" control image.
+static void DrawDataLayer(int layer, double gridKm, const SurveyCursor& cursor,
+                          const SurveyViewport& viewport, unsigned char alpha)
+{
+    bool truth = (gridKm <= 0.0);
+    if (truth) gridKm = cursor.windowSpanKm / 200.0;
+
+    double cx, cy;
+    LayerGlobalKm(cursor.windowLatDeg, cursor.windowLonDeg, &cx, &cy);
+    double cosLat = std::cos(cursor.windowLatDeg * DEG2RAD);
+    if (cosLat < 0.05) cosLat = 0.05;
+
+    double half = cursor.windowSpanKm * 0.5;
+    long i0 = (long)std::floor((cx - half) / gridKm);
+    long i1 = (long)std::floor((cx + half) / gridKm);
+    long j0 = (long)std::floor((cy - half) / gridKm);
+    long j1 = (long)std::floor((cy + half) / gridKm);
+
+    float pxPerKm = SurveyPixelsPerKm(viewport, cursor.windowSpanKm);
+    float cellPx = (float)gridKm * pxPerKm;
+
+    for (long j = j0; j <= j1; j++)
+    {
+        for (long i = i0; i <= i1; i++)
+        {
+            double gxc = (i + 0.5) * gridKm;
+            double gyc = (j + 0.5) * gridKm;
+            double lat = gyc / 30.32268;
+            double lon = gxc / (30.32268 * cosLat);
+            // The measured value of a cell is the field averaged over the
+            // instrument's footprint, not a point sample: that averaging
+            // IS the resolution limit.
+            float v = truth ? CompositionField01(layer, lat, lon)
+                            : FieldMean(layer, lat, lon, gridKm, 5);
+            float sx, sy;
+            SurveyOffsetKmToScreen(viewport, cursor.windowSpanKm,
+                                   gxc - cx, gyc - cy, &sx, &sy);
+            Color c = LayerColor(layer, v);
+            c.a = alpha;
+            DrawRectangleRec(Rectangle{ sx - cellPx * 0.5f - 0.5f,
+                                        sy - cellPx * 0.5f - 0.5f,
+                                        cellPx + 1.0f, cellPx + 1.0f }, c);
+        }
+    }
+}
+
+// The instrument footprint as a ring around the cursor -- drawn only
+// where it is LARGER than the cursor, which is exactly when the number
+// has stopped sharpening. Seeing a 45 km ring around a 1.5 km base is
+// the whole argument in one glance.
+static void DrawFootprintRing(double footprintKm, const SurveyCursor& cursor,
+                              const SurveyViewport& viewport, Color tint)
+{
+    if (footprintKm <= cursor.footprintKm) return;
+    float pxPerKm = SurveyPixelsPerKm(viewport, cursor.windowSpanKm);
+    Rectangle r = SurveyCursorRect(cursor, viewport);
+    float cx = r.x + r.width * 0.5f, cy = r.y + r.height * 0.5f;
+    float radius = (float)(footprintKm * 0.5) * pxPerKm;
+    for (int k = 0; k < 96; k++)
+    {
+        float a0 = (float)k / 96.0f * 2.0f * PI;
+        float a1 = (float)(k + 1) / 96.0f * 2.0f * PI;
+        if ((k % 3) == 2) continue;      // dashed
+        DrawLineEx(Vector2{ cx + cosf(a0) * radius, cy + sinf(a0) * radius },
+                   Vector2{ cx + cosf(a1) * radius, cy + sinf(a1) * radius },
+                   2.5f, tint);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The survey cursor (src/TerrainGen/survey_cursor.*)
 //
 // At every zoom the cursor is the footprint of the level BELOW, so it is
@@ -1119,25 +1387,70 @@ static void DrawSurveyCursorNav(const SurveyCursor& cursor,
 
     // Readout on the far side of the frame, so the panel never covers
     // the ground it is describing.
-    int pw = 330, ph = 112;
+    int pw = 396, ph = 258;
     int px = (cx < screenW * 0.5f) ? screenW - pw - 16 : 16;
     int py = 78;    // below the HUD title, clear of the scale bar
     Color dim = Color{ 205, 210, 220, 255 };
-    DrawRectangle(px, py, pw, ph, Color{ 12, 12, 16, 210 });
+    Color faint = Color{ 128, 134, 146, 255 };
+    DrawRectangle(px, py, pw, ph, Color{ 12, 12, 16, 218 });
     DrawRectangleLinesEx(Rectangle{ (float)px, (float)py, (float)pw,
                                     (float)ph }, 2.0f,
                          Color{ tint.r, tint.g, tint.b, 150 });
     DrawText(TextFormat("LEVEL %d  %s", cursor.level + 1,
                         ladder[cursor.level].name), px + 12, py + 10, 19, tint);
-    DrawText(TextFormat("window     %.0f km", cursor.windowSpanKm),
-             px + 12, py + 38, 15, dim);
-    DrawText(TextFormat("cursor     %.1f km  (%.0f%% of window)",
-                        cursor.footprintKm,
-                        100.0 * cursor.footprintKm / cursor.windowSpanKm),
-             px + 12, py + 57, 15, dim);
-    DrawText(TextFormat("centre     %+.4f  %+.4f%s", lat, lon,
-                        cursor.snapToGrid ? "   [snapped]" : "   [free]"),
-             px + 12, py + 76, 15, dim);
+
+    // What this level is FOR. The instrument floors mean the levels ask
+    // different questions, not the same question at five resolutions.
+    bool regionLevel = (cursor.level <= 2);
+    DrawText(regionLevel ? "WHICH REGION?" : "WHICH GROUND?",
+             px + pw - 12 - MeasureText(regionLevel ? "WHICH REGION?"
+                                                    : "WHICH GROUND?", 15),
+             py + 14, 15, Color{ 150, 190, 255, 255 });
+    DrawText(TextFormat("%.0f km window   cursor %.1f km   %+.3f %+.3f",
+                        cursor.windowSpanKm, cursor.footprintKm, lat, lon),
+             px + 12, py + 36, 14, faint);
+
+    // One row per instrument: value, band, and the footprint it was
+    // measured over. A row whose instrument is coarser than the cursor
+    // has stopped sharpening -- it is drawn dimmed and says so.
+    int rowY = py + 62;
+    for (int i = 0; i < LAYER_COUNT; i++)
+    {
+        const SurveyInstrument& ins = INSTRUMENTS[i];
+        double window = (ins.footprintKm > cursor.footprintKm)
+                        ? ins.footprintKm : cursor.footprintKm;
+        float v01 = FieldMean(i, lat, lon, window, 7);
+        float b01 = FieldBand(i, lat, lon, window, cursor.footprintKm);
+        float value = ins.lo + (ins.hi - ins.lo) * v01;
+        float band = (ins.hi - ins.lo) * b01;
+        bool frozen = (ins.footprintKm > cursor.footprintKm);
+        Color rowTint = frozen ? faint : dim;
+
+        DrawText(TextFormat("%-14s %s", ins.quantity,
+                            frozen ? "" : ""), px + 12, rowY, 15, rowTint);
+        int dec = ((ins.hi - ins.lo) < 40.0f) ? 1 : 0;
+        DrawText(TextFormat("%.*f +- %.*f %s", dec, value, dec, band, ins.unit),
+                 px + 150, rowY, 15, frozen ? Color{ 255, 190, 120, 255 }
+                                            : Color{ 150, 230, 170, 255 });
+        DrawText(TextFormat("%s %s", ins.name,
+                            frozen ? TextFormat("%.3g km avg", ins.footprintKm)
+                                   : "resolved"),
+                 px + 12, rowY + 18, 12, rowTint);
+
+        // The band as a bar, so the widening is visible rather than read.
+        float barW = (float)pw - 24.0f;
+        float bx = (float)px + 12.0f, by = (float)rowY + 34.0f;
+        DrawRectangle((int)bx, (int)by, (int)barW, 7, Color{ 34, 36, 42, 255 });
+        float mid = Clamp(v01, 0.0f, 1.0f);
+        float halfBand = Clamp(b01, 0.0f, 0.5f);
+        DrawRectangle((int)(bx + (mid - halfBand) * barW), (int)by,
+                      (int)(2.0f * halfBand * barW + 1.0f), 7,
+                      frozen ? Color{ 190, 130, 60, 210 }
+                             : Color{ 70, 150, 95, 210 });
+        DrawRectangle((int)(bx + mid * barW) - 1, (int)by - 2, 3, 11,
+                      Color{ 235, 240, 255, 255 });
+        rowY += 62;
+    }
 }
 
 static void DrawScene(TerrainScene& scene, const MapOptions& options,
@@ -1352,15 +1665,28 @@ static int RenderLadder(AppState& app)
         BeginTextureMode(target);
         Camera3D camera = TopDownCamera(app.scene, 1.0f);
         DrawScene(app.scene, opts, app.styleMode, camera);
+        if (opts.layer >= 0 && opts.layer < LAYER_COUNT)
+        {
+            DrawDataLayer(opts.layer,
+                          opts.truth ? -1.0 : INSTRUMENTS[opts.layer].footprintKm,
+                          *cursor, viewport,
+                          (unsigned char)Clamp((float)opts.layerAlpha, 0.0f, 255.0f));
+        }
         DrawHud(app.scene, opts, app.styleMode, opts.width, opts.height, 1.0f);
+        if (opts.layer >= 0 && opts.layer < LAYER_COUNT && !opts.truth)
+        {
+            DrawFootprintRing(INSTRUMENTS[opts.layer].footprintKm, *cursor,
+                              viewport, Color{ 255, 200, 130, 190 });
+        }
         DrawSurveyCursorNav(*cursor, viewport, opts.width, opts.height);
         EndTextureMode();
 
         Image shot = LoadImageFromTexture(target.texture);
         ImageFlipVertical(&shot);
-        std::string path = TextFormat("%s_%d_%s%s", stem.c_str(),
+        std::string path = TextFormat("%s_%d_%s%s%s", stem.c_str(),
                                       cursor->level + 1,
-                                      table[cursor->level].name, ext.c_str());
+                                      table[cursor->level].name,
+                                      opts.truth ? "_truth" : "", ext.c_str());
         ExportImage(shot, path.c_str());
         std::cerr << "lunar_map: wrote " << path << "\n";
         UnloadImage(shot);
