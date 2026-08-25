@@ -39,6 +39,7 @@
 #include "raymath.h"
 
 #include "lola_dem.h"
+#include "survey_cursor.h"
 
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
@@ -86,6 +87,9 @@ struct MapOptions
     double placeDxKm = 0.0;        // cursor offset east of window centre
     double placeDyKm = 0.0;        // cursor offset north of window centre
     double footprintKm = 1.5;
+    // Survey ladder: walk the descent (500 km -> 5 km window) with the
+    // cursor aimed at one target, one PNG per level.
+    bool ladder = false;
     float ambient = 0.06f;
     int width = 1200;
     int height = 1200;
@@ -118,6 +122,7 @@ static void PrintUsage()
         << "  --survey          print a buildability report, no render\n"
         << "  --place DX,DY     placement cursor, km east/north of centre\n"
         << "  --footprint KM    cursor footprint size    (default: 1.5)\n"
+        << "  --ladder          walk the survey descent, one PNG per level\n"
         << "  --ambient F       ambient light level     (default: 0.06)\n"
         << "  --tilt            tilted 3D slab view instead of top-down\n"
         << "  --orbit YAW,PITCH tilt camera angles (default: 180,52)\n"
@@ -182,6 +187,7 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
             }
         }
         else if (arg == "--footprint" && hasNext) { options.footprintKm = std::atof(argv[++i]); }
+        else if (arg == "--ladder") { options.ladder = true; }
         else if (arg == "--demdecim" && hasNext) { options.demDecim = std::atoi(argv[++i]); }
         else if (arg == "--ambient" && hasNext) { options.ambient = (float)std::atof(argv[++i]); }
         else if (arg == "--tilt") { options.tilt = true; }
@@ -1059,6 +1065,81 @@ static void DrawPlacementCursor(const MapOptions& options, const LolaDem& dem,
              px + 12, py + 115, 15, b.reliefM > 400.0f ? tint : dim);
 }
 
+// ---------------------------------------------------------------------------
+// The survey cursor (src/TerrainGen/survey_cursor.*)
+//
+// At every zoom the cursor is the footprint of the level BELOW, so it is
+// always "the thing you are about to enter". Levels 1-4 are navigation
+// and draw neutral -- nothing is being judged yet; the verdict colouring
+// belongs to the site level, where a base is actually being placed
+// (DrawPlacementCursor above). Design:
+// docs/design/site-selection/site-selection-master-design.md
+// ---------------------------------------------------------------------------
+
+// The rect the window span is drawn into. The top-down camera's fovy is
+// the vertical world extent, so the span maps onto the screen HEIGHT --
+// this is the centred square that span occupies.
+static SurveyViewport LadderViewport(int screenW, int screenH)
+{
+    SurveyViewport viewport;
+    viewport.x = (screenW - screenH) * 0.5f;
+    viewport.y = 0.0f;
+    viewport.width = (float)screenH;
+    viewport.height = (float)screenH;
+    return viewport;
+}
+
+static void DrawSurveyCursorNav(const SurveyCursor& cursor,
+                                const SurveyViewport& viewport,
+                                int screenW, int screenH)
+{
+    const SurveyLevelDef* ladder = GetSurveyLadder();
+    Color tint = Color{ 232, 238, 255, 255 };
+    Rectangle r = SurveyCursorRect(cursor, viewport);
+
+    DrawRectangleRec(r, Color{ tint.r, tint.g, tint.b, 26 });
+    DrawRectangleLinesEx(r, 2.0f, Color{ tint.r, tint.g, tint.b, 180 });
+
+    float t = r.width * 0.5f * 0.35f;
+    for (int i = 0; i < 4; i++)
+    {
+        float ox = (i & 1) ? r.x + r.width : r.x;
+        float oy = (i & 2) ? r.y + r.height : r.y;
+        float sx = (i & 1) ? -1.0f : 1.0f;
+        float sy = (i & 2) ? -1.0f : 1.0f;
+        DrawLineEx(Vector2{ ox, oy }, Vector2{ ox + sx * t, oy }, 4.0f, tint);
+        DrawLineEx(Vector2{ ox, oy }, Vector2{ ox, oy + sy * t }, 4.0f, tint);
+    }
+    float cx = r.x + r.width * 0.5f;
+    float cy = r.y + r.height * 0.5f;
+    DrawCircleV(Vector2{ cx, cy }, 3.0f, tint);
+
+    double lat = 0.0, lon = 0.0;
+    SurveyCursorLatLon(cursor, &lat, &lon);
+
+    // Readout on the far side of the frame, so the panel never covers
+    // the ground it is describing.
+    int pw = 330, ph = 112;
+    int px = (cx < screenW * 0.5f) ? screenW - pw - 16 : 16;
+    int py = 78;    // below the HUD title, clear of the scale bar
+    Color dim = Color{ 205, 210, 220, 255 };
+    DrawRectangle(px, py, pw, ph, Color{ 12, 12, 16, 210 });
+    DrawRectangleLinesEx(Rectangle{ (float)px, (float)py, (float)pw,
+                                    (float)ph }, 2.0f,
+                         Color{ tint.r, tint.g, tint.b, 150 });
+    DrawText(TextFormat("LEVEL %d  %s", cursor.level + 1,
+                        ladder[cursor.level].name), px + 12, py + 10, 19, tint);
+    DrawText(TextFormat("window     %.0f km", cursor.windowSpanKm),
+             px + 12, py + 38, 15, dim);
+    DrawText(TextFormat("cursor     %.1f km  (%.0f%% of window)",
+                        cursor.footprintKm,
+                        100.0 * cursor.footprintKm / cursor.windowSpanKm),
+             px + 12, py + 57, 15, dim);
+    DrawText(TextFormat("centre     %+.4f  %+.4f%s", lat, lon,
+                        cursor.snapToGrid ? "   [snapped]" : "   [free]"),
+             px + 12, py + 76, 15, dim);
+}
+
 static void DrawScene(TerrainScene& scene, const MapOptions& options,
                       int styleMode, const Camera3D& camera)
 {
@@ -1208,6 +1289,89 @@ static void UpdateFrame(void* arg)
     }
 }
 
+// ---------------------------------------------------------------------------
+// --ladder: render the descent, one PNG per level, cursor aimed at one
+// fixed target. Each image's cursor frames exactly the ground the next
+// image shows -- which is the whole claim the ladder makes.
+//
+// Levels 2-5 only: level 1 is the projected orbital disc, which lives in
+// the game's render path (OrbitalPickToLatLon), not in this instrument.
+// ---------------------------------------------------------------------------
+static int RenderLadder(AppState& app)
+{
+    MapOptions opts = app.options;
+    opts.nearside = false;
+
+    // The target the player is aiming at, as real coordinates: --place
+    // gives its offset from --pick, otherwise a default off-centre spot
+    // so the cursor is visibly tracking rather than parked in the middle.
+    double targetDxKm = opts.place ? opts.placeDxKm : 74.0;
+    double targetDyKm = opts.place ? opts.placeDyKm : -52.0;
+    SurveyCursor seed = MakeSurveyCursor(1, opts.pickLat, opts.pickLon);
+    seed.offsetXKm = targetDxKm;
+    seed.offsetYKm = targetDyKm;
+    double targetLat = 0.0, targetLon = 0.0;
+    SurveyCursorLatLon(seed, &targetLat, &targetLon);
+
+    SurveyDescent descent = MakeSurveyDescent(opts.pickLat, opts.pickLon);
+    descent.levels[1] = MakeSurveyCursor(1, opts.pickLat, opts.pickLon);
+    descent.depth = 2;
+
+    std::string stem = opts.outPath;
+    size_t dot = stem.find_last_of('.');
+    std::string ext = (dot == std::string::npos) ? ".png" : stem.substr(dot);
+    if (dot != std::string::npos) stem = stem.substr(0, dot);
+
+    SurveyViewport viewport = LadderViewport(opts.width, opts.height);
+    const SurveyLevelDef* table = GetSurveyLadder();
+    int written = 0;
+
+    for (;;)
+    {
+        SurveyCursor* cursor = SurveyCurrent(&descent);
+
+        // Aim the cursor at the target through the same path the mouse
+        // takes: ground -> km -> screen -> track. If the helpers
+        // disagree anywhere, the cursor lands off the target and the
+        // render shows it.
+        double dx = 0.0, dy = 0.0;
+        SurveyLatLonToOffsetKm(*cursor, targetLat, targetLon, &dx, &dy);
+        float mouseX = 0.0f, mouseY = 0.0f;
+        SurveyOffsetKmToScreen(viewport, cursor->windowSpanKm, dx, dy,
+                               &mouseX, &mouseY);
+        SurveyCursorTrack(cursor, viewport, mouseX, mouseY);
+
+        opts.pickLat = cursor->windowLatDeg;
+        opts.pickLon = cursor->windowLonDeg;
+        opts.spanKm = cursor->windowSpanKm;
+
+        // BuildScene releases the previous level's GPU resources itself.
+        if (!BuildScene(opts, app.dem, app.scene)) return 1;
+
+        RenderTexture2D target = LoadRenderTexture(opts.width, opts.height);
+        BeginTextureMode(target);
+        Camera3D camera = TopDownCamera(app.scene, 1.0f);
+        DrawScene(app.scene, opts, app.styleMode, camera);
+        DrawHud(app.scene, opts, app.styleMode, opts.width, opts.height, 1.0f);
+        DrawSurveyCursorNav(*cursor, viewport, opts.width, opts.height);
+        EndTextureMode();
+
+        Image shot = LoadImageFromTexture(target.texture);
+        ImageFlipVertical(&shot);
+        std::string path = TextFormat("%s_%d_%s%s", stem.c_str(),
+                                      cursor->level + 1,
+                                      table[cursor->level].name, ext.c_str());
+        ExportImage(shot, path.c_str());
+        std::cerr << "lunar_map: wrote " << path << "\n";
+        UnloadImage(shot);
+        UnloadRenderTexture(target);
+        written++;
+
+        if (!SurveyDescend(&descent)) break;
+    }
+    return written > 0 ? 0 : 1;
+}
+
 int main(int argc, char** argv)
 {
     static AppState app;
@@ -1274,6 +1438,21 @@ int main(int argc, char** argv)
         std::printf("  BUILD SCORE    %8.2f\n", b.buildScore);
         CloseWindow();
         return 0;
+    }
+
+    if (app.options.ladder)
+    {
+        if (app.options.outPath.empty())
+        {
+            std::cerr << "--ladder needs --out PATH (one PNG per level)\n";
+            CloseWindow();
+            return 1;
+        }
+        app.styleMode = (app.options.style == "color") ? 1 : 0;
+        int rc = RenderLadder(app);
+        UnloadSceneGpu(app.scene);
+        CloseWindow();
+        return rc;
     }
 
     if (!BuildScene(app.options, app.dem, app.scene))

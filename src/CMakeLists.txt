@@ -18,6 +18,7 @@ target_sources(colony_game PRIVATE
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
     TerrainGen/lola_dem.cpp
+    TerrainGen/survey_cursor.cpp
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
@@ -119,6 +120,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         GameTypes/game_types_loader.cpp
         TerrainGen/terrain_synthesis.cpp
     TerrainGen/lola_dem.cpp
+    TerrainGen/survey_cursor.cpp
         Prospecting/prospecting_types.cpp
         Prospecting/sample_tray.cpp
         Prospecting/prospecting_grid.cpp
@@ -181,6 +183,7 @@ target_sources(colony_viewtest PRIVATE
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
     TerrainGen/lola_dem.cpp
+    TerrainGen/survey_cursor.cpp
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
@@ -238,6 +241,7 @@ add_executable(lunar_map)
 target_sources(lunar_map PRIVATE
     "${CMAKE_SOURCE_DIR}/tools/lunarmap/lunarmap_main.cpp"
     TerrainGen/lola_dem.cpp
+    TerrainGen/survey_cursor.cpp
 )
 
 set_target_properties(lunar_map PROPERTIES
@@ -263,4 +267,35 @@ if("${PLATFORM}" STREQUAL "Web")
     set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/wac_global.jpg@src/assets/planet/wac_global.jpg --use-preload-plugins")
     set(lm_link_flags "${lm_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
     set_target_properties(lunar_map PROPERTIES LINK_FLAGS "${lm_link_flags}")
+endif()
+
+# ---------------------------------------------------------------------------
+# survey_cursor_test: headless geometry self-test for the survey cursor
+#
+# No GL, no DEM, no window -- just the screen <-> km <-> lat/lon mapping,
+# grid snapping and the descent stack. Cheap enough to run on every
+# build that touches survey_cursor.cpp.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(survey_cursor_test)
+
+    target_sources(survey_cursor_test PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/surveycursor/survey_cursor_test.cpp"
+        TerrainGen/survey_cursor.cpp
+    )
+
+    set_target_properties(survey_cursor_test PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(survey_cursor_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+    )
+
+    target_link_libraries(survey_cursor_test raylib)
+    if(NOT WIN32)
+        target_link_libraries(survey_cursor_test m)
+    endif()
 endif()

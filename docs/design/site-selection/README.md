@@ -1,6 +1,6 @@
 # Site Selection — Design Documents
 
-**Status: DRAFT** — design written, not yet implemented.
+**Status: IN PROGRESS** — design settled; step 1 of 6 implemented.
 
 How a player gets from "somewhere on the Moon" to "the base goes *here*":
 a continuous zoom in which a survey cursor aggregates what is under it,
@@ -10,7 +10,7 @@ scale by scale, until the final 1 km step where the site is committed.
 
 | Document | Purpose | Status |
 |----------|---------|--------|
-| [site-selection-master-design.md](site-selection-master-design.md) | The descent ladder, cursor behaviour, aggregation model, commit step | DRAFT |
+| [site-selection-master-design.md](site-selection-master-design.md) | The descent ladder, cursor behaviour, aggregation model, commit step | SETTLED |
 
 ## The idea in one paragraph
 
@@ -36,7 +36,9 @@ is committed.
 | `src/Engine/gamemanager.cpp` | Existing `View::SITE_SELECTION` flow, Ctrl+click placement |
 | `src/Engine/rendermanager.cpp` | `DrawSiteSelectionView`, instrument panels |
 | `src/Engine/viewmanager.cpp` | View transitions and camera setup |
-| `tools/lunarmap/lunarmap_main.cpp` | `--place` / `--survey` prototype of the cursor and readout |
+| `src/TerrainGen/survey_cursor.{h,cpp}` | **The ladder and cursor geometry** — screen ↔ km ↔ lat/lon, grid snapping, descent stack (step 1) |
+| `tools/surveycursor/survey_cursor_test.cpp` | Headless self-test for the above |
+| `tools/lunarmap/lunarmap_main.cpp` | `--ladder` walks the descent; `--place` / `--survey` prototype the readout |
 
 **Related design docs**
 
@@ -47,13 +49,23 @@ is committed.
 
 - `ROADMAP_IMMINENT.md` — site selection is part of the colony founding loop
 
+## Progress
+
+| Step | State |
+|------|-------|
+| 1 — Cursor infrastructure | **done** — `survey_cursor.{h,cpp}`, self-test, `lunar_map --ladder` |
+| 2 — Aggregation | not started |
+| 3 — Readout panel | not started |
+| 4 — Ladder wiring | not started |
+| 5 — Commit step | not started |
+| 6 — Presentation sharpening | not started |
+
 ## Open questions
 
-Tracked with `[?]` in the master design.
+Tracked with `[?]` in the master design. None outstanding.
 
-**Decided:** cursor grid-snaps at navigation levels and moves freely at
-level 5; descent is fully reversible and only the final build commits.
-
-**Still open:** `[?]` whether high-altitude readouts are merely
-resolution-limited (recommended), imprecise, or actively biased — see
-§4.3.
+**Decided:** the cursor grid-snaps at navigation levels and moves freely
+at level 5; descent is fully reversible and only the final build
+commits; readouts are **resolution-limited** — a coarse level shows the
+true mean of its footprint plus the footprint's measured spread, with no
+invented error (§4.3).

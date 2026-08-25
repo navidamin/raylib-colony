@@ -90,8 +90,31 @@ craters must sit where the real ones sit.
 | `--size WxH` | output resolution (default 1200x1200) |
 | `--demres N` | height texture resolution (default: auto) |
 | `--meshres N` | terrain mesh grid (default 256, max 256) |
+| `--place DX,DY` | placement cursor, km east/north of the window centre |
+| `--footprint KM` | cursor footprint size (default 1.5) |
+| `--ladder` | walk the survey descent, one PNG per level |
 | `--out PATH` | render PNG and exit; without it a window opens |
 | `--dem PATH` | alternate DEM TIFF |
+
+## Survey ladder
+
+```bash
+tools/lunarmap/lunarmap.sh --pick -43.3,-11.4 --ladder \
+    --out build/lunarmap/ladder/tycho.png
+```
+
+Walks the site-selection descent — 500 km → 100 → 25 → 5 km window —
+with the cursor aimed at one fixed target, writing
+`tycho_2_REGIONAL.png` … `tycho_5_SITE.png`. At every level the cursor
+is the footprint of the level *below*, so each image's cursor frames
+exactly the ground the next image shows. `--place DX,DY` moves the
+target (km east/north of `--pick`).
+
+Levels 2–5 only: level 1 is the projected orbital disc, which lives in
+the game's render path, not in this instrument. Geometry comes from
+`src/TerrainGen/survey_cursor.{h,cpp}` (shared with the game;
+`survey_cursor_test` is its headless self-test). Design:
+`docs/design/site-selection/`.
 
 ## Interactive controls
 
