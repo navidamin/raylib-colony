@@ -1,5 +1,30 @@
 #include "resource_manager.h"
 
+#include "lola_dem.h"
+#include "terrain_synthesis.h"
+
+#include <cmath>
+
+namespace
+{
+// The real Moon, loaded once and shared by every survey query. Kept
+// local to this file so nothing else has to know the game reads a DEM.
+const LolaDem* RealMoon()
+{
+    static LolaDem dem;
+    static bool tried = false;
+    if (!tried)
+    {
+        tried = true;
+        if (dem.Load("prototypes/planet_visuals/data/lola/ldem_16_uint.tif"))
+        {
+            dem.LoadOverlays("prototypes/planet_visuals/data/lola");
+        }
+    }
+    return dem.IsLoaded() ? &dem : nullptr;
+}
+}    // namespace
+
 
 ResourceManager::ResourceManager(int gridSize, float cellSize)
     : gridSize(gridSize), cellSize(cellSize) {
@@ -284,6 +309,25 @@ void ResourceManager::GenerateOrbitalSurveyData() {
                 h2Abundance * normFactor * 0.5f + polarFactor * 0.4f + noiseDist(gen),
                 0.0f, 1.0f
             );
+
+            // Real terrain, when the DEM is available: slope,
+            // illumination and Earth line of sight all come from the
+            // same elevation the player is looking at. Without it the
+            // synthetic fallback below still runs, so the game works
+            // with no data files present.
+            const LolaDem* moon = RealMoon();
+            if (moon != nullptr)
+            {
+                double siteLat = 0.0, siteLon = 0.0;
+                TerrainGridCellToLatLon(x, y, &siteLat, &siteLon);
+                TerrainBuildability site = moon->EvaluateSite(
+                    siteLat, siteLon, TERRAIN_CELL_KM);
+                survey.terrainSlope = std::clamp(site.meanSlopeDeg,
+                                                 0.0f, 45.0f);
+                survey.solarIllumination = site.illumination;
+                survey.earthVisibility = site.earthVisibility;
+                continue;
+            }
 
             // Solar illumination: higher near equator, lower near poles
             float latFactor = 1.0f - std::abs(static_cast<float>(y) - gridSize * 0.5f) / (gridSize * 0.5f);

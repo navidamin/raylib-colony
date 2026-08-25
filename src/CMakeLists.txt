@@ -17,6 +17,7 @@ target_sources(colony_game PRIVATE
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
+    TerrainGen/lola_dem.cpp
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
@@ -117,6 +118,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         TimeManager/time_manager.cpp
         GameTypes/game_types_loader.cpp
         TerrainGen/terrain_synthesis.cpp
+    TerrainGen/lola_dem.cpp
         Prospecting/prospecting_types.cpp
         Prospecting/sample_tray.cpp
         Prospecting/prospecting_grid.cpp
@@ -178,6 +180,7 @@ target_sources(colony_viewtest PRIVATE
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
+    TerrainGen/lola_dem.cpp
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
