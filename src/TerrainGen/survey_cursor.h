@@ -24,14 +24,17 @@
 
 // Level 1 is the orbital disc. It is projected (OrbitalPickToLatLon),
 // not a top-down km window, so its "span" is nominal: the width of the
-// disc that can actually be picked on. Ground within ~15% of the limb
-// is too foreshortened to aim at, so the usable width is ~85% of the
+// disc that can actually be picked on. Ground within ~15% of the limb is
+// too foreshortened to aim at, so the usable width is ~86% of the
 // diameter -- and that is what the cursor ratio should be measured
-// against. Level 4 -> 5 hands over at TERRAIN_CELL_KM, so the ladder
-// lands exactly on the game's existing 5 km sect grid.
+// against. Rounded to 3000 km so the 500 km cursor tiles it exactly:
+// every level's span must be a whole number of its own cursors, or the
+// snap grid leaves ground the player can see but cannot select.
+// Level 4 -> 5 hands over at TERRAIN_CELL_KM, so the ladder lands
+// exactly on the game's existing 5 km sect grid.
 const int SURVEY_LEVEL_COUNT = 5;
 const double SURVEY_MOON_DIAMETER_KM = 3474.8;
-const double SURVEY_ORBITAL_USABLE_KM = SURVEY_MOON_DIAMETER_KM * 0.85;
+const double SURVEY_ORBITAL_USABLE_KM = 3000.0;
 
 struct SurveyLevelDef
 {

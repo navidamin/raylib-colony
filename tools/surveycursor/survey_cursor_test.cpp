@@ -27,6 +27,14 @@ int main()
     for (int i = 0; i < SURVEY_LEVEL_COUNT; i++)
     {
         double ratio = ladder[i].footprintKm / ladder[i].windowSpanKm;
+        // Only the snapping levels need to tile: the site level moves
+        // freely, so its cursor size is a presentation choice.
+        if (ladder[i].snapToGrid)
+        {
+            double cells = ladder[i].windowSpanKm / ladder[i].footprintKm;
+            Check(std::fabs(cells - std::floor(cells + 0.5)) < 1e-9,
+                  "window is a whole number of cursors");
+        }
         printf("   level %d %-9s span %8.1f km  cursor %6.1f km  ratio %.3f\n",
                i + 1, ladder[i].name, ladder[i].windowSpanKm,
                ladder[i].footprintKm, ratio);
@@ -67,6 +75,51 @@ int main()
     SurveyCursor district = MakeSurveyCursor(2, 0.0, 0.0);
     SurveyCursorTrack(&district, square, 500.0f + 10.0f * 3.0f, 500.0f);
     Check(std::fabs(district.offsetXKm - 12.5) < 1e-9, "snap straddles centre (even)");
+
+    // 5b. The outermost cell must be reachable in BOTH directions. With
+    //     an even cell count the index range is asymmetric (-2..+1 for a
+    //     100 km window and a 25 km cursor), and clamping symmetrically
+    //     would snap the cursor a whole cell away from the mouse.
+    SurveyCursor edge = MakeSurveyCursor(2, 0.0, 0.0);
+    SurveyCursorTrack(&edge, square, 0.0f, 500.0f);            // far west
+    Check(std::fabs(edge.offsetXKm + 37.5) < 1e-9, "westmost cell reachable");
+    SurveyCursorTrack(&edge, square, 1000.0f, 500.0f);         // far east
+    Check(std::fabs(edge.offsetXKm - 37.5) < 1e-9, "eastmost cell reachable");
+
+    // 5c. Every snapped cell tiles the window: the union of the cells the
+    //     mouse can reach must cover the whole span, with no gaps and no
+    //     cell hanging over an edge.
+    for (int lvl = 0; lvl < SURVEY_LEVEL_COUNT - 1; lvl++)
+    {
+        SurveyCursor c = MakeSurveyCursor(lvl, 0.0, 0.0);
+        double half = c.windowSpanKm * 0.5;
+        double worstGap = 0.0;
+        double prev = -half;
+        // Walk the mouse across the window and check the snapped cell
+        // always contains the point it was aimed at.
+        bool contains = true;
+        for (int step = 0; step <= 400; step++)
+        {
+            double aim = -half + c.windowSpanKm * (step / 400.0);
+            // nudge off the exact edges, which belong to no cell
+            if (aim <= -half) aim = -half + 1e-6;
+            if (aim >= half) aim = half - 1e-6;
+            float mx = 0.0f, my = 0.0f;
+            SurveyOffsetKmToScreen(square, c.windowSpanKm, aim, 0.0, &mx, &my);
+            SurveyCursorTrack(&c, square, mx, my);
+            if (std::fabs(aim - c.offsetXKm) > c.footprintKm * 0.5 + 1e-6)
+            {
+                contains = false;
+                worstGap = std::fabs(aim - c.offsetXKm) - c.footprintKm * 0.5;
+                printf("   level %d: aimed %.3f km, snapped %.3f km (cell %.3f)\n",
+                       lvl + 1, aim, c.offsetXKm, c.footprintKm);
+                break;
+            }
+            prev = aim;
+        }
+        (void)prev; (void)worstGap;
+        Check(contains, "snapped cell contains the aimed point everywhere");
+    }
 
     // 6. The footprint never leaves the window, however far the mouse goes.
     for (int i = 0; i < SURVEY_LEVEL_COUNT; i++)

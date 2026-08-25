@@ -32,14 +32,16 @@ the cursor is always "the thing you are about to enter".
 
 | # | View | Window span | Cursor footprint | Cursor / window | Role |
 |---|------|-------------|------------------|-----------------|------|
-| 1 | Orbital | whole disc | ~500 km | ~15% | Pick a region of the Moon |
+| 1 | Orbital | whole disc | 500 km | 17% | Pick a region of the Moon |
 | 2 | Regional | 500 km | 100 km | 20% | Pick a district |
 | 3 | Planet / district | 100 km | 25 km | 25% | Pick a locality |
 | 4 | Locality | 25 km | 5 km (one sect cell) | 20% | Pick the cell |
 | 5 | **Site** | **5 km** | **1.5 km build footprint** | **30%** | **Commit the base** |
 
 **Cursor sizing rule.** The cursor stays between **15% and 30% of the
-window's smaller dimension**. That is the band where it is large enough
+window's smaller dimension**, and at every *snapping* level the window
+must be a whole number of cursors — otherwise the grid leaves ground the
+player can see but cannot select. That is the band where it is large enough
 to read a label inside and small enough that the choice is meaningful —
 below ~12% it becomes a dot and the aggregate readout is unreadable,
 above ~40% there is nothing left to choose between. The ratio widens
@@ -239,12 +241,15 @@ implementation instead of drifting apart.
 
 Two departures from the design as written, both recorded here:
 
-1. **The orbital level's span is the usable disc width (~85% of the
-   diameter), not the diameter.** Level 1 is projected, not a top-down km
-   window, and ground within ~15% of the limb is too foreshortened to aim
-   at. Measured against the full diameter the 500 km cursor is 14.4% —
-   below the band — which is an artefact of measuring against ground the
-   player cannot use.
+1. **The orbital level's span is the usable disc width (3000 km, ~86% of
+   the diameter), not the diameter.** Level 1 is projected, not a
+   top-down km window, and ground within ~15% of the limb is too
+   foreshortened to aim at. Measured against the full diameter the 500 km
+   cursor is 14.4% — below the band — which is an artefact of measuring
+   against ground the player cannot use. The figure is rounded to 3000 so
+   the 500 km cursor tiles it exactly: an unroundable span leaves the
+   outermost cells unreachable, and the cursor then snaps a whole cell
+   away from where the player is pointing.
 2. **The viewport is the square the window span maps into**, with the
    span on the smaller dimension. This keeps the whole window visible at
    any aspect ratio; `lunar_map`'s top-down camera fits the span to the

@@ -26,13 +26,6 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
     { "SITE",          5.0,                         1.5,     false },
 };
 
-int SnapIndexLimit(double spanKm, double footprintKm, double phase)
-{
-    double limit = (spanKm - footprintKm) * 0.5;
-    if (limit <= 0.0) return -1;
-    return (int)std::floor(limit / footprintKm - phase + 1e-9);
-}
-
 double SnapOffset(double offsetKm, double spanKm, double footprintKm)
 {
     // The level's grid is the set of footprints of the level below, laid
@@ -42,11 +35,20 @@ double SnapOffset(double offsetKm, double spanKm, double footprintKm)
     if (cells < 1) cells = 1;
     double phase = (cells % 2 == 0) ? 0.5 : 0.0;
 
+    // The index range is asymmetric when the grid straddles the centre:
+    // with a 100 km window and a 25 km cursor the cell centres are at
+    // -37.5, -12.5, +12.5, +37.5, i.e. indices -2..+1. Clamping to a
+    // symmetric +-1 would refuse the westmost/southmost cell and snap
+    // the cursor a whole cell away from where the player is pointing.
+    double limitKm = (spanKm - footprintKm) * 0.5;
+    if (limitKm <= 0.0) return 0.0;
+    double maxIndex = std::floor(limitKm / footprintKm - phase + 1e-9);
+    double minIndex = std::ceil(-limitKm / footprintKm - phase - 1e-9);
+    if (maxIndex < minIndex) return 0.0;
+
     double index = std::floor(offsetKm / footprintKm - phase + 0.5);
-    int limit = SnapIndexLimit(spanKm, footprintKm, phase);
-    if (limit < 0) return 0.0;
-    if (index > (double)limit) index = (double)limit;
-    if (index < (double)(-limit)) index = (double)(-limit);
+    if (index > maxIndex) index = maxIndex;
+    if (index < minIndex) index = minIndex;
     return (index + phase) * footprintKm;
 }
 
