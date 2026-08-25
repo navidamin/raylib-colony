@@ -1,83 +1,92 @@
 # Site Selection — Master Design
 
-**Status: SETTLED** — implementation in progress (step 1 of 6 done).
-**Scope:** orbital view → 1 km build footprint, the survey cursor, and
-resource aggregation across scales.
+**Status: SETTLED** — simplified 2026-08-25. See Appendix A for the
+model this replaced and why.
+**Scope:** orbital view → the build footprint, the survey cursor, and
+where resource information lives.
+
+---
+
+## 0. The whole design in two sentences
+
+> **Resources belong to the region. Terrain belongs to the spot.**
+>
+> You pick a region for what it has. You pick a spot for whether you can
+> build on it.
+
+Everything below is consequence. If a rule here cannot be traced back to
+those two sentences, it should not exist.
 
 ---
 
 ## 1. Design intent
 
 The player should feel like a mission planner narrowing down a landing
-site, not like someone clicking a tile on a grid. Three properties carry
-that feeling:
+site, not like someone clicking a tile on a grid. Two properties carry
+that:
 
-1. **One question per level.** At every zoom the cursor shows the *next*
-   level's footprint. The player is never asked "where exactly?" while
-   looking at a whole hemisphere — only "which of these regions?"
-2. **Information sharpens as you descend.** Zoomed out, the readout is a
-   coarse average with wide error bars. Zoomed in, it is specific. The
-   player learns by descending, which is what makes descending feel like
-   an action rather than a camera move.
-3. **The last step is different in kind.** Levels 1–4 are navigation.
-   Level 5 is commitment. It must *look* different, not just behave
-   differently.
+1. **Two decisions, not one.** *Which region* and *which ground* are
+   different questions with different answers, decided at different
+   zooms. Collapsing them into a single "pick a tile" is what makes grid
+   games feel like spreadsheets.
+2. **The last step is different in kind.** Everything above it is
+   navigation. Placing the base is commitment, and it must *look*
+   different, not merely behave differently.
+
+An earlier draft had a third property — *information sharpens as you
+descend* — and it was wrong. See Appendix A.
 
 ---
 
-## 2. The descent ladder
+## 2. Two decisions, and the camera between them
 
-Five levels. Each level's cursor is the footprint of the level below, so
-the cursor is always "the thing you are about to enter".
+| | Decision 1 | Decision 2 |
+|---|---|---|
+| **Question** | Which region? | Which ground? |
+| **Scale** | 100 km — one playfield | 1.5 km — the base footprint |
+| **Decided by** | resource holdings | slope, relief, illumination, PSR |
+| **Data** | orbital survey, averaged over tens of km | LOLA/SLDEM, 59 m, measured |
+| **Where** | orbital view (`OrbitalPickToLatLon`, `SetTerrainAnchor`) | inside a 5 km sect cell |
 
-| # | View | Window span | Cursor footprint | Cursor / window | Role |
-|---|------|-------------|------------------|-----------------|------|
-| 1 | Orbital | whole disc | 500 km | 17% | Pick a region of the Moon |
-| 2 | Regional | 500 km | 100 km | 20% | Pick a district |
-| 3 | Planet / district | 100 km | 25 km | 25% | Pick a locality |
-| 4 | Locality | 25 km | 5 km (one sect cell) | 20% | Pick the cell |
-| 5 | **Site** | **5 km** | **1.5 km build footprint** | **30%** | **Commit the base** |
+**Everything between the two is camera movement.** The game's existing
+Planet (100 km) → Colony (25 km) → Sect (5 km) views are how the player
+travels between the two decisions; they are not decisions themselves and
+carry no readout of their own beyond what is already on screen.
 
-**Cursor sizing rule.** The cursor stays between **15% and 30% of the
-window's smaller dimension**, and at every *snapping* level the window
-must be a whole number of cursors — otherwise the grid leaves ground the
-player can see but cannot select. That is the band where it is large enough
-to read a label inside and small enough that the choice is meaningful —
-below ~12% it becomes a dot and the aggregate readout is unreadable,
-above ~40% there is nothing left to choose between. The ratio widens
-deliberately at level 5 because the footprint is now a *physical object*
-being sited, not a navigation target.
+This is deliberately *not* a new ladder. One region is one playfield —
+the 20×20 grid of 5 km cells the game already has — so decision 1 is the
+terrain anchor the orbital view already sets, and decision 2 is placement
+inside a cell. No new levels are introduced.
 
-Level 4 → 5 is the existing 5 km sect cell (`TERRAIN_CELL_KM`), so the
-ladder lands exactly on the game's established grid.
+**Cursor sizing rule.** Wherever a cursor is shown it stays between
+**15% and 30%** of the window's smaller dimension, and where it snaps,
+the window must be a whole number of cursors — otherwise the grid leaves
+ground the player can see but cannot select. Below ~12% the cursor is a
+dot with an unreadable label; above ~40% there is nothing left to choose
+between.
 
-**DECIDED — grid-snap.** The cursor snaps to the grid at every
-navigation level (1–4): each level's grid is the set of footprints of
-the level below, so the cursor always lands on a whole child region
-rather than straddling two. This makes the ladder a clean tree, makes
-aggregates exact (a footprint is always a whole number of cells), and
-makes descent unambiguous.
-
-Level 5 remains **free-moving** — the whole point of the final step is
-choosing *where within* the 5 km cell the base sits, and the buildable
+**Snapping.** The cursor snaps to the 5 km cell grid while navigating and
+is **free-moving** at the placement step — the whole point of the final
+step is choosing *where within* the cell the base sits, and the buildable
 ground may be a corner of it.
 
 ---
 
 ## 3. The survey cursor
 
-### 3.1 Appearance (levels 1–4, navigation)
+### 3.1 Appearance (navigating)
 
-- Translucent fill, ~15% alpha, neutral (no green/red — nothing is being
-  judged yet).
+- Translucent fill, ~15% alpha, neutral — no green/red, nothing is being
+  judged yet.
 - 2 px outline, corner ticks at 35% of the half-width.
 - A compact readout panel anchored to the **opposite side of the window
-  from the cursor**, so it never covers the ground it describes. (This
-  bug was already found and fixed in the `lunar_map` prototype.)
-- Panel contents: aggregate resource bars, mean slope, illumination, and
-  a confidence indicator (§4.3).
+  from the cursor**, so it never covers the ground it describes. (Found
+  and fixed in the `lunar_map` prototype.)
+- Panel contents: mean and max slope, relief, illumination. Terrain only
+  — resource figures live on the region panel and do not follow the
+  cursor (§4).
 
-### 3.2 Appearance (level 5, commitment)
+### 3.2 Appearance (placing the base)
 
 The register change is the point. Everything here should say *building*,
 not *browsing*:
@@ -110,20 +119,216 @@ not *browsing*:
   terrain chain already supports it — the same lat/lon regenerates the
   same ground at any span.
 
-**DECIDED — reversible.** Ascending is always allowed and costs
-nothing; the player can wander the ladder freely. Only the final build
-at level 5 is a commitment, and it takes an explicit confirm.
+**DECIDED — reversible.** Backing out is always allowed and costs
+nothing; the player can wander freely. Only the build itself is a
+commitment, and it takes an explicit confirm.
 
-Consequence for implementation: the descent path must be a stack, not a
-single current position. Ascending restores the parent view *with its
-cursor where the player left it*, so backing out of one region and
-trying its neighbour does not reset the whole descent.
+Consequence for implementation: the path must be a stack, not a single
+current position. Backing out restores the parent view *with its cursor
+where the player left it*, so trying a neighbouring cell does not reset
+everything.
 
 ---
 
-## 4. Resource aggregation
+## 4. Where resource information lives
 
-### 4.1 The model
+### 4.1 The rule
+
+Resource holdings are a property of the **region**, not of any spot
+inside it. They are shown once, when the region is chosen, and they do
+not change again.
+
+This is not a simplification of the physics — it *is* the physics. A
+neutron spectrometer averages hydrogen over roughly 45 km; a gamma-ray
+spectrometer is not much better. There is no finer answer to give, so
+the game does not pretend to have one by drawing a number that follows
+the cursor.
+
+### 4.2 How it is presented
+
+- **Region panel.** Resource bars with a single value each. Tagged with
+  the region's name. No error bars, no instrument names, no footprint
+  figures. One line of copy explains why it does not move: *orbital
+  surveys average over tens of km.*
+- **Site panel.** Terrain only, and it updates live with the cursor.
+- Both panels are on screen together during placement.
+
+**The mechanic teaches itself in one movement: the terrain panel follows
+the cursor and the region panel does not.** Nobody has to be told why.
+That single observation replaces the entire apparatus described in
+Appendix A.
+
+### 4.3 What this preserves
+
+- **The gamble at commit is intact.** You know exactly what the ground
+  is and only roughly what is in it. That tension never came from the
+  confidence machinery — it comes from resources being regional.
+- **Prospecting is the payoff.** Landing and drilling is still the only
+  way to learn local truth, which gives `docs/design/prospecting/` a
+  single obvious purpose.
+- **Reading terrain still informs resources.** A permanently shadowed
+  crater floor still hints at volatiles — it just informs *which region*
+  you pick.
+
+### 4.4 What it gives up
+
+- **No sense of information earned by zooming.** But that feeling was
+  never real: if descending is free and always sharpens the number, it is
+  a toll, not a decision. This trades an illusion for a rule learned in
+  one movement.
+- **All resources behave alike.** Rock abundance and surface mineralogy
+  really are measured at a couple of hundred metres, far finer than
+  hydrogen. Bundling them into one regional figure loses that.
+
+  *Extension point, if it ever matters:* promote a **single** quantity to
+  the site panel — rock abundance is the physically correct candidate. It
+  would then be the only thing besides terrain that reacts to the cursor,
+  which keeps the rule legible instead of muddying it. One row, not a
+  system.
+
+`[?]` Region size. 100 km = one playfield is the natural choice and needs
+no new machinery. If regions turn out to feel too coarse to choose
+between, the alternative is several regions per playfield — but that
+weakens "one region, one playfield", so try the simple version first.
+
+---
+
+## 5. Implementation plan
+
+### Step 1 — Cursor infrastructure — **DONE**
+`src/TerrainGen/survey_cursor.{h,cpp}`: pure geometry, no game or render
+code, shared by the game and the `lunar_map` instrument. Screen ↔ km ↔
+lat/lon, grid snapping, clamping, and the descent stack. Verified by
+`survey_cursor_test` (headless, 30 checks) and visually by
+`lunar_map --ladder`.
+
+**Simplification note:** the ladder table is now longer than this design
+needs. Leave it — it costs nothing, the tests cover it, and the game
+simply uses the two entries it cares about.
+
+### Step 2 — Region resource panel
+- Aggregate the survey grid over the whole 100 km playfield, once, when
+  the anchor is set.
+- Render as the region card: bars, values, region name, the one-line
+  explanation.
+- **Verify:** the values do not change while the cursor moves.
+
+### Step 3 — Site terrain panel
+- Live `LolaDem::EvaluateSite` at the cursor's footprint.
+- Green/red verdict using the existing `JudgeSite` thresholds.
+- **Verify:** every row tracks the cursor; the blocking limit is named,
+  not just "invalid".
+
+### Step 4 — Placement and commit
+- Port `DrawPlacementCursor` into the game's render path with the §3.2
+  register change (survey markers, dimension label, ghosted sect layout).
+- Explicit confirm; a pre-build summary split into **measured** (terrain)
+  and **unknown until prospected** (resources).
+- **Verify:** a player who has never seen the game can say what each
+  panel is for after one minute.
+
+---
+
+## 6. Reuse — what already exists
+
+Most of the hard parts are done and should not be rebuilt:
+
+| Need | Already available |
+|------|-------------------|
+| Cursor rect + verdict colouring + readout panel | `lunar_map --place` (`DrawPlacementCursor`, `JudgeSite`) |
+| Real terrain gating | `LolaDem::EvaluateSite`, `TerrainBuildability` |
+| Cell → lat/lon | `TerrainGridCellToLatLon` |
+| Orbital click → lat/lon | `OrbitalPickToLatLon` |
+| Continuous zoom on the same ground | `GenerateTerrainChain`, deterministic per lat/lon |
+| Ladder controls + view walking | `colony_viewtest` |
+| Existing site-selection screen | `View::SITE_SELECTION`, `DrawSiteSelectionView` |
+
+The `lunar_map` prototype is effectively a working level 5. Step 5 is
+largely a port of it into the game's render path.
+
+---
+
+## 7. Deliberate placeholders
+
+- **Resource distribution is synthetic.** Real elemental abundance needs
+  Clementine/M3 spectral data and Lunar Prospector gamma-ray; hydrogen
+  needs neutron spectrometer (LEND/LPNS). None are derivable from a DEM.
+  The aggregation model is written so swapping in real data later
+  changes only the source, not the interaction.
+- **Terrain is already real** — slope, illumination and Earth visibility
+  come from LOLA. Any mismatch between "looks flat" and "reads steep" is
+  now a bug, not a design compromise.
+- **PSR detection needs polar data.** The global 1.9 km DEM cannot
+  resolve cold traps; a polar SLDEM crop via the `fetch-dem` workflow
+  would fix it.
+
+---
+
+## 8. Risks
+
+| Risk | Mitigation |
+|------|------------|
+| Region choice feels arbitrary — all regions look alike | The region panel must show enough spread to matter; this is a requirement on `ResourceManager`'s generation, not on the UI |
+| The frozen region panel reads as broken | The one-line explanation plus the contrast with the live terrain panel; playtest whether anyone actually asks |
+| Placement doesn't feel different enough from navigating | Register change is explicit in §3.2; playtest specifically |
+| Cursor sizing breaks at extreme aspect ratios | Size from the *smaller* window dimension |
+
+---
+
+## Appendix A — the model this replaced
+
+**Kept as reasoning, not as work.** Nothing in this appendix should be
+built. It is here so the argument is not re-derived from scratch, and so
+the reason for the cut is on record.
+
+### What it was
+
+A five-level descent ladder in which every quantity carried its own
+resolution floor, set by the instrument that measured it. Terrain
+resolved all the way down; elemental abundance froze around 25 km;
+hydrogen froze at its ~45 km neutron footprint. Below a floor the value
+held and its **uncertainty band widened**, because descending changes the
+question asked of a measurement without changing the measurement. Three
+non-modal cues carried the limit: each layer drawn blocky on its own
+measurement grid, the instrument footprint drawn as a ring around the
+cursor, and the widening band.
+
+### Why it was cut
+
+It was *correct* and it was *unteachable*. Five levels, three
+instruments, three footprints, bands moving in opposite directions on the
+same panel, rings that turned into dashed frames when they outgrew the
+view, rows that greyed out mid-descent, and an archetype rule that had to
+inherit all of it — all of that machinery existed to communicate one
+sentence: **resource data does not sharpen when you zoom.**
+
+Attaching resources to the region says the same thing by construction, in
+one observation, with nothing to read.
+
+### What was right in it, and survives
+
+- Descending is a camera move, not an instrument change. *(Now
+  structural: there is nothing to descend *for*, resource-wise.)*
+- Confidence is a property of the quantity, not of the zoom level.
+  *(Now: resources have one confidence, terrain has another, and they sit
+  in separate panels.)*
+- Nothing is ever injected — no seeded noise, no per-level fudge. *(Now
+  trivially true.)*
+- A cost on descent is rejected: the survey is a pre-existing dataset the
+  player inherits, with instruments they did not choose. There is nothing
+  legitimate to charge for.
+
+### The one thing worth remembering
+
+Whatever the resource generator does, **the regions have to differ enough
+to make choosing between them matter.** The old model needed structure
+*below* the instrument floor; this one needs spread *between* regions.
+Either way it is a requirement on generation, and no UI work substitutes
+for it.
+
+### The full argument, as written
+
+### A.1 The model
 
 Every level shows **the same quantities**, aggregated over the cursor
 footprint. Only the sharpness changes. The quantities:
@@ -142,7 +347,7 @@ Terrain quantities are **already real**. Resource quantities stay
 synthetic for now — that is an explicit, acceptable placeholder for
 visualising the interaction (§7).
 
-### 4.2 Aggregation rule
+### A.2 Aggregation rule
 
 Sample the underlying survey grid over the **aggregation window** (§4.3)
 and reduce:
@@ -163,7 +368,7 @@ falls through to a direct `EvaluateSite` call at the cursor's own
 footprint — exactly what the `lunar_map --place` prototype does. For
 resources it does **not**; see below.
 
-### 4.3 Confidence — what descending actually buys
+### A.3 Confidence — what descending actually buys
 
 An earlier draft made confidence a function of zoom level: the deeper you
 go, the sharper the number. That model does not survive contact with the
@@ -322,7 +527,7 @@ Awaiting confirmation before step 2 is built against it.**
 
 ---
 
-### 4.4 What the instrument floors force us to decide next
+### A.4 What the instrument floors forced next
 
 The floors are not just a display rule — they reach into the resource
 generator, the archetype classifier and the prospecting hand-off. In
@@ -427,139 +632,3 @@ standard, and worth doing in step 2 rather than retrofitting.
 
 ---
 
-## 5. Implementation plan
-
-Ordered so each step is independently visible and testable.
-
-### Step 1 — Cursor infrastructure (no gameplay change) — **DONE**
-Landed as `src/TerrainGen/survey_cursor.{h,cpp}`: pure geometry, no game
-or render code, so the game and the `lunar_map` instrument share one
-implementation instead of drifting apart.
-
-- `SurveyCursor` — window (span, centre lat/lon) plus the cursor inside
-  it. The cursor offset is stored in **km from the window centre**, not
-  pixels, so it survives a resize and is meaningful without a viewport.
-- `GetSurveyLadder()` — the five levels as data. `SurveyFootprintForSpan`
-  applies the 15–30% rule to arbitrary spans (for free zooming),
-  preferring the ladder's own footprints so sizes stay familiar.
-- Screen ↔ km ↔ lat/lon: `SurveyScreenToOffsetKm`,
-  `SurveyOffsetKmToScreen`, `SurveyCursorLatLon`,
-  `SurveyLatLonToOffsetKm`, `SurveyCursorRect`.
-- `SurveyCursorTrack` — the mouse path: map into the window, snap to the
-  level's grid (§2), clamp so the footprint stays wholly inside.
-- `SurveyDescent` — the stack §3.3 requires. Ascending restores the
-  parent cursor where the player left it, and re-entering the *same*
-  region keeps the child's cursor too; a different region starts centred.
-
-Two departures from the design as written, both recorded here:
-
-1. **The orbital level's span is the usable disc width (3000 km, ~86% of
-   the diameter), not the diameter.** Level 1 is projected, not a
-   top-down km window, and ground within ~15% of the limb is too
-   foreshortened to aim at. Measured against the full diameter the 500 km
-   cursor is 14.4% — below the band — which is an artefact of measuring
-   against ground the player cannot use. The figure is rounded to 3000 so
-   the 500 km cursor tiles it exactly: an unroundable span leaves the
-   outermost cells unreachable, and the cursor then snaps a whole cell
-   away from where the player is pointing.
-2. **The viewport is the square the window span maps into**, with the
-   span on the smaller dimension. This keeps the whole window visible at
-   any aspect ratio; `lunar_map`'s top-down camera fits the span to the
-   screen height, so its viewport is the centred square of side
-   `screenH`.
-
-**Verified:** `survey_cursor_test` (headless, no GL, no DEM — 30 checks:
-ratio band, cursor == child window, screen round trips, odd/even grid
-snapping, clamping at every level, lat/lon round trip, and the full
-descent-stack behaviour). Visually: `lunar_map --ladder` walks
-500 → 100 → 25 → 5 km over real terrain with the cursor aimed at one
-fixed target through the same ground → km → screen → track path the
-mouse takes.
-
-### Step 2 — Aggregation
-- `SurveyAggregate AggregateOver(latMin, latMax, lonMin, lonMax)` in
-  `ResourceManager`, implementing §4.2 — mean **and spread** per quantity.
-- Per-quantity aggregation windows: `max(cursor, instrument footprint)`
-  (§4.3). An instrument table alongside the resource descriptors.
-- At level 5, bypass the grid and call `LolaDem::EvaluateSite` directly
-  for the terrain rows; resource rows keep their instrument window.
-- **Verify:** printed aggregates for a known cell match a manual mean,
-  and a resource row's value stops changing once the cursor is inside its
-  instrument footprint.
-
-### Step 3 — Readout panel
-- Shared panel renderer: resource bars, terrain rows, archetype, and
-  confidence band.
-- Opposite-side anchoring.
-- **Verify:** screenshots at each level; panel never overlaps cursor.
-
-### Step 4 — Ladder wiring
-- Extend the existing `View` enum / `ViewManager` transitions to the five
-  levels, re-centring on the cursor when descending.
-- Reuse `colony_viewtest`'s control scheme (click descend, Esc ascend).
-- **Verify:** full descent in `colony_viewtest`, screenshots per level.
-
-### Step 5 — Commit step (level 5)
-- Verdict colouring via `JudgeSite`.
-- Engineering overlay + ghosted sect layout.
-- Confirm dialog → create the colony/sect at the chosen lat/lon.
-- **Verify:** green site builds, red site refuses with a named reason.
-
-### Step 6 — Presentation sharpening
-No perturbation layer (see §4.3): every number is a true mean, so this
-step is purely how the limits are shown.
-- Significant figures per level (bars only → rounded → exact).
-- Spread rendered as an error band on each bar.
-- Instrument name + footprint on every resource row; the row greys out
-  once the cursor is inside its footprint.
-- The instrument footprint drawn as a faint circle around the cursor
-  wherever it is larger than the cursor.
-- **Verify:** terrain bands narrow all the way to level 5; resource bands
-  stop narrowing at their instrument's floor, and the player can see why
-  without reading a tooltip.
-
----
-
-## 6. Reuse — what already exists
-
-Most of the hard parts are done and should not be rebuilt:
-
-| Need | Already available |
-|------|-------------------|
-| Cursor rect + verdict colouring + readout panel | `lunar_map --place` (`DrawPlacementCursor`, `JudgeSite`) |
-| Real terrain gating | `LolaDem::EvaluateSite`, `TerrainBuildability` |
-| Cell → lat/lon | `TerrainGridCellToLatLon` |
-| Orbital click → lat/lon | `OrbitalPickToLatLon` |
-| Continuous zoom on the same ground | `GenerateTerrainChain`, deterministic per lat/lon |
-| Ladder controls + view walking | `colony_viewtest` |
-| Existing site-selection screen | `View::SITE_SELECTION`, `DrawSiteSelectionView` |
-
-The `lunar_map` prototype is effectively a working level 5. Step 5 is
-largely a port of it into the game's render path.
-
----
-
-## 7. Deliberate placeholders
-
-- **Resource distribution is synthetic.** Real elemental abundance needs
-  Clementine/M3 spectral data and Lunar Prospector gamma-ray; hydrogen
-  needs neutron spectrometer (LEND/LPNS). None are derivable from a DEM.
-  The aggregation model is written so swapping in real data later
-  changes only the source, not the interaction.
-- **Terrain is already real** — slope, illumination and Earth visibility
-  come from LOLA. Any mismatch between "looks flat" and "reads steep" is
-  now a bug, not a design compromise.
-- **PSR detection needs polar data.** The global 1.9 km DEM cannot
-  resolve cold traps; a polar SLDEM crop via the `fetch-dem` workflow
-  would fix it.
-
----
-
-## 8. Risks
-
-| Risk | Mitigation |
-|------|------------|
-| Five levels feels like too much clicking | Allow scroll-wheel zoom to skip levels; the ladder is the *structure*, not a forced sequence |
-| Aggregate readouts look identical across levels | Confidence layer (§4.3) is what differentiates them — do not cut it |
-| Level 5 doesn't feel different enough | Register change is explicit in §3.2; playtest this specifically |
-| Cursor sizing breaks at extreme aspect ratios | Size from the *smaller* window dimension |
