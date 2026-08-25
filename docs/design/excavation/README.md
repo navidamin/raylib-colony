@@ -11,6 +11,7 @@
 | 3 | [design-options.md](design-options.md) | Round 1 exploration: 16 aspects, then 4 options compared | SUPERSEDED |
 | 4 | [design-options-v2.md](design-options-v2.md) | Round 2 exploration: three variants of the panel direction | SUPERSEDED |
 | 5 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
+| 6 | [block-mining-design.md](block-mining-design.md) | **Mining the block model.** What changes once prospecting v2 gives the ground a 3D shape: access, selectivity, the empty-out. Deltas only — #1 still holds | SKETCH — blocked on prospecting v2 |
 
 ## Design Summary
 

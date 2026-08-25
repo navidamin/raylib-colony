@@ -41,8 +41,9 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 
 | Module | Directory | Status |
 |--------|-----------|--------|
-| Prospecting | `prospecting/` | Active design |
-| Excavation | `excavation/` | Designed and built (phases 1-6); balance pass outstanding |
+| **Subsurface** | `subsurface/` | **Not a module — the world both extraction modules read, and the contract between them. Read it before either** |
+| Prospecting | `prospecting/` | Built (v1); **v2 block model designed, not built** |
+| Excavation | `excavation/` | Built (phases 1-6) against v1 prospecting; v2 sketched, blocked on prospecting v2 |
 | Research | `research/` | Stub — interface requirements from prospecting AI |
 | AI Automation | `ai-automation/` | Stub — cross-cutting pattern for all unit AI trees |
 | Beneficiation | — | Future |

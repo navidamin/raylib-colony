@@ -6,14 +6,22 @@
 
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
-| 1 | [prospecting-master-design.md](prospecting-master-design.md) | Pipeline stages, multi-scale control, mechanics integration, gaps inventory | IMPLEMENTED (except §11b AI tree) |
+| 1 | [prospecting-master-design.md](prospecting-master-design.md) | Pipeline stages, multi-scale control, mechanics integration, gaps inventory | IMPLEMENTED — **panel and interaction superseded by #9** |
 | 2 | [sampling-mechanics.md](sampling-mechanics.md) | Science-based technology review + Design 7 variants (7A-7E) | IMPLEMENTED |
 | 3 | [depth-sampling-design.md](depth-sampling-design.md) | Depth layers, resource distribution by depth, tier gating, default allocation | IMPLEMENTED |
 | 4 | [confidence-system.md](confidence-system.md) | Formal confidence metric: scale, composition, per-tool behavior | IMPLEMENTED |
 | 5 | [resource-distribution-model.md](resource-distribution-model.md) | Pathfinder correlations, geological coherence, clue chaining, map init | STUB — undesigned, blocks pathfinder tips |
 | 6 | [ai-default-mode.md](ai-default-mode.md) | AI delegation logic, default behavior, efficiency penalties, heuristics | DESIGNED, NOT BUILT (Phase 7) |
-| 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | IMPLEMENTED (restyled 2026-08; no stratigraphy panel) |
-| 8 | [implementation-plan.md](implementation-plan.md) | **Resource classification.** Measured / Indicated / Inferred as a grouping of the existing confidence bands, on a colour key shared with excavation | PLANNED |
+| 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | IMPLEMENTED — **superseded by #9** |
+| 8 | [implementation-plan.md](implementation-plan.md) | **Resource classification.** Measured / Indicated / Inferred as a grouping of the existing confidence bands, on a colour key shared with excavation | C1-C4 BUILT |
+| 9 | [block-model-design.md](block-model-design.md) | **THE NEW PROSPECTING.** Drill holes with azimuth and dip, an interpolated estimate field, and a four-layer isometric block model. Supersedes the panel and interaction design in #1 and #7 | DESIGN — NOT BUILT |
+
+> **Two designs live here.** #1-#8 describe **v1**, which is built and playable:
+> a flat 8x8 grid, one depth tab at a time, confidence local to each cell.
+> #9 describes **v2**, the block model, which is designed and not built. v2
+> keeps every engine v1 built (sweep, sampling, lab, survey progress) and
+> changes what they are pointed at. Start at #9 for new work; read #1-#8 for
+> what the instruments do.
 
 ## Design Summary
 
