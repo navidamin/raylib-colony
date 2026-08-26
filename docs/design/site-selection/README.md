@@ -31,7 +31,7 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | Step | State |
 |------|-------|
 | 1 — Cursor infrastructure | **done** — `survey_cursor.{h,cpp}`, self-test, `lunar_map --ladder` |
-| 2 — Region resource panel | not started |
+| 2 — Region identity + panel | not started |
 | 3 — Site terrain panel | not started |
 | 4 — Placement and commit | not started |
 
@@ -70,10 +70,28 @@ playfield", so try the simple version first.
 `ResourceManager`'s generation, not on the UI. If every region reads
 alike, decision 1 is not a decision. No panel work substitutes for it.
 
-`[?]` **Eight resource bars or three groups?** Decide by playtest (§4.6).
+`[?]` **Eight resource bars or three groups?** Decide by playtest (§4.8).
+Note Fe/Al/Ca are one number, not three, and Si should never be a gauge
+(§4.6).
+
+`[?]` **Do regions trade off, or does one dominate?** On published
+figures the PKT leads on iron, thorium and mare coverage at once (§4.6).
+
+`[?]` **Composition currently has no gameplay effect at all** —
+`Colony::GetArchetypeBonus` is never called. Invert the generator rather
+than adding multipliers (§4.6).
 
 **Settled:**
 
+- Regions are **named and real** (§4.5): terrane on the orbital disc
+  (Jolliff 2000, five entries), named feature at 100 km straight from
+  `src/assets/planet/zones.json` — 73 real lunar features that already
+  ship and that no C++ file reads. Colour fill on the disc only;
+  boundaries over unmodified imagery below it.
+- The numbers **never refine as you descend** (§4.6). The information
+  actually runs the other way — Fe/Ti/Al/Ca come from 20–200 m
+  multispectral imaging, while one gamma-ray pixel is 45–200 km, wider
+  than the whole playfield.
 - The region panel has **two frozen groups** — *resources* (the natural
   extractables `H2, O2, C, Fe, Si, Ti, Al, Ca`; everything else in
   `ResourceType` is produced, not found) and *terrain character* (mean
