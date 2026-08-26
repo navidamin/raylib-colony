@@ -67,20 +67,13 @@ TEST_CASE("GetDepthLayerInfo returns valid names", "[types]")
     REQUIRE(std::string(deep.name) == "Intact Bedrock");
 }
 
-TEST_CASE("IsLayerAccessible respects tier gating", "[types]")
+TEST_CASE("every layer is accessible at every tier", "[types]")
 {
-    REQUIRE(IsLayerAccessible(0, DepthLayer::SURFACE) == true);
-    REQUIRE(IsLayerAccessible(0, DepthLayer::SHALLOW) == false);
-    REQUIRE(IsLayerAccessible(0, DepthLayer::MID) == false);
-    REQUIRE(IsLayerAccessible(0, DepthLayer::DEEP) == false);
-
-    REQUIRE(IsLayerAccessible(1, DepthLayer::SHALLOW) == true);
-    REQUIRE(IsLayerAccessible(1, DepthLayer::MID) == false);
-
-    REQUIRE(IsLayerAccessible(2, DepthLayer::MID) == true);
-    REQUIRE(IsLayerAccessible(2, DepthLayer::DEEP) == false);
-
-    REQUIRE(IsLayerAccessible(3, DepthLayer::DEEP) == true);
+    // Depth is ungated -- MAX_DEPTH_PER_TIER is all fours, kept as a table
+    // only so its call sites need no churn.
+    for (int tier = 0; tier <= 3; tier++)
+        for (int d = 0; d < 4; d++)
+            REQUIRE(IsLayerAccessible(tier, static_cast<DepthLayer>(d)));
 }
 
 TEST_CASE("the lattice is fixed; tier changes reach, not size", "[types]")

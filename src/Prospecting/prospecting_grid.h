@@ -35,6 +35,10 @@ public:
     // Excavation reports what it has dug. This is the ONLY way the worked
     // state is written, and it is called by excavation -- prospecting never
     // reaches into excavation.
+    // A drill core cut this spot at this depth. The permanent assay record --
+    // knowledge lives on the grid; the tray caps physical specimens only.
+    void RecordCore(int subX, int subY, DepthLayer depth);
+
     void RecordExcavation(int subX, int subY, DepthLayer depth, float fraction);
 
     // Fraction of a sub-cell's depth column that has been dug out. Digging is
@@ -101,6 +105,13 @@ float GetDepthConfidence(const ProspectingGrid& grid, const SampleTray& tray,
 // keeps the units trap (module-architecture.md Part II) in one place.
 float GetSubCellYield(const ProspectingGrid& grid, int x, int y,
                       DepthLayer depth, ResourceType type);
+
+// What the player BELIEVES is there: IDW from every core, pulled toward an
+// honest prior (layer mean; LIBS pattern at the surface) by nearest-core
+// support. The block model's height channel draws THIS, never ground truth
+// -- relief is what you know, not what is there.
+float GetEstimatedYield(const ProspectingGrid& grid, int x, int y,
+                        DepthLayer depth, ResourceType type);
 
 // Tonnage of one resource split by how well it is known. Summed over every
 // sub-cell within reach at `tier`, across every depth that tier can see.

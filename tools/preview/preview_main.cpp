@@ -187,70 +187,36 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
         return;
     }
 
-    // "swept" and beyond: run GPR sweeps so the heat map has signal.
-    // Band 0 is left unswept so the RUN SWEEP button previews in its
-    // enabled state.
-    int bandCount = SWEEP_FREQUENCY_BANDS;
-    for (int band = 1; band < bandCount; band++)
+    // "swept" and beyond: run the LIBS sweep (single band -- GPR is gone) so
+    // the surface layer's prior carries the lateral chemistry pattern.
+    if (system.GetSweep().CanSweep(grid, 0))
     {
-        if (system.GetSweep().CanSweep(grid, band))
-        {
-            system.GetSweep().ExecuteSweep(grid, band, gameTime);
-        }
+        system.GetSweep().ExecuteSweep(grid, 0, gameTime);
     }
 
     if (state == "swept") return;
 
-    // "sampled" and beyond: collect a spread of samples across cells and depths.
-    const DepthLayer depths[] = {
-        DepthLayer::SURFACE, DepthLayer::SHALLOW, DepthLayer::MID, DepthLayer::DEEP
-    };
-
-    int gridSize = grid.GetGridSize();
-    int collected = 0;
-    for (int y = 0; y < gridSize && !tray.IsFull(); y++)
-    {
-        for (int x = 0; x < gridSize && !tray.IsFull(); x++)
-        {
-            DepthLayer depth = depths[collected % 4];
-            if (!system.GetSampler().CanDrill(depth)) depth = DepthLayer::SURFACE;
-
-            if (system.GetSampler().CollectSample(grid, tray, x, y, depth))
-            {
-                collected++;
-            }
-        }
-    }
+    // "sampled": the first two holes of a campaign. Vertical auger columns --
+    // each cores everything from the surface down to its target, so a MID
+    // hole classifies three points of its column at once and an INDICATED
+    // halo grows around each hole.
+    system.GetSampler().CollectSample(grid, tray, 2, 2, DepthLayer::MID);
+    system.GetSampler().CollectSample(grid, tray, 5, 4, DepthLayer::SHALLOW);
 
     if (state == "sampled") return;
 
-    // "analyzed": run a thorough lab workup on every tray sample -- every
-    // available tool, ending with the destructive Fire Assay.
-    const AnalysisTool toolOrder[] = {
-        AnalysisTool::VISUAL_INSPECTION,
-        AnalysisTool::OPTICAL_MICROSCOPY,
-        AnalysisTool::MAGNETIC_SUSCEPTIBILITY,
-        AnalysisTool::XRF,
-        AnalysisTool::LIBS_PULSE,
-        AnalysisTool::FIRE_ASSAY,
-    };
-
-    std::vector<Sample>& samples = tray.GetSamples();
-    for (Sample& sample : samples)
-    {
-        for (AnalysisTool tool : toolOrder)
-        {
-            if (system.GetLab().CanApplyTool(sample, tool))
-            {
-                system.GetLab().ApplyTool(sample, tool, gameTime);
-            }
-        }
-    }
+    // "analyzed": a drilled-out campaign -- the state the whole design aims
+    // at. Step-out holes at varied depths: Measured columns, Indicated halos
+    // merging between neighbouring holes, Inferred fringes, and deep ground
+    // still a bet where nothing reached it. (The name is kept so preview.sh
+    // and its callers need no change; the lab this state once drove is gone.)
+    system.GetSampler().CollectSample(grid, tray, 3, 3, DepthLayer::DEEP);
+    system.GetSampler().CollectSample(grid, tray, 5, 2, DepthLayer::MID);
+    system.GetSampler().CollectSample(grid, tray, 1, 5, DepthLayer::SHALLOW);
+    system.GetSampler().CollectSample(grid, tray, 6, 6, DepthLayer::MID);
+    system.GetSampler().CollectSample(grid, tray, 0, 1, DepthLayer::SURFACE);
 }
 
-// Renders a contact sheet of the pre-rendered crystal sample sprites, one row
-// per shape family. These assets live in src/assets/sprites/samples/ but are
-// not currently drawn by the game, so this is the only way to review them.
 static int RenderSpriteSheet(const PreviewOptions& options)
 {
     const char* spriteRoot = "src/assets/sprites/samples";

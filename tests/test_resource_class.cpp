@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <string>
 #include "test_helpers.h"
 
@@ -141,11 +142,15 @@ TEST_CASE("digging moves tonnage into Measured", "[class][split]")
     REQUIRE(after.measured > before.measured);
     REQUIRE(after.unclassified < before.unclassified);
 
-    // Nothing is created or destroyed by learning about it.
-    REQUIRE(after.Total() == Catch::Approx(before.Total()).epsilon(0.001));
+    // The total is NOT conserved any more, and that is correct: the statement
+    // is built from the ESTIMATE, so learning revises the belief -- a rich
+    // core pulls the estimate up around it, a barren one pulls it down. The
+    // old conservation held only while the statement was secretly reading
+    // ground truth, which was the defect.
+    REQUIRE(after.Total() > 0.0f);
 }
 
-TEST_CASE("the split only counts ground the tier can reach", "[class][split]")
+TEST_CASE("the statement is knowledge-scoped, not window-scoped", "[class][split]")
 {
     ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
     rm.GenerateResourceMap(4242u);
@@ -155,15 +160,16 @@ TEST_CASE("the split only counts ground the tier can reach", "[class][split]")
 
     ResourceType type = grid.GetGroundTruth(0, 0, DepthLayer::SURFACE).begin()->first;
 
-    // Reach grows 2x2 -> 4x4 -> 6x6 -> 8x8 and depth 1 -> 4 layers, so the
-    // statement can only get bigger.
-    float previous = 0.0f;
-    for (int tier = 0; tier <= 3; tier++)
+    // Reach and depth are ungated: the statement covers the whole lattice at
+    // every depth regardless of tier. What varies between players is how well
+    // ground is KNOWN, which the classes already express.
+    float t0 = GetClassSplit(grid, tray, type, 0).Total();
+    for (int tier = 1; tier <= 3; tier++)
     {
-        float total = GetClassSplit(grid, tray, type, tier).Total();
-        REQUIRE(total > previous);
-        previous = total;
+        REQUIRE_THAT(GetClassSplit(grid, tray, type, tier).Total(),
+                     Catch::Matchers::WithinRel(t0, 0.0001f));
     }
+    REQUIRE(t0 > 0.0f);
 }
 
 TEST_CASE("depth confidence is per depth, not per column", "[class][split]")
@@ -182,4 +188,87 @@ TEST_CASE("depth confidence is per depth, not per column", "[class][split]")
             == ResourceClass::MEASURED);
     REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 4, 4, DepthLayer::DEEP))
             == ResourceClass::UNCLASSIFIED);
+}
+
+TEST_CASE("a core builds the designed halo of classes around it", "[class][field]")
+{
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    rm.GenerateResourceMap(4242u);
+
+    ProspectingGrid grid(0, 10, 10, rm);
+    SampleTray tray(0);
+    SamplingEngine engine(0);
+
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+
+    // The support ladder at RANGE = 20 m, on the 12.5 m lattice:
+    //   cored block           1.00  MEASURED   (the rock is in your hand)
+    //   neighbour   12.5 m    0.68  INDICATED
+    //   two cells   25.0 m    0.21  INFERRED
+    //   three cells 37.5 m    0.03  UNCLASSIFIED
+    // This is the whole confidence vocabulary produced by one hole -- the
+    // thing that was impossible while confidence was local to the sampled
+    // cell.
+    auto cls = [&](int x, int y) {
+        return GetResourceClass(GetDepthConfidence(grid, tray, x, y,
+                                                   DepthLayer::SURFACE));
+    };
+    REQUIRE(cls(3, 3) == ResourceClass::MEASURED);
+    REQUIRE(cls(4, 3) == ResourceClass::INDICATED);
+    REQUIRE(cls(5, 3) == ResourceClass::INFERRED);
+    REQUIRE(cls(6, 3) == ResourceClass::UNCLASSIFIED);
+
+    // And per depth: the SURFACE core supports the layer below it only
+    // weakly (17 m -> 0.49, INDICATED), and the deep layers not at all.
+    REQUIRE(cls(3, 3) == ResourceClass::MEASURED);
+    REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 3, 3,
+                                                DepthLayer::SHALLOW))
+            == ResourceClass::INDICATED);
+    REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 3, 3,
+                                                DepthLayer::DEEP))
+            == ResourceClass::UNCLASSIFIED);
+}
+
+TEST_CASE("the ground is vertically continuous", "[field][generator]")
+{
+    // The generator seeds one 3D field per (cell, resource) -- depth is NOT
+    // in the seed -- so adjacent layers must correlate. Four independent
+    // layers was the defect that made aiming worthless.
+    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    rm.GenerateResourceMap(4242u);
+
+    int agree = 0, cells = 0;
+    for (int gx = 4; gx < 16; gx += 3)
+    {
+        for (int gy = 4; gy < 16; gy += 3)
+        {
+            ProspectingGrid grid(3, gx, gy, rm);
+            ResourceType type =
+                grid.GetGroundTruth(0, 0, DepthLayer::SURFACE).begin()->first;
+
+            // Peak block of layer 0 and of layer 1 should sit near each
+            // other far more often than chance (chance: ~2% within 2 cells).
+            auto peak = [&](DepthLayer d) {
+                int bx = 0, by = 0; float best = -1.0f;
+                for (int y = 0; y < 8; y++)
+                    for (int x = 0; x < 8; x++)
+                    {
+                        float v = GetSubCellYield(grid, x, y, d, type);
+                        if (v > best) { best = v; bx = x; by = y; }
+                    }
+                return std::make_pair(bx, by);
+            };
+            auto p0 = peak(DepthLayer::SURFACE);
+            auto p1 = peak(DepthLayer::SHALLOW);
+            int dist = std::max(std::abs(p0.first - p1.first),
+                                std::abs(p0.second - p1.second));
+            if (dist <= 2) agree++;
+            cells++;
+        }
+    }
+
+    // A dipping shoot walks sideways with depth, so demand a strong majority,
+    // not unanimity.
+    REQUIRE(cells >= 16);
+    REQUIRE(agree * 2 > cells);
 }

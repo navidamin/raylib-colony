@@ -3,38 +3,38 @@
 #include "test_helpers.h"
 #include "sampling_engine.h"
 
-TEST_CASE("SamplingEngine CanDrill respects tier gating", "[sampling]")
+TEST_CASE("depth is priced, never gated", "[sampling]")
 {
-    SamplingEngine t0(0);
-    REQUIRE(t0.CanDrill(DepthLayer::SURFACE));
-    REQUIRE_FALSE(t0.CanDrill(DepthLayer::SHALLOW));
-    REQUIRE_FALSE(t0.CanDrill(DepthLayer::MID));
-    REQUIRE_FALSE(t0.CanDrill(DepthLayer::DEEP));
-
-    SamplingEngine t1(1);
-    REQUIRE(t1.CanDrill(DepthLayer::SURFACE));
-    REQUIRE(t1.CanDrill(DepthLayer::SHALLOW));
-    REQUIRE_FALSE(t1.CanDrill(DepthLayer::MID));
-
-    SamplingEngine t2(2);
-    REQUIRE(t2.CanDrill(DepthLayer::MID));
-    REQUIRE_FALSE(t2.CanDrill(DepthLayer::DEEP));
-
-    SamplingEngine t3(3);
-    REQUIRE(t3.CanDrill(DepthLayer::DEEP));
+    // All four layers are drillable from tier 0. Depth stays meaningful
+    // through the per-metre price, not through a wall -- see
+    // docs/design/prospecting/progression-design.md.
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        SamplingEngine engine(tier);
+        REQUIRE(engine.CanDrill(DepthLayer::SURFACE));
+        REQUIRE(engine.CanDrill(DepthLayer::SHALLOW));
+        REQUIRE(engine.CanDrill(DepthLayer::MID));
+        REQUIRE(engine.CanDrill(DepthLayer::DEEP));
+    }
 }
 
-TEST_CASE("SamplingEngine GetDrillCost matches constants", "[sampling]")
+TEST_CASE("a hole is priced per metre of column, tier-independent", "[sampling]")
 {
+    // Thickness x rate, summed down the column: 12*1.2, +22*1.9, +34*2.8,
+    // +52*4.0. No tier discount, ever -- that is what stops "bank energy and
+    // drill after the upgrade" from being correct.
     SamplingEngine t0(0);
-    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::SURFACE), Catch::Matchers::WithinAbs(15.0f, 0.01f));
-    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::SHALLOW), Catch::Matchers::WithinAbs(-1.0f, 0.01f));
-
     SamplingEngine t3(3);
-    REQUIRE_THAT(t3.GetDrillCost(DepthLayer::SURFACE), Catch::Matchers::WithinAbs(8.0f, 0.01f));
-    REQUIRE_THAT(t3.GetDrillCost(DepthLayer::SHALLOW), Catch::Matchers::WithinAbs(20.0f, 0.01f));
-    REQUIRE_THAT(t3.GetDrillCost(DepthLayer::MID), Catch::Matchers::WithinAbs(35.0f, 0.01f));
-    REQUIRE_THAT(t3.GetDrillCost(DepthLayer::DEEP), Catch::Matchers::WithinAbs(75.0f, 0.01f));
+    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::SURFACE), Catch::Matchers::WithinAbs(14.4f, 0.01f));
+    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::SHALLOW), Catch::Matchers::WithinAbs(56.2f, 0.01f));
+    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::MID),     Catch::Matchers::WithinAbs(151.4f, 0.01f));
+    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::DEEP),    Catch::Matchers::WithinAbs(359.4f, 0.01f));
+    for (int d = 0; d < 4; d++)
+    {
+        REQUIRE_THAT(t3.GetDrillCost(static_cast<DepthLayer>(d)),
+                     Catch::Matchers::WithinAbs(
+                         t0.GetDrillCost(static_cast<DepthLayer>(d)), 0.001f));
+    }
 }
 
 TEST_CASE("SamplingEngine CollectSample adds to tray", "[sampling]")
@@ -51,35 +51,40 @@ TEST_CASE("SamplingEngine CollectSample adds to tray", "[sampling]")
     REQUIRE(tray.GetCount() == 1);
 }
 
-TEST_CASE("SamplingEngine CollectSample fails on full tray", "[sampling]")
+TEST_CASE("a full specimen shelf never blocks knowledge", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
     ProspectingGrid grid(0, 5, 5, rm);
-    SampleTray tray(0);
+    SampleTray tray(0);          // capacity 4
     SamplingEngine engine(0);
 
-    // The four cells of the T0 reach ring, so the tray fills before reach
-    // becomes the reason a collection is refused.
     const int spots[4][2] = { {3,3}, {4,3}, {3,4}, {4,4} };
     for (int i = 0; i < 4; i++)
         REQUIRE(engine.CollectSample(grid, tray, spots[i][0], spots[i][1],
                                      DepthLayer::SURFACE));
-
     REQUIRE(tray.IsFull());
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+
+    // Drilling still works: the assay lives on the grid, the tray is a shelf
+    // of physical rocks, and a full shelf must never un-know ground.
+    REQUIRE(engine.CollectSample(grid, tray, 2, 2, DepthLayer::SURFACE));
+    REQUIRE(grid.GetSubCell(2, 2).HasCore(0));
+    REQUIRE(tray.GetCount() == 4);          // the specimen was discarded
 }
 
-TEST_CASE("SamplingEngine CollectSample fails on inaccessible depth", "[sampling]")
+TEST_CASE("an auger hole cores the whole column", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
     ProspectingGrid grid(0, 5, 5, rm);
-    SampleTray tray(0);
+    SampleTray tray(3);
     SamplingEngine engine(0);
 
-    // In reach at T0, so DEPTH is the only thing that can refuse it -- which
-    // is what this test is about. (0,0) would also fail, for the wrong reason.
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SHALLOW));
-    REQUIRE(tray.IsEmpty());
+    // Deep drilling from tier 0: legal, and it recovers everything on the
+    // way down -- a MID hole knows SURFACE and SHALLOW too.
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::MID));
+    REQUIRE(grid.GetSubCell(3, 3).HasCore(0));
+    REQUIRE(grid.GetSubCell(3, 3).HasCore(1));
+    REQUIRE(grid.GetSubCell(3, 3).HasCore(2));
+    REQUIRE_FALSE(grid.GetSubCell(3, 3).HasCore(3));   // below the target
 }
 
 TEST_CASE("SamplingEngine CollectSample fails on out-of-bounds", "[sampling]")

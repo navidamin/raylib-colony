@@ -151,11 +151,13 @@ TEST_CASE("Tier upgrade unlocks new capabilities across all engines", "[integrat
     SamplingEngine sampler(0);
     LabEngine lab(0);
 
-    // Tier 0: band 0 sweep only, surface-only drilling, visual only
+    // Tier 0: LIBS (band 0) available; depth is ungated -- every layer
+    // drillable, priced per metre instead of walled.
     REQUIRE(sweep.CanSweep(grid, 0));
     REQUIRE_FALSE(sweep.CanSweep(grid, 1));
     REQUIRE(sampler.CanDrill(DepthLayer::SURFACE));
-    REQUIRE_FALSE(sampler.CanDrill(DepthLayer::SHALLOW));
+    REQUIRE(sampler.CanDrill(DepthLayer::SHALLOW));
+    REQUIRE(sampler.CanDrill(DepthLayer::DEEP));
     REQUIRE(lab.CanApplyTool(MakeDummySample(), AnalysisTool::VISUAL_INSPECTION));
     REQUIRE_FALSE(lab.CanApplyTool(MakeDummySample(), AnalysisTool::XRF));
 

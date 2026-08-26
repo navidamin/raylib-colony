@@ -16,7 +16,10 @@ float SamplingEngine::GetDrillCost(DepthLayer depth) const
 {
     int layerIdx = static_cast<int>(depth);
     if (layerIdx < 0 || layerIdx > 3) return -1.0f;
-    return DRILL_ENERGY_COST[tier][layerIdx];
+
+    // Priced per metre of column, never per hole and never discounted by
+    // anything -- the whole way depth stays meaningful without a gate.
+    return DrillEnergyToDepth(layerIdx);
 }
 
 bool SamplingEngine::CollectSample(ProspectingGrid& grid, SampleTray& tray,
@@ -25,27 +28,36 @@ bool SamplingEngine::CollectSample(ProspectingGrid& grid, SampleTray& tray,
     if (!CanDrill(depth))
         return false;
 
-    if (tray.IsFull())
-        return false;
-
     int size = grid.GetGridSize();
     if (subX < 0 || subX >= size || subY < 0 || subY >= size)
         return false;
 
-    // Out-of-reach sub-cells exist and hold real data, but the drill cannot
-    // get to them until a higher tier extends range.
     if (!grid.IsInReach(subX, subY))
         return false;
 
-    Sample sample = CreateSample(grid, subX, subY, depth);
+    // A VERTICAL HOLE, not a teleported point sample. The auger cores
+    // everything between the surface and its target -- drilling to MID
+    // recovers (and therefore knows) SURFACE and SHALLOW on the way down.
+    // Vertical drilling is the degenerate case of the designed line hole
+    // (dip 90), which is what makes this an extension rather than a rewrite.
+    int targetDepth = static_cast<int>(depth);
+    for (int d = 0; d <= targetDepth; d++)
+    {
+        grid.RecordCore(subX, subY, static_cast<DepthLayer>(d));
+    }
 
-    if (!tray.AddSample(sample))
-        return false;
-
-    int assignedId = tray.GetSampleByIndex(tray.GetCount() - 1)->id;
-
-    SubCell& cell = grid.GetSubCellMut(subX, subY);
-    cell.sampleIds.push_back(assignedId);
+    // The specimen is best-effort. Knowledge lives on the grid; the tray is a
+    // shelf of physical rocks, and a full shelf must never un-know ground.
+    // One specimen per hole -- the deepest interval, the interesting one.
+    if (!tray.IsFull())
+    {
+        Sample sample = CreateSample(grid, subX, subY, depth);
+        if (tray.AddSample(sample))
+        {
+            int assignedId = tray.GetSampleByIndex(tray.GetCount() - 1)->id;
+            grid.GetSubCellMut(subX, subY).sampleIds.push_back(assignedId);
+        }
+    }
 
     return true;
 }

@@ -129,6 +129,19 @@ struct SubCell
     // and how much has been taken out of it.
     std::array<float, 4> workedFraction = { 0.0f, 0.0f, 0.0f, 0.0f };
 
+    // Which depth layers a drill core has cut here. This is the PERMANENT
+    // assay record: a core is rock you are holding, so the spot it cut is
+    // known forever. It lives on the grid, not in the tray -- the tray caps
+    // physical specimens only, and evicting a specimen must never delete the
+    // ground it classified.
+    std::array<bool, 4> cored = { false, false, false, false };
+
+    bool HasCore(int depthIndex) const
+    {
+        if (depthIndex < 0 || depthIndex > 3) return false;
+        return cored[depthIndex];
+    }
+
     bool HasBeenDug(int depthIndex) const
     {
         if (depthIndex < 0 || depthIndex > 3) return false;

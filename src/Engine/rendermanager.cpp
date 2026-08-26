@@ -2867,14 +2867,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     {
         layers[L].resize(gridSize * gridSize);
         DepthLayer depth = static_cast<DepthLayer>(L);
-        bool reachable = (L < MAX_DEPTH_PER_TIER[grid.GetTier()]);
         for (int gy = 0; gy < gridSize; gy++)
         {
             for (int gx = 0; gx < gridSize; gx++)
             {
                 BlockCell& c = layers[L][gy * gridSize + gx];
-                if (!reachable) continue;
-                c.grade = GetSubCellYield(grid, gx, gy, depth, shown);
+                // BELIEVED grade, never ground truth. An undrilled layer is a
+                // flat plate at the layer mean -- the relief is what you have
+                // learned, and it grows as cores go in. Drawing truth here
+                // was the review's first finding: the model was the answer key.
+                c.grade = GetEstimatedYield(grid, gx, gy, depth, shown);
                 c.cls = GetResourceClass(
                     GetDepthConfidence(grid, ps->GetTray(), gx, gy, depth));
                 maxGrade = std::max(maxGrade, c.grade);
@@ -2913,7 +2915,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // Marker on the selected column, on every layer, so a column reads as one
     if (ps->selectedCellX >= 0 && ps->selectedCellY >= 0)
     {
-        for (int L = 0; L < MAX_DEPTH_PER_TIER[grid.GetTier()]; L++)
+        for (int L = 0; L < 4; L++)
         {
             Vector2 c = geom.Iso(ps->selectedCellX + 0.5f, ps->selectedCellY + 0.5f, L, 0.0f);
             DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 4.5f,
@@ -3003,7 +3005,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                                                              : EXT_PANEL_BG2);
         DrawRectangleRoundedLinesEx(btn, 0.3f, 4, 1.0f,
                                     canSweep ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
-        const char* label = sweptAlready ? "LIBS  ·  SWEPT" : "LIBS ROVER SWEEP";
+        const char* label = sweptAlready ? "LIBS  -  SWEPT" : "LIBS ROVER SWEEP";
         Vector2 ls = MeasureTextEx(headerFont, label, FS(10.5f), sp);
         DrawTextEx(headerFont, label,
                    {btn.x + (btn.width - ls.x) / 2.0f, btn.y + (26.0f - ls.y) / 2.0f},
@@ -3028,7 +3030,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     }
 
     // --- Drill: where, and how deep ----------------------------------------
-    DrawTextEx(headerFont, "DRILL", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
+    DrawTextEx(headerFont, "DRILL - AUGER", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
     ctrlY += 17.0f;
 
     DrawTextEx(bodyFont, hasSelection
@@ -3037,42 +3039,45 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                {ctrlX, ctrlY}, FS(9.5f), sp, hasSelection ? EXT_TEXT : EXT_DIM_TEXT);
     ctrlY += 15.0f;
 
-    // Depth chips double as the focus selector: the layer you can click on
-    int maxDepth = MAX_DEPTH_PER_TIER[grid.GetTier()];
+    // Depth chips double as the focus selector. Nothing is locked -- depth is
+    // priced, not walled -- so each chip shows what a column that deep costs.
+    int maxDepth = 4;
     {
         float chipW = (ctrlW - 12.0f - 9.0f) / 4.0f;
         for (int d = 0; d < 4; d++)
         {
-            Rectangle chip = {ctrlX + d * (chipW + 3.0f), ctrlY, chipW, 20.0f};
-            bool locked = (d >= maxDepth);
+            Rectangle chip = {ctrlX + d * (chipW + 3.0f), ctrlY, chipW, 26.0f};
             bool focused = (d == focusDepth);
-            bool hover = !locked && CheckCollisionPointRec(mouse, chip);
+            bool hover = CheckCollisionPointRec(mouse, chip);
 
-            Color edge = locked ? PROS_BTN_DISABLED
-                                : (focused ? PROS_TAB_ACTIVE_BDR : PROS_BTN_BORDER);
             DrawRectangleRounded(chip, 0.3f, 4, focused ? Color{16, 42, 54, 255}
                                                         : EXT_PANEL_BG2);
             DrawRectangleRoundedLinesEx(chip, 0.3f, 4, focused ? 1.5f : 1.0f,
-                                        hover ? PROS_HOVER_BORDER : edge);
+                                        hover ? PROS_HOVER_BORDER
+                                              : (focused ? PROS_TAB_ACTIVE_BDR
+                                                         : PROS_BTN_BORDER));
             const char* dn = depthLabels[d];
             Vector2 ds = MeasureTextEx(bodyFont, dn, FS(8.5f), sp);
-            DrawTextEx(bodyFont, dn, {chip.x + (chipW - ds.x) / 2.0f, chip.y + 5.0f},
-                       FS(8.5f), sp, locked ? PROS_BTN_DISABLED
-                                            : (focused ? EXT_ACCENT_CYAN : EXT_DIM_TEXT));
+            DrawTextEx(bodyFont, dn, {chip.x + (chipW - ds.x) / 2.0f, chip.y + 3.5f},
+                       FS(8.5f), sp, focused ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+            const char* cost = TextFormat("%.0fE", DrillEnergyToDepth(d));
+            Vector2 cs = MeasureTextEx(bodyFont, cost, FS(7.5f), sp);
+            DrawTextEx(bodyFont, cost, {chip.x + (chipW - cs.x) / 2.0f, chip.y + 14.5f},
+                       FS(7.5f), sp, Fade(EXT_DIM_TEXT, 0.75f));
             if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                 ps->selectedDepth = static_cast<DepthLayer>(d);
         }
-        ctrlY += 27.0f;
+        ctrlY += 33.0f;
     }
 
     {
         DepthLayer dsel = ps->selectedDepth;
-        float drillCost = DRILL_ENERGY_COST[grid.GetTier()][static_cast<int>(dsel)];
-        bool depthOk = (drillCost >= 0.0f);
+        float drillCost = DrillEnergyToDepth(static_cast<int>(dsel));
         bool inReach = hasSelection && grid.IsInReach(ps->selectedCellX, ps->selectedCellY);
-        bool trayOk = !ps->GetTray().IsFull();
-        bool affordable = depthOk && ProsCanAfford(unit, drillCost);
-        bool canDrill = hasSelection && inReach && depthOk && trayOk && affordable;
+        bool affordable = ProsCanAfford(unit, drillCost);
+        // A full specimen shelf never blocks drilling: knowledge lives on the
+        // grid, and un-knowing ground because a shelf is full would be absurd.
+        bool canDrill = hasSelection && inReach && affordable;
 
         Rectangle btn = {ctrlX, ctrlY, ctrlW - 12.0f, 28.0f};
         bool hover = CheckCollisionPointRec(mouse, btn);
@@ -3087,11 +3092,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                    FS(11.5f), sp, canDrill ? EXT_ACCENT_GREEN : PROS_BTN_DISABLED);
 
         const char* why = !hasSelection ? "pick a spot on the model"
-                        : !inReach      ? "out of reach at this tier"
-                        : !depthOk      ? "tier cannot reach this depth"
-                        : !trayOk       ? "core store full"
-                        : !affordable   ? "not enough energy"
-                        : TextFormat("%.0f E   the core makes this spot certain", drillCost);
+                        : !inReach      ? "outside the cell"
+                        : !affordable   ? TextFormat("needs %.0f E for the column", drillCost)
+                        : TextFormat("AUGER - vertical - cores the whole column - %.0f E",
+                                     drillCost);
         DrawTextEx(bodyFont, why, {btn.x + 1.0f, btn.y + 30.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
 
         if (hover && canDrill && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
@@ -3130,12 +3134,18 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         }
         ctrlY += 17.0f;
 
-        DrawTextEx(bodyFont, TextFormat("%s yield  %.0f",
-                                        ResourceTypeToString(shown),
-                                        GetSubCellYield(grid, ps->selectedCellX,
-                                                        ps->selectedCellY, ps->selectedDepth,
-                                                        shown)),
-                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
+        {
+            bool known = selCell.HasCore(static_cast<int>(ps->selectedDepth)) ||
+                         selCell.HasBeenDug(static_cast<int>(ps->selectedDepth));
+            DrawTextEx(bodyFont, TextFormat("%s %s  %.0f",
+                                            ResourceTypeToString(shown),
+                                            known ? "assay" : "estimate",
+                                            GetEstimatedYield(grid, ps->selectedCellX,
+                                                              ps->selectedCellY,
+                                                              ps->selectedDepth, shown)),
+                       {ctrlX, ctrlY}, FS(9.0f), sp,
+                       known ? EXT_TEXT : EXT_DIM_TEXT);
+        }
         ctrlY += 13.0f;
         DrawTextEx(bodyFont, TextFormat("cores here  %d",
                                         static_cast<int>(selCell.sampleIds.size())),

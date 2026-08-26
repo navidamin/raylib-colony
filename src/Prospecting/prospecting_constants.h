@@ -15,6 +15,12 @@ constexpr int PROSPECTING_GRID_SIZE = 8;
 constexpr int PROSPECTING_MAX_GRID_SIZE = 8;
 
 // Side length of the reachable square per tier, centred in the grid.
+//
+// PROSPECTING no longer uses this -- its reach is ungated (a wall where a
+// price should be; see docs/design/prospecting/progression-design.md #1).
+// The table and IsSubCellInReach stay because EXCAVATION still reads reach
+// with its own tier: hauling distance is a different question from where an
+// instrument may look.
 constexpr int PROSPECTING_REACH_PER_TIER[] = { 2, 4, 6, 8 };
 
 // Sample tray base capacities per tier (before objective bonuses)
@@ -24,17 +30,65 @@ constexpr int TRAY_MAX_CAPACITY = 20;
 // Lab bench concurrent processing slots per tier
 constexpr int LAB_BENCH_SLOTS[] = { 1, 2, 3, 4 };
 
-// Maximum accessible depth layers per tier
-constexpr int MAX_DEPTH_PER_TIER[] = { 1, 2, 3, 4 };
+// Maximum accessible depth layers per tier.
+//
+// UNGATED: all four layers are drillable from the first minute, and depth is
+// priced per metre instead of being walled (progression-design.md). The table
+// shape survives only so its many call sites need no churn; every value is 4.
+// Excavation has its own EXC_MAX_DEPTH_PER_TIER and is untouched.
+constexpr int MAX_DEPTH_PER_TIER[] = { 4, 4, 4, 4 };
 
-// Drilling energy costs: DRILL_ENERGY_COST[tier][depthLayer]
-// -1.0f = layer not accessible at this tier
-constexpr float DRILL_ENERGY_COST[4][4] = {
-    { 15.0f, -1.0f, -1.0f, -1.0f },
-    { 12.0f, 30.0f, -1.0f, -1.0f },
-    { 10.0f, 25.0f, 50.0f, -1.0f },
-    {  8.0f, 20.0f, 35.0f, 75.0f },
-};
+// ---------------------------------------------------------------------------
+// Depth geometry and drilling cost (per metre, never discounted)
+//
+// Layers get thicker with depth -- geologically honest, and it makes deep
+// ground worth more in absolute tonnage exactly where it is hardest to know.
+// A hole is priced by the metres it passes through; there is no per-hole
+// price and no tier discount, which is what keeps "bank energy and drill
+// after the upgrade" from ever being correct.
+// Placeholder numbers, to be calibrated against dumped data (the repo rule).
+// ---------------------------------------------------------------------------
+constexpr float LAYER_THICKNESS_M[4]    = { 12.0f, 22.0f, 34.0f, 52.0f };
+constexpr float LAYER_CENTRE_M[4]       = {  6.0f, 23.0f, 51.0f, 94.0f };
+constexpr float DRILL_ENERGY_PER_METRE[4] = { 1.2f, 1.9f, 2.8f, 4.0f };
+constexpr float SUBCELL_SIZE_M          = 12.5f;   // 100 m cell / 8 sub-cells
+
+// Energy for a vertical hole from the surface down THROUGH depth layer d --
+// the auger cores everything above its target, so the cost is the whole
+// column, not the target layer alone.
+constexpr float DrillEnergyToDepth(int depthIndex)
+{
+    float total = 0.0f;
+    for (int d = 0; d <= depthIndex && d < 4; d++)
+    {
+        total += LAYER_THICKNESS_M[d] * DRILL_ENERGY_PER_METRE[d];
+    }
+    return total;
+}
+
+// ---------------------------------------------------------------------------
+// The estimate field (block-model-design.md #3)
+//
+// Support -- how far one core may honestly speak -- comes from the NEAREST
+// core, never a weight sum: distant samples must not out-vote the prior.
+// RANGE is the geological continuity distance. At 20 m the lattice falls out
+// beautifully: the cored block reads 1.0 (the rock is in your hand), the
+// 12.5 m neighbour 0.68 (INDICATED), two cells at 25 m 0.21 (INFERRED), and
+// three cells 0.03 (UNCLASSIFIED). Adjacent depth layers step 0.49 / 0.14 /
+// 0.01 -- deep ground stays a bet by arithmetic, not by rule.
+// ---------------------------------------------------------------------------
+constexpr float ESTIMATE_RANGE_M = 20.0f;
+constexpr float ESTIMATE_IDW_POWER = 3.0f;
+
+// A working face also teaches -- standing in the void you can see the rock
+// around it -- but at HALF a core's reach. This number was set by a failure,
+// not a guess: with dug spots given the full 20 m halo, colony_sim measured
+// blind digging becoming self-mapping enough to beat the surveyor, which is
+// the exact "prospecting becomes optional past the first pit" risk
+// module-interplay.md #5 warned about. At 10 m a dug spot's neighbour reads
+// ~0.21 (barely INFERRED): mining outward still hints, surveying still wins.
+constexpr float EXCAVATION_SUPPORT_RANGE_M = 10.0f;
+
 
 // Sweep energy costs per frequency band (high → low frequency)
 constexpr float SWEEP_ENERGY_COST[] = { 30.0f, 60.0f, 100.0f, 150.0f };
