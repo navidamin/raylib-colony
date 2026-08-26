@@ -146,12 +146,24 @@ the cursor.
 
 ### 4.2 How it is presented
 
-- **Region panel.** Resource bars with a single value each. Tagged with
-  the region's name. No error bars, no instrument names, no footprint
-  figures. One line of copy explains why it does not move: *orbital
-  surveys average over tens of km.*
-- **Site panel.** Terrain only, and it updates live with the cursor.
+- **Region panel** — two groups, both frozen:
+  - *Resources.* One value each, no error bars, no instrument names. One
+    line of copy explains why they do not move: *orbital surveys average
+    over tens of km.*
+  - *Terrain character.* What kind of ground this region is overall —
+    mean slope, and **rock abundance** (§4.5). This is what stops a
+    player anchoring a whole playfield on uniformly unbuildable
+    highland, and it is a genuinely different question from "is this
+    exact spot flat".
+- **Site panel.** Exact terrain at the cursor, updating live: mean and
+  peak slope, relief, illumination, PSR.
 - Both panels are on screen together during placement.
+
+**No rings, no footprint indicators, anywhere.** An earlier draft drew
+the instrument footprint as a ring around the cursor, and a dashed frame
+when the footprint outgrew the view. Cut — see Appendix A. Nothing on
+screen should require the player to know what an instrument footprint
+is; the frozen panel says everything that machinery was trying to say.
 
 **The mechanic teaches itself in one movement: the terrain panel follows
 the cursor and the region panel does not.** Nobody has to be told why.
@@ -203,11 +215,28 @@ It says **nothing** about composition. A boulder field and a smooth plain
 can be chemically identical. It answers "how bouldery is this ground?",
 which is an engineering question, exactly like slope.
 
-So it belongs on the **site** panel if it belongs anywhere — and it
-probably does not need to, because `TerrainBuildability::roughnessM`
-(RMS residual after a least-squares plane, from real LOLA/SLDEM at 59 m)
-already drives the same decision from measured data. Adding a synthetic
-rock layer would buy a second name for a veto the game already has.
+**DECIDED — it goes in the terrain group on the region panel.** Not as a
+resource, and not as a site row. At region scale it answers a question
+the player actually has when choosing where to settle: *is this rough,
+bouldery ground or open plain?* That is terrain character, and it sits
+next to mean slope.
+
+It is deliberately **not** repeated on the site panel. `roughnessM` (RMS
+residual after a least-squares plane, from real LOLA/SLDEM at 59 m)
+already drives the site-level veto from measured data, so a second
+bouldery-ground row there would be two names for one decision.
+
+The two are the same physical idea at two scales serving two different
+questions — *what kind of region is this* against *can I build on this
+exact spot* — which is why both earn their place and neither duplicates
+the other.
+
+*Honest note:* rock abundance really does resolve at ~237 m, finer than
+the 1.5 km build footprint, so confining it to the region panel discards
+precision the data has. That is a deliberate trade for one rule with no
+exceptions: everything on the region panel is frozen, everything on the
+site panel is live. If playtesting shows boulders need to veto individual
+spots, `roughnessM` is already there to do it.
 
 ### 4.6 What the region panel actually shows
 
