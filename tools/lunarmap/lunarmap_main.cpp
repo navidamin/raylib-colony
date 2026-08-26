@@ -1638,22 +1638,48 @@ static void DrawLevelCard(const DemoSite& site, int level,
         return;
     }
 
-    const char* subject = (level == 1) ? "playfield" :
-                          (level == 2) ? "neighbourhood" :
-                          (level == 3) ? "cell" : "footprint";
-    DrawText(TextFormat("%s mean slope", subject), px + 12, rowY, 14, dim);
-    DrawText(TextFormat("%.1f deg", g.meanSlope), px + pw - 92, rowY, 14, dim);
-    rowY += 21;
-    DrawText("buildable ground", px + 12, rowY, 14, dim);
-    Color bTint = g.buildableFrac > 0.7f ? Color{ 120, 220, 140, 255 }
-                : g.buildableFrac > 0.3f ? Color{ 235, 195, 110, 255 }
-                                         : Color{ 240, 120, 100, 255 };
-    DrawText(TextFormat("%.0f %%", g.buildableFrac * 100.0f),
-             px + pw - 92, rowY, 14, bTint);
-    rowY += 21;
-    DrawText("relief", px + 12, rowY, 14, dim);
-    DrawText(TextFormat("%.0f m", g.reliefM), px + pw - 92, rowY, 14, dim);
-    rowY += 25;
+    if (level <= 3)
+    {
+        const char* subject = (level == 1) ? "playfield" :
+                              (level == 2) ? "neighbourhood" : "cell";
+        DrawText(TextFormat("%s mean slope", subject), px + 12, rowY, 14, dim);
+        DrawText(TextFormat("%.1f deg", g.meanSlope), px + pw - 92, rowY, 14, dim);
+        rowY += 21;
+        DrawText("buildable ground", px + 12, rowY, 14, dim);
+        Color bTint = g.buildableFrac > 0.7f ? Color{ 120, 220, 140, 255 }
+                    : g.buildableFrac > 0.3f ? Color{ 235, 195, 110, 255 }
+                                             : Color{ 240, 120, 100, 255 };
+        DrawText(TextFormat("%.0f %%", g.buildableFrac * 100.0f),
+                 px + pw - 92, rowY, 14, bTint);
+        rowY += 21;
+        DrawText("relief", px + 12, rowY, 14, dim);
+        DrawText(TextFormat("%.0f m", g.reliefM), px + pw - 92, rowY, 14, dim);
+        rowY += 25;
+    }
+    else if (siteB)
+    {
+        // Same source as the verdict below it, or the panel argues
+        // with itself.
+        DrawText("mean slope", px + 12, rowY, 14, dim);
+        DrawText(TextFormat("%.1f deg", siteB->meanSlopeDeg),
+                 px + pw - 92, rowY, 14,
+                 siteB->meanSlopeDeg > 8.0f ? Color{ 240, 120, 100, 255 } : dim);
+        rowY += 21;
+        DrawText("peak slope", px + 12, rowY, 14, dim);
+        DrawText(TextFormat("%.1f deg", siteB->maxSlopeDeg),
+                 px + pw - 92, rowY, 14,
+                 siteB->maxSlopeDeg > 25.0f ? Color{ 240, 120, 100, 255 } : dim);
+        rowY += 21;
+        DrawText("roughness", px + 12, rowY, 14, dim);
+        DrawText(TextFormat("%.0f m", siteB->roughnessM),
+                 px + pw - 92, rowY, 14,
+                 siteB->roughnessM > 40.0f ? Color{ 240, 120, 100, 255 } : dim);
+        rowY += 21;
+        DrawText("relief", px + 12, rowY, 14, dim);
+        DrawText(TextFormat("%.0f m", siteB->reliefM),
+                 px + pw - 92, rowY, 14, dim);
+        rowY += 25;
+    }
 
     if (level == 3 && cells)
     {
