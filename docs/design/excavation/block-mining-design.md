@@ -6,6 +6,17 @@
 > Requires: [prospecting/block-model-design.md](../prospecting/block-model-design.md),
 > [subsurface/module-interplay.md](../subsurface/module-interplay.md)
 >
+> 2026-08-26 note: prospecting has dropped depth gating, its reach ring and
+> its tier entirely (rigs + techniques —
+> [prospecting/progression-design.md](../prospecting/progression-design.md)).
+> Two consequences for this document: (1) excavation **keeps its own tier and
+> reach for now** — its reach is about hauling and machines, not instruments —
+> but its machines already *are* the instrument frame, so when its tier
+> dissolves it dissolves the same way; (2) the lattice is moving from 8 × 8 to
+> a 16 × 16 target, and **every footprint number below was measured on 8 × 8**
+> (the 3 × 3 shaft = 37.5 m; the same metres are 6 × 6 at 16 × 16). Re-run
+> `colony_measure_clusters` before trusting any of them on the new lattice.
+>
 > **Relationship to [`excavation-design.md`](excavation-design.md):** that
 > document is built and shipped (Phases 1–6). Its four pillars — the panel, the
 > place, the gamble, the machinery — all survive. What changes is the *thing

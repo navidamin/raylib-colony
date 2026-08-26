@@ -14,14 +14,16 @@
 | 6 | [ai-default-mode.md](ai-default-mode.md) | AI delegation logic, default behavior, efficiency penalties, heuristics | DESIGNED, NOT BUILT (Phase 7) |
 | 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | IMPLEMENTED — **superseded by #9** |
 | 8 | [implementation-plan.md](implementation-plan.md) | **Resource classification.** Measured / Indicated / Inferred as a grouping of the existing confidence bands, on a colour key shared with excavation | C1-C4 BUILT |
-| 9 | [block-model-design.md](block-model-design.md) | **THE NEW PROSPECTING.** Drill holes with azimuth and dip, an interpolated estimate field, and a four-layer isometric block model. Supersedes the panel and interaction design in #1 and #7 | DESIGN — NOT BUILT |
+| 9 | [block-model-design.md](block-model-design.md) | **THE NEW PROSPECTING.** Drill holes with azimuth and dip, an interpolated estimate field, and a four-layer isometric block model. Supersedes the panel and interaction design in #1 and #7 | PARTLY BUILT — view, one-screen panel, LIBS-only sweep, certain cores shipped; estimate field and line holes not |
+| 10 | [progression-design.md](progression-design.md) | **PROGRESSION.** No tiers: rigs you buy (a stable, not a ladder) and techniques you learn (UnlockRegistry). Depth and reach ungated; disposition table for every `*_PER_TIER` constant | DESIGN — plan of record |
 
-> **Two designs live here.** #1-#8 describe **v1**, which is built and playable:
-> a flat 8x8 grid, one depth tab at a time, confidence local to each cell.
-> #9 describes **v2**, the block model, which is designed and not built. v2
-> keeps every engine v1 built (sweep, sampling, lab, survey progress) and
-> changes what they are pointed at. Start at #9 for new work; read #1-#8 for
-> what the instruments do.
+> **Two designs live here.** #1-#8 describe **v1** as it was built. The game
+> has since moved: the panel is one screen on a four-layer block model, the
+> lab and GPR are gone, cores come out assayed, and a sweep can never
+> classify. #9 is the design of record for the loop, #10 for progression.
+> Start at #9 and #10 for new work; read #1-#8 for instrument details, with
+> the caveat that anything about tabs, the lab, GPR bands, tier-gated depth
+> or the reach ring is superseded.
 
 ## Design Summary
 

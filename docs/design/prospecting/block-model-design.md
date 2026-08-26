@@ -6,6 +6,12 @@
 > Requires: [subsurface/subsurface-model.md](../subsurface/subsurface-model.md)
 > Pairs with: [subsurface/module-interplay.md](../subsurface/module-interplay.md)
 >
+> 2026-08-26 coherence pass: the LAB stage is **retired and shipped so** (a
+> recovered core comes out of the ground assayed); GPR is **dropped** (LIBS is
+> the one wide instrument); depth and prospecting reach are **ungated**; the
+> tier arc is replaced by [progression-design.md](progression-design.md)
+> (rigs + techniques). Sections below are edited to match.
+>
 > **Supersedes** the panel and interaction design in
 > [`prospecting-master-design.md`](prospecting-master-design.md) and
 > [`ui-layout.md`](ui-layout.md). It does **not** supersede
@@ -34,8 +40,13 @@ to commit — which is the decision the whole extraction chain hangs on.
 
 ### What the player is looking at
 
-Not a grid of squares. A **block model**: four depth layers of the 8 × 8
-lattice, drawn as stacked isometric surfaces, all four visible at once.
+Not a grid of squares. A **block model**: four depth layers of the sub-cell
+lattice, drawn as stacked isometric surfaces, all four visible at once. The
+lattice stays fixed-resolution (never resized by progression); the code is
+8 × 8 today and the **target is 16 × 16** (6.25 m blocks) — decided against
+the interactive mock-up, where 8 × 8 read as data resolution rather than
+ground. Note the switch invalidates every number measured on the 8 × 8
+lattice (`colony_measure_clusters`, the shaft footprint): re-run, re-derive.
 
 ```
               ╱▔▔▔▔▔▔▔▔▔▔▔▔╲
@@ -76,27 +87,34 @@ of 64 squares does not.
 
 ## 2. The Loop
 
-The three existing stages survive, and each finally means something distinct.
+Two stages, one destination. (An earlier draft kept a third, the LAB — it is
+retired, and the retirement has shipped: a recovered core is rock you are
+holding, so it comes out of the ground assayed. Analytical precision is a
+percent or two; the uncertainty *between* holes is total. Gating the assay
+modelled the small uncertainty and made the drill look like it might not tell
+you what you had just pulled out.)
 
 ```
-  ┌─────────┐      ┌─────────┐      ┌─────────┐      ┌─────────────┐
-  │  SWEEP  │ ───▶ │  DRILL  │ ───▶ │   LAB   │ ───▶ │ BLOCK MODEL │
-  └─────────┘      └─────────┘      └─────────┘      └─────────────┘
-   broad, cheap     a hole along     core becomes      grades + a
-   sets the PRIOR   a chosen line    ASSAYS            confidence field
-       │                                                     │
-       └──────────────── tells you where to drill ───────────┘
+  ┌──────────┐        ┌─────────┐        ┌─────────────┐
+  │  SWEEP   │ ─────▶ │  DRILL  │ ─────▶ │ BLOCK MODEL │
+  └──────────┘        └─────────┘        └─────────────┘
+   LIBS, surface       a hole along       grades interpolated
+   chemistry only,     a chosen line —    between assays, with
+   sets the PRIOR,     core is CERTAIN    confidence falling off
+   never classifies    along the trace    with distance from the
+        │                                 nearest core
+        └────── tells you where drilling is worth it ──────┘
 ```
 
 | Stage | Was | Is now |
 |-------|-----|--------|
-| **Sweep** (GPR) | raises confidence on swept cells | **sets the prior** — a broad, weak, cheap guess at the field, which is what makes a first drill hole an informed choice rather than a coin flip |
-| **Drill** | a sample at one spot + one depth | **a hole along a line** — collar, azimuth, dip, length. Returns core at intervals down its whole trace |
-| **Lab** | raises confidence per element | **turns core into assays.** Unassayed core is a rock in a tray: you drilled it, you still do not know what it is |
-| **Model** | *did not exist* | grades interpolated between assays, with a confidence that falls off with distance from the nearest one |
+| **Sweep** | GPR bands raising per-cell confidence | **LIBS only** — surface chemistry, element by element, blind below the regolith. Sets the prior and is hard-capped below classification: it may make ground look interesting, never make it count. GPR is dropped — it reads structure, not composition, so it had no per-element opinion to lend a grade model (revisit only if a structure-reading role appears once the ground has 3D orientation) |
+| **Drill** | a sample at one spot + one depth | **a hole along a line** — collar and target, so azimuth, dip and length are derived. Returns core at intervals down its whole trace, and the core is certain |
+| **Model** | *did not exist* | grades interpolated between assays, with confidence from the **nearest** core |
 
-Nothing built is wasted. The sweep engine, the sampling engine and the lab
-engine all keep their jobs; they gain a shared destination.
+Nothing built is wasted: the sweep engine keeps its job as the prior, the
+sampling engine extends from points to lines. The lab engine is orphaned —
+retained in the tree, called by nothing, delete when convenient.
 
 ### The recurring decision
 
@@ -177,7 +195,7 @@ struct DrillHole
     float azimuthDeg;    // compass bearing
     float dipDeg;        // 0 = horizontal, 90 = straight down
     float metres;        // how far
-    std::vector<Assay> assays;   // one per interval, once the lab has run
+    std::vector<Assay> assays;   // one per interval, filled on recovery
 };
 ```
 
@@ -208,19 +226,24 @@ The readout answers *"what will this hole buy me?"* in the same currency as the
 resource statement — blocks moved up a class. That turns aiming from a
 guess into a comparison, without telling the player what the assays will say.
 
-### Tier arc
+### Progression
 
-Tier extends what you can *do with a hole*, not just how far you can reach.
+There is no tier. What a hole can be is decided by the **rig** that drills it
+and the **techniques** the colony has learned — a stable of instruments and a
+short chain of knowledge, specified in
+[progression-design.md](progression-design.md). The short form:
 
-| Tier | Reach | Depth | Drilling | The decision it adds |
-|------|-------|-------|----------|---------------------|
-| **T0** | 2 × 2 | 1 layer | vertical, one layer | none — you drill what is under you |
-| **T1** | 4 × 4 | 2 layers | vertical, full column | how deep to push |
-| **T2** | 6 × 6 | 3 layers | **angled** — azimuth and dip | which way the shoot goes |
-| **T3** | 8 × 8 | 4 layers | long holes + downhole survey (tighter support per metre) | where to spend a big hole |
+| Axis | Owned by | The arc |
+|------|----------|---------|
+| RECOVERY — what comes back up | rigs | auger → RC chips (fast, ±20%, caps at Indicated) → diamond core (certain) → composite holes |
+| AIM — where you may point it | rig × technique | vertical → dip detents → continuous azimuth/dip → daughter holes off a wedge |
+| CONTINUITY — how far a core speaks | techniques | isotropic → corroborated pairs → declared strike → per-element anisotropy |
 
-T2 is the tier that changes the game. Everything before it is coverage;
-everything after it is interpretation.
+Depth appears nowhere in that table, and neither does reach: **all four
+layers and all 64 collars are open from the first minute.** Depth stays
+meaningful because it is priced per metre (never discounted), thin by
+geometry (cross-layer support ~0.49/0.14/0.01), long to reach obliquely, and
+expensive to corroborate — see progression-design.md §5.
 
 ### Cost
 
@@ -261,7 +284,7 @@ repo's rule — no numbers invented here.
 │     ╲▁▁▁▁▁▁▁▁▁▁▁╱            │  ┌───────────────────────────┐  │
 │                              │  │        DRILL              │  │
 │  ■ Measured ■ Indicated      │  └───────────────────────────┘  │
-│  ■ Inferred  height = grade  │  SWEEP  ·  LAB  ·  AUTO         │
+│  ■ Inferred  height = grade  │  LIBS SWEEP  ·  AUTO            │
 └──────────────────────────────┴─────────────────────────────────┘
 ```
 
@@ -299,8 +322,9 @@ Every stage keeps its AUTO mode, per the module's existing principle.
 | **HINTED** | proposes the next hole; the player accepts or re-aims | small efficiency penalty vs. hand-siting |
 | **HANDS-ON** | full control of collar, azimuth, dip, length | best results, most attention |
 
-The ceiling is the honest part: AUTO can reach Indicated over the whole reach
-ring and will never reach Measured on a dipping shoot, because it cannot aim.
+The ceiling is the honest part: AUTO can reach Indicated over the whole
+lattice and will never reach Measured on a dipping shoot, because it cannot
+aim.
 A player who ignores prospecting still plays a complete game — just never a
 confident one.
 
@@ -310,14 +334,16 @@ confident one.
 
 | Existing | Fate |
 |----------|------|
-| `SweepEngine` | **Kept.** Its output becomes the prior instead of a per-cell confidence |
+| `SweepEngine` | **Kept, single-mode.** LIBS only; its output is the prior, hard-capped below classification. The band arrays die with GPR |
 | `SamplingEngine` | **Extended.** A vertical one-layer sample is a hole with dip 90 and length one layer |
-| `LabEngine`, sample tray, crystal visuals | **Kept unchanged.** Assaying core is exactly what it already does |
+| `LabEngine` | **Retired.** Cores come out assayed; the engine is orphaned in the tree, delete when convenient |
+| Sample tray, crystal visuals | **Kept as specimens only.** Assay records move onto `SubCell` permanently — today evicting a core deletes the ground it classified, which makes the tray a cap on knowledge |
 | `SurveyProgressEngine` | **Kept.** Still the single "how surveyed is this cell" number the extraction pipeline multiplies by |
 | `ResourceClass`, `GetDepthConfidence`, `GetClassSplit` | **Kept.** Built already; the block model is their first real consumer |
 | Flat per-depth-tab 2D grid | **Retired**, replaced by the four-layer model |
 | Per-cell independent confidence | **Retired**, replaced by the interpolated field |
 | `SUBCELL_*` cluster generation per layer | **Retired**, see [subsurface-model.md](../subsurface/subsurface-model.md) §4 |
+| Every `*_PER_TIER` constant | **Retired**, disposition table in [progression-design.md](progression-design.md) §6 |
 
 ---
 
@@ -327,10 +353,18 @@ confident one.
 
 - `[?]` Can a hole be collared **outside** the reach ring if it is aimed back
   inside? Physically no; it would also break the reach ladder. Leaning no.
-- `[?]` Does the lab assay **per interval** or **per hole**? Per interval is
-  truer and gives partial information as the lab works through the core; per
-  hole is far simpler UI. Leaning per hole for v1, with the interval structure
-  in the data so it can change later.
+- ✅ ~~Does the lab assay per interval or per hole?~~ Moot — the lab is
+  retired and a recovered core is assayed on recovery, per interval, along
+  the whole trace.
+- `[?]` **One calibration conflict to resolve deliberately, not discover:**
+  §3 says Measured needs ~10 m spacing and "you cannot get a block to
+  Measured with one hole through it" — but RANGE = 20 m makes the hole's own
+  block Measured (correct: the rock is in your hand) and its neighbours
+  Indicated at ~0.68. The ~10 m rule therefore applies to **neighbours**, not
+  the cut block. Write that down before tuning, and add the regression test
+  §3 already demands: adding a hole must never increase model error
+  (isotropic kernel only — a wrongly-declared anisotropy raising error is the
+  point of `StructuralInterpretation`).
 - `[?]` Is `RANGE` a **constant**, or a property of the ground the player can
   learn? A per-cell continuity distance would be a beautiful hidden variable —
   and a cruel one, because it silently changes what a hole is worth.
