@@ -2,7 +2,12 @@
 
 **Status: SETTLED** — simplified 2026-08-25; step 1 of 4 implemented.
 
-How a player gets from "somewhere on the Moon" to "the base goes *here*".
+How a player gets from "somewhere on the Moon" to "the base goes *here*":
+**five levels, five different questions, two commitments.** Chemistry
+decides once at level 1 and never refines; every level below decides
+*position* — geometry that sharpens honestly because the player moved,
+not because an instrument improved. See §2 and the coherency contract in
+§5.0 (which game systems must exist for each decision to be real).
 
 ## The whole design in two sentences
 

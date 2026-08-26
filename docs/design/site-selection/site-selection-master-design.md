@@ -12,7 +12,8 @@ where resource information lives.
 > **Resources belong to the region. Terrain belongs to the spot.**
 >
 > You pick a region for what it has. You pick a spot for whether you can
-> build on it.
+> build on it. Every level in between still decides something — but it
+> decides *position*, never chemistry.
 
 Everything below is consequence. If a rule here cannot be traced back to
 those two sentences, it should not exist.
@@ -22,41 +23,88 @@ those two sentences, it should not exist.
 ## 1. Design intent
 
 The player should feel like a mission planner narrowing down a landing
-site, not like someone clicking a tile on a grid. Two properties carry
+site, not like someone clicking a tile on a grid. Three properties carry
 that:
 
-1. **Two decisions, not one.** *Which region* and *which ground* are
-   different questions with different answers, decided at different
-   zooms. Collapsing them into a single "pick a tile" is what makes grid
-   games feel like spreadsheets.
-2. **The last step is different in kind.** Everything above it is
-   navigation. Placing the base is commitment, and it must *look*
-   different, not merely behave differently.
-
-An earlier draft had a third property — *information sharpens as you
-descend* — and it was wrong. See Appendix A.
+1. **Every level asks one question, and it is a different question.**
+   Not the same question at five sharpnesses — that was the rejected
+   model (Appendix A). Each level's question is the one that naturally
+   lives at that scale, answered by data that is real at that scale.
+2. **One verb.** The decision at every level is where you put the cursor
+   before you click. Click descends, Esc backs out. No level introduces
+   a new interaction; only the question changes.
+3. **Five questions, two commitments.** Claiming the region (level 1)
+   and founding the base (level 5) are binding. Everything between is
+   freely revisable — the reversible-descent rule (§3.3) is what makes
+   asking five questions cheap enough to be pleasant.
 
 ---
 
-## 2. Two decisions, and the camera between them
+## 2. Five levels, five questions
 
-| | Decision 1 | Decision 2 |
-|---|---|---|
-| **Question** | Which region? | Which ground? |
-| **Scale** | 100 km — one playfield | 1.5 km — the base footprint |
-| **Decided by** | resource holdings | slope, relief, illumination, PSR |
-| **Data** | orbital survey, averaged over tens of km | LOLA/SLDEM, 59 m, measured |
-| **Where** | orbital view (`OrbitalPickToLatLon`, `SetTerrainAnchor`) | inside a 5 km sect cell |
+| # | Level | Span | The question | Answered by | What locks |
+|---|-------|------|--------------|-------------|------------|
+| 1 | Orbital | disc | **Which economy?** | terrane + named feature + latitude: Fe/Ti/Th, rock type, day/night regime | chemistry, name, strategy |
+| 2 | Playfield | 100 km | **Which mix?** | position against boundaries: mare/highland shore, large craters, PSR craters (polar) | playfield anchor |
+| 3 | Colony | 25 km | **Which neighbourhood?** | buildable fraction, mean slope, distance to PSR / shore / landmark | expansion room |
+| 4 | Sect | 5 km | **Which cell?** | cell terrain aggregate + neighbouring cells' buildability | first sect cell |
+| 5 | Site | 1.5 km | **Which ground?** | live `EvaluateSite` at 59 m: slope, relief, illumination, PSR | the base |
 
-**Everything between the two is camera movement.** The game's existing
-Planet (100 km) → Colony (25 km) → Sect (5 km) views are how the player
-travels between the two decisions; they are not decisions themselves and
-carry no readout of their own beyond what is already on screen.
+**Chemistry decides once; geometry decides at every level after.** The
+region panel freezes at level 1 (§4.6) and is never contradicted below.
+What levels 2–4 present instead is **measured geometry** — distances and
+fractions — and those sharpen honestly with zoom, because the *candidate
+position* is sharpening, not the instrument. Distance-to-PSR reads
+differently at level 3 than at level 2 because the player moved, not
+because anything was re-measured.
 
-This is deliberately *not* a new ladder. One region is one playfield —
-the 20×20 grid of 5 km cells the game already has — so decision 1 is the
-terrain anchor the orbital view already sets, and decision 2 is placement
-inside a cell. No new levels are introduced.
+**The same ladder asks different questions in different geography.** At
+a polar region levels 2–4 are about PSR-and-sunlit-ridge geometry — get
+near the ice without falling into the dark. At a mid-latitude mare they
+are about the mare/highland shore and crater access. Same mechanics,
+same panels, different terrain answering — which is what makes region
+choice at level 1 replayable rather than cosmetic.
+
+### 2.1 Level 1 is a strategy menu, and the menu already exists
+
+`SiteArchetype` (game_enums.h) — currently a dead label — becomes the
+tag shown with the region's name at level 1. Each archetype is a
+strategy with a visible cost, and the trade-offs are real geochemistry
+(§4.6), not invented balancing:
+
+| Archetype | Where | You get | You give up |
+|-----------|-------|---------|-------------|
+| MARE_INDUSTRIAL | PKT mare interior | Fe/Ti-rich ground, flat, strong Earth comms | aluminium (import it), 14-day nights |
+| HIGHLAND_CONSTRUCTION | feldspathic highlands | Al/Ca — cheap structures | metal (import it), rough ground |
+| POLAR_VOLATILE | polar crater rim | PSR ice next door, near-constant sun on the crest | low metals, brutal terrain, marginal comms |
+| KREEP_SCIENTIFIC | thorium anomaly | science | mediocre everything else |
+| MIXED | the mare **shore** | both Fe and Al at moderate grade, no imports | master of none |
+
+MIXED is worth noticing: it is not chosen at level 1 at all — it
+*emerges at level 2*, by anchoring the playfield on the mare/highland
+boundary so both rock types are inside trucking distance. That is the
+clearest example of a level-2 decision being real: same region, and the
+shore playfield plays differently from the interior one.
+
+### 2.2 What each level shows
+
+One card per level, few rows, all measured. The frozen region card
+(chemistry + name) stays on screen from level 1 down, unchanged.
+
+- **L1** — region name, terrane, archetype tag, rock, Fe/Ti/Th,
+  latitude and its meaning ("14-day nights" / "polar: ridge sun, PSRs").
+- **L2** — what the playfield touches: shore yes/no, named landmarks
+  inside, PSR count (polar), buildable fraction of the whole field.
+- **L3** — neighbourhood: buildable fraction, mean slope, distance to
+  PSR / shore / landmark, room for how many flat sect cells.
+- **L4** — the cell and its neighbours: cell aggregate, and a small
+  3×3 buildability glyph so expansion room is visible before committing.
+- **L5** — the live site panel and verdict, as already designed (§3.2),
+  then the measured / unknown-until-prospected commit split.
+
+This is deliberately still *not* a new view stack. Levels 2–4 are the
+game's existing Planet → Colony → Sect views; the ladder adds one card
+per level and the cursor, nothing else.
 
 **Cursor sizing rule.** Wherever a cursor is shown it stays between
 **15% and 30%** of the window's smaller dimension, and where it snaps,
@@ -376,6 +424,37 @@ weakens "one region, one playfield", so try the simple version first.
 ---
 
 ## 5. Implementation plan
+
+### 5.0 The coherency contract — what the game must make true
+
+A level's question is only a decision if some game system consumes the
+answer. Audit of where each dependency stands today:
+
+| Decision | Is real only if | Status today |
+|----------|-----------------|--------------|
+| L1 chemistry mix | construction consumes Al/Ca; alloys/machinery consume Fe/Ti | `CONSTRUCTION_MATERIALS` exists as a type with **zero producers or consumers** — MISSING |
+| L1 latitude | energy scales with sun; the 14-day night forces storage or shutdown | no lunar night in `TimeManager`; `solarIllumination` has **zero consumers** — MISSING |
+| L2/L3 PSR distance | water is extractable from PSR ice, hauling cost grows with distance | WATER is consumed (farming) but **nothing produces it**; no ice extraction — MISSING |
+| L2–L4 distances | transport between sects is priced by distance | transport system exists (auto-balance, deficit) but is **not distance-priced** — PARTIAL |
+| L4 adjacency | expansion onto neighbouring cells | `BuildNewSect` on the grid — PARTIAL |
+| L5 ground | slope/relief/PSR gate the build | `EvaluateSite` + `JudgeSite` — **DONE** |
+| the commit gamble | prospecting reveals local truth after founding | prospecting module implemented — LARGELY DONE |
+
+Two rules follow:
+
+1. **No level may lie while its system is missing.** The panels show
+   only measured terrain and real region identity, so every row is true
+   today; the strategic *consequences* arrive as each chain is built.
+   Never show a consequence (e.g. "night shuts down production") before
+   the system exists.
+2. **Build the cheapest reality first.** Priority order:
+   **C1** construction consumes Al/Ca, alloys consume Fe/Ti — pure data,
+   the cost-table maps in `game_constants.h` already exist;
+   **C2** lunar night + illumination-scaled energy — makes latitude and
+   level-5 illumination matter;
+   **C3** water chain with PSR ice extraction — makes the polar strategy
+   exist at all;
+   **C4** distance-priced transport — makes levels 2–4's geometry bite.
 
 ### Step 1 — Cursor infrastructure — **DONE**
 `src/TerrainGen/survey_cursor.{h,cpp}`: pure geometry, no game or render
