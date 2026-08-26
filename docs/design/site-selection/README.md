@@ -69,3 +69,11 @@ playfield", so try the simple version first.
 `[?]` **Do the regions differ enough?** A requirement on
 `ResourceManager`'s generation, not on the UI. If every region reads
 alike, decision 1 is not a decision. No panel work substitutes for it.
+
+`[?]` **Eight resource bars or three groups?** Decide by playtest (§4.6).
+
+**Settled:** the region panel shows only the **natural extractables**
+(`H2, O2, C, Fe, Si, Ti, Al, Ca`) — everything else in `ResourceType` is
+produced, not found. And **rock abundance is terrain, not a resource**
+(§4.5); with it filed correctly, the region/spot rule needs no
+exception.

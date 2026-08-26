@@ -176,15 +176,56 @@ Appendix A.
   never real: if descending is free and always sharpens the number, it is
   a toll, not a decision. This trades an illusion for a rule learned in
   one movement.
-- **All resources behave alike.** Rock abundance and surface mineralogy
-  really are measured at a couple of hundred metres, far finer than
-  hydrogen. Bundling them into one regional figure loses that.
+- **All resources behave alike.** Surface mineralogy (M3, ~140 m/px)
+  really is measured far finer than hydrogen, so bundling it into one
+  regional figure loses something. But M3 reads only the top few microns
+  and is confounded by space weathering — high spatial resolution, low
+  depth reliability — so it is a poor candidate for an exception and the
+  loss is small.
 
-  *Extension point, if it ever matters:* promote a **single** quantity to
-  the site panel — rock abundance is the physically correct candidate. It
-  would then be the only thing besides terrain that reacts to the cursor,
-  which keeps the rule legible instead of muddying it. One row, not a
-  system.
+  **There is no exception worth making.** An earlier draft named *rock
+  abundance* as the quantity to promote to the site panel. That was
+  wrong: rock abundance is not a resource at all (§4.5). With it
+  correctly filed as terrain, no resource needs promoting and the rule
+  holds without a special case.
+
+### 4.5 Rock abundance is terrain, not a resource
+
+Worth stating explicitly because it is easy to get wrong. **Rock
+abundance** is a real Diviner product: the areal fraction of ground
+covered by rocks roughly a metre across and larger, mapped globally at
+~237 m/px. It is derived thermally — rock has far higher thermal inertia
+than regolith fines, so through the lunar night boulders stay warm while
+dust cools fast, and multi-wavelength night temperatures separate the
+two.
+
+It says **nothing** about composition. A boulder field and a smooth plain
+can be chemically identical. It answers "how bouldery is this ground?",
+which is an engineering question, exactly like slope.
+
+So it belongs on the **site** panel if it belongs anywhere — and it
+probably does not need to, because `TerrainBuildability::roughnessM`
+(RMS residual after a least-squares plane, from real LOLA/SLDEM at 59 m)
+already drives the same decision from measured data. Adding a synthetic
+rock layer would buy a second name for a veto the game already has.
+
+### 4.6 What the region panel actually shows
+
+The **natural, extractable** resources — the ones the planet grid already
+stores: `H2, O2, C, Fe, Si, Ti, Al, Ca`. `OrbitalSurveyData` already
+carries the matching fields (`fePercent`, `tiPercent`, `siPercent`,
+`alPercent`, `caPercent`, `thPpm`, `kPpm`, `hydrogenSignal`).
+
+Everything else in `ResourceType` — `WATER`, `FOOD`, `BIOFUEL`,
+`ALLOYS`, `MACHINERY`, `ELECTRONICS`, `CONSTRUCTION_MATERIALS`,
+`SCIENCE`, `MANPOWER` — is **produced, not found**, so none of it appears
+in site selection. Water in particular is made from hydrogen and oxygen
+by the colony; what the survey sees is the hydrogen signal, not water.
+
+`[?]` Eight bars may be too many to compare regions at a glance.
+Grouping into three — volatiles (H2, O2, C), metals (Fe, Ti, Al),
+silicates (Si, Ca) — would read faster, at the cost of hiding which
+metal. Decide by playtest, not in advance.
 
 `[?]` Region size. 100 km = one playfield is the natural choice and needs
 no new machinery. If regions turn out to feel too coarse to choose
