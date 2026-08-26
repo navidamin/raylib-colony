@@ -65,6 +65,7 @@ struct DemoSite
     const char* key;
     double pickLat, pickLon;       // level-1 click
     double aimDx, aimDy;           // km east/north of pick the player aims at
+    float sunElDeg;                // display sun: grazing at the poles
     // region card (fixed from level 1)
     const char* regionName;
     const char* terrane;
@@ -79,7 +80,7 @@ struct DemoSite
 
 static const DemoSite DEMO_SITES[] =
 {
-    { "imbrium", 32.8, -15.6, 13.0, 13.0,
+    { "imbrium", 32.8, -15.6, 13.0, 13.0, 30.0f,
       "Mare Imbrium", "Procellarum KREEP Terrane", "MARE INDUSTRIAL",
       Color{ 224, 168, 108, 255 },
       "mare basalt", 14.0f, 2.5f, 8.0f,
@@ -97,7 +98,7 @@ static const DemoSite DEMO_SITES[] =
           "Build allowed. What is UNDER this exact spot - hydrogen, regolith depth - stays unknown until prospected." },
       } },
 
-    { "apennine", 25.5, 1.8, -16.0, 10.0,
+    { "apennine", 26.10, 3.60, -3.0, 1.0, 24.0f,
       "Palus Putredinis", "PKT - Apennine boundary", "MIXED (SHORE)",
       Color{ 150, 200, 150, 255 },
       "mare basalt / highland breccia", 12.0f, 1.8f, 5.0f,
@@ -115,7 +116,7 @@ static const DemoSite DEMO_SITES[] =
           "The shore's price, measured: the same cell holds green and red ground." },
       } },
 
-    { "shackleton", -89.3, 0.0, 4.0, 5.0,
+    { "shackleton", -89.7, 110.0, 0.0, 10.5, 4.0f,
       "Shackleton rim", "Feldspathic Highlands (polar)", "POLAR VOLATILE",
       Color{ 140, 190, 235, 255 },
       "anorthosite breccia", 5.0f, 0.4f, 1.0f,
@@ -306,6 +307,7 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
             options.place = true;
             options.placeDxKm = DEMO_SITES[options.demo].aimDx;
             options.placeDyKm = DEMO_SITES[options.demo].aimDy;
+            options.sunElevationDeg = DEMO_SITES[options.demo].sunElDeg;
         }
         else if (arg == "--layer" && hasNext) { options.layer = std::atoi(argv[++i]); }
         else if (arg == "--truth") { options.truth = true; }
