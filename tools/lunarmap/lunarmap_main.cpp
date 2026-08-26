@@ -2124,22 +2124,21 @@ static int RenderLadder(AppState& app)
         GroundStats cells[9];
         if (level == 3)
         {
-            // Neighbour cells of the candidate 5 km cell (screen row 0
-            // is north, so +j is south = -north offset).
+            // Neighbour cells of the candidate 5 km cell. Sampled from a
+            // fresh 15 km window centred on the CELL, not from the display
+            // window: the game's grid continues past the view edge, so a
+            // corner cell's neighbours are real ground, not blanks.
+            double cLat = 0.0, cLon = 0.0;
+            SurveyCursorLatLon(*cursor, &cLat, &cLon);
+            LolaWindow neigh = app.dem.Window(cLat, cLon, 15.0, 240,
+                                              opts.detail);
             for (int j = 0; j < 3; j++)
             {
                 for (int i = 0; i < 3; i++)
                 {
-                    double ox = cursor->offsetXKm + (i - 1) * 5.0;
-                    double oy = cursor->offsetYKm - (j - 1) * 5.0;
-                    double lim = (cursor->windowSpanKm - 5.0) * 0.5;
-                    if (std::fabs(ox) > lim || std::fabs(oy) > lim)
-                    {
-                        cells[j * 3 + i].buildableFrac = -1.0f;
-                        continue;
-                    }
-                    cells[j * 3 + i] = CursorGroundStats(app.scene.window,
-                                                         ox, oy, 5.0);
+                    cells[j * 3 + i] = CursorGroundStats(neigh,
+                                                         (i - 1) * 5.0,
+                                                         (1 - j) * 5.0, 5.0);
                 }
             }
         }
