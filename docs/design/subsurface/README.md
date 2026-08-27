@@ -15,6 +15,7 @@ thing.
 |---|----------|-------------|--------|
 | 1 | [subsurface-model.md](subsurface-model.md) | **What is actually down there.** 3D shoots with orientation, geometry and units, what changes in the generator | PRELIMINARY |
 | 2 | [module-interplay.md](module-interplay.md) | **The contract**, and the empty-out effect of mining on the model | DESIGN |
+| 3 | [drilling-procedure.md](drilling-procedure.md) | **The machine-ground contract.** Heat, pressure, wear, cuttings and telemetry as felt mechanics, for both modules; where learning lives; failures cost knowledge (prospecting) or product (excavation) | DESIGN |
 
 ## The One-Paragraph Version
 

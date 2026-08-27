@@ -82,7 +82,7 @@ being correct.
 | **Auger** (starter, free) | good in regolith, terrible below it | true core — certain along the trace | vertical only; slow setup |
 | **RC percussion** | ~3× the diamond rig | chips: grade ±20%, support **capped at 0.75** | can reach Indicated, can **never** produce Measured |
 | **Diamond core** | 1× (the reference) | true core — Measured along the trace | dear and slow |
-| **Wireline add-on** | — | re-enter a finished hole; wedge daughter holes off it, paying only metres past the kick-off | mounts on the diamond rig only |
+| **Wireline add-on** | — | re-enter a finished hole; wedge daughter holes off it; retrieve core **without tripping the string** — see [drilling-procedure.md](../subsurface/drilling-procedure.md) §3 | mounts on the diamond rig only |
 | **Orientation tool** | — | each intercept also reports the local contact attitude ±15° — the surface the bit cut, never the body's axis | needs core; useless on RC chips |
 
 Why this is a stable and not a ladder: the RC rig never retires, because
