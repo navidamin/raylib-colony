@@ -2864,22 +2864,34 @@ static void ProsDashed(Vector2 a, Vector2 b, float dash, float gap,
 }
 
 // ---- metal (Dark Plating section 4) ---------------------------------------
-static Color ProsSteel(float sh)
+// Heat context for the frame being drawn: a Gaussian around the bit, fed to
+// every steel call so the glow spreads up the machine from the working point.
+static float prosHeatAmt = 0.0f, prosHeatBitY = 0.0f;
+static float ProsHeatAt(float y)
+{
+    float d = y - prosHeatBitY;
+    return prosHeatAmt * expf(-(d * d) / (2.0f * 70.0f * 70.0f));
+}
+static Color ProsSteel(float sh, float heat = 0.0f)
 {
     sh = std::clamp(sh, 0.0f, 1.0f);
-    return { static_cast<unsigned char>(96.0f + 142.0f * sh),
-             static_cast<unsigned char>(104.0f + 140.0f * sh),
-             static_cast<unsigned char>(118.0f + 134.0f * sh), 255 };
+    float r = 96.0f + 142.0f * sh, g = 104.0f + 140.0f * sh, b = 118.0f + 134.0f * sh;
+    float t = std::clamp(heat * 1.15f, 0.0f, 1.0f);
+    r += (255.0f - r) * t;
+    g += ((55.0f + 110.0f * sh) - g) * t;
+    b += (25.0f - b) * t;
+    return { static_cast<unsigned char>(r), static_cast<unsigned char>(g),
+             static_cast<unsigned char>(b), 255 };
 }
 // One slice of a turned cylinder: five flat bands, specular off-centre left.
 static void ProsBandedSlice(float cx, float y, float hw, float hh,
                             const float tones[5][2])
 {
-    float x = cx - hw, wTot = hw * 2.0f, t = 0.0f;
+    float x = cx - hw, wTot = hw * 2.0f, t = 0.0f, heat = ProsHeatAt(y);
     for (int k = 0; k < 5; k++)
     {
         DrawRectangleRec({x + wTot * t, y, wTot * tones[k][0] + 0.7f, hh},
-                         ProsSteel(tones[k][1]));
+                         ProsSteel(tones[k][1], heat));
         t += tones[k][0];
     }
 }
@@ -2980,27 +2992,29 @@ static void ProsDrawThread(const ProsRig& r, bool front)
     for (const Seg& s : segs)
     {
         float c = std::max(0.0f, s.c), lt = (1.0f - s.s) * 0.5f;
+        float heat = ProsHeatAt(s.r0.y);
         float shB = dim(band(0.40f + 0.30f * c + 0.18f * lt));
         float shU = dim(band(0.10f + 0.16f * c));
         float shR = dim(band(0.38f + 0.34f * c + 0.22f * lt));
         float shF = dim(band(0.33f + 0.46f * c + 0.14f * lt));
         // body slab (root thickness tapering to crest = the V that sharpens teeth)
-        ProsFillQuad(s.r0, s.c0, {s.c0.x, s.c0.y + PROS_TH_C}, {s.r0.x, s.r0.y + PROS_TH_T}, ProsSteel(shB));
-        ProsFillQuad(s.r0, s.r1, {s.r1.x, s.r1.y + PROS_TH_T}, {s.r0.x, s.r0.y + PROS_TH_T}, ProsSteel(shB));
+        ProsFillQuad(s.r0, s.c0, {s.c0.x, s.c0.y + PROS_TH_C}, {s.r0.x, s.r0.y + PROS_TH_T}, ProsSteel(shB, heat));
+        ProsFillQuad(s.r0, s.r1, {s.r1.x, s.r1.y + PROS_TH_T}, {s.r0.x, s.r0.y + PROS_TH_T}, ProsSteel(shB, heat));
         // underside in shadow
         ProsFillQuad({s.r0.x, s.r0.y + PROS_TH_T * 0.55f}, {s.c0.x, s.c0.y + PROS_TH_C * 0.55f},
-                     {s.c1.x, s.c1.y + PROS_TH_C}, {s.r1.x, s.r1.y + PROS_TH_T}, ProsSteel(shU));
+                     {s.c1.x, s.c1.y + PROS_TH_C}, {s.r1.x, s.r1.y + PROS_TH_T}, ProsSteel(shU, heat));
         // crest rim
-        ProsFillQuad(s.c0, s.c1, {s.c1.x, s.c1.y + PROS_TH_C}, {s.c0.x, s.c0.y + PROS_TH_C}, ProsSteel(shR));
+        ProsFillQuad(s.c0, s.c1, {s.c1.x, s.c1.y + PROS_TH_C}, {s.c0.x, s.c0.y + PROS_TH_C}, ProsSteel(shR, heat));
         // the ramp face itself
-        ProsFillQuad(s.r0, s.c0, s.c1, s.r1, ProsSteel(shF));
+        ProsFillQuad(s.r0, s.c0, s.c1, s.r1, ProsSteel(shF, heat));
     }
     if (front)
     {
         for (const Seg& s : segs)
         {
             float g = roundf(std::clamp(0.54f + 0.30f * std::max(0.0f, s.c) + 0.06f, 0.0f, 1.0f) * 3.0f) / 3.0f;
-            DrawLineEx({s.c0.x, s.c0.y + 0.8f}, {s.c1.x, s.c1.y + 0.8f}, 1.1f, ProsSteel(g));
+            DrawLineEx({s.c0.x, s.c0.y + 0.8f}, {s.c1.x, s.c1.y + 0.8f}, 1.1f,
+                       ProsSteel(g, ProsHeatAt(s.c0.y)));
         }
     }
 }
@@ -3049,12 +3063,13 @@ static void ProsDrawString(const ProsRig& r, float topY)
     for (int k = 0; k < 3; k++)
     {
         Vector2 a = {r.cx + cw * fac[k][0], sh}, b = {r.cx + cw * fac[k][1], sh};
-        DrawTriangle(a, {r.cx, r.coneApex - 1.2f}, b, ProsSteel(fac[k][2]));
+        DrawTriangle(a, {r.cx, r.coneApex - 1.2f}, b,
+                     ProsSteel(fac[k][2], std::min(1.0f, ProsHeatAt(sh) * 1.3f)));
     }
     DrawRectangleRec({r.cx - cw - 1.0f, sh - 1.3f, (cw + 1.0f) * 2.0f, 1.5f}, Fade(BLACK, 0.45f));
 }
 
-static void ProsDrawHead(float cx, float surfY, bool turning)
+static void ProsDrawHead(float cx, float surfY, bool turning, bool cooling)
 {
     float top = surfY - 92.0f;
     auto box = [](float x, float y, float w, float h, Color fill, bool bev)
@@ -3078,7 +3093,9 @@ static void ProsDrawHead(float cx, float surfY, bool turning)
     }
     box(cx + 23.0f, top + 6.0f, 17.0f, 14.0f, {57, 66, 78, 255}, true); // motor pod
     DrawRectangleRec({cx + 27.5f, top + 10.0f, 4.0f, 4.0f},
-                     turning ? Color{255, 200, 77, 255} : Color{80, 225, 255, 255});
+                     cooling ? Color{255, 90, 40, 255}
+                             : turning ? Color{255, 200, 77, 255}
+                                       : Color{80, 225, 255, 255});
     box(cx - 10.0f, top + 29.0f, 20.0f, 9.0f, {74, 84, 95, 255}, true); // collar clamp
     box(cx - 7.0f, top + 38.0f, 14.0f, 8.0f, {57, 66, 78, 255}, true);
 }
@@ -3091,12 +3108,14 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     (void)unit;
     const LineHole& hole = ps->lineHole;
     bool turning = hole.state == LineHoleState::DRILLING;
+    bool cooling = turning && hole.dwelling;
     float surfY = dg.bandTop[0];
     float botY = dg.bandTop[4];
 
-    // spin + chips advance with the frame, freeze when the string stops
+    // spin + chips advance with the frame; a dwell winds the spin down and
+    // stops the cuttings -- the string is off the face, cooling
     float dt = GetFrameTime();
-    if (turning) prosSpin -= 0.62f * 9.0f * dt;
+    if (turning) prosSpin -= (cooling ? 0.12f : 0.62f) * 9.0f * dt;
 
     BeginScissorMode(static_cast<int>(dg.x), static_cast<int>(clipTop),
                      static_cast<int>(dg.w), static_cast<int>(clipBot - clipTop));
@@ -3137,6 +3156,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
 
     ProsRig rig;
     rig.cx = dg.cx; rig.surfY = surfY;
+    prosHeatAmt = hole.heat;
     float depthShown = (hole.state == LineHoleState::DRILLING ||
                         hole.state == LineHoleState::DONE) ? hole.depthM : 1.5f;
     rig.bitY = dg.YOf(depthShown);
@@ -3144,6 +3164,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     rig.coneTop = rig.coneApex - PROS_CONE;
     rig.threadTop = std::max(std::min(rig.bitY - PROS_THREAD_LEN,
                                       rig.coneTop - 3.0f * PROS_PITCH), surfY + 10.0f);
+    prosHeatBitY = rig.bitY;
 
     // borehole with ragged walls, cut to the bit
     float bw = PROS_DRILL_R * 2.0f + 9.0f;
@@ -3167,8 +3188,15 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     ProsDrawString(rig, clipTop + 4.0f);
     ProsDrawThread(rig, true);
 
-    // cuttings ride the flights while the string turns
-    if (turning && prosChips.size() < 46)
+    // heat glow pooling at the working point
+    if (hole.heat > 0.04f)
+    {
+        DrawCircleGradient({rig.cx, rig.bitY}, 58.0f,
+                           Fade({255, 110, 30, 255}, 0.42f * hole.heat), BLANK);
+    }
+
+    // cuttings ride the flights while the string actually cuts
+    if (turning && !cooling && prosChips.size() < 46)
         for (int i = 0; i < 2; i++)
             prosChips.push_back({rig.bitY - 6.0f, ProsRnd() * 6.28f,
                                  24.0f + ProsRnd() * 20.0f, LayerOfDepthM(hole.depthM)});
@@ -3205,7 +3233,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         ProsFillDiamond(tip.x, tip.y, pulse, {244, 198, 106, 255});
     }
 
-    ProsDrawHead(rig.cx, surfY, turning);
+    ProsDrawHead(rig.cx, surfY, turning, cooling);
 
     // tag, bottom-right
     {
@@ -3455,56 +3483,47 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                            depthLabels[L], geologyLabels[L],
                            &hitAll[L], &hitAllIdx[L]);
     }
-    std::vector<Rectangle>& hitBoxes = hitAll[focusDepth];
-    std::vector<int>& hitIndex = hitAllIdx[focusDepth];
 
-    // Selecting a block on the layer currently in focus
-    for (size_t k = 0; k < hitBoxes.size(); k++)
+    // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
+    // block to collar it, then click a block on the layer the hole should
+    // reach -- the string starts on that second click (and charges energy).
+    // While aiming, the dashed preview follows the pointer. Clicking the
+    // collar block again cancels; a click anywhere else just selects.
+    bool stringDown = ps->lineHole.state == LineHoleState::DRILLING;
+    bool aiming = ps->lineHole.state == LineHoleState::AIMING;
+    int hovL = -1, hovX = -1, hovY = -1;
+    for (int L = 0; L < 4 && hovL < 0; L++)
     {
-        if (!CheckCollisionPointRec(mouse, hitBoxes[k])) continue;
-        int gx = hitIndex[k] % gridSize, gy = hitIndex[k] / gridSize;
-        if (!grid.IsInReach(gx, gy)) continue;
-        DrawRectangleLinesEx(hitBoxes[k], 1.0f, Fade(PROS_HOVER_BORDER, 0.9f));
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        for (size_t k = 0; k < hitAll[L].size(); k++)
         {
-            ps->selectedCellX = gx;
-            ps->selectedCellY = gy;
+            if (!CheckCollisionPointRec(mouse, hitAll[L][k])) continue;
+            hovL = L;
+            hovX = hitAllIdx[L][k] % gridSize;
+            hovY = hitAllIdx[L][k] / gridSize;
+            DrawRectangleLinesEx(hitAll[L][k], 1.0f, Fade(PROS_HOVER_BORDER, 0.9f));
+            break;
         }
     }
 
-    // ---- Drawing the prescribed line: press a SURFACE block, drag down the
-    // stack, release on the layer you want the hole to reach. Release without
-    // leaving the surface and it was only ever a click.
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
-        ps->lineHole.state != LineHoleState::DRILLING)
+    if (aiming && hovL > 0) ps->AimAt(hovL, hovX, hovY);   // preview tracks the pointer
+
+    if (hovL >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
-        for (size_t k = 0; k < hitAll[0].size(); k++)
-        {
-            if (!CheckCollisionPointRec(mouse, hitAll[0][k])) continue;
-            int gx = hitAllIdx[0][k] % gridSize, gy = hitAllIdx[0][k] / gridSize;
-            if (grid.IsInReach(gx, gy)) ps->StartAim(gx, gy);
-        }
-    }
-    if (ps->lineHole.state == LineHoleState::AIMING &&
-        IsMouseButtonDown(MOUSE_BUTTON_LEFT))
-    {
-        for (int L = 0; L < 4; L++)
-            for (size_t k = 0; k < hitAll[L].size(); k++)
-            {
-                if (!CheckCollisionPointRec(mouse, hitAll[L][k])) continue;
-                ps->AimAt(L, hitAllIdx[L][k] % gridSize, hitAllIdx[L][k] / gridSize);
-            }
-    }
-    if (ps->lineHole.state == LineHoleState::AIMING &&
-        IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
-    {
-        if (ps->lineHole.targetLayer == 0)
+        if (aiming && hovL == 0 &&
+            hovX == ps->lineHole.collarX && hovY == ps->lineHole.collarY)
         {
             ps->CancelAim();
         }
-        else
+        else if (hovL == 0 && !stringDown)
         {
-            float lineCost = DrillEnergyToDepth(ps->lineHole.targetLayer);
+            ps->StartAim(hovX, hovY);
+            ps->selectedCellX = hovX; ps->selectedCellY = hovY;
+            ps->selectedDepth = DepthLayer::SURFACE;
+        }
+        else if (aiming && hovL > 0)
+        {
+            ps->AimAt(hovL, hovX, hovY);
+            float lineCost = DrillEnergyToDepth(hovL);
             if (unit->ConsumeResource(ResourceType::ENERGY, lineCost))
             {
                 ps->CommitHole();
@@ -3513,10 +3532,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             }
             else
             {
-                ps->CancelAim();
                 unit->PublicShowMessage(TextFormat(
-                    "The line needs %.0f E", lineCost));
+                    "The line needs %.0f E - aim shallower or wait for energy", lineCost));
             }
+            ps->selectedCellX = hovX; ps->selectedCellY = hovY;
+            ps->selectedDepth = static_cast<DepthLayer>(hovL);
+        }
+        else
+        {
+            ps->selectedCellX = hovX; ps->selectedCellY = hovY;
+            ps->selectedDepth = static_cast<DepthLayer>(hovL);
         }
     }
 
@@ -3524,15 +3549,23 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     ProsDrawTraceBlock(ps, geom, dock);
     ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f, bodyFont, sp, FS(7.5f));
 
-    // Marker on the selected column, on every layer, so a column reads as one
-    if (ps->selectedCellX >= 0 && ps->selectedCellY >= 0)
+    // ONE marker, on the layer it was selected on. The line's own points are
+    // drawn by the trace: the collar ring while aiming, crossing rings as the
+    // bit cores them.
+    if (ps->selectedCellX >= 0 && ps->selectedCellY >= 0 &&
+        ps->lineHole.state == LineHoleState::NONE)
     {
-        for (int L = 0; L < 4; L++)
-        {
-            Vector2 c = geom.Iso(ps->selectedCellX + 0.5f, ps->selectedCellY + 0.5f, L, 0.0f);
-            DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 4.5f,
-                            L == focusDepth ? EXT_ACCENT_CYAN : Fade(EXT_ACCENT_CYAN, 0.4f));
-        }
+        Vector2 c = geom.Iso(ps->selectedCellX + 0.5f, ps->selectedCellY + 0.5f,
+                             focusDepth, 0.0f);
+        DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 4.5f,
+                        EXT_ACCENT_CYAN);
+    }
+    if (ps->lineHole.state == LineHoleState::AIMING)
+    {
+        Vector2 c = geom.Iso(ps->lineHole.collarX + 0.5f,
+                             ps->lineHole.collarY + 0.5f, 0, 0.0f);
+        DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 4.5f,
+                        Color{244, 198, 106, 255});
     }
 
     // --- Legend, two rows so the element line and the swatches cannot collide
@@ -3641,97 +3674,60 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         ctrlY += 44.0f;
     }
 
-    // --- Drill: where, and how deep ----------------------------------------
+    // --- Drill: the line, its cost, its progress ---------------------------
     DrawTextEx(headerFont, "DRILL - AUGER", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
     ctrlY += 17.0f;
 
-    if (ps->lineHole.state == LineHoleState::DRILLING)
+    const LineHole& lh = ps->lineHole;
+    if (lh.state == LineHoleState::AIMING && lh.targetLayer > 0)
     {
-        DrawTextEx(bodyFont, TextFormat("string down  %.0f / %.0f m",
-                                        ps->lineHole.depthM, ps->lineHole.endM),
-                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GOLD);
+        float lineCost = DrillEnergyToDepth(lh.targetLayer);
+        bool affordable = ProsCanAfford(unit, lineCost);
+        static const char* layerNames[4] = {"REGOLITH", "MEGAREGOLITH", "FRACTURED", "BASALT"};
+        DrawTextEx(bodyFont, TextFormat("line into %s - %.0f E",
+                                        layerNames[lh.targetLayer], lineCost),
+                   {ctrlX, ctrlY}, FS(9.5f), sp,
+                   affordable ? EXT_ACCENT_CYAN : EXT_ACCENT_GOLD);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "click to drill - the collar block cancels",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else if (lh.state == LineHoleState::DRILLING)
+    {
+        DrawTextEx(bodyFont, TextFormat("string down  %.0f / %.0f m%s",
+                                        lh.depthM, lh.endM,
+                                        lh.dwelling ? "  -  COOLING" : ""),
+                   {ctrlX, ctrlY}, FS(9.5f), sp,
+                   lh.dwelling ? EXT_ACCENT_GOLD : EXT_TEXT);
+        ctrlY += 16.0f;
+    }
+    else if (lh.state == LineHoleState::DONE)
+    {
+        DrawTextEx(bodyFont, TextFormat("line complete - %.0f m cored", lh.endM),
+                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 16.0f;
     }
     else
     {
-        DrawTextEx(bodyFont, hasSelection
-                       ? TextFormat("spot  %c%d", 'A' + ps->selectedCellX, ps->selectedCellY + 1)
-                       : "click a block - or drag from the surface to draw a line",
-                   {ctrlX, ctrlY}, FS(9.5f), sp, hasSelection ? EXT_TEXT : EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, "click a surface block, then a block on",
+                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 12.0f;
+        DrawTextEx(bodyFont, "the layer the hole should reach",
+                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
     }
-    ctrlY += 15.0f;
 
-    // Depth chips double as the focus selector. Nothing is locked -- depth is
-    // priced, not walled -- so each chip shows what a column that deep costs.
-    int maxDepth = 4;
+    // Bit temperature: the price hard rock charges in time (auto-peck at max)
+    if (lh.state == LineHoleState::DRILLING || lh.heat > 0.03f)
     {
-        float chipW = (ctrlW - 12.0f - 9.0f) / 4.0f;
-        for (int d = 0; d < 4; d++)
-        {
-            Rectangle chip = {ctrlX + d * (chipW + 3.0f), ctrlY, chipW, 26.0f};
-            bool focused = (d == focusDepth);
-            bool hover = CheckCollisionPointRec(mouse, chip);
-
-            DrawRectangleRounded(chip, 0.3f, 4, focused ? Color{16, 42, 54, 255}
-                                                        : EXT_PANEL_BG2);
-            DrawRectangleRoundedLinesEx(chip, 0.3f, 4, focused ? 1.5f : 1.0f,
-                                        hover ? PROS_HOVER_BORDER
-                                              : (focused ? PROS_TAB_ACTIVE_BDR
-                                                         : PROS_BTN_BORDER));
-            const char* dn = depthLabels[d];
-            Vector2 ds = MeasureTextEx(bodyFont, dn, FS(8.5f), sp);
-            DrawTextEx(bodyFont, dn, {chip.x + (chipW - ds.x) / 2.0f, chip.y + 3.5f},
-                       FS(8.5f), sp, focused ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
-            const char* cost = TextFormat("%.0fE", DrillEnergyToDepth(d));
-            Vector2 cs = MeasureTextEx(bodyFont, cost, FS(7.5f), sp);
-            DrawTextEx(bodyFont, cost, {chip.x + (chipW - cs.x) / 2.0f, chip.y + 14.5f},
-                       FS(7.5f), sp, Fade(EXT_DIM_TEXT, 0.75f));
-            if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                ps->selectedDepth = static_cast<DepthLayer>(d);
-        }
-        ctrlY += 33.0f;
+        DrawTextEx(bodyFont, "BIT TEMP", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+        Color hc = lh.heat > 0.8f ? EXT_ACCENT_RED
+                 : lh.heat > 0.5f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.heat, hc);
+        ctrlY += 17.0f;
     }
-
-    {
-        DepthLayer dsel = ps->selectedDepth;
-        float drillCost = DrillEnergyToDepth(static_cast<int>(dsel));
-        bool inReach = hasSelection && grid.IsInReach(ps->selectedCellX, ps->selectedCellY);
-        bool affordable = ProsCanAfford(unit, drillCost);
-        // A full specimen shelf never blocks drilling: knowledge lives on the
-        // grid, and un-knowing ground because a shelf is full would be absurd.
-        bool canDrill = hasSelection && inReach && affordable;
-
-        Rectangle btn = {ctrlX, ctrlY, ctrlW - 12.0f, 28.0f};
-        bool hover = CheckCollisionPointRec(mouse, btn);
-        DrawRectangleRounded(btn, 0.3f, 4, canDrill && hover ? Color{18, 46, 40, 255}
-                                                             : EXT_PANEL_BG2);
-        DrawRectangleRoundedLinesEx(btn, 0.3f, 4, canDrill ? 1.5f : 1.0f,
-                                    canDrill ? EXT_ACCENT_GREEN : PROS_BTN_DISABLED);
-        const char* dl = "DRILL HERE";
-        Vector2 dls = MeasureTextEx(headerFont, dl, FS(11.5f), sp);
-        DrawTextEx(headerFont, dl, {btn.x + (btn.width - dls.x) / 2.0f,
-                                    btn.y + (28.0f - dls.y) / 2.0f},
-                   FS(11.5f), sp, canDrill ? EXT_ACCENT_GREEN : PROS_BTN_DISABLED);
-
-        const char* why = !hasSelection ? "pick a spot on the model"
-                        : !inReach      ? "outside the cell"
-                        : !affordable   ? TextFormat("needs %.0f E for the column", drillCost)
-                        : TextFormat("AUGER - vertical - cores the whole column - %.0f E",
-                                     drillCost);
-        DrawTextEx(bodyFont, why, {btn.x + 1.0f, btn.y + 30.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
-
-        if (hover && canDrill && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            if (unit->ConsumeResource(ResourceType::ENERGY, drillCost))
-            {
-                if (ps->GetSampler().CollectSample(grid, ps->GetTray(),
-                                                   ps->selectedCellX, ps->selectedCellY, dsel))
-                {
-                    unit->PublicShowMessage("Core recovered - this spot and depth are now known");
-                }
-            }
-        }
-        ctrlY += 46.0f;
-    }
+    ctrlY += 6.0f;
 
     // --- What is known about the selected spot -----------------------------
     if (hasSelection)
@@ -3782,7 +3778,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         for (int d = 0; d < 4; d++)
         {
             Rectangle chip = {ctrlX + d * 26.0f, ctrlY, 22.0f, 14.0f};
-            if (d >= maxDepth)
+            if (false)
             {
                 DrawRectangleRounded(chip, 0.3f, 4, Color{18, 22, 34, 255});
                 DrawRectangleRoundedLinesEx(chip, 0.3f, 4, 1.0f, Color{34, 40, 58, 255});

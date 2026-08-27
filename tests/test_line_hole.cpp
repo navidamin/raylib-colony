@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include "test_helpers.h"
+#include <algorithm>
 
 // The prescribed line: aim from a collar on the surface toward a cell at a
 // chosen layer, drill it over time, and every layer it crosses is cored at
@@ -103,4 +104,31 @@ TEST_CASE("the crossing cell never leaves the lattice", "[linehole]")
         REQUIRE(cx >= 0); REQUIRE(cx < sys.GetGrid().GetGridSize());
         REQUIRE(cy >= 0); REQUIRE(cy < sys.GetGrid().GetGridSize());
     }
+}
+
+TEST_CASE("hard rock heats the bit and the string pecks to cool", "[linehole]")
+{
+    ProspectingSystem sys = MakeSystem();
+    sys.StartAim(3, 3);
+    sys.AimAt(3, 3, 3);          // vertical, all the way into basalt
+    sys.CommitHole();
+
+    bool dwellSeen = false, advancedWhileDwelling = false;
+    float maxHeat = 0.0f;
+    for (int i = 0; i < 4000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    {
+        float before = sys.lineHole.depthM;
+        sys.UpdateLineHole(0.05f);
+        maxHeat = std::max(maxHeat, sys.lineHole.heat);
+        if (sys.lineHole.dwelling)
+        {
+            dwellSeen = true;
+            if (sys.lineHole.depthM > before + 0.0001f) advancedWhileDwelling = true;
+        }
+    }
+    REQUIRE(sys.lineHole.state == LineHoleState::DONE);   // a dwell delays, never ends
+    REQUIRE(maxHeat >= DRILL_HEAT_MAX - 0.01f);           // basalt cooks the bit
+    REQUIRE(dwellSeen);                                   // and forces a peck
+    REQUIRE_FALSE(advancedWhileDwelling);                 // which stops the advance
+    REQUIRE(sys.lineHole.heat < sys.lineHole.endM);       // sanity: fields distinct
 }

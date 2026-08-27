@@ -204,7 +204,11 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
         system.StartAim(2, 5);
         system.AimAt(3, 5, 2);
         system.CommitHole();
-        system.UpdateLineHole(state == "line" ? 9.5f : 60.0f);
+        float total = (state == "line") ? 16.0f : 120.0f;
+        for (float t = 0.0f; t < total; t += 0.1f)
+        {
+            system.UpdateLineHole(0.1f);
+        }
         return;
     }
 

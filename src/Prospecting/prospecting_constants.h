@@ -97,7 +97,22 @@ inline int LayerOfDepthM(float m)
 // stratum being cut: soft ground runs quick, basalt crawls. Depth is priced
 // in time as well as energy, and the player watches it happen.
 // ---------------------------------------------------------------------------
-constexpr float DRILL_ADVANCE_MPS[4] = { 9.0f, 6.5f, 7.0f, 3.5f };
+constexpr float DRILL_ADVANCE_MPS[4] = { 5.0f, 3.5f, 3.8f, 2.0f };
+
+// Heat (Dark Plating section 4.5, the redline prototype's model, tool-side
+// only): heat climbs with the hardness of the rock being cut and bleeds at a
+// flat rate. At DRILL_HEAT_MAX the string auto-pecks -- it dwells off the
+// face until DRILL_HEAT_RESUME -- so hard ground costs TIME, never the run.
+// Broken equipment stays the lesser penalty (drilling-procedure.md Rule 1).
+constexpr float DRILL_HEAT_GAIN   = 0.30f;   // x (0.35 + hard * 0.75) per second
+constexpr float DRILL_HEAT_BLEED  = 0.12f;   // while cutting
+constexpr float DRILL_HEAT_COOL   = 0.25f;   // while dwelling or idle
+constexpr float DRILL_HEAT_MAX    = 1.0f;
+constexpr float DRILL_HEAT_RESUME = 0.45f;
+
+// Stratum hardness at each depth layer, matching the strata the borehole
+// dock draws (regolith, megaregolith, fractured, intact basalt).
+constexpr float LAYER_HARDNESS[4] = { 0.25f, 0.55f, 0.45f, 0.95f };
 
 // ---------------------------------------------------------------------------
 // The estimate field (block-model-design.md #3)

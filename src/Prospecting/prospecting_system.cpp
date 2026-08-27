@@ -181,7 +181,29 @@ void ProspectingSystem::GetCrossingCell(int layer, int& gx, int& gy) const
 
 bool ProspectingSystem::UpdateLineHole(float dt)
 {
-    if (lineHole.state != LineHoleState::DRILLING) return false;
+    if (lineHole.state != LineHoleState::DRILLING)
+    {
+        lineHole.heat = std::max(0.0f, lineHole.heat - DRILL_HEAT_COOL * dt);
+        return false;
+    }
+
+    // Heat: climbs with the hardness being cut, bleeds at a flat rate. Past
+    // the ceiling the string auto-pecks -- dwells off the face, no advance --
+    // until it has cooled enough to bite again. Hard ground costs time.
+    float hard = LAYER_HARDNESS[LayerOfDepthM(lineHole.depthM)];
+    if (lineHole.dwelling)
+    {
+        lineHole.heat -= DRILL_HEAT_COOL * dt;
+        if (lineHole.heat <= DRILL_HEAT_RESUME) lineHole.dwelling = false;
+        return false;
+    }
+    lineHole.heat += ((0.35f + hard * 0.75f) * DRILL_HEAT_GAIN - DRILL_HEAT_BLEED) * dt;
+    lineHole.heat = std::clamp(lineHole.heat, 0.0f, DRILL_HEAT_MAX);
+    if (lineHole.heat >= DRILL_HEAT_MAX)
+    {
+        lineHole.dwelling = true;
+        return false;
+    }
 
     lineHole.depthM = std::min(lineHole.endM,
         lineHole.depthM + DRILL_ADVANCE_MPS[LayerOfDepthM(lineHole.depthM)] * dt);

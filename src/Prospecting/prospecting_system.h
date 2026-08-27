@@ -29,6 +29,8 @@ struct LineHole
     bool  cored[4]     = { false, false, false, false };
     float coredTime[4] = { -100.0f, -100.0f, -100.0f, -100.0f };
     float doneTime = -100.0f;
+    float heat = 0.0f;                // 0..1, bit temperature
+    bool  dwelling = false;           // auto-peck: off the face, cooling
 };
 
 class ProspectingSystem
