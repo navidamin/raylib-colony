@@ -24,7 +24,13 @@ permissions:
 
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  # Queue, do not cancel. Two branches deploy to the one Pages site, and
+  # with cancel-in-progress they killed each other's runs instead of
+  # taking turns: runs 75 and 77 on this branch were both cancelled by
+  # excavation-branch pushes, so neither the four-level ladder nor the
+  # window cache ever reached the site. Queuing costs a few minutes of
+  # waiting; cancelling costs the deploy entirely.
+  cancel-in-progress: false
 
 jobs:
   build:
