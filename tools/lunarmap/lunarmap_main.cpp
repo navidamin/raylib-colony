@@ -37,7 +37,6 @@
 
 #include "raylib.h"
 #include "raymath.h"
-#include "rlgl.h"
 
 #include "lola_dem.h"
 #include "survey_cursor.h"
@@ -2272,55 +2271,27 @@ static void DiscToScreen(double lat, double lon, int w, int h,
     *y = (float)(h * 0.5 - lat / 180.0 * h);
 }
 
-// Colour wash for the terranes, brightened inside the hovered region.
-// Built as an image so it costs one texture draw.
-static void DrawTerraneWash(int w, int h, int hoverFeature,
-                            bool hoverPkt, bool dimOthers)
-{
-    Image img = GenImageColor(w, h, BLANK);
-    Color* px = (Color*)img.data;
-    // Near-equal luminance on purpose: the terrane wash is a legend,
-    // marking WHICH province by hue. A brightness difference between the
-    // two reads as a shadow lying on the ground -- and over the maria,
-    // which are genuinely dark basalt, it reads as a very convincing one.
-    const Color pktCol = { 202, 172, 222, 255 };
-    const Color fhtCol = { 208, 198, 182, 255 };
-    for (int y = 0; y < h; y++)
-    {
-        double lat = (0.5 - (double)y / h) * 180.0;
-        for (int x = 0; x < w; x++)
-        {
-            double lon = ((double)x / w - 0.5) * 180.0;
-            bool pkt = InPkt(lat, lon);
-            Color c = pkt ? pktCol : fhtCol;
-            // Nothing is ever washed BELOW the base tint. Hover lifts the
-            // thing under the cursor; it never dims its surroundings, or
-            // the un-lifted half of the map becomes a dark hole.
-            int alpha = 40;
-            if (dimOthers && hoverFeature < 0 && pkt == hoverPkt) alpha = 56;
-            if (hoverFeature >= 0)
-            {
-                const DiscFeature& f = DISC_FEATURES[hoverFeature];
-                if (FeatureDistKm(f, lat, lon) <= f.radiusKm)
-                {
-                    alpha = 96;
-                    c.r = (unsigned char)Clamp(c.r + 40.0f, 0.0f, 255.0f);
-                    c.g = (unsigned char)Clamp(c.g + 40.0f, 0.0f, 255.0f);
-                    c.b = (unsigned char)Clamp(c.b + 40.0f, 0.0f, 255.0f);
-                }
-            }
-            c.a = (unsigned char)alpha;
-            px[y * w + x] = c;
-        }
-    }
-    Texture2D tex = LoadTextureFromImage(img);
-    DrawTexture(tex, 0, 0, WHITE);
-    // NOTE: the texture must outlive the draw call until EndTextureMode
-    // flushes; raylib batches, so unload after a flush.
-    rlDrawRenderBatchActive();
-    UnloadTexture(tex);
-    UnloadImage(img);
-}
+// The terrane is a LABEL, not a layer.
+//
+// It was drawn as a colour wash over the whole disc. Three things were
+// wrong with that, and they compound:
+//   - It never provides a selection. 87% of the PKT's area already sits
+//     inside a named feature, and the 3% of the near side that is PKT
+//     with no feature is not worth a map layer.
+//   - Its boundary is 19 hand-placed vertices traced off a figure. Drawn
+//     as a filled province it claims a precision the data does not have.
+//   - It competes with the real imagery, which is this project's whole
+//     distinguishing asset -- and the imagery is what a hover highlight
+//     has to sit on top of to read.
+//
+// So the terrane survives as text: the second line of the hover chip and
+// of the region card, and the fallback name for unnamed ground. The one
+// thing it uniquely carries -- thorium, the only genuinely terrane-scale
+// quantity -- is on the card as a number with a hint.
+//
+// The consequence for hover, which is the point: nothing terrane-sized
+// can highlight any more. Only the feature under the cursor lights up,
+// because only the feature under the cursor is a thing you can pick.
 
 static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
                                     Color hoverTint)
@@ -2337,6 +2308,12 @@ static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
                                       0.2f, 1.0f));
         if (i == hoverFeature)
         {
+            // Fill only the feature under the cursor. This is the one
+            // shape on the disc that is both real data and a thing the
+            // player can pick, so it is the only thing allowed to lift
+            // off the imagery.
+            DrawEllipse((int)cx, (int)cy, rx, ry,
+                        Color{ hoverTint.r, hoverTint.g, hoverTint.b, 58 });
             DrawEllipseLines((int)cx, (int)cy, rx, ry, hoverTint);
             DrawEllipseLines((int)cx, (int)cy, rx + 1.0f, ry + 1.0f, hoverTint);
             DrawEllipseLines((int)cx, (int)cy, rx + 2.0f, ry + 2.0f,
@@ -2364,22 +2341,6 @@ static void DrawHoverChip(float mx, float my, const char* name,
     DrawText(name, (int)bx + 12, (int)by + 6, 19, WHITE);
     DrawText(sub, (int)bx + 12, (int)by + 28, 12,
              Color{ 175, 180, 192, 255 });
-}
-
-static void DrawTerraneLegend(int screenH)
-{
-    int x = 16, y = screenH - 66 - 74, w = 250, h = 66;
-    DrawRectangle(x, y, w, h, Color{ 12, 12, 16, 210 });
-    DrawRectangleLinesEx(Rectangle{ (float)x, (float)y, (float)w, (float)h },
-                         1.0f, Color{ 90, 96, 110, 255 });
-    DrawRectangle(x + 10, y + 10, 12, 12, Color{ 178, 148, 196, 200 });
-    DrawText("Procellarum KREEP Terrane", x + 30, y + 9, 13,
-             Color{ 210, 214, 224, 255 });
-    DrawRectangle(x + 10, y + 29, 12, 12, Color{ 206, 196, 178, 200 });
-    DrawText("Feldspathic Highlands", x + 30, y + 28, 13,
-             Color{ 210, 214, 224, 255 });
-    DrawText("South Pole-Aitken: far side", x + 30, y + 47, 12,
-             Color{ 130, 136, 148, 255 });
 }
 
 // Named-region boundaries at the window levels: arcs of the real
@@ -2525,8 +2486,6 @@ static int RenderLadder(AppState& app)
                 BeginTextureMode(target);
                 Camera3D camera = TopDownCamera(app.scene, 1.0f);
                 DrawScene(app.scene, l1, app.styleMode, camera);
-                DrawTerraneWash(opts.width, opts.height, hover, hoverPkt,
-                                true);
                 DrawDiscFeatureOutlines(opts.width, opts.height, hover, tint);
                 DrawHud(app.scene, l1, app.styleMode, opts.width,
                         opts.height, 1.0f);
@@ -2590,7 +2549,6 @@ static int RenderLadder(AppState& app)
                     }
                     DrawRegionCard(*demo, 0, 16, 64, demo->hintKey);
                 }
-                DrawTerraneLegend(opts.height);
                 DrawLevelCard(*demo, 0, GroundStats(), nullptr, nullptr,
                               nullptr, opts.width - 352, 64, 336);
                 DrawPendingHintTooltip();

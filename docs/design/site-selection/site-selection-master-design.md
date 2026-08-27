@@ -280,8 +280,26 @@ produce. Lead every panel with the name.
 
 **Presentation rules:**
 
-- **Colour fill only on the orbital disc**, where the whole disc is the
-  map and there is nothing else to look at.
+- **No colour fill anywhere, including the orbital disc.** An earlier
+  draft filled the disc by terrane, on the grounds that there was
+  nothing else to look at there. There is: the real LOLA relief, where
+  dark mare and bright highland already separate the provinces better
+  than a tint can. Boundaries and names only, at every level — one rule
+  instead of two.
+- **The terrane is a label, not a layer.** It never provides a
+  selection: 87% of the PKT's area already sits inside a named feature,
+  and PKT ground with no feature is 3% of the near side. Its boundary is
+  also 19 hand-placed vertices traced off a figure, so drawing it as a
+  filled province claims a precision the data does not have. It survives
+  as the second line of the hover chip and the region card, and as the
+  fallback name for unnamed ground. The one thing it uniquely carries —
+  thorium, the only genuinely terrane-scale quantity — is a number on
+  the card with a hint.
+- **Only the thing under the cursor highlights.** It is the single shape
+  on screen that is both real data and pickable, so it is the only one
+  allowed to lift off the imagery (soft fill + ring + name chip).
+  Nothing terrane-sized ever responds to hover: a continent lighting up
+  because the cursor is somewhere inside it is not an affordance.
 - **From 100 km down, boundaries only** — a tinted outline plus the
   region's name over *unmodified* imagery. This project's distinguishing
   asset is that the ground is real: dark mare already *is* the
