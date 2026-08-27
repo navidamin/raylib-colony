@@ -34,9 +34,9 @@ button.peck:active{background:rgba(255,200,77,.2);color:var(--am)}
 .note b{color:var(--text);font-weight:600}
 </style>
 <div class="wrap">
-<div class="eyebrow">Drilling procedure · visual prototype · try 4 — the headed rig</div>
+<div class="eyebrow">Drilling procedure · visual prototype · pass 5 · variant A — true helicoid ramp</div>
 <h1>The Auger</h1>
-<p class="sub">Powerhead, segmented rod, full-length flights ending in a tapered cutting cone.
+<p class="sub">Powerhead, chuck, jointed rod sections, then a threaded stem cut as a real helicoid surface.
 Heat climbs into the steel, over-driven steel cracks, chips ride the flights home.</p>
 <div class="rig">
   <div class="stage"><canvas id="cv" width="1280" height="1760"></canvas></div>
@@ -75,9 +75,24 @@ const STRATA = [
 const yOf = m => SURF_Y + m * M_TO_PX;
 const strAt = m => STRATA.find(s => m >= s.top && m < s.bot) || STRATA[3];
 
-/* ---------------- drill geometry ---------------- */
-const R = 34, RS = 12, PITCH = 29, TILT = 12, THICK = 8;
-const TAPER_PX = PITCH * 1.8;                       // tapered cutting cone
+/* ---------------- drill geometry ----------------
+   variant A: the thread is a real HELICOID. Every angle th owns a radial
+   segment running from the root radius out to the crest radius; we fill the
+   projected quad between consecutive angles. Nothing follows the crest as a
+   ribbon -- the sawtooth silhouette falls out of the projection itself.     */
+const HAND     = -1;          // -1 = left-hand helix, the way the reference reads
+const R        = 17.0;          // thread crest radius
+const RS       = 9.6;         // rod radius where the thread starts (= thread root)
+const RS_BOT   = 8.0;         // rod radius at the foot of the threaded stem
+const ROD_TOP  = 13.0;        // rod radius just under the chuck
+const PITCH    = 21.5;          // axial rise of one full turn
+const TILT     = 1.9;         // ellipse tilt -- the camera sits a little above
+const TH_T     = 5.6;         // axial thickness of the flight AT ITS ROOT
+const TH_C     = 2.1;         // ...and at its crest: the V that sharpens the teeth         // axial thickness of the flight (its body)
+const TAPER_PX = PITCH * 1.5; // the last 1.5 turns shrink the crest to the root
+const CONE_LEN = 21;          // carbide point
+const THREAD_LEN  = PITCH*6.2; // the threaded stem is a FIXED-LENGTH tool: it
+                              // does not grow as the string goes deeper
 
 /* ---------------- state ---------------- */
 let st = {
@@ -85,7 +100,8 @@ let st = {
   rpm: 0.55, feed: 0.35, auto: true, peck: false,
   cracks: [], crackCool: 0, t: 0,
 };
-window.__setState = o => Object.assign(st, o);
+window.__setState = o => { Object.assign(st, o);
+  if (o.rpm === 0) chips.length = 0; };   // geometry poses start clean
 
 function spawnCrack(m){ st.cracks.push({m, seed: Math.abs(Math.sin(m*77.7)*43758.5)%1}); }
 
@@ -93,6 +109,7 @@ function spawnCrack(m){ st.cracks.push({m, seed: Math.abs(Math.sin(m*77.7)*43758
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
 const OUT = "#0a0e14";                              // the chunky outline
+const OUTB = "#101820";                             // softer outline for back-facing work
 
 function heatAt(yPx){
   const bitY = yOf(st.depthM);
@@ -117,18 +134,54 @@ function steelBands(x0, x1, heat, tones){
   return g;
 }
 
-/* radius of the flight envelope: full, then a cone to the tip */
-function radAt(y){
-  const bitY = yOf(st.depthM);
-  const start = bitY - TAPER_PX;
-  if (y <= start) return R;
-  return Math.max(3, R * (1 - (y - start)/(TAPER_PX + 10)));
+/* ------------- shaft breakdown: chuck, plain sections, threaded stem ------------- */
+const bitYOf   = () => yOf(st.depthM);
+const coneApex = () => bitYOf() + 21;
+const coneTop  = () => coneApex() - CONE_LEN;
+
+/* where the threads begin: bottom third of the rod, but always ~3 turns,
+   and never up above the surface collar */
+function threadTop(){
+  const b = bitYOf();
+  let y = Math.min(b - THREAD_LEN, coneTop() - 3.0*PITCH);
+  return Math.max(y, SURF_Y + 18);
 }
-function shaftHalfAt(y){
-  const bitY = yOf(st.depthM);
-  const start = bitY - TAPER_PX;
-  if (y <= start) return RS;
-  return Math.max(1.5, RS * (1 - (y - start)/(TAPER_PX + 6)));
+
+/* the smooth upper rod, as discrete sections that step thinner going down */
+function shaftSegs(){
+  const tY = threadTop();
+  const cTop = SURF_Y - 14;                          // the chuck straddles the collar
+  const cBot = Math.min(SURF_Y + 26, Math.max(cTop + 14, tY - 10));
+  const segs = [{ y0: 30, y1: cTop, r: ROD_TOP, kind: "rod" },
+                { y0: cTop, y1: cBot, r: ROD_TOP + 5.6, kind: "chuck" }];
+  const run = Math.max(0, tY - cBot);
+  const n = run > 195 ? 3 : (run > 62 ? 2 : (run > 8 ? 1 : 0));
+  for (let i = 0; i < n; i++){
+    segs.push({ y0: cBot + run*i/n, y1: cBot + run*(i+1)/n,
+                r: lerp(ROD_TOP, RS + 0.5, Math.pow((i+1)/n, 0.85)), kind: "rod" });
+  }
+  return segs;
+}
+
+/* rod half-width at any y: stepped sections, then the threaded stem, then the cone */
+function rodHalfAt(y){
+  const tY = threadTop(), cT = coneTop(), cA = coneApex();
+  if (y >= cT) return Math.max(0.5, RS_BOT * (1 - (y - cT)/(cA - cT)));
+  if (y >= tY) return lerp(RS, RS_BOT, (y - tY)/Math.max(1, cT - tY));
+  for (const s of shaftSegs()) if (y < s.y1) return s.r;
+  return ROD_TOP;
+}
+/* thread crest radius: full, then tapering into the root over the last turns */
+function crestAt(y){
+  const cT = coneTop(), start = cT - TAPER_PX;
+  if (y <= start) return R;
+  if (y >= cT) return rodHalfAt(y);            // no flight left on the cone
+  const t = clamp((y - start)/TAPER_PX, 0, 1);
+  return lerp(R, rodHalfAt(y), t);
+}
+/* outer envelope -- what the chips ride on */
+function radAt(y){
+  return (y >= threadTop() && y <= coneTop()) ? crestAt(y) : rodHalfAt(y);
 }
 
 /* ---------------- render ---------------- */
@@ -188,92 +241,187 @@ function drawGround(){
   CTX.fillStyle = wall; CTX.fillRect(CX-bw/2, SURF_Y, bw, bitY-SURF_Y+16);
 }
 
-function flightSegs(front){
-  const bitY = yOf(st.depthM);
-  const topY = SURF_Y - 6;
-  const turns = Math.ceil((bitY - topY)/PITCH) + 2;
-  const out = [], step = 0.10;
-  for (let th = 0; th < turns*2*Math.PI; th += step){
+/* ---- the helicoid ----
+   For each small step in th we have a quad: root and crest at th, root and
+   crest at th+dth. Its projected width is (crest-root)*sin(th), so it pinches
+   to nothing edge-on at th = 0 and th = PI and is widest at the silhouettes.
+   The teeth on the outline are that pinching, not a drawn shape.            */
+function threadSegs(front){
+  const tY = threadTop(), cT = coneTop();
+  const span = cT - tY;
+  if (span <= 6) return [];
+  const out = [], step = 0.075;
+  const thMax = (span/PITCH) * 2*Math.PI;
+  for (let th = 0; th < thMax; th += step){
     const a0 = th + st.phase, a1 = th + step + st.phase;
-    const c0 = Math.cos(a0), c1 = Math.cos(a1);
-    if (front && (c0 <= 0.02 || c1 <= 0.02)) continue;
-    if (!front && (c0 > 0.02 && c1 > 0.02)) continue;
-    const yb0 = topY + PITCH*th/(2*Math.PI), yb1 = topY + PITCH*(th+step)/(2*Math.PI);
-    const r0 = radAt(yb0), r1 = radAt(yb1);
-    if (r0 < 4) continue;
-    const y0 = yb0 + TILT*c0*(r0/R), y1 = yb1 + TILT*c1*(r1/R);
-    if ((y0+y1)/2 > bitY+6 || (y0+y1)/2 < 8) continue;
-    out.push({ x0: CX + r0*Math.sin(a0), x1: CX + r1*Math.sin(a1),
-               y0, y1, m: (Math.sin(a0)+Math.sin(a1))/2, y: (y0+y1)/2 });
+    const c0 = Math.cos(a0), c1 = Math.cos(a1), cm = (c0 + c1)*0.5;
+    if (front !== (cm > 0)) continue;
+    const yb0 = tY + PITCH*th/(2*Math.PI), yb1 = tY + PITCH*(th + step)/(2*Math.PI);
+    const rc0 = crestAt(yb0), rc1 = crestAt(yb1);
+    const rr0 = rodHalfAt(yb0), rr1 = rodHalfAt(yb1);
+    if (rc0 - rr0 < 1.3) continue;
+    const s0 = Math.sin(a0)*HAND, s1 = Math.sin(a1)*HAND;
+    out.push({
+      xr0: CX + rr0*s0, yr0: yb0 + TILT*c0*(rr0/R),
+      xc0: CX + rc0*s0, yc0: yb0 + TILT*c0*(rc0/R),
+      xr1: CX + rr1*s1, yr1: yb1 + TILT*c1*(rr1/R),
+      xc1: CX + rc1*s1, yc1: yb1 + TILT*c1*(rc1/R),
+      xe0: CX + (rc0 + 1.9)*s0, xe1: CX + (rc1 + 1.9)*s1,
+      c: cm, s: (s0 + s1)*0.5, y: (yb0 + yb1)*0.5
+    });
   }
+  out.sort((p,q) => p.c - q.c);          // painter's order: farthest first
   return out;
 }
-function drawFlights(front){
-  for (const s of flightSegs(front)){
-    const h = heatAt(s.y);
-    let shade = 0.34 + 0.62*Math.exp(-Math.pow((s.m+0.4)/0.7,2));
-    if (!front) shade *= 0.32;
-    // under-edge outline first, so the blade sits on a dark line
-    CTX.strokeStyle = OUT; CTX.lineWidth = 2.6;
-    CTX.beginPath(); CTX.moveTo(s.x0, s.y0+THICK+1); CTX.lineTo(s.x1, s.y1+THICK+1); CTX.stroke();
-    // edge-on face
+
+function drawThread(front){
+  const segs = threadSegs(front);
+  if (!segs.length) return;
+  const M = 1.5;                          // chunky outline margin
+
+  // pass 1 -- one dark silhouette under the whole sweep, so no internal ribbing
+  CTX.fillStyle = front ? OUT : OUTB;
+  for (const s of segs){
     CTX.beginPath();
-    CTX.moveTo(s.x0,s.y0); CTX.lineTo(s.x1,s.y1);
-    CTX.lineTo(s.x1,s.y1+THICK); CTX.lineTo(s.x0,s.y0+THICK);
+    CTX.moveTo(s.xr0, s.yr0 - M);        CTX.lineTo(s.xe0, s.yc0 - M);
+    CTX.lineTo(s.xe1, s.yc1 - M);        CTX.lineTo(s.xr1, s.yr1 - M);
+    CTX.lineTo(s.xr1, s.yr1 + TH_T + M); CTX.lineTo(s.xe1, s.yc1 + TH_C + M);
+    CTX.lineTo(s.xe0, s.yc0 + TH_C + M); CTX.lineTo(s.xr0, s.yr0 + TH_T + M);
+    CTX.closePath(); CTX.fill();
+  }
+
+  // pass 2 -- three faces per step: the flank edge-on, the crest rim, the ramp.
+  // At a silhouette the ramp collapses to a line and what you see is the flank
+  // slab -- so that one has to carry real tone or the teeth vanish.
+  const band = v => Math.round(clamp(v,0,1)*7)/7;    // hard tone steps
+  const dim  = v => front ? v : 0.15 + v*0.44;       // the back side, visibly darker
+  for (const s of segs){
+    const h = heatAt(s.y), c = Math.max(0, s.c), lt = (1 - s.s)*0.5;  // 1 = left
+    const shRamp = dim(band(0.33 + 0.46*c + 0.14*lt));   // the helicoid face
+    const shRim  = dim(band(0.38 + 0.34*c + 0.22*lt));   // outer crest cylinder
+    const shBody = dim(band(0.40 + 0.30*c + 0.18*lt));   // flank slab, edge-on
+    const shUnd  = dim(band(0.10 + 0.16*c));             // underside
+
+    CTX.beginPath();                          // the flight's body (its thickness)
+    CTX.moveTo(s.xr0, s.yr0);        CTX.lineTo(s.xc0, s.yc0);
+    CTX.lineTo(s.xc1, s.yc1);        CTX.lineTo(s.xr1, s.yr1);
+    CTX.lineTo(s.xr1, s.yr1 + TH_T); CTX.lineTo(s.xc1, s.yc1 + TH_C);
+    CTX.lineTo(s.xc0, s.yc0 + TH_C); CTX.lineTo(s.xr0, s.yr0 + TH_T);
     CTX.closePath();
-    CTX.fillStyle = steel(shade*0.72, h); CTX.fill();
-    // lit top face band
-    CTX.beginPath();
-    CTX.moveTo(s.x0,s.y0); CTX.lineTo(s.x1,s.y1);
-    CTX.lineTo(s.x1,s.y1-3.4); CTX.lineTo(s.x0,s.y0-3.4);
+    CTX.fillStyle = steel(shBody, h); CTX.fill();
+
+    const u = TH_T*0.55, uC = TH_C*0.55;
+    CTX.beginPath();                          // underside, in shadow
+    CTX.moveTo(s.xr0, s.yr0 + u);        CTX.lineTo(s.xc0, s.yc0 + uC);
+    CTX.lineTo(s.xc1, s.yc1 + uC);       CTX.lineTo(s.xr1, s.yr1 + u);
+    CTX.lineTo(s.xr1, s.yr1 + TH_T);     CTX.lineTo(s.xc1, s.yc1 + TH_C);
+    CTX.lineTo(s.xc0, s.yc0 + TH_C);     CTX.lineTo(s.xr0, s.yr0 + TH_T);
     CTX.closePath();
-    CTX.fillStyle = steel(Math.min(1,shade*1.25), h); CTX.fill();
-    CTX.strokeStyle = steel(Math.min(1,shade*1.55), h);
-    CTX.lineWidth = 1.3;
-    CTX.beginPath(); CTX.moveTo(s.x0,s.y0-3.4); CTX.lineTo(s.x1,s.y1-3.4); CTX.stroke();
+    CTX.fillStyle = steel(shUnd, h); CTX.fill();
+
+    CTX.beginPath();                          // crest rim -- the tooth's outer face
+    CTX.moveTo(s.xc0, s.yc0); CTX.lineTo(s.xc1, s.yc1);
+    CTX.lineTo(s.xc1, s.yc1 + TH_C); CTX.lineTo(s.xc0, s.yc0 + TH_C);
+    CTX.closePath();
+    CTX.fillStyle = steel(shRim, h); CTX.fill();
+
+    CTX.beginPath();                          // the ramp face itself
+    CTX.moveTo(s.xr0, s.yr0); CTX.lineTo(s.xc0, s.yc0);
+    CTX.lineTo(s.xc1, s.yc1); CTX.lineTo(s.xr1, s.yr1);
+    CTX.closePath();
+    CTX.fillStyle = steel(shRamp, h); CTX.fill();
+  }
+
+  // pass 3 -- glint along the top of the crest, carried out to the teeth
+  if (front){
+    CTX.lineWidth = 1.3; CTX.lineCap = "round";
+    for (const s of segs){
+      const g = Math.round(clamp(0.54 + 0.30*Math.max(0,s.c) + 0.12*(1-s.s)*0.5,0,1)*3)/3;
+      CTX.strokeStyle = steel(g, heatAt(s.y));
+      CTX.beginPath(); CTX.moveTo(s.xc0, s.yc0 + 0.8); CTX.lineTo(s.xc1, s.yc1 + 0.8); CTX.stroke();
+    }
+    CTX.lineCap = "butt";
   }
 }
-/* ambient occlusion: front blades shadow the shaft just below themselves */
-function drawFlightAO(){
+
+/* ambient occlusion: the front ramp shadows the rod just under its root */
+function drawThreadAO(){
   CTX.save();
-  CTX.beginPath(); CTX.rect(CX-RS-1, 0, RS*2+2, H); CTX.clip();
-  CTX.strokeStyle = "rgba(0,0,0,.34)"; CTX.lineWidth = 5;
-  for (const s of flightSegs(true)){
-    CTX.beginPath(); CTX.moveTo(s.x0, s.y0+THICK+4); CTX.lineTo(s.x1, s.y1+THICK+4); CTX.stroke();
+  CTX.beginPath(); CTX.rect(CX - ROD_TOP - 1, 0, (ROD_TOP + 1)*2, H); CTX.clip();
+  // one path, one stroke -- overlapping translucent strokes would compound to black
+  CTX.strokeStyle = "rgba(0,0,0,.34)"; CTX.lineWidth = 4; CTX.lineCap = "round";
+  CTX.beginPath();
+  for (const s of threadSegs(true)){
+    CTX.moveTo(s.xr0, s.yr0 + TH_T + 3.2); CTX.lineTo(s.xr1, s.yr1 + TH_T + 3.2);
   }
+  CTX.stroke();
+  CTX.lineCap = "butt";
   CTX.restore();
 }
 
+/* a joint band: slightly wider than the rod, glint on top, shadow beneath.
+   The rod steps thinner across it, so the string reads as telescoping. */
+function drawJoint(y, r, big){
+  const hh = big ? 6.8 : 5.4, w = r + (big ? 4.2 : 3.1), h = heatAt(y);
+  CTX.fillStyle = OUT; CTX.fillRect(CX-w-2, y-hh-2, (w+2)*2, hh*2+4);
+  CTX.fillStyle = steelBands(CX-w, CX+w, h,
+    [[0.15,0.16],[0.18,0.94],[0.22,0.56],[0.26,0.28],[0.19,0.10]]);
+  CTX.fillRect(CX-w, y-hh, w*2, hh*2);
+  CTX.fillStyle = "rgba(255,255,255,.34)"; CTX.fillRect(CX-w, y-hh, w*2, 1.7);
+  CTX.fillStyle = "rgba(0,0,0,.45)";       CTX.fillRect(CX-w, y+hh-2.1, w*2, 2.1);
+}
+/* the chuck: a short, wider, darker block gripping the rod under the powerhead */
+function drawChuck(y0, y1, r){
+  const h = heatAt((y0+y1)/2);
+  CTX.fillStyle = OUT; CTX.fillRect(CX-r-2.5, y0-2.5, (r+2.5)*2, y1-y0+5);
+  CTX.fillStyle = steelBands(CX-r, CX+r, h*0.6,
+    [[0.17,0.06],[0.16,0.62],[0.22,0.34],[0.26,0.18],[0.19,0.04]]);
+  CTX.fillRect(CX-r, y0, r*2, y1-y0);
+  CTX.fillStyle = "rgba(255,255,255,.24)"; CTX.fillRect(CX-r, y0, r*2, 2.6);
+  CTX.fillStyle = "rgba(0,0,0,.40)";       CTX.fillRect(CX-r, y1-3, r*2, 3);
+  CTX.fillStyle = "rgba(0,0,0,.35)";                       // clamp slots
+  CTX.fillRect(CX-r+3, y0+5, 2.4, y1-y0-11);
+  CTX.fillRect(CX+r-5.4, y0+5, 2.4, y1-y0-11);
+  CTX.fillStyle = "#8e9aa6";                               // clamp bolts
+  CTX.fillRect(CX-r+6.5, y1-9, 3, 3); CTX.fillRect(CX+r-9.5, y1-9, 3, 3);
+}
+
 function drawShaft(){
-  const bitY = yOf(st.depthM);
-  const topShaft = 44;
+  const bitY = bitYOf(), cA = coneApex(), tY = threadTop();
+  const topShaft = 30;
   // outline silhouette of the varying width
   CTX.fillStyle = OUT;
-  for (let y = topShaft; y < bitY+6; y += 3){
-    const w = shaftHalfAt(y)+1.6;
-    CTX.fillRect(CX-w, y, w*2, 3.6);
+  for (let y = topShaft; y < cA; y += 1.4){
+    const w = rodHalfAt(y) + 2.0;
+    CTX.fillRect(CX-w, y, w*2, 2.2);
   }
-  for (let y = topShaft; y < bitY+5; y += 3){
-    const h = heatAt(y+1), w = shaftHalfAt(y);
+  // stepped steel body
+  for (let y = topShaft; y < cA-1; y += 1.4){
+    const h = heatAt(y+1), w = rodHalfAt(y);
+    if (w < 0.7) continue;
     CTX.fillStyle = steelBands(CX-w, CX+w, h,
-      [[0.16,0.10],[0.18,0.98],[0.22,0.55],[0.26,0.30],[0.18,0.07]]);
-    CTX.fillRect(CX-w, y, w*2, 3.4);
+      [[0.15,0.11],[0.17,0.98],[0.21,0.58],[0.27,0.30],[0.20,0.07]]);
+    CTX.fillRect(CX-w, y, w*2, 1.9);
   }
-  // rod joints every 6 m: pinch + collar + white glint
-  for (let m = 6; m < st.depthM - TAPER_PX/M_TO_PX; m += 6){
-    const y = yOf(m);
-    CTX.fillStyle = OUT;         CTX.fillRect(CX-RS-2, y-3, RS*2+4, 7);
-    CTX.fillStyle = "#2b323c";   CTX.fillRect(CX-RS-1, y-2, RS*2+2, 5);
-    CTX.fillStyle = "rgba(255,255,255,.35)"; CTX.fillRect(CX-RS-1, y-2, RS*2+2, 1.4);
+  // chuck, then a joint at every section break, then the thread transition
+  const segs = shaftSegs();
+  for (let i = 0; i < segs.length; i++){
+    const s = segs[i];
+    if (s.kind === "chuck"){ drawChuck(s.y0, s.y1, s.r); continue; }
+    if (i > 0 && segs[i-1].kind !== "chuck") drawJoint(s.y0, Math.max(segs[i-1].r, s.r));
   }
-  // carbide tip
+  drawJoint(tY, RS + 1.0, true);            // here the threads begin
+
+  // carbide point: flat facets from the shoulder down to the apex
   const h = Math.min(1, heatAt(bitY)*1.35);
-  CTX.fillStyle = OUT;
-  CTX.beginPath(); CTX.moveTo(CX-7, bitY+8); CTX.lineTo(CX+7, bitY+8); CTX.lineTo(CX, bitY+22);
-  CTX.closePath(); CTX.fill();
-  CTX.fillStyle = steel(0.85, h);
-  CTX.beginPath(); CTX.moveTo(CX-5, bitY+9); CTX.lineTo(CX+5, bitY+9); CTX.lineTo(CX, bitY+19);
-  CTX.closePath(); CTX.fill();
+  const sh = cA - CONE_LEN + 1.5, cw = RS_BOT*0.90;
+  for (const [a, b2, t] of [[-1.00,-0.34,0.90],[-0.34,0.28,0.52],[0.28,1.00,0.22]]){
+    CTX.beginPath();
+    CTX.moveTo(CX + cw*a, sh); CTX.lineTo(CX + cw*b2, sh); CTX.lineTo(CX, cA-1.5);
+    CTX.closePath(); CTX.fillStyle = steel(t, h); CTX.fill();
+  }
+  CTX.fillStyle = "rgba(0,0,0,.45)"; CTX.fillRect(CX-cw-1, sh-1.4, (cw+1)*2, 1.6);  // shoulder
+
   // sparks in hard ground
   const hard = strAt(st.depthM).hard;
   if (st.rpm > 0.1 && hard > 0.5){
@@ -352,7 +500,7 @@ function drawChips(dt){
     c.y -= c.up*dt*st.rpm*1.6;
     c.a -= st.rpm*9*dt;
     if (c.y < SURF_Y-2){ chips.splice(i,1); continue; }
-    const x = CX + (radAt(c.y)-5)*Math.sin(c.a);
+    const x = CX + (radAt(c.y) + 2.5)*Math.sin(c.a);
     CTX.globalAlpha = Math.cos(c.a) > 0 ? 0.95 : 0.45;
     CTX.fillStyle = c.col || "#8c7860";
     CTX.fillRect(x, c.y, 3.4, 2.6);
@@ -363,7 +511,8 @@ function drawChips(dt){
   for (let i=0;i<7;i++){
     const a = (st.t*0.7 + i*1.7)%6.28;
     CTX.fillStyle = "rgba(120,104,84,.7)";
-    CTX.fillRect(CX + Math.sin(a)*(R-3), bitY - 10 - ((i*17+st.t*12)%46), 3, 3);
+    const dy = bitY - 10 - ((i*17 + st.t*12)%46);
+    CTX.fillRect(CX + Math.sin(a)*(radAt(dy) + 2), dy, 3, 3);
   }
 }
 
@@ -420,10 +569,11 @@ function frame(dt){
   if (st.auto && !st.peck){
     const s = strAt(st.depthM);
     const cut = st.rpm * st.feed * (1.15 - s.hard);
-    st.depthM = Math.min(118, st.depthM + cut * dt * 1.6);
-    st.heat = clamp(st.heat + (st.rpm*s.hard*0.24 - 0.10)*dt, 0, 1);
+    st.depthM = Math.min(118, st.depthM + cut * dt * 5.0);
+    st.heat = clamp(st.heat + (st.rpm*(0.35 + s.hard*0.75)*0.50 - 0.15)*dt, 0, 1);
   } else if (st.peck){
-    st.heat = clamp(st.heat - 0.28*dt, 0, 1);
+    st.heat = clamp(st.heat - 0.34*dt, 0, 1);
+    st.depthM = Math.max(2, st.depthM - 2.6*dt);      // trip back off the face
   }
   st.crackCool -= dt;
   if (st.heat > 0.85 && st.crackCool <= 0){
@@ -435,10 +585,10 @@ function frame(dt){
   CTX.setTransform(2,0,0,2,0,0);
   CTX.clearRect(0,0,W,H);
   drawGround();
-  drawFlights(false);
+  drawThread(false);
   drawShaft();
-  drawFlightAO();
-  drawFlights(true);
+  drawThreadAO();
+  drawThread(true);
   drawCracks();
   drawChips(dt);
   drawCollar();
@@ -452,9 +602,13 @@ function frame(dt){
 }
 
 let last = performance.now();
+let manual = false;
+window.__manual = on => { manual = on; last = performance.now(); };
+window.__step = dt => frame(dt);
+window.__bitY = () => yOf(st.depthM);
 function tick(now){
   const dt = Math.min(0.05,(now-last)/1000); last = now;
-  frame(dt);
+  if (!manual) frame(dt);
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
