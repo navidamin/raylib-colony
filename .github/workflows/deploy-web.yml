@@ -7,17 +7,19 @@ on:
     # played on a phone before it merges. Remove this branch when it lands, or
     # every push to it replaces the live site.
     #
-    # The whole site is replaced on every deploy, whichever branch ran last --
-    # so a later push on another branch takes /extraction/ down again until
-    # this branch deploys once more. The lunar-elevation branch was listed
-    # here too and is paused on its own copy of this file for that reason;
-    # it goes back when the excavation branch merges.
+    # One repo has one Pages site and every deploy replaces ALL of it. The
+    # lunar-elevation branch is actively deploying its own site (/, /viewtest/,
+    # /lunarmap/ -- no /playtest/, no /extraction/), so each branch's push was
+    # 404ing the other branch's sandboxes within minutes.
     #
-    # MAIN does the same thing, and cannot be paused: merging PR #7 replaced
-    # the site with main's build, which has no /extraction/ in it. Every merge
-    # to main will do that again. Nothing here can fix it -- one repo has one
-    # Pages site, and the only real end to the ping-pong is merging this
-    # branch so /extraction/ ships from main like everything else.
+    # The truce: the "Overlay other branches' sandboxes" step below downloads
+    # the latest successful Pages artifact from the OTHER active branch and
+    # copies in any top-level directory this deploy does not itself provide.
+    # A deploy from THIS branch therefore serves the union. Pushes from the
+    # other branch still clobber /playtest/ and /extraction/ until it adopts
+    # the same step -- copy it verbatim into its own deploy-web.yml. MAIN
+    # replaces the site too on every merge; the only real end to the
+    # ping-pong is merging the branches.
     branches: [main, master, claude/excavation-module-design-jhp3v1]
     paths:
       - 'src/**'
@@ -29,6 +31,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read       # to download the other branch's Pages artifact
 
 concurrency:
   group: "pages"
@@ -82,6 +85,36 @@ jobs:
         if [ -f build/src/colony_extraction.data ]; then
           cp build/src/colony_extraction.data deploy/extraction/colony_extraction.data
         fi
+
+    # See the note at the top: pull the other active branch's latest site and
+    # keep any sandbox it has that this deploy does not. Never fails the build
+    # -- a missing or expired artifact just means this deploy ships alone.
+    - name: Overlay other branches' sandboxes
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set +e
+        for BR in claude/lunar-elevation-lola-dem-1dcdtj; do
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-web.yml \
+                   --branch "$BR" --status success --limit 1 \
+                   --json databaseId --jq '.[0].databaseId')
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "no successful run on $BR -- skipping"; continue
+          fi
+          rm -rf _other _other_x && mkdir -p _other _other_x
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+             -n github-pages -D _other || { echo "artifact gone on $BR"; continue; }
+          tar -xf _other/artifact.tar -C _other_x || continue
+          for d in _other_x/*/; do
+            name=$(basename "$d")
+            if [ ! -e "deploy/$name" ]; then
+              echo "carrying /$name/ from $BR"
+              cp -r "$d" "deploy/$name"
+            fi
+          done
+        done
+        rm -rf _other _other_x
+        true
 
     - name: Setup Pages
       uses: actions/configure-pages@v4

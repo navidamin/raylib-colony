@@ -16,6 +16,27 @@ Pages deploy.
   extraction unit at `/extraction/`. Each Pages deploy replaces the
   whole site.
 
+### Two active branches, one site: the overlay truce
+
+One repo has one Pages site and every deploy replaces **all** of it. With
+two branches deploying (excavation and lunar-elevation), each push 404'd
+the other branch's sandboxes within minutes -- "none of the pages load" is
+what this looks like from a phone.
+
+The mitigation, in `deploy-web.yml` ("Overlay other branches' sandboxes"):
+after building its own site, the job downloads the latest **successful**
+`github-pages` artifact from the other active branch (`gh run download`,
+needs `actions: read` in the workflow permissions), untars it, and copies in
+any **top-level directory** the current deploy does not itself provide.
+Root files are never taken -- whoever deploys owns `/`. A deploy from a
+branch carrying this step therefore serves the union; a branch without it
+still clobbers the others until it copies the same step. Failures are
+swallowed deliberately: a missing or expired artifact means the deploy
+ships alone, never that it fails.
+
+This is a truce, not a fix. The fix is merging the branches so everything
+ships from main.
+
 ### Adding another web sandbox
 
 Four steps, all small:
