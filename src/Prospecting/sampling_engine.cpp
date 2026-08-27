@@ -49,16 +49,26 @@ bool SamplingEngine::CollectSample(ProspectingGrid& grid, SampleTray& tray,
     // The specimen is best-effort. Knowledge lives on the grid; the tray is a
     // shelf of physical rocks, and a full shelf must never un-know ground.
     // One specimen per hole -- the deepest interval, the interesting one.
-    if (!tray.IsFull())
-    {
-        Sample sample = CreateSample(grid, subX, subY, depth);
-        if (tray.AddSample(sample))
-        {
-            int assignedId = tray.GetSampleByIndex(tray.GetCount() - 1)->id;
-            grid.GetSubCellMut(subX, subY).sampleIds.push_back(assignedId);
-        }
-    }
+    AddSpecimen(grid, tray, subX, subY, depth);
 
+    return true;
+}
+
+// The tray half of a hole, on its own so LINE holes can use it too: create
+// the physical specimen and remember which cell it came from. Never cores --
+// knowledge is the caller's job -- and never blocks on a full shelf.
+bool SamplingEngine::AddSpecimen(ProspectingGrid& grid, SampleTray& tray,
+                                  int subX, int subY, DepthLayer depth)
+{
+    if (tray.IsFull())
+        return false;
+
+    Sample sample = CreateSample(grid, subX, subY, depth);
+    if (!tray.AddSample(sample))
+        return false;
+
+    int assignedId = tray.GetSampleByIndex(tray.GetCount() - 1)->id;
+    grid.GetSubCellMut(subX, subY).sampleIds.push_back(assignedId);
     return true;
 }
 

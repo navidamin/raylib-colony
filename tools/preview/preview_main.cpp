@@ -50,7 +50,7 @@ static void PrintUsage()
         << "  --sprite-size <n> crystal sprite size variant     (sprites only, default: 4)\n"
         << "  --sprite-glow <n> crystal sprite glow variant     (sprites only, default: 3)\n"
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
-        << "  --state <name>    empty | swept | sampled | analyzed\n"
+        << "  --state <name>    empty | swept | sampled | analyzed | line | line-done\n"
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
         << "  --energy <n>      override stored energy (tests cost gating)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
@@ -195,6 +195,19 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
     }
 
     if (state == "swept") return;
+
+    // "line": the prescribed line, mid-drill -- collar C6, aimed across the
+    // shoot, string in the fractured zone. "line-done": the same hole
+    // finished, specimen shelved.
+    if (state == "line" || state == "line-done")
+    {
+        system.StartAim(2, 5);
+        system.AimAt(3, 5, 2);
+        system.CommitHole();
+        system.UpdateLineHole(state == "line" ? 9.5f : 60.0f);
+        return;
+    }
+
 
     // "sampled": the first two holes of a campaign. Vertical auger columns --
     // each cores everything from the surface down to its target, so a MID

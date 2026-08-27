@@ -1,5 +1,8 @@
 #include "prospecting_system.h"
 
+#include <algorithm>
+#include <cmath>
+
 ProspectingSystem::ProspectingSystem(int tier, int parentGridX, int parentGridY,
                                      ResourceManager& resourceManager)
     : tier(tier)
@@ -111,4 +114,102 @@ void ProspectingSystem::EnsureCache() const
         cachedResult = SurveyProgressEngine::Calculate(grid, tray);
         cacheValid = true;
     }
+}
+
+// ---------------------------------------------------------------------------
+// The prescribed line
+// ---------------------------------------------------------------------------
+
+void ProspectingSystem::StartAim(int collarX, int collarY)
+{
+    if (lineHole.state == LineHoleState::DRILLING) return;  // string is down
+    lineHole = LineHole{};
+    lineHole.state = LineHoleState::AIMING;
+    lineHole.collarX = collarX;
+    lineHole.collarY = collarY;
+    lineHole.targetLayer = 0;
+    lineHole.endM = LayerBottomM(0);
+}
+
+void ProspectingSystem::AimAt(int layer, int cellX, int cellY)
+{
+    if (lineHole.state != LineHoleState::AIMING) return;
+    layer = std::clamp(layer, 0, 3);
+    lineHole.targetLayer = layer;
+    lineHole.endM = LayerBottomM(layer);
+    if (layer == 0)
+    {
+        // A surface target is the vertical degenerate case
+        lineHole.dirX = 0.0f;
+        lineHole.dirY = 0.0f;
+        return;
+    }
+    // Aim so the line passes through the released cell AT that layer's centre
+    float c = LAYER_CENTRE_M[layer];
+    lineHole.dirX = (static_cast<float>(cellX) - lineHole.collarX) / c;
+    lineHole.dirY = (static_cast<float>(cellY) - lineHole.collarY) / c;
+}
+
+void ProspectingSystem::CancelAim()
+{
+    if (lineHole.state == LineHoleState::AIMING)
+        lineHole.state = LineHoleState::NONE;
+}
+
+bool ProspectingSystem::CommitHole()
+{
+    if (lineHole.state != LineHoleState::AIMING) return false;
+    lineHole.state = LineHoleState::DRILLING;
+    lineHole.depthM = 0.0f;
+    return true;
+}
+
+void ProspectingSystem::GetLineCell(float m, float& gx, float& gy) const
+{
+    gx = lineHole.collarX + lineHole.dirX * m;
+    gy = lineHole.collarY + lineHole.dirY * m;
+}
+
+void ProspectingSystem::GetCrossingCell(int layer, int& gx, int& gy) const
+{
+    float fx = 0.0f, fy = 0.0f;
+    GetLineCell(LAYER_CENTRE_M[std::clamp(layer, 0, 3)], fx, fy);
+    int size = grid.GetGridSize();
+    gx = std::clamp(static_cast<int>(std::lround(fx)), 0, size - 1);
+    gy = std::clamp(static_cast<int>(std::lround(fy)), 0, size - 1);
+}
+
+bool ProspectingSystem::UpdateLineHole(float dt)
+{
+    if (lineHole.state != LineHoleState::DRILLING) return false;
+
+    lineHole.depthM = std::min(lineHole.endM,
+        lineHole.depthM + DRILL_ADVANCE_MPS[LayerOfDepthM(lineHole.depthM)] * dt);
+
+    // Core each crossing as the bit passes its layer centre -- knowledge
+    // lands DURING the hole, which is what the block model animates.
+    for (int L = 0; L <= lineHole.targetLayer; L++)
+    {
+        if (lineHole.cored[L] || lineHole.depthM < LAYER_CENTRE_M[L]) continue;
+        int cx = 0, cy = 0;
+        GetCrossingCell(L, cx, cy);
+        grid.RecordCore(cx, cy, static_cast<DepthLayer>(L));
+        lineHole.cored[L] = true;
+        lineHole.coredTime[L] = gameTime;
+        InvalidateCache();
+    }
+
+    if (lineHole.depthM >= lineHole.endM)
+    {
+        lineHole.state = LineHoleState::DONE;
+        lineHole.doneTime = gameTime;
+        // One specimen per hole -- the deepest interval, the interesting one
+        int cx = 0, cy = 0;
+        GetCrossingCell(lineHole.targetLayer, cx, cy);
+        sampler.AddSpecimen(grid, tray, cx, cy,
+                            static_cast<DepthLayer>(lineHole.targetLayer));
+        InvalidateCache();
+        return true;
+    }
+    return false;
 }

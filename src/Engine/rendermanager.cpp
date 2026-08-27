@@ -2774,6 +2774,545 @@ static void ProsDrawCellMarker(Rectangle r, const SubCell& cell)
     }
 }
 
+// ===========================================================================
+// THE BOREHOLE DOCK -- the drill-dock port (variant b: seam-aligned).
+// One ground across the dock strip and the block model; the plate slots sit
+// at the strip's band centres so both share one depth mapping, which is what
+// lets the prescribed line render dead straight and keeps its cursor level
+// with the mud panel's. Recipes per docs/design/graphics/dark-plating.md
+// (sections 4-6, 9); reference docs/design/prospecting/prototypes/drill-dock.html.
+// ===========================================================================
+
+static const Color PROS_OUT          = {10, 14, 20, 255};
+static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
+static const Color PROS_ROCK_EDGE[4] = {{25,21,16,255},{28,23,18,255},{22,28,35,255},{16,18,22,255}};
+static const Color PROS_ROCK_GRAIN[4]= {{76,68,55,255},{91,81,64,255},{77,90,103,255},{52,56,65,255}};
+static const Color PROS_ICE_FLECK    = {160, 225, 245, 255};
+static const Color PROS_STRING_MID   = {119, 135, 154, 255};
+static const Color PROS_STRING_LIT   = {232, 240, 248, 255};
+static const Color PROS_SHADOW_HAIR  = {160, 190, 215, 255};
+
+// Deterministic speckle: fixed seed per drawing pass, so the ground never
+// shimmers between frames (Dark Plating section 5).
+static unsigned prosGrain = 1;
+static float ProsRnd()
+{
+    prosGrain = (prosGrain * 16807u) % 2147483647u;
+    return static_cast<float>(prosGrain) / 2147483647.0f;
+}
+
+// The strip's depth axis, derived from the block stack so the two agree by
+// construction: band L is centred on plate L's slot.
+struct ProsDockGeom
+{
+    float x = 0.0f, w = 0.0f, cx = 0.0f;
+    float bandTop[5] = {0, 0, 0, 0, 0};
+
+    float YOf(float m) const
+    {
+        int d = LayerOfDepthM(std::min(m, FULL_COLUMN_M - 0.01f));
+        float t = (m - LayerTopM(d)) / LAYER_THICKNESS_M[d];
+        return bandTop[d] + (bandTop[d + 1] - bandTop[d]) * t;
+    }
+};
+
+static ProsDockGeom ProsDockFrom(const BlockModelGeom& g, float stripX, float stripW)
+{
+    ProsDockGeom d;
+    d.x = stripX; d.w = stripW; d.cx = stripX + stripW * 0.5f;
+    float slot[4];
+    for (int L = 0; L < 4; L++)
+        slot[L] = g.originY + L * g.gap + g.size * g.tileY;
+    d.bandTop[0] = slot[0] - (slot[1] - slot[0]) * 0.5f;
+    for (int L = 1; L < 4; L++) d.bandTop[L] = (slot[L - 1] + slot[L]) * 0.5f;
+    d.bandTop[4] = slot[3] + (slot[3] - slot[2]) * 0.5f;
+    return d;
+}
+
+// Winding per the block-layer convention: quads defined clockwise, filled as
+// (0,3,2)+(0,2,1) or faces drop out.
+static void ProsFillQuad(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Color col)
+{
+    DrawTriangle(a, d, c, col);
+    DrawTriangle(a, c, b, col);
+}
+static void ProsFillDiamond(float cx, float cy, float s, Color col)
+{
+    Vector2 t = {cx, cy - s}, r = {cx + s, cy}, b = {cx, cy + s}, l = {cx - s, cy};
+    ProsFillQuad(t, r, b, l, col);
+}
+
+// Dashed line with a phase, so a dash train can march (the advance) or spin
+// (the string). raylib has no line dash; this is the whole of it.
+static void ProsDashed(Vector2 a, Vector2 b, float dash, float gap,
+                       float phase, float th, Color c)
+{
+    float dx = b.x - a.x, dy = b.y - a.y;
+    float len = sqrtf(dx * dx + dy * dy);
+    if (len < 1.0f) return;
+    dx /= len; dy /= len;
+    float period = dash + gap;
+    float s = fmodf(phase, period);
+    if (s > 0.0f) s -= period;
+    for (; s < len; s += period)
+    {
+        float s0 = std::max(0.0f, s), s1 = std::min(len, s + dash);
+        if (s1 <= s0) continue;
+        DrawLineEx({a.x + dx * s0, a.y + dy * s0},
+                   {a.x + dx * s1, a.y + dy * s1}, th, c);
+    }
+}
+
+// ---- metal (Dark Plating section 4) ---------------------------------------
+static Color ProsSteel(float sh)
+{
+    sh = std::clamp(sh, 0.0f, 1.0f);
+    return { static_cast<unsigned char>(96.0f + 142.0f * sh),
+             static_cast<unsigned char>(104.0f + 140.0f * sh),
+             static_cast<unsigned char>(118.0f + 134.0f * sh), 255 };
+}
+// One slice of a turned cylinder: five flat bands, specular off-centre left.
+static void ProsBandedSlice(float cx, float y, float hw, float hh,
+                            const float tones[5][2])
+{
+    float x = cx - hw, wTot = hw * 2.0f, t = 0.0f;
+    for (int k = 0; k < 5; k++)
+    {
+        DrawRectangleRec({x + wTot * t, y, wTot * tones[k][0] + 0.7f, hh},
+                         ProsSteel(tones[k][1]));
+        t += tones[k][0];
+    }
+}
+static const float PROS_ROD_TONES[5][2]   = {{0.15f,0.11f},{0.17f,0.98f},{0.21f,0.58f},{0.27f,0.30f},{0.20f,0.07f}};
+static const float PROS_JOINT_TONES[5][2] = {{0.15f,0.16f},{0.18f,0.94f},{0.22f,0.56f},{0.26f,0.28f},{0.19f,0.10f}};
+static const float PROS_CHUCK_TONES[5][2] = {{0.17f,0.06f},{0.16f,0.62f},{0.22f,0.34f},{0.26f,0.18f},{0.19f,0.04f}};
+
+// ---- drill string geometry (pass 6 constants, px) -------------------------
+static const float PROS_DRILL_R = 15.0f, PROS_DRILL_RS = 8.6f, PROS_DRILL_RSB = 7.2f;
+static const float PROS_ROD_TOP = 11.5f, PROS_PITCH = 19.0f;
+static const float PROS_TILT = 1.7f, PROS_TH_T = 5.0f, PROS_TH_C = 1.9f;
+static const float PROS_TAPER = PROS_PITCH * 1.5f, PROS_CONE = 18.0f;
+static const float PROS_THREAD_LEN = PROS_PITCH * 6.2f;
+
+static float prosSpin = 0.0f;          // the string's spin accumulator
+struct ProsChip { float y, a, up; int layer; };
+static std::vector<ProsChip> prosChips;
+
+struct ProsRig
+{
+    float cx, surfY, bitY, coneApex, coneTop, threadTop;
+};
+static float ProsRodHalf(const ProsRig& r, float y)
+{
+    if (y >= r.coneTop)
+        return std::max(0.5f, PROS_DRILL_RSB * (1.0f - (y - r.coneTop) / (r.coneApex - r.coneTop)));
+    if (y >= r.threadTop)
+        return PROS_DRILL_RS + (PROS_DRILL_RSB - PROS_DRILL_RS)
+               * (y - r.threadTop) / std::max(1.0f, r.coneTop - r.threadTop);
+    // above the thread: stepped sections handled by the shaft drawing; the
+    // envelope just widens toward the chuck
+    float t = std::clamp((r.threadTop - y) / 150.0f, 0.0f, 1.0f);
+    return PROS_DRILL_RS + 0.5f + (PROS_ROD_TOP - PROS_DRILL_RS - 0.5f) * t;
+}
+static float ProsCrest(const ProsRig& r, float y)
+{
+    float start = r.coneTop - PROS_TAPER;
+    if (y <= start) return PROS_DRILL_R;
+    if (y >= r.coneTop) return ProsRodHalf(r, y);
+    float t = std::clamp((y - start) / PROS_TAPER, 0.0f, 1.0f);
+    return PROS_DRILL_R + (ProsRodHalf(r, y) - PROS_DRILL_R) * t;
+}
+static float ProsRadAt(const ProsRig& r, float y)
+{
+    return (y >= r.threadTop && y <= r.coneTop) ? ProsCrest(r, y) : ProsRodHalf(r, y);
+}
+
+// The helicoid, front or back sweep (Dark Plating section 6.1): each theta
+// step owns a radial quad from root to crest; the sawtooth is the projection.
+static void ProsDrawThread(const ProsRig& r, bool front)
+{
+    float span = r.coneTop - r.threadTop;
+    if (span <= 6.0f) return;
+    float thMax = (span / PROS_PITCH) * 2.0f * PI;
+    const float step = 0.11f;
+
+    struct Seg { Vector2 r0, c0, r1, c1; float e0x, e1x, c, s; };
+    std::vector<Seg> segs;
+    segs.reserve(static_cast<size_t>(thMax / step) + 4);
+    for (float th = 0.0f; th < thMax; th += step)
+    {
+        float a0 = th + prosSpin, a1 = th + step + prosSpin;
+        float c0 = cosf(a0), c1 = cosf(a1), cm = (c0 + c1) * 0.5f;
+        if (front != (cm > 0.0f)) continue;
+        float yb0 = r.threadTop + PROS_PITCH * th / (2.0f * PI);
+        float yb1 = r.threadTop + PROS_PITCH * (th + step) / (2.0f * PI);
+        float rc0 = ProsCrest(r, yb0), rc1 = ProsCrest(r, yb1);
+        float rr0 = ProsRodHalf(r, yb0), rr1 = ProsRodHalf(r, yb1);
+        if (rc0 - rr0 < 1.2f) continue;
+        float s0 = -sinf(a0), s1 = -sinf(a1);        // left-hand helix
+        Seg sg;
+        sg.r0 = {r.cx + rr0 * s0, yb0 + PROS_TILT * c0 * (rr0 / PROS_DRILL_R)};
+        sg.c0 = {r.cx + rc0 * s0, yb0 + PROS_TILT * c0 * (rc0 / PROS_DRILL_R)};
+        sg.r1 = {r.cx + rr1 * s1, yb1 + PROS_TILT * c1 * (rr1 / PROS_DRILL_R)};
+        sg.c1 = {r.cx + rc1 * s1, yb1 + PROS_TILT * c1 * (rc1 / PROS_DRILL_R)};
+        sg.e0x = r.cx + (rc0 + 1.7f) * s0;
+        sg.e1x = r.cx + (rc1 + 1.7f) * s1;
+        sg.c = cm; sg.s = (s0 + s1) * 0.5f;
+        segs.push_back(sg);
+    }
+    std::sort(segs.begin(), segs.end(), [](const Seg& p, const Seg& q){ return p.c < q.c; });
+
+    // one flood outline pass under the whole sweep, then the faces --
+    // per-segment strokes rib the surface (Dark Plating section 2)
+    const float M = 1.4f;
+    Color outCol = front ? PROS_OUT : Color{16, 24, 32, 255};
+    for (const Seg& s : segs)
+    {
+        ProsFillQuad({s.r0.x, s.r0.y - M}, {s.e0x, s.c0.y - M},
+                     {s.e1x, s.c1.y - M}, {s.r1.x, s.r1.y - M}, outCol);
+        ProsFillQuad({s.r0.x, s.r0.y - M}, {s.r1.x, s.r1.y - M},
+                     {s.r1.x, s.r1.y + PROS_TH_T + M}, {s.r0.x, s.r0.y + PROS_TH_T + M}, outCol);
+        ProsFillQuad({s.e0x, s.c0.y - M}, {s.e1x, s.c1.y - M},
+                     {s.e1x, s.c1.y + PROS_TH_C + M}, {s.e0x, s.c0.y + PROS_TH_C + M}, outCol);
+    }
+    auto band = [](float v){ return roundf(std::clamp(v, 0.0f, 1.0f) * 7.0f) / 7.0f; };
+    auto dim  = [&](float v){ return front ? v : 0.15f + v * 0.44f; };
+    for (const Seg& s : segs)
+    {
+        float c = std::max(0.0f, s.c), lt = (1.0f - s.s) * 0.5f;
+        float shB = dim(band(0.40f + 0.30f * c + 0.18f * lt));
+        float shU = dim(band(0.10f + 0.16f * c));
+        float shR = dim(band(0.38f + 0.34f * c + 0.22f * lt));
+        float shF = dim(band(0.33f + 0.46f * c + 0.14f * lt));
+        // body slab (root thickness tapering to crest = the V that sharpens teeth)
+        ProsFillQuad(s.r0, s.c0, {s.c0.x, s.c0.y + PROS_TH_C}, {s.r0.x, s.r0.y + PROS_TH_T}, ProsSteel(shB));
+        ProsFillQuad(s.r0, s.r1, {s.r1.x, s.r1.y + PROS_TH_T}, {s.r0.x, s.r0.y + PROS_TH_T}, ProsSteel(shB));
+        // underside in shadow
+        ProsFillQuad({s.r0.x, s.r0.y + PROS_TH_T * 0.55f}, {s.c0.x, s.c0.y + PROS_TH_C * 0.55f},
+                     {s.c1.x, s.c1.y + PROS_TH_C}, {s.r1.x, s.r1.y + PROS_TH_T}, ProsSteel(shU));
+        // crest rim
+        ProsFillQuad(s.c0, s.c1, {s.c1.x, s.c1.y + PROS_TH_C}, {s.c0.x, s.c0.y + PROS_TH_C}, ProsSteel(shR));
+        // the ramp face itself
+        ProsFillQuad(s.r0, s.c0, s.c1, s.r1, ProsSteel(shF));
+    }
+    if (front)
+    {
+        for (const Seg& s : segs)
+        {
+            float g = roundf(std::clamp(0.54f + 0.30f * std::max(0.0f, s.c) + 0.06f, 0.0f, 1.0f) * 3.0f) / 3.0f;
+            DrawLineEx({s.c0.x, s.c0.y + 0.8f}, {s.c1.x, s.c1.y + 0.8f}, 1.1f, ProsSteel(g));
+        }
+    }
+}
+
+static void ProsDrawJoint(float cx, float y, float rr, bool big)
+{
+    float hh = big ? 5.6f : 4.6f, w = rr + (big ? 3.6f : 2.7f);
+    DrawRectangleRec({cx - w - 1.8f, y - hh - 1.8f, (w + 1.8f) * 2.0f, hh * 2.0f + 3.6f}, PROS_OUT);
+    ProsBandedSlice(cx, y - hh, w, hh * 2.0f, PROS_JOINT_TONES);
+    DrawRectangleRec({cx - w, y - hh, w * 2.0f, 1.4f}, Fade(WHITE, 0.34f));
+    DrawRectangleRec({cx - w, y + hh - 1.8f, w * 2.0f, 1.8f}, Fade(BLACK, 0.45f));
+}
+
+// The rig: powerhead, chuck, jointed rod, threaded stem, carbide cone.
+static void ProsDrawString(const ProsRig& r, float topY)
+{
+    // rod silhouette + banded body, in thin slices so the taper stays banded
+    for (float y = topY; y < r.coneApex; y += 1.4f)
+    {
+        float w = ProsRodHalf(r, y) + 1.8f;
+        DrawRectangleRec({r.cx - w, y, w * 2.0f, 2.1f}, PROS_OUT);
+    }
+    for (float y = topY; y < r.coneApex - 1.0f; y += 1.4f)
+    {
+        float w = ProsRodHalf(r, y);
+        if (w < 0.7f) continue;
+        ProsBandedSlice(r.cx, y, w, 1.8f, PROS_ROD_TONES);
+    }
+    // chuck under the head, then joints where sections step
+    float chuckTop = r.surfY - 46.0f;
+    DrawRectangleRec({r.cx - PROS_ROD_TOP - 5.2f, chuckTop - 1.8f,
+                      (PROS_ROD_TOP + 5.2f) * 2.0f, 15.6f}, PROS_OUT);
+    ProsBandedSlice(r.cx, chuckTop, PROS_ROD_TOP + 3.6f, 12.0f, PROS_CHUCK_TONES);
+    DrawRectangleRec({r.cx - PROS_ROD_TOP - 3.6f, chuckTop, (PROS_ROD_TOP + 3.6f) * 2.0f, 2.0f}, Fade(WHITE, 0.22f));
+
+    float run = r.threadTop - (r.surfY - 30.0f);
+    int nj = run > 190.0f ? 2 : (run > 70.0f ? 1 : 0);
+    for (int k = 1; k <= nj; k++)
+        ProsDrawJoint(r.cx, (r.surfY - 30.0f) + run * k / (nj + 1),
+                      ProsRodHalf(r, (r.surfY - 30.0f) + run * k / (nj + 1)), false);
+    ProsDrawJoint(r.cx, r.threadTop, PROS_DRILL_RS + 0.8f, true);   // threads begin
+
+    // carbide point: flat facets, brightest left
+    float sh = r.coneApex - PROS_CONE + 1.4f, cw = PROS_DRILL_RSB * 0.9f;
+    const float fac[3][3] = {{-1.0f, -0.34f, 0.90f}, {-0.34f, 0.28f, 0.52f}, {0.28f, 1.0f, 0.22f}};
+    for (int k = 0; k < 3; k++)
+    {
+        Vector2 a = {r.cx + cw * fac[k][0], sh}, b = {r.cx + cw * fac[k][1], sh};
+        DrawTriangle(a, {r.cx, r.coneApex - 1.2f}, b, ProsSteel(fac[k][2]));
+    }
+    DrawRectangleRec({r.cx - cw - 1.0f, sh - 1.3f, (cw + 1.0f) * 2.0f, 1.5f}, Fade(BLACK, 0.45f));
+}
+
+static void ProsDrawHead(float cx, float surfY, bool turning)
+{
+    float top = surfY - 92.0f;
+    auto box = [](float x, float y, float w, float h, Color fill, bool bev)
+    {
+        DrawRectangleRec({x - 2.0f, y - 2.0f, w + 4.0f, h + 4.0f}, PROS_OUT);
+        DrawRectangleRec({x, y, w, h}, fill);
+        if (bev)
+        {
+            DrawRectangleRec({x, y, w, 2.6f}, Fade(WHITE, 0.30f));
+            DrawRectangleRec({x, y, 2.6f, h}, Fade(WHITE, 0.14f));
+            DrawRectangleRec({x, y + h - 2.6f, w, 2.6f}, Fade(BLACK, 0.30f));
+            DrawRectangleRec({x + w - 2.6f, y, 2.6f, h}, Fade(BLACK, 0.22f));
+        }
+    };
+    box(cx - 4.5f, top - 7.0f, 9.0f, 7.0f, {57, 66, 78, 255}, false);   // mast strap
+    box(cx - 23.0f, top, 46.0f, 29.0f, {217, 150, 47, 255}, true);      // amber housing
+    for (int i = 0; i < 3; i++)
+    {
+        DrawRectangleRec({cx - 14.0f, top + 7.0f + i * 7.0f, 28.0f, 3.4f}, {122, 81, 21, 255});
+        DrawRectangleRec({cx - 14.0f, top + 7.0f + i * 7.0f + 2.3f, 28.0f, 1.1f}, Fade(BLACK, 0.5f));
+    }
+    box(cx + 23.0f, top + 6.0f, 17.0f, 14.0f, {57, 66, 78, 255}, true); // motor pod
+    DrawRectangleRec({cx + 27.5f, top + 10.0f, 4.0f, 4.0f},
+                     turning ? Color{255, 200, 77, 255} : Color{80, 225, 255, 255});
+    box(cx - 10.0f, top + 29.0f, 20.0f, 9.0f, {74, 84, 95, 255}, true); // collar clamp
+    box(cx - 7.0f, top + 38.0f, 14.0f, 8.0f, {57, 66, 78, 255}, true);
+}
+
+// The whole strip. Returns nothing; draws rock, hole, string, mud trace.
+static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
+                                 const ProsDockGeom& dg, float clipTop, float clipBot,
+                                 const Font& bodyFont, float sp, float fsSmall)
+{
+    (void)unit;
+    const LineHole& hole = ps->lineHole;
+    bool turning = hole.state == LineHoleState::DRILLING;
+    float surfY = dg.bandTop[0];
+    float botY = dg.bandTop[4];
+
+    // spin + chips advance with the frame, freeze when the string stops
+    float dt = GetFrameTime();
+    if (turning) prosSpin -= 0.62f * 9.0f * dt;
+
+    BeginScissorMode(static_cast<int>(dg.x), static_cast<int>(clipTop),
+                     static_cast<int>(dg.w), static_cast<int>(clipBot - clipTop));
+
+    // sky
+    DrawRectangleRec({dg.x, clipTop, dg.w, surfY - clipTop}, {10, 16, 24, 255});
+    prosGrain = 3;
+    for (int i = 0; i < 8; i++)
+        DrawRectangleRec({dg.x + ProsRnd() * dg.w, clipTop + ProsRnd() * (surfY - clipTop - 8.0f),
+                          1.4f, 1.4f}, Fade({200, 220, 240, 255}, 0.5f));
+
+    // the rock, full strength: this is the SAME ground the plates float on
+    prosGrain = 7;
+    for (int L = 0; L < 4; L++)
+    {
+        float y0 = dg.bandTop[L], y1 = dg.bandTop[L + 1];
+        DrawRectangleRec({dg.x, y0, dg.w, y1 - y0}, PROS_ROCK_COL[L]);
+        int n = static_cast<int>((y1 - y0) * dg.w / 2100.0f);
+        for (int i = 0; i < n; i++)
+            DrawRectangleRec({dg.x + ProsRnd() * dg.w, y0 + ProsRnd() * (y1 - y0),
+                              2.6f + ProsRnd() * 2.6f, 2.2f}, PROS_ROCK_GRAIN[L]);
+        if (L == 2)
+            for (int i = 0; i < 14; i++)
+                DrawRectangleRec({dg.x + ProsRnd() * dg.w, y0 + ProsRnd() * (y1 - y0), 3.4f, 1.7f},
+                                 Fade(PROS_ICE_FLECK, 0.4f + ProsRnd() * 0.4f));
+        DrawRectangleRec({dg.x, y0, dg.w, 2.0f}, PROS_ROCK_EDGE[L]);
+    }
+    DrawRectangleRec({dg.x, surfY - 1.8f, dg.w, 2.0f}, {74, 85, 96, 255});
+
+    // depth figures down the right edge
+    for (int L = 0; L <= 4; L++)
+    {
+        const char* t = TextFormat("%d", static_cast<int>(L == 4 ? FULL_COLUMN_M : LayerTopM(L)));
+        float tw = MeasureTextEx(bodyFont, t, fsSmall, sp).x;
+        DrawTextEx(bodyFont, t, {dg.x + dg.w - tw - 4.0f, dg.bandTop[L] + 3.0f},
+                   fsSmall, sp, Fade(EXT_DIM_TEXT, 0.9f));
+    }
+
+    ProsRig rig;
+    rig.cx = dg.cx; rig.surfY = surfY;
+    float depthShown = (hole.state == LineHoleState::DRILLING ||
+                        hole.state == LineHoleState::DONE) ? hole.depthM : 1.5f;
+    rig.bitY = dg.YOf(depthShown);
+    rig.coneApex = rig.bitY;                    // the tip IS the depth
+    rig.coneTop = rig.coneApex - PROS_CONE;
+    rig.threadTop = std::max(std::min(rig.bitY - PROS_THREAD_LEN,
+                                      rig.coneTop - 3.0f * PROS_PITCH), surfY + 10.0f);
+
+    // borehole with ragged walls, cut to the bit
+    float bw = PROS_DRILL_R * 2.0f + 9.0f;
+    DrawRectangleRec({rig.cx - bw / 2.0f, surfY, bw, rig.bitY - surfY + 4.0f}, {14, 11, 8, 255});
+    prosGrain = 29;
+    for (float y = surfY; y < rig.bitY + 2.0f; y += 7.0f)
+    {
+        DrawRectangleRec({rig.cx - bw / 2.0f - 2.0f - ProsRnd() * 2.6f, y, 3.4f + ProsRnd() * 2.6f, 6.0f}, Fade(BLACK, 0.8f));
+        DrawRectangleRec({rig.cx + bw / 2.0f - 1.4f + ProsRnd() * 2.6f, y, 3.4f + ProsRnd() * 2.6f, 6.0f}, Fade(BLACK, 0.8f));
+    }
+    DrawRectangleRec({rig.cx - bw / 2.0f, surfY, 5.0f, rig.bitY - surfY + 4.0f}, Fade(BLACK, 0.45f));
+    DrawRectangleRec({rig.cx + bw / 2.0f - 5.0f, surfY, 5.0f, rig.bitY - surfY + 4.0f}, Fade(BLACK, 0.45f));
+
+    // casing at the collar
+    DrawRectangleRec({rig.cx - 24.0f, surfY - 10.0f, 48.0f, 12.0f}, PROS_OUT);
+    DrawRectangleRec({rig.cx - 22.0f, surfY - 8.5f, 44.0f, 9.0f}, {28, 37, 48, 255});
+    DrawRectangleRec({rig.cx - 22.0f, surfY - 8.5f, 44.0f, 1.8f}, Fade(WHITE, 0.18f));
+
+    // the string
+    ProsDrawThread(rig, false);
+    ProsDrawString(rig, clipTop + 4.0f);
+    ProsDrawThread(rig, true);
+
+    // cuttings ride the flights while the string turns
+    if (turning && prosChips.size() < 46)
+        for (int i = 0; i < 2; i++)
+            prosChips.push_back({rig.bitY - 6.0f, ProsRnd() * 6.28f,
+                                 24.0f + ProsRnd() * 20.0f, LayerOfDepthM(hole.depthM)});
+    for (int i = static_cast<int>(prosChips.size()) - 1; i >= 0; i--)
+    {
+        ProsChip& c = prosChips[i];
+        c.y -= c.up * dt * (turning ? 1.0f : 0.2f);
+        c.a -= 5.6f * dt;
+        if (c.y < surfY - 2.0f) { prosChips.erase(prosChips.begin() + i); continue; }
+        Color cc = PROS_ROCK_GRAIN[c.layer];
+        DrawRectangleRec({rig.cx + (ProsRadAt(rig, c.y) + 2.2f) * sinf(c.a), c.y, 2.8f, 2.1f},
+                         Fade(cc, cosf(c.a) > 0.0f ? 0.95f : 0.45f));
+    }
+
+    // the prescribed line, mud projection: shadow + advance below the bit
+    if (hole.state != LineHoleState::NONE)
+    {
+        float endY = dg.YOf(hole.endM);
+        Vector2 tip = {rig.cx, dg.YOf(std::min(hole.depthM, hole.endM)) + 3.0f};
+        if (hole.depthM < hole.endM - 0.5f)
+        {
+            DrawLineEx(tip, {rig.cx, endY}, 6.0f, Fade(EXT_ACCENT_CYAN, 0.10f));
+            DrawLineEx(tip, {rig.cx, endY}, 1.0f, Fade(PROS_SHADOW_HAIR, 0.30f));
+            ProsDashed(tip, {rig.cx, endY}, 4.0f, 8.0f, -ps->gameTime * 26.0f,
+                       1.3f, Fade(EXT_ACCENT_CYAN, 0.55f));
+            DrawRectangleRec({rig.cx - 5.0f, endY, 10.0f, 1.6f}, EXT_ACCENT_CYAN);
+        }
+        // assay ticks accrue down the drilled wall, Measured green
+        for (float m = 6.0f; m < hole.depthM; m += 6.0f)
+            DrawRectangleRec({rig.cx + PROS_DRILL_R + 6.0f, dg.YOf(m), 3.4f, 1.5f}, EXT_ACCENT_GREEN);
+        // twin cursor
+        float pulse = 3.9f + 1.1f * sinf(ps->gameTime * 12.6f);
+        ProsFillDiamond(tip.x, tip.y, pulse + 1.4f, PROS_OUT);
+        ProsFillDiamond(tip.x, tip.y, pulse, {244, 198, 106, 255});
+    }
+
+    ProsDrawHead(rig.cx, surfY, turning);
+
+    // tag, bottom-right
+    {
+        const char* tag = "BOREHOLE";
+        float tw = MeasureTextEx(bodyFont, tag, fsSmall, sp).x;
+        (void)tw;
+        DrawTextEx(bodyFont, tag, {dg.x + 5.0f, botY + 5.0f},
+                   fsSmall, sp, EXT_DIM_TEXT);
+    }
+    EndScissorMode();
+
+    // border: solid except the model-facing edge, which is a dashed cut mark
+    DrawLineEx({dg.x, clipTop}, {dg.x + dg.w, clipTop}, 1.0f, EXT_PANEL_BORDER);
+    DrawLineEx({dg.x, clipBot}, {dg.x + dg.w, clipBot}, 1.0f, EXT_PANEL_BORDER);
+    DrawLineEx({dg.x + dg.w, clipTop}, {dg.x + dg.w, clipBot}, 1.0f, EXT_PANEL_BORDER);
+    ProsDashed({dg.x, clipTop}, {dg.x, clipBot}, 4.0f, 5.0f, 0.0f, 1.0f,
+               Fade(EXT_PANEL_BORDER, 0.9f));
+}
+
+// One point of the prescribed line in BLOCK space: the shared depth mapping
+// plus the stack's own iso offset. Straight by construction between its ends.
+static Vector2 ProsLinePoint(ProspectingSystem* ps, const BlockModelGeom& g,
+                             const ProsDockGeom& dg, float m)
+{
+    float fx = 0.0f, fy = 0.0f;
+    ps->GetLineCell(m, fx, fy);
+    return { g.originX + (fx - fy) * g.tileX,
+             dg.YOf(m) + (fx + fy + 1.0f - g.size) * g.tileY };
+}
+static Vector2 ProsTraceAt(ProspectingSystem* ps, const BlockModelGeom& g,
+                           const ProsDockGeom& dg, float m)
+{
+    const LineHole& hole = ps->lineHole;
+    Vector2 P0 = ProsLinePoint(ps, g, dg, 0.0f);
+    Vector2 P1 = ProsLinePoint(ps, g, dg, hole.endM);
+    float u = (dg.YOf(m) - dg.YOf(0.0f)) / std::max(1.0f, dg.YOf(hole.endM) - dg.YOf(0.0f));
+    return {P0.x + (P1.x - P0.x) * u, P0.y + (P1.y - P0.y) * u};
+}
+
+// The prescribed line over the stack: shadow, string, advance, twin cursor,
+// crossing rings, flip flash, active-plate rim (Dark Plating section 9).
+static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
+                               const ProsDockGeom& dg)
+{
+    const LineHole& hole = ps->lineHole;
+    if (hole.state == LineHoleState::NONE) return;
+
+    Vector2 P0 = ProsTraceAt(ps, g, dg, 0.0f);
+    Vector2 P1 = ProsTraceAt(ps, g, dg, hole.endM);
+    Vector2 Pn = ProsTraceAt(ps, g, dg, std::min(hole.depthM, hole.endM));
+
+    // shadow of the full prescribed path -- always there, quiet
+    DrawLineEx(P0, P1, 6.0f, Fade(EXT_ACCENT_CYAN, 0.10f));
+    DrawLineEx(P0, P1, 1.0f, Fade(PROS_SHADOW_HAIR, 0.30f));
+    // the advance, progressing along the shadow
+    if (hole.depthM < hole.endM - 0.5f)
+        ProsDashed(Pn, P1, 4.0f, 8.0f, -ps->gameTime * 26.0f, 1.3f,
+                   Fade(EXT_ACCENT_CYAN, 0.55f));
+    // the string: barber-pole banding on the drill's own spin
+    if (hole.depthM > 0.5f)
+    {
+        DrawLineEx(P0, Pn, 5.0f, PROS_OUT);
+        DrawLineEx(P0, Pn, 3.0f, PROS_STRING_MID);
+        ProsDashed(P0, Pn, 6.0f, 10.0f, prosSpin * 6.0f, 3.0f, PROS_STRING_LIT);
+    }
+
+    // crossing rings + flip flash on the cells the line cored
+    for (int L = 0; L <= hole.targetLayer; L++)
+    {
+        if (!hole.cored[L]) continue;
+        int cx = 0, cy = 0;
+        ps->GetCrossingCell(L, cx, cy);
+        Vector2 c = g.Iso(cx + 0.5f, cy + 0.5f, L, 0.0f);
+        DrawCircleV(c, 2.6f, PROS_OUT);
+        DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 2.6f, EXT_TEXT);
+        float pop = 1.0f - (ps->gameTime - hole.coredTime[L]) / 0.5f;
+        if (pop > 0.0f)
+        {
+            Vector2 q[4] = { g.Iso(static_cast<float>(cx),     static_cast<float>(cy),     L, 0.0f),
+                             g.Iso(static_cast<float>(cx + 1), static_cast<float>(cy),     L, 0.0f),
+                             g.Iso(static_cast<float>(cx + 1), static_cast<float>(cy + 1), L, 0.0f),
+                             g.Iso(static_cast<float>(cx),     static_cast<float>(cy + 1), L, 0.0f) };
+            ProsFillQuad(q[0], q[1], q[2], q[3], Fade(WHITE, 0.55f * pop));
+        }
+    }
+
+    // active-plate rim while the bit is inside its stratum
+    if (hole.state == LineHoleState::DRILLING)
+    {
+        int L = LayerOfDepthM(hole.depthM);
+        float a = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
+        Vector2 top = g.Iso(0.0f, 0.0f, L, g.relief + 8.0f);
+        Vector2 right = g.Iso(static_cast<float>(g.size), 0.0f, L, 0.0f); right.x += 8.0f;
+        Vector2 bot = g.Iso(static_cast<float>(g.size), static_cast<float>(g.size), L, -8.0f);
+        Vector2 left = g.Iso(0.0f, static_cast<float>(g.size), L, 0.0f); left.x -= 8.0f;
+        Color rim = Fade({244, 198, 106, 255}, a);
+        DrawLineEx(top, right, 1.5f, rim); DrawLineEx(right, bot, 1.5f, rim);
+        DrawLineEx(bot, left, 1.5f, rim);  DrawLineEx(left, top, 1.5f, rim);
+    }
+
+    // twin cursor, same clock as the mud panel's
+    float pulse = 3.9f + 1.1f * sinf(ps->gameTime * 12.6f);
+    ProsFillDiamond(Pn.x, Pn.y, pulse + 1.4f, PROS_OUT);
+    ProsFillDiamond(Pn.x, Pn.y, pulse, {244, 198, 106, 255});
+}
+
+
 void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 {
     const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
@@ -2792,6 +3331,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     auto* ps = unit->GetProspectingSystem();
     ps->gameTime += GetFrameTime();
+    if (ps->UpdateLineHole(GetFrameTime()))
+    {
+        unit->PublicShowMessage("Line complete - every layer it crossed is cored");
+    }
     Vector2 mouse = ColonyGetMousePosition();
 
     // --- Header: icon + title, calibration gauge on the right ---
@@ -2837,7 +3380,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // surface, or drill a spot. See docs/design/prospecting/block-model-design.md
     // =======================================================================
 
-    float modelW = pw * 0.60f;
+    float dockW = 104.0f;
+    float modelW = pw * 0.60f - dockW;
     float modelH = contentH - 30.0f;
     float gridX = px;
     float gridY = contentY;
@@ -2857,6 +3401,21 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     }
 
     BlockModelGeom geom = ProsBlockGeom(gridSize, gridX, gridY, modelW, modelH);
+    ProsDockGeom dock = ProsDockFrom(geom, gridX + modelW + 6.0f, dockW);
+
+    // One ground, both panels (Dark Plating section 9.1): the strata bands run
+    // dim under the whole stack and full-strength inside the dock, and the
+    // boundary rules cross unbroken through the explosion gaps.
+    for (int L = 0; L < 4; L++)
+    {
+        DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX,
+                          dock.bandTop[L + 1] - dock.bandTop[L]},
+                         Fade(PROS_ROCK_COL[L], 0.16f));
+        DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX, 1.6f},
+                         Fade(PROS_ROCK_EDGE[L], 0.85f));
+    }
+    DrawRectangleRec({gridX, dock.bandTop[4] - 1.0f, dock.x - gridX, 1.6f},
+                     Fade(PROS_ROCK_EDGE[3], 0.85f));
 
     // Build all four layers first so one grade scale covers the stack --
     // per-layer normalisation would make a barren layer look as rich as the
@@ -2888,15 +3447,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     static const char* geologyLabels[4] = {"REGOLITH", "MEGAREG.", "FRACTURED", "INTACT"};
 
     int focusDepth = static_cast<int>(ps->selectedDepth);
-    std::vector<Rectangle> hitBoxes;
-    std::vector<int> hitIndex;
+    std::vector<Rectangle> hitAll[4];
+    std::vector<int> hitAllIdx[4];
     for (int L = 0; L < 4; L++)
     {
         ProsDrawBlockLayer(geom, layers[L], L, maxGrade, bodyFont, sp,
                            depthLabels[L], geologyLabels[L],
-                           L == focusDepth ? &hitBoxes : nullptr,
-                           L == focusDepth ? &hitIndex : nullptr);
+                           &hitAll[L], &hitAllIdx[L]);
     }
+    std::vector<Rectangle>& hitBoxes = hitAll[focusDepth];
+    std::vector<int>& hitIndex = hitAllIdx[focusDepth];
 
     // Selecting a block on the layer currently in focus
     for (size_t k = 0; k < hitBoxes.size(); k++)
@@ -2911,6 +3471,58 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             ps->selectedCellY = gy;
         }
     }
+
+    // ---- Drawing the prescribed line: press a SURFACE block, drag down the
+    // stack, release on the layer you want the hole to reach. Release without
+    // leaving the surface and it was only ever a click.
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+        ps->lineHole.state != LineHoleState::DRILLING)
+    {
+        for (size_t k = 0; k < hitAll[0].size(); k++)
+        {
+            if (!CheckCollisionPointRec(mouse, hitAll[0][k])) continue;
+            int gx = hitAllIdx[0][k] % gridSize, gy = hitAllIdx[0][k] / gridSize;
+            if (grid.IsInReach(gx, gy)) ps->StartAim(gx, gy);
+        }
+    }
+    if (ps->lineHole.state == LineHoleState::AIMING &&
+        IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+    {
+        for (int L = 0; L < 4; L++)
+            for (size_t k = 0; k < hitAll[L].size(); k++)
+            {
+                if (!CheckCollisionPointRec(mouse, hitAll[L][k])) continue;
+                ps->AimAt(L, hitAllIdx[L][k] % gridSize, hitAllIdx[L][k] / gridSize);
+            }
+    }
+    if (ps->lineHole.state == LineHoleState::AIMING &&
+        IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+    {
+        if (ps->lineHole.targetLayer == 0)
+        {
+            ps->CancelAim();
+        }
+        else
+        {
+            float lineCost = DrillEnergyToDepth(ps->lineHole.targetLayer);
+            if (unit->ConsumeResource(ResourceType::ENERGY, lineCost))
+            {
+                ps->CommitHole();
+                unit->PublicShowMessage(TextFormat(
+                    "String down - drilling the line (%.0f E)", lineCost));
+            }
+            else
+            {
+                ps->CancelAim();
+                unit->PublicShowMessage(TextFormat(
+                    "The line needs %.0f E", lineCost));
+            }
+        }
+    }
+
+    // the line over the stack, after the plates so it reads as through them
+    ProsDrawTraceBlock(ps, geom, dock);
+    ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f, bodyFont, sp, FS(7.5f));
 
     // Marker on the selected column, on every layer, so a column reads as one
     if (ps->selectedCellX >= 0 && ps->selectedCellY >= 0)
@@ -2947,9 +3559,9 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     }
 
     // =========================== the control rail ===========================
-    float ctrlX = gridX + modelW + 15.0f;
+    float ctrlX = dock.x + dock.w + 15.0f;
     float ctrlY = contentY;
-    float ctrlW = pw - modelW - 15.0f;
+    float ctrlW = px + pw - ctrlX;
 
     bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
                          ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
@@ -3033,10 +3645,19 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     DrawTextEx(headerFont, "DRILL - AUGER", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
     ctrlY += 17.0f;
 
-    DrawTextEx(bodyFont, hasSelection
-                   ? TextFormat("spot  %c%d", 'A' + ps->selectedCellX, ps->selectedCellY + 1)
-                   : "click a block on the model",
-               {ctrlX, ctrlY}, FS(9.5f), sp, hasSelection ? EXT_TEXT : EXT_DIM_TEXT);
+    if (ps->lineHole.state == LineHoleState::DRILLING)
+    {
+        DrawTextEx(bodyFont, TextFormat("string down  %.0f / %.0f m",
+                                        ps->lineHole.depthM, ps->lineHole.endM),
+                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GOLD);
+    }
+    else
+    {
+        DrawTextEx(bodyFont, hasSelection
+                       ? TextFormat("spot  %c%d", 'A' + ps->selectedCellX, ps->selectedCellY + 1)
+                       : "click a block - or drag from the surface to draw a line",
+                   {ctrlX, ctrlY}, FS(9.5f), sp, hasSelection ? EXT_TEXT : EXT_DIM_TEXT);
+    }
     ctrlY += 15.0f;
 
     // Depth chips double as the focus selector. Nothing is locked -- depth is

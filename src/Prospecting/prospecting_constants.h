@@ -66,6 +66,39 @@ constexpr float DrillEnergyToDepth(int depthIndex)
     return total;
 }
 
+// Metric layer boundaries, derived -- never restate the thickness table.
+constexpr float LayerTopM(int depthIndex)
+{
+    float top = 0.0f;
+    for (int d = 0; d < depthIndex && d < 4; d++)
+    {
+        top += LAYER_THICKNESS_M[d];
+    }
+    return top;
+}
+constexpr float LayerBottomM(int depthIndex)
+{
+    return LayerTopM(depthIndex) + LAYER_THICKNESS_M[depthIndex];
+}
+constexpr float FULL_COLUMN_M = LayerBottomM(3);
+
+inline int LayerOfDepthM(float m)
+{
+    for (int d = 0; d < 3; d++)
+    {
+        if (m < LayerBottomM(d)) return d;
+    }
+    return 3;
+}
+
+// ---------------------------------------------------------------------------
+// Line holes (the prescribed line -- the drill-dock port).
+// The string advances in metres of hole per second of game time, by the
+// stratum being cut: soft ground runs quick, basalt crawls. Depth is priced
+// in time as well as energy, and the player watches it happen.
+// ---------------------------------------------------------------------------
+constexpr float DRILL_ADVANCE_MPS[4] = { 9.0f, 6.5f, 7.0f, 3.5f };
+
 // ---------------------------------------------------------------------------
 // The estimate field (block-model-design.md #3)
 //

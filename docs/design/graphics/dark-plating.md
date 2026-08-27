@@ -354,8 +354,10 @@ The instrument-panel language around a stage (in-game panels: defer to
 
 When one subject appears in two projections at once — the borehole cross-section
 beside the 4-layer block model — the pair must read as **one world, two
-instruments**, never two apps sharing a screen. Reference:
-`../prospecting/prototypes/drill-dock.html` (three placements, `?v=a/b/c`).
+instruments**, never two apps sharing a screen. References:
+`../prospecting/prototypes/drill-dock.html` (three placements, `?v=a/b/c`) and
+the raylib port in `src/Engine/rendermanager.cpp` (`ProsDrawBoreholeDock`,
+`ProsDrawTraceBlock`, `ProsDockGeom` — the in-game prospecting panel).
 
 ### 9.1 The ground is the join
 

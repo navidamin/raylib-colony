@@ -9,6 +9,28 @@
 
 enum class ProspectingTab { SWEEP, SAMPLES, LAB };
 
+// ---------------------------------------------------------------------------
+// The prescribed line: ONE hole drawn from a collar cell on the surface
+// toward a chosen cell at a chosen layer, then drilled over game time by the
+// auger. The visual contract is the drill-dock prototype
+// (docs/design/prospecting/prototypes/drill-dock.html, variant b); the
+// knowledge contract is RecordCore at every layer the line crosses.
+// ---------------------------------------------------------------------------
+enum class LineHoleState { NONE, AIMING, DRILLING, DONE };
+
+struct LineHole
+{
+    LineHoleState state = LineHoleState::NONE;
+    int   collarX = 0, collarY = 0;   // cell on layer 0
+    float dirX = 0.0f, dirY = 0.0f;   // cells drifted per metre of depth
+    int   targetLayer = 0;            // the layer the hole is prescribed into
+    float depthM = 0.0f;              // bit depth now
+    float endM = 0.0f;                // bottom of the target layer
+    bool  cored[4]     = { false, false, false, false };
+    float coredTime[4] = { -100.0f, -100.0f, -100.0f, -100.0f };
+    float doneTime = -100.0f;
+};
+
 class ProspectingSystem
 {
 public:
@@ -31,6 +53,22 @@ public:
     const SamplingEngine& GetSampler() const;
     LabEngine& GetLab();
     const LabEngine& GetLab() const;
+
+    // ---- Line hole (the prescribed line) --------------------------------
+    // Aim with StartAim/AimAt while the pointer drags across the block
+    // model; Commit starts the string turning (the CALLER charges energy);
+    // UpdateLineHole advances it and cores each crossing as the bit passes
+    // its layer centre. Returns true on the frame the hole completes.
+    void StartAim(int collarX, int collarY);
+    void AimAt(int layer, int cellX, int cellY);
+    void CancelAim();
+    bool CommitHole();
+    bool UpdateLineHole(float dt);
+    // The line's fractional cell at depth m, and the cell it cores on a layer
+    void GetLineCell(float m, float& gx, float& gy) const;
+    void GetCrossingCell(int layer, int& gx, int& gy) const;
+
+    LineHole lineHole;
 
     // UI state
     ProspectingTab activeTab = ProspectingTab::SWEEP;
