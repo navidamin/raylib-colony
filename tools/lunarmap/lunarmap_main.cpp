@@ -1800,7 +1800,9 @@ static void DrawLevelCard(const DemoSite& site, int level,
                           const PlacementVerdict* verdict,
                           int px, int py, int pw)
 {
-    int ph = (level == 4) ? 236 : (level == 3 ? 208 : 164);
+    // Level 5's verdict line lands at py+221 and is 16 pt: at 236 the
+    // card's own border cut through the one row that decides the site.
+    int ph = (level == 4) ? 252 : (level == 3 ? 208 : 164);
     Color line = (level == 4 && verdict)
         ? (verdict->allowed ? Color{ 60, 235, 120, 255 }
                             : Color{ 255, 70, 70, 255 })
