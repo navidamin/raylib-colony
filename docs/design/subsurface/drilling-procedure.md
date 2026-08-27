@@ -150,6 +150,16 @@ The prototype lives at [prototypes/drill-rig.html](prototypes/drill-rig.html)
   into (pass 3's fix; drawing it narrower than the flights reads instantly
   wrong). Rod joints every 6 m foreshadow tripping; chips ride the flights up
   tinted by the stratum being cut; sparks only in hard ground.
+- **Pass 4, against a game-art reference:** what buys the "asset" look is
+  (a) a chunky near-black outline around every silhouette, (b) **stepped**
+  metal shading — hard gradient bands, not smooth ramps; quantized tones read
+  as drawn, smooth reads as CG — (c) a **powerhead**: amber housing with
+  vents, side motor pod and collar clamp, giving the string a top and the
+  scene its one accent colour, (d) the flights ending in a **tapered cutting
+  cone** to a carbide point rather than a flat bit, (e) ambient-occlusion
+  bands where each blade shadows the shaft below it, and (f) a ragged
+  borehole wall. One trap: debris must never render below the bit — there is
+  no hole down there yet.
 
 ---
 
