@@ -850,6 +850,95 @@ static void BuildSceneGeometry(TerrainScene& scene,
 // therefore the albedo are identical, and the shader is the same program.
 // Rebuilding both per rung cost ~1.9 s each time, which was most of the
 // fixed cost that made the ladder's tail feel like a stall.
+// ---------------------------------------------------------------------------
+// Built-window cache
+//
+// Borrowed from raytiles (github.com/ziv/raytiles), which serves terrain
+// tiles from a persistent cache and derives deeper zooms from a cached
+// parent. Only half of that idea applies here: our synthesis is already
+// a pure function of global coordinates, so a child window never needs
+// its parent and neighbouring windows agree at their edges by
+// construction -- the pyramid and its seam rule solve a problem we do
+// not have. What we DO have is the other half: we were rebuilding
+// windows we had already built. Backing out of a level threw the parent
+// away and synthesized it again from scratch, and re-entering a cell you
+// had just looked at cost full price -- which is the whole activity in
+// site selection, comparing candidates.
+//
+// So: memoize, do not tile. Keyed on everything the window depends on,
+// evicted least-recently-used against a byte budget, because a full-res
+// window is ~20 MB of float and the web build has no room to keep many.
+// ---------------------------------------------------------------------------
+struct WindowCacheEntry
+{
+    double latDeg = 0.0, lonDeg = 0.0, spanKm = 0.0;
+    int res = 0;
+    float detail = 0.0f;
+    LolaWindow window;
+    unsigned long long used = 0;
+};
+
+static std::vector<WindowCacheEntry> g_windowCache;
+static unsigned long long g_windowClock = 0;
+static const size_t WINDOW_CACHE_BUDGET = 96u * 1024u * 1024u;
+
+static size_t WindowBytes(const LolaWindow& w)
+{
+    return (w.elevationM.size() + w.slopeDeg.size()) * sizeof(float);
+}
+
+// Windows are addressed by values the ladder computes the same way every
+// time, but they arrive through doubles, so compare with a tolerance
+// rather than betting on bit equality.
+static bool SameWindowKey(const WindowCacheEntry& e, double lat, double lon,
+                          double spanKm, int res, float detail)
+{
+    return e.res == res
+        && std::fabs(e.detail - detail) < 1e-6f
+        && std::fabs(e.latDeg - lat) < 1e-9
+        && std::fabs(e.lonDeg - lon) < 1e-9
+        && std::fabs(e.spanKm - spanKm) < 1e-6;
+}
+
+static const LolaWindow* WindowCacheFind(double lat, double lon, double spanKm,
+                                         int res, float detail)
+{
+    for (WindowCacheEntry& e : g_windowCache)
+    {
+        if (SameWindowKey(e, lat, lon, spanKm, res, detail))
+        {
+            e.used = ++g_windowClock;
+            return &e.window;
+        }
+    }
+    return nullptr;
+}
+
+static void WindowCacheStore(double lat, double lon, double spanKm, int res,
+                             float detail, const LolaWindow& w)
+{
+    size_t bytes = WindowBytes(w);
+    if (bytes == 0 || bytes > WINDOW_CACHE_BUDGET) return;
+
+    size_t total = bytes;
+    for (const WindowCacheEntry& e : g_windowCache) total += WindowBytes(e.window);
+    while (total > WINDOW_CACHE_BUDGET && !g_windowCache.empty())
+    {
+        size_t oldest = 0;
+        for (size_t i = 1; i < g_windowCache.size(); i++)
+            if (g_windowCache[i].used < g_windowCache[oldest].used) oldest = i;
+        total -= WindowBytes(g_windowCache[oldest].window);
+        g_windowCache.erase(g_windowCache.begin() + oldest);
+    }
+
+    WindowCacheEntry e;
+    e.latDeg = lat; e.lonDeg = lon; e.spanKm = spanKm;
+    e.res = res; e.detail = detail;
+    e.window = w;
+    e.used = ++g_windowClock;
+    g_windowCache.push_back(std::move(e));
+}
+
 static bool BuildScene(const MapOptions& options, const LolaDem& dem,
                        TerrainScene& scene, bool keepAlbedo = false)
 {
@@ -888,8 +977,21 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
         // pixel.
         int res = (options.demRes > 0) ? options.demRes : 2048;
         texRes = std::clamp(res, 64, 4096);
-        scene.window = dem.Window(options.pickLat, options.pickLon,
-                                  options.spanKm, texRes, options.detail);
+        const LolaWindow* hit = WindowCacheFind(options.pickLat,
+                                               options.pickLon,
+                                               options.spanKm, texRes,
+                                               options.detail);
+        if (hit)
+        {
+            scene.window = *hit;
+        }
+        else
+        {
+            scene.window = dem.Window(options.pickLat, options.pickLon,
+                                      options.spanKm, texRes, options.detail);
+            WindowCacheStore(options.pickLat, options.pickLon, options.spanKm,
+                             texRes, options.detail, scene.window);
+        }
         double spanDeg = options.spanKm * 1000.0 / LOLA_M_PER_DEG;
         double c = std::max(0.2, std::cos(options.pickLat * DEG2RAD));
         scene.lat0 = options.pickLat - spanDeg / 2.0;
@@ -3654,21 +3756,29 @@ int main(int argc, char** argv)
         // Scripted walk through the real interactive state machine: a
         // pointer position and an optional click per step, each rendered
         // to its own PNG. Verifies the flow a player will actually use.
-        struct Step { float x, y; bool click; const char* tag; };
+        struct Step { float x, y; bool click; const char* tag; bool esc; };
         // Fractions of the screen, not pixels: the same walk has to run
         // at --size 390x844 (the phone layout, where a card spans the
         // full width) as well as at the default square. Every point sits
         // below the cards and above the prompt strip -- a click on a card
         // row opens a hint and deliberately does not move the descent, so
         // probing there proves nothing about the ladder.
+        //
+        // The walk descends to the site and then backs all the way out
+        // again. Ascending had never been exercised here at all, which
+        // is exactly the path that reported lag -- and it is the path
+        // the window cache is supposed to make free.
         const Step steps[] = {
-            { 0.62f, 0.48f, false, "1_hover" },
-            { 0.44f, 0.56f, false, "2_hover_mare" },
-            { 0.44f, 0.56f, true,  "3_claim" },
-            { 0.52f, 0.62f, false, "4_playfield" },
-            { 0.52f, 0.62f, true,  "5_descend" },
-            { 0.42f, 0.70f, true,  "6_descend" },
-            { 0.46f, 0.68f, false, "7_site" },
+            { 0.62f, 0.48f, false, "1_hover",     false },
+            { 0.44f, 0.56f, false, "2_hover_mare", false },
+            { 0.44f, 0.56f, true,  "3_claim",     false },
+            { 0.52f, 0.62f, false, "4_playfield", false },
+            { 0.52f, 0.62f, true,  "5_descend",   false },
+            { 0.42f, 0.70f, true,  "6_descend",   false },
+            { 0.46f, 0.68f, false, "7_site",      false },
+            { 0.46f, 0.68f, false, "8_back",      true  },
+            { 0.46f, 0.68f, false, "9_back",      true  },
+            { 0.46f, 0.68f, false, "10_back",     true  },
         };
         std::string stem = app.options.siteShot;
         size_t dot = stem.find_last_of('.');
@@ -3715,6 +3825,17 @@ int main(int argc, char** argv)
             UnloadImage(shot);
             UnloadRenderTexture(target);
 
+            if (steps[i].esc)
+            {
+                // Second pass with Esc, off-screen, to back out a level.
+                g_fake.escape = true;
+                RenderTexture2D t2 = LoadRenderTexture(64, 64);
+                BeginTextureMode(t2);
+                UpdateSiteSelect(app);
+                EndTextureMode();
+                UnloadRenderTexture(t2);
+                g_fake.escape = false;
+            }
             if (steps[i].click)
             {
                 // Second pass with the click, off-screen, to advance.
