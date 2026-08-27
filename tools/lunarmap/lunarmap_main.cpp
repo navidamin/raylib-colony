@@ -2279,8 +2279,12 @@ static void DrawTerraneWash(int w, int h, int hoverFeature,
 {
     Image img = GenImageColor(w, h, BLANK);
     Color* px = (Color*)img.data;
-    const Color pktCol = { 178, 148, 196, 255 };
-    const Color fhtCol = { 206, 196, 178, 255 };
+    // Near-equal luminance on purpose: the terrane wash is a legend,
+    // marking WHICH province by hue. A brightness difference between the
+    // two reads as a shadow lying on the ground -- and over the maria,
+    // which are genuinely dark basalt, it reads as a very convincing one.
+    const Color pktCol = { 202, 172, 222, 255 };
+    const Color fhtCol = { 208, 198, 182, 255 };
     for (int y = 0; y < h; y++)
     {
         double lat = (0.5 - (double)y / h) * 180.0;
@@ -2289,8 +2293,11 @@ static void DrawTerraneWash(int w, int h, int hoverFeature,
             double lon = ((double)x / w - 0.5) * 180.0;
             bool pkt = InPkt(lat, lon);
             Color c = pkt ? pktCol : fhtCol;
-            int alpha = 46;
-            if (dimOthers) alpha = (pkt == hoverPkt && hoverFeature < 0) ? 66 : 26;
+            // Nothing is ever washed BELOW the base tint. Hover lifts the
+            // thing under the cursor; it never dims its surroundings, or
+            // the un-lifted half of the map becomes a dark hole.
+            int alpha = 40;
+            if (dimOthers && hoverFeature < 0 && pkt == hoverPkt) alpha = 56;
             if (hoverFeature >= 0)
             {
                 const DiscFeature& f = DISC_FEATURES[hoverFeature];
