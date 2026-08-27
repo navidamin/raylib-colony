@@ -41,6 +41,7 @@
 
 #include "lola_dem.h"
 #include "survey_cursor.h"
+#include "survey_hints.h"
 
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
@@ -70,6 +71,11 @@ struct DemoSite
     double altHoverLat, altHoverLon;   // extra L1 frame hovering elsewhere
                                        // (9e9 = none): shows the highlight
                                        // tracking the mouse, not the target
+    // Which region-card row the L1 screenshot shows hovered, with its
+    // hint open ("titanium" | "rock" | "psr" | nullptr). In the game the
+    // hint appears only while the cursor rests on the row.
+    const char* hintKey;
+    float psrDistanceKm;               // for the "psr" hint
     // region card (fixed from level 1)
     const char* regionName;
     const char* terrane;
@@ -84,7 +90,7 @@ struct DemoSite
 
 static const DemoSite DEMO_SITES[] =
 {
-    { "imbrium", 32.8, -15.6, 13.0, 13.0, 30.0f, 28.0, 17.5,
+    { "imbrium", 32.8, -15.6, 13.0, 13.0, 30.0f, 28.0, 17.5, "titanium", 9e9f,
       "Mare Imbrium", "Procellarum KREEP Terrane", "MARE INDUSTRIAL",
       Color{ 224, 168, 108, 255 },
       "mare basalt", 14.0f, 2.5f, 8.0f,
@@ -102,7 +108,7 @@ static const DemoSite DEMO_SITES[] =
           "Build allowed. What is UNDER this exact spot - hydrogen, regolith depth - stays unknown until prospected." },
       } },
 
-    { "apennine", 26.10, 3.60, -3.0, 1.0, 24.0f, 9e9, 9e9,
+    { "apennine", 26.10, 3.60, -3.0, 1.0, 24.0f, 9e9, 9e9, "rock", 9e9f,
       "Palus Putredinis", "PKT - Apennine boundary", "MIXED (SHORE)",
       Color{ 150, 200, 150, 255 },
       "mare basalt / highland breccia", 12.0f, 1.8f, 5.0f,
@@ -120,7 +126,7 @@ static const DemoSite DEMO_SITES[] =
           "Green here - and the closer to the front you push, the sooner the verdict flips." },
       } },
 
-    { "shackleton", -89.7, 110.0, 0.0, 10.5, 4.0f, 9e9, 9e9,
+    { "shackleton", -89.7, 110.0, 0.0, 10.5, 4.0f, 9e9, 9e9, "psr", 4.0f,
       "Shackleton rim", "Feldspathic Highlands (polar)", "POLAR VOLATILE",
       Color{ 140, 190, 235, 255 },
       "anorthosite breccia", 5.0f, 0.4f, 1.0f,
@@ -1562,6 +1568,86 @@ static GroundStats CursorGroundStats(const LolaWindow& window,
 // site-selection UI (the annotation strip excepted, which is test-only).
 // ---------------------------------------------------------------------------
 
+// Greedy word wrap for tooltip bodies. Returns lines drawn.
+static int DrawWrappedText(const char* text, int x, int y, int width,
+                           int fontSize, Color color)
+{
+    char word[64], line[256];
+    line[0] = '\0';
+    int lines = 0;
+    const char* c = text;
+    while (*c)
+    {
+        int wl = 0;
+        while (*c && *c != ' ' && wl < 63) word[wl++] = *c++;
+        word[wl] = '\0';
+        while (*c == ' ') c++;
+        char trial[256];
+        std::snprintf(trial, sizeof(trial), "%s%s%s", line,
+                      line[0] ? " " : "", word);
+        if (MeasureText(trial, fontSize) > width && line[0])
+        {
+            DrawText(line, x, y + lines * (fontSize + 5), fontSize, color);
+            lines++;
+            std::snprintf(line, sizeof(line), "%s", word);
+        }
+        else
+        {
+            std::snprintf(line, sizeof(line), "%s", trial);
+        }
+    }
+    if (line[0])
+    {
+        DrawText(line, x, y + lines * (fontSize + 5), fontSize, color);
+        lines++;
+    }
+    return lines;
+}
+
+// A dotted underline marks a row as hoverable -- the game's affordance
+// for "there is a hint here".
+static void DrawHintUnderline(int x, int y, int w, Color color)
+{
+    for (int i = 0; i < w; i += 5)
+    {
+        DrawRectangle(x + i, y, 2, 1, color);
+    }
+}
+
+// The hint itself: a tooltip beside the card, connected to its row.
+// Game UI, not a test overlay -- in play it appears while the cursor
+// rests on the row and vanishes when it leaves.
+static SurveyHintResult g_pendingHint = { nullptr, nullptr };
+static int g_pendingHintRowY = -1;
+static int g_pendingHintRight = 0;
+
+static void DrawHintTooltip(const SurveyHintResult& hint, int rowX,
+                            int rowY, int cardRight, Color tint)
+{
+    if (!hint.title) return;
+    int w = 306, x = cardRight + 14, pad = 12;
+    // measure by dry run: wrap at 13px over w-2*pad
+    // (cheap: count via a second pass after drawing background sized
+    // generously, so draw title+body onto a measured panel)
+    // First compute lines without drawing: reuse DrawWrappedText on an
+    // offscreen y with transparent colour is wasteful; instead estimate
+    // then draw box behind using the returned count.
+    // Simplest correct order: draw into a measured box -- draw text
+    // last, box first, so run the wrap once with BLANK to count.
+    int lines = DrawWrappedText(hint.text, -4000, -4000, w - 2 * pad, 13,
+                                BLANK);
+    int h = 34 + lines * 18 + pad;
+    DrawLineEx(Vector2{ (float)(rowX), (float)rowY + 7.0f },
+               Vector2{ (float)x, (float)rowY + 7.0f }, 1.0f,
+               Color{ tint.r, tint.g, tint.b, 130 });
+    DrawRectangle(x, rowY - 10, w, h, Color{ 16, 17, 22, 236 });
+    DrawRectangleLinesEx(Rectangle{ (float)x, (float)(rowY - 10), (float)w,
+                                    (float)h }, 1.0f, tint);
+    DrawText(hint.title, x + pad, rowY - 10 + 10, 14, tint);
+    DrawWrappedText(hint.text, x + pad, rowY - 10 + 32, w - 2 * pad, 13,
+                    Color{ 208, 212, 222, 255 });
+}
+
 static void DrawMiniBar(int x, int y, int w, float frac, Color tint)
 {
     DrawRectangle(x, y, w, 6, Color{ 34, 36, 42, 255 });
@@ -1571,8 +1657,11 @@ static void DrawMiniBar(int x, int y, int w, float frac, Color tint)
 
 // The frozen region card. Drawn IDENTICALLY at every level -- the whole
 // design in one visual fact: this panel never changes below level 1.
-static void DrawRegionCard(const DemoSite& site, int level, int px, int py)
+static void DrawRegionCard(const DemoSite& site, int level, int px, int py,
+                           const char* hoverKey = nullptr)
 {
+    int hintRowY = -1;
+    SurveyHintResult hint = { nullptr, nullptr };
     int pw = 336, ph = 252;
     Color line = Color{ 120, 150, 205, 255 };
     Color dim = Color{ 205, 210, 220, 255 };
@@ -1585,6 +1674,15 @@ static void DrawRegionCard(const DemoSite& site, int level, int px, int py)
     DrawText(site.regionName, px + 12, py + 32, 25, WHITE);
     DrawText(TextFormat("%s  ·  %s", site.terrane, site.rock),
              px + 12, py + 62, 13, faint);
+    DrawHintUnderline(px + 12, py + 77,
+                      MeasureText(TextFormat("%s  ·  %s", site.terrane,
+                                             site.rock), 13),
+                      Color{ 120, 150, 205, 140 });
+    if (hoverKey && std::strcmp(hoverKey, "rock") == 0)
+    {
+        hintRowY = py + 62;
+        hint = GetRockHint(site.rock);
+    }
 
     // archetype chip
     int chipW = MeasureText(site.archetype, 14) + 16;
@@ -1598,20 +1696,72 @@ static void DrawRegionCard(const DemoSite& site, int level, int px, int py)
 
     int rowY = py + 116;
     DrawText("iron",     px + 12, rowY, 14, dim);
+    DrawHintUnderline(px + 12, rowY + 15, MeasureText("iron", 14),
+                      Color{ 120, 150, 205, 140 });
     DrawText(TextFormat("%.1f wt%%", site.fePct), px + pw - 88, rowY, 14, dim);
     DrawMiniBar(px + 12, rowY + 17, pw - 24, site.fePct / 22.0f, line);
+    if (hoverKey && std::strcmp(hoverKey, "iron") == 0)
+    {
+        hintRowY = rowY;
+        hint = GetSurveyHint("iron", site.fePct);
+    }
     rowY += 32;
     DrawText("titanium", px + 12, rowY, 14, dim);
+    DrawHintUnderline(px + 12, rowY + 15, MeasureText("titanium", 14),
+                      Color{ 120, 150, 205, 140 });
     DrawText(TextFormat("%.1f wt%%", site.tiPct), px + pw - 88, rowY, 14, dim);
     DrawMiniBar(px + 12, rowY + 17, pw - 24, site.tiPct / 13.0f, line);
+    if (hoverKey && std::strcmp(hoverKey, "titanium") == 0)
+    {
+        hintRowY = rowY;
+        hint = GetSurveyHint("titanium", site.tiPct);
+    }
     rowY += 32;
     DrawText("thorium",  px + 12, rowY, 14, dim);
+    DrawHintUnderline(px + 12, rowY + 15, MeasureText("thorium", 14),
+                      Color{ 120, 150, 205, 140 });
     DrawText(TextFormat("%.1f ppm", site.thPpm), px + pw - 88, rowY, 14, dim);
     DrawMiniBar(px + 12, rowY + 17, pw - 24, site.thPpm / 12.0f, line);
+    if (hoverKey && std::strcmp(hoverKey, "thorium") == 0)
+    {
+        hintRowY = rowY;
+        hint = GetSurveyHint("thorium", site.thPpm);
+    }
     rowY += 34;
     DrawText(site.latitudeNote, px + 12, rowY, 13, faint);
+    DrawHintUnderline(px + 12, rowY + 15,
+                      MeasureText(site.latitudeNote, 13),
+                      Color{ 120, 150, 205, 140 });
+    if (hoverKey && std::strcmp(hoverKey, "psr") == 0)
+    {
+        hintRowY = rowY;
+        hint = GetPsrHint(site.psrDistanceKm);
+    }
+    if (hoverKey && std::strcmp(hoverKey, "illumination") == 0)
+    {
+        hintRowY = rowY;
+        hint = GetSurveyHint("illumination", 85.0f);
+    }
     DrawText("orbital survey - one value per region, never refines",
              px + 12, py + ph - 20, 12, Color{ 96, 104, 118, 255 });
+
+    if (hintRowY >= 0)
+    {
+        // Queued, not drawn: the tooltip must sit on top of every
+        // card, so the render pass flushes it last.
+        g_pendingHint = hint;
+        g_pendingHintRowY = hintRowY;
+        g_pendingHintRight = px + pw;
+    }
+}
+
+static void DrawPendingHintTooltip()
+{
+    if (g_pendingHintRowY < 0) return;
+    DrawHintTooltip(g_pendingHint, g_pendingHintRight, g_pendingHintRowY,
+                    g_pendingHintRight, Color{ 150, 190, 255, 255 });
+    g_pendingHintRowY = -1;
+    g_pendingHint.title = nullptr;
 }
 
 // The per-level question card: the level's own measured geometry.
@@ -2426,13 +2576,17 @@ static int RenderLadder(AppState& app)
                 }
                 else
                 {
-                    DrawHoverChip(mx, my, demo->regionName, demo->terrane,
-                                  tint, opts.width);
-                    DrawRegionCard(*demo, 0, 16, 64);
+                    if (!demo->hintKey)
+                    {
+                        DrawHoverChip(mx, my, demo->regionName,
+                                      demo->terrane, tint, opts.width);
+                    }
+                    DrawRegionCard(*demo, 0, 16, 64, demo->hintKey);
                 }
                 DrawTerraneLegend(opts.height);
                 DrawLevelCard(*demo, 0, GroundStats(), nullptr, nullptr,
                               nullptr, opts.width - 352, 64, 336);
+                DrawPendingHintTooltip();
                 if (alt)
                 {
                     Color amber = Color{ 240, 195, 110, 255 };

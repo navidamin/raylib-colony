@@ -104,3 +104,7 @@ than adding multipliers (§4.6).
 - The site panel is **live terrain only**.
 - **No rings and no footprint indicators anywhere** — the frozen panel
   already says what they were for.
+- **Hover hints** (§4.9): every panel row explains itself on hover —
+  what high/low titanium means, what the rock gives, what PSR proximity
+  buys. Data-driven (`src/survey_hints.h`), thresholds defined once,
+  never permanently visible.

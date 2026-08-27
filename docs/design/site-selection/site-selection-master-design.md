@@ -423,6 +423,50 @@ weakens "one region, one playfield", so try the simple version first.
 
 ---
 
+### 4.9 Hints — the teaching layer
+
+**DECIDED.** Every number and label on the panels carries a short,
+hover-only hint saying what a value of that size *means* for the
+player's plans: hover "titanium 2.5 wt%" and the game explains what
+low titanium is good for; hover the rock name or the PSR note and it
+explains those. Never permanently visible — the panels stay numbers,
+the hint appears while the cursor rests on a row and vanishes when it
+leaves. A dotted underline is the affordance marking a row as
+hoverable.
+
+**It is data, not logic** — `src/survey_hints.h`, following the
+`ResourceDescriptor` table pattern:
+
+- **Banded quantities** (`SurveyHintBand`): each key carries its own
+  low/high thresholds and three texts, so "high titanium" is defined
+  exactly once, in the one place the whole game reads. Thresholds
+  follow the real classifications where one exists: the TiO₂ bands are
+  the low/high-Ti basalt scheme (low < 3, high > 6 wt%), the thorium
+  high band is the PKT contour (3.5 ppm), iron splits feldspathic from
+  mafic ground at 8–10 wt%.
+- **Categorical hints**: rock types matched against the region's
+  dominant-rock string (mixed/shore forms first), and PSR proximity
+  banded by haul distance (≤ 15 km = in rover reach).
+- `GetSurveyHint(key, value)`, `GetRockHint(rock)`, `GetPsrHint(km)`
+  return a title ("LOW TITANIUM") plus one plain-language paragraph.
+
+**Wording rule** (inherits §5.0): a hint may name what a resource is
+*for* in this game's design — "feedstock for alloys" — but must not
+claim a live consequence from a system that does not exist yet.
+Wording that implies simulation ("production has stalled") lands with
+the system that simulates it.
+
+Why this earns its place: the hint is where the teaching lives, so the
+panels never need explanatory clutter, and the surprising cases land —
+the industrial mare hovering "titanium" and learning it is *low*-Ti
+plain-metal country is exactly the nuance the descent should teach.
+
+Verified in `lunar_map --demo`: each demo site's L1 frame renders one
+row hovered with its hint open (imbrium → low titanium, apennine → the
+shore rock, shackleton → PSR in haul range).
+
+---
+
 ## 5. Implementation plan
 
 ### 5.0 The coherency contract — what the game must make true
