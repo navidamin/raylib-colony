@@ -16,6 +16,7 @@ thing.
 | 1 | [subsurface-model.md](subsurface-model.md) | **What is actually down there.** 3D shoots with orientation, geometry and units, what changes in the generator | PRELIMINARY |
 | 2 | [module-interplay.md](module-interplay.md) | **The contract**, and the empty-out effect of mining on the model | DESIGN |
 | 3 | [drilling-procedure.md](drilling-procedure.md) | **The machine-ground contract.** Heat, pressure, wear, cuttings and telemetry as felt mechanics, for both modules; where learning lives; failures cost knowledge (prospecting) or product (excavation) | DESIGN |
+| 4 | [redline-disposition.md](redline-disposition.md) | **Where the drilling prototype belongs**, and the failure ladder that replaces its broken-bit death: cooked evidence, lost interval, tripping | DECISION |
 
 ## The One-Paragraph Version
 
@@ -48,5 +49,6 @@ in opposite directions. See [subsurface-model.md](subsurface-model.md) §1.
 | `src/Prospecting/prospecting_grid.cpp` | `GenerateLayerDistribution` — the sub-cell field, and the depth-seeded clusters this design changes |
 | `src/Prospecting/prospecting_types.h` | `SubCell::workedFraction` — the one mutable field |
 | `tools/inspect/measure_clusters.cpp` | `colony_measure_clusters` — run it before and after any generator change |
+| `prototypes/redline.html` | prospecting's hands-on drilling mode — see [redline-disposition.md](redline-disposition.md) |
 | [`prospecting/block-model-design.md`](../prospecting/block-model-design.md) | the reader that fills the model in |
 | [`excavation/block-mining-design.md`](../excavation/block-mining-design.md) | the reader that empties it out |
