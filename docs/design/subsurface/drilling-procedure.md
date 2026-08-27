@@ -132,6 +132,25 @@ band widget and gauges alongside. Prototyped standalone first (per the dev
 rule: never claim a visual result without rendering it); the prototype is the
 reference for the in-game renderer.
 
+The prototype lives at [prototypes/drill-rig.html](prototypes/drill-rig.html)
+(open in any browser). What it settled, in three build-look-improve passes:
+
+- **The screw illusion in 2D:** each flight turn is a ribbon whose front sweep
+  crosses the whole width *over* the shaft, back sweep dimmer behind it, with
+  a small vertical ellipse-tilt; rotating the phase makes the bands appear to
+  travel downward. The first pass tapered the ribbons to the shaft and read as
+  a fish spine; the crossing is what makes it a screw. Coil pitch must be
+  close to blade thickness or it reads as a loose spring (pass 2's mistake).
+- **Heat as material, not overlay:** every steel colour lerps toward glow by a
+  per-height heat profile, so the metal itself turns red from the bit upward,
+  plus a radial bloom at the bit. Cracks are jagged dark polylines with a
+  displaced light edge; they inherit the local heat as an inner glow, so cold
+  damage reads as scars and hot damage as failing steel.
+- **The bit is the widest element** — it cuts the hole everything else fits
+  into (pass 3's fix; drawing it narrower than the flights reads instantly
+  wrong). Rod joints every 6 m foreshadow tripping; chips ride the flights up
+  tinted by the stratum being cut; sparks only in hard ground.
+
 ---
 
 ## 7. Sequencing

@@ -1,0 +1,404 @@
+<title>The Auger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+:root{
+  --ground:#080d14; --panel:#0e1620; --panel2:#121d29; --rule:#1d2b3a;
+  --text:#c9d8e8; --dim:#5f7488; --cy:#50e1ff; --am:#ffc84d; --hot:#ff5a28;
+  --ui:"Exo 2",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 18px 60px}
+.eyebrow{font:700 11px/1 var(--mono);letter-spacing:.19em;color:var(--cy);text-transform:uppercase}
+h1{font:800 32px/1.05 var(--ui);margin:9px 0 6px;letter-spacing:-.02em}
+.sub{color:var(--dim);max-width:70ch;margin:0 0 16px}
+.rig{display:flex;gap:0;border:1px solid var(--rule);border-radius:7px;overflow:hidden;background:var(--panel)}
+.stage{flex:0 0 640px}
+canvas{display:block;width:100%;height:auto}
+.rail{flex:1;border-left:1px solid var(--rule);padding:14px 15px;display:flex;flex-direction:column;gap:11px;min-width:250px}
+h2{font:800 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--cy);margin:0}
+.ctl{display:grid;grid-template-columns:64px 1fr 44px;gap:8px;align-items:center;
+  font:400 11.5px/1 var(--mono);color:var(--dim)}
+.ctl input{width:100%;accent-color:var(--cy)}
+.ctl .v{text-align:right;color:var(--text)}
+button{font:700 11px/1 var(--ui);letter-spacing:.05em;padding:9px 10px;border-radius:4px;
+  border:1px solid var(--rule);background:var(--panel2);color:var(--dim);cursor:pointer}
+button:hover{border-color:var(--cy);color:var(--text)}
+button.on{border-color:var(--cy);color:var(--cy);background:rgba(80,225,255,.1)}
+button.peck{border-color:var(--am)}
+button.peck:active{background:rgba(255,200,77,.2);color:var(--am)}
+.note{font:400 11px/1.55 var(--mono);color:var(--dim)}
+.note b{color:var(--text);font-weight:600}
+</style>
+<div class="wrap">
+<div class="eyebrow">Drilling procedure · visual prototype · try 3</div>
+<h1>The Auger</h1>
+<p class="sub">Side view of the string in the real column. The flights turn and appear to
+travel downward; the metal heats where the ground fights back, and over-driven steel cracks.</p>
+<div class="rig">
+  <div class="stage"><canvas id="cv" width="1280" height="1760"></canvas></div>
+  <div class="rail">
+    <h2>Controls</h2>
+    <div class="ctl"><label>RPM</label><input id="rpm" type="range" min="0" max="100" value="55"><span class="v" id="rpmv"></span></div>
+    <div class="ctl"><label>feed</label><input id="feed" type="range" min="0" max="100" value="35"><span class="v" id="feedv"></span></div>
+    <button id="peck" class="peck">HOLD TO PECK (dwell + cool)</button>
+    <button id="auto" class="on">AUTO DEMO</button>
+    <button id="reset">RESET</button>
+    <h2 style="margin-top:6px">Reading it</h2>
+    <p class="note"><b>Heat</b> climbs with RPM × hardness and falls when you dwell.
+    Past the red line the steel <b>cracks</b> — and in the fractured layer, the ice you came
+    for sublimates out of the core.</p>
+    <p class="note">The depth ticker runs quick in soft ground, crawls in basalt, and jumps
+    at a fracture — the drill is an instrument even when the core is lost.</p>
+  </div>
+</div>
+</div>
+<script>
+"use strict";
+const CV = document.getElementById("cv"), CTX = CV.getContext("2d");
+const W = 640, H = 880;                    // logical, canvas is 2x
+CTX.setTransform(2,0,0,2,0,0);
+
+/* ---------------- the scene ---------------- */
+const SURF_Y = 84;                          // ground surface
+const M_TO_PX = (H - SURF_Y - 20) / 120;    // 120 m of column
+const CX = 300;                             // drill axis
+const STRATA = [
+  {name:"REGOLITH",   top:0,  bot:12,  col:"#39332a", grain:"#4a4336", hard:0.25},
+  {name:"MEGAREGOLITH",top:12,bot:34,  col:"#443d35", grain:"#59503f", hard:0.55},
+  {name:"FRACTURED",  top:34, bot:68,  col:"#39424c", grain:"#4e5a66", hard:0.45, icy:true},
+  {name:"INTACT BASALT",top:68,bot:120,col:"#26292e", grain:"#33373d", hard:0.95},
+];
+const yOf = m => SURF_Y + m * M_TO_PX;
+const strAt = m => STRATA.find(s => m >= s.top && m < s.bot) || STRATA[3];
+
+/* ---------------- drill geometry ---------------- */
+const R = 34, RS = 12, PITCH = 29, TILT = 12, THICK = 8;
+
+/* ---------------- state ---------------- */
+let st = {
+  depthM: 26, phase: 0, heat: 0.15,
+  rpm: 0.55, feed: 0.35, auto: true, peck: false,
+  cracks: [], crackCool: 0, t: 0,
+};
+window.__setState = o => Object.assign(st, o);
+
+function spawnCrack(m){
+  st.cracks.push({m, seed: Math.abs(Math.sin(m*77.7)*43758.5)%1});
+}
+
+/* ---------------- helpers ---------------- */
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+function heatAt(yPx){
+  const bitY = yOf(st.depthM);
+  const d = Math.abs(yPx - bitY);
+  return st.heat * Math.exp(-(d*d)/(2*110*110));
+}
+function steel(shade, heat){
+  const base = [lerp(105,235,shade), lerp(112,240,shade), lerp(124,248,shade)];
+  const glow = [255, lerp(55,160,shade), 25];
+  const t = clamp(heat*1.15,0,1);
+  return `rgb(${lerp(base[0],glow[0],t)|0},${lerp(base[1],glow[1],t)|0},${lerp(base[2],glow[2],t)|0})`;
+}
+
+/* ---------------- render ---------------- */
+let grainSeed = 1;
+function rnd(){ grainSeed = (grainSeed*16807)%2147483647; return grainSeed/2147483647; }
+
+function drawGround(){
+  CTX.fillStyle = "#0a1018"; CTX.fillRect(0,0,W,SURF_Y);
+  CTX.strokeStyle = "#4a5560"; CTX.lineWidth = 2;
+  CTX.beginPath(); CTX.moveTo(0,SURF_Y); CTX.lineTo(W,SURF_Y); CTX.stroke();
+
+  grainSeed = 7;
+  for (const s of STRATA){
+    const y0 = yOf(s.top), y1 = yOf(s.bot);
+    CTX.fillStyle = s.col; CTX.fillRect(0,y0,W,y1-y0);
+    CTX.fillStyle = s.grain;
+    const n = (y1-y0)/3;
+    for (let i=0;i<n;i++){
+      const gx = rnd()*W, gy = y0 + rnd()*(y1-y0);
+      CTX.fillRect(gx, gy, 2+rnd()*3, 1.5);
+    }
+    if (s.icy){
+      for (let i=0;i<34;i++){
+        CTX.fillStyle = `rgba(160,225,245,${0.35+rnd()*0.5})`;
+        CTX.fillRect(rnd()*W, y0+rnd()*(y1-y0), 3.5, 2);
+      }
+      // fissure lines
+      CTX.strokeStyle = "rgba(20,26,32,.6)"; CTX.lineWidth = 1.2;
+      for (let i=0;i<8;i++){
+        let fx = rnd()*W, fy = y0+rnd()*(y1-y0);
+        CTX.beginPath(); CTX.moveTo(fx,fy);
+        for (let k=0;k<4;k++){ fx += 14+rnd()*22; fy += (rnd()-0.5)*14; CTX.lineTo(fx,fy); }
+        CTX.stroke();
+      }
+    }
+    CTX.fillStyle = "rgba(200,220,240,.42)";
+    CTX.font = "700 11px 'JetBrains Mono'";
+    CTX.fillText(s.name, 14, y0+16);
+    CTX.fillText(s.top+" m", W-56, y0+16);
+  }
+
+  const bw = R*2+12, bitY = yOf(st.depthM);
+  CTX.fillStyle = "#100c08";
+  CTX.fillRect(CX-bw/2, SURF_Y, bw, bitY-SURF_Y+14);
+  const wall = CTX.createLinearGradient(CX-bw/2,0,CX+bw/2,0);
+  wall.addColorStop(0,"rgba(0,0,0,.65)"); wall.addColorStop(0.2,"rgba(0,0,0,0)");
+  wall.addColorStop(0.8,"rgba(0,0,0,0)"); wall.addColorStop(1,"rgba(0,0,0,.65)");
+  CTX.fillStyle = wall;
+  CTX.fillRect(CX-bw/2, SURF_Y, bw, bitY-SURF_Y+14);
+}
+
+/* One helical flight as a continuous ribbon. The FRONT sweep of each turn
+   crosses the whole width -- over the shaft -- and the BACK sweep arcs the
+   other way behind it, dimmer. That crossing is what makes it read as a
+   screw instead of a fish spine.                                          */
+function drawFlightSweep(front){
+  const bitY = yOf(st.depthM);
+  const topY = SURF_Y - PITCH;
+  const turns = Math.ceil((bitY - topY)/PITCH) + 1;
+  const step = 0.10;
+  for (let th = 0; th < turns*2*Math.PI; th += step){
+    const a0 = th + st.phase, a1 = th + step + st.phase;
+    const c0 = Math.cos(a0), c1 = Math.cos(a1);
+    if (front && (c0 <= 0.02 || c1 <= 0.02)) continue;
+    if (!front && (c0 > 0.02 && c1 > 0.02)) continue;
+    const x0 = CX + R*Math.sin(a0), x1 = CX + R*Math.sin(a1);
+    const y0 = topY + PITCH*th/(2*Math.PI) + TILT*c0;
+    const y1 = topY + PITCH*(th+step)/(2*Math.PI) + TILT*c1;
+    if ((y0+y1)/2 > bitY-6 || (y0+y1)/2 < 6) continue;
+
+    const h = heatAt((y0+y1)/2);
+    const sinm = Math.sin((a0+a1)/2);
+    // light from upper-left: brightest around sin = -0.4
+    let shade = 0.34 + 0.62*Math.exp(-Math.pow((sinm+0.4)/0.7,2));
+    if (!front) shade *= 0.34;
+
+    // the blade's edge-on face: ribbon between the curve and curve+THICK
+    CTX.beginPath();
+    CTX.moveTo(x0,y0); CTX.lineTo(x1,y1);
+    CTX.lineTo(x1,y1+THICK); CTX.lineTo(x0,y0+THICK);
+    CTX.closePath();
+    CTX.fillStyle = steel(shade*0.8, h); CTX.fill();
+
+    // the blade's top face catching the light -- a lit band above the edge
+    CTX.beginPath();
+    CTX.moveTo(x0,y0); CTX.lineTo(x1,y1);
+    CTX.lineTo(x1,y1-3.2); CTX.lineTo(x0,y0-3.2);
+    CTX.closePath();
+    CTX.fillStyle = steel(Math.min(1,shade*1.25), h); CTX.fill();
+    // specular top edge
+    CTX.strokeStyle = steel(Math.min(1,shade*1.5), h);
+    CTX.lineWidth = 1.4;
+    CTX.beginPath(); CTX.moveTo(x0,y0-3.2); CTX.lineTo(x1,y1-3.2); CTX.stroke();
+  }
+}
+
+function drawShaft(){
+  const bitY = yOf(st.depthM);
+  for (let y = 0; y < bitY-2; y += 4){
+    const h = heatAt(y+2);
+    const g = CTX.createLinearGradient(CX-RS,0,CX+RS,0);
+    g.addColorStop(0,   steel(0.10,h));
+    g.addColorStop(0.30,steel(1.0,h));
+    g.addColorStop(0.5, steel(0.5,h));
+    g.addColorStop(0.75,steel(0.28,h));
+    g.addColorStop(1,   steel(0.06,h));
+    CTX.fillStyle = g;
+    CTX.fillRect(CX-RS, y, RS*2, 4.5);
+  }
+  // rod joints every 6 m -- the string is rods, and rods are what you trip
+  for (let m = 6; m < st.depthM; m += 6){
+    const y = yOf(m) - (yOf(st.depthM)%1);
+    CTX.fillStyle = "rgba(30,34,40,.85)";
+    CTX.fillRect(CX-RS, yOf(m)-2, RS*2, 3);
+    CTX.fillStyle = "rgba(255,255,255,.25)";
+    CTX.fillRect(CX-RS, yOf(m)+1, RS*2, 1);
+  }
+}
+
+function drawBit(){
+  const bitY = yOf(st.depthM);
+  const h = Math.min(1, heatAt(bitY)*1.3);
+  // conical bit, narrower than the borehole, with teeth
+  const g = CTX.createLinearGradient(CX-R-2,0,CX+R+2,0);
+  g.addColorStop(0, steel(0.12,h)); g.addColorStop(0.32, steel(0.9,h));
+  g.addColorStop(0.6, steel(0.4,h)); g.addColorStop(1, steel(0.08,h));
+  CTX.beginPath();
+  CTX.moveTo(CX-R-2, bitY-8);
+  CTX.lineTo(CX+R+2, bitY-8);
+  CTX.lineTo(CX+R*0.3, bitY+15);
+  CTX.lineTo(CX-R*0.3, bitY+15);
+  CTX.closePath();
+  CTX.fillStyle = g; CTX.fill();
+  // carbide teeth across the full cutting face
+  CTX.fillStyle = steel(0.95, h);
+  for (let i=-3;i<=3;i++){
+    const tx = CX + i*R*0.27;
+    const ty = bitY + 15 - Math.abs(i)*2.4;
+    CTX.beginPath();
+    CTX.moveTo(tx-3.5, ty-2); CTX.lineTo(tx+3.5, ty-2); CTX.lineTo(tx, ty+7);
+    CTX.closePath(); CTX.fill();
+  }
+  // sparks in hard ground
+  const hard = strAt(st.depthM).hard;
+  if (st.rpm > 0.1 && hard > 0.5){
+    for (let i=0;i<10*hard;i++){
+      const a = Math.random()*Math.PI, r2 = 6+Math.random()*26;
+      CTX.fillStyle = `rgba(255,${170+Math.random()*70|0},60,${0.4+Math.random()*0.5})`;
+      CTX.fillRect(CX + Math.cos(a)*r2, bitY+12 - Math.random()*6 + Math.sin(a)*8, 2.2, 2.2);
+    }
+  }
+}
+
+/* cuttings riding the flights up, spilling at the collar */
+const chips = [];
+function drawChips(dt){
+  const bitY = yOf(st.depthM);
+  if (st.rpm > 0.05 && st.feed > 0.02 && chips.length < 90){
+    const cutting = strAt(st.depthM);
+    for (let i=0;i<3;i++) chips.push({ y: bitY-6, a: Math.random()*6.28,
+                                       up: 26+Math.random()*24, col: cutting.grain });
+  }
+  for (let i=chips.length-1;i>=0;i--){
+    const c = chips[i];
+    c.y -= c.up*dt*st.rpm*1.6;
+    c.a -= st.rpm*9*dt;
+    if (c.y < SURF_Y-2){ chips.splice(i,1); continue; }
+    const x = CX + (R-5)*Math.sin(c.a);
+    const front = Math.cos(c.a) > 0;
+    CTX.globalAlpha = front ? 0.95 : 0.45;
+    CTX.fillStyle = c.col || "#8c7860";
+    CTX.fillRect(x, c.y, 3, 2.2);
+    CTX.globalAlpha = 1;
+  }
+  // spoil pile at the collar
+  CTX.fillStyle = "#453d31";
+  CTX.beginPath();
+  CTX.ellipse(CX-R-34, SURF_Y-1, 34, 13, 0, Math.PI, 0);
+  CTX.ellipse(CX+R+34, SURF_Y-1, 34, 13, 0, Math.PI, 0);
+  CTX.fill();
+  CTX.fillStyle = "rgba(255,255,255,.06)";
+  CTX.beginPath();
+  CTX.ellipse(CX-R-40, SURF_Y-5, 14, 5, 0, Math.PI, 0);
+  CTX.ellipse(CX+R+28, SURF_Y-5, 14, 5, 0, Math.PI, 0);
+  CTX.fill();
+}
+
+function drawRigHead(){
+  // collar block that grounds the string at the surface
+  CTX.fillStyle = "#1a222c";
+  CTX.fillRect(CX-46, SURF_Y-26, 92, 26);
+  CTX.strokeStyle = "#2c3a48"; CTX.lineWidth = 2;
+  CTX.strokeRect(CX-46, SURF_Y-26, 92, 26);
+  CTX.fillStyle = "#50e1ff";
+  CTX.fillRect(CX-40, SURF_Y-20, 6, 6);
+}
+
+function drawCracks(){
+  for (const c of st.cracks){
+    const y = yOf(c.m);
+    if (y > yOf(st.depthM)) continue;
+    const h = heatAt(y);
+    let x = CX - RS + 3 + (c.seed*13)%12, yy = y-9;
+    let sd = c.seed;
+    CTX.beginPath(); CTX.moveTo(x,yy);
+    const pts = [[x,yy]];
+    for (let i=0;i<7;i++){
+      sd = (sd*16807.17)%1; x += (sd-0.48)*15; yy += 2.5+sd*5;
+      pts.push([x,yy]); CTX.lineTo(x,yy);
+    }
+    CTX.strokeStyle = "#0d0805"; CTX.lineWidth = 3; CTX.stroke();
+    CTX.strokeStyle = `rgba(255,130,35,${clamp(0.25+h,0,1)})`;
+    CTX.lineWidth = 1.2; CTX.stroke();
+    // displaced light edge, so the crack reads as a break in the metal
+    CTX.strokeStyle = "rgba(255,255,255,.28)";
+    CTX.lineWidth = 1;
+    CTX.beginPath(); CTX.moveTo(pts[0][0]+1.5, pts[0][1]);
+    for (const [px,py] of pts) CTX.lineTo(px+1.5, py);
+    CTX.stroke();
+  }
+}
+
+function drawHUD(){
+  const s = strAt(st.depthM);
+  CTX.fillStyle = "rgba(10,16,24,.9)";
+  CTX.fillRect(14, 10, 190, 64);
+  CTX.strokeStyle = "#1d2b3a"; CTX.strokeRect(14, 10, 190, 64);
+  CTX.font = "700 12px 'JetBrains Mono'"; CTX.fillStyle = "#50e1ff";
+  CTX.fillText(`DEPTH  ${st.depthM.toFixed(1)} m`, 26, 30);
+  CTX.fillStyle = "#5f7488";
+  CTX.fillText(s.name, 26, 46);
+  CTX.fillText("TEMP", 26, 64);
+  CTX.fillStyle = "#121d29"; CTX.fillRect(70, 56, 120, 10);
+  CTX.fillStyle = st.heat > 0.8 ? "#ff5a28" : (st.heat > 0.5 ? "#ffc84d" : "#50e1ff");
+  CTX.fillRect(70, 56, 120*clamp(st.heat,0,1), 10);
+  CTX.strokeStyle = "#ff5a28";
+  CTX.beginPath(); CTX.moveTo(70+96, 54); CTX.lineTo(70+96, 68); CTX.stroke();
+}
+
+let lastDt = 1/60;
+function frame(dt){
+  lastDt = dt;
+  st.t += dt;
+  if (st.auto && !st.peck){
+    const s = strAt(st.depthM);
+    const cut = st.rpm * st.feed * (1.15 - s.hard);
+    st.depthM = Math.min(118, st.depthM + cut * dt * 1.6);
+    st.heat = clamp(st.heat + (st.rpm*s.hard*0.24 - 0.10)*dt, 0, 1);
+  } else if (st.peck){
+    st.heat = clamp(st.heat - 0.28*dt, 0, 1);
+  }
+  st.crackCool -= dt;
+  if (st.heat > 0.85 && st.crackCool <= 0){
+    spawnCrack(st.depthM - 2 - Math.random()*8);
+    st.crackCool = 1.2;
+  }
+  st.phase -= st.rpm * 9 * dt;
+
+  CTX.setTransform(2,0,0,2,0,0);
+  CTX.clearRect(0,0,W,H);
+  drawGround();
+  drawFlightSweep(false);
+  drawShaft();
+  drawFlightSweep(true);
+  drawBit();
+  drawCracks();
+  drawChips(dt);
+  drawRigHead();
+  const bitY = yOf(st.depthM);
+  const g = CTX.createRadialGradient(CX,bitY,4, CX,bitY,95);
+  g.addColorStop(0, `rgba(255,110,30,${0.42*st.heat})`);
+  g.addColorStop(1, "rgba(255,110,30,0)");
+  CTX.fillStyle = g; CTX.fillRect(CX-100,bitY-100,200,200);
+  drawHUD();
+}
+
+/* ---------------- loop + controls ---------------- */
+let last = performance.now();
+function tick(now){
+  const dt = Math.min(0.05,(now-last)/1000); last = now;
+  frame(dt);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+const $=id=>document.getElementById(id);
+function sync(){
+  $("rpmv").textContent = Math.round(st.rpm*100);
+  $("feedv").textContent = Math.round(st.feed*100);
+  $("auto").classList.toggle("on", st.auto);
+}
+$("rpm").oninput = e => { st.rpm = e.target.value/100; sync(); };
+$("feed").oninput = e => { st.feed = e.target.value/100; sync(); };
+$("auto").onclick = () => { st.auto = !st.auto; sync(); };
+$("reset").onclick = () => { st.depthM=8; st.heat=0.05; st.cracks=[]; sync(); };
+$("peck").onmousedown = () => st.peck = true;
+$("peck").onmouseup = $("peck").onmouseleave = () => st.peck = false;
+sync();
+</script>
