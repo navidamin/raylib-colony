@@ -393,25 +393,33 @@ palettes, never a second style.
 A path the player draws exists **once**, rendered into each view with the
 same recipe, consumed by the same advance:
 
-- **Planned** — marching cyan dashes (`[7,5]`, `lineDashOffset = -t·26`),
-  drawn twice: wide `rgba(80,225,255,.22)` under narrow `#50e1ff`. Cyan
-  because a plan is information.
-- **Done** — solid: chunky `OUT` under-stroke, then `--text` steel. What is
-  drilled is fact, and fact is drawn like metal.
-- Progress markers accrue along the done part (assay ticks in Measured
-  green), identical currency in both views.
-- **Draw the oblique line as itself.** Through an exploded stack, do NOT
-  re-project the path into flat per-plate segments joined by vertical drops
-  across the gaps — that zigzag reads as plumbing, not a hole. Sample the
-  path densely in depth (every ~2 m) and map each sample with the shared
-  depth axis plus the instrument's iso offset:
-  `y(m) = yShared(m) + (i+j-7)·ty`, `x(m) = cx + (i-j)·tx`. The result is
-  one continuous slanting line that pierces every plate exactly at its
-  intersection cell, kinking only gently where the explosion stretches a
-  band. Where the two panels share the depth mapping (the chosen join
-  above), this same formula puts the block-view cursor and the mud-view
-  cursor at the **same canvas height** — the pair reads as one object
-  level across the seam, for free.
+The prescribed line is **dead straight** — one segment from collar point to
+target point, exactly as the player drew it. Never re-project it into flat
+per-plate pieces joined by drops across the explosion gaps (plumbing, not a
+hole), and do not bend it to the exploded geometry either: instead let depth
+travel the straight line on the shared axis — `u(m) = yShared(m)`
+normalized — so every point of the line is a depth, and the cursor stays
+level with its twin across the seam. The cells it classifies are wherever
+the line **actually crosses** each plate, snapped from the crossing point,
+so the bore-rings sit on the line by construction.
+
+Its dress is three layers on one path:
+
+- **The shadow** — the full prescribed path, always visible, quiet: a wide
+  `rgba(80,225,255,.10)` halo under a 1 px `rgba(160,190,215,.30)`
+  hairline. The plan's ghost; everything else moves on it.
+- **The string** — the drilled portion is the drill string, not a line:
+  `OUT` 5 px, mid-steel `#77879a` 3 px, then bright `#e8f0f8` dashes
+  (`[6,10]`) whose `lineDashOffset = phase·6` — the **drill's own spin
+  phase**, so the barber-pole banding turns with the machine and stops when
+  it stops. Rotation mimicked axially, exactly as a turning rod reads
+  side-on.
+- **The advance** — the remaining path carries a fine cyan dash
+  (`[4,8]`, 1.3 px, `.55` alpha, offset `-t·26`) progressing along the
+  shadow toward the target.
+
+Progress markers accrue along the done part (assay ticks in Measured
+green), identical currency in both views.
 
 ### 9.3 Twin cursors
 
@@ -436,7 +444,9 @@ Approved in the drill-dock prototype; reuse verbatim:
 
 | Motion | Recipe |
 |---|---|
-| Marching dashes | `setLineDash([7,5])`, `lineDashOffset = -t·26` — flows toward the target; same offset in both views so the two lines advance in step |
+| Shadow path | static full-path ghost: 6 px `rgba(80,225,255,.10)` + 1 px `rgba(160,190,215,.30)` — never animated, it is what everything moves on |
+| String rotation | bright dashes `[6,10]` over mid-steel, `lineDashOffset = phase·6` where `phase` is the drill's spin accumulator — banding turns with the rpm and stops with it |
+| Marching dashes | `setLineDash([4,8])`, 1.3 px, `lineDashOffset = -t·26` — the advance, flowing toward the target on the shadow; same offset in both views so the two lines progress in step |
 | Twin cursor pulse | size `4.6 + 1.2·sin(t·12.6)` (~2 Hz) over an `OUT` under-diamond +1.6 px; both views read the same `t` |
 | Class-flip flash | fill the cell top with its new class colour, then `rgba(255,255,255, 0.55·pop)` where `pop = 1-(t-flipT)/0.5` clamped — a white overlay decaying over 0.5 s, never a colour swap |
 | Flip pop | prism height +`4·pop` px during the flash, so the cell physically jumps |

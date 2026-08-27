@@ -10,7 +10,7 @@ const F='file:///home/user/raylib-colony/docs/design/prospecting/prototypes/dril
     await p.evaluate(()=>{ window.__manual(true);
       window.__setState({auto:false, trace:{c:[2,5],g:[5,2]}, mode:'drill', depth:74, t:3.30});
       window.__step(1/60); });
-    await p.locator('.stage').screenshot({ path:`dock3-${v}.png` });
+    await p.locator('.stage').screenshot({ path:`dock4-${v}.png` });
     console.log(v, errs.length?errs.join(' | '):'no errors');
     await p.close();
   }
