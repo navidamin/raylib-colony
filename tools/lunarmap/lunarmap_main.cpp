@@ -192,6 +192,7 @@ struct MapOptions
     bool siteMode = false;         // --site: interactive site selection
     std::string siteShot;          // --siteshot PATH: scripted walk, PNGs
     std::string flyShot;           // --flyshot PATH: the descent zoom, PNGs
+    float spanAspect = 1.0f;       // spanKm was built this much oversized
     // Data-layer test: -1 none, else an index into INSTRUMENTS. --truth
     // renders the field at full resolution instead of on the
     // instrument's measurement grid -- the "what is actually there"
@@ -1041,13 +1042,13 @@ static void DrawHud(const TerrainScene& scene, const MapOptions& options,
                          (scene.window.latDeg >= 0.0) ? 'N' : 'S',
                          std::fabs(scene.window.lonDeg),
                          (scene.window.lonDeg >= 0.0) ? 'E' : 'W',
-                         options.spanKm)
+                         options.spanKm / options.spanAspect)
             : TextFormat("MOON  %.2f%c  %.2f%c  |  %.0f km window  |  %s",
                          std::fabs(scene.window.latDeg),
                          (scene.window.latDeg >= 0.0) ? 'N' : 'S',
                          std::fabs(scene.window.lonDeg),
                          (scene.window.lonDeg >= 0.0) ? 'E' : 'W',
-                         options.spanKm, source);
+                         options.spanKm / options.spanAspect, source);
     }
     DrawText(title, 14, 12, narrowHud ? 16 : 18, ink);
     DrawText(TextFormat("sun az %.0f  el %.0f   exag x%.1f   %s",
@@ -2300,6 +2301,7 @@ struct AppState
     // Descent transition: the previous level's texture is already on the
     // GPU, so zooming into the cursor with it costs nothing but redraws
     // and covers the gap before the build blocks the loop.
+    float sceneAspect = 1.0f;        // how much wider the window is built
     bool transActive = false;
     int transKind = 0;               // 1 = claim a region, 2 = descend
     RegionIdentity transRegion = {};
@@ -2310,8 +2312,8 @@ struct AppState
     Vector3 transFromTarget = { 0.0f, 0.0f, 0.0f };
     Vector3 transToTarget = { 0.0f, 0.0f, 0.0f };
     int userDemRes = 0;              // --demres, if the caller set one
-    bool sceneDraft = false;         // showing the low-res first pass
-    bool scenePending = false;       // full-res pass owed on a later frame
+    bool sceneDraft = false;         // a sharper rung is still owed
+    int sceneStage = 0;              // rung of the resolution ladder
     Vector2 lastPointer = { 0.0f, 0.0f };
     bool havePointer = false;        // a settled pointer exists to click with
     bool touchStyle = false;         // a jumped click was seen -> tapping
@@ -2390,12 +2392,24 @@ static const char* RegionCardHintAt(Vector2 m, int px, int py, int pw)
 
 static void BuildSiteScene(AppState& app)
 {
+    // A wide viewport shows spanKm * aspect horizontally, but the DEM
+    // window is square -- which left the terrain as a centred square
+    // with black bars beside it on any landscape screen. Build the
+    // window that much WIDER (still square, just bigger) and zoom the
+    // camera by the same factor: the visible height stays the level's
+    // real span, the width is covered, and nothing that measures the
+    // window has to change, because it stays square.
+    // Must be resolved BEFORE the span below is scaled by it.
+    app.sceneAspect = std::max(1.0f, (float)GetScreenWidth()
+                                     / (float)GetScreenHeight());
+
     // Written back into app.options, not a local copy: DrawHud reads the
     // live options for its span and coordinate readout, so a local copy
     // leaves the HUD claiming the window it started with.
     if (app.siteLevel == 0)
     {
         app.options.nearside = true;
+        app.options.spanAspect = 1.0f;
     }
     else
     {
@@ -2403,23 +2417,25 @@ static void BuildSiteScene(AppState& app)
         app.options.nearside = false;
         app.options.pickLat = c->windowLatDeg;
         app.options.pickLon = c->windowLonDeg;
-        app.options.spanKm = c->windowSpanKm;
+        app.options.spanKm = c->windowSpanKm * app.sceneAspect;
+        app.options.spanAspect = app.sceneAspect;
     }
-    // Two-pass: a 512 draft first, then the full 2048 on the next frame.
-    // The window's synthesis is quadratic in texture resolution, so the
-    // draft's share of that is 1/16 -- the ground appears almost at once
-    // and sharpens a moment later, instead of the whole level freezing
-    // until it is perfect. Measured cost of the extra pass over a whole
-    // ladder walk: +30% total work, because the per-build fixed costs
-    // (albedo, mesh, shader) do not shrink with the resolution.
-    const int SITE_DRAFT_RES = 512;
+    // Sharpen in steps rather than one jump. Window cost is quadratic in
+    // texture resolution, so 384 is 1/28th of the full build and lands
+    // almost at once; each rung after it costs 4x the last and replaces
+    // it. The whole ladder is 1.33x the price of building 2048 alone,
+    // and the level reads as coming into focus instead of freezing and
+    // then snapping.
+    static const int SITE_RES_LADDER[] = { 384, 768, 1536, 0 };  // 0 = full
+    int rung = std::clamp(app.sceneStage, 0, 3);
     app.options.demRes = app.userDemRes ? app.userDemRes
-                       : (app.scenePending ? 0 : SITE_DRAFT_RES);
+                                        : SITE_RES_LADDER[rung];
     BuildScene(app.options, app.dem, app.scene);
     app.options.demRes = app.userDemRes;
     app.sceneDirty = false;
-    app.sceneDraft = !app.scenePending;
-    app.scenePending = false;
+    // A forced --demres has no ladder to climb; it is already final.
+    app.sceneDraft = !app.userDemRes && (rung < 3);
+    app.sceneStage = rung + 1;
 }
 
 // How long the descent zoom takes. Long enough to read as travel, short
@@ -2428,9 +2444,9 @@ static void BuildSiteScene(AppState& app)
 // rest are 4-5x. A fixed duration makes the big one feel rushed and the
 // small ones dawdle, so the flight holds a constant RATE of approach --
 // octaves of zoom per second -- and takes as long as its distance needs.
-static const float SITE_TRANS_OCTAVES_PER_SEC = 4.0f;
-static const float SITE_TRANS_MIN_SECONDS = 0.40f;
-static const float SITE_TRANS_MAX_SECONDS = 1.30f;
+static const float SITE_TRANS_OCTAVES_PER_SEC = 1.8f;
+static const float SITE_TRANS_MIN_SECONDS = 1.00f;
+static const float SITE_TRANS_MAX_SECONDS = 3.00f;
 
 // Aim the transition at the ground the next level will show. Everything
 // is expressed against the CURRENT scene, because the current scene's
@@ -2551,6 +2567,7 @@ static void UpdateSiteSelect(AppState& app)
             app.siteLevel++;
         }
         app.transKind = 0;
+        app.sceneStage = 0;
         app.sceneDirty = true;
         return;
     }
@@ -2638,7 +2655,7 @@ static void UpdateSiteSelect(AppState& app)
 
     // ---------- draw ----------
     if (!g_fake.active) BeginDrawing();
-    float sceneZoom = (app.siteLevel == 0) ? discZoom : 1.0f;
+    float sceneZoom = (app.siteLevel == 0) ? discZoom : app.sceneAspect;
     Camera3D camera = TopDownCamera(app.scene, sceneZoom);
     DrawScene(app.scene, options, app.styleMode, camera);
 
@@ -2767,15 +2784,15 @@ static void UpdateSiteSelect(AppState& app)
     if (app.sceneDraft)
     {
         app.sceneDraft = false;
-        app.scenePending = true;
-        app.sceneDirty = true;
+        app.sceneDirty = true;          // next frame builds the next rung
     }
 
     // ---------- transitions ----------
     if (app.founded)
     {
         if (ascend) { app.founded = false; app.claimed = false;
-                      app.siteLevel = 0; app.sceneDirty = true; }
+                      app.siteLevel = 0; app.sceneStage = 0;
+                      app.sceneDirty = true; }
         return;
     }
     if (ascend)
@@ -2785,6 +2802,7 @@ static void UpdateSiteSelect(AppState& app)
             if (!SurveyAscend(&app.descent)) { }
             app.siteLevel--;
             if (app.siteLevel == 0) app.claimed = false;
+            app.sceneStage = 0;
             app.sceneDirty = true;
         }
         return;
@@ -2816,6 +2834,7 @@ static void UpdateSiteSelect(AppState& app)
                 app.descent.levels[1] = next;
                 app.descent.depth = 2;
                 app.siteLevel = 1;
+                app.sceneStage = 0;
                 app.sceneDirty = true;
             }
         }
@@ -2827,12 +2846,14 @@ static void UpdateSiteSelect(AppState& app)
         {
             const SurveyCursor* c = SurveyCurrent(&app.descent);
             app.transKind = 2;
-            BeginDescentZoom(app, 1.0f, c->offsetXKm, c->offsetYKm,
+            BeginDescentZoom(app, app.sceneAspect,
+                             c->offsetXKm, c->offsetYKm,
                              c->windowSpanKm, c->footprintKm);
             if (!app.transActive)
             {
                 SurveyDescend(&app.descent);
                 app.siteLevel++;
+                app.sceneStage = 0;
                 app.sceneDirty = true;
             }
         }
@@ -3557,7 +3578,7 @@ int main(int argc, char** argv)
         std::cerr << "lunar_map: flight took " << frame << " frames, level "
                   << app.siteLevel + 1 << "\n";
         for (int guard = 0;
-             (app.sceneDirty || app.sceneDraft) && guard < 4; guard++)
+             (app.sceneDirty || app.sceneDraft) && guard < 10; guard++)
         {
             RenderTexture2D t = LoadRenderTexture(64, 64);
             BeginTextureMode(t);
@@ -3615,7 +3636,7 @@ int main(int argc, char** argv)
             // would export nothing but drafts and quietly misreport what
             // the player ends up judging.
             for (int guard = 0;
-                 (app.sceneDirty || app.sceneDraft) && guard < 4; guard++)
+                 (app.sceneDirty || app.sceneDraft) && guard < 10; guard++)
             {
                 RenderTexture2D warm = LoadRenderTexture(64, 64);
                 BeginTextureMode(warm);
