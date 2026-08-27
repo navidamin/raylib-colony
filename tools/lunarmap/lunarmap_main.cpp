@@ -2305,6 +2305,7 @@ struct AppState
     RegionIdentity transRegion = {};
     double transLat = 0.0, transLon = 0.0;
     float transT = 0.0f;
+    float transSeconds = 0.45f;      // set per flight from its zoom span
     float transFromZoom = 1.0f, transToZoom = 1.0f;
     Vector3 transFromTarget = { 0.0f, 0.0f, 0.0f };
     Vector3 transToTarget = { 0.0f, 0.0f, 0.0f };
@@ -2423,7 +2424,13 @@ static void BuildSiteScene(AppState& app)
 
 // How long the descent zoom takes. Long enough to read as travel, short
 // enough that it is not itself the wait.
-static const float SITE_TRANS_SECONDS = 0.45f;
+// Descents are not all the same size: level 1 -> 2 is a 24x zoom, the
+// rest are 4-5x. A fixed duration makes the big one feel rushed and the
+// small ones dawdle, so the flight holds a constant RATE of approach --
+// octaves of zoom per second -- and takes as long as its distance needs.
+static const float SITE_TRANS_OCTAVES_PER_SEC = 4.0f;
+static const float SITE_TRANS_MIN_SECONDS = 0.40f;
+static const float SITE_TRANS_MAX_SECONDS = 1.30f;
 
 // Aim the transition at the ground the next level will show. Everything
 // is expressed against the CURRENT scene, because the current scene's
@@ -2443,6 +2450,12 @@ static void BeginDescentZoom(AppState& app, float fromZoom,
                              "targetKm=(%.2f,%.2f)\n",
                      fromSpanKm, toSpanKm,
                      app.scene.worldHeightKm / toZ, targetXKm, targetYKm);
+        std::fprintf(stderr, "        zoom=%.1fx flight=%.2fs\n",
+                     toZ / fromZoom,
+                     std::clamp(std::log2(std::max(1.001f, toZ / fromZoom))
+                                / SITE_TRANS_OCTAVES_PER_SEC,
+                                SITE_TRANS_MIN_SECONDS,
+                                SITE_TRANS_MAX_SECONDS));
         return;
     }
     app.transFromZoom = fromZoom;
@@ -2452,6 +2465,11 @@ static void BeginDescentZoom(AppState& app, float fromZoom,
     // negates.
     app.transToTarget = Vector3{ (float)(targetXKm * sc), 0.0f,
                                  (float)(-targetYKm * sc) };
+    float octaves = std::log2(std::max(1.001f,
+                                      app.transToZoom / app.transFromZoom));
+    app.transSeconds = std::clamp(octaves / SITE_TRANS_OCTAVES_PER_SEC,
+                                  SITE_TRANS_MIN_SECONDS,
+                                  SITE_TRANS_MAX_SECONDS);
     app.transT = 0.0f;
     app.transActive = true;
 }
@@ -2463,7 +2481,7 @@ static bool RunDescentZoom(AppState& app, const MapOptions& options,
 {
     float dt = GetFrameTime();
     if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 60.0f;   // first frame, or a stall
-    app.transT += dt / SITE_TRANS_SECONDS;
+    app.transT += dt / app.transSeconds;
     float t = std::clamp(app.transT, 0.0f, 1.0f);
     float e = t * t * (3.0f - 2.0f * t);               // smoothstep
 
