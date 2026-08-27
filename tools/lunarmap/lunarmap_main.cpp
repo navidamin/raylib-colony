@@ -191,6 +191,7 @@ struct MapOptions
     int maxLevel = 5;              // --maxlevel N: stop the demo after Ln
     bool siteMode = false;         // --site: interactive site selection
     std::string siteShot;          // --siteshot PATH: scripted walk, PNGs
+    std::string flyShot;           // --flyshot PATH: the descent zoom, PNGs
     // Data-layer test: -1 none, else an index into INSTRUMENTS. --truth
     // renders the field at full resolution instead of on the
     // instrument's measurement grid -- the "what is actually there"
@@ -234,6 +235,7 @@ static void PrintUsage()
         << "  --demo NAME       annotated descent: imbrium|apennine|shackleton\n"
         << "  --site            interactive site selection (playtest)\n"
         << "  --siteshot PATH   scripted walk through --site, one PNG per step\n"
+        << "  --flyshot PATH    the level-1 descent zoom, one PNG per phase\n"
         << "  --layer N         data layer 0=hydrogen 1=iron 2=rock abundance\n"
         << "  --truth           draw the layer at full resolution, not its grid\n"
         << "  --layeralpha N    layer opacity 0-255      (default: 145)\n"
@@ -304,6 +306,12 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--ladder") { options.ladder = true; }
         else if (arg == "--maxlevel" && hasNext) { options.maxLevel = std::atoi(argv[++i]); }
         else if (arg == "--site") { options.siteMode = true; options.nearside = true; }
+        else if (arg == "--flyshot" && hasNext)
+        {
+            options.flyShot = argv[++i];
+            options.siteMode = true;
+            options.nearside = true;
+        }
         else if (arg == "--siteshot" && hasNext)
         {
             options.siteMode = true;
@@ -2289,6 +2297,17 @@ struct AppState
     int siteLevel = 0;               // 0 orbital, 1..4 = ladder levels 2..5
     bool sceneDirty = true;
     bool founded = false;
+    // Descent transition: the previous level's texture is already on the
+    // GPU, so zooming into the cursor with it costs nothing but redraws
+    // and covers the gap before the build blocks the loop.
+    bool transActive = false;
+    int transKind = 0;               // 1 = claim a region, 2 = descend
+    RegionIdentity transRegion = {};
+    double transLat = 0.0, transLon = 0.0;
+    float transT = 0.0f;
+    float transFromZoom = 1.0f, transToZoom = 1.0f;
+    Vector3 transFromTarget = { 0.0f, 0.0f, 0.0f };
+    Vector3 transToTarget = { 0.0f, 0.0f, 0.0f };
     int userDemRes = 0;              // --demres, if the caller set one
     bool sceneDraft = false;         // showing the low-res first pass
     bool scenePending = false;       // full-res pass owed on a later frame
@@ -2325,6 +2344,7 @@ static void DrawLadderCursor(const SurveyCursor& cursor,
 struct FakePointer
 {
     bool active = false;
+    bool fly = false;              // --flyshot: run the descent zoom too
     Vector2 pos = { 0.0f, 0.0f };
     bool click = false;
     bool escape = false;
@@ -2401,6 +2421,78 @@ static void BuildSiteScene(AppState& app)
     app.scenePending = false;
 }
 
+// How long the descent zoom takes. Long enough to read as travel, short
+// enough that it is not itself the wait.
+static const float SITE_TRANS_SECONDS = 0.45f;
+
+// Aim the transition at the ground the next level will show. Everything
+// is expressed against the CURRENT scene, because the current scene's
+// texture is what the animation draws.
+static void BeginDescentZoom(AppState& app, float fromZoom,
+                             double targetXKm, double targetYKm,
+                             double fromSpanKm, double toSpanKm)
+{
+    float sc = app.scene.worldScale;
+    if (g_fake.active && !g_fake.fly)
+    {
+        // The step harness does not fly, but it still reports where the
+        // flight WOULD land, so the geometry is checkable without
+        // rendering 27 frames per descent.
+        float toZ = fromZoom * (float)(fromSpanKm / toSpanKm);
+        std::fprintf(stderr, "ZOOMCHK from=%.0fkm to=%.0fkm endVisible=%.2fkm "
+                             "targetKm=(%.2f,%.2f)\n",
+                     fromSpanKm, toSpanKm,
+                     app.scene.worldHeightKm / toZ, targetXKm, targetYKm);
+        return;
+    }
+    app.transFromZoom = fromZoom;
+    app.transToZoom = fromZoom * (float)(fromSpanKm / toSpanKm);
+    app.transFromTarget = Vector3{ 0.0f, 0.0f, 0.0f };
+    // +z is south in this frame (the camera's up is -z), so north
+    // negates.
+    app.transToTarget = Vector3{ (float)(targetXKm * sc), 0.0f,
+                                 (float)(-targetYKm * sc) };
+    app.transT = 0.0f;
+    app.transActive = true;
+}
+
+// Draw the current scene from a camera partway to the next level's
+// framing. Returns true while the flight is still running.
+static bool RunDescentZoom(AppState& app, const MapOptions& options,
+                           int screenW, int screenH)
+{
+    float dt = GetFrameTime();
+    if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 60.0f;   // first frame, or a stall
+    app.transT += dt / SITE_TRANS_SECONDS;
+    float t = std::clamp(app.transT, 0.0f, 1.0f);
+    float e = t * t * (3.0f - 2.0f * t);               // smoothstep
+
+    // Zoom interpolates in log space: a linear ramp between 1x and 11x
+    // spends most of its time already deep and reads as a lurch.
+    float zoom = app.transFromZoom *
+                 std::pow(app.transToZoom / app.transFromZoom, e);
+    Vector3 tgt = {
+        app.transFromTarget.x + (app.transToTarget.x - app.transFromTarget.x) * e,
+        0.0f,
+        app.transFromTarget.z + (app.transToTarget.z - app.transFromTarget.z) * e };
+
+    if (!g_fake.active) BeginDrawing();
+    Camera3D camera = TopDownCamera(app.scene, zoom);
+    camera.position = Vector3{ tgt.x, camera.position.y, tgt.z };
+    camera.target = tgt;
+    DrawScene(app.scene, options, app.styleMode, camera);
+    // The strip stays put so the frame does not read as a different UI.
+    int h = 40, y = screenH - h;
+    DrawRectangle(0, y, screenW, h, Color{ 12, 12, 16, 220 });
+    DrawRectangle(0, y, screenW, 1, Color{ 90, 110, 150, 255 });
+    DrawText("Descending...", 16, y + 12, 16, Color{ 150, 190, 255, 255 });
+    if (!g_fake.active) EndDrawing();
+
+    if (app.transT < 1.0f) return true;
+    app.transActive = false;
+    return false;
+}
+
 static void UpdateSiteSelect(AppState& app)
 {
     MapOptions& options = app.options;
@@ -2419,6 +2511,31 @@ static void UpdateSiteSelect(AppState& app)
     app.havePointer = true;
 
     if (app.sceneDirty) BuildSiteScene(app);
+
+    // A descent in flight owns the frame: the old texture is still the
+    // right picture, and no input should land mid-move.
+    if (app.transActive)
+    {
+        if (RunDescentZoom(app, options, screenW, screenH)) return;
+        if (app.transKind == 1)
+        {
+            app.region = app.transRegion;
+            app.claimed = true;
+            app.descent = MakeSurveyDescent(app.transLat, app.transLon);
+            app.descent.levels[1] = MakeSurveyCursor(1, app.transLat,
+                                                     app.transLon);
+            app.descent.depth = 2;
+            app.siteLevel = 1;
+        }
+        else
+        {
+            SurveyDescend(&app.descent);
+            app.siteLevel++;
+        }
+        app.transKind = 0;
+        app.sceneDirty = true;
+        return;
+    }
 
     bool rawClick = SiteClick();
     bool descend = rawClick;
@@ -2659,13 +2776,30 @@ static void UpdateSiteSelect(AppState& app)
         if (hintKey) return;               // clicking a card row is not a move
         if (app.siteLevel == 0)
         {
-            app.region = hoverId;
-            app.claimed = true;
-            app.descent = MakeSurveyDescent(hoverLat, hoverLon);
-            app.descent.levels[1] = MakeSurveyCursor(1, hoverLat, hoverLon);
-            app.descent.depth = 2;
-            app.siteLevel = 1;
-            app.sceneDirty = true;
+            app.transKind = 1;
+            app.transRegion = hoverId;
+            app.transLat = hoverLat;
+            app.transLon = hoverLon;
+            double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
+            SurveyCursor next = MakeSurveyCursor(1, hoverLat, hoverLon);
+            // The span the camera is SHOWING, not the scene's own: level
+            // 1 is already zoomed out by discZoom to letterbox the near
+            // side, and feeding the scene span here lands the flight
+            // 1/discZoom too wide (2.2x on a portrait phone).
+            BeginDescentZoom(app, discZoom,
+                             hoverLon * kmPerDeg, hoverLat * kmPerDeg,
+                             app.scene.worldHeightKm / discZoom,
+                             next.windowSpanKm);
+            if (!app.transActive)      // headless: no flight, act now
+            {
+                app.region = hoverId;
+                app.claimed = true;
+                app.descent = MakeSurveyDescent(hoverLat, hoverLon);
+                app.descent.levels[1] = next;
+                app.descent.depth = 2;
+                app.siteLevel = 1;
+                app.sceneDirty = true;
+            }
         }
         else if (app.siteLevel == 4)
         {
@@ -2673,9 +2807,16 @@ static void UpdateSiteSelect(AppState& app)
         }
         else
         {
-            SurveyDescend(&app.descent);
-            app.siteLevel++;
-            app.sceneDirty = true;
+            const SurveyCursor* c = SurveyCurrent(&app.descent);
+            app.transKind = 2;
+            BeginDescentZoom(app, 1.0f, c->offsetXKm, c->offsetYKm,
+                             c->windowSpanKm, c->footprintKm);
+            if (!app.transActive)
+            {
+                SurveyDescend(&app.descent);
+                app.siteLevel++;
+                app.sceneDirty = true;
+            }
         }
     }
 }
@@ -3342,6 +3483,76 @@ int main(int argc, char** argv)
         int n = app.dem.LoadOverlays(lolaDir);
         if (n > 0) std::cerr << "lunar_map: " << n
                              << " high-res overlay(s) active\n";
+    }
+
+    if (!app.options.flyShot.empty())
+    {
+        // The descent zoom, rendered. The geometry check in
+        // BeginDescentZoom proves where the flight ENDS; this proves it
+        // shows the right ground on the way, which arithmetic cannot.
+        std::string stem = app.options.flyShot;
+        size_t dot = stem.find_last_of('.');
+        std::string ext = (dot == std::string::npos) ? ".png" : stem.substr(dot);
+        if (dot != std::string::npos) stem = stem.substr(0, dot);
+
+        g_fake.active = true;
+        g_fake.fly = true;
+        g_fake.pos = Vector2{ app.options.width * 0.44f,
+                              app.options.height * 0.56f };
+
+        auto Shot = [&](const char* tag)
+        {
+            RenderTexture2D t = LoadRenderTexture(app.options.width,
+                                                  app.options.height);
+            BeginTextureMode(t);
+            UpdateSiteSelect(app);
+            EndTextureMode();
+            Image img = LoadImageFromTexture(t.texture);
+            ImageFlipVertical(&img);
+            ExportImage(img, TextFormat("%s_%s%s", stem.c_str(), tag,
+                                        ext.c_str()));
+            UnloadImage(img);
+            UnloadRenderTexture(t);
+        };
+
+        Shot("0_before");                     // level 1, settled
+        g_fake.click = true;
+        Shot("1_click");                      // the click starts the flight
+        g_fake.click = false;
+
+        // 0.45 s at the headless 1/60 s step is 27 frames; sample it.
+        int frame = 0;
+        while (app.transActive && frame < 60)
+        {
+            frame++;
+            if (frame == 7 || frame == 14 || frame == 21)
+                Shot(TextFormat("2_fly%02d", frame));
+            else
+            {
+                RenderTexture2D t = LoadRenderTexture(64, 64);
+                BeginTextureMode(t);
+                UpdateSiteSelect(app);
+                EndTextureMode();
+                UnloadRenderTexture(t);
+            }
+        }
+        std::cerr << "lunar_map: flight took " << frame << " frames, level "
+                  << app.siteLevel + 1 << "\n";
+        for (int guard = 0;
+             (app.sceneDirty || app.sceneDraft) && guard < 4; guard++)
+        {
+            RenderTexture2D t = LoadRenderTexture(64, 64);
+            BeginTextureMode(t);
+            UpdateSiteSelect(app);
+            EndTextureMode();
+            UnloadRenderTexture(t);
+        }
+        Shot("3_arrived");                    // level 2, built
+        g_fake.active = false;
+        g_fake.fly = false;
+        UnloadSceneGpu(app.scene);
+        CloseWindow();
+        return 0;
     }
 
     if (!app.options.siteShot.empty())
