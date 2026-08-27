@@ -68,6 +68,13 @@ at level 5 the site is judged buildable or refused. Clicking a card
 row opens its hint (what a high titanium reading is *for*). `Esc` or
 the on-screen BACK button steps back up.
 
+**Descending** zooms the camera into the cursor for 0.45 s before it
+builds. The current level's texture is already on the GPU, so the flight
+costs nothing but redraws — and on a single-threaded WASM main loop the
+build itself blocks everything, so the gap *before* it is the only free
+time there is. The new window then arrives as a 512 draft that sharpens
+to 2048 a frame later.
+
 **Touch.** A phone has no hover, so a tap that jumps the pointer only
 aims; a second tap in the same place commits. The prompt strip
 switches to tap wording once it sees this happen, and carries the BACK
@@ -81,7 +88,17 @@ tools/lunarmap/lunarmap.sh --siteshot build/lunarmap/step.png
 
 `--siteshot` drives the real `UpdateSiteSelect` with a scripted
 pointer, one PNG per step, so what is checked is the shipping flow and
-not a re-implementation of it.
+not a re-implementation of it. It settles the two-pass build before each
+export, and does **not** fly the descent zoom (a click would need ~27
+more frames to land) — but it does print where each flight *would* end,
+so the geometry stays checkable cheaply:
+
+```
+ZOOMCHK from=500km to=100km endVisible=100.00km targetKm=(0.00,-100.00)
+```
+
+`--flyshot` renders the zoom itself, a few frames per phase, for the
+part arithmetic cannot answer.
 
 ### Web playtest (GitHub Pages)
 
@@ -132,6 +149,7 @@ craters must sit where the real ones sit.
 | `--ladder` | walk the survey descent, one PNG per level |
 | `--site` | interactive site-selection playtest (the five levels) |
 | `--siteshot PATH` | scripted walk through `--site`, one PNG per step |
+| `--flyshot PATH` | the level-1 descent zoom, one PNG per phase |
 | `--out PATH` | render PNG and exit; without it a window opens |
 | `--dem PATH` | alternate DEM TIFF |
 
