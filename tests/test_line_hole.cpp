@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "test_helpers.h"
 #include <algorithm>
+#include <cstdio>
 
 // The prescribed line: aim from a collar on the surface toward a cell at a
 // chosen layer, drill it over time, and every layer it crosses is cored at
@@ -114,10 +115,14 @@ TEST_CASE("hard rock heats the bit and the string pecks to cool", "[linehole]")
     sys.AimAt(3, 3, 3);          // vertical, all the way into basalt
     sys.CommitHole();
 
+    // Idle deliberately never outruns the heat bleed -- an untouched hole
+    // finishes cold. Heat is a CLICKING consequence, so drive like an
+    // engaged player: ~4 clicks/s.
     bool dwellSeen = false, advancedWhileDwelling = false;
     float maxHeat = 0.0f;
     for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
     {
+        if (i % 5 == 0) sys.KickString();
         float before = sys.lineHole.depthM;
         sys.UpdateLineHole(0.05f);
         maxHeat = std::max(maxHeat, sys.lineHole.heat);
@@ -149,4 +154,51 @@ TEST_CASE("clicking drives the spindle, which sags back to idle", "[linehole]")
 
     for (int i = 0; i < 200; i++) sys.UpdateLineHole(0.05f);   // 10 s, no clicks
     REQUIRE(sys.lineHole.rpm < DRILL_RPM_IDLE + 0.05f);        // sagged home
+}
+
+TEST_CASE("an idle hole never cooks the bit", "[linehole]")
+{
+    // The crawl is the floor: with no clicks at all, heat bleed beats gain
+    // even in basalt, so AUTO finishes every hole cold -- just slowly.
+    ProspectingSystem sys = MakeSystem();
+    sys.StartAim(3, 3);
+    sys.AimAt(3, 3, 3);
+    sys.CommitHole();
+    float maxHeat = 0.0f;
+    for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    {
+        sys.UpdateLineHole(0.05f);
+        maxHeat = std::max(maxHeat, sys.lineHole.heat);
+    }
+    REQUIRE(sys.lineHole.state == LineHoleState::DONE);
+    REQUIRE(maxHeat < DRILL_HEAT_RESUME);
+}
+
+TEST_CASE("drill tuning campaign", "[.][campaign]")
+{
+    // Not a check -- an instrument. Run explicitly:
+    //   ./build/tests/colony_tests "[campaign]"
+    // Prints click-rate vs column time for the full basalt hole; numbers
+    // feed docs/design/prospecting/drill-tuning.md.
+    for (float f : {0.0f, 1.0f, 2.0f, 4.0f, 6.0f})
+    {
+        ProspectingSystem sys = MakeSystem();
+        sys.StartAim(3, 3);
+        sys.AimAt(3, 3, 3);
+        sys.CommitHole();
+        float t = 0.0f, dwellT = 0.0f, clickAcc = 0.0f, rpmPeak = 0.0f;
+        while (sys.lineHole.state == LineHoleState::DRILLING && t < 1200.0f)
+        {
+            clickAcc += f * 0.05f;
+            while (clickAcc >= 1.0f) { sys.KickString(); clickAcc -= 1.0f; }
+            sys.UpdateLineHole(0.05f);
+            if (sys.lineHole.dwelling) dwellT += 0.05f;
+            rpmPeak = std::max(rpmPeak, sys.lineHole.rpm);
+            t += 0.05f;
+        }
+        printf("campaign: %.0f clicks/s -> %.0f m column in %.0f s "
+               "(dwell %.0f s, rpm peak %.2f)\n",
+               f, sys.lineHole.endM, t, dwellT, rpmPeak);
+        REQUIRE(sys.lineHole.state == LineHoleState::DONE);
+    }
 }

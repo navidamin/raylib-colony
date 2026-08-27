@@ -128,7 +128,13 @@ inline int LayerOfDepthM(float m)
 // stratum being cut: soft ground runs quick, basalt crawls. Depth is priced
 // in time as well as energy, and the player watches it happen.
 // ---------------------------------------------------------------------------
-constexpr float DRILL_ADVANCE_MPS[4] = { 5.0f, 3.5f, 3.8f, 2.0f };
+// Rates are chosen against the DOCK, not just the ground: the strip draws
+// every stratum at (near) equal band height while thicknesses run 12..52 m,
+// so equal m/s would make the bit visually slam to a crawl at each seam.
+// These give band traverse times of ~6/8/10/14 s at full spindle -- the
+// on-screen speed steps down gently (x0.7-0.8 per seam) instead of x0.3.
+// Hard rock's real cost is heat (pecks), not a wall of slowness.
+constexpr float DRILL_ADVANCE_MPS[4] = { 2.0f, 2.75f, 3.4f, 3.7f };
 
 // Heat (Dark Plating section 4.5, the redline prototype's model, tool-side
 // only): heat climbs with the hardness of the rock being cut and bleeds at a
@@ -150,14 +156,42 @@ constexpr float LAYER_HARDNESS[4] = { 0.25f, 0.55f, 0.45f, 0.95f };
 // rpm, and so does heat -- driving hard through basalt cooks the bit into
 // its auto-peck, which is the whole hands-on tension. AUTO (never clicking)
 // still finishes every hole, just slowly: hands-on is ceiling, not floor.
-// Tuned by campaign (docs/design/prospecting/drill-tuning.md): a single
-// click bumps speed +23%, not the +42% lurch the first cut had; sustained
-// clicking tops out at 1.9x idle, and past ~4 clicks/s heat converts the
-// extra drive into dwell time instead of depth.
-constexpr float DRILL_RPM_IDLE = 0.65f;
-constexpr float DRILL_RPM_MAX  = 1.25f;
-constexpr float DRILL_RPM_KICK = 0.15f;
-constexpr float DRILL_RPM_TAU  = 0.75f;      // seconds, decay back to idle
+// Tuned by campaign (docs/design/prospecting/drill-tuning.md): idle is a
+// bare crawl -- the clicks ARE the drill. Steady clicking at f/s holds
+// roughly IDLE + KICK x f x TAU: 2/s cruises at ~0.44, 4/s at ~0.73, and
+// only a furious ~6/s pins the cap. At idle the bit never outruns its own
+// heat bleed, so an untouched hole finishes cold -- just very slowly.
+constexpr float DRILL_RPM_IDLE = 0.15f;
+constexpr float DRILL_RPM_MAX  = 1.0f;
+constexpr float DRILL_RPM_KICK = 0.12f;
+constexpr float DRILL_RPM_TAU  = 1.2f;       // seconds, decay back to idle
+
+// A drill-side value (advance rate, hardness) read at depth m, blended
+// linearly across DRILL_BLEND_M of each stratum seam. Without this the cut
+// changes as a step the instant the bit crosses a border -- rate cliff plus
+// a heat spike that dwelled right on the seam, which read as a synthetic
+// full stop at every plate boundary.
+constexpr float DRILL_BLEND_M = 6.0f;
+inline float DrillBlendAtM(float m, const float v[4])
+{
+    int L = LayerOfDepthM(m);
+    float half = DRILL_BLEND_M * 0.5f;
+    float top = LayerTopM(L);
+    if (L > 0 && m < top + half)
+    {
+        float t = 0.5f + (m - top) / DRILL_BLEND_M;      // 0.5 .. 1 past the seam
+        return v[L - 1] + (v[L] - v[L - 1]) * t;
+    }
+    float bot = LayerBottomM(L);
+    if (L < 3 && m > bot - half)
+    {
+        float t = (m - (bot - half)) / DRILL_BLEND_M;    // 0 .. 0.5 into the seam
+        return v[L] + (v[L + 1] - v[L]) * t;
+    }
+    return v[L];
+}
+inline float DrillAdvanceAtM(float m)  { return DrillBlendAtM(m, DRILL_ADVANCE_MPS); }
+inline float DrillHardnessAtM(float m) { return DrillBlendAtM(m, LAYER_HARDNESS); }
 
 // ---------------------------------------------------------------------------
 // The estimate field (block-model-design.md #3)

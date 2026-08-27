@@ -3132,7 +3132,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     {
         int L = LayerOfDepthM(hole.depthM);
         float pxPerM = (dg.bandTop[L + 1] - dg.bandTop[L]) / LAYER_THICKNESS_M[L];
-        float screwTrue = DRILL_ADVANCE_MPS[L] * pxPerM * 2.0f * PI / PROS_PITCH;
+        float screwTrue = DrillAdvanceAtM(hole.depthM) * pxPerM * 2.0f * PI / PROS_PITCH;
         prosSpin -= (cooling ? 1.1f : std::max(screwTrue, 6.0f) * hole.rpm) * dt;
     }
 
@@ -3251,7 +3251,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                              Fade({120, 104, 84, 255}, 0.7f));
         }
     // sparks where hard rock is being cut
-    float hardNow = LAYER_HARDNESS[LayerOfDepthM(hole.depthM)];
+    float hardNow = DrillHardnessAtM(hole.depthM);
     if (turning && !cooling && hardNow > 0.5f)
         for (int i = 0; i < static_cast<int>(8.0f * hardNow * (0.3f + rpmN)); i++)
         {

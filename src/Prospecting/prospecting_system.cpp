@@ -211,7 +211,7 @@ bool ProspectingSystem::UpdateLineHole(float dt)
     // Past the ceiling the string auto-pecks -- dwells off the face, no
     // advance -- until it has cooled enough to bite again. Driving hard
     // through hard rock is exactly what cooks it.
-    float hard = LAYER_HARDNESS[LayerOfDepthM(lineHole.depthM)];
+    float hard = DrillHardnessAtM(lineHole.depthM);
     if (lineHole.dwelling)
     {
         lineHole.heat -= DRILL_HEAT_COOL * dt;
@@ -228,7 +228,7 @@ bool ProspectingSystem::UpdateLineHole(float dt)
     }
 
     lineHole.depthM = std::min(lineHole.endM,
-        lineHole.depthM + DRILL_ADVANCE_MPS[LayerOfDepthM(lineHole.depthM)]
+        lineHole.depthM + DrillAdvanceAtM(lineHole.depthM)
                         * lineHole.rpm * dt);
 
     // Core each crossing as the bit passes the crossed cell's own row depth

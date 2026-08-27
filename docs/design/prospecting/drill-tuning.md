@@ -1,35 +1,39 @@
 # Drill Tuning — Campaign Results and the Constant Ledger
 
 **Status: MEASURED** — every number here comes from running the model, not
-from feel. Method: a Python mirror of `ProspectingSystem::UpdateLineHole`
-(the exact heat/rpm/advance equations), swept over sustained click rates and
-strata; screen-space numbers from the dock geometry (~134 px per band).
-Re-run the sweep whenever `DRILL_*` constants move — it is ten lines.
+from feel. Method: the in-repo instrument
+`./build/tests/colony_tests "[campaign]"` (a hidden Catch2 case in
+`tests/test_line_hole.cpp` that drives the real `UpdateLineHole` at swept
+click rates and prints the table). Re-run it whenever `DRILL_*` constants
+move.
 
-## 1. The clicking campaign
+## 1. The clicking campaign (v2 — idle demoted to a crawl)
 
-Sustained click rate → equilibrium rpm `IDLE + KICK·rate·TAU` (capped), and
-the full 120 m column with heat dwells included:
+Playtest verdict on v1: idle carried too much of the drill — the string
+made real progress with hands off, so clicking felt like a garnish, and a
+single click still lurched. **v2 inverts the ownership: the clicks ARE the
+drill.** Idle is a bare crawl (0.15 rpm), the per-click kick is smaller
+(0.12), the decay window longer (1.2 s) so a *rhythm* is what holds speed.
+Sustained f clicks/s equilibrates near `IDLE + KICK·f·TAU`.
 
-| clicks/s | old rpm (x idle) | old column | tuned rpm (x idle) | tuned column |
+Measured, full 79 m basalt column (surface → intact basalt), dwells
+included:
+
+| clicks/s | rpm held | column | dwell | note |
 |---|---|---|---|---|
-| 0 (idle) | 0.60 (1.00x) | 106 s (33 s dwell) | 0.65 (1.00x) | 105 s (38 s dwell) |
-| 1 | 0.79 (1.31x) | 101 s | 0.76 (1.17x) | 100 s |
-| 2 | 0.97 (1.62x) | 95 s | 0.88 (1.35x) | 98 s |
-| 4 | 1.35 (2.25x) | 92 s (55 s dwell) | 1.10 (1.69x) | 95 s |
-| 6 | capped | 90 s | 1.25 (1.92x) | 93 s |
+| 0 (AUTO) | 0.15 | 180 s | 0 s | never heats — bleed beats gain at idle, finishes cold |
+| 1 | ~0.29 | 94 s | 0 s | |
+| 2 | ~0.44 | 63 s | 0 s | the comfortable cruise |
+| 4 | ~0.73 | 53 s | 14 s | heat gate engages in basalt |
+| 6 | ~0.97 | 48 s | 18 s | furious clicking buys 5 s — dwell eats the rest |
 
-The two findings that drove the change:
+Ownership check: hands-on is **3.8x** faster than AUTO (was 1.4x in v1),
+and AUTO still finishes every hole (drilling-procedure.md Rule 1 — time,
+never the run). Past ~4 clicks/s the heat gate converts extra drive into
+dwell, so the ceiling is soft, not a wall. A test now pins the cold-AUTO
+property (`an idle hole never cooks the bit`).
 
-- **The lurch was real.** One click bumped speed **+42%** instantly
-  (`KICK/IDLE = 0.25/0.60`). Tuned to **+23%** (`0.15/0.65`), ceiling
-  1.92x instead of 2.25x.
-- **Deep clicking buys dwell, not depth.** At 4+ clicks/s more than half the
-  basalt leg is spent cooling — the heat gate works. Clicking pays where it
-  should: a surface hole runs 3.7 s idle, 2.6 s driven (1.4x); the soft
-  layers are where hands-on wins.
-
-Chosen: `DRILL_RPM_IDLE 0.65, KICK 0.15, MAX 1.25, TAU 0.75`.
+Chosen: `DRILL_RPM_IDLE 0.15, KICK 0.12, MAX 1.0, TAU 1.2`.
 
 ## 2. The spin law (why the auger finally correlates)
 
@@ -42,14 +46,18 @@ spin (rad/s) = advance(px/s) * 2*pi / PITCH_px
 advance(px/s) = DRILL_ADVANCE_MPS[layer] * rpm * pxPerM(layer band)
 ```
 
-Measured against the old fixed rate (9.0 rad/s per rpm):
+With the v2 advance rates (section 5) the spin — like the descent — steps
+gently at the seams instead of collapsing:
 
 | stratum | px/m | advance px/s/rpm | screw-true rad/s/rpm |
 |---|---|---|---|
-| regolith | 11.2 | 55.8 | **18.5** (old rate was HALF — looked pushed, not drilled) |
-| megaregolith | 6.1 | 21.3 | 7.1 |
-| fractured | 3.9 | 15.0 | 5.0 |
-| basalt | 2.6 | 5.2 | 1.7 |
+| regolith | 11.2 | 22.4 | 7.4 |
+| megaregolith | 6.1 | 16.8 | 5.6 |
+| fractured | 3.9 | 13.3 | 4.4 |
+| basalt | 2.6 | 9.6 | 3.2 |
+
+(v1 for comparison ran 18.5 → 7.1 → 5.0 → 1.7 — a 2.6x spin cliff at the
+first seam alone.)
 
 The renderer now computes screw-true per layer, **floored at 6.0·rpm**: soft
 ground locks the screw illusion exactly; hard rock turns faster than it
@@ -99,8 +107,33 @@ the crossed cell's own row), the hover tick on the borehole strip, and
 per-metre pricing (`DrillEnergyToDepthMetres`). Depth resolution at 16x16:
 31 rows per layer, 0.4–1.7 m per row.
 
-## 5. Advance and heat (from the previous pass, unchanged here)
+## 5. Advance rates are tuned against the DOCK (v2)
 
-`DRILL_ADVANCE_MPS {5.0, 3.5, 3.8, 2.0}` m/s at rpm 1.0;
-heat `+ rpm·(0.35+hard·0.75)·0.50 − 0.15` per second, cool 0.25,
-auto-peck at 1.0 down to 0.45. `LAYER_HARDNESS {0.25, 0.55, 0.45, 0.95}`.
+The strip draws every stratum at (near) equal band height while the strata
+run 12/22/34/52 m thick, so px-per-metre falls ~4.3x from regolith to
+basalt. The v1 rates (`{5.0, 3.5, 3.8, 2.0}` m/s) were tuned in *metres*
+— on screen the bit slammed from 55.8 px/s to 21.3 px/s at the first seam
+(x0.38), and to a fifth at the basalt seam. That was most of the reported
+"synthetic stop at the border".
+
+v2 chooses rates by **band traverse time** instead: ~6/8/10/14 s per band
+at full spindle → `DRILL_ADVANCE_MPS {2.0, 2.75, 3.4, 3.7}`. On-screen
+speed now steps x0.75 / x0.79 / x0.72 at the seams — a gentle slowdown
+with depth, no cliff. Deeper rock being *faster in metres* is fine: its
+cost is heat (pecks) and energy per metre, not a wall of slowness.
+
+Heat unchanged: `+ rpm·(0.35+hard·0.75)·0.50 − 0.15` per second, cool
+0.25, auto-peck at 1.0 down to 0.45.
+`LAYER_HARDNESS {0.25, 0.55, 0.45, 0.95}`.
+
+## 6. The seam blend
+
+The other half of the border stop was a *step*: rate and hardness switched
+the instant `LayerOfDepthM` flipped, and entering harder rock spiked heat
+gain right at the seam — so the auto-peck dwell tended to land exactly on
+the border, reading as the drill refusing the boundary. Now
+`DrillAdvanceAtM` / `DrillHardnessAtM` lerp both values across
+`DRILL_BLEND_M = 6 m` centred on each seam (the bit feels the next rock
+coming). The renderer's sparks and screw-true spin read the same blended
+values, so nothing about the cut — speed, spin, heat, sparks — changes
+discontinuously at a plate border.
