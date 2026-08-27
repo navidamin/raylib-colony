@@ -33,22 +33,48 @@ that:
 2. **One verb.** The decision at every level is where you put the cursor
    before you click. Click descends, Esc backs out. No level introduces
    a new interaction; only the question changes.
-3. **Five questions, two commitments.** Claiming the region (level 1)
-   and founding the base (level 5) are binding. Everything between is
-   freely revisable — the reversible-descent rule (§3.3) is what makes
-   asking five questions cheap enough to be pleasant.
+3. **Five questions, one commitment.** Only founding the base (level 5)
+   binds. Everything above it is freely revisable — the
+   reversible-descent rule (§3.3) is what makes asking five questions
+   cheap enough to be pleasant, and the player should never be asked to
+   commit to an economy before seeing the ground under it.
 
 ---
 
 ## 2. Five levels, five questions
 
-| # | Level | Span | The question | Answered by | What locks |
-|---|-------|------|--------------|-------------|------------|
-| 1 | Orbital | disc | **Which economy?** | terrane + named feature + latitude: Fe/Ti/Th, rock type, day/night regime | chemistry, name, strategy |
-| 2 | Playfield | 100 km | **Which mix?** | position against boundaries: mare/highland shore, large craters, PSR craters (polar) | playfield anchor |
-| 3 | Colony | 25 km | **Which neighbourhood?** | buildable fraction, mean slope, distance to PSR / shore / landmark | expansion room |
-| 4 | Sect | 5 km | **Which cell?** | cell terrain aggregate + neighbouring cells' buildability | first sect cell |
-| 5 | Site | 1.5 km | **Which ground?** | live `EvaluateSite` at 59 m: slope, relief, illumination, PSR | the base |
+| # | Level | Span | The question | Answered by |
+|---|-------|------|--------------|-------------|
+| 1 | Orbital | disc | **Which economy?** | terrane + named feature + latitude: Fe/Ti/Th, rock type, day/night regime |
+| 2 | Playfield | 100 km | **Which mix?** | position against boundaries: mare/highland shore, large craters, PSR craters (polar) |
+| 3 | Colony | 25 km | **Which neighbourhood?** | buildable fraction, mean slope, distance to PSR / shore / landmark |
+| 4 | Sect | 5 km | **Which cell?** | cell terrain aggregate + neighbouring cells' buildability |
+| 5 | Site | 1.5 km | **Which ground?** | live `EvaluateSite` at 59 m: slope, relief, illumination, PSR |
+
+**Nothing locks until the base is founded.** Levels 1–4 are all free
+navigation; level 5 is the only commitment, and founding fixes
+everything at once — the terrain anchor, the 20×20 grid, the region.
+
+This is a correction to an earlier draft that locked the anchor at
+level 2. Committing to an economy *before* seeing whether the ground
+can carry a base is exactly backwards, and it is unnecessary: terrain
+generates deterministically from lat/lon
+(`GenerateTerrainChain`), so there is no boundary at the playfield edge
+to enforce — only a viewport. The 20×20 grid matters once a colony
+exists, not before.
+
+**The player may pan at any level, including past the first 100 km.**
+If panning crosses into a different named region the region card
+re-labels, with new numbers. That does **not** contradict §4.6: the
+numbers never *refine*, they belong to the region — so different ground
+means different numbers, and the same ground always means the same
+ones. Crossing a boundary and watching the card flip from mare identity
+to highland identity is the clearest possible teaching of what a region
+*is*: ground, not a menu item.
+
+Panning needs no rule limiting it by scale. At 100 km the view is a map
+and panning is natural; at 5 km and below the frame is following a
+cursor that is placing something, and the player is no longer browsing.
 
 **Chemistry decides once; geometry decides at every level after.** The
 region panel freezes at level 1 (§4.6) and is never contradicted below.
@@ -307,6 +333,13 @@ produce. Lead every panel with the name.
 - **No cursor rectangle at orbital or planet.** The lit region *is* the
   selection; a rectangle would be a second selection mechanism doing the
   same job.
+- **The named regions are labels, not a menu.** The player clicks
+  anywhere on the disc and the playfield anchors at that exact lat/lon;
+  the feature name appears when the click happens to land inside one and
+  falls back to the terrane otherwise ("Feldspathic Highlands (polar)").
+  There is no snapping to a region and no list to choose from — which is
+  what keeps the ~54% of the near side with no feature name fully
+  playable.
 - **Keep the previously viewed region's panel on screen, ghosted**, beside
   the current one. Otherwise the player can only visit regions one at a
   time and cannot actually compare them. One extra draw of values already
