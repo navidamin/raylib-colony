@@ -2295,7 +2295,8 @@ struct AppState
 // Drawn by the level-1 highlight and ladder helpers, which are defined
 // further down beside the --demo renderer and shared with it.
 static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
-                                    Color hoverTint);
+                                    Color hoverTint, float zoom);
+static float DiscFitZoom(int w, int h);
 static void DrawHoverChip(float mx, float my, const char* name,
                           const char* sub, Color tint, int screenW);
 static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
@@ -2387,6 +2388,7 @@ static void UpdateSiteSelect(AppState& app)
     int screenW = GetScreenWidth(), screenH = GetScreenHeight();
     Vector2 m = SitePointer();
     SurveyViewport viewport = LadderViewport(screenW, screenH);
+    float discZoom = DiscFitZoom(screenW, screenH);
 
     // A touch screen has no hover: the finger arrives and clicks in the
     // same frame, which would claim whatever it landed on before the
@@ -2421,7 +2423,7 @@ static void UpdateSiteSelect(AppState& app)
 
     if (app.siteLevel == 0)
     {
-        if (ScreenToLatLon(app.scene, 1.0f, screenW, screenH, m,
+        if (ScreenToLatLon(app.scene, discZoom, screenW, screenH, m,
                            &hoverLat, &hoverLon))
         {
             onGround = true;
@@ -2449,6 +2451,13 @@ static void UpdateSiteSelect(AppState& app)
     bool fullRegionCard = (app.siteLevel == 0) || !narrow;
     int regionX = narrow ? cardX : 16;
     int regionY = narrow ? 56 : 64;
+    if (narrow && app.siteLevel == 0)
+    {
+        // Full width means the card covers a third of the moon. Put it in
+        // whichever half the pointer is not in, so the ground being read
+        // is never the ground hidden.
+        regionY = (m.y < screenH * 0.5f) ? (screenH - 40 - 252 - 8) : 56;
+    }
     const char* hintKey = fullRegionCard
         ? RegionCardHintAt(m, regionX, regionY, cardW) : nullptr;
     // PSR proximity: real, from the site level's own measurement.
@@ -2475,15 +2484,16 @@ static void UpdateSiteSelect(AppState& app)
 
     // ---------- draw ----------
     if (!g_fake.active) BeginDrawing();
-    Camera3D camera = TopDownCamera(app.scene, 1.0f);
+    float sceneZoom = (app.siteLevel == 0) ? discZoom : 1.0f;
+    Camera3D camera = TopDownCamera(app.scene, sceneZoom);
     DrawScene(app.scene, options, app.styleMode, camera);
 
     if (app.siteLevel == 0)
     {
         DrawDiscFeatureOutlines(screenW, screenH, hoverId.featureIndex,
-                                hoverId.archetypeTint);
+                                hoverId.archetypeTint, discZoom);
     }
-    DrawHud(app.scene, options, app.styleMode, screenW, screenH, 1.0f);
+    DrawHud(app.scene, options, app.styleMode, screenW, screenH, sceneZoom);
 
     if (app.siteLevel == 0)
     {
@@ -2781,11 +2791,30 @@ static void UpdateFrame(void* arg)
 
 // The near-side map is plate carree, square: lon -90..90 across the
 // screen, lat -90..90 down it.
-static void DiscToScreen(double lat, double lon, int w, int h,
-                         float* x, float* y)
+// Pixels per degree on the near-side map: the ortho camera fits 180 deg
+// of latitude into the screen height at zoom 1.
+static double DiscPxPerDeg(int h, float zoom)
 {
-    *x = (float)(w * 0.5 + lon / 180.0 * h);
-    *y = (float)(h * 0.5 - lat / 180.0 * h);
+    return (double)h * zoom / 180.0;
+}
+
+// The zoom that fits the whole near side on screen. A portrait phone is
+// narrower than it is tall, and at zoom 1 the ortho camera fills the
+// height and crops longitude -- which would put the eastern and western
+// near side out of reach on the one screen where the player picks a
+// region. Zooming out to the aspect ratio letterboxes instead.
+static float DiscFitZoom(int w, int h)
+{
+    float aspect = (float)w / (float)h;
+    return (aspect < 1.0f) ? aspect : 1.0f;
+}
+
+static void DiscToScreen(double lat, double lon, int w, int h,
+                         float* x, float* y, float zoom = 1.0f)
+{
+    double ppd = DiscPxPerDeg(h, zoom);
+    *x = (float)(w * 0.5 + lon * ppd);
+    *y = (float)(h * 0.5 - lat * ppd);
 }
 
 // The terrane is a LABEL, not a layer.
@@ -2811,16 +2840,16 @@ static void DiscToScreen(double lat, double lon, int w, int h,
 // because only the feature under the cursor is a thing you can pick.
 
 static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
-                                    Color hoverTint)
+                                    Color hoverTint, float zoom)
 {
     for (int i = 0; i < DISC_FEATURE_COUNT; i++)
     {
         const DiscFeature& f = DISC_FEATURES[i];
         if (std::fabs(f.lat) > 80.0) continue;
         float cx = 0.0f, cy = 0.0f;
-        DiscToScreen(f.lat, f.lon, w, h, &cx, &cy);
+        DiscToScreen(f.lat, f.lon, w, h, &cx, &cy, zoom);
         double rDeg = f.radiusKm / (LOLA_M_PER_DEG / 1000.0);
-        float ry = (float)(rDeg / 180.0 * h);
+        float ry = (float)(rDeg * DiscPxPerDeg(h, zoom));
         float rx = (float)(ry / Clamp((float)std::cos(f.lat * DEG2RAD),
                                       0.2f, 1.0f));
         if (i == hoverFeature)
@@ -2853,6 +2882,7 @@ static void DrawHoverChip(float mx, float my, const char* name,
     int bw = tw + 26, bh = 46;
     float bx = mx + 22.0f, by = my - 12.0f;
     if (bx + bw > screenW - 8) bx = mx - bw - 22.0f;
+    if (bx < 8.0f) bx = 8.0f;              // narrow screen: no left overhang
     DrawRectangle((int)bx, (int)by, bw, bh, Color{ 12, 12, 16, 226 });
     DrawRectangleLinesEx(Rectangle{ bx, by, (float)bw, (float)bh }, 2.0f, tint);
     DrawText(name, (int)bx + 12, (int)by + 6, 19, WHITE);
@@ -3003,7 +3033,8 @@ static int RenderLadder(AppState& app)
                 BeginTextureMode(target);
                 Camera3D camera = TopDownCamera(app.scene, 1.0f);
                 DrawScene(app.scene, l1, app.styleMode, camera);
-                DrawDiscFeatureOutlines(opts.width, opts.height, hover, tint);
+                DrawDiscFeatureOutlines(opts.width, opts.height, hover, tint,
+                                        1.0f);
                 DrawHud(app.scene, l1, app.styleMode, opts.width,
                         opts.height, 1.0f);
 
