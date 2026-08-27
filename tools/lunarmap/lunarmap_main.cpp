@@ -2451,8 +2451,19 @@ static void BuildSiteScene(AppState& app)
     // it. The whole ladder is 1.33x the price of building 2048 alone,
     // and the level reads as coming into focus instead of freezing and
     // then snapping.
-    static const int SITE_RES_LADDER[] = { 448, 1024, 0 };   // 0 = full
+    // Never build more texels than the screen can show. The window is
+    // square and its span maps to the screen HEIGHT, so which axis binds
+    // flips with orientation: landscape needs R >= screenW (the whole
+    // window width is on screen), portrait needs R >= screenH (the span
+    // itself). Both are R >= 1.15 * the larger screen dimension, the
+    // 1.15 being headroom for the shader's normal differencing. A fixed
+    // 2048 was 1.46x oversampled on a 1400 px laptop and 2.4x on a
+    // phone -- work spent on detail no display could resolve.
+    int fullRes = std::clamp(
+        (int)std::lround(1.15 * std::max(GetScreenWidth(),
+                                         GetScreenHeight())), 512, 2048);
     const int SITE_RES_RUNGS = 3;
+    const int SITE_RES_LADDER[] = { fullRes / 4, fullRes / 2, fullRes };
     int rung = std::clamp(app.sceneStage, 0, SITE_RES_RUNGS - 1);
     app.options.demRes = app.userDemRes ? app.userDemRes
                                         : SITE_RES_LADDER[rung];
