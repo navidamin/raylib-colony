@@ -1,8 +1,7 @@
 /* THE ASSEMBLER — first component drawn with the iso layer.
    Subject: the top-left tile of the reference factory sheet. Style: Dark
-   Plating (docs/design/graphics/dark-plating.md), so it comes out cooler and
-   harder-edged than the reference, which is the point — it has to stand next
-   to the drill rig, not next to the sheet it came from.
+   Plating (../STYLE.md), so it comes out cooler and harder-edged than the
+   reference — this engine has one world and the sheet is not it.
 
    The whole machine is four stacked volumes on one 1x1 world footprint, plus
    a doorway cut through the front. Nothing here is hand-projected: every

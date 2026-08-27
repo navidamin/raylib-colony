@@ -2,7 +2,7 @@
    deterministic stepping, zoom to judge, never claim a visual result you have
    not looked at.
 
-     node gfx/tools/shoot.js <page.html> <outDir> [poses]
+     node darkplate/tools/shoot.js <page.html> <outDir> [poses]
 
    Needs playwright:  npm i playwright   (or set NODE_PATH to an install)   */
 const path = require("path");
@@ -11,8 +11,8 @@ let chromium;
 try { ({ chromium } = require("playwright")); }
 catch (e) { console.error("playwright not found — npm i playwright, or set NODE_PATH"); process.exit(2); }
 
-const PAGE = path.resolve(process.argv[2] || "gfx/assembler.html");
-const OUT  = path.resolve(process.argv[3] || "build/gfx");
+const PAGE = path.resolve(process.argv[2] || "darkplate/assembler.html");
+const OUT  = path.resolve(process.argv[3] || "build/darkplate");
 
 const POSES = [
     { name: "idle",    s: { work: 0.00, heat: 0.00, t: 0.00, run: false } },

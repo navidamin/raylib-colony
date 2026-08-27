@@ -12,8 +12,8 @@ is layered so a new graphic knows exactly how much it inherits:
 |---|---|---|
 | **The world** | §1 ground & palette, §2 the line, §3 tone | inherits all of it, always |
 | **Materials** | §4 metal, §5 rock & ground | inherits the material it is made of; new materials get new sections |
-| **Component families** | §6 machines that turn, §7 plated volumes | a new drill inherits §6 wholesale, a new building §7; a new *kind* of thing starts its own family section |
-| **Stagecraft** | §8 camera & motion, §9 console chrome, §10 linked views, §11 capture | inherits whatever its context needs |
+| **Component families** | §6 machines that turn | a new drill inherits §6 wholesale; a new *kind* of thing starts its own family section |
+| **Stagecraft** | §7 camera & motion, §8 console chrome, §9 linked views, §10 capture | inherits whatever its context needs |
 
 The name is the thesis: a **dark** world, and everything in it built from
 **plates** — hard-edged bands of tone with a heavy line around them, like
@@ -217,37 +217,6 @@ For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
 
 ---
 
-### 4.6 Ladders — materials a linear ramp cannot express
-
-`steel()` interpolates two RGB endpoints. That is right for a turned part,
-where the quantization happens downstream in `steelBands`' paired stops. It
-fails for a **saturated** material: lerping a dark amber `#241704` to a pale
-highlight `#f8d78c` passes through a desaturated tan, so an amber housing
-shaded that way goes muddy in exactly the midtones you use most.
-
-The fix is to make quantization the data structure instead of a step applied to
-it. A **ladder** is an ordered list of plate tones, dark to bright; a shade
-picks a rung and there is deliberately no interpolation between rungs.
-
-```js
-register("plating", ["#1b2128","#28313b","#37424e","#495764","#5e6d7c",
-                     "#778796","#93a1ae","#b3bfc9","#d9e0e7"]);   // 9 rungs
-tone("plating", 0.74, heat)      // -> rung 6, then heat-mixed as §4.1
-```
-
-Use a ladder for a **flat volume**, `steel()` for a **turned** one. Both take
-heat through the same glow ramp, so a rod and a housing warm together.
-
-`plating`'s floor is darker than `steel()`'s `(96,104,118)` on purpose: a rod
-never shows a face fully turned from the light, a box does, and without a real
-shadow rung every volume reads flat. That is a range change, not a new alloy —
-the blue bias (b ahead of r at every rung) is unchanged, because that bias is
-the plating's colour identity.
-
-Registered ladders: `plating`, `amber`, `dark` (plinths, caps, recessed
-panels), `ember` (lit throats, worked metal), `ice`.
-
-
 ## 5. Rock & Ground — the material
 
 - **Strata are flat slabs**: one flat colour per layer, a crisp 2.5 px
@@ -346,156 +315,7 @@ with depth. The lamp on the side pod reads machine state semantically
 
 ---
 
-## 7. Plated Volumes — the iso-solid family
-
-Everything a box-shaped machine seen from above needs: a factory building, a
-tank, a cabinet, a crate. Reference implementation `gfx/engine/iso.js` and
-`gfx/sprites/assembler.js` (stage: `gfx/assembler.html`, capture:
-`gfx/tools/shoot.js`).
-
-§4's grammar assumes screen-space rects and swept cylinders — there was no way
-to say "a plated volume seen from above". This section is that way.
-
-### 7.1 The projection is a preset, and it is not symmetric
-
-Axis vectors are screen displacement per **one world unit**, so foreshortening
-lives in the preset rather than being applied afterwards.
-
-```
-studio34  x:[ 1.000, 0.315]  y:[-0.556, 0.426]  z:[0,-1]   the default
-iso21     x:[ 1.000, 0.500]  y:[-1.000, 0.500]  z:[0,-1]   corner-on 2:1
-shallow   x:[ 1.000, 0.280]  y:[-1.000, 0.280]  z:[0,-1]   = ProsBlockGeom
-```
-
-`studio34` was measured off a reference sprite whose top face is a
-parallelogram with edge vectors `(54,17)` and `(-30,23)` px. **The two ground
-axes are deliberately unequal.** A corner-on isometric splits the front of a
-box evenly between two faces of the same width; a rotated three-quarter gives
-one wide face to put a door in and one narrow face beside it. Every readable
-building icon in this genre does the second thing.
-
-`+x` runs right-and-down, `+y` runs left-and-down, `+z` is up — so the visible
-faces of a box are always **east (x1), south (y1), top (z1)**, and depth
-increases with `x+y`. `fit(preset, bounds, rect, pad)` solves for the scale and
-origin that centre a world box in a screen rectangle; sprite work is "put this
-volume in that rectangle", not "pick a scale and hope".
-
-### 7.2 The chamfered volume is the primitive
-
-A raw box reads as a texture-mapped cube. The chamfer is what makes it cast
-metal:
-
-- the top face is **inset by `c`** and the four top edges become a ring of
-  quads running out to the full footprint at `z1 - c`;
-- each chamfer quad spans corner-to-corner (`[inset_i, inset_j, box_j, box_i]`),
-  so adjacent quads share the box corner and the ring **tiles with no gaps** —
-  no separate corner triangles;
-- all four are visible: north and west form the bright back rim *above* the top
-  face, south and east the lit band *between* the top face and the front faces.
-
-Chamfer rims are always brighter than the face they crown
-(`west .96 · north .92 · south .84 · east .44`), against face shades
-`top .74 · south .60 · east .26`.
-
-**Faces get sub-bands along their own axis.** A flat quad has no curvature to
-band, but a big face painted in one tone reads as dead vinyl. Three bands at a
-spread of ~0.03–0.06 is enough; the eye reads plate, not gradient. One
-exception, learned by rendering it: a band boundary is a straight line *on
-screen*, so on a **top** face it cuts across the parallelogram at an angle and
-reads as a fold in the plate. Big top faces take one flat tone and let the
-chamfer rim do the tonal work.
-
-The §2 flood rule generalises without any boolean geometry: run the outline
-pass over **every polygon of the assembly** first, then paint all the faces.
-Interior seams get painted over by their own faces; only the outer boundary
-survives. A solid stacked under another one must skip the top face in *both*
-passes, or its line prints through the piece above it.
-
-### 7.3 Face-local coordinates
-
-The feature that makes the primitive usable. `V.on(face, box)` returns a mapper
-whose `(u,v)` are world units measured from the face's top-left **as it appears
-on screen**: `u` runs right along the face, `v` runs down it. Lay a shape out
-like a UI rectangle and it lands the right way up, on the right face, in the
-right place, with no per-face special-casing.
-
-Without it every greeble is hand-projected, which is how iso art turns into a
-pile of magic numbers that cannot be moved.
-
-`m(u, v, lift)` offsets along the face's outward normal — positive stands a
-plate proud, negative sinks it. `m.at(u, v, lift)` is the depth-compensated
-twin: a point pushed into a face does not stay where you put it (on a south
-face it slides right and up by the projection of the normal), so `m.at` solves
-the 2×2 system that cancels that displacement and `(u,v)` means the same screen
-place at any depth. `m.vShift(lift)` is the vertical half of it, for when you
-want real parallax but need to know where the usable band of an opening starts.
-
-The furniture built on this — `panel`, `studs`, `louvres`, `rail`, `lamp` — is
-§4.3's joint grammar restated for faces. Same rule as ever: grip and recess
-parts darker than what they grip, bright rule on a top edge, dark rule under a
-bottom edge.
-
-### 7.4 The recess — a hole with thickness, and a room behind it
-
-A doorway drawn as a black shape on a face is a sticker. Three surfaces make it
-a hole:
-
-- **reveal** — the plate's own cut edge, banded bright across the top-left
-  shoulder and falling to nothing on the right. Painting it evenly all the way
-  round is the tell that it was drawn as an outline instead of a surface: the
-  far side of a cut edge does not face the light. Generate the opening and its
-  reveal from the *same* path generator at two insets rather than offsetting a
-  polygon.
-- **tube** — the camera looks down and from the left, so of the six inner faces
-  exactly three face it: the **back**, the **floor**, and the inner side wall on
-  the **left**. Take the sill from the path's first and last points and the left
-  jamb from its first two, and the floor and wall fall out of the geometry
-  instead of being drawn as art. (Both generators here start bottom-left and end
-  bottom-right, which is what makes that work.)
-- **back plane** — the path again at `-depth`. Because it lands up-and-right of
-  the mouth on a south face, the sliver of tube left visible along the bottom
-  and left *is* the floor and the near wall.
-
-Bands that trail into the depth must be **relative** to the mouth shade. Hard
-values there made a dark floor get *lighter* the deeper it went — a lit back
-wall in a machine with no light in it, and the tell was a pale wedge in an idle
-throat.
-
-An interior light is the one overlay allowed (§3.3, atmospherics): a radial
-gradient placed at the work, inside the clip.
-
-### 7.5 Painter order for an overhanging base
-
-Bottom-to-top is not the order. A plinth that overhangs the body has front
-faces **nearer the camera than the body's**, and a doorway is a hole, so
-anything painted before it shows through. Draw the deck first, then the body
-and its cuts, then repaint the base as a **near lip**: its front faces and only
-its front chamfers, plus the strip of deck outside the body's footprint.
-Repainting the back chamfers too puts dark wedges across the machine's front —
-they belong to a rim that is now occluded.
-
-### 7.6 Scale is a material property
-
-Outline weight, bevel rules and stud sizes are px constants tuned against a
-hero-sized sprite. Drawn unchanged at 32 px they *are* the sprite. The view
-carries the correction:
-
-```js
-V.lw(base)   // line weight for this scale, clamped to a hairline floor
-V.px(len)    // screen px for a world length — ask before drawing a detail
-V.lod        // 1 at hero scale (300 px/unit), falling with the sprite
-```
-
-A component consults `V.lod` and **drops greebles** rather than rendering them
-into mud. Two thresholds are enough: one for fine work (studs, louvres,
-interior mechanism), one for mid (rails, recessed panels). An icon is not a
-small picture of a hero asset; it is a different drawing of the same object.
-
-Render the size ladder — 128 / 96 / 64 / 48 / 32 — every time. It is the
-cheapest test in this document and it caught both the line-weight problem and
-the detail problem in one pass.
-
-## 8. The Stage — camera & motion
+## 7. The Stage — camera & motion
 
 - **The canvas is a window, not the world.** World coordinates stay fixed
   (640×880 here); the view is a crop (268×560) translated by a camera. Draw
@@ -512,7 +332,7 @@ the detail problem in one pass.
   rAF timestamp can *precede* the `performance.now()` captured before it —
   a negative dt once ran depth below zero and indexed an array at −1.
 
-## 9. Console Chrome
+## 8. Console Chrome
 
 The instrument-panel language around a stage (in-game panels: defer to
 `docs/guides/ui-panels.md`; this is the prototype/artifact dialect):
@@ -530,14 +350,14 @@ The instrument-panel language around a stage (in-game panels: defer to
   parser hoists the inner one out and silently breaks the layout. A
   clickable stage is a `div role="button" tabindex="0"` with key handlers.
 
-## 10. Linked Views — Instrument Pairs
+## 9. Linked Views — Instrument Pairs
 
 When one subject appears in two projections at once — the borehole cross-section
 beside the 4-layer block model — the pair must read as **one world, two
 instruments**, never two apps sharing a screen. Reference:
 `../prospecting/prototypes/drill-dock.html` (three placements, `?v=a/b/c`).
 
-### 10.1 The ground is the join
+### 9.1 The ground is the join
 
 Both panels are drawn on **one canvas**, and the *material* is what crosses the
 seam — never the chrome. Three proven joins:
@@ -563,7 +383,7 @@ a full border **except on the facing edge, which is dashed** — a cut mark the
 rock passes under — plus full-strength vs dimmed material. Never separate
 palettes, never a second style.
 
-### 10.2 One line, two projections
+### 9.2 One line, two projections
 
 A path the player draws exists **once**, rendered into each view with the
 same recipe, consumed by the same advance:
@@ -579,7 +399,7 @@ same recipe, consumed by the same advance:
   connectors drop straight across the explosion — the line respects the
   instrument's own geometry rather than cutting through it.
 
-### 10.3 Twin cursors
+### 9.3 Twin cursors
 
 The moving point is the **same glyph in both views, on the same clock**: an
 amber diamond (the instrument's cell shape — the motif carries the block
@@ -587,7 +407,7 @@ model's geometry into the mud view) pulsing at ~2 Hz off the shared `t`.
 Synchronised pulse is what makes the eye accept the two dots as one object;
 a second style or an unsynced phase breaks it instantly.
 
-### 10.4 Sympathetic state
+### 9.4 Sympathetic state
 
 State changes land in both views in the same tick: the stratum being cut
 rim-lights its plate (amber, pulsing alpha) while the bit is inside it; a
@@ -596,7 +416,7 @@ a bore-ring; leaders to the active layer warm from dim steel to amber. Every
 correlation cue is *event-driven and reversible* — nothing permanent joins
 the panels except the ground itself.
 
-## 11. Capture — making stills and GIFs of it
+## 10. Capture — making stills and GIFs of it
 
 - **Deterministic stepping**: expose `__setState(o)`, `__manual(on)`,
   `__step(dt)`; capture harnesses drive `frame(dt)` at fixed dt so output is
@@ -615,11 +435,11 @@ the panels except the ground itself.
 
 ---
 
-## 12. Extending This Document
+## 11. Extending This Document
 
 - New **material** → new §4/§5-style section: its two functions, its recipe
   profiles, its variant table.
-- New **component family** → new §6/§7-style section: the core geometric trick,
+- New **component family** → new §6-style section: the core geometric trick,
   the proportions that make it read, its grammar of parts, its particles.
 - New **technique inside an existing family** → subsection there, with the
   failed pass that taught it if there was one. The failures are half the

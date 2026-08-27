@@ -1,9 +1,7 @@
 /* Dark Plating — core
    Numbers, tone, determinism. Everything else in the engine sits on this.
 
-   Reference for the rules quoted here: docs/design/graphics/dark-plating.md
-   Extracted from docs/design/subsurface/prototypes/drill-rig.html, where all
-   of it lived as file-scope globals bound to one canvas.                    */
+   Reference for the rules quoted here: ../STYLE.md                          */
 (function (root) {
 "use strict";
 const GFX = root.GFX = root.GFX || {};
