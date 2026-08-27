@@ -40,7 +40,7 @@ TEST_CASE("a line hole cores each crossing as the bit passes it", "[linehole]")
     // drill it out in small steps -- cores must land IN ORDER, mid-run
     bool doneEarly = false;
     int coredWhenSurfaceDone = -1;
-    for (int i = 0; i < 2000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
     {
         doneEarly = sys.UpdateLineHole(0.05f) && sys.lineHole.depthM < 100.0f;
         if (sys.lineHole.cored[0] && coredWhenSurfaceDone < 0)
@@ -115,7 +115,7 @@ TEST_CASE("hard rock heats the bit and the string pecks to cool", "[linehole]")
 
     bool dwellSeen = false, advancedWhileDwelling = false;
     float maxHeat = 0.0f;
-    for (int i = 0; i < 4000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
     {
         float before = sys.lineHole.depthM;
         sys.UpdateLineHole(0.05f);
@@ -131,4 +131,21 @@ TEST_CASE("hard rock heats the bit and the string pecks to cool", "[linehole]")
     REQUIRE(dwellSeen);                                   // and forces a peck
     REQUIRE_FALSE(advancedWhileDwelling);                 // which stops the advance
     REQUIRE(sys.lineHole.heat < sys.lineHole.endM);       // sanity: fields distinct
+}
+
+TEST_CASE("clicking drives the spindle, which sags back to idle", "[linehole]")
+{
+    ProspectingSystem sys = MakeSystem();
+    sys.StartAim(2, 2);
+    sys.AimAt(2, 4, 4);
+    sys.CommitHole();
+    sys.UpdateLineHole(0.05f);
+    REQUIRE(sys.lineHole.rpm <= DRILL_RPM_IDLE + 0.01f);
+
+    for (int i = 0; i < 10; i++) sys.KickString();
+    REQUIRE(sys.lineHole.rpm > DRILL_RPM_IDLE + 0.3f);
+    REQUIRE(sys.lineHole.rpm <= DRILL_RPM_MAX + 0.001f);
+
+    for (int i = 0; i < 200; i++) sys.UpdateLineHole(0.05f);   // 10 s, no clicks
+    REQUIRE(sys.lineHole.rpm < DRILL_RPM_IDLE + 0.05f);        // sagged home
 }

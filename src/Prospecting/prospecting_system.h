@@ -31,6 +31,7 @@ struct LineHole
     float doneTime = -100.0f;
     float heat = 0.0f;                // 0..1, bit temperature
     bool  dwelling = false;           // auto-peck: off the face, cooling
+    float rpm = 0.0f;                 // spindle speed, idle..max
 };
 
 class ProspectingSystem
@@ -65,6 +66,7 @@ public:
     void AimAt(int layer, int cellX, int cellY);
     void CancelAim();
     bool CommitHole();
+    void KickString();                // a click on the borehole: spike the rpm
     bool UpdateLineHole(float dt);
     // The line's fractional cell at depth m, and the cell it cores on a layer
     void GetLineCell(float m, float& gx, float& gy) const;

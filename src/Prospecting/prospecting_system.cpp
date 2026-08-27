@@ -161,7 +161,14 @@ bool ProspectingSystem::CommitHole()
     if (lineHole.state != LineHoleState::AIMING) return false;
     lineHole.state = LineHoleState::DRILLING;
     lineHole.depthM = 0.0f;
+    lineHole.rpm = DRILL_RPM_IDLE;
     return true;
+}
+
+void ProspectingSystem::KickString()
+{
+    if (lineHole.state != LineHoleState::DRILLING) return;
+    lineHole.rpm = std::min(DRILL_RPM_MAX, lineHole.rpm + DRILL_RPM_KICK);
 }
 
 void ProspectingSystem::GetLineCell(float m, float& gx, float& gy) const
@@ -187,9 +194,14 @@ bool ProspectingSystem::UpdateLineHole(float dt)
         return false;
     }
 
-    // Heat: climbs with the hardness being cut, bleeds at a flat rate. Past
-    // the ceiling the string auto-pecks -- dwells off the face, no advance --
-    // until it has cooled enough to bite again. Hard ground costs time.
+    // The spindle sags back to its idle crawl; clicks are the only drive.
+    lineHole.rpm = DRILL_RPM_IDLE +
+        (lineHole.rpm - DRILL_RPM_IDLE) * std::exp(-dt / DRILL_RPM_TAU);
+
+    // Heat: climbs with rpm x the hardness being cut, bleeds at a flat rate.
+    // Past the ceiling the string auto-pecks -- dwells off the face, no
+    // advance -- until it has cooled enough to bite again. Driving hard
+    // through hard rock is exactly what cooks it.
     float hard = LAYER_HARDNESS[LayerOfDepthM(lineHole.depthM)];
     if (lineHole.dwelling)
     {
@@ -197,7 +209,8 @@ bool ProspectingSystem::UpdateLineHole(float dt)
         if (lineHole.heat <= DRILL_HEAT_RESUME) lineHole.dwelling = false;
         return false;
     }
-    lineHole.heat += ((0.35f + hard * 0.75f) * DRILL_HEAT_GAIN - DRILL_HEAT_BLEED) * dt;
+    lineHole.heat += (lineHole.rpm * (0.35f + hard * 0.75f) * DRILL_HEAT_GAIN
+                      - DRILL_HEAT_BLEED) * dt;
     lineHole.heat = std::clamp(lineHole.heat, 0.0f, DRILL_HEAT_MAX);
     if (lineHole.heat >= DRILL_HEAT_MAX)
     {
@@ -206,7 +219,8 @@ bool ProspectingSystem::UpdateLineHole(float dt)
     }
 
     lineHole.depthM = std::min(lineHole.endM,
-        lineHole.depthM + DRILL_ADVANCE_MPS[LayerOfDepthM(lineHole.depthM)] * dt);
+        lineHole.depthM + DRILL_ADVANCE_MPS[LayerOfDepthM(lineHole.depthM)]
+                        * lineHole.rpm * dt);
 
     // Core each crossing as the bit passes its layer centre -- knowledge
     // lands DURING the hole, which is what the block model animates.

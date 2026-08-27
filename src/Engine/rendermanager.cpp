@@ -3069,9 +3069,13 @@ static void ProsDrawString(const ProsRig& r, float topY)
     DrawRectangleRec({r.cx - cw - 1.0f, sh - 1.3f, (cw + 1.0f) * 2.0f, 1.5f}, Fade(BLACK, 0.45f));
 }
 
-static void ProsDrawHead(float cx, float surfY, bool turning, bool cooling)
+// The powerhead -- amber housing, vents, side pod with the state lamp,
+// bolts, collar clamps. Anchored just above the surface and clamped to the
+// clip, so it can NEVER be scissored away by a tight layout again.
+static void ProsDrawHead(float cx, float surfY, float clipTop,
+                         bool turning, bool cooling)
 {
-    float top = surfY - 92.0f;
+    float top = std::max(clipTop + 10.0f, surfY - 55.0f);
     auto box = [](float x, float y, float w, float h, Color fill, bool bev)
     {
         DrawRectangleRec({x - 2.0f, y - 2.0f, w + 4.0f, h + 4.0f}, PROS_OUT);
@@ -3084,20 +3088,24 @@ static void ProsDrawHead(float cx, float surfY, bool turning, bool cooling)
             DrawRectangleRec({x + w - 2.6f, y, 2.6f, h}, Fade(BLACK, 0.22f));
         }
     };
-    box(cx - 4.5f, top - 7.0f, 9.0f, 7.0f, {57, 66, 78, 255}, false);   // mast strap
-    box(cx - 23.0f, top, 46.0f, 29.0f, {217, 150, 47, 255}, true);      // amber housing
+    box(cx - 4.5f, top - 8.0f, 9.0f, 8.0f, {57, 66, 78, 255}, false);   // mast strap
+    box(cx - 25.0f, top, 50.0f, 27.0f, {217, 150, 47, 255}, true);      // amber housing
     for (int i = 0; i < 3; i++)
     {
-        DrawRectangleRec({cx - 14.0f, top + 7.0f + i * 7.0f, 28.0f, 3.4f}, {122, 81, 21, 255});
-        DrawRectangleRec({cx - 14.0f, top + 7.0f + i * 7.0f + 2.3f, 28.0f, 1.1f}, Fade(BLACK, 0.5f));
+        DrawRectangleRec({cx - 15.0f, top + 6.0f + i * 7.0f, 30.0f, 3.4f}, {122, 81, 21, 255});
+        DrawRectangleRec({cx - 15.0f, top + 6.0f + i * 7.0f + 2.3f, 30.0f, 1.1f}, Fade(BLACK, 0.5f));
     }
-    box(cx + 23.0f, top + 6.0f, 17.0f, 14.0f, {57, 66, 78, 255}, true); // motor pod
-    DrawRectangleRec({cx + 27.5f, top + 10.0f, 4.0f, 4.0f},
+    DrawRectangleRec({cx - 22.0f, top + 2.5f, 3.0f, 3.0f}, {244, 198, 106, 255});  // bolts
+    DrawRectangleRec({cx + 19.0f, top + 2.5f, 3.0f, 3.0f}, {244, 198, 106, 255});
+    DrawRectangleRec({cx - 22.0f, top + 21.5f, 3.0f, 3.0f}, {244, 198, 106, 255});
+    DrawRectangleRec({cx + 19.0f, top + 21.5f, 3.0f, 3.0f}, {244, 198, 106, 255});
+    box(cx + 25.0f, top + 6.0f, 16.0f, 13.0f, {57, 66, 78, 255}, true); // motor pod
+    DrawRectangleRec({cx + 29.5f, top + 9.5f, 4.0f, 4.0f},
                      cooling ? Color{255, 90, 40, 255}
                              : turning ? Color{255, 200, 77, 255}
                                        : Color{80, 225, 255, 255});
-    box(cx - 10.0f, top + 29.0f, 20.0f, 9.0f, {74, 84, 95, 255}, true); // collar clamp
-    box(cx - 7.0f, top + 38.0f, 14.0f, 8.0f, {57, 66, 78, 255}, true);
+    box(cx - 10.0f, top + 27.0f, 20.0f, 9.0f, {74, 84, 95, 255}, true); // collar clamp
+    box(cx - 7.0f, top + 36.0f, 14.0f, 8.0f, {57, 66, 78, 255}, true);
 }
 
 // The whole strip. Returns nothing; draws rock, hole, string, mud trace.
@@ -3115,7 +3123,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     // spin + chips advance with the frame; a dwell winds the spin down and
     // stops the cuttings -- the string is off the face, cooling
     float dt = GetFrameTime();
-    if (turning) prosSpin -= (cooling ? 0.12f : 0.62f) * 9.0f * dt;
+    if (turning) prosSpin -= (cooling ? 0.12f : hole.rpm) * 9.0f * dt;
 
     BeginScissorMode(static_cast<int>(dg.x), static_cast<int>(clipTop),
                      static_cast<int>(dg.w), static_cast<int>(clipBot - clipTop));
@@ -3178,7 +3186,15 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     DrawRectangleRec({rig.cx - bw / 2.0f, surfY, 5.0f, rig.bitY - surfY + 4.0f}, Fade(BLACK, 0.45f));
     DrawRectangleRec({rig.cx + bw / 2.0f - 5.0f, surfY, 5.0f, rig.bitY - surfY + 4.0f}, Fade(BLACK, 0.45f));
 
-    // casing at the collar
+    // casing at the collar, spoil mounds either side
+    DrawEllipse(static_cast<int>(rig.cx - 34.0f), static_cast<int>(surfY - 1.0f),
+                16.0f, 6.0f, {70, 62, 49, 255});
+    DrawEllipse(static_cast<int>(rig.cx + 34.0f), static_cast<int>(surfY - 1.0f),
+                16.0f, 6.0f, {70, 62, 49, 255});
+    DrawEllipse(static_cast<int>(rig.cx - 38.0f), static_cast<int>(surfY - 3.0f),
+                6.0f, 2.2f, Fade(WHITE, 0.08f));
+    DrawEllipse(static_cast<int>(rig.cx + 30.0f), static_cast<int>(surfY - 3.0f),
+                6.0f, 2.2f, Fade(WHITE, 0.08f));
     DrawRectangleRec({rig.cx - 24.0f, surfY - 10.0f, 48.0f, 12.0f}, PROS_OUT);
     DrawRectangleRec({rig.cx - 22.0f, surfY - 8.5f, 44.0f, 9.0f}, {28, 37, 48, 255});
     DrawRectangleRec({rig.cx - 22.0f, surfY - 8.5f, 44.0f, 1.8f}, Fade(WHITE, 0.18f));
@@ -3195,21 +3211,47 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                            Fade({255, 110, 30, 255}, 0.42f * hole.heat), BLANK);
     }
 
-    // cuttings ride the flights while the string actually cuts
-    if (turning && !cooling && prosChips.size() < 46)
-        for (int i = 0; i < 2; i++)
+    // cuttings ride the flights while the string actually cuts -- more of
+    // them the harder it is driven
+    float rpmN = hole.rpm / DRILL_RPM_MAX;
+    if (turning && !cooling &&
+        prosChips.size() < static_cast<size_t>(20.0f + 60.0f * rpmN))
+        for (int i = 0; i < (rpmN > 0.6f ? 3 : 2); i++)
             prosChips.push_back({rig.bitY - 6.0f, ProsRnd() * 6.28f,
-                                 24.0f + ProsRnd() * 20.0f, LayerOfDepthM(hole.depthM)});
+                                 22.0f + ProsRnd() * 22.0f, LayerOfDepthM(hole.depthM)});
     for (int i = static_cast<int>(prosChips.size()) - 1; i >= 0; i--)
     {
         ProsChip& c = prosChips[i];
-        c.y -= c.up * dt * (turning ? 1.0f : 0.2f);
-        c.a -= 5.6f * dt;
+        c.y -= c.up * dt * (turning ? (0.4f + 1.2f * rpmN) : 0.2f);
+        c.a -= (2.0f + 8.0f * rpmN) * dt;
         if (c.y < surfY - 2.0f) { prosChips.erase(prosChips.begin() + i); continue; }
         Color cc = PROS_ROCK_GRAIN[c.layer];
         DrawRectangleRec({rig.cx + (ProsRadAt(rig, c.y) + 2.2f) * sinf(c.a), c.y, 2.8f, 2.1f},
                          Fade(cc, cosf(c.a) > 0.0f ? 0.95f : 0.45f));
     }
+    // debris tumbling in the annulus just above the bit -- never below it
+    if (turning)
+        for (int i = 0; i < 6; i++)
+        {
+            float a = fmodf(ps->gameTime * 0.7f + i * 1.7f, 6.28f);
+            float dy = rig.bitY - 9.0f - fmodf(i * 15.0f + ps->gameTime * 11.0f, 40.0f);
+            if (dy < surfY + 4.0f) continue;
+            DrawRectangleRec({rig.cx + sinf(a) * (ProsRadAt(rig, dy) + 2.0f), dy, 2.6f, 2.6f},
+                             Fade({120, 104, 84, 255}, 0.7f));
+        }
+    // sparks where hard rock is being cut
+    float hardNow = LAYER_HARDNESS[LayerOfDepthM(hole.depthM)];
+    if (turning && !cooling && hardNow > 0.5f)
+        for (int i = 0; i < static_cast<int>(8.0f * hardNow * (0.3f + rpmN)); i++)
+        {
+            float a = static_cast<float>(GetRandomValue(0, 314)) / 100.0f;
+            float r2 = 6.0f + static_cast<float>(GetRandomValue(0, 220)) / 10.0f;
+            DrawRectangleRec({rig.cx + cosf(a) * r2,
+                              rig.bitY + 6.0f - static_cast<float>(GetRandomValue(0, 60)) / 10.0f
+                              + sinf(a) * 5.0f, 2.2f, 2.2f},
+                             Fade({255, static_cast<unsigned char>(170 + GetRandomValue(0, 70)), 60, 255},
+                                  0.4f + static_cast<float>(GetRandomValue(0, 50)) / 100.0f));
+        }
 
     // the prescribed line, mud projection: shadow + advance below the bit
     if (hole.state != LineHoleState::NONE)
@@ -3233,7 +3275,12 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         ProsFillDiamond(tip.x, tip.y, pulse, {244, 198, 106, 255});
     }
 
-    ProsDrawHead(rig.cx, surfY, turning, cooling);
+    // past the redline the whole face warms -- felt before the gauge is read
+    if (hole.heat > 0.78f)
+        DrawRectangleRec({dg.x, clipTop, dg.w, clipBot - clipTop},
+                         Fade({255, 60, 20, 255}, 0.10f * (hole.heat - 0.78f) / 0.22f));
+
+    ProsDrawHead(rig.cx, surfY, clipTop, turning, cooling);
 
     // tag, bottom-right
     {
@@ -3431,6 +3478,20 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     BlockModelGeom geom = ProsBlockGeom(gridSize, gridX, gridY, modelW, modelH);
     ProsDockGeom dock = ProsDockFrom(geom, gridX + modelW + 6.0f, dockW);
 
+    // The powerhead needs sky. If the stack starts too close to the panel
+    // top (it did on the playtest layout, and the head was scissored away),
+    // push it down and rebuild -- the strip's bands are derived from the
+    // plate slots, so both move together and stay aligned.
+    {
+        float sky = dock.bandTop[0] - contentY;
+        if (sky < 64.0f)
+        {
+            float push = 64.0f - sky;
+            geom = ProsBlockGeom(gridSize, gridX, gridY + push, modelW, modelH - push);
+            dock = ProsDockFrom(geom, gridX + modelW + 6.0f, dockW);
+        }
+    }
+
     // One ground, both panels (Dark Plating section 9.1): the strata bands run
     // dim under the whole stack and full-strength inside the dock, and the
     // boundary rules cross unbroken through the explosion gaps.
@@ -3543,6 +3604,15 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             ps->selectedCellX = hovX; ps->selectedCellY = hovY;
             ps->selectedDepth = static_cast<DepthLayer>(hovL);
         }
+    }
+
+    // Redline's clicking, in the game: while the string is down, clicking
+    // the borehole strip drives the spindle -- more advance, more heat.
+    if (stringDown && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+        CheckCollisionPointRec(mouse, {dock.x, contentY, dock.w,
+                                       dock.bandTop[4] + 18.0f - contentY}))
+    {
+        ps->KickString();
     }
 
     // the line over the stack, after the plates so it reads as through them
@@ -3700,7 +3770,15 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                                         lh.dwelling ? "  -  COOLING" : ""),
                    {ctrlX, ctrlY}, FS(9.5f), sp,
                    lh.dwelling ? EXT_ACCENT_GOLD : EXT_TEXT);
-        ctrlY += 16.0f;
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "click the borehole to drive the string",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 15.0f;
+        DrawTextEx(bodyFont, "SPINDLE", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f,
+                      lh.rpm / DRILL_RPM_MAX,
+                      lh.rpm > 0.9f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN);
+        ctrlY += 15.0f;
     }
     else if (lh.state == LineHoleState::DONE)
     {

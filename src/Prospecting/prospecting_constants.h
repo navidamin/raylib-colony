@@ -104,8 +104,8 @@ constexpr float DRILL_ADVANCE_MPS[4] = { 5.0f, 3.5f, 3.8f, 2.0f };
 // flat rate. At DRILL_HEAT_MAX the string auto-pecks -- it dwells off the
 // face until DRILL_HEAT_RESUME -- so hard ground costs TIME, never the run.
 // Broken equipment stays the lesser penalty (drilling-procedure.md Rule 1).
-constexpr float DRILL_HEAT_GAIN   = 0.30f;   // x (0.35 + hard * 0.75) per second
-constexpr float DRILL_HEAT_BLEED  = 0.12f;   // while cutting
+constexpr float DRILL_HEAT_GAIN   = 0.50f;   // x rpm x (0.35 + hard * 0.75) per second
+constexpr float DRILL_HEAT_BLEED  = 0.15f;   // while cutting
 constexpr float DRILL_HEAT_COOL   = 0.25f;   // while dwelling or idle
 constexpr float DRILL_HEAT_MAX    = 1.0f;
 constexpr float DRILL_HEAT_RESUME = 0.45f;
@@ -113,6 +113,16 @@ constexpr float DRILL_HEAT_RESUME = 0.45f;
 // Stratum hardness at each depth layer, matching the strata the borehole
 // dock draws (regolith, megaregolith, fractured, intact basalt).
 constexpr float LAYER_HARDNESS[4] = { 0.25f, 0.55f, 0.45f, 0.95f };
+
+// The spindle (redline's clicking, in the game): the string always turns at
+// an idle crawl, and CLICKING THE BOREHOLE kicks it. Advance scales with
+// rpm, and so does heat -- driving hard through basalt cooks the bit into
+// its auto-peck, which is the whole hands-on tension. AUTO (never clicking)
+// still finishes every hole, just slowly: hands-on is ceiling, not floor.
+constexpr float DRILL_RPM_IDLE = 0.60f;
+constexpr float DRILL_RPM_MAX  = 1.35f;
+constexpr float DRILL_RPM_KICK = 0.25f;
+constexpr float DRILL_RPM_TAU  = 0.75f;      // seconds, decay back to idle
 
 // ---------------------------------------------------------------------------
 // The estimate field (block-model-design.md #3)
