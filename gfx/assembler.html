@@ -1,0 +1,167 @@
+<meta charset="utf-8">
+<title>The Assembler — Dark Plating</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+:root{
+  --ground:#070b11; --panel:#0d151e; --panel2:#111c27; --rule:#1c2a39;
+  --text:#c9d8e8; --dim:#61768a; --dimmer:#3d4e5e;
+  --cy:#50e1ff; --am:#d9962f; --am-lit:#f4c66a; --hot:#ff5a28; --good:#5fd39a;
+  --ui:"Chakra Petch",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 18px 60px}
+.eyebrow{font:700 11px/1 var(--mono);letter-spacing:.19em;color:var(--cy);text-transform:uppercase}
+h1{font:700 33px/1.05 var(--ui);margin:9px 0 6px;letter-spacing:-.01em}
+.sub{color:var(--dim);max-width:74ch;margin:0 0 18px}
+.rig{display:flex;border:1px solid var(--rule);border-radius:7px;overflow:hidden;background:var(--panel)}
+.stage{flex:0 0 640px;background:var(--panel)}
+canvas{display:block;width:100%;height:auto}
+.rail{flex:1;border-left:1px solid var(--rule);padding:15px 16px;display:flex;flex-direction:column;gap:12px;min-width:260px}
+h2{font:700 10.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--cy);margin:0}
+.ctl{display:grid;grid-template-columns:62px 1fr 42px;gap:8px;align-items:center;
+  font:400 11.5px/1 var(--mono);color:var(--dim)}
+.ctl input{width:100%;accent-color:var(--cy)}
+.ctl .v{text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+button{font:700 11px/1 var(--ui);letter-spacing:.05em;padding:8px 10px;border-radius:4px;
+  border:1px solid var(--rule);background:var(--panel2);color:var(--dim);cursor:pointer}
+button:hover{border-color:var(--cy);color:var(--text)}
+button.on{border-color:var(--cy);color:var(--cy);background:rgba(80,225,255,.1)}
+.note{font:400 11px/1.55 var(--mono);color:var(--dim);margin:0}
+.note b{color:var(--text);font-weight:600}
+.strip{margin-top:14px;border:1px solid var(--rule);border-radius:7px;background:var(--panel);
+  padding:13px 15px;display:flex;align-items:flex-end;gap:26px}
+.strip .cell{text-align:center}
+.strip canvas{width:auto;display:block;margin:0 auto 7px;image-rendering:auto}
+.strip .lab{font:400 10px/1 var(--mono);letter-spacing:.14em;color:var(--dimmer);text-transform:uppercase}
+</style>
+<div class="wrap">
+<div class="eyebrow">gfx · iso solids · component 01</div>
+<h1>The Assembler</h1>
+<p class="sub">A plated volume in a rotated three-quarter view: dark plinth, amber housing band with a
+doorway cut through it, chamfered steel hood, raised access cap. Every greeble is placed in its face's own
+coordinates — nothing is hand-projected.</p>
+<div class="rig">
+  <div class="stage"><canvas id="cv" width="1280" height="1280"></canvas></div>
+  <div class="rail">
+    <h2>State</h2>
+    <div class="ctl"><label>work</label><input id="work" type="range" min="0" max="100" value="62"><span class="v" id="workv"></span></div>
+    <div class="ctl"><label>heat</label><input id="heat" type="range" min="0" max="100" value="12"><span class="v" id="heatv"></span></div>
+    <h2 style="margin-top:6px">Projection</h2>
+    <div class="row">
+      <button class="proj on" data-p="studio34">STUDIO 3/4</button>
+      <button class="proj" data-p="iso21">ISO 2:1</button>
+      <button class="proj" data-p="shallow">SHALLOW</button>
+    </div>
+    <div class="row"><button id="run" class="on">RUN</button><button id="grid">GRID</button></div>
+    <h2 style="margin-top:6px">Reading it</h2>
+    <p class="note"><b>Amber</b> is machinery and attention, <b>cyan</b> is instrument and information,
+    <b>hot</b> is heat and damage. The lamp goes cyan → amber → hot as the machine is driven, and the
+    housing warms through the material itself, never under a tint layer.</p>
+    <p class="note">The doorway's bright inner edge is the amber plate's own thickness, painted in
+    plating steel: the frame is a skin over a steel machine, and a cut is where you find that out.</p>
+  </div>
+</div>
+<div class="strip">
+  <div class="cell"><canvas id="i128" width="256" height="256"></canvas><div class="lab">128</div></div>
+  <div class="cell"><canvas id="i96" width="192" height="192"></canvas><div class="lab">96</div></div>
+  <div class="cell"><canvas id="i64" width="128" height="128"></canvas><div class="lab">64</div></div>
+  <div class="cell"><canvas id="i48" width="96" height="96"></canvas><div class="lab">48</div></div>
+  <div class="cell"><canvas id="i32" width="64" height="64"></canvas><div class="lab">32</div></div>
+  <div class="cell" style="flex:1"><div class="lab" style="text-align:left">the icon test — an asset that only
+    works at hero size is not an asset</div></div>
+</div>
+</div>
+
+<script src="engine/core.js"></script>
+<script src="engine/palette.js"></script>
+<script src="engine/material.js"></script>
+<script src="engine/line.js"></script>
+<script src="engine/iso.js"></script>
+<script src="engine/parts.js"></script>
+<script src="sprites/assembler.js"></script>
+<script>
+"use strict";
+const CV = document.getElementById("cv"), CTX = CV.getContext("2d");
+const W = 640, H = 640;
+CTX.setTransform(2, 0, 0, 2, 0, 0);
+
+const BOUNDS = { x0:-0.055, y0:-0.055, z0:0, x1:1.055, y1:1.055, z1:0.93 };
+let st = { work: 0.62, heat: 0.12, t: 0, preset: "studio34", grid: false, run: true };
+let manual = false;
+
+/* §10 capture hooks — a harness drives frame(dt) at fixed dt, so a still is
+   reproducible regardless of headless timing. */
+window.__setState = o => { Object.assign(st, o); if (manual) render(); };
+window.__manual   = on => { manual = !!on; };
+window.__step     = dt => { st.t += dt; render(); };
+
+function backdrop(V) {
+    CTX.fillStyle = getComputedStyle(document.body).getPropertyValue("--panel").trim() || "#0d151e";
+    CTX.fillRect(0, 0, W, H);
+    if (!st.grid) return;
+    /* the ground plane, in the machine's own projection — the fastest way to
+       see whether a preset's footprint is square */
+    CTX.strokeStyle = "rgba(80,225,255,.16)"; CTX.lineWidth = 1;
+    for (let i = -2; i <= 3; i++) {
+        let a = V.p(i, -2, 0), b = V.p(i, 3, 0);
+        CTX.beginPath(); CTX.moveTo(a[0], a[1]); CTX.lineTo(b[0], b[1]); CTX.stroke();
+        a = V.p(-2, i, 0); b = V.p(3, i, 0);
+        CTX.beginPath(); CTX.moveTo(a[0], a[1]); CTX.lineTo(b[0], b[1]); CTX.stroke();
+    }
+}
+
+function render() {
+    const V = GFX.iso.fit(st.preset, BOUNDS, { x: 0, y: 0, w: W, h: H }, 54);
+    backdrop(V);
+    GFX.assembler.draw(CTX, V, st);
+    icons();
+    document.getElementById("workv").textContent = Math.round(st.work * 100);
+    document.getElementById("heatv").textContent = Math.round(st.heat * 100);
+}
+
+/* Draw the sprite fresh at each icon size rather than downscaling the hero.
+   The line weight is a style constant in px, so a sprite that is redrawn small
+   keeps its outline and a sprite that is scaled down loses it. This strip is
+   how you find out which one you built. */
+function icons() {
+    for (const [id, px] of [["i128",128],["i96",96],["i64",64],["i48",48],["i32",32]]) {
+        const c = document.getElementById(id); if (!c) continue;
+        const x = c.getContext("2d");
+        x.setTransform(2, 0, 0, 2, 0, 0);
+        x.clearRect(0, 0, px, px);
+        x.fillStyle = "#0d151e"; x.fillRect(0, 0, px, px);
+        const V = GFX.iso.fit(st.preset, BOUNDS, { x: 0, y: 0, w: px, h: px }, px * 0.06);
+        GFX.assembler.draw(x, V, st);
+    }
+}
+
+let last = 0;
+function tick(now) {
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now;
+    if (!manual) { if (st.run) st.t += dt; render(); }
+    requestAnimationFrame(tick);
+}
+
+function sync() {
+    st.work = +document.getElementById("work").value / 100;
+    st.heat = +document.getElementById("heat").value / 100;
+}
+for (const id of ["work", "heat"]) document.getElementById(id).addEventListener("input", sync);
+document.getElementById("run").addEventListener("click", e => {
+    st.run = !st.run; e.currentTarget.classList.toggle("on", st.run);
+});
+document.getElementById("grid").addEventListener("click", e => {
+    st.grid = !st.grid; e.currentTarget.classList.toggle("on", st.grid);
+});
+for (const b of document.querySelectorAll(".proj")) b.addEventListener("click", e => {
+    st.preset = e.currentTarget.dataset.p;
+    for (const o of document.querySelectorAll(".proj")) o.classList.toggle("on", o === e.currentTarget);
+});
+sync();
+requestAnimationFrame(tick);
+</script>

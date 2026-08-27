@@ -19,8 +19,9 @@ When you add a graphic (or restyle one):
 
 1. **Before drawing** — read the world sections of
    [dark-plating.md](dark-plating.md) (§1–§3), the material section for what
-   the thing is made of (§4 metal, §5 rock), and the component family section
-   if one exists (§6 drills).
+   the thing is made of (§4 metal — including §4.6 on when to use a ladder
+   instead of `steel()` — and §5 rock), and the component family section if one
+   exists (§6 drills, §7 plated volumes).
 2. **While drawing** — reuse the named helpers and recipes. Change tints,
    never structure (see §4.4). Render previews and look at them —
    `tools/preview/preview.sh` for in-game panels, a Playwright screenshot for
@@ -42,6 +43,7 @@ When you add a graphic (or restyle one):
 |-------|------|
 | `../subsurface/prototypes/drill-rig.html` | the reference implementation — the rig renderer |
 | `../subsurface/prototypes/redline.html` | the same renderer inside a playable stage with console chrome |
-| `../prospecting/prototypes/drill-dock.html` | the reference for **linked views** (section 9): borehole panel docked against the 4-layer block model, three placements |
+| `../prospecting/prototypes/drill-dock.html` | the reference for **linked views** (section 10): borehole panel docked against the 4-layer block model, three placements |
+| `gfx/` | the **coded-art engine** the style was extracted into, and the reference for **plated volumes** (section 7): projection presets, chamfered solids, face-local coordinates, recesses, the detail budget. See [`gfx/README.md`](../../../gfx/README.md) |
 | `docs/guides/ui-panels.md` | the **in-game** panel/widget system (raylib) — tokens and widgets for module panels. Dark Plating governs drawn *art*; ui-panels governs panel *chrome*. They share a world; when they disagree about a panel, ui-panels wins |
 | `docs/dev-workflow.md` | the render-and-look loop and the preview instruments |
