@@ -842,9 +842,23 @@ static void BuildSceneGeometry(TerrainScene& scene,
         scene.albedoTex;
 }
 
+// keepAlbedo: the sharpening ladder rebuilds the same ground at a higher
+// resolution, and only the height field changes -- the lat/lon bounds and
+// therefore the albedo are identical, and the shader is the same program.
+// Rebuilding both per rung cost ~1.9 s each time, which was most of the
+// fixed cost that made the ladder's tail feel like a stall.
 static bool BuildScene(const MapOptions& options, const LolaDem& dem,
-                       TerrainScene& scene)
+                       TerrainScene& scene, bool keepAlbedo = false)
 {
+    Texture2D keptAlbedo = Texture2D{ 0 };
+    Shader keptShader = Shader{ 0 };
+    if (keepAlbedo && scene.albedoTex.id > 0 && scene.shader.id > 0)
+    {
+        keptAlbedo = scene.albedoTex;
+        keptShader = scene.shader;
+        scene.albedoTex = Texture2D{ 0 };   // hide them from the unload
+        scene.shader = Shader{ 0 };
+    }
     UnloadSceneGpu(scene);
     scene.nearside = options.nearside;
 
@@ -888,6 +902,9 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     if (scene.window.elevationM.empty())
     {
         std::cerr << "DEM window extraction failed\n";
+        // Hand the kept handles back so they are owned again, not leaked.
+        scene.albedoTex = keptAlbedo;
+        scene.shader = keptShader;
         return false;
     }
     scene.window.resolution = texRes;
@@ -895,6 +912,13 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
         std::max(scene.worldWidthKm, scene.worldHeightKm);
 
     scene.heightTex = BuildHeightTexture(scene.window);
+    if (keptAlbedo.id > 0)
+    {
+        scene.albedoTex = keptAlbedo;
+        scene.shader = keptShader;
+        BuildSceneGeometry(scene, options);
+        return true;                       // shader locs survive with it
+    }
     scene.albedoTex = BuildAlbedoTexture(options, scene.lat0, scene.lat1,
                                          scene.lon0, scene.lon1);
 
@@ -2302,6 +2326,7 @@ struct AppState
     // GPU, so zooming into the cursor with it costs nothing but redraws
     // and covers the gap before the build blocks the loop.
     float sceneAspect = 1.0f;        // how much wider the window is built
+    double pointerStillSince = 0.0;  // when the cursor last stopped moving
     bool transActive = false;
     int transKind = 0;               // 1 = claim a region, 2 = descend
     RegionIdentity transRegion = {};
@@ -2426,15 +2451,16 @@ static void BuildSiteScene(AppState& app)
     // it. The whole ladder is 1.33x the price of building 2048 alone,
     // and the level reads as coming into focus instead of freezing and
     // then snapping.
-    static const int SITE_RES_LADDER[] = { 384, 768, 1536, 0 };  // 0 = full
-    int rung = std::clamp(app.sceneStage, 0, 3);
+    static const int SITE_RES_LADDER[] = { 448, 1024, 0 };   // 0 = full
+    const int SITE_RES_RUNGS = 3;
+    int rung = std::clamp(app.sceneStage, 0, SITE_RES_RUNGS - 1);
     app.options.demRes = app.userDemRes ? app.userDemRes
                                         : SITE_RES_LADDER[rung];
-    BuildScene(app.options, app.dem, app.scene);
+    BuildScene(app.options, app.dem, app.scene, rung > 0);
     app.options.demRes = app.userDemRes;
     app.sceneDirty = false;
     // A forced --demres has no ladder to climb; it is already final.
-    app.sceneDraft = !app.userDemRes && (rung < 3);
+    app.sceneDraft = !app.userDemRes && (rung < SITE_RES_RUNGS - 1);
     app.sceneStage = rung + 1;
 }
 
@@ -2541,6 +2567,8 @@ static void UpdateSiteSelect(AppState& app)
     // has settled -- a mouse always has, a tap needs a second tap.
     bool jumped = !app.havePointer
                   || Vector2Distance(m, app.lastPointer) > 24.0f;
+    if (!app.havePointer || Vector2Distance(m, app.lastPointer) > 2.0f)
+        app.pointerStillSince = GetTime();
     app.lastPointer = m;
     app.havePointer = true;
 
@@ -2783,8 +2811,21 @@ static void UpdateSiteSelect(AppState& app)
     // before the full build blocks the loop, or it is never seen.
     if (app.sceneDraft)
     {
-        app.sceneDraft = false;
-        app.sceneDirty = true;          // next frame builds the next rung
+        // The first rung lands at once so the level is never blank. The
+        // sharper ones block for seconds, so they wait until the cursor
+        // has actually settled -- sharpening while someone is still
+        // moving is what the freeze between frames felt like. Scanning
+        // stays responsive; pausing is what buys the detail.
+        // The harness has no hand on the mouse, and its settle loop is
+        // bounded: without this it would give up mid-ladder and export a
+        // soft frame as if it were the finished one.
+        bool firstRung = (app.sceneStage <= 1);
+        if (firstRung || g_fake.active
+            || GetTime() - app.pointerStillSince > 0.25)
+        {
+            app.sceneDraft = false;
+            app.sceneDirty = true;      // next frame builds the next rung
+        }
     }
 
     // ---------- transitions ----------
