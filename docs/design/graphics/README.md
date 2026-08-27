@@ -42,5 +42,6 @@ When you add a graphic (or restyle one):
 |-------|------|
 | `../subsurface/prototypes/drill-rig.html` | the reference implementation — the rig renderer |
 | `../subsurface/prototypes/redline.html` | the same renderer inside a playable stage with console chrome |
+| `../prospecting/prototypes/drill-dock.html` | the reference for **linked views** (section 9): borehole panel docked against the 4-layer block model, three placements |
 | `docs/guides/ui-panels.md` | the **in-game** panel/widget system (raylib) — tokens and widgets for module panels. Dark Plating governs drawn *art*; ui-panels governs panel *chrome*. They share a world; when they disagree about a panel, ui-panels wins |
 | `docs/dev-workflow.md` | the render-and-look loop and the preview instruments |

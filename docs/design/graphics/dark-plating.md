@@ -13,7 +13,7 @@ is layered so a new graphic knows exactly how much it inherits:
 | **The world** | §1 ground & palette, §2 the line, §3 tone | inherits all of it, always |
 | **Materials** | §4 metal, §5 rock & ground | inherits the material it is made of; new materials get new sections |
 | **Component families** | §6 machines that turn | a new drill inherits §6 wholesale; a new *kind* of thing starts its own family section |
-| **Stagecraft** | §7 camera & motion, §8 console chrome, §9 capture | inherits whatever its context needs |
+| **Stagecraft** | §7 camera & motion, §8 console chrome, §9 linked views, §10 capture | inherits whatever its context needs |
 
 The name is the thesis: a **dark** world, and everything in it built from
 **plates** — hard-edged bands of tone with a heavy line around them, like
@@ -350,7 +350,73 @@ The instrument-panel language around a stage (in-game panels: defer to
   parser hoists the inner one out and silently breaks the layout. A
   clickable stage is a `div role="button" tabindex="0"` with key handlers.
 
-## 9. Capture — making stills and GIFs of it
+## 9. Linked Views — Instrument Pairs
+
+When one subject appears in two projections at once — the borehole cross-section
+beside the 4-layer block model — the pair must read as **one world, two
+instruments**, never two apps sharing a screen. Reference:
+`../prospecting/prototypes/drill-dock.html` (three placements, `?v=a/b/c`).
+
+### 9.1 The ground is the join
+
+Both panels are drawn on **one canvas**, and the *material* is what crosses the
+seam — never the chrome. Three proven joins:
+
+- **Wedge leaders** (`v=a`): a tapered quad of the stratum's own colour and
+  grain runs from the depth band in one panel to its counterpart's vertex in
+  the other, ~0.30 alpha fill with firmer edge lines. Reads as "this band IS
+  that plate".
+- **Continuous bands** (`v=b`): the strata bands span the full canvas — full
+  strength inside the working panel, ~0.20 alpha as a backdrop under the
+  instrument — and the boundary rules run unbroken across both, passing
+  through the instrument's explosion gaps. Requires mapping the working
+  panel's depth axis to the instrument's slots (a piecewise `yOf`), trading
+  true thickness for perfect alignment.
+- **The material slab** (`v=c`): the working panel is itself drawn as a body
+  in the instrument's projection — an extruded column with a top cap and a
+  darkened side face at the same iso slope (`dy/dx = 0.28`), so the panel and
+  the plates visibly share a geometry. Thin leaders with diamond beads tie
+  layer centres to plates.
+
+Distinction, meanwhile, is cheap and must stay cheap: the working panel keeps
+a full border **except on the facing edge, which is dashed** — a cut mark the
+rock passes under — plus full-strength vs dimmed material. Never separate
+palettes, never a second style.
+
+### 9.2 One line, two projections
+
+A path the player draws exists **once**, rendered into each view with the
+same recipe, consumed by the same advance:
+
+- **Planned** — marching cyan dashes (`[7,5]`, `lineDashOffset = -t·26`),
+  drawn twice: wide `rgba(80,225,255,.22)` under narrow `#50e1ff`. Cyan
+  because a plan is information.
+- **Done** — solid: chunky `OUT` under-stroke, then `--text` steel. What is
+  drilled is fact, and fact is drawn like metal.
+- Progress markers accrue along the done part (assay ticks in Measured
+  green), identical currency in both views.
+- Through an exploded stack, build the path as per-layer segments whose gap
+  connectors drop straight across the explosion — the line respects the
+  instrument's own geometry rather than cutting through it.
+
+### 9.3 Twin cursors
+
+The moving point is the **same glyph in both views, on the same clock**: an
+amber diamond (the instrument's cell shape — the motif carries the block
+model's geometry into the mud view) pulsing at ~2 Hz off the shared `t`.
+Synchronised pulse is what makes the eye accept the two dots as one object;
+a second style or an unsynced phase breaks it instantly.
+
+### 9.4 Sympathetic state
+
+State changes land in both views in the same tick: the stratum being cut
+rim-lights its plate (amber, pulsing alpha) while the bit is inside it; a
+cell the trace passes flips class with a brief white overlay flash and keeps
+a bore-ring; leaders to the active layer warm from dim steel to amber. Every
+correlation cue is *event-driven and reversible* — nothing permanent joins
+the panels except the ground itself.
+
+## 10. Capture — making stills and GIFs of it
 
 - **Deterministic stepping**: expose `__setState(o)`, `__manual(on)`,
   `__step(dt)`; capture harnesses drive `frame(dt)` at fixed dt so output is
@@ -369,7 +435,7 @@ The instrument-panel language around a stage (in-game panels: defer to
 
 ---
 
-## 10. Extending This Document
+## 11. Extending This Document
 
 - New **material** → new §4/§5-style section: its two functions, its recipe
   profiles, its variant table.

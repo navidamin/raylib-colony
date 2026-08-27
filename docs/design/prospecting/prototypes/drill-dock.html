@@ -1,0 +1,714 @@
+<title>Drill Dock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+:root{
+  --ground:#070b11; --panel:#0d151e; --rule:#1c2a39; --text:#c9d8e8;
+  --dim:#61768a; --am:#d9962f; --am-lit:#f4c66a; --cy:#50e1ff;
+  --ui:"Chakra Petch",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
+  font-size:15px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:600px;margin:0 auto;padding:20px 16px 40px}
+.eyebrow{font:700 10.5px/1 var(--mono);letter-spacing:.2em;color:var(--am);
+  text-transform:uppercase;margin-bottom:7px}
+h1{font:700 34px/1 var(--ui);margin:0 0 5px}
+.sub{color:var(--dim);font-size:13.5px;line-height:1.5;max-width:60ch;margin:0 0 14px}
+.sub b{color:var(--text)}
+.stage{border:1px solid var(--rule);border-radius:6px;background:#070b11;overflow:hidden}
+canvas{display:block;width:100%;height:auto}
+.row{display:flex;gap:8px;margin-top:10px;align-items:center}
+button{font:700 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+  padding:8px 12px;border-radius:4px;border:1px solid var(--rule);
+  background:var(--panel);color:var(--dim);cursor:pointer}
+button:hover{border-color:var(--am);color:var(--am-lit)}
+button.on{border-color:var(--cy);color:var(--cy)}
+.vlinks{margin-left:auto;font:700 10px/1 var(--mono);letter-spacing:.12em;color:var(--dim)}
+.vlinks a{color:var(--dim);text-decoration:none;padding:4px 6px}
+.vlinks a.on{color:var(--am-lit)}
+</style>
+<div class="wrap">
+  <div class="eyebrow">Prospecting &middot; drill dock &middot; layout study</div>
+  <h1>Drill Dock</h1>
+  <p class="sub">The borehole panel and the 4-layer block model share one ground.
+  <b>Draw a hole</b>: press on a top-plate cell, drag through the stack, release —
+  then watch the same line drain in both views as the bit takes it.</p>
+  <div class="stage"><canvas id="cv" width="1040" height="1280"></canvas></div>
+  <div class="row">
+    <button id="auto" class="on">Auto demo</button>
+    <button id="redo">New trace</button>
+    <span class="vlinks" id="vlinks">
+      <a href="?v=a">A&middot;DOCK L</a><a href="?v=b">B&middot;SEAM R</a><a href="?v=c">C&middot;PILLAR</a>
+    </span>
+  </div>
+</div>
+<script>
+"use strict";
+(function(){
+const CV=document.getElementById("cv"), CTX=CV.getContext("2d");
+const W=520, H=640;
+const V=(new URLSearchParams(location.search).get("v")||"a");
+document.querySelectorAll("#vlinks a").forEach(a=>{
+  if(a.href.endsWith("v="+V)) a.className="on";});
+
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const OUT="#0a0e14", OUTB="#101820";
+
+/* ---------------- the shared ground ---------------- */
+const STRATA=[
+  {name:"REGOLITH",     top:0,  bot:12,  col:"#3a342b", edge:"#191510", grain:"#4c4437", hard:0.25},
+  {name:"MEGAREGOLITH", top:12, bot:34,  col:"#453e34", edge:"#1c1712", grain:"#5b5140", hard:0.55},
+  {name:"FRACTURED",    top:34, bot:68,  col:"#39424d", edge:"#161c23", grain:"#4d5a67", hard:0.45, icy:true},
+  {name:"INTACT BASALT",top:68, bot:120, col:"#272a30", edge:"#101216", grain:"#343841", hard:0.95},
+];
+const strAt=m=>STRATA.find(s=>m>=s.top&&m<s.bot)||STRATA[3];
+const layerOf=m=>Math.max(0,STRATA.findIndex(s=>m>=s.top&&m<s.bot));
+const CENTER_M=[6,23,51,94];
+
+/* ---------------- class colours (verbatim from rendermanager.cpp) ---------------- */
+const CLS={mea:"#50e696", ind:"#ffc850", inf:"#7c8fd6", un:"#788aa5"};
+
+/* ---------------- variant layouts ---------------- */
+const TX=14, TY=TX*0.28;                       // iso ratio from ProsBlockGeom
+let L={};                                       // filled per variant
+if (V==="a"){
+  L={ panel:{x:14,y:10,w:152,h:622}, cxd:90, surf:76, mPx:4.55,
+      bcx:344, slots:[118,252,386,520], mode:"wedge" };
+  L.yOf=m=>L.surf+m*L.mPx;
+}else if (V==="b"){
+  L={ panel:{x:356,y:10,w:152,h:622}, cxd:432, surf:76,
+      bcx:180, slots:[130,252,386,536], mode:"seam",
+      bands:[[76,185],[185,319],[319,453],[453,620]] };
+  L.yOf=m=>{ const i=layerOf(Math.min(m,119.9)); const s=STRATA[i], b=L.bands[i];
+             return lerp(b[0],b[1],(m-s.top)/(s.bot-s.top)); };
+}else{
+  L={ panel:{x:26,y:14,w:124,h:610}, cxd:88, surf:92, mPx:4.38,
+      iso:{dx:25,dy:-7}, bcx:352, slots:[118,252,386,520], mode:"pillar" };
+  L.yOf=m=>L.surf+m*L.mPx;
+}
+const yOf=m=>L.yOf(m);
+
+/* ---------------- block model data ---------------- */
+function shoot(l,i,j){
+  const c1=[1.8+1.2*l, 6.2-1.1*l], c2=[6.5-0.6*l, 1.5+0.9*l];
+  const d1=Math.hypot(i-c1[0],j-c1[1]), d2=Math.hypot(i-c2[0],j-c2[1]);
+  return clamp(Math.exp(-d1*d1/(2*1.6*1.6))+0.55*Math.exp(-d2*d2/(2*1.2*1.2)),0,1);
+}
+const OLD_HOLE=[[6,3],[6,3],[5,4],[5,4]];        // one prior core, drifting with dip
+const model=[];                                   // [l][j][i] = {g, cls, flipT, cored}
+for(let l=0;l<4;l++){ const P=[];
+  for(let j=0;j<8;j++){ const R=[];
+    for(let i=0;i<8;i++){
+      const g=shoot(l,i,j);
+      const d=Math.hypot(i-OLD_HOLE[l][0], j-OLD_HOLE[l][1]);
+      let cls = d<=1.1?"mea" : d<=1.6?"ind" : (g>0.42?"inf":"un");
+      R.push({g, cls, flipT:-99, cored:false});
+    } P.push(R); } model.push(P); }
+model[0][3][6].cored=true; model[1][3][6].cored=true;
+model[2][4][5].cored=true; model[3][4][5].cored=true;
+
+/* ---------------- state ---------------- */
+const TRACES=[{c:[2,5],g:[5,2]},{c:[1,2],g:[6,5]},{c:[5,6],g:[2,1]}];
+let st;
+function freshModelFlips(){ for(const P of model) for(const R of P) for(const c of R){ c.flipT=-99; } }
+function reset(k){
+  st={ mode:"plan", depth:0, phase:0, rpm:0.12, t:0, k:k%TRACES.length,
+       trace:JSON.parse(JSON.stringify(TRACES[k%TRACES.length])), modeT:0, auto:true };
+}
+reset(0);
+const chips=[];
+
+/* trace cell at depth m (continuous) */
+function traceIJ(m){ const f=clamp(m/120,0,1);
+  return [lerp(st.trace.c[0],st.trace.g[0],f), lerp(st.trace.c[1],st.trace.g[1],f)]; }
+
+function applyFlips(){                            // cells the hole has passed
+  for(let l=0;l<4;l++){
+    if (st.depth < CENTER_M[l]) break;
+    const [fi,fj]=traceIJ(CENTER_M[l]);
+    const ii=clamp(Math.round(fi),0,7), jj=clamp(Math.round(fj),0,7);
+    const cell=model[l][jj][ii];
+    if (!cell.cored){ cell.cored=true; cell.flipT=st.t;
+      for(let j=0;j<8;j++) for(let i=0;i<8;i++){
+        const d=Math.hypot(i-ii,j-jj), c=model[l][j][i];
+        if (d<=1.1 && c.cls!=="mea"){ c.cls="mea"; c.flipT=st.t; }
+        else if (d<=2.0 && (c.cls==="inf"||c.cls==="un")){ c.cls="ind"; c.flipT=st.t; }
+      } }
+  }
+}
+
+/* ---------------- steel (Dark Plating section 4) ---------------- */
+function steel(sh,heat){
+  const b=[lerp(96,238,sh),lerp(104,244,sh),lerp(118,252,sh)];
+  const g=[255,lerp(55,165,sh),25], t=clamp((heat||0)*1.15,0,1);
+  return `rgb(${lerp(b[0],g[0],t)|0},${lerp(b[1],g[1],t)|0},${lerp(b[2],g[2],t)|0})`;
+}
+function steelBands(x0,x1,heat,tones){
+  const g=CTX.createLinearGradient(x0,0,x1,0); let t=0;
+  for(const [sp,sh] of tones){ const c=steel(sh,heat);
+    g.addColorStop(t,c); t=Math.min(1,t+sp); g.addColorStop(t,c); }
+  return g;
+}
+
+/* ---------------- drill geometry (pass 6 constants) ---------------- */
+const HAND=-1,R=17,RS=9.6,RS_BOT=8,ROD_TOP=13,PITCH=21.5,TILT=1.9,TH_T=5.6,TH_C=2.1;
+const TAPER_PX=PITCH*1.5, CONE_LEN=21, THREAD_LEN=PITCH*6.2;
+const bitY   =()=>yOf(st.depth);
+const coneApex=()=>bitY()+21, coneTop=()=>coneApex()-CONE_LEN;
+function threadTop(){ return Math.max(Math.min(bitY()-THREAD_LEN, coneTop()-3*PITCH), L.surf+14); }
+function shaftSegs(){
+  const tY=threadTop(), cT=L.surf-14;
+  const cB=Math.min(L.surf+24,Math.max(cT+13,tY-10));
+  const segs=[{y0:-60,y1:cT,r:ROD_TOP,kind:"rod"},{y0:cT,y1:cB,r:ROD_TOP+5.2,kind:"chuck"}];
+  const run=Math.max(0,tY-cB), n=run>190?3:(run>60?2:(run>8?1:0));
+  for(let i=0;i<n;i++) segs.push({y0:cB+run*i/n,y1:cB+run*(i+1)/n,
+    r:lerp(ROD_TOP,RS+0.5,Math.pow((i+1)/n,0.85)),kind:"rod"});
+  return segs;
+}
+function rodHalfAt(y){
+  const tY=threadTop(),cT=coneTop(),cA=coneApex();
+  if (y>=cT) return Math.max(0.5,RS_BOT*(1-(y-cT)/(cA-cT)));
+  if (y>=tY) return lerp(RS,RS_BOT,(y-tY)/Math.max(1,cT-tY));
+  for(const s of shaftSegs()) if (y<s.y1) return s.r;
+  return ROD_TOP;
+}
+function crestAt(y){
+  const cT=coneTop(),start=cT-TAPER_PX;
+  if (y<=start) return R;
+  if (y>=cT) return rodHalfAt(y);
+  return lerp(R,rodHalfAt(y),clamp((y-start)/TAPER_PX,0,1));
+}
+const radAt=y=>(y>=threadTop()&&y<=coneTop())?crestAt(y):rodHalfAt(y);
+
+function threadSegs(front){
+  const tY=threadTop(),cT=coneTop(),span=cT-tY;
+  if (span<=6) return [];
+  const out=[],step=0.09,thMax=(span/PITCH)*2*Math.PI;
+  for(let th=0;th<thMax;th+=step){
+    const a0=th+st.phase,a1=th+step+st.phase;
+    const c0=Math.cos(a0),c1=Math.cos(a1),cm=(c0+c1)/2;
+    if (front!==(cm>0)) continue;
+    const yb0=tY+PITCH*th/(2*Math.PI), yb1=tY+PITCH*(th+step)/(2*Math.PI);
+    const rc0=crestAt(yb0),rc1=crestAt(yb1),rr0=rodHalfAt(yb0),rr1=rodHalfAt(yb1);
+    if (rc0-rr0<1.3) continue;
+    const s0=Math.sin(a0)*HAND,s1=Math.sin(a1)*HAND, cx=L.cxd;
+    out.push({xr0:cx+rr0*s0,yr0:yb0+TILT*c0*(rr0/R), xc0:cx+rc0*s0,yc0:yb0+TILT*c0*(rc0/R),
+              xr1:cx+rr1*s1,yr1:yb1+TILT*c1*(rr1/R), xc1:cx+rc1*s1,yc1:yb1+TILT*c1*(rc1/R),
+              xe0:cx+(rc0+1.9)*s0, xe1:cx+(rc1+1.9)*s1, c:cm, s:(s0+s1)/2, y:(yb0+yb1)/2});
+  }
+  out.sort((p,q)=>p.c-q.c); return out;
+}
+function drawThread(front){
+  const segs=threadSegs(front); if(!segs.length) return;
+  const M=1.5;
+  CTX.fillStyle=front?OUT:OUTB;
+  for(const s of segs){ CTX.beginPath();
+    CTX.moveTo(s.xr0,s.yr0-M);CTX.lineTo(s.xe0,s.yc0-M);CTX.lineTo(s.xe1,s.yc1-M);CTX.lineTo(s.xr1,s.yr1-M);
+    CTX.lineTo(s.xr1,s.yr1+TH_T+M);CTX.lineTo(s.xe1,s.yc1+TH_C+M);CTX.lineTo(s.xe0,s.yc0+TH_C+M);CTX.lineTo(s.xr0,s.yr0+TH_T+M);
+    CTX.closePath();CTX.fill(); }
+  const band=v=>Math.round(clamp(v,0,1)*7)/7, dim=v=>front?v:0.15+v*0.44;
+  for(const s of segs){
+    const c=Math.max(0,s.c), lt=(1-s.s)*0.5;
+    const shB=dim(band(0.40+0.30*c+0.18*lt)), shU=dim(band(0.10+0.16*c));
+    const shR=dim(band(0.38+0.34*c+0.22*lt)), shF=dim(band(0.33+0.46*c+0.14*lt));
+    CTX.beginPath();
+    CTX.moveTo(s.xr0,s.yr0);CTX.lineTo(s.xc0,s.yc0);CTX.lineTo(s.xc1,s.yc1);CTX.lineTo(s.xr1,s.yr1);
+    CTX.lineTo(s.xr1,s.yr1+TH_T);CTX.lineTo(s.xc1,s.yc1+TH_C);CTX.lineTo(s.xc0,s.yc0+TH_C);CTX.lineTo(s.xr0,s.yr0+TH_T);
+    CTX.closePath();CTX.fillStyle=steel(shB,0);CTX.fill();
+    const u=TH_T*0.55,uC=TH_C*0.55;
+    CTX.beginPath();
+    CTX.moveTo(s.xr0,s.yr0+u);CTX.lineTo(s.xc0,s.yc0+uC);CTX.lineTo(s.xc1,s.yc1+uC);CTX.lineTo(s.xr1,s.yr1+u);
+    CTX.lineTo(s.xr1,s.yr1+TH_T);CTX.lineTo(s.xc1,s.yc1+TH_C);CTX.lineTo(s.xc0,s.yc0+TH_C);CTX.lineTo(s.xr0,s.yr0+TH_T);
+    CTX.closePath();CTX.fillStyle=steel(shU,0);CTX.fill();
+    CTX.beginPath();
+    CTX.moveTo(s.xc0,s.yc0);CTX.lineTo(s.xc1,s.yc1);CTX.lineTo(s.xc1,s.yc1+TH_C);CTX.lineTo(s.xc0,s.yc0+TH_C);
+    CTX.closePath();CTX.fillStyle=steel(shR,0);CTX.fill();
+    CTX.beginPath();
+    CTX.moveTo(s.xr0,s.yr0);CTX.lineTo(s.xc0,s.yc0);CTX.lineTo(s.xc1,s.yc1);CTX.lineTo(s.xr1,s.yr1);
+    CTX.closePath();CTX.fillStyle=steel(shF,0);CTX.fill();
+  }
+  if (front){ CTX.lineWidth=1.2; CTX.lineCap="round";
+    for(const s of segs){
+      const g=Math.round(clamp(0.54+0.30*Math.max(0,s.c)+0.06,0,1)*3)/3;
+      CTX.strokeStyle=steel(g,0);
+      CTX.beginPath();CTX.moveTo(s.xc0,s.yc0+0.8);CTX.lineTo(s.xc1,s.yc1+0.8);CTX.stroke(); }
+    CTX.lineCap="butt"; }
+}
+function drawJoint(y,r,big){
+  const hh=big?6:5, w=r+(big?4:3);
+  CTX.fillStyle=OUT; CTX.fillRect(L.cxd-w-2,y-hh-2,(w+2)*2,hh*2+4);
+  CTX.fillStyle=steelBands(L.cxd-w,L.cxd+w,0,[[0.15,0.16],[0.18,0.94],[0.22,0.56],[0.26,0.28],[0.19,0.10]]);
+  CTX.fillRect(L.cxd-w,y-hh,w*2,hh*2);
+  CTX.fillStyle="rgba(255,255,255,.34)";CTX.fillRect(L.cxd-w,y-hh,w*2,1.6);
+  CTX.fillStyle="rgba(0,0,0,.45)";CTX.fillRect(L.cxd-w,y+hh-2,w*2,2);
+}
+function drawChuck(y0,y1,r){
+  CTX.fillStyle=OUT;CTX.fillRect(L.cxd-r-2.5,y0-2.5,(r+2.5)*2,y1-y0+5);
+  CTX.fillStyle=steelBands(L.cxd-r,L.cxd+r,0,[[0.17,0.06],[0.16,0.62],[0.22,0.34],[0.26,0.18],[0.19,0.04]]);
+  CTX.fillRect(L.cxd-r,y0,r*2,y1-y0);
+  CTX.fillStyle="rgba(255,255,255,.24)";CTX.fillRect(L.cxd-r,y0,r*2,2.4);
+  CTX.fillStyle="rgba(0,0,0,.40)";CTX.fillRect(L.cxd-r,y1-3,r*2,3);
+}
+function drawShaft(){
+  const cA=coneApex(), tY=threadTop(), top=Math.max(-40,L.panel.y-16);
+  CTX.fillStyle=OUT;
+  for(let y=top;y<cA;y+=1.4){ const w=rodHalfAt(y)+2; CTX.fillRect(L.cxd-w,y,w*2,2.2); }
+  for(let y=top;y<cA-1;y+=1.4){ const w=rodHalfAt(y); if(w<0.7)continue;
+    CTX.fillStyle=steelBands(L.cxd-w,L.cxd+w,0,[[0.15,0.11],[0.17,0.98],[0.21,0.58],[0.27,0.30],[0.20,0.07]]);
+    CTX.fillRect(L.cxd-w,y,w*2,1.9); }
+  const segs=shaftSegs();
+  for(let i=0;i<segs.length;i++){ const s=segs[i];
+    if (s.kind==="chuck"){ drawChuck(s.y0,s.y1,s.r); continue; }
+    if (i>0&&segs[i-1].kind!=="chuck") drawJoint(s.y0,Math.max(segs[i-1].r,s.r)); }
+  drawJoint(tY,RS+1,true);
+  const sh=cA-CONE_LEN+1.5, cw=RS_BOT*0.9;
+  for(const [a,b,t] of [[-1,-0.34,0.90],[-0.34,0.28,0.52],[0.28,1,0.22]]){
+    CTX.beginPath();CTX.moveTo(L.cxd+cw*a,sh);CTX.lineTo(L.cxd+cw*b,sh);CTX.lineTo(L.cxd,cA-1.5);
+    CTX.closePath();CTX.fillStyle=steel(t,0);CTX.fill(); }
+  CTX.fillStyle="rgba(0,0,0,.45)";CTX.fillRect(L.cxd-cw-1,sh-1.4,(cw+1)*2,1.6);
+}
+function drawHead(){
+  const hx=L.cxd, top=L.surf-56;
+  function box(x,y,w,h,fill,bev){
+    CTX.fillStyle=OUT;CTX.fillRect(x-2.5,y-2.5,w+5,h+5);
+    CTX.fillStyle=fill;CTX.fillRect(x,y,w,h);
+    if(bev){CTX.fillStyle="rgba(255,255,255,.30)";CTX.fillRect(x,y,w,3);
+      CTX.fillStyle="rgba(255,255,255,.14)";CTX.fillRect(x,y,3,h);
+      CTX.fillStyle="rgba(0,0,0,.30)";CTX.fillRect(x,y+h-3,w,3);
+      CTX.fillStyle="rgba(0,0,0,.22)";CTX.fillRect(x+w-3,y,3,h);} }
+  box(hx-5,top-8,10,8,"#39424e",false);
+  box(hx-27,top,54,34,"#d9962f",true);
+  for(let i=0;i<3;i++){ CTX.fillStyle="#7a5115";CTX.fillRect(hx-16,top+8+i*8,32,4);
+    CTX.fillStyle="rgba(0,0,0,.5)";CTX.fillRect(hx-16,top+8+i*8+2.7,32,1.3); }
+  box(hx+27,top+7,20,17,"#39424e",true);
+  CTX.fillStyle = st.mode==="drill" ? "#ffc84d" : "#50e1ff";
+  CTX.fillRect(hx+32,top+12,4,4);
+  box(hx-12,top+34,24,10,"#4a545f",true);
+  box(hx-8,top+44,16,10,"#39424e",true);
+}
+let grainSeed=1;
+function rnd(){ grainSeed=(grainSeed*16807)%2147483647; return grainSeed/2147483647; }
+
+/* strata bands inside a rect (full strength) */
+function drawStrataRect(x0,x1,alpha){
+  for(const s of STRATA){
+    const y0=yOf(s.top), y1=yOf(s.bot);
+    CTX.globalAlpha=alpha; CTX.fillStyle=s.col; CTX.fillRect(x0,y0,x1-x0,y1-y0);
+    CTX.fillStyle=s.grain;
+    for(let i=0;i<(y1-y0)*(x1-x0)/2300;i++)
+      CTX.fillRect(x0+rnd()*(x1-x0), y0+rnd()*(y1-y0), 3+rnd()*3, 2.5);
+    if(s.icy){ for(let i=0;i<(x1-x0)/14;i++){
+      CTX.fillStyle=`rgba(160,225,245,${0.4+rnd()*0.4})`;
+      CTX.fillRect(x0+rnd()*(x1-x0), y0+rnd()*(y1-y0), 4, 2);} }
+    CTX.globalAlpha=alpha; CTX.fillStyle=s.edge; CTX.fillRect(x0,y0,x1-x0,2.2);
+    CTX.globalAlpha=1;
+  }
+}
+function drawBorehole(){
+  const bw=R*2+10, by=bitY(), cx=L.cxd;
+  CTX.fillStyle="#0e0b08"; CTX.fillRect(cx-bw/2,L.surf,bw,by-L.surf+14);
+  grainSeed=29; CTX.fillStyle="rgba(0,0,0,.8)";
+  for(let y=L.surf;y<by+12;y+=7){
+    CTX.fillRect(cx-bw/2-2-rnd()*3,y,4+rnd()*3,6);
+    CTX.fillRect(cx+bw/2-2+rnd()*3,y,4+rnd()*3,6); }
+  const g=CTX.createLinearGradient(cx-bw/2,0,cx+bw/2,0);
+  g.addColorStop(0,"rgba(0,0,0,.7)");g.addColorStop(0.22,"rgba(0,0,0,0)");
+  g.addColorStop(0.78,"rgba(0,0,0,0)");g.addColorStop(1,"rgba(0,0,0,.7)");
+  CTX.fillStyle=g; CTX.fillRect(cx-bw/2,L.surf,bw,by-L.surf+14);
+  // casing
+  CTX.fillStyle=OUT;CTX.fillRect(cx-32,L.surf-13,64,16);
+  CTX.fillStyle="#1c2530";CTX.fillRect(cx-30,L.surf-11,60,12);
+  CTX.fillStyle="rgba(255,255,255,.18)";CTX.fillRect(cx-30,L.surf-11,60,2.4);
+}
+function drawChips(dt){
+  const by=bitY();
+  if (st.mode==="drill"&&chips.length<70){
+    const g=strAt(st.depth);
+    for(let i=0;i<2;i++) chips.push({y:by-8,a:Math.random()*6.28,up:26+Math.random()*22,col:g.grain});
+  }
+  for(let i=chips.length-1;i>=0;i--){ const c=chips[i];
+    c.y-=c.up*dt*st.rpm*1.6; c.a-=st.rpm*9*dt;
+    if (c.y<L.surf-2){chips.splice(i,1);continue;}
+    CTX.globalAlpha=Math.cos(c.a)>0?0.95:0.45;
+    CTX.fillStyle=c.col; CTX.fillRect(L.cxd+(radAt(c.y)+2.5)*Math.sin(c.a),c.y,3.2,2.4);
+    CTX.globalAlpha=1; }
+}
+
+/* ---------------- block model drawing ---------------- */
+const isoPt=(l,i,j)=>({x:L.bcx+(i-j)*TX, y:L.slots[l]+(i+j-7)*TY});
+function drawPlate(l){
+  const active = st.mode==="drill" && layerOf(st.depth)===l;
+  // painter order back to front
+  for(let s=0;s<=14;s++) for(let i=0;i<=Math.min(7,s);i++){
+    const j=s-i; if (j>7||j<0) continue;
+    const c=model[l][j][i], p=isoPt(l,i,j);
+    const pop=clamp(1-(st.t-c.flipT)/0.5,0,1);              // flip flash
+    const h=c.g*13 + pop*4;
+    const colTop = c.cls==="un" ? "#1d2733" : CLS[c.cls];
+    // base diamond
+    CTX.fillStyle=OUT;
+    CTX.beginPath();CTX.moveTo(p.x,p.y-TY-1.2);CTX.lineTo(p.x+TX+1.2,p.y);
+    CTX.lineTo(p.x,p.y+TY+1.2);CTX.lineTo(p.x-TX-1.2,p.y);CTX.closePath();CTX.fill();
+    if (h>1.2){  // prism sides
+      CTX.fillStyle=shade(colTop,0.42);
+      CTX.beginPath();CTX.moveTo(p.x-TX,p.y);CTX.lineTo(p.x,p.y+TY);CTX.lineTo(p.x,p.y+TY-h);CTX.lineTo(p.x-TX,p.y-h);CTX.closePath();CTX.fill();
+      CTX.fillStyle=shade(colTop,0.60);
+      CTX.beginPath();CTX.moveTo(p.x+TX,p.y);CTX.lineTo(p.x,p.y+TY);CTX.lineTo(p.x,p.y+TY-h);CTX.lineTo(p.x+TX,p.y-h);CTX.closePath();CTX.fill();
+    }
+    CTX.fillStyle= h>1.2 ? colTop : shade(colTop, c.cls==="un"?1:0.55);
+    CTX.beginPath();CTX.moveTo(p.x,p.y-TY-h);CTX.lineTo(p.x+TX,p.y-h);
+    CTX.lineTo(p.x,p.y+TY-h);CTX.lineTo(p.x-TX,p.y-h);CTX.closePath();CTX.fill();
+    if (pop>0){ CTX.fillStyle=`rgba(255,255,255,${pop*0.55})`; CTX.fill(); }
+    if (c.cored){  // borehole mark on the cell
+      CTX.fillStyle=OUT;
+      CTX.beginPath();CTX.arc(p.x,p.y-h,2.6,0,6.29);CTX.fill();
+      CTX.strokeStyle="#c9d8e8";CTX.lineWidth=1;
+      CTX.beginPath();CTX.arc(p.x,p.y-h,2.6,0,6.29);CTX.stroke();
+    }
+  }
+  // active rim
+  if (active){
+    const a=0.45+0.25*Math.sin(st.t*12.6);
+    CTX.strokeStyle=`rgba(244,198,106,${a})`; CTX.lineWidth=1.6;
+    CTX.beginPath();
+    CTX.moveTo(L.bcx,L.slots[l]-8*TY-18);CTX.lineTo(L.bcx+8*TX+7,L.slots[l]);
+    CTX.lineTo(L.bcx,L.slots[l]+8*TY+7);CTX.lineTo(L.bcx-8*TX-7,L.slots[l]);
+    CTX.closePath();CTX.stroke();
+  }
+  // layer tag
+  CTX.font="700 8.5px 'JetBrains Mono',monospace"; CTX.fillStyle="rgba(97,118,138,.9)";
+  CTX.textAlign="left";
+  CTX.fillText("L"+l+" · "+STRATA[l].name, L.bcx-8*TX-6, L.slots[l]-8*TY-10);
+}
+function shade(hex,f){
+  const n=parseInt(hex.slice(1),16);
+  return `rgb(${(n>>16)*f|0},${((n>>8)&255)*f|0},${(n&255)*f|0})`;
+}
+
+/* ---------------- the trace: one line, two projections ---------------- */
+function tracePoints(){
+  const pts=[];
+  for(let l=0;l<4;l++){
+    const [i0,j0]=traceIJ(STRATA[l].top), [i1,j1]=traceIJ(STRATA[l].bot);
+    const a=isoPt(l,i0,j0), b=isoPt(l,i1,j1);
+    pts.push({m:STRATA[l].top, x:a.x, y:a.y-TY-2});
+    pts.push({m:STRATA[l].bot, x:b.x, y:b.y-TY-2});
+  }
+  return pts;
+}
+function strokePath(pts,mFrom,mTo){
+  CTX.beginPath(); let began=false;
+  for(let k=0;k<pts.length-1;k++){
+    const a=pts[k], b=pts[k+1];
+    if (b.m<=mFrom||a.m>=mTo) continue;
+    const t0=clamp((mFrom-a.m)/Math.max(0.001,b.m-a.m),0,1);
+    const t1=clamp((mTo-a.m)/Math.max(0.001,b.m-a.m),0,1);
+    const x0=lerp(a.x,b.x,t0), y0=lerp(a.y,b.y,t0);
+    const x1=lerp(a.x,b.x,t1), y1=lerp(a.y,b.y,t1);
+    if(!began){CTX.moveTo(x0,y0);began=true;}
+    CTX.lineTo(x1,y1);
+  }
+}
+function drawTraceBlock(){
+  const pts=tracePoints();
+  // planned: marching cyan dashes
+  CTX.save();
+  CTX.setLineDash([7,5]); CTX.lineDashOffset=-st.t*26;
+  CTX.strokeStyle="rgba(80,225,255,.22)"; CTX.lineWidth=5;
+  strokePath(pts,st.depth,120); CTX.stroke();
+  CTX.strokeStyle="#50e1ff"; CTX.lineWidth=1.5;
+  strokePath(pts,st.depth,120); CTX.stroke();
+  CTX.restore();
+  // drilled: solid steel with assay ticks
+  if (st.depth>0.5){
+    CTX.strokeStyle=OUT; CTX.lineWidth=3.6; strokePath(pts,0,st.depth); CTX.stroke();
+    CTX.strokeStyle="#c9d8e8"; CTX.lineWidth=1.8; strokePath(pts,0,st.depth); CTX.stroke();
+  }
+  // node: the twin diamond
+  drawNode(nodeAt(pts,st.depth));
+}
+function nodeAt(pts,m){
+  for(let k=0;k<pts.length-1;k++){
+    const a=pts[k],b=pts[k+1];
+    if (m>=a.m&&m<=b.m){ const t=(m-a.m)/Math.max(0.001,b.m-a.m);
+      return {x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t)}; } }
+  const e=pts[pts.length-1]; return {x:e.x,y:e.y};
+}
+function drawNode(p){
+  const s=4.6+1.2*Math.sin(st.t*12.6);
+  CTX.fillStyle=OUT;
+  CTX.beginPath();CTX.moveTo(p.x,p.y-s-1.6);CTX.lineTo(p.x+s+1.6,p.y);
+  CTX.lineTo(p.x,p.y+s+1.6);CTX.lineTo(p.x-s-1.6,p.y);CTX.closePath();CTX.fill();
+  CTX.fillStyle="#f4c66a";
+  CTX.beginPath();CTX.moveTo(p.x,p.y-s);CTX.lineTo(p.x+s,p.y);
+  CTX.lineTo(p.x,p.y+s);CTX.lineTo(p.x-s,p.y);CTX.closePath();CTX.fill();
+}
+function drawTraceMud(){
+  const cx=L.cxd, byEnd=yOf(120);
+  if (st.depth<119.5){
+    CTX.save();
+    CTX.setLineDash([7,5]); CTX.lineDashOffset=-st.t*26;
+    CTX.strokeStyle="rgba(80,225,255,.22)"; CTX.lineWidth=5;
+    CTX.beginPath();CTX.moveTo(cx,coneApex()+6);CTX.lineTo(cx,byEnd);CTX.stroke();
+    CTX.strokeStyle="#50e1ff"; CTX.lineWidth=1.5;
+    CTX.beginPath();CTX.moveTo(cx,coneApex()+6);CTX.lineTo(cx,byEnd);CTX.stroke();
+    CTX.restore();
+    // target foot
+    CTX.fillStyle="#50e1ff"; CTX.fillRect(cx-5,byEnd,10,1.6);
+  }
+  // assay ticks on the drilled wall
+  CTX.fillStyle="#50e696";
+  for(let m=6;m<st.depth;m+=6) CTX.fillRect(cx+R+7, yOf(m), 4, 1.6);
+  drawNode({x:cx, y:coneApex()+6});
+}
+
+/* ---------------- variant furniture ---------------- */
+function drawJoins(){
+  if (L.mode==="wedge"){
+    for(let l=0;l<4;l++){
+      const s=STRATA[l], y0=yOf(s.top), y1=yOf(s.bot);
+      const px=L.panel.x+L.panel.w, vx=L.bcx-8*TX-8, vy=L.slots[l];
+      CTX.globalAlpha=0.30; CTX.fillStyle=s.col;
+      CTX.beginPath();CTX.moveTo(px,y0+2);CTX.lineTo(vx,vy-7);CTX.lineTo(vx,vy+7);CTX.lineTo(px,y1-2);
+      CTX.closePath();CTX.fill();
+      CTX.fillStyle=s.grain;
+      grainSeed=41+l;
+      for(let i=0;i<10;i++){ const t=rnd(), u=rnd();
+        CTX.fillRect(lerp(px,vx,t), lerp(lerp(y0+2,y1-2,u), vy, t)+ (rnd()-0.5)*4, 2.6, 2); }
+      CTX.globalAlpha=0.7; CTX.strokeStyle="rgba(97,118,138,.8)"; CTX.lineWidth=1;
+      CTX.beginPath();CTX.moveTo(px,y0+2);CTX.lineTo(vx,vy-7);CTX.stroke();
+      CTX.beginPath();CTX.moveTo(px,y1-2);CTX.lineTo(vx,vy+7);CTX.stroke();
+      CTX.globalAlpha=1;
+    }
+  } else if (L.mode==="seam"){
+    // boundary rules run the whole width, through the plate gaps
+    for(let l=1;l<4;l++){
+      const y=L.bands[l][0];
+      CTX.fillStyle="rgba(16,18,22,.85)"; CTX.fillRect(16,y,W-32,1.8);
+      CTX.font="700 8.5px 'JetBrains Mono',monospace";
+      CTX.fillStyle="rgba(97,118,138,.85)"; CTX.textAlign="center";
+      CTX.fillText(STRATA[l].top+" m", (L.bcx+8*TX+L.panel.x)/2, y-3);
+    }
+  } else {
+    for(let l=0;l<4;l++){
+      const vy=L.slots[l], vx=L.bcx-8*TX-8, py=yOf(CENTER_M[l]);
+      CTX.strokeStyle=`rgba(${l===layerOf(st.depth)&&st.mode==="drill"?"244,198,106":"77,90,103"},.7)`;
+      CTX.lineWidth=1;
+      CTX.beginPath();CTX.moveTo(L.panel.x+L.panel.w+L.iso.dx,py+L.iso.dy);CTX.lineTo(vx,vy);CTX.stroke();
+      CTX.fillStyle="rgba(97,118,138,.9)";
+      CTX.beginPath();CTX.moveTo(vx,vy-3);CTX.lineTo(vx+4,vy);CTX.lineTo(vx,vy+3);CTX.lineTo(vx-4,vy);CTX.closePath();CTX.fill();
+    }
+  }
+}
+function drawPanelChrome(){
+  const p=L.panel;
+  CTX.strokeStyle="#1c2a39"; CTX.lineWidth=1.4;
+  if (L.mode==="pillar"){
+    // pillar: iso slab. top face + side face carry the rock too.
+    const {dx,dy}=L.iso;
+    // side face strata
+    CTX.save();
+    CTX.beginPath();CTX.moveTo(p.x+p.w,L.surf);CTX.lineTo(p.x+p.w+dx,L.surf+dy);
+    CTX.lineTo(p.x+p.w+dx,yOf(120)+dy);CTX.lineTo(p.x+p.w,yOf(120));CTX.closePath();CTX.clip();
+    for(const s of STRATA){
+      CTX.fillStyle=shade(s.col.replace("#",""),0)||s.col; CTX.fillStyle=s.col;
+      CTX.globalAlpha=1;
+      CTX.beginPath();
+      CTX.moveTo(p.x+p.w,yOf(s.top));CTX.lineTo(p.x+p.w+dx,yOf(s.top)+dy);
+      CTX.lineTo(p.x+p.w+dx,yOf(s.bot)+dy);CTX.lineTo(p.x+p.w,yOf(s.bot));CTX.closePath();CTX.fill();
+    }
+    CTX.fillStyle="rgba(0,0,0,.42)";
+    CTX.fillRect(p.x+p.w,L.surf+dy,dx+2,yOf(120)-L.surf+8);
+    CTX.restore();
+    // top cap
+    CTX.fillStyle=OUT;
+    CTX.beginPath();CTX.moveTo(p.x-2,L.surf);CTX.lineTo(p.x+p.w+2,L.surf);
+    CTX.lineTo(p.x+p.w+dx+2,L.surf+dy);CTX.lineTo(p.x+dx-2,L.surf+dy);CTX.closePath();CTX.fill();
+    CTX.fillStyle="#242c35";
+    CTX.beginPath();CTX.moveTo(p.x,L.surf-1);CTX.lineTo(p.x+p.w,L.surf-1);
+    CTX.lineTo(p.x+p.w+dx,L.surf-1+dy);CTX.lineTo(p.x+dx,L.surf-1+dy);CTX.closePath();CTX.fill();
+    CTX.fillStyle="rgba(255,255,255,.14)";
+    CTX.beginPath();CTX.moveTo(p.x,L.surf-1);CTX.lineTo(p.x+p.w,L.surf-1);
+    CTX.lineTo(p.x+p.w+4,L.surf-1+dy*4/dx);CTX.lineTo(p.x+4,L.surf-1+dy*4/dx);CTX.closePath();CTX.fill();
+    // collar cell marker on the cap: the same ring as plate 0
+    const ci=st.trace.c;
+    const capx=lerp(p.x+16,p.x+p.w-16,ci[0]/7)+dx*0.4, capy=L.surf-1+dy*0.5;
+    CTX.strokeStyle="#f4c66a"; CTX.lineWidth=1.4;
+    CTX.beginPath();CTX.moveTo(capx,capy-3.5);CTX.lineTo(capx+6,capy);CTX.lineTo(capx,capy+3.5);CTX.lineTo(capx-6,capy);CTX.closePath();CTX.stroke();
+    // outline
+    CTX.strokeStyle="#1c2a39";
+    CTX.strokeRect(p.x,L.surf-1,0.001,0.001); // noop keeps stroke state sane
+  } else {
+    // dashed cut-mark on the block-facing edge, solid elsewhere
+    const bx = (V==="a") ? p.x+p.w : p.x;      // which edge faces the blocks
+    CTX.strokeStyle="#1c2a39"; CTX.setLineDash([]);
+    CTX.beginPath();
+    CTX.moveTo(bx===p.x?p.x+p.w:p.x, p.y);
+    CTX.lineTo(bx===p.x?p.x+p.w:p.x, p.y+p.h);
+    CTX.stroke();
+    CTX.beginPath();CTX.moveTo(p.x,p.y);CTX.lineTo(p.x+p.w,p.y);CTX.stroke();
+    CTX.beginPath();CTX.moveTo(p.x,p.y+p.h);CTX.lineTo(p.x+p.w,p.y+p.h);CTX.stroke();
+    CTX.save(); CTX.setLineDash([4,5]); CTX.strokeStyle="rgba(28,42,57,.9)";
+    CTX.beginPath();CTX.moveTo(bx,p.y);CTX.lineTo(bx,p.y+p.h);CTX.stroke();
+    CTX.restore();
+  }
+  CTX.font="700 9px 'JetBrains Mono',monospace"; CTX.textAlign="left";
+  CTX.fillStyle="rgba(97,118,138,1)";
+  if (V==="b"){ CTX.fillText("BOREHOLE", p.x+6, p.y+p.h-8); }
+  else { CTX.textAlign="right"; CTX.fillText("BOREHOLE", p.x+p.w-6, p.y+p.h-8); CTX.textAlign="left"; }
+  CTX.fillText("BLOCK MODEL", L.bcx-8*TX-6, 24);
+  // depth labels at boundaries, drill side
+  CTX.textAlign=(V==="b")?"right":"left";
+  const lx=(V==="b")?p.x+p.w-5:p.x+5;
+  CTX.fillStyle="rgba(97,118,138,.9)";
+  for(const m of [0,12,34,68,120]) CTX.fillText(m+"", lx, yOf(m)+10);
+  CTX.textAlign="left";
+}
+function drawReadout(){
+  CTX.font="700 9.5px 'JetBrains Mono',monospace";
+  const s=strAt(st.depth);
+  const x=(V==="b")?20:W-20, al=(V==="b")?"left":"right";
+  CTX.textAlign=al;
+  CTX.fillStyle="#c9d8e8"; CTX.fillText(st.depth.toFixed(1)+" m", x, H-40);
+  CTX.fillStyle="rgba(97,118,138,1)"; CTX.fillText(st.mode==="drill"?s.name:st.mode.toUpperCase(), x, H-27);
+  const t=st.trace;
+  CTX.fillText("C"+t.c[0]+t.c[1]+" -> F"+t.g[0]+t.g[1], x, H-14);
+  CTX.textAlign="left";
+}
+
+/* ---------------- simulation ---------------- */
+function step(dt){
+  st.t+=dt; st.modeT+=dt;
+  if (st.mode==="plan"){
+    st.rpm=Math.max(0.12,st.rpm-dt);
+    if (st.auto&&st.modeT>2.2){ st.mode="drill"; st.modeT=0; }
+  } else if (st.mode==="drill"){
+    st.rpm=Math.min(0.62,st.rpm+dt*0.8);
+    const g=strAt(st.depth);
+    st.depth=Math.min(120, st.depth+16*(1.30-g.hard*0.85)*dt*0.55);
+    applyFlips();
+    if (st.depth>=120){ st.mode="done"; st.modeT=0; }
+  } else {
+    st.rpm=Math.max(0,st.rpm-dt*0.6);
+    if (st.auto&&st.modeT>2.4){
+      const k=st.k+1; freshModelFlips(); resetCored(); reset(k);
+    }
+  }
+  st.phase-=st.rpm*9*dt;
+}
+function resetCored(){
+  for(let l=0;l<4;l++) for(let j=0;j<8;j++) for(let i=0;i<8;i++){
+    const c=model[l][j][i];
+    const d=Math.hypot(i-OLD_HOLE[l][0],j-OLD_HOLE[l][1]);
+    c.cored=false;
+    c.cls = d<=1.1?"mea" : d<=1.6?"ind" : (c.g>0.42?"inf":"un");
+  }
+  model[0][3][6].cored=true; model[1][3][6].cored=true;
+  model[2][4][5].cored=true; model[3][4][5].cored=true;
+}
+
+function frame(dt){
+  step(dt);
+  CTX.setTransform(2,0,0,2,0,0);
+  CTX.fillStyle="#070b11"; CTX.fillRect(0,0,W,H);
+
+  // --- ground ---
+  grainSeed=7;
+  if (L.mode==="seam"){
+    drawStrataRect(16,W-16,0.20);                       // continuous, dim under blocks
+    grainSeed=7; drawStrataRect(L.panel.x,L.panel.x+L.panel.w,1); // full in panel
+  } else {
+    grainSeed=7; drawStrataRect(L.panel.x,L.panel.x+L.panel.w,1);
+  }
+  // sky inside panel above surface
+  CTX.fillStyle="#0a1018";
+  CTX.fillRect(L.panel.x,L.panel.y,L.panel.w,L.surf-L.panel.y);
+  grainSeed=3; CTX.fillStyle="rgba(200,220,240,.5)";
+  for(let i=0;i<8;i++) CTX.fillRect(L.panel.x+rnd()*L.panel.w, L.panel.y+rnd()*(L.surf-L.panel.y-10),1.4,1.4);
+  CTX.fillStyle="#4a5560"; CTX.fillRect(L.panel.x,L.surf-2,L.panel.w,2.2);
+
+  drawJoins();
+
+  // --- drill panel content (clipped) ---
+  CTX.save();
+  CTX.beginPath();CTX.rect(L.panel.x,L.panel.y,L.panel.w+ (L.mode==="pillar"?L.iso.dx+4:0),L.panel.h);CTX.clip();
+  drawBorehole();
+  drawThread(false);
+  drawShaft();
+  drawThread(true);
+  drawChips(1/60);
+  drawTraceMud();
+  drawHead();
+  CTX.restore();
+
+  // --- block model ---
+  for(let l=0;l<4;l++) drawPlate(l);
+  drawTraceBlock();
+
+  drawPanelChrome();
+  drawReadout();
+}
+
+/* ---------------- harness + loop ---------------- */
+window.__setState=o=>{
+  if (o.trace) st.trace=o.trace;
+  if (o.mode) { st.mode=o.mode; st.modeT=0; }
+  if (o.depth!==undefined){ st.depth=o.depth; freshModelFlips(); resetCored();
+    const d=st.depth; st.depth=0;
+    while(st.depth<d){ st.depth=Math.min(d,st.depth+1); applyFlips(); }
+    for(const P of model) for(const R of P) for(const c of R) c.flipT=-99;
+  }
+  if (o.t!==undefined) st.t=o.t;
+  if (o.auto!==undefined) st.auto=o.auto;
+};
+let manual=false;
+window.__manual=on=>{manual=on; last=performance.now();};
+window.__step=dt=>frame(dt);
+window.__get=()=>({mode:st.mode,depth:st.depth});
+
+document.getElementById("auto").onclick=e=>{
+  st.auto=!st.auto; e.target.className=st.auto?"on":""; };
+document.getElementById("redo").onclick=()=>{ freshModelFlips(); resetCored(); reset(st.k+1); };
+
+/* draw-your-own-line: press a top-plate cell, drag, release */
+let drawing=null;
+function cellAt(mx,my){
+  for(let l=0;l<4;l++) for(let j=0;j<8;j++) for(let i=0;i<8;i++){
+    const p=isoPt(l,i,j);
+    if (Math.abs(mx-p.x)/TX+Math.abs(my-p.y)/TY<=1.15) return {l,i,j};
+  }
+  return null;
+}
+function evPos(e){ const r=CV.getBoundingClientRect();
+  return [ (e.clientX-r.left)*W/r.width, (e.clientY-r.top)*H/r.height ]; }
+CV.addEventListener("pointerdown",e=>{
+  const [mx,my]=evPos(e); const c=cellAt(mx,my);
+  if (c&&c.l===0){ drawing={c:[c.i,c.j]}; st.auto=false;
+    document.getElementById("auto").className="";
+    freshModelFlips(); resetCored();
+    st.mode="plan"; st.modeT=0; st.depth=0;
+    st.trace={c:[c.i,c.j],g:[c.i,c.j]}; }
+});
+CV.addEventListener("pointermove",e=>{
+  if(!drawing) return;
+  const [mx,my]=evPos(e); const c=cellAt(mx,my);
+  if (c&&c.l>0){
+    const f=3/c.l;
+    st.trace.g=[clamp(Math.round(drawing.c[0]+(c.i-drawing.c[0])*f),0,7),
+                clamp(Math.round(drawing.c[1]+(c.j-drawing.c[1])*f),0,7)];
+  }
+});
+CV.addEventListener("pointerup",()=>{ if(drawing){ drawing=null; st.mode="drill"; st.modeT=0; }});
+
+let last=performance.now();
+function tick(now){
+  const dt=clamp((now-last)/1000,0,0.05); last=now;
+  if(!manual) frame(dt);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+})();
+</script>
