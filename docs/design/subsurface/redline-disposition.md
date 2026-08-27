@@ -127,6 +127,39 @@ The **logged column** — metres logged, mean recovery, intervals lost, and
 assay integrity — not the depth reached. Depth is an input to the score, not
 the score.
 
+## 4b. Two Things the Build Found
+
+Both were discovered by simulating player policies against the model rather than
+by playing it, and both are corrections to the naive reading of §3.
+
+**Recovery is a property of metres cut, not seconds elapsed.** Weighting an
+interval's recovery by time punished the player for dwelling to cool: heat
+discipline needs low RPM, low RPM is out of band, so every cooldown was scored
+as damaged core. That is an unfair bind -- there was no way to play well.
+Weighting by *advance* fixes it, and is the more honest model anyway: the core
+is damaged by how it was cut, not by how long you stood there.
+
+**Below the band the bit rubs instead of cutting.** Penetration collapses as
+`(rpm/lo)^2`. Without this the string kept boring slowly during a cooldown, so
+dwelling still accrued bad metres. With it, lifting off the face is a real
+dwell: it costs time and nothing else. This is also why under-driving needs
+only a mild recovery penalty -- it is mostly self-punishing through lost time.
+
+Measured against four policies, drilling the full 120 m:
+
+| Policy | Logged | Recovery | Lost | Water assay | Time |
+|---|---|---|---|---|---|
+| Never lets go | 52 m | 43% | 34 | reads 37% low | 78 s |
+| In band, ignores heat | 120 m | 95% | 0 | **reads 73% low** | 109 s |
+| In band + heat discipline | 120 m | 75% | 0 | clean | 335 s |
+| Never clicks | 12 m | 20% | 19 | clean | gave up |
+
+The second row is the design working. That player did everything visible
+right, has a beautiful column, and is wrong about the water -- which is the
+whole point of Tier 1.
+
+---
+
 ## 5. What This Does Not Decide
 
 Named so they are not mistaken for settled:

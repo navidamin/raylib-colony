@@ -10,29 +10,25 @@
   --ground:#070b11; --panel:#0d151e; --panel2:#111c27; --rule:#1c2a39;
   --text:#c9d8e8; --dim:#61768a; --dimmer:#3d4e5e;
   --am:#d9962f; --am-lit:#f4c66a;
-  --hot:#ff5a28; --cy:#50e1ff; --good:#5fd39a;
+  --hot:#ff5a28; --cy:#50e1ff; --good:#5fd39a; --ice:#7fd8ee;
   --ui:"Chakra Petch",system-ui,-apple-system,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
   font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
-.wrap{max-width:700px;margin:0 auto;padding:22px 16px 44px}
-
+.wrap{max-width:772px;margin:0 auto;padding:22px 16px 44px}
 header{margin-bottom:16px}
 .eyebrow{font:700 10.5px/1 var(--mono);letter-spacing:.2em;color:var(--am);
   text-transform:uppercase;margin-bottom:8px}
 h1{font:700 40px/1 var(--ui);margin:0 0 6px;letter-spacing:.01em;text-wrap:balance}
-.sub{color:var(--dim);max-width:60ch;margin:0;font-size:14.5px}
+.sub{color:var(--dim);max-width:62ch;margin:0;font-size:14.5px}
 .sub b{color:var(--text);font-weight:600}
-
-.rig{display:grid;grid-template-columns:152px 296px 180px;gap:14px;
+.rig{display:grid;grid-template-columns:158px 296px 220px;gap:14px;
   align-items:start;justify-content:center}
-
-/* ---- stage: the borehole, and the whole click surface ---- */
 .stage{border:1px solid var(--rule);border-radius:6px;background:#070b11;
   overflow:hidden;position:relative;cursor:pointer;touch-action:manipulation;
-  padding:0;display:block;width:100%;-webkit-tap-highlight-color:transparent}
+  width:100%;-webkit-tap-highlight-color:transparent}
 .stage:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
 .stage canvas{display:block;width:100%;height:auto}
 .hint{position:absolute;left:0;right:0;bottom:0;padding:9px 10px 10px;
@@ -41,96 +37,113 @@ h1{font:700 40px/1 var(--ui);margin:0 0 6px;letter-spacing:.01em;text-wrap:balan
   background:linear-gradient(rgba(7,11,17,0),rgba(7,11,17,.93) 55%);
   transition:opacity .3s}
 .hint.gone{opacity:0}
-
-/* ---- instrument rails ---- */
+.trip{position:absolute;left:0;right:0;top:0;padding:12px 12px 14px;
+  background:linear-gradient(rgba(7,11,17,.94),rgba(7,11,17,0));
+  display:none;text-align:center}
+.trip.show{display:block}
+.trip .t{font:700 10.5px/1 var(--mono);letter-spacing:.18em;color:var(--am-lit);
+  text-transform:uppercase}
+.trip .m{font:400 10.5px/1.5 var(--mono);color:var(--dim);margin-top:4px}
+.trip .p{height:4px;background:#101a24;border-radius:2px;margin-top:8px;overflow:hidden}
+.trip .p i{display:block;height:100%;background:var(--am);border-radius:2px}
 .rail{display:flex;flex-direction:column;gap:12px}
 .card{border:1px solid var(--rule);border-radius:6px;background:var(--panel);padding:11px 12px}
 h2{font:700 9.5px/1 var(--mono);letter-spacing:.17em;text-transform:uppercase;
   color:var(--dim);margin:0 0 9px}
-
-.big{font:700 30px/1 var(--mono);color:var(--text);font-variant-numeric:tabular-nums;
+.big{font:700 27px/1 var(--mono);color:var(--text);font-variant-numeric:tabular-nums;
   letter-spacing:-.02em}
-.big small{font:700 13px/1 var(--mono);color:var(--dim);margin-left:3px}
-.best{font:400 11px/1 var(--mono);color:var(--dim);margin-top:7px;
-  font-variant-numeric:tabular-nums}
-.best b{color:var(--am);font-weight:700}
-
-/* segmented gauges, cut the way the rig's own bars are */
+.big small{font:700 12px/1 var(--mono);color:var(--dim);margin-left:3px}
+.sub2{font:400 10.5px/1.5 var(--mono);color:var(--dim);margin-top:6px;
+  font-variant-numeric:tabular-nums;display:flex;justify-content:space-between;gap:8px}
+.sub2 b{color:var(--text);font-weight:700}
 .g{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
 .g:last-child{margin-bottom:0}
 .g .lab{display:flex;justify-content:space-between;font:700 9.5px/1 var(--mono);
   letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 .g .lab i{font-style:normal;font-variant-numeric:tabular-nums;color:var(--text)}
-.bar{display:flex;gap:2px;height:11px}
+.bar{display:flex;gap:2px;height:12px}
 .bar span{flex:1;background:#101a24;border-radius:1px;transition:background .09s linear}
+.bar span.band{background:#17303a}
 .bar span.on{background:var(--cy)}
 .bar.warm span.on{background:var(--am)}
 .bar.crit span.on{background:var(--hot)}
 .bar.ok span.on{background:var(--good)}
-
-/* ---- stratum log: the column is a real sequence, so it is drawn as one ---- */
-.log{display:flex;flex-direction:column;gap:0}
-.lyr{position:relative;border-left:2px solid var(--rule);padding:0 0 0 10px;
-  min-height:46px;transition:border-color .2s}
-.lyr.here{border-left-color:var(--am)}
-.lyr.done{border-left-color:var(--dimmer)}
-.lyr .nm{font:700 9.5px/1.25 var(--mono);letter-spacing:.09em;color:var(--dimmer);
-  padding-top:2px;transition:color .2s}
-.lyr.here .nm{color:var(--am-lit)}
-.lyr.done .nm{color:var(--dim)}
-.lyr .dp{font:400 9.5px/1.6 var(--mono);color:var(--dimmer)}
-.lyr .hd{margin-top:3px;height:3px;background:#101a24;border-radius:2px;overflow:hidden}
-.lyr .hd i{display:block;height:100%;background:var(--dimmer);border-radius:2px;
-  transition:width .12s linear}
-.lyr.here .hd i{background:var(--am)}
-
-/* ---- end-of-run overlay ---- */
-.over{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;
-  justify-content:center;gap:12px;padding:20px;text-align:center;
-  background:rgba(7,11,17,.9);backdrop-filter:blur(2px)}
+.bar span.on.over{background:var(--hot)}
+.hintline{font:400 9.5px/1.4 var(--mono);color:var(--dimmer);margin-top:-2px}
+.log{display:flex;flex-direction:column;gap:1px;height:452px}
+.log i{flex:1 1 0;min-height:0;background:#0f1821;border-radius:1px;
+  position:relative}
+.log i.cut{background:#4a5b6b}
+.log i.good{background:#93a7b8}
+.log i.part{background:#5c6675}
+.log i.lost{background:#241a17;box-shadow:inset 0 0 0 1px #3a2620}
+.log i.ice::after{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
+  background:var(--ice)}
+.log i.cook::after{background:var(--hot)}
+.logkey{display:flex;flex-wrap:wrap;gap:2px 9px;margin-top:8px;
+  font:400 9px/1.5 var(--mono);color:var(--dimmer)}
+.logkey s{text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+.logkey s b{width:8px;height:8px;border-radius:1px;display:inline-block}
+.over{position:absolute;inset:0;display:none;flex-direction:column;
+  justify-content:center;gap:9px;padding:18px;text-align:center;
+  background:rgba(7,11,17,.94);backdrop-filter:blur(2px);overflow-y:auto}
 .over.show{display:flex}
-.over .k{font:700 10.5px/1 var(--mono);letter-spacing:.19em;text-transform:uppercase}
-.over.fail .k{color:var(--hot)}
-.over.win .k{color:var(--good)}
-.over .d{font:700 34px/1 var(--mono);font-variant-numeric:tabular-nums}
-.over .w{font:400 12.5px/1.5 var(--mono);color:var(--dim);max-width:26ch}
-button{font:700 11px/1 var(--ui);letter-spacing:.11em;text-transform:uppercase;
-  padding:10px 18px;border-radius:4px;border:1px solid var(--am);
-  background:rgba(217,150,47,.12);color:var(--am-lit);cursor:pointer;
-  font-family:var(--mono)}
-button:hover{background:rgba(217,150,47,.24)}
+.over .k{font:700 10.5px/1 var(--mono);letter-spacing:.19em;text-transform:uppercase;
+  color:var(--am-lit)}
+.over .d{font:700 27px/1 var(--mono);font-variant-numeric:tabular-nums}
+.over .d small{font-size:12px;color:var(--dim)}
+.rep{display:flex;flex-direction:column;gap:3px;margin:4px 0 2px;
+  font:400 11px/1.45 var(--mono);text-align:left}
+.rep div{display:flex;justify-content:space-between;gap:10px;color:var(--dim)}
+.rep div b{color:var(--text);font-weight:700;font-variant-numeric:tabular-nums}
+.rep div.bad b{color:var(--hot)}
+.verdict{font:400 11px/1.5 var(--mono);color:var(--am-lit);max-width:30ch;
+  margin:2px auto 0}
+.verdict.bad{color:var(--hot)}
+button{font:700 10.5px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase;
+  padding:9px 12px;border-radius:4px;border:1px solid var(--rule);
+  background:var(--panel2);color:var(--dim);cursor:pointer;width:100%}
+button:hover:not(:disabled){border-color:var(--am);color:var(--am-lit)}
+button:disabled{opacity:.4;cursor:default}
 button:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
-
-.foot{margin-top:14px;font:400 11.5px/1.6 var(--mono);color:var(--dim);max-width:74ch}
+button.go{border-color:var(--am);color:var(--am-lit);background:rgba(217,150,47,.12);
+  margin-top:6px;width:auto;align-self:center;padding:10px 20px}
+button.go:hover{background:rgba(217,150,47,.24)}
+.foot{margin-top:16px;font:400 11.5px/1.65 var(--mono);color:var(--dim);max-width:76ch}
 .foot b{color:var(--text);font-weight:700}
-
-@media (max-width:700px){
+.foot p{margin:0 0 8px}
+@media (max-width:760px){
   .rig{grid-template-columns:1fr 1fr;gap:12px}
   .stage{grid-column:1/-1;grid-row:1;width:100%;max-width:320px;margin:0 auto}
+  .log{height:300px}
   h1{font-size:32px}
 }
-@media (max-width:430px){
-  .rig{grid-template-columns:1fr}
-}
-@media (prefers-reduced-motion:reduce){
-  .bar span,.lyr .hd i{transition:none}
-}
+@media (max-width:440px){ .rig{grid-template-columns:1fr} }
+@media (prefers-reduced-motion:reduce){ .bar span,.trip .p i{transition:none} }
 </style>
 
 <div class="wrap">
 <header>
-  <div class="eyebrow">Lunar subsurface &middot; drill control</div>
+  <div class="eyebrow">Lunar subsurface &middot; prospecting &middot; hands-on drilling</div>
   <h1>Redline</h1>
-  <p class="sub">The auger turns on its own, but barely. <b>Click the borehole</b> to kick the
-  spindle &mdash; every bite bores faster and drives more heat into the steel. Ease off and it
-  cools; hold it past the red line and the bit cracks apart. <b>Reach 120 m.</b></p>
+  <p class="sub">You are not drilling for depth. You are drilling for a <b>logged
+  column</b> &mdash; a core you can assay. <b>Click the borehole</b> to drive the
+  spindle. Keep contact pressure <b>inside the band</b>, which moves as the rock
+  changes, and keep the bit cool. Over-drive it and the core comes up broken;
+  cook it in the ice and the assay lies to you.</p>
 </header>
 
 <div class="rig">
   <div class="rail">
     <div class="card">
-      <h2>Column</h2>
+      <h2>Core log</h2>
       <div class="log" id="log"></div>
+      <div class="logkey">
+        <s><b style="background:#93a7b8"></b>intact</s>
+        <s><b style="background:#5c6675"></b>partial</s>
+        <s><b style="background:#241a17;box-shadow:inset 0 0 0 1px #3a2620"></b>lost</s>
+        <s><b style="background:#7fd8ee"></b>ice</s>
+      </div>
     </div>
   </div>
 
@@ -138,49 +151,64 @@ button:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
        aria-label="Borehole - click or press space to drive the spindle">
     <canvas id="cv" width="536" height="1120"></canvas>
     <div class="hint" id="hint">Click to bite</div>
+    <div class="trip" id="tripui">
+      <div class="t">Tripping the string</div>
+      <div class="m" id="tripm"></div>
+      <div class="p"><i id="tripp" style="width:0%"></i></div>
+    </div>
     <div class="over" id="over">
       <div class="k" id="overk"></div>
       <div class="d" id="overd"></div>
-      <div class="w" id="overw"></div>
-      <button id="again" type="button">New hole</button>
+      <div class="rep" id="rep"></div>
+      <div class="verdict" id="verdict"></div>
+      <button id="again" class="go" type="button">New hole</button>
     </div>
   </div>
 
   <div class="rail">
     <div class="card">
-      <h2>Depth</h2>
+      <h2>Hole</h2>
       <div class="big"><span id="depth">0.0</span><small>m</small></div>
-      <div class="best">Best <b id="best">&mdash;</b></div>
+      <div class="sub2"><span>Logged</span><b id="logged">0.0 m</b></div>
+      <div class="sub2"><span>Recovery</span><b id="recov">&mdash;</b></div>
+      <div class="sub2"><span>Best column</span><b id="best">&mdash;</b></div>
     </div>
     <div class="card">
       <h2>Spindle</h2>
       <div class="g">
-        <div class="lab"><span>RPM</span><i id="rpmv">0</i></div>
+        <div class="lab"><span>Pressure</span><i id="rpmv">0</i></div>
         <div class="bar" id="rpmb"></div>
+        <div class="hintline" id="bandhint">band moves with the rock</div>
       </div>
       <div class="g">
         <div class="lab"><span>Bit temp</span><i id="heatv">0</i></div>
         <div class="bar" id="heatb"></div>
       </div>
       <div class="g">
-        <div class="lab"><span>Bit</span><i id="wearv">100</i></div>
+        <div class="lab"><span>Bit life</span><i id="wearv">100</i></div>
         <div class="bar ok" id="wearb"></div>
       </div>
     </div>
     <div class="card">
       <h2>Face</h2>
-      <div class="g">
-        <div class="lab"><span>Stratum</span></div>
-        <div style="font:700 11px/1.3 var(--mono);color:var(--am-lit)" id="strat">REGOLITH</div>
-        <div class="lab" style="margin-top:7px"><span>Rate</span><i id="rate">0.00 m/s</i></div>
-      </div>
+      <div class="sub2"><span>Stratum</span><b id="strat">REGOLITH</b></div>
+      <div class="sub2"><span>Rate</span><b id="rate">0.00 m/s</b></div>
+      <button id="trip" type="button" style="margin-top:9px">Trip now &mdash; <span id="tripcost">0s</span></button>
+      <button id="pull" type="button" style="margin-top:6px">Pull the string</button>
     </div>
   </div>
 </div>
 
-<p class="foot"><b>Why it fights back:</b> hard rock cuts slower and heats faster, so the
-same clicking that flies through regolith will cook the bit in basalt. The last 52 m are
-basalt. You cannot spam your way down &mdash; you have to bite, then let go.</p>
+<div class="foot">
+<p><b>The ladder, worst first.</b> Heat in the ice-bearing fractured zone
+sublimates the water out of the core, so that interval assays <b>falsely
+low</b> &mdash; and nothing tells you at the time. Driving past the band grinds
+the core and leaves a <b>gap in the column</b> where you most wanted a number.
+A dull bit is the <b>cheapest</b> failure: it costs a trip, and a trip costs
+time proportional to how deep you already are.</p>
+<p>Which is the whole push-your-luck: bit at 60% at 40 m &mdash; trip now while
+it is cheap, or push on and risk tripping from 90 m?</p>
+</div>
 </div>
 
 <script>
@@ -192,17 +220,24 @@ const CV = document.getElementById("cv"), CTX = CV.getContext("2d");
    The full 120 m column fits in 860 px, but at that scale the rig is a sliver.
    So the canvas is a WINDOW onto the world and the camera follows the bit. */
 const VIEW_W = 268, VIEW_H = 560;
-const W = 640, H = 880;                             // world extents, unchanged
+const W = 640, H = 880;
 const SURF_Y = 96;
 const M_TO_PX = (H - SURF_Y - 20) / 120;
 const CX = 300, VX0 = CX - VIEW_W/2;
 let cam = 0;
 
+/* band = the contact-pressure window for this rock, in spindle terms. It moves
+   with the strata, which is the point: reading the model beforehand tells you
+   where it will move to. fragility = how badly over-driving grinds the core. */
 const STRATA = [
-  {name:"REGOLITH",     top:0,  bot:12,  col:"#3a342b", edge:"#191510", grain:"#4c4437", hard:0.25},
-  {name:"MEGAREGOLITH", top:12, bot:34,  col:"#453e34", edge:"#1c1712", grain:"#5b5140", hard:0.55},
-  {name:"FRACTURED",    top:34, bot:68,  col:"#39424d", edge:"#161c23", grain:"#4d5a67", hard:0.45, icy:true},
-  {name:"INTACT BASALT",top:68, bot:120, col:"#272a30", edge:"#101216", grain:"#343841", hard:0.95},
+  {name:"REGOLITH",     top:0,  bot:12,  col:"#3a342b", edge:"#191510", grain:"#4c4437",
+   hard:0.25, band:[0.26,0.60], fragility:1.0},
+  {name:"MEGAREGOLITH", top:12, bot:34,  col:"#453e34", edge:"#1c1712", grain:"#5b5140",
+   hard:0.55, band:[0.42,0.84], fragility:1.0},
+  {name:"FRACTURED",    top:34, bot:68,  col:"#39424d", edge:"#161c23", grain:"#4d5a67",
+   hard:0.45, band:[0.30,0.58], fragility:2.1, icy:true},
+  {name:"INTACT BASALT",top:68, bot:120, col:"#272a30", edge:"#101216", grain:"#343841",
+   hard:0.95, band:[0.68,1.18], fragility:0.7},
 ];
 const yOf  = m => SURF_Y + m * M_TO_PX;
 const strAt = m => STRATA.find(s => m >= s.top && m < s.bot) || STRATA[3];
@@ -214,31 +249,44 @@ const PITCH=21.5, TILT=1.9, TH_T=5.6, TH_C=2.1;
 const TAPER_PX=PITCH*1.5, CONE_LEN=21, THREAD_LEN=PITCH*6.2;
 
 /* ---------------- game rules ----------------
-   rpm falls back to a crawl on its own; a click is an impulse, not a setting.
-   Cutting scales with rpm and against hardness; heat scales with BOTH, which
-   is the whole tension -- the ground that needs the most clicking punishes it. */
+   Per docs/design/subsurface/redline-disposition.md section 4. Three tiers, and a
+   broken bit is the CHEAPEST of them -- it costs a trip, never the run. */
 const IDLE_RPM=0.14, CLICK_KICK=0.26, RPM_MAX=1.35, RPM_TAU=0.65;
 const FEED=0.55, CUT_RATE=5.0;
-const HEAT_GAIN=0.50, HEAT_BLEED=0.20, REDLINE=0.82, WEAR_RATE=0.18;
+const HEAT_GAIN=0.50, HEAT_BLEED=0.20;
+
+const INTERVAL_M   = 2;
+const N_INTERVALS  = TARGET / INTERVAL_M;
+const LOST_BELOW   = 0.35;
+const COOK_START   = 0.52;
+const COOK_RATE    = 0.85;
+const WEAR_PER_M   = 0.016;
+const UNDER_PENALTY= 1.4;      // under-weight smears the core, gentler than over-break
+const TRIP_BASE_S  = 2.0, TRIP_PER_M = 0.075;
 
 const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 let st, chips, shake, over;
 function reset(){
-  st = { depthM:0, phase:0, heat:0, rpm:IDLE_RPM, feed:FEED,
-         wear:1, cracks:[], crackCool:0, t:0, rate:0, dead:false, won:false };
+  st = { depthM:0, phase:0, heat:0, rpm:IDLE_RPM, feed:FEED, wear:1,
+         lift:0, tripping:false, tripT:0, tripDur:0, tripCount:0,
+         cracks:[], crackCool:0, t:0, rate:0, done:false,
+         iv: Array.from({length:N_INTERVALS}, () => ({q:0, w:0, cook:0, cut:false})) };
   chips = []; shake = 0; over = false;
   document.getElementById("over").className = "over";
   document.getElementById("hint").className = "hint";
+  document.getElementById("tripui").className = "trip";
+  document.getElementById("trip").disabled = false;
+  document.getElementById("pull").disabled = false;
+  buildLog();
 }
-
 /* ---------------- helpers ---------------- */
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const lerp=(a,b,t)=>a+(b-a)*t;
 const OUT="#0a0e14", OUTB="#101820";
 
 function heatAt(yPx){
-  const d = Math.abs(yPx - yOf(st.depthM));
+  const d = Math.abs(yPx - bitYOf());
   return st.heat * Math.exp(-(d*d)/(2*110*110));
 }
 function steel(shade, heat){
@@ -252,9 +300,9 @@ function steelBands(x0,x1,heat,tones){
     g.addColorStop(t,c); t=Math.min(1,t+span); g.addColorStop(t,c); }
   return g;
 }
-function spawnCrack(m){ st.cracks.push({m, seed:Math.abs(Math.sin(m*77.7)*43758.5)%1}); }
 
-const bitYOf   = () => yOf(st.depthM);
+const holeYOf  = () => yOf(st.depthM);                 // the hole, as cut
+const bitYOf   = () => yOf(Math.max(0, st.depthM - st.lift));  // the bit, which trips out
 const coneApex = () => bitYOf() + 21;
 const coneTop  = () => coneApex() - CONE_LEN;
 function threadTop(){
@@ -326,7 +374,7 @@ function drawGround(){
   }
   CTX.fillStyle="#4a5560"; CTX.fillRect(VX0,SURF_Y-2,VIEW_W,2.5);
 
-  const bw=R*2+12, bitY=bitYOf();
+  const bw=R*2+12, bitY=holeYOf();
   CTX.fillStyle="#0e0b08"; CTX.fillRect(CX-bw/2,SURF_Y,bw,bitY-SURF_Y+16);
   grainSeed=29; CTX.fillStyle="rgba(0,0,0,.8)";
   for (let y=SURF_Y;y<bitY+14;y+=7){
@@ -508,7 +556,9 @@ function drawPowerhead(){
   }
   box(hx+34,top+14,26,22,"#39424e",true);
   // the motor pod lamp reads the spindle: cyan idling, amber driven, red past the line
-  CTX.fillStyle = st.heat>REDLINE ? "#ff5a28" : (st.rpm>0.5 ? "#ffc84d" : "#50e1ff");
+  const hb = strAt(st.depthM).band;
+  CTX.fillStyle = st.rpm > hb[1] ? "#ff5a28"
+                : (st.rpm >= hb[0] ? "#ffc84d" : "#50e1ff");
   CTX.fillRect(hx+41,top+20,5,5);
   box(hx-15,top+48,30,12,"#4a545f",true);
   box(hx-10,top+60,20,14,"#39424e",true);
@@ -556,7 +606,7 @@ function drawChips(dt){
 }
 function drawCracks(){
   for (const c of st.cracks){
-    const y=yOf(c.m); if (y > bitYOf()) continue;
+    const y = bitYOf() - c.off; if (y < cam - 20) continue;
     const h=heatAt(y);
     let x=CX-RS+3+(c.seed*13)%12, yy=y-9, sd=c.seed;
     const pts=[[x,yy]];
@@ -575,37 +625,96 @@ function drawCracks(){
 }
 
 /* ---------------- simulation ---------------- */
+const $ = id => document.getElementById(id);
+const ivIndex = m => Math.min(N_INTERVALS-1, Math.floor(m / INTERVAL_M));
+
+function beginTrip(forced){
+  if (st.tripping || over) return;
+  st.tripping = true; st.tripT = 0; st.tripCount++;
+  st.tripDur = TRIP_BASE_S + st.depthM*TRIP_PER_M;
+  $("tripui").className = "trip show";
+  $("tripm").textContent = (forced ? "bit spent at " : "pulling from ")
+    + st.depthM.toFixed(0) + " m -- " + st.tripDur.toFixed(0) + " s out and back";
+}
+
 function step(dt){
   st.t += dt;
-  if (!st.dead && !st.won){
-    const g = strAt(st.depthM);
-    // the spindle always sags back toward a crawl -- clicks are the only drive
-    st.rpm = IDLE_RPM + (st.rpm - IDLE_RPM) * Math.exp(-dt/RPM_TAU);
-    st.rate = st.rpm * FEED * (1.30 - g.hard*0.85) * CUT_RATE;
-    st.depthM = Math.min(TARGET, st.depthM + st.rate*dt);
-    st.heat = clamp(st.heat + (st.rpm*(0.35 + g.hard*0.75)*HEAT_GAIN - HEAT_BLEED)*dt, 0, 1);
+  shake = Math.max(0, shake - dt*7);
 
-    if (st.heat > REDLINE){
-      const px = (st.heat-REDLINE)/(1-REDLINE);
-      st.wear = clamp(st.wear - px*px*WEAR_RATE*dt, 0, 1);
-      st.crackCool -= dt;
-      if (st.crackCool <= 0){ spawnCrack(st.depthM - 1 - Math.random()*7); st.crackCool = 0.9; }
-      if (st.wear <= 0) fail();
-    }
-    if (st.depthM >= TARGET) win();
-  } else {
+  if (over){
     st.rpm = Math.max(0, st.rpm - dt*0.9);
     st.heat = clamp(st.heat - dt*0.22, 0, 1);
+    st.phase -= st.rpm*9*dt;
+    return;
   }
-  st.phase -= st.rpm * 9 * dt;
-  shake = Math.max(0, shake - dt*7);
+
+  /* A trip is the WHOLE cost of a dull bit: the string comes out rod by rod and
+     goes back, and nothing advances while it does. Time scales with depth,
+     which is what makes pushing on a gamble rather than a freebie. */
+  if (st.tripping){
+    st.tripT += dt;
+    const f = clamp(st.tripT/st.tripDur, 0, 1);
+    st.lift = st.depthM * Math.sin(f*Math.PI);      // out, then back down
+    st.rpm  = Math.max(0, st.rpm - dt*1.6);
+    st.heat = clamp(st.heat - dt*0.42, 0, 1);       // it cools out of the hole
+    st.rate = 0;
+    if (f >= 1){ st.tripping = false; st.lift = 0; st.wear = 1;
+                 st.cracks.length = 0; $("tripui").className = "trip"; }
+    st.phase -= st.rpm*9*dt;
+    return;
+  }
+
+  const g = strAt(st.depthM);
+  st.rpm = IDLE_RPM + (st.rpm - IDLE_RPM)*Math.exp(-dt/RPM_TAU);
+  /* Below the band the bit RUBS instead of cutting and penetration collapses.
+     That is what makes lifting off the face a real dwell: you stop advancing,
+     so cooling costs time rather than costing core. */
+  const lo = g.band[0], hi = g.band[1];
+  const bite = st.rpm >= lo ? 1.0 : Math.pow(st.rpm/lo, 2);
+  st.rate = st.rpm * FEED * (1.30 - g.hard*0.85) * CUT_RATE * bite;
+  const adv = Math.min(st.rate*dt, TARGET - st.depthM);
+
+  /* TIER 2 -- recovery. In band the core comes up intact. Over-driven, it is
+     ground to powder before it ever reaches the barrel, and fractured ground is
+     far less forgiving of it. Under-driven is merely slow: wasted time, not a
+     wasted interval. */
+  const q = st.rpm > hi
+    ? clamp(1 - ((st.rpm - hi)/(hi*0.55))*g.fragility, 0, 1)     // over-break
+    : (st.rpm < lo
+        ? clamp(1 - ((lo - st.rpm)/lo)*UNDER_PENALTY, 0, 1)      // rubbed smooth
+        : 1);
+  /* Recovery is a property of METRES CUT, not seconds elapsed -- a dwell off
+     the face contributes neither advance nor damage. */
+  const iv = st.iv[ivIndex(st.depthM)];
+  iv.q += q*adv; iv.w += adv; if (adv > 0) iv.cut = true;
+
+  /* TIER 1 -- cooked evidence. Accumulated here, revealed only in the report.
+     A message now would make it a slap; silence makes it a belief you act on. */
+  if (g.icy && st.heat > COOK_START)
+    iv.cook = clamp(iv.cook + ((st.heat-COOK_START)/(1-COOK_START))*COOK_RATE*dt, 0, 1);
+
+  st.depthM = clamp(st.depthM + adv, 0, TARGET);
+  st.heat = clamp(st.heat + (st.rpm*(0.35 + g.hard*0.75)*HEAT_GAIN - HEAT_BLEED)*dt, 0, 1);
+
+  /* TIER 3 -- wear. The cheapest failure: it buys a trip, never an ending. */
+  st.wear = clamp(st.wear - adv*g.hard*(1 + 2*st.heat)*WEAR_PER_M, 0, 1);
+
+  st.crackCool -= dt;
+  if (st.wear < 0.45 && st.crackCool <= 0 && st.cracks.length < 6){
+    st.cracks.push({off: 18 + Math.random()*130, seed: Math.random()});
+    st.crackCool = 1.5;
+  }
+  if (st.wear <= 0){ beginTrip(true); return; }
+  if (st.depthM >= TARGET){ finish("Target depth"); return; }
+
+  st.phase -= st.rpm*9*dt;
 }
 
 function frame(dt){
   step(dt);
   const bitY = bitYOf();
   const want = clamp(bitY - VIEW_H*0.62, -46, yOf(TARGET) + 70 - VIEW_H);
-  cam += (want - cam) * Math.min(1, dt*4.5);        // camera eases after the bit
+  cam += (want - cam) * Math.min(1, dt*4.5);
 
   const sx = shake ? (Math.random()-0.5)*shake*3 : 0;
   const sy = shake ? (Math.random()-0.5)*shake*3 : 0;
@@ -623,86 +732,153 @@ function frame(dt){
   drawCollar();
   drawPowerhead();
 
-  const g=CTX.createRadialGradient(CX,bitY,4,CX,bitY,95);
+  const g = CTX.createRadialGradient(CX,bitY,4,CX,bitY,95);
   g.addColorStop(0,`rgba(255,110,30,${0.45*st.heat})`);
   g.addColorStop(1,"rgba(255,110,30,0)");
-  CTX.fillStyle=g; CTX.fillRect(CX-100,bitY-100,200,200);
+  CTX.fillStyle = g; CTX.fillRect(CX-100,bitY-100,200,200);
 
-  // a redline wash on the whole face, so you feel it before you read the gauge
-  if (st.heat > REDLINE){
-    const a=(st.heat-REDLINE)/(1-REDLINE);
-    CTX.fillStyle=`rgba(255,60,20,${0.10*a})`;
+  if (st.heat > 0.75){
+    CTX.fillStyle = `rgba(255,60,20,${0.10*(st.heat-0.75)/0.25})`;
     CTX.fillRect(VX0,cam,VIEW_W,VIEW_H);
   }
 }
 
-/* ---------------- HUD ---------------- */
-const $ = id => document.getElementById(id);
+/* ---------------- the core log ---------------- */
+const LOG = $("log");
+function buildLog(){
+  LOG.innerHTML = "";
+  for (let i = 0; i < N_INTERVALS; i++) LOG.appendChild(document.createElement("i"));
+}
+function recoveryOf(iv){ return iv.w > 1e-9 ? iv.q/iv.w : 0; }
+function syncLog(){
+  const cutting = ivIndex(st.depthM);
+  for (let i = 0; i < N_INTERVALS; i++){
+    const iv = st.iv[i], el = LOG.children[i];
+    const icy = strAt(i*INTERVAL_M + INTERVAL_M/2).icy;
+    let c = "";
+    if (!iv.cut) c = "";
+    else if (i >= cutting && !over) c = "cut";
+    else { const r = recoveryOf(iv);
+           c = r >= 0.75 ? "good" : (r >= LOST_BELOW ? "part" : "lost"); }
+    if (icy) c += " ice";
+    // cooking stays hidden until the report -- that is the mechanic
+    if (over && iv.cook > 0.20) c += " cook";
+    el.className = c.trim();
+  }
+}
+
+/* ---------------- gauges ---------------- */
 function segs(el,n){ el.innerHTML=""; for(let i=0;i<n;i++) el.appendChild(document.createElement("span")); }
-segs($("rpmb"),12); segs($("heatb"),12); segs($("wearb"),12);
+const NSEG = 14;
+segs($("rpmb"),NSEG); segs($("heatb"),NSEG); segs($("wearb"),NSEG);
 function fill(el,frac,cls){
   const k=el.children, n=k.length, lit=Math.round(clamp(frac,0,1)*n);
   el.className = "bar" + (cls?" "+cls:"");
   for (let i=0;i<n;i++) k[i].className = i<lit ? "on" : "";
 }
-
-const LOG = $("log");
-STRATA.forEach(s=>{
-  const d=document.createElement("div"); d.className="lyr";
-  d.innerHTML = `<div class="nm">${s.name}</div><div class="dp">${s.top}&ndash;${s.bot} m</div>`
-              + `<div class="hd"><i style="width:0%"></i></div>`;
-  LOG.appendChild(d);
-});
+/* the pressure gauge carries the band itself, so the target is never a guess */
+function fillPressure(rpm, lo, hi){
+  const el = $("rpmb"), k = el.children, n = k.length;
+  el.className = "bar";
+  const lit = Math.round(clamp(rpm/RPM_MAX,0,1)*n);
+  for (let i=0;i<n;i++){
+    const a = i/n*RPM_MAX, b = (i+1)/n*RPM_MAX;
+    let c = (b > lo && a < hi) ? "band" : "";
+    if (i < lit) c += (a >= hi ? " on over" : " on");
+    k[i].className = c.trim();
+  }
+}
 
 let best = 0;
-try { best = parseFloat(localStorage.getItem("redline.best")) || 0; } catch(e){}
-function showBest(){ $("best").textContent = best ? best.toFixed(1)+" m" : "—"; }
+try { best = parseFloat(localStorage.getItem("redline.bestcol")) || 0; } catch(e){}
+function showBest(){ $("best").textContent = best ? best.toFixed(0)+" m" : "—"; }
 showBest();
 
-function syncHUD(){
-  const g = strAt(st.depthM);
-  $("depth").textContent = st.depthM.toFixed(1);
-  $("rpmv").textContent  = Math.round(st.rpm*100);
-  $("heatv").textContent = Math.round(st.heat*100);
-  $("wearv").textContent = Math.round(st.wear*100);
-  $("strat").textContent = g.name;
-  $("rate").textContent  = st.rate.toFixed(2)+" m/s";
-  fill($("rpmb"),  st.rpm/RPM_MAX, st.rpm>0.75?"warm":"");
-  fill($("heatb"), st.heat, st.heat>REDLINE?"crit":(st.heat>0.55?"warm":""));
-  fill($("wearb"), st.wear, st.wear<0.3?"crit":(st.wear<0.6?"warm":"ok"));
-  STRATA.forEach((s,i)=>{
-    const el=LOG.children[i];
-    const f=clamp((st.depthM-s.top)/(s.bot-s.top),0,1);
-    el.className = "lyr" + (f>=1 ? " done" : (f>0 ? " here" : ""));
-    el.querySelector("i").style.width = (f*100).toFixed(1)+"%";
-  });
+function columnStats(){
+  const cutting = ivIndex(st.depthM);
+  let intact=0, part=0, lost=0, cooked=0, icyCut=0, rSum=0, n=0;
+  for (let i=0;i<N_INTERVALS;i++){
+    const iv = st.iv[i];
+    if (!iv.cut || (i >= cutting && !over && st.depthM < TARGET)) continue;
+    const r = recoveryOf(iv); rSum += r; n++;
+    if (r >= 0.75) intact++; else if (r >= LOST_BELOW) part++; else lost++;
+    if (strAt(i*INTERVAL_M + INTERVAL_M/2).icy){ icyCut++; cooked += iv.cook; }
+  }
+  return { n, intact, part, lost,
+           meanRec: n ? rSum/n : 0,
+           logged: (intact+part)*INTERVAL_M,
+           waterLoss: icyCut ? cooked/icyCut : 0 };
 }
 
-function endRun(kind, k, w){
+function syncHUD(){
+  const g = strAt(st.depthM), s = columnStats();
+  $("depth").textContent  = st.depthM.toFixed(1);
+  $("logged").textContent = s.logged.toFixed(0)+" m";
+  $("recov").textContent  = s.n ? Math.round(s.meanRec*100)+"%" : "—";
+  $("rpmv").textContent   = Math.round(st.rpm*100);
+  $("heatv").textContent  = Math.round(st.heat*100);
+  $("wearv").textContent  = Math.round(st.wear*100);
+  $("strat").textContent  = g.name;
+  $("rate").textContent   = st.rate.toFixed(2)+" m/s";
+  $("bandhint").textContent = "band " + Math.round(g.band[0]*100) + "–" + Math.round(g.band[1]*100);
+  fillPressure(st.rpm, g.band[0], g.band[1]);
+  fill($("heatb"), st.heat, st.heat>0.75?"crit":(st.heat>COOK_START?"warm":""));
+  fill($("wearb"), st.wear, st.wear<0.3?"crit":(st.wear<0.6?"warm":"ok"));
+  $("tripcost").textContent = (TRIP_BASE_S + st.depthM*TRIP_PER_M).toFixed(0)+"s";
+  const busy = st.tripping || over;
+  $("trip").disabled = busy; $("pull").disabled = busy;
+  if (st.tripping) $("tripp").style.width = (clamp(st.tripT/st.tripDur,0,1)*100).toFixed(1)+"%";
+  syncLog();
+}
+
+/* ---------------- the report ---------------- */
+function row(label, value, bad){
+  return `<div${bad?' class="bad"':''}><span>${label}</span><b>${value}</b></div>`;
+}
+function finish(kind){
   over = true;
-  if (st.depthM > best){
-    best = st.depthM; showBest();
-    try { localStorage.setItem("redline.best", String(best)); } catch(e){}
+  st.done = true;
+  $("tripui").className = "trip";
+  const s = columnStats();
+  if (s.logged > best){
+    best = s.logged; showBest();
+    try { localStorage.setItem("redline.bestcol", String(best)); } catch(e){}
   }
-  $("overk").textContent = k;
-  $("overd").textContent = st.depthM.toFixed(1)+" m";
-  $("overw").textContent = w;
-  $("over").className = "over show " + kind;
-}
-function fail(){
-  st.dead = true;
-  endRun("fail","Bit failed",
-    "The steel cracked through. Ease off the spindle and let it cool before it gets that hot.");
-}
-function win(){
-  st.won = true;
-  endRun("win","Target depth",
-    "Core recovered at 120 m. The whole column is logged.");
+  $("overk").textContent = kind;
+  $("overd").innerHTML = s.logged.toFixed(0) + " m <small>logged of "
+                       + st.depthM.toFixed(0) + " m drilled</small>";
+  const wl = Math.round(s.waterLoss*100);
+  $("rep").innerHTML =
+      row("Mean recovery", Math.round(s.meanRec*100)+"%")
+    + row("Intervals intact", s.intact)
+    + row("Intervals partial", s.part)
+    + row("Intervals lost", s.lost, s.lost > 0)
+    + row("Trips", st.tripCount)
+    + row("Water assay", wl > 2 ? "reads "+wl+"% low" : "clean", wl > 2);
+
+  const v = $("verdict");
+  if (wl > 12){
+    v.className = "verdict bad";
+    v.textContent = "Your fractured-zone assays read " + wl
+      + "% low. The water was there. You cooked it out, and nothing told you.";
+  } else if (s.lost > 3){
+    v.className = "verdict bad";
+    v.textContent = s.lost + " intervals came up empty -- no assay exactly where "
+      + "you wanted one. Stay in the band and the barrel fills.";
+  } else if (st.depthM >= TARGET){
+    v.className = "verdict";
+    v.textContent = "A clean column to 120 m. This is what a hole is for.";
+  } else {
+    v.className = "verdict";
+    v.textContent = "Column logged to " + st.depthM.toFixed(0) + " m.";
+  }
+  $("over").className = "over show";
+  syncLog();
 }
 
 /* ---------------- input ---------------- */
 function bite(){
-  if (over || st.dead || st.won) return;
+  if (over || st.tripping) return;
   st.rpm = Math.min(RPM_MAX, st.rpm + CLICK_KICK);
   if (!REDUCED) shake = 1;
   $("hint").className = "hint gone";
@@ -712,14 +888,16 @@ stage.addEventListener("pointerdown", e => { e.preventDefault(); bite(); });
 stage.addEventListener("keydown", e => {
   if (e.key === " " || e.key === "Enter"){ e.preventDefault(); bite(); }
 });
-$("again").addEventListener("pointerdown", e => { e.stopPropagation(); });
+$("trip").addEventListener("click", () => beginTrip(false));
+$("pull").addEventListener("click", () => { if (!over) finish("String pulled"); });
+$("again").addEventListener("pointerdown", e => e.stopPropagation());
 $("again").addEventListener("click", e => { e.stopPropagation(); reset(); stage.focus(); });
 
 /* ---------------- loop ---------------- */
 reset();
 let last = performance.now(), acc = 0;
 function tick(now){
-  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  const dt = clamp((now-last)/1000, 0, 0.05); last = now;
   frame(dt);
   acc += dt; if (acc > 0.08){ syncHUD(); acc = 0; }
   requestAnimationFrame(tick);
