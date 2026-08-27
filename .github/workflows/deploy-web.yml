@@ -3,14 +3,13 @@ name: Deploy to GitHub Pages
 on:
   workflow_dispatch:
   push:
-    # PAUSED: this branch was listed so the /lunarmap/ playtest could be
-    # opened on a phone before merge. The excavation branch needs the site
-    # for its own sandbox, and one repo has one Pages site -- with both
-    # branches listed, whichever pushed last cancelled the other's build
-    # (concurrency group "pages", cancel-in-progress). Nothing else this
-    # branch does depends on Pages. Put it back when the site is free:
-    #   branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj]
-    branches: [main, master]
+    # One repo has one Pages site, and the excavation branch deploys to it
+    # too. Whichever branch pushes last owns the site until the other one
+    # pushes again -- the builds also cancel each other (concurrency group
+    # "pages", cancel-in-progress). This branch is listed while the
+    # site-selection playtest at /lunarmap/ is being tried on a phone.
+    # Drop it from this list again once that is done.
+    branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj]
     paths:
       - 'src/**'
       - 'tools/**'

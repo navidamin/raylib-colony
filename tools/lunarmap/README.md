@@ -49,24 +49,61 @@ Headless rendering uses the same software-GL wrapper as the other
 instruments: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
 xvfb-run -a ...` (the script applies it).
 
-## Playtest
+## Site-selection playtest (`--site`)
 
 ```bash
-tools/lunarmap/lunarmap.sh --playtest
+./build/src/lunar_map --site
 ```
+
+The five-level site-selection ladder, played rather than rendered.
+Level 1 is the near-side map: move over the moon and the region under
+the cursor names itself — real named features where there are any,
+a measured mare/highland reading anywhere else — and the region card
+shows its composition, its terrane and its archetype. Click to claim
+it. The card then *freezes*: levels 2–5 descend 500 → 100 → 25 → 5 km
+and never revise it, because resources belong to the region while
+terrain belongs to the spot. The level card on the right is the part
+that sharpens — measured slope, relief, illumination, Earth link — and
+at level 5 the site is judged buildable or refused. Clicking a card
+row opens its hint (what a high titanium reading is *for*). `Esc` or
+the on-screen BACK button steps back up.
+
+**Touch.** A phone has no hover, so a tap that jumps the pointer only
+aims; a second tap in the same place commits. The prompt strip
+switches to tap wording once it sees this happen, and carries the BACK
+button that stands in for `Esc`.
+
+Headless verification of the same state machine:
+
+```bash
+tools/lunarmap/lunarmap.sh --siteshot build/lunarmap/step.png
+```
+
+`--siteshot` drives the real `UpdateSiteSelect` with a scripted
+pointer, one PNG per step, so what is checked is the shipping flow and
+not a re-implementation of it.
 
 ### Web playtest (GitHub Pages)
 
 The deploy workflow (.github/workflows/deploy-web.yml) also builds this
-tool with Emscripten and publishes it at **/lunarmap/** alongside the
+tool with Emscripten and publishes it at **/lunarmap/**, alongside the
 game and the view-ladder playtest, preloading the LOLA DEM + WAC albedo
-(~45 MB download). The web build is interactive: tap the near-side map
-to dive into a 200 km window at that spot, BACK returns; on-screen
-buttons cover style, 3D/map view, sun and exaggeration. Shading avoids
-float textures and uses a GLSL ES 100 shader, so WebGL1 is enough.
-Deploys run from `main`; a feature branch also needs adding to the
-`github-pages` environment's allowed branches before its deploy job
-will run.
+(~45 MB download). The browser has no argv, so **the web build comes up
+in `--site`**: opening /lunarmap/ on a phone lands straight in site
+selection. Shading avoids float textures and uses a GLSL ES 100 shader,
+so WebGL1 is enough.
+
+The repo has one Pages site and `main` is not the only branch that
+wants it, so deploying a feature branch takes two steps: list the
+branch under `on.push.branches` in the workflow, **and** allow it in
+the repository's Settings → Environments → `github-pages` deployment
+branch rules. Whichever branch pushed last owns the site.
+
+## Review suite (`--playtest`)
+
+```bash
+tools/lunarmap/lunarmap.sh --playtest
+```
 
 Renders the review suite into `build/lunarmap/`: the near side in both
 styles, then Tycho (top-down + tilted), Copernicus, Aristoteles, Mare
@@ -93,6 +130,8 @@ craters must sit where the real ones sit.
 | `--place DX,DY` | placement cursor, km east/north of the window centre |
 | `--footprint KM` | cursor footprint size (default 1.5) |
 | `--ladder` | walk the survey descent, one PNG per level |
+| `--site` | interactive site-selection playtest (the five levels) |
+| `--siteshot PATH` | scripted walk through `--site`, one PNG per step |
 | `--out PATH` | render PNG and exit; without it a window opens |
 | `--dem PATH` | alternate DEM TIFF |
 

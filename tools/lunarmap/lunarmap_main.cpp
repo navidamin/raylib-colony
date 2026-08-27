@@ -189,6 +189,8 @@ struct MapOptions
     bool ladder = false;
     int demo = -1;                 // --demo NAME: annotated ladder walk
     int maxLevel = 5;              // --maxlevel N: stop the demo after Ln
+    bool siteMode = false;         // --site: interactive site selection
+    std::string siteShot;          // --siteshot PATH: scripted walk, PNGs
     // Data-layer test: -1 none, else an index into INSTRUMENTS. --truth
     // renders the field at full resolution instead of on the
     // instrument's measurement grid -- the "what is actually there"
@@ -230,6 +232,8 @@ static void PrintUsage()
         << "  --footprint KM    cursor footprint size    (default: 1.5)\n"
         << "  --ladder          walk the survey descent, one PNG per level\n"
         << "  --demo NAME       annotated descent: imbrium|apennine|shackleton\n"
+        << "  --site            interactive site selection (playtest)\n"
+        << "  --siteshot PATH   scripted walk through --site, one PNG per step\n"
         << "  --layer N         data layer 0=hydrogen 1=iron 2=rock abundance\n"
         << "  --truth           draw the layer at full resolution, not its grid\n"
         << "  --layeralpha N    layer opacity 0-255      (default: 145)\n"
@@ -299,6 +303,13 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--footprint" && hasNext) { options.footprintKm = std::atof(argv[++i]); }
         else if (arg == "--ladder") { options.ladder = true; }
         else if (arg == "--maxlevel" && hasNext) { options.maxLevel = std::atoi(argv[++i]); }
+        else if (arg == "--site") { options.siteMode = true; options.nearside = true; }
+        else if (arg == "--siteshot" && hasNext)
+        {
+            options.siteMode = true;
+            options.nearside = true;
+            options.siteShot = argv[++i];
+        }
         else if (arg == "--demo" && hasNext)
         {
             std::string name = argv[++i];
@@ -1005,22 +1016,41 @@ static void DrawHud(const TerrainScene& scene, const MapOptions& options,
     const char* source = (scene.nativeKm < 0.5)
         ? TextFormat("SLDEM2015 %.0f m", scene.nativeKm * 1000.0)
         : TextFormat("LOLA LDEM_16 %.1f km", scene.nativeKm);
-    const char* title = scene.nearside
-        ? TextFormat("MOON - NEAR SIDE  |  %s (real elevation)", source)
-        : TextFormat("MOON  %.2f%c  %.2f%c  |  %.0f km window  |  %s",
-                     std::fabs(scene.window.latDeg),
-                     (scene.window.latDeg >= 0.0) ? 'N' : 'S',
-                     std::fabs(scene.window.lonDeg),
-                     (scene.window.lonDeg >= 0.0) ? 'E' : 'W',
-                     options.spanKm, source);
-    DrawText(title, 14, 12, 18, ink);
+    // A phone has no room for the dataset label on the same line.
+    bool narrowHud = screenW < 720;
+    const char* title;
+    if (scene.nearside)
+    {
+        title = narrowHud
+            ? "MOON - NEAR SIDE"
+            : TextFormat("MOON - NEAR SIDE  |  %s (real elevation)", source);
+    }
+    else
+    {
+        title = narrowHud
+            ? TextFormat("MOON  %.2f%c  %.2f%c  |  %.0f km",
+                         std::fabs(scene.window.latDeg),
+                         (scene.window.latDeg >= 0.0) ? 'N' : 'S',
+                         std::fabs(scene.window.lonDeg),
+                         (scene.window.lonDeg >= 0.0) ? 'E' : 'W',
+                         options.spanKm)
+            : TextFormat("MOON  %.2f%c  %.2f%c  |  %.0f km window  |  %s",
+                         std::fabs(scene.window.latDeg),
+                         (scene.window.latDeg >= 0.0) ? 'N' : 'S',
+                         std::fabs(scene.window.lonDeg),
+                         (scene.window.lonDeg >= 0.0) ? 'E' : 'W',
+                         options.spanKm, source);
+    }
+    DrawText(title, 14, 12, narrowHud ? 16 : 18, ink);
     DrawText(TextFormat("sun az %.0f  el %.0f   exag x%.1f   %s",
                         options.sunAzimuthDeg, options.sunElevationDeg,
                         options.exaggeration,
                         (styleMode == 1) ? "COLOR ELEVATION" : "SHADED RELIEF"),
              14, 34, 14, dim);
-    if (scene.nearside && options.outPath.empty())
+    if (scene.nearside && options.outPath.empty() && !options.siteMode)
     {
+        // The map explorer's own instruction. Site selection claims a
+        // region here instead, and says so on its own prompt strip.
         DrawText("click / tap the map to dive into a 200 km window",
                  14, 52, 14, dim);
     }
@@ -1657,11 +1687,11 @@ static void DrawMiniBar(int x, int y, int w, float frac, Color tint)
 // The frozen region card. Drawn IDENTICALLY at every level -- the whole
 // design in one visual fact: this panel never changes below level 1.
 static void DrawRegionCard(const DemoSite& site, int level, int px, int py,
-                           const char* hoverKey = nullptr)
+                           const char* hoverKey = nullptr, int pw = 336)
 {
     int hintRowY = -1;
     SurveyHintResult hint = { nullptr, nullptr };
-    int pw = 336, ph = 252;
+    int ph = 252;
     Color line = Color{ 120, 150, 205, 255 };
     Color dim = Color{ 205, 210, 220, 255 };
     Color faint = Color{ 128, 134, 146, 255 };
@@ -2014,6 +2044,228 @@ static void DrawScene(TerrainScene& scene, const MapOptions& options,
     EndMode3D();
 }
 
+// ---------------------------------------------------------------------------
+// Level-1 region highlighting: the mechanism itself.
+//
+// The disc is a MAP OF REGIONS, not ground with a crosshair. Terranes
+// are colour-washed; the named features are outlined; whatever is under
+// the cursor lights up with its name on a chip. No cursor rectangle at
+// this level -- the lit region IS the selection.
+//
+// Feature circles carry real centres and radii from
+// src/assets/planet/zones.json. The PKT boundary is traced approximately
+// from Jolliff, Gillis & Haskin (2000) Fig. 1 -- test-grade, not
+// survey-grade; the game will classify from its own composition once the
+// generator is inverted.
+// ---------------------------------------------------------------------------
+
+struct DiscFeature
+{
+    const char* name;
+    double lat, lon, radiusKm;
+    // Fe/Ti wt%, Th ppm from src/assets/planet/zones.json where that
+    // entry carries them; -1 means "derive from terrane + ground type"
+    // (RegionIdentity below), which is what most of the Moon needs.
+    float fePct, tiPct, thPpm;
+};
+
+static const DiscFeature DISC_FEATURES[] =
+{
+    { "Oceanus Procellarum", 18.4, -57.4, 1296, 13.5f, 3.0f, 6.0f },
+    { "Mare Frigoris", 55.0, 0.0, 723, 12.0f, 1.5f, 3.0f },
+    { "Mare Imbrium", 32.8, -15.6, 573, 14.0f, 2.5f, 8.0f },
+    { "Mare Fecunditatis", -7.8, 51.3, 454, 14.0f, 2.0f, 1.5f },
+    { "Mare Tranquillitatis", 8.5, 31.4, 436, 15.5f, 8.0f, 1.5f },
+    { "Mare Nubium", -21.3, -16.5, 358, 14.0f, 2.0f, 4.0f },
+    { "Mare Serenitatis", 28.0, 17.5, 354, 14.5f, 3.5f, 2.5f },
+    { "Mare Crisium", 17.0, 59.1, 278, 13.0f, 1.5f, 1.0f },
+    { "Mare Humorum", -24.4, -38.6, 194, 14.5f, 3.0f, 4.5f },
+    { "Mare Cognitum", -10.0, -23.1, 175, 14.5f, 3.5f, 5.0f },
+    { "Mare Nectaris", -15.2, 35.3, 170, 12.5f, 2.0f, 1.0f },
+    { "Sinus Medii", 2.4, 1.7, 144, 12.0f, 2.0f, 3.0f },
+    { "Sinus Iridum", 44.1, -31.5, 124, 13.0f, 2.0f, 6.0f },
+    { "Mare Vaporum", 13.3, 3.6, 122, 13.5f, 3.0f, 5.5f },
+    { "Clavius", -58.4, -14.4, 116, 5.0f, 0.5f, 1.0f },
+    { "Ptolemaeus", -9.3, -1.9, 76, 6.5f, 0.8f, 2.0f },
+    { "Copernicus", 9.6, -20.1, 47, 8.0f, 1.2f, 5.0f },
+    { "Tycho", -43.3, -11.4, 43, 6.0f, 0.8f, 1.5f },
+    { "Plato", 51.6, -9.4, 50, 12.5f, 2.0f, 4.0f },
+};
+static const int DISC_FEATURE_COUNT =
+    (int)(sizeof(DISC_FEATURES) / sizeof(DISC_FEATURES[0]));
+
+// PKT outline, lat/lon vertices. Everything else on the near side is
+// FHT for this instrument; SPA is essentially a far-side terrane.
+static const double PKT_POLY[][2] =
+{
+    { 52, -72 }, { 57, -45 }, { 52, -20 }, { 47, -2 }, { 38, 8 },
+    { 28, 17 }, { 18, 14 }, { 8, 10 }, { -2, 7 }, { -12, 2 },
+    { -22, -6 }, { -30, -18 }, { -32, -33 }, { -26, -48 },
+    { -14, -60 }, { -2, -70 }, { 12, -78 }, { 28, -80 }, { 42, -79 },
+};
+static const int PKT_POLY_COUNT =
+    (int)(sizeof(PKT_POLY) / sizeof(PKT_POLY[0]));
+
+static bool InPkt(double lat, double lon)
+{
+    bool inside = false;
+    for (int i = 0, j = PKT_POLY_COUNT - 1; i < PKT_POLY_COUNT; j = i++)
+    {
+        double yi = PKT_POLY[i][0], xi = PKT_POLY[i][1];
+        double yj = PKT_POLY[j][0], xj = PKT_POLY[j][1];
+        if (((yi > lat) != (yj > lat)) &&
+            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
+        {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+static double FeatureDistKm(const DiscFeature& f, double lat, double lon)
+{
+    double la1 = lat * DEG2RAD, la2 = f.lat * DEG2RAD;
+    double c = std::sin(la1) * std::sin(la2) +
+               std::cos(la1) * std::cos(la2) *
+               std::cos((lon - f.lon) * DEG2RAD);
+    return std::acos(Clamp((float)c, -1.0f, 1.0f)) * LOLA_MOON_RADIUS_M / 1000.0;
+}
+
+// Smallest named feature containing the point, or -1.
+static int FeatureAt(double lat, double lon)
+{
+    int best = -1;
+    double bestR = 1e18;
+    for (int i = 0; i < DISC_FEATURE_COUNT; i++)
+    {
+        if (FeatureDistKm(DISC_FEATURES[i], lat, lon) <=
+            DISC_FEATURES[i].radiusKm && DISC_FEATURES[i].radiusKm < bestR)
+        {
+            best = i;
+            bestR = DISC_FEATURES[i].radiusKm;
+        }
+    }
+    return best;
+}
+
+// Region identity for ANY point, not just the annotated ones -- the
+// player clicks wherever they like, so unnamed ground must work too.
+//
+// Named feature -> its real figures where zones.json carries them.
+// Otherwise derived from the terrane plus whether the ground is mare or
+// highland, and that test is real measured data: mare floors sit 2-3 km
+// below the reference radius, highlands above it. Elevation is the
+// proxy, so an unnamed basalt plain reads as basalt.
+struct RegionIdentity
+{
+    char name[64];
+    const char* terrane;
+    const char* archetype;
+    Color archetypeTint;
+    const char* rock;
+    float fePct, tiPct, thPpm;
+    char latitudeNote[96];
+    bool isMare;
+    int featureIndex;          // -1 when the ground is unnamed
+};
+
+static RegionIdentity IdentifyRegion(const LolaDem& dem, double lat, double lon)
+{
+    RegionIdentity r;
+    r.featureIndex = FeatureAt(lat, lon);
+    bool pkt = InPkt(lat, lon);
+    float elevM = dem.IsLoaded() ? dem.ElevationM(lat, lon) : 0.0f;
+    r.isMare = (elevM < -500.0f);
+    bool polar = (std::fabs(lat) > 80.0);
+
+    r.terrane = pkt ? "Procellarum KREEP Terrane"
+                    : (polar ? "Feldspathic Highlands (polar)"
+                             : "Feldspathic Highlands");
+    r.rock = r.isMare ? "mare basalt" : "anorthosite breccia";
+
+    if (r.featureIndex >= 0)
+    {
+        const DiscFeature& f = DISC_FEATURES[r.featureIndex];
+        std::snprintf(r.name, sizeof(r.name), "%s", f.name);
+        r.fePct = f.fePct; r.tiPct = f.tiPct; r.thPpm = f.thPpm;
+    }
+    else
+    {
+        std::snprintf(r.name, sizeof(r.name), "%s %s",
+                      r.isMare ? "Unnamed mare" : "Unnamed highland",
+                      polar ? "(polar)" : "");
+        // Derived: mafic ground carries iron and titanium, feldspathic
+        // ground does not; thorium is the terrane's to give.
+        r.fePct = r.isMare ? 13.0f : 5.0f;
+        r.tiPct = r.isMare ? 2.5f : 0.5f;
+        r.thPpm = pkt ? 5.0f : 1.0f;
+    }
+
+    if (polar)
+    {
+        std::snprintf(r.latitudeNote, sizeof(r.latitudeNote),
+                      "%.0f %c - PSR floors + near-constant crest sun",
+                      std::fabs(lat), lat < 0 ? 'S' : 'N');
+    }
+    else
+    {
+        std::snprintf(r.latitudeNote, sizeof(r.latitudeNote),
+                      "%.0f %c - 14-day nights, %s Earth comms",
+                      std::fabs(lat), lat < 0 ? 'S' : 'N',
+                      std::fabs(lon) < 50.0 ? "strong" : "grazing");
+    }
+
+    // Archetype: the strategy tag, from the composition just derived.
+    if (polar)
+    {
+        r.archetype = "POLAR VOLATILE";
+        r.archetypeTint = Color{ 140, 190, 235, 255 };
+    }
+    else if (r.thPpm >= 5.0f && !r.isMare)
+    {
+        // KREEP tags the ground whose ONLY standout is thorium. A
+        // thorium-rich mare is still flat, iron-rich, easy ground, and
+        // that is what a colony there is built for -- so mare wins.
+        r.archetype = "KREEP SCIENTIFIC";
+        r.archetypeTint = Color{ 196, 150, 220, 255 };
+    }
+    else if (r.isMare)
+    {
+        r.archetype = "MARE INDUSTRIAL";
+        r.archetypeTint = Color{ 224, 168, 108, 255 };
+    }
+    else
+    {
+        r.archetype = "HIGHLAND CONSTRUCTION";
+        r.archetypeTint = Color{ 150, 200, 150, 255 };
+    }
+    return r;
+}
+
+// A DemoSite view of a live identity, so the card and hint drawing
+// written for --demo serves the interactive playtest unchanged.
+static DemoSite SiteFromIdentity(const RegionIdentity& id, const char* hintKey,
+                                 float psrKm)
+{
+    DemoSite d = {};
+    d.key = "live";
+    d.regionName = id.name;
+    d.terrane = id.terrane;
+    d.archetype = id.archetype;
+    d.archetypeTint = id.archetypeTint;
+    d.rock = id.rock;
+    d.fePct = id.fePct;
+    d.tiPct = id.tiPct;
+    d.thPpm = id.thPpm;
+    d.latitudeNote = id.latitudeNote;
+    d.hintKey = hintKey;
+    d.psrDistanceKm = psrKm;
+    d.altHoverLat = 9e9; d.altHoverLon = 9e9;
+    d.sunElDeg = 30.0f;
+    for (int i = 0; i < 5; i++) { d.note[i][0] = ""; d.note[i][1] = ""; }
+    return d;
+}
+
 struct AppState
 {
     MapOptions options;
@@ -2027,11 +2279,376 @@ struct AppState
     float pendingExag = 2.0f;
     Vector2 pressPos = { 0.0f, 0.0f };
     bool pressOnUi = false;
+
+    // --- interactive site selection (--site) ---
+    bool claimed = false;
+    RegionIdentity region = {};      // fixed at the moment of claiming
+    SurveyDescent descent;
+    int siteLevel = 0;               // 0 orbital, 1..4 = ladder levels 2..5
+    bool sceneDirty = true;
+    bool founded = false;
+    Vector2 lastPointer = { 0.0f, 0.0f };
+    bool havePointer = false;        // a settled pointer exists to click with
+    bool touchStyle = false;         // a jumped click was seen -> tapping
 };
+
+// Drawn by the level-1 highlight and ladder helpers, which are defined
+// further down beside the --demo renderer and shared with it.
+static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
+                                    Color hoverTint);
+static void DrawHoverChip(float mx, float my, const char* name,
+                          const char* sub, Color tint, int screenW);
+static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
+                                    int w, int h);
+static void DrawLadderCursor(const SurveyCursor& cursor,
+                             const SurveyViewport& viewport, Color tint);
+
+// ---------------------------------------------------------------------------
+// Interactive site selection (--site): the playtest.
+//
+// The same five levels and the same cards as --demo, driven by a real
+// mouse instead of a script. Level 0 is the near-side map (the game's
+// orbital disc); click anywhere to claim -- named feature or not -- then
+// descend, and the region card stays fixed the whole way down.
+// ---------------------------------------------------------------------------
+
+// Headless input injection. --siteshot drives the REAL UpdateSiteSelect
+// with a scripted pointer, so what gets verified is the shipping state
+// machine rather than a re-implementation of it.
+struct FakePointer
+{
+    bool active = false;
+    Vector2 pos = { 0.0f, 0.0f };
+    bool click = false;
+    bool escape = false;
+};
+static FakePointer g_fake;
+
+static Vector2 SitePointer()
+{
+    return g_fake.active ? g_fake.pos : GetMousePosition();
+}
+static bool SiteClick()
+{
+    return g_fake.active ? g_fake.click
+                         : IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+}
+static bool SiteEscape()
+{
+    return g_fake.active ? g_fake.escape
+                         : (IsKeyPressed(KEY_ESCAPE) ||
+                            IsMouseButtonPressed(MOUSE_BUTTON_RIGHT));
+}
+
+// Which region-card row the pointer is on, matching DrawRegionCard's
+// layout. Returns nullptr when the pointer is elsewhere.
+static const char* RegionCardHintAt(Vector2 m, int px, int py, int pw)
+{
+    if (m.x < px || m.x > px + pw) return nullptr;
+    struct Row { int y; const char* key; };
+    const Row rows[] = {
+        { py + 58,  "rock" },
+        { py + 112, "iron" },
+        { py + 144, "titanium" },
+        { py + 176, "thorium" },
+        { py + 210, "psr" },
+    };
+    for (const Row& r : rows)
+    {
+        if (m.y >= r.y && m.y <= r.y + 26) return r.key;
+    }
+    return nullptr;
+}
+
+static void BuildSiteScene(AppState& app)
+{
+    // Written back into app.options, not a local copy: DrawHud reads the
+    // live options for its span and coordinate readout, so a local copy
+    // leaves the HUD claiming the window it started with.
+    if (app.siteLevel == 0)
+    {
+        app.options.nearside = true;
+    }
+    else
+    {
+        const SurveyCursor* c = SurveyCurrent(&app.descent);
+        app.options.nearside = false;
+        app.options.pickLat = c->windowLatDeg;
+        app.options.pickLon = c->windowLonDeg;
+        app.options.spanKm = c->windowSpanKm;
+    }
+    BuildScene(app.options, app.dem, app.scene);
+    app.sceneDirty = false;
+}
+
+static void UpdateSiteSelect(AppState& app)
+{
+    MapOptions& options = app.options;
+    int screenW = GetScreenWidth(), screenH = GetScreenHeight();
+    Vector2 m = SitePointer();
+    SurveyViewport viewport = LadderViewport(screenW, screenH);
+
+    // A touch screen has no hover: the finger arrives and clicks in the
+    // same frame, which would claim whatever it landed on before the
+    // player ever saw the card. So a click only counts once the pointer
+    // has settled -- a mouse always has, a tap needs a second tap.
+    bool jumped = !app.havePointer
+                  || Vector2Distance(m, app.lastPointer) > 24.0f;
+    app.lastPointer = m;
+    app.havePointer = true;
+
+    if (app.sceneDirty) BuildSiteScene(app);
+
+    bool rawClick = SiteClick();
+    bool descend = rawClick;
+    bool ascend = SiteEscape();
+    if (descend && jumped) { descend = false; app.touchStyle = true; }
+
+    // Esc has no key on a phone, so the strip carries a Back button. A
+    // button is not a preview: one tap is enough, jumped or not.
+    Rectangle backBtn = { 8.0f, (float)screenH - 32.0f, 66.0f, 24.0f };
+    bool backShown = (app.siteLevel > 0) || app.founded;
+    if (backShown && rawClick && CheckCollisionPointRec(m, backBtn))
+    {
+        ascend = true;
+        descend = false;
+    }
+
+    // ---------- state that depends on the pointer ----------
+    RegionIdentity hoverId = app.region;
+    double hoverLat = 0.0, hoverLon = 0.0;
+    bool onGround = false;
+
+    if (app.siteLevel == 0)
+    {
+        if (ScreenToLatLon(app.scene, 1.0f, screenW, screenH, m,
+                           &hoverLat, &hoverLon))
+        {
+            onGround = true;
+            hoverId = IdentifyRegion(app.dem, hoverLat, hoverLon);
+        }
+    }
+    else
+    {
+        SurveyCursor* c = SurveyCurrent(&app.descent);
+        SurveyCursorTrack(c, viewport, m.x, m.y);
+        SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
+        onGround = true;
+    }
+
+    // The card is fixed from the claim; before claiming it previews.
+    const RegionIdentity& shown = app.claimed ? app.region : hoverId;
+
+    // A phone is narrower than the two 336 px cards side by side, so on a
+    // narrow screen one card gets the full width and the other collapses
+    // to a name strip. The region card wins level 1 (it is the decision
+    // there); the level card wins the descent (the ground is).
+    bool narrow = screenW < 720;
+    int cardX = narrow ? 8 : 16;
+    int cardW = narrow ? screenW - 16 : 336;
+    bool fullRegionCard = (app.siteLevel == 0) || !narrow;
+    int regionX = narrow ? cardX : 16;
+    int regionY = narrow ? 56 : 64;
+    const char* hintKey = fullRegionCard
+        ? RegionCardHintAt(m, regionX, regionY, cardW) : nullptr;
+    // PSR proximity: real, from the site level's own measurement.
+    float psrKm = (std::fabs(shown.name[0] ? hoverLat : 0.0) > 80.0) ? 4.0f : 999.0f;
+    DemoSite site = SiteFromIdentity(shown, hintKey, psrKm);
+
+    // ---------- measured ground for the level card ----------
+    GroundStats g;
+    TerrainBuildability b;
+    PlacementVerdict verdict;
+    bool haveVerdict = false;
+    if (app.siteLevel > 0)
+    {
+        const SurveyCursor* c = SurveyCurrent(&app.descent);
+        g = CursorGroundStats(app.scene.window, c->offsetXKm, c->offsetYKm,
+                              c->footprintKm);
+        if (app.siteLevel == 4)
+        {
+            b = app.dem.EvaluateSite(hoverLat, hoverLon, c->footprintKm, 30.0);
+            verdict = JudgeSite(b);
+            haveVerdict = true;
+        }
+    }
+
+    // ---------- draw ----------
+    if (!g_fake.active) BeginDrawing();
+    Camera3D camera = TopDownCamera(app.scene, 1.0f);
+    DrawScene(app.scene, options, app.styleMode, camera);
+
+    if (app.siteLevel == 0)
+    {
+        DrawDiscFeatureOutlines(screenW, screenH, hoverId.featureIndex,
+                                hoverId.archetypeTint);
+    }
+    DrawHud(app.scene, options, app.styleMode, screenW, screenH, 1.0f);
+
+    if (app.siteLevel == 0)
+    {
+        if (onGround)
+        {
+            Color tint = hoverId.archetypeTint;
+            DrawCircleLinesV(m, 6.0f, tint);
+            DrawLineEx(Vector2{ m.x - 16, m.y }, Vector2{ m.x - 7, m.y }, 2.0f, tint);
+            DrawLineEx(Vector2{ m.x + 7, m.y }, Vector2{ m.x + 16, m.y }, 2.0f, tint);
+            DrawLineEx(Vector2{ m.x, m.y - 16 }, Vector2{ m.x, m.y - 7 }, 2.0f, tint);
+            DrawLineEx(Vector2{ m.x, m.y + 7 }, Vector2{ m.x, m.y + 16 }, 2.0f, tint);
+            if (!hintKey) DrawHoverChip(m.x, m.y, hoverId.name,
+                                        hoverId.terrane, tint, screenW);
+        }
+        if (onGround) DrawRegionCard(site, 0, regionX, regionY, hintKey, cardW);
+    }
+    else
+    {
+        const SurveyCursor* c = SurveyCurrent(&app.descent);
+        if (c->windowSpanKm >= 25.0)
+        {
+            DrawFeatureArcsInWindow(c->windowLatDeg, c->windowLonDeg,
+                                    c->windowSpanKm, screenW, screenH);
+        }
+        Color tint = haveVerdict
+            ? (verdict.allowed ? Color{ 60, 235, 120, 255 }
+                               : Color{ 255, 70, 70, 255 })
+            : Color{ 232, 238, 255, 255 };
+        DrawLadderCursor(*c, viewport, tint);
+        int levelY = 64;
+        if (narrow)
+        {
+            // Region reduced to its name and archetype: claimed, fixed,
+            // and no longer the question being asked.
+            int h = 30;
+            DrawRectangle(cardX, regionY, cardW, h, Color{ 12, 12, 16, 220 });
+            DrawRectangleLinesEx(Rectangle{ (float)cardX, (float)regionY,
+                                            (float)cardW, (float)h }, 1.0f,
+                                 Color{ 120, 150, 205, 255 });
+            DrawText(site.regionName, cardX + 10, regionY + 8, 15, WHITE);
+            int aw = MeasureText(site.archetype, 12) + 12;
+            DrawRectangleLinesEx(Rectangle{ (float)(cardX + cardW - aw - 8),
+                                            (float)(regionY + 5),
+                                            (float)aw, 20.0f }, 1.0f,
+                                 site.archetypeTint);
+            DrawText(site.archetype, cardX + cardW - aw - 2, regionY + 9, 12,
+                     site.archetypeTint);
+            levelY = regionY + h + 8;
+        }
+        else
+        {
+            DrawRegionCard(site, app.siteLevel, 16, 64, hintKey);
+        }
+        DrawLevelCard(site, app.siteLevel, g, nullptr,
+                      haveVerdict ? &b : nullptr,
+                      haveVerdict ? &verdict : nullptr,
+                      narrow ? cardX : screenW - 352, levelY, cardW);
+    }
+    DrawPendingHintTooltip();
+
+    // ---------- prompt strip ----------
+    {
+        // Narrow screens get the short forms: the long sentence would run
+        // under the level counter, and the counter is already on the card.
+        const char* msg;
+        if (app.founded)
+            msg = narrow ? "COLONY FOUNDED." : "COLONY FOUNDED.  Esc to start over.";
+        else if (app.siteLevel == 0)
+            msg = app.touchStyle
+                ? (narrow ? "Tap to aim, tap again to claim."
+                          : "Tap to aim - the region under the mark names itself.  Tap again to claim it.")
+                : (narrow ? "Click a region to claim it."
+                          : "Move over the moon - the region under the cursor names itself.  Click to claim it.");
+        else if (app.siteLevel == 4)
+            msg = verdict.allowed
+                ? (narrow ? "Found the colony here." : "Click to found the colony here.  Esc to back out.")
+                : (narrow ? "Refused - move to better ground."
+                          : "Red: this ground is refused. Move to better ground.  Esc to back out.");
+        else
+            msg = app.touchStyle
+                ? (narrow ? "Tap to aim, tap again to descend."
+                          : "Tap to aim, tap again to descend into the cursor.  Esc to back out.")
+                : (narrow ? "Click to descend." : "Click to descend into the cursor.  Esc to back out.");
+        int h = 40, y = screenH - h;
+        DrawRectangle(0, y, screenW, h, Color{ 12, 12, 16, 220 });
+        DrawRectangle(0, y, screenW, 1, Color{ 90, 110, 150, 255 });
+        int msgX = 16;
+        if (backShown)
+        {
+            DrawRectangleRec(backBtn, Color{ 30, 34, 44, 255 });
+            DrawRectangleLinesEx(backBtn, 1.0f, Color{ 120, 145, 190, 255 });
+            DrawText("< BACK", (int)backBtn.x + 9, (int)backBtn.y + 5, 14,
+                     Color{ 190, 205, 230, 255 });
+            msgX = (int)(backBtn.x + backBtn.width) + 14;
+        }
+        DrawText(msg, msgX, y + 12, narrow ? 14 : 16,
+                 Color{ 210, 218, 232, 255 });
+        if (!narrow)
+        {
+            const char* lvl = TextFormat("LEVEL %d / 5", app.siteLevel + 1);
+            DrawText(lvl, screenW - MeasureText(lvl, 16) - 16, y + 12, 16,
+                     Color{ 150, 190, 255, 255 });
+        }
+    }
+    if (!g_fake.active) EndDrawing();
+
+    // ---------- transitions ----------
+    if (app.founded)
+    {
+        if (ascend) { app.founded = false; app.claimed = false;
+                      app.siteLevel = 0; app.sceneDirty = true; }
+        return;
+    }
+    if (ascend)
+    {
+        if (app.siteLevel > 0)
+        {
+            if (!SurveyAscend(&app.descent)) { }
+            app.siteLevel--;
+            if (app.siteLevel == 0) app.claimed = false;
+            app.sceneDirty = true;
+        }
+        return;
+    }
+    if (descend && onGround && m.y < screenH - 40)
+    {
+        if (hintKey) return;               // clicking a card row is not a move
+        if (app.siteLevel == 0)
+        {
+            app.region = hoverId;
+            app.claimed = true;
+            app.descent = MakeSurveyDescent(hoverLat, hoverLon);
+            app.descent.levels[1] = MakeSurveyCursor(1, hoverLat, hoverLon);
+            app.descent.depth = 2;
+            app.siteLevel = 1;
+            app.sceneDirty = true;
+        }
+        else if (app.siteLevel == 4)
+        {
+            if (verdict.allowed) app.founded = true;
+        }
+        else
+        {
+            SurveyDescend(&app.descent);
+            app.siteLevel++;
+            app.sceneDirty = true;
+        }
+    }
+}
 
 static void UpdateFrame(void* arg)
 {
     AppState& app = *(AppState*)arg;
+#if defined(PLATFORM_WEB)
+    {
+        int cw = EM_ASM_INT({ return window.innerWidth; });
+        int ch = EM_ASM_INT({ return window.innerHeight; });
+        if (cw > 240 && ch > 240
+            && (cw != GetScreenWidth() || ch != GetScreenHeight()))
+        {
+            SetWindowSize(cw, ch);   // rotation, or a resized browser
+        }
+    }
+#endif
+    if (app.options.siteMode) { UpdateSiteSelect(app); return; }
     MapOptions& options = app.options;
     float dt = GetFrameTime();
 
@@ -2161,106 +2778,6 @@ static void UpdateFrame(void* arg)
 // Levels 2-5 only: level 1 is the projected orbital disc, which lives in
 // the game's render path (OrbitalPickToLatLon), not in this instrument.
 // ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Level-1 region highlighting: the mechanism itself.
-//
-// The disc is a MAP OF REGIONS, not ground with a crosshair. Terranes
-// are colour-washed; the named features are outlined; whatever is under
-// the cursor lights up with its name on a chip. No cursor rectangle at
-// this level -- the lit region IS the selection.
-//
-// Feature circles carry real centres and radii from
-// src/assets/planet/zones.json. The PKT boundary is traced approximately
-// from Jolliff, Gillis & Haskin (2000) Fig. 1 -- test-grade, not
-// survey-grade; the game will classify from its own composition once the
-// generator is inverted.
-// ---------------------------------------------------------------------------
-
-struct DiscFeature
-{
-    const char* name;
-    double lat, lon, radiusKm;
-};
-
-static const DiscFeature DISC_FEATURES[] =
-{
-    { "Oceanus Procellarum", 18.4, -57.4, 1296 },
-    { "Mare Frigoris", 55.0, 0.0, 723 },
-    { "Mare Imbrium", 32.8, -15.6, 573 },
-    { "Mare Fecunditatis", -7.8, 51.3, 454 },
-    { "Mare Tranquillitatis", 8.5, 31.4, 436 },
-    { "Mare Nubium", -21.3, -16.5, 358 },
-    { "Mare Serenitatis", 28.0, 17.5, 354 },
-    { "Mare Crisium", 17.0, 59.1, 278 },
-    { "Mare Humorum", -24.4, -38.6, 194 },
-    { "Mare Cognitum", -10.0, -23.1, 175 },
-    { "Mare Nectaris", -15.2, 35.3, 170 },
-    { "Sinus Medii", 2.4, 1.7, 144 },
-    { "Sinus Iridum", 44.1, -31.5, 124 },
-    { "Mare Vaporum", 13.3, 3.6, 122 },
-    { "Clavius", -58.4, -14.4, 116 },
-    { "Ptolemaeus", -9.3, -1.9, 76 },
-    { "Copernicus", 9.6, -20.1, 47 },
-    { "Tycho", -43.3, -11.4, 43 },
-    { "Plato", 51.6, -9.4, 50 },
-};
-static const int DISC_FEATURE_COUNT =
-    (int)(sizeof(DISC_FEATURES) / sizeof(DISC_FEATURES[0]));
-
-// PKT outline, lat/lon vertices. Everything else on the near side is
-// FHT for this instrument; SPA is essentially a far-side terrane.
-static const double PKT_POLY[][2] =
-{
-    { 52, -72 }, { 57, -45 }, { 52, -20 }, { 47, -2 }, { 38, 8 },
-    { 28, 17 }, { 18, 14 }, { 8, 10 }, { -2, 7 }, { -12, 2 },
-    { -22, -6 }, { -30, -18 }, { -32, -33 }, { -26, -48 },
-    { -14, -60 }, { -2, -70 }, { 12, -78 }, { 28, -80 }, { 42, -79 },
-};
-static const int PKT_POLY_COUNT =
-    (int)(sizeof(PKT_POLY) / sizeof(PKT_POLY[0]));
-
-static bool InPkt(double lat, double lon)
-{
-    bool inside = false;
-    for (int i = 0, j = PKT_POLY_COUNT - 1; i < PKT_POLY_COUNT; j = i++)
-    {
-        double yi = PKT_POLY[i][0], xi = PKT_POLY[i][1];
-        double yj = PKT_POLY[j][0], xj = PKT_POLY[j][1];
-        if (((yi > lat) != (yj > lat)) &&
-            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
-        {
-            inside = !inside;
-        }
-    }
-    return inside;
-}
-
-static double FeatureDistKm(const DiscFeature& f, double lat, double lon)
-{
-    double la1 = lat * DEG2RAD, la2 = f.lat * DEG2RAD;
-    double c = std::sin(la1) * std::sin(la2) +
-               std::cos(la1) * std::cos(la2) *
-               std::cos((lon - f.lon) * DEG2RAD);
-    return std::acos(Clamp((float)c, -1.0f, 1.0f)) * LOLA_MOON_RADIUS_M / 1000.0;
-}
-
-// Smallest named feature containing the point, or -1.
-static int FeatureAt(double lat, double lon)
-{
-    int best = -1;
-    double bestR = 1e18;
-    for (int i = 0; i < DISC_FEATURE_COUNT; i++)
-    {
-        if (FeatureDistKm(DISC_FEATURES[i], lat, lon) <=
-            DISC_FEATURES[i].radiusKm && DISC_FEATURES[i].radiusKm < bestR)
-        {
-            best = i;
-            bestR = DISC_FEATURES[i].radiusKm;
-        }
-    }
-    return best;
-}
 
 // The near-side map is plate carree, square: lon -90..90 across the
 // screen, lat -90..90 down it.
@@ -2707,8 +3224,18 @@ int main(int argc, char** argv)
     bool headless = !app.options.outPath.empty();
 
 #if defined(PLATFORM_WEB)
-    app.options.width = 960;
-    app.options.height = 960;
+    // The browser has no argv, so the web build is the playtest: it comes
+    // up in site selection on the near side, the same as --site.
+    // Size to the real viewport rather than a fixed square -- a scaled
+    // 960 px canvas puts 14 pt card text at about 6 px on a phone.
+    {
+        int cw = EM_ASM_INT({ return window.innerWidth; });
+        int ch = EM_ASM_INT({ return window.innerHeight; });
+        app.options.width = (cw > 240) ? cw : 960;
+        app.options.height = (ch > 240) ? ch : 960;
+    }
+    app.options.siteMode = true;
+    app.options.nearside = true;
 #endif
 
     SetTraceLogLevel(LOG_WARNING);
@@ -2741,6 +3268,75 @@ int main(int argc, char** argv)
         int n = app.dem.LoadOverlays(lolaDir);
         if (n > 0) std::cerr << "lunar_map: " << n
                              << " high-res overlay(s) active\n";
+    }
+
+    if (!app.options.siteShot.empty())
+    {
+        // Scripted walk through the real interactive state machine: a
+        // pointer position and an optional click per step, each rendered
+        // to its own PNG. Verifies the flow a player will actually use.
+        struct Step { float x, y; bool click; const char* tag; };
+        // Fractions of the screen, not pixels: the same walk has to run
+        // at --size 390x844 (the phone layout, where a card spans the
+        // full width) as well as at the default square. Every point sits
+        // below the cards and above the prompt strip -- a click on a card
+        // row opens a hint and deliberately does not move the descent, so
+        // probing there proves nothing about the ladder.
+        const Step steps[] = {
+            { 0.62f, 0.48f, false, "1_hover" },
+            { 0.44f, 0.56f, false, "2_hover_mare" },
+            { 0.44f, 0.56f, true,  "3_claim" },
+            { 0.52f, 0.62f, false, "4_playfield" },
+            { 0.52f, 0.62f, true,  "5_descend" },
+            { 0.42f, 0.70f, true,  "6_descend" },
+            { 0.48f, 0.66f, true,  "7_descend" },
+            { 0.46f, 0.68f, false, "8_site" },
+        };
+        std::string stem = app.options.siteShot;
+        size_t dot = stem.find_last_of('.');
+        std::string ext = (dot == std::string::npos) ? ".png" : stem.substr(dot);
+        if (dot != std::string::npos) stem = stem.substr(0, dot);
+
+        g_fake.active = true;
+        int n = (int)(sizeof(steps) / sizeof(steps[0]));
+        for (int i = 0; i < n; i++)
+        {
+            g_fake.pos = Vector2{ steps[i].x * app.options.width,
+                                  steps[i].y * app.options.height };
+            g_fake.click = false;
+            g_fake.escape = false;
+
+            RenderTexture2D target = LoadRenderTexture(app.options.width,
+                                                       app.options.height);
+            BeginTextureMode(target);
+            UpdateSiteSelect(app);        // draws, no transition
+            EndTextureMode();
+
+            Image shot = LoadImageFromTexture(target.texture);
+            ImageFlipVertical(&shot);
+            std::string path = TextFormat("%s_%s%s", stem.c_str(),
+                                          steps[i].tag, ext.c_str());
+            ExportImage(shot, path.c_str());
+            std::cerr << "lunar_map: wrote " << path << "  (level "
+                      << app.siteLevel + 1 << ")\n";
+            UnloadImage(shot);
+            UnloadRenderTexture(target);
+
+            if (steps[i].click)
+            {
+                // Second pass with the click, off-screen, to advance.
+                g_fake.click = true;
+                RenderTexture2D t2 = LoadRenderTexture(64, 64);
+                BeginTextureMode(t2);
+                UpdateSiteSelect(app);
+                EndTextureMode();
+                UnloadRenderTexture(t2);
+            }
+        }
+        g_fake.active = false;
+        UnloadSceneGpu(app.scene);
+        CloseWindow();
+        return 0;
     }
 
     if (app.options.survey)
