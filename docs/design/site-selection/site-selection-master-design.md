@@ -41,18 +41,30 @@ that:
 
 ---
 
-## 2. Five levels, five questions
+## 2. Four levels, four questions
 
-| # | Level | Span | The question | Answered by |
-|---|-------|------|--------------|-------------|
-| 1 | Orbital | disc | **Which economy?** | terrane + named feature + latitude: Fe/Ti/Th, rock type, day/night regime |
-| 2 | Playfield | 100 km | **Which mix?** | position against boundaries: mare/highland shore, large craters, PSR craters (polar) |
-| 3 | Colony | 25 km | **Which neighbourhood?** | buildable fraction, mean slope, distance to PSR / shore / landmark |
-| 4 | Sect | 5 km | **Which cell?** | cell terrain aggregate + neighbouring cells' buildability |
-| 5 | Site | 1.5 km | **Which ground?** | live `EvaluateSite` at 59 m: slope, relief, illumination, PSR |
+| # | Level | Span | Cursor | The question | Answered by |
+|---|-------|------|--------|--------------|-------------|
+| 1 | Orbital | disc | — | **Which economy?** | terrane + named feature + latitude: Fe/Ti/Th, rock type, day/night regime |
+| 2 | Playfield | 100 km | 25 km | **Which mix?** | position against boundaries: mare/highland shore, large craters, PSR craters (polar) |
+| 3 | Colony | 25 km | 5 km | **Which neighbourhood?** | buildable fraction, mean slope, distance to PSR / shore / landmark |
+| 4 | Site | 5 km | 1.5 km | **Which ground?** | live `EvaluateSite` at 59 m: slope, relief, illumination, PSR |
 
-**Nothing locks until the base is founded.** Levels 1–4 are all free
-navigation; level 5 is the only commitment, and founding fixes
+These are the game's own scales: PLANET is 100 km, COLONY 25, SECT 5.
+The ladder has no rung that is not a view the game already has.
+
+The code carried a fifth, 500 km "REGIONAL" rung between the disc and
+the playfield, which was never in this table. It answered no question of
+its own — the region card freezes at level 1 and never refines (§4.6),
+so there was no new mix to read at 500 km — and it matched no game view.
+Removed. The one thing it bought was geometric: a 100 km cursor is 1/55
+of the disc rather than the 15–30% band the ladder holds elsewhere. That
+band exists so a cursor *rectangle* stays legible, and level 1 draws no
+rectangle — it is picked by hovering named regions — so the constraint
+was never binding there. `survey_cursor_test` exempts level 1 explicitly.
+
+**Nothing locks until the base is founded.** Levels 1–3 are all free
+navigation; level 4 is the only commitment, and founding fixes
 everything at once — the terrain anchor, the 20×20 grid, the region.
 
 This is a correction to an earlier draft that locked the anchor at

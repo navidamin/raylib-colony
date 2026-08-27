@@ -16,8 +16,15 @@ const double SURVEY_KM_PER_DEG = 30.32268;
 const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
 {
     // name          window span                  footprint  snap
-    { "ORBITAL",     SURVEY_ORBITAL_USABLE_KM,    500.0,     true  },
-    { "REGIONAL",    500.0,                       100.0,     true  },
+    //
+    // Four levels, matching the master design's disc -> 100 -> 25 -> 5.
+    // A 500 km "REGIONAL" rung used to sit between the disc and the
+    // 100 km playfield; it was in the code but never in the design, it
+    // answered no question of its own (the region card freezes at level
+    // 1 and never refines, so there was no new mix to read at 500 km),
+    // and it matched no view the game itself has -- PLANET is 100 km,
+    // COLONY 25, SECT 5. The disc now frames the playfield directly.
+    { "ORBITAL",     SURVEY_ORBITAL_USABLE_KM,    100.0,     true  },
     { "DISTRICT",    100.0,                        25.0,     true  },
     { "LOCALITY",     25.0,                         5.0,     true  },
     // The site level is where a physical object is being placed, not a

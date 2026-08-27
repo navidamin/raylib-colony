@@ -32,7 +32,7 @@
 // snap grid leaves ground the player can see but cannot select.
 // Level 4 -> 5 hands over at TERRAIN_CELL_KM, so the ladder lands
 // exactly on the game's existing 5 km sect grid.
-const int SURVEY_LEVEL_COUNT = 5;
+const int SURVEY_LEVEL_COUNT = 4;
 const double SURVEY_MOON_DIAMETER_KM = 3474.8;
 const double SURVEY_ORBITAL_USABLE_KM = 3000.0;
 
@@ -44,7 +44,7 @@ struct SurveyLevelDef
     bool snapToGrid;         // navigation levels snap; the site level does not
 };
 
-// Table of the five levels, index 0..SURVEY_LEVEL_COUNT-1.
+// Table of the four levels, index 0..SURVEY_LEVEL_COUNT-1.
 const SurveyLevelDef* GetSurveyLadder();
 
 // The cursor:window ratio band from the design. Below the floor the

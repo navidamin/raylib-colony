@@ -38,8 +38,16 @@ int main()
         printf("   level %d %-9s span %8.1f km  cursor %6.1f km  ratio %.3f\n",
                i + 1, ladder[i].name, ladder[i].windowSpanKm,
                ladder[i].footprintKm, ratio);
-        Check(ratio >= SURVEY_CURSOR_MIN_RATIO - 0.01 &&
-              ratio <= SURVEY_CURSOR_MAX_RATIO + 0.001, "ratio in band");
+        // The band exists so a cursor RECTANGLE is a legible fraction of
+        // its view. Level 1 draws no rectangle: the orbital disc is
+        // picked by hovering named regions, and the ladder renderer
+        // skips it entirely (it belongs to the game's render path). Its
+        // 100 km footprint is only "what the next window will be".
+        if (i > 0)
+        {
+            Check(ratio >= SURVEY_CURSOR_MIN_RATIO - 0.01 &&
+                  ratio <= SURVEY_CURSOR_MAX_RATIO + 0.001, "ratio in band");
+        }
     }
 
     // 2. Each level's cursor is the next level's window.
@@ -63,16 +71,17 @@ int main()
     Check(std::fabs(dx - 2.5) < 1e-6 && std::fabs(dy - 1.0) < 1e-6,
           "km offsets use the smaller viewport dimension");
 
-    // 4. Snapping: the LOCALITY level (25 km window, 5 km cursor) has an
+    // 4. Snapping: the LOCALITY level (index 2 of four: 25 km window,
+    //    5 km cursor) has an
     //    odd cell count, so a cell sits on the centre.
     SurveyViewport square = { 0.0f, 0.0f, 1000.0f, 1000.0f };
-    SurveyCursor local = MakeSurveyCursor(3, 0.0, 0.0);
+    SurveyCursor local = MakeSurveyCursor(2, 0.0, 0.0);
     SurveyCursorTrack(&local, square, 500.0f + 40.0f * 5.6f, 500.0f);
     Check(std::fabs(local.offsetXKm - 5.0) < 1e-9, "snap to 5 km grid (odd)");
 
-    // 5. Snapping: DISTRICT (100 km / 25 km) has an even cell count, so
+    // 5. Snapping: DISTRICT (index 1: 100 km / 25 km) has an even cell count, so
     //    cells straddle the centre at +-12.5 km.
-    SurveyCursor district = MakeSurveyCursor(2, 0.0, 0.0);
+    SurveyCursor district = MakeSurveyCursor(1, 0.0, 0.0);
     SurveyCursorTrack(&district, square, 500.0f + 10.0f * 3.0f, 500.0f);
     Check(std::fabs(district.offsetXKm - 12.5) < 1e-9, "snap straddles centre (even)");
 
@@ -80,7 +89,7 @@ int main()
     //     an even cell count the index range is asymmetric (-2..+1 for a
     //     100 km window and a 25 km cursor), and clamping symmetrically
     //     would snap the cursor a whole cell away from the mouse.
-    SurveyCursor edge = MakeSurveyCursor(2, 0.0, 0.0);
+    SurveyCursor edge = MakeSurveyCursor(1, 0.0, 0.0);
     SurveyCursorTrack(&edge, square, 0.0f, 500.0f);            // far west
     Check(std::fabs(edge.offsetXKm + 37.5) < 1e-9, "westmost cell reachable");
     SurveyCursorTrack(&edge, square, 1000.0f, 500.0f);         // far east

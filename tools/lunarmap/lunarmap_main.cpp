@@ -146,14 +146,17 @@ static const DemoSite DEMO_SITES[] =
 static const int DEMO_SITE_COUNT = (int)(sizeof(DEMO_SITES) / sizeof(DEMO_SITES[0]));
 
 // The five questions, one per level (docs/design/site-selection SS2).
-static const char* LEVEL_QUESTION[5] =
+// Four levels. "WHICH CELL?" went with the 500 km rung: with the disc
+// framing the playfield directly, choosing the 5 km cell and reading the
+// ground it offers are the same move, and that move is the last one.
+static const int SITE_LEVELS = 4;
+static const char* LEVEL_QUESTION[SITE_LEVELS] =
 {
-    "WHICH ECONOMY?", "WHICH MIX?", "WHICH NEIGHBOURHOOD?",
-    "WHICH CELL?", "WHICH GROUND?"
+    "WHICH ECONOMY?", "WHICH MIX?", "WHICH NEIGHBOURHOOD?", "WHICH GROUND?"
 };
-static const char* LEVEL_FILE[5] =
+static const char* LEVEL_FILE[SITE_LEVELS] =
 {
-    "L1_ECONOMY", "L2_MIX", "L3_NEIGHBOURHOOD", "L4_CELL", "L5_GROUND"
+    "L1_ECONOMY", "L2_MIX", "L3_NEIGHBOURHOOD", "L4_GROUND"
 };
 
 
@@ -1835,8 +1838,8 @@ static void DrawLevelCard(const DemoSite& site, int level,
 {
     // Level 5's verdict line lands at py+221 and is 16 pt: at 236 the
     // card's own border cut through the one row that decides the site.
-    int ph = (level == 4) ? 252 : (level == 3 ? 208 : 164);
-    Color line = (level == 4 && verdict)
+    int ph = (level == SITE_LEVELS - 1) ? 252 : (level == SITE_LEVELS - 2 ? 208 : 164);
+    Color line = (level == SITE_LEVELS - 1 && verdict)
         ? (verdict->allowed ? Color{ 60, 235, 120, 255 }
                             : Color{ 255, 70, 70, 255 })
         : Color{ 232, 238, 255, 255 };
@@ -1845,7 +1848,7 @@ static void DrawLevelCard(const DemoSite& site, int level,
     DrawRectangle(px, py, pw, ph, Color{ 12, 12, 16, 220 });
     DrawRectangleLinesEx(Rectangle{ (float)px, (float)py, (float)pw,
                                     (float)ph }, 2.0f, line);
-    DrawText(TextFormat("LEVEL %d / 5", level + 1), px + 12, py + 10, 15, faint);
+    DrawText(TextFormat("LEVEL %d / %d", level + 1, SITE_LEVELS), px + 12, py + 10, 15, faint);
     DrawText(LEVEL_QUESTION[level], px + 12, py + 30, 21, line);
 
     int rowY = py + 64;
@@ -1858,10 +1861,9 @@ static void DrawLevelCard(const DemoSite& site, int level,
         return;
     }
 
-    if (level <= 3)
+    if (level <= SITE_LEVELS - 2)
     {
-        const char* subject = (level == 1) ? "playfield" :
-                              (level == 2) ? "neighbourhood" : "cell";
+        const char* subject = (level == 1) ? "playfield" : "neighbourhood";
         DrawText(TextFormat("%s mean slope", subject), px + 12, rowY, 14, dim);
         DrawText(TextFormat("%.1f deg", g.meanSlope), px + pw - 92, rowY, 14, dim);
         rowY += 21;
@@ -1901,7 +1903,7 @@ static void DrawLevelCard(const DemoSite& site, int level,
         rowY += 25;
     }
 
-    if (level == 3 && cells)
+    if (level == SITE_LEVELS - 2 && cells)
     {
         // 3x3 neighbour-buildability glyph: expansion room made visible
         // before the cell is committed.
@@ -1926,7 +1928,7 @@ static void DrawLevelCard(const DemoSite& site, int level,
                              2.0f, WHITE);
     }
 
-    if (level == 4 && siteB && verdict)
+    if (level == SITE_LEVELS - 1 && siteB && verdict)
     {
         DrawText(TextFormat("illumination   %.0f %%",
                             siteB->illumination * 100.0f),
@@ -2017,7 +2019,7 @@ static void DrawSurveyCursorNav(const SurveyCursor& cursor,
 
     // What this level is FOR. The instrument floors mean the levels ask
     // different questions, not the same question at five resolutions.
-    bool regionLevel = (cursor.level <= 2);
+    bool regionLevel = (cursor.level <= SURVEY_LEVEL_COUNT - 3);
     DrawText(regionLevel ? "WHICH REGION?" : "WHICH GROUND?",
              px + pw - 12 - MeasureText(regionLevel ? "WHICH REGION?"
                                                     : "WHICH GROUND?", 15),
@@ -2684,7 +2686,7 @@ static void UpdateSiteSelect(AppState& app)
         const SurveyCursor* c = SurveyCurrent(&app.descent);
         g = CursorGroundStats(app.scene.window, c->offsetXKm, c->offsetYKm,
                               c->footprintKm);
-        if (app.siteLevel == 4)
+        if (app.siteLevel == SITE_LEVELS - 1)
         {
             b = app.dem.EvaluateSite(hoverLat, hoverLon, c->footprintKm, 30.0);
             verdict = JudgeSite(b);
@@ -2784,7 +2786,7 @@ static void UpdateSiteSelect(AppState& app)
                           : "Tap to aim - the region under the mark names itself.  Tap again to claim it.")
                 : (narrow ? "Click a region to claim it."
                           : "Move over the moon - the region under the cursor names itself.  Click to claim it.");
-        else if (app.siteLevel == 4)
+        else if (app.siteLevel == SITE_LEVELS - 1)
             msg = verdict.allowed
                 ? (narrow ? "Found the colony here." : "Click to found the colony here.  Esc to back out.")
                 : (narrow ? "Refused - move to better ground."
@@ -2810,7 +2812,7 @@ static void UpdateSiteSelect(AppState& app)
                  Color{ 210, 218, 232, 255 });
         if (!narrow)
         {
-            const char* lvl = TextFormat("LEVEL %d / 5", app.siteLevel + 1);
+            const char* lvl = TextFormat("LEVEL %d / %d", app.siteLevel + 1, SITE_LEVELS);
             DrawText(lvl, screenW - MeasureText(lvl, 16) - 16, y + 12, 16,
                      Color{ 150, 190, 255, 255 });
         }
@@ -2890,7 +2892,7 @@ static void UpdateSiteSelect(AppState& app)
                 app.sceneDirty = true;
             }
         }
-        else if (app.siteLevel == 4)
+        else if (app.siteLevel == SITE_LEVELS - 1)
         {
             if (verdict.allowed) app.founded = true;
         }
@@ -3438,7 +3440,7 @@ static int RenderLadder(AppState& app)
                                           cursor->offsetYKm,
                                           cursor->footprintKm);
         GroundStats cells[9];
-        if (level == 3)
+        if (level == SITE_LEVELS - 2)
         {
             // Neighbour cells of the candidate 5 km cell. Sampled from a
             // fresh 15 km window centred on the CELL, not from the display
@@ -3461,7 +3463,7 @@ static int RenderLadder(AppState& app)
         TerrainBuildability siteB;
         PlacementVerdict verdict;
         bool haveVerdict = false;
-        if (level == 4)
+        if (level == SITE_LEVELS - 1)
         {
             double cLat = 0.0, cLon = 0.0;
             SurveyCursorLatLon(*cursor, &cLat, &cLon);
@@ -3489,7 +3491,8 @@ static int RenderLadder(AppState& app)
                 : Color{ 232, 238, 255, 255 };
             DrawLadderCursor(*cursor, viewport, tint);
             DrawRegionCard(*demo, level, 16, 64);
-            DrawLevelCard(*demo, level, g, level == 3 ? cells : nullptr,
+            DrawLevelCard(*demo, level, g,
+                          level == SITE_LEVELS - 2 ? cells : nullptr,
                           haveVerdict ? &siteB : nullptr,
                           haveVerdict ? &verdict : nullptr,
                           opts.width - 352, 64, 336);
@@ -3665,8 +3668,7 @@ int main(int argc, char** argv)
             { 0.52f, 0.62f, false, "4_playfield" },
             { 0.52f, 0.62f, true,  "5_descend" },
             { 0.42f, 0.70f, true,  "6_descend" },
-            { 0.48f, 0.66f, true,  "7_descend" },
-            { 0.46f, 0.68f, false, "8_site" },
+            { 0.46f, 0.68f, false, "7_site" },
         };
         std::string stem = app.options.siteShot;
         size_t dot = stem.find_last_of('.');
