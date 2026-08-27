@@ -300,3 +300,63 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         target_link_libraries(survey_cursor_test m)
     endif()
 endif()
+
+# ---------------------------------------------------------------------------
+# c1_test: behavioural test for the C1 materials split
+#
+# Runs the real Unit production loop against a real Sect's shared
+# storage and asserts the economics: both branches produce, each starves
+# on its own elements, and a tier upgrade needs both outputs. Headless.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(c1_test)
+
+    target_sources(c1_test PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/c1test/c1_test.cpp"
+        Sect/sect.cpp
+        Unit/unit.cpp
+        Unit/unit_ui.cpp
+        Colony/colony.cpp
+        Planet/planet.cpp
+        ResourceManager/resource_manager.cpp
+        TimeManager/time_manager.cpp
+        GameTypes/game_types_loader.cpp
+        TerrainGen/terrain_synthesis.cpp
+        TerrainGen/lola_dem.cpp
+        TerrainGen/survey_cursor.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/sweep_engine.cpp
+        Prospecting/sampling_engine.cpp
+        Prospecting/lab_engine.cpp
+        Prospecting/survey_progress_engine.cpp
+        Prospecting/prospecting_system.cpp
+        transport_types.cpp
+    )
+
+    set_target_properties(c1_test PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(c1_test PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Colony"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Planet"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Sect"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Unit"
+        "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
+        "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
+        "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
+        "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+        "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+    )
+
+    target_link_libraries(c1_test raylib tomlplusplus::tomlplusplus)
+    if(NOT WIN32)
+        target_link_libraries(c1_test m)
+    endif()
+endif()

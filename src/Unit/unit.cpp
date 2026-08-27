@@ -620,6 +620,10 @@ void Unit::InitializeEnergyModules() {
 }
 
 void Unit::InitializeManufactureModules() {
+    // What each output costs. CalculateConsumption() reads this every
+    // tick and rebuilds each module's consumption from its production.
+    productionCosts = MANUFACTURE_PRODUCTION_COSTS;
+
     struct ModuleInfo { std::string name; std::string type; std::string desc; };
     std::vector<ModuleInfo> mfgModules = {
         {"Fabrication", "FABRICATION", "Raw material processing and shaping."},
@@ -642,11 +646,27 @@ void Unit::InitializeManufactureModules() {
             parameters["ProductionEfficiency"] : 0.85f;
         mod.description = mfgModules[i].desc;
 
-        if (i == 0)  // Fabrication consumes raw materials
+        // C1 - the materials split. Two branches drawing on different
+        // elements, so a region rich in one is poor in the other and
+        // neither can supply itself alone. Fabrication smelts the mafic
+        // metals; Assembly forms plagioclase rock into structural stock
+        // (the CONSTRUCTION_MATERIALS subtypes are beams, panels, pipes,
+        // cable).
+        //
+        // Only the OUTPUT is declared here. Consumption is derived each
+        // tick by CalculateConsumption() from the unit's productionCosts
+        // table -- it clears and rebuilds module.consumptionRates, so
+        // setting them here would be silently overwritten.
+        if (i == 0)  // Fabrication: Fe + Ti -> ALLOYS
         {
-            mod.consumptionRates[ResourceType::Fe] = 2.0f;
-            mod.consumptionRates[ResourceType::Si] = 1.0f;
-            mod.consumptionRates[ResourceType::ENERGY] = 3.0f;
+            mod.maxProductionRates[ResourceType::ALLOYS] = ALLOY_OUTPUT_RATE;
+            mod.productionRates = mod.maxProductionRates;
+        }
+        else if (i == 1)  // Assembly: Al + Ca -> CONSTRUCTION_MATERIALS
+        {
+            mod.maxProductionRates[ResourceType::CONSTRUCTION_MATERIALS] =
+                CONSTRUCTION_OUTPUT_RATE;
+            mod.productionRates = mod.maxProductionRates;
         }
 
         modules.push_back(mod);
@@ -780,26 +800,36 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
         }
     }
 
-    // Check upgrade resource costs (use tier+1 as key in upgradeCosts)
+    // Check upgrade resource costs (use tier+1 as key in upgradeCosts).
+    // C1: a module that names its own costs keeps them; everything else
+    // falls back to the shared table, so the materials split has teeth
+    // everywhere without a per-module cost list. Every tier needs BOTH
+    // branches -- alloys from mafic rock, construction stock from
+    // plagioclase -- which is what makes one region unable to supply
+    // itself.
     int nextTier = module.tier + 1;
+    std::map<ResourceType, float> costs;
     if (module.upgradeCosts.count(nextTier) > 0)
     {
-        const auto& costs = module.upgradeCosts[nextTier];
-        for (const auto& [resource, cost] : costs)
-        {
-            if (resourceStorage[resource] < cost)
-            {
-                ShowMessage(TextFormat("Not enough %s for tier upgrade.",
-                            ResourceTypeToString(resource)));
-                return false;
-            }
-        }
+        costs = module.upgradeCosts[nextTier];
+    }
+    else if (MODULE_TIER_UPGRADE_COSTS.count(nextTier) > 0)
+    {
+        costs = MODULE_TIER_UPGRADE_COSTS.at(nextTier);
+    }
 
-        // Consume upgrade costs
-        for (const auto& [resource, cost] : costs)
+    for (const auto& [resource, cost] : costs)
+    {
+        if (resourceStorage[resource] < cost)
         {
-            ConsumeResource(resource, cost);
+            ShowMessage(TextFormat("Need %.0f %s for tier %d.", cost,
+                        ResourceTypeToString(resource), nextTier));
+            return false;
         }
+    }
+    for (const auto& [resource, cost] : costs)
+    {
+        ConsumeResource(resource, cost);
     }
 
     // Perform the upgrade
@@ -1596,6 +1626,13 @@ void Unit::InitializeStorage() {
     resourceStorage[ResourceType::C] = 0.0f;
     resourceStorage[ResourceType::Fe] = 0.0f;
     resourceStorage[ResourceType::Si] = 0.0f;
+    // C1: the materials split. Ti/Al/Ca feed the two manufacturing
+    // branches; ALLOYS and CONSTRUCTION_MATERIALS are what they yield.
+    resourceStorage[ResourceType::Ti] = 0.0f;
+    resourceStorage[ResourceType::Al] = 0.0f;
+    resourceStorage[ResourceType::Ca] = 0.0f;
+    resourceStorage[ResourceType::ALLOYS] = 0.0f;
+    resourceStorage[ResourceType::CONSTRUCTION_MATERIALS] = 0.0f;
 
     // Debug print to verify initialization
     std::cout << "Unit storage initialized with values:" << std::endl;

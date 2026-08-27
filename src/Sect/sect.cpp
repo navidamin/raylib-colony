@@ -44,6 +44,9 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
     storageCapacity[ResourceType::FOOD] = SECT_BASE_STORAGE;
     storageCapacity[ResourceType::SCIENCE] = SECT_BASE_STORAGE;
     storageCapacity[ResourceType::MANPOWER] = SECT_BASE_STORAGE;
+    // C1: the two manufactured branches need somewhere to land.
+    storageCapacity[ResourceType::ALLOYS] = SECT_BASE_STORAGE;
+    storageCapacity[ResourceType::CONSTRUCTION_MATERIALS] = SECT_BASE_STORAGE;
 
     CreateInitialUnits(position);
 

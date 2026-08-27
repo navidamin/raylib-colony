@@ -543,13 +543,72 @@ Two rules follow:
    Never show a consequence (e.g. "night shuts down production") before
    the system exists.
 2. **Build the cheapest reality first.** Priority order:
-   **C1** construction consumes Al/Ca, alloys consume Fe/Ti — pure data,
-   the cost-table maps in `game_constants.h` already exist;
+   **C1** construction consumes Al/Ca, alloys consume Fe/Ti — **done**.
+   Not the pure-data change this list first assumed: the tables existed
+   but Manufacture produced nothing, and *nothing in the game had a
+   build cost at all*, so there was no consumer for either branch. Tier
+   upgrades became that consumer — they were live, reachable and free.
+   `tools/c1test/` asserts the economics behaviourally (see §5.1);
    **C2** lunar night + illumination-scaled energy — makes latitude and
    level-5 illumination matter;
    **C3** water chain with PSR ice extraction — makes the polar strategy
    exist at all;
    **C4** distance-priced transport — makes levels 2–4's geometry bite.
+
+### 5.1 C1 — the materials split (done)
+
+The first coherency chain, and the one that makes the level-1 region
+choice mean something the first time it is played.
+
+**Two branches on different elements**, in `game_constants.h`:
+
+```
+metals        Fe 2.0 + Ti 0.5 + ENERGY 3.0  ->  ALLOYS
+construction  Al 1.5 + Ca 1.0 + ENERGY 2.0  ->  CONSTRUCTION_MATERIALS
+```
+
+The split is real geochemistry rather than invented balance: rock is
+plagioclase (Al, Ca) plus mafic minerals (Fe, Ti), and more of one is
+less of the other. A mare region leads on metals and starves for
+structural stock; a highland region the reverse.
+
+**Both are required by the consumer.** `MODULE_TIER_UPGRADE_COSTS` gives
+every module tier a price in *both* ALLOYS and CONSTRUCTION_MATERIALS. A
+module that declares its own `upgradeCosts` keeps them; everything else
+falls back to the shared table, so the split has teeth everywhere
+without a per-module cost list. Neither region can supply itself alone.
+
+**Three things this turned up that the plan had wrong:**
+
+- *Nothing in the game had a build cost.* `Sect::BuildUnit` is a
+  `TODO` stub with no callers, and unit construction is a bare timer. So
+  "add build costs" would have built an unreachable feature. Module tier
+  upgrades were the right consumer instead: live, reachable, and free
+  until now.
+- *Consumption is derived, not declared.* `CalculateConsumption()`
+  clears each module's `consumptionRates` every tick and rebuilds them
+  from the unit's `productionCosts` table times its production rate.
+  Setting consumption per module — the obvious first move — is silently
+  overwritten. The fix is one line: give the Manufacture unit its cost
+  table, as Extraction and Farming already do.
+- *A compile is not a test.* The first implementation built cleanly and
+  produced both outputs at full rate while consuming nothing, because of
+  the point above. Only running it caught that.
+
+**Verified behaviourally** by `tools/c1test/`, which drives the real
+`Unit` production loop against a real `Sect`'s shared storage:
+
+| Fed | ALLOYS | CONSTRUCTION_MATERIALS |
+|-----|--------|------------------------|
+| everything | 48.0 | 48.0 |
+| mare (no Al/Ca) | 48.0 | **0.0** |
+| highland (no Fe/Ti) | **0.0** | 48.0 |
+
+and asserts that a tier upgrade is refused with either branch alone,
+allowed with both, and actually spends both. The tech gate is unlocked
+first, so a refusal proves the *cost* gate and not the tech gate.
+
+---
 
 ### Step 1 — Cursor infrastructure — **DONE**
 `src/TerrainGen/survey_cursor.{h,cpp}`: pure geometry, no game or render

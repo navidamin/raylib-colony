@@ -137,4 +137,61 @@ const std::map<ResourceType, std::map<ResourceType, float>> FARMING_PRODUCTION_C
 };
 
 
+// ---------------------------------------------------------------------------
+// C1 - the materials split
+//
+// The two branches of the economy draw on DIFFERENT elements, and the
+// split is real geochemistry rather than invented balance. Rock is
+// plagioclase (which carries Al and Ca) plus mafic minerals (which carry
+// Fe and Ti); more of one is less of the other. So:
+//
+//   metals branch        Fe + Ti  ->  ALLOYS
+//   construction branch  Al + Ca  ->  CONSTRUCTION_MATERIALS
+//
+// A mare region is Fe/Ti-rich and Al-poor; a highland region the
+// reverse. Because everything that upgrades needs BOTH outputs, neither
+// region can supply itself alone -- which is what makes the level-1
+// region choice a trade-off instead of a quality ranking.
+// See docs/design/site-selection/site-selection-master-design.md SS5.0.
+// ---------------------------------------------------------------------------
+
+const std::map<ResourceType, std::map<ResourceType, float>> MANUFACTURE_PRODUCTION_COSTS = {
+    {ResourceType::ALLOYS, {
+        {ResourceType::Fe, 2.0f},
+        {ResourceType::Ti, 0.5f},
+        {ResourceType::ENERGY, 3.0f}
+    }},
+    {ResourceType::CONSTRUCTION_MATERIALS, {
+        {ResourceType::Al, 1.5f},
+        {ResourceType::Ca, 1.0f},
+        {ResourceType::ENERGY, 2.0f}
+    }}
+};
+
+// What one production cycle of each branch yields, per second at tier 0.
+const float ALLOY_OUTPUT_RATE = 0.8f;
+const float CONSTRUCTION_OUTPUT_RATE = 0.8f;
+
+// Module tier upgrades are the first consumer of both branches. Keyed by
+// the tier being bought (1..3). A module that defines its own
+// upgradeCosts overrides this; everything else falls back here, so the
+// materials split has teeth everywhere without per-module tables.
+const std::map<int, std::map<ResourceType, float>> MODULE_TIER_UPGRADE_COSTS = {
+    {1, {
+        {ResourceType::ALLOYS, 20.0f},
+        {ResourceType::CONSTRUCTION_MATERIALS, 30.0f},
+        {ResourceType::ENERGY, 100.0f}
+    }},
+    {2, {
+        {ResourceType::ALLOYS, 50.0f},
+        {ResourceType::CONSTRUCTION_MATERIALS, 70.0f},
+        {ResourceType::ENERGY, 250.0f}
+    }},
+    {3, {
+        {ResourceType::ALLOYS, 110.0f},
+        {ResourceType::CONSTRUCTION_MATERIALS, 150.0f},
+        {ResourceType::ENERGY, 500.0f}
+    }}
+};
+
 #endif // GAME_CONSTANTS_H
