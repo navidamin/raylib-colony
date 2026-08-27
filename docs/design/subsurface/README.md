@@ -50,5 +50,6 @@ in opposite directions. See [subsurface-model.md](subsurface-model.md) §1.
 | `src/Prospecting/prospecting_types.h` | `SubCell::workedFraction` — the one mutable field |
 | `tools/inspect/measure_clusters.cpp` | `colony_measure_clusters` — run it before and after any generator change |
 | `prototypes/redline.html` | prospecting's hands-on drilling mode — see [redline-disposition.md](redline-disposition.md) |
+| [`../graphics/dark-plating.md`](../graphics/dark-plating.md) | the coded-art style guide extracted from these prototypes — read before drawing anything in their style |
 | [`prospecting/block-model-design.md`](../prospecting/block-model-design.md) | the reader that fills the model in |
 | [`excavation/block-mining-design.md`](../excavation/block-mining-design.md) | the reader that empties it out |

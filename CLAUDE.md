@@ -363,5 +363,6 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | **Subsurface** | `docs/design/subsurface/README.md` | **Read first** when touching resource generation, or anything both extraction modules read |
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Excavation | `docs/design/excavation/README.md` | Working on excavator handling or `ProcessExtraction()` Stage 1 in `unit.cpp`, the excavation panel in `rendermanager.cpp`, or excavation input handling |
+| Graphics (Dark Plating) | `docs/design/graphics/README.md` | Drawing or restyling **any code-drawn graphic** — hero visuals, canvas prototypes, animated rigs, icons, particles. The style guide is a living document: adding a new graphical component includes extending it (see its Rule) |
 
 See `docs/design/README.md` for the full planning method explanation.

@@ -1,0 +1,382 @@
+# Dark Plating — The Coded-Art Style Guide
+
+**Status: LIVING** — grows with every component. See the Rule in
+[README.md](README.md): read before drawing, extend in the same commit.
+
+Everything here was learned building the drill rig
+(`../subsurface/prototypes/drill-rig.html` and `redline.html` — the reference
+implementations; every helper named below exists in them verbatim). The guide
+is layered so a new graphic knows exactly how much it inherits:
+
+| Layer | Sections | A new graphic... |
+|---|---|---|
+| **The world** | §1 ground & palette, §2 the line, §3 tone | inherits all of it, always |
+| **Materials** | §4 metal, §5 rock & ground | inherits the material it is made of; new materials get new sections |
+| **Component families** | §6 machines that turn | a new drill inherits §6 wholesale; a new *kind* of thing starts its own family section |
+| **Stagecraft** | §7 camera & motion, §8 console chrome, §9 capture | inherits whatever its context needs |
+
+The name is the thesis: a **dark** world, and everything in it built from
+**plates** — hard-edged bands of tone with a heavy line around them, like
+enamel plating on machinery. Quantized reads as *drawn*; smooth reads as CG.
+
+---
+
+## 1. The World
+
+### 1.1 The ground is near-black, and committed
+
+The style is single-theme by choice. Every colour is painted explicitly —
+nothing inherits from a host theme, the page/panel background is always set.
+Light in this world comes from **tone structure**, not from simulated light
+sources: nothing casts a computed shadow; things carry their shading in their
+bands.
+
+### 1.2 Palette tokens
+
+The chrome palette (CSS custom properties in the prototypes; mirror these as
+constants when porting to raylib):
+
+```
+--ground:#070b11  --panel:#0d151e  --panel2:#111c27  --rule:#1c2a39
+--text:#c9d8e8    --dim:#61768a    --dimmer:#3d4e5e
+--am:#d9962f  --am-lit:#f4c66a     amber   — machinery, attention, action
+--cy:#50e1ff                       cyan    — instruments, information, idle
+--hot:#ff5a28                      hot     — heat, damage, loss
+--good:#5fd39a                     green   — health, success
+--ice:#7fd8ee                      ice     — volatiles
+```
+
+Canvas-side fixed colours:
+
+```
+OUT  #0a0e14   the chunky outline (front work)
+OUTB #101820   softer outline for back-facing work
+sky  #0a1018   above the surface        borehole fill  #0e0b08
+surface rule  #4a5560                   casing steel   #1c2530
+spoil #463e31
+```
+
+Semantics are load-bearing: amber always means *machine/attention*, cyan
+always means *instrument/info*, hot always means *damage/heat*. Do not reuse
+a semantic colour decoratively — that is how the sweep-heat ramp once
+collided with Measured-green and had to be rebuilt.
+
+### 1.3 Type
+
+Prototypes pair **Chakra Petch** (display/UI) with **JetBrains Mono**
+(labels, numerals — always `tabular-nums`, uppercase labels always
+letter-spaced `.14em`–`.2em`). The in-game extraction UI uses **Exo 2** via
+`FS()` scaling (see CLAUDE.md); keep mono-style tabular numerals for gauges
+either way.
+
+---
+
+## 2. The Line
+
+The single strongest style marker: **every silhouette sits on a heavy
+near-black line** (`OUT`, ~2–2.5 px at 2× scale; `OUTB` behind back-facing
+work).
+
+Rules learned the hard way:
+
+- **One flood pass, then faces.** Outline a complex sweep (like a thread) by
+  filling the *entire* silhouette in `OUT` first, slightly inflated, then
+  painting the faces over it. Stroking each segment individually puts black
+  ribbing *across* the surface. (`drawThread` pass 1 vs. its faces.)
+- **Under-edge lines ground a part.** A blade or ledge gets a dark line under
+  its bottom edge before its body is filled, so it sits *on* something.
+- Outline widths are style constants, not per-shape choices. Front `OUT`,
+  back `OUTB`, everything at the same weight — that is what makes separate
+  parts read as one machine.
+
+## 3. The Tone
+
+### 3.1 Stepped, never smooth
+
+All shading is **quantized**. Two mechanisms:
+
+- **Hard-stop gradients** — `steelBands()` (§4.1) emits a `LinearGradient`
+  whose stops come in *pairs*, so each band is flat: a plate of tone, not a
+  ramp.
+- **Tone quantization** — computed shades snap to a ladder before use:
+
+  ```js
+  const band = v => Math.round(clamp(v,0,1)*7)/7;   // surfaces: 7 steps
+  // highlights/glints are even coarser: Math.round(v*3)/3
+  ```
+
+### 3.2 Back-facing work is remapped, not just darkened
+
+```js
+const dim = v => front ? v : 0.15 + v*0.44;
+```
+
+Compressing the *range* (not multiplying) keeps the far side legible but
+unmistakably behind — and stops it glowing white-hot when a heat tint pushes
+everything up.
+
+### 3.3 State tints the material, it is never an overlay
+
+Heat (and any future state: charge, corrosion, power) enters through the
+material function itself — `steel(shade, heat)` — so one scalar re-colours
+every band, glint and outline consistently. Painting a translucent state
+layer *over* finished art is the CG look this style exists to avoid. The only
+overlays allowed are atmospherics: the radial glow at a hotspot and the
+sub-15%-alpha full-frame wash past a threshold.
+
+---
+
+## 4. Metal — the material
+
+### 4.1 The two functions
+
+Everything metallic is built from exactly two helpers:
+
+```js
+function steel(shade, heat){          // shade 0..1 dark->bright, heat 0..1
+  const base=[lerp(96,238,shade),lerp(104,244,shade),lerp(118,252,shade)];
+  const glow=[255,lerp(55,165,shade),25], t=clamp(heat*1.15,0,1);
+  return `rgb(${...})`;               // lerp base->glow per channel by t
+}
+function steelBands(x0,x1,heat,tones){ // tones = [[span,shade],...] summing ~1
+  // LinearGradient with PAIRED stops -> flat bands
+}
+```
+
+`steel`'s base ramp is a **cool blue-biased grey** (b runs 118→252 while r
+runs 96→238) — that bias is the plating's colour identity. The glow ramp runs
+black-red→orange→near-white as `shade` rises, so hot *bright* metal whitens
+while hot *dark* metal stays ember-red.
+
+### 4.2 The cylinder recipe
+
+A rod/cylinder is one `steelBands` fill across its width. The canonical
+five-band profiles (span, shade):
+
+```
+rod   [[0.15,0.11],[0.17,0.98],[0.21,0.58],[0.27,0.30],[0.20,0.07]]
+joint [[0.15,0.16],[0.18,0.94],[0.22,0.56],[0.26,0.28],[0.19,0.10]]
+chuck [[0.17,0.06],[0.16,0.62],[0.22,0.34],[0.26,0.18],[0.19,0.04]]  (+heat*0.6)
+```
+
+Read the structure: dark edge → **bright hot-spot band off-centre left** →
+mid → darker → dark edge. The off-centre specular is the implied
+upper-left light. Draw the body in thin horizontal slices (~1.4–2 px) so the
+profile can vary with y (taper, cone) while staying banded across x.
+
+### 4.3 The joint grammar
+
+Machines are **assemblies**, and the joints are what say so:
+
+- **Joint/collar** (`drawJoint`): a band slightly wider than the rod, white
+  glint on top (`rgba(255,255,255,.34)`, ~1.7 px), hard shadow underneath
+  (`rgba(0,0,0,.45)`). A rod *steps thinner* across each joint going down —
+  telescoping sections, not one pipe.
+- **Chuck/clamp** (`drawChuck`): shorter, wider, *darker* (see profile —
+  max shade 0.62, and heat reaches it at 0.6×), with vertical slot shadows
+  and small bright bolts. Grip parts are always darker than the thing they
+  grip.
+- **Housing box** (`box(x,y,w,h,fill,bevel)` in `drawPowerhead`): `OUT`
+  outline, flat fill, then a 3.5 px bevel — white top (0.30), white left
+  (0.14), black bottom (0.30), black right (0.22). This is the recipe for
+  *any* boxy machine body. The signature housing colour is amber `#d9962f`
+  with `#f4c66a` bolts; vents are dark slots with a 1.6 px inner shadow line.
+
+### 4.4 Varying the metal — tints, never structure
+
+A new metallic thing keeps: the band *structure* (counts, spans, off-centre
+specular), the outline weight, the glint/shadow grammar, the quantization.
+It varies: the base ramp's colour bias, brightness ceiling, and heat
+response. Precedents:
+
+| Variant | How |
+|---|---|
+| Plated steel (default) | `steel()` as-is |
+| Clamp/grip steel | same, capped shades (≤0.62) + reduced heat coupling |
+| Amber housing | flat fill + bevel instead of bands; bands are for *turned* parts |
+| Carbide (tips) | flat facets — 3 triangles at fixed shades (0.90/0.52/0.22), heat ×1.35 |
+
+For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
+`base`/`glow` pair, name it (`brass()`), and add it to this table.
+
+### 4.5 Heat, damage, wear on metal
+
+- **Heat field**: Gaussian in screen space around the hotspot —
+  `heatAt(y) = heat * exp(-(d²)/(2·110²))` — fed to every `steel()` call, so
+  the glow *spreads up the machine* from the working point.
+- **Atmosphere**: radial gradient at the hotspot
+  (`rgba(255,110,30, .45*heat)` → transparent over ~95 px), plus a full-frame
+  `rgba(255,60,20, ≤.10)` wash only past the danger threshold.
+- **Cracks** (`drawCracks`): three strokes over the same jagged polyline —
+  dark under-stroke 3 px, heat-modulated orange 1.2 px
+  (`rgba(255,130,35, .25+heat)`), then a white 1 px highlight offset +1.6 px x.
+  Cracks belong to the *steel*, so they ride the part (offset from the bit),
+  not the world.
+- **Sparks**: only where the work is hard (`hard > 0.5`), 2.4 px squares in
+  `rgba(255,170–240,60)`, scattered in a half-disc around the contact point.
+
+---
+
+## 5. Rock & Ground — the material
+
+- **Strata are flat slabs**: one flat colour per layer, a crisp 2.5 px
+  darker `edge` rule at each boundary, mono uppercase label + depth figure at
+  the boundary. No vertical gradients inside a layer.
+- **Grain speckle**: sparse chunky rects (3–6 × 2.5 px) in a per-layer
+  `grain` colour, density ~1 per 9 px of layer height.
+- **Determinism**: all speckle uses the seeded LCG
+  (`grainSeed = (grainSeed*16807) % 2147483647`) with a *fixed seed per
+  drawing pass* (sky 3, strata 7, borehole 29). Ground must not shimmer
+  between frames; `Math.random()` is only for genuinely transient particles
+  (sparks).
+- **Ice / volatiles**: bright `rgba(160,225,245)` flecks + thin dark fracture
+  polylines wandering horizontally. Ice colour is `--ice`, never cyan (cyan
+  is information).
+- **The borehole**: fill `#0e0b08`, *ragged* walls (seeded black rects
+  jittering the edge every ~7 px), then a horizontal darkening gradient
+  (0.7 alpha at both walls → clear at centre) to make it a hole and not a
+  stripe.
+- **Surface furniture**: casing block with top glint; spoil piles as
+  half-ellipses in `#463e31` with faint highlight ellipses offset up-wind.
+
+---
+
+## 6. Machines That Turn — the drill family
+
+Everything a rotating, helical, boring machine needs. Another drill (hand
+auger, wireline rig, excavator screw...) starts from this section and varies
+proportions, tip, and head.
+
+### 6.1 The helicoid — how a thread is actually drawn
+
+The thread is a **real helicoid surface**, not a ribbon following the crest.
+For each small step in angle θ, project the radial segment running from root
+radius to crest radius:
+
+```
+x(θ) = CX + r·sin(θ)·HAND        y(θ) = threadTop + PITCH·θ/2π + TILT·cos(θ)·(r/R)
+```
+
+Fill the quad between consecutive θ (root/crest × θ/θ+dθ). Its projected
+width is `(crest−root)·sin θ`, so the surface **pinches to nothing edge-on
+(θ = 0, π) and is widest at the silhouettes** — the sawtooth teeth *emerge
+from the projection*; they are never drawn as shapes. (`threadSegs` /
+`drawThread`.)
+
+The craft around it, each item bought with a failed pass:
+
+- **Front/back split** by sign of cos θ; back drawn first, through `dim()`
+  (§3.2), under the rod. Painter-sort segments by cos θ, farthest first.
+- **V cross-section**: axial thickness tapers root→crest (`TH_T 5.6` →
+  `TH_C 2.1`). Constant thickness reads as *stacked rings* — this taper is
+  what makes teeth come to points.
+- **Four faces per step**: body slab (edge-on), underside (in shadow), crest
+  rim, ramp face — shades computed from cos θ + a left-bias term, each
+  through `band()`; then a coarse-quantized glint along the crest, front only.
+- **One flood outline pass** for the whole sweep before any face (§2).
+- **Known limitation**: the `TILT` ellipse term makes dy/dθ unequal at the
+  two silhouettes, so left teeth read slightly broader than right. Reducing
+  TILT narrows the gap but flattens the from-above read. Accepted at
+  `TILT 1.9`.
+
+### 6.2 Proportions that read as a thread
+
+```
+crest R ≈ 1.8 × root RS          (17.0 / 9.6)
+pitch  ≈ 1.0–1.3 × crest diameter (21.5 vs 34)
+threaded stem = FIXED length      (THREAD_LEN = PITCH·6.2)
+taper to tip over last 1.5 turns  (TAPER_PX), then a faceted carbide cone
+```
+
+The fixed stem matters: a stem defined as a *fraction* of the visible rod
+grows as the hole deepens — no real tool does that. The **rod above**
+lengthens instead (§4.3 sections), which is also true.
+
+### 6.3 The shaft grammar, top to bottom
+
+powerhead (amber housing + side pod with status lamp) → chuck → 1–3 plain rod
+sections, each ending in a joint, each a step thinner → **transition collar**
+(a `big` joint) → threaded stem → carbide facets. Count of sections scales
+with depth. The lamp on the side pod reads machine state semantically
+(cyan idle / amber driven / hot over-driven).
+
+### 6.4 Rotation & particles
+
+- Spin is one phase scalar: `phase -= rpm * 9 * dt`, consumed only inside the
+  θ offset. Nothing else "rotates".
+- **Chips** ride the *outer envelope* — position from `radAt(y)+2.5`, the
+  function that returns crest radius on the stem and rod radius above it.
+  Never place particles from a stale constant; when the geometry changed,
+  chips clumping mid-rod was the tell.
+- Front/back chip alpha 0.95/0.45 by cos of their own angle; they climb at
+  a rate scaled by rpm (the flights carry them).
+- **World consistency rule**: debris never below the bit — *there is no hole
+  down there yet.* Annulus debris tumbles only in the cut section above it.
+
+---
+
+## 7. The Stage — camera & motion
+
+- **The canvas is a window, not the world.** World coordinates stay fixed
+  (640×880 here); the view is a crop (268×560) translated by a camera. Draw
+  ground against the *view* rect, machines in world space.
+- **Follow with ease**: target keeps the working point ~62% down the view;
+  `cam += (want − cam) · min(1, dt·4.5)`, clamped to world bounds.
+- **Anchor to the world, not the frame**: the powerhead sits relative to the
+  surface collar, so it scrolls away as the string descends. Anything
+  anchored to the canvas top is UI, not scene.
+- **Shake is an impulse**: set `shake = 1` on a hit, decay `−dt·7`, apply as
+  ±1.5 px random offset to the whole scene transform. Gate behind
+  `prefers-reduced-motion` along with sparks and idle particle churn.
+- **Clamp dt at both ends**: `clamp((now−last)/1000, 0, 0.05)`. The first
+  rAF timestamp can *precede* the `performance.now()` captured before it —
+  a negative dt once ran depth below zero and indexed an array at −1.
+
+## 8. Console Chrome
+
+The instrument-panel language around a stage (in-game panels: defer to
+`docs/guides/ui-panels.md`; this is the prototype/artifact dialect):
+
+- Cards on `--panel` with 1 px `--rule` borders, 6 px radius; mono uppercase
+  card titles in `--dim`.
+- **Segmented gauges**: a row of flat cells, lit count = value; semantic
+  classes recolour lit cells (warm/crit/ok). A *range* shown on a gauge
+  (like the pressure band) is a static `band`-class cell underlay — the
+  target is visible before the needle reaches it.
+- Big numerals in mono with `tabular-nums`; unit suffix small and dim.
+- Overlays (report/trip) live *inside* the stage, `rgba(7,11,17,.94)` +
+  blur, never a browser modal.
+- One structural HTML lesson: **never nest a button in a button** — the
+  parser hoists the inner one out and silently breaks the layout. A
+  clickable stage is a `div role="button" tabindex="0"` with key handlers.
+
+## 9. Capture — making stills and GIFs of it
+
+- **Deterministic stepping**: expose `__setState(o)`, `__manual(on)`,
+  `__step(dt)`; capture harnesses drive `frame(dt)` at fixed dt so output is
+  reproducible regardless of headless timing.
+- **Zoom to judge**: at full frame a 40 px-wide machine is unjudgeable;
+  screenshot crops at deviceScaleFactor 2–3 (`zoom.js`) and *look at them*
+  before claiming anything.
+- **Pixel-snap the camera for GIFs**: sub-pixel scroll redraws every
+  background pixel per frame and defeats delta compression (~35% size win
+  from snapping to 2 px).
+- **One shared palette for GIFs**: quantize all frames against a mid-action
+  frame's palette (MEDIANCUT, ≤96 colours, no dither) or the heat ramp
+  shimmers between frames.
+- Poses for stills: a geometry pose is rpm 0 with particles cleared — chips
+  on top of the part being judged hide exactly what you are judging.
+
+---
+
+## 10. Extending This Document
+
+- New **material** → new §4/§5-style section: its two functions, its recipe
+  profiles, its variant table.
+- New **component family** → new §6-style section: the core geometric trick,
+  the proportions that make it read, its grammar of parts, its particles.
+- New **technique inside an existing family** → subsection there, with the
+  failed pass that taught it if there was one. The failures are half the
+  value of this document.
+- Every entry names its reference implementation (file + function). If the
+  reference moves, move the pointer in the same commit.

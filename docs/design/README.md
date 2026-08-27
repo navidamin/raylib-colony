@@ -42,6 +42,7 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 | Module | Directory | Status |
 |--------|-----------|--------|
 | **Subsurface** | `subsurface/` | **Not a module — the world both extraction modules read, and the contract between them. Read it before either** |
+| **Graphics** | `graphics/` | **Not a module — the Dark Plating coded-art style guide. Read before drawing anything by code; extend it with every new graphical component** |
 | Prospecting | `prospecting/` | Built (v1); **v2 block model designed, not built** |
 | Excavation | `excavation/` | Built (phases 1-6) against v1 prospecting; v2 sketched, blocked on prospecting v2 |
 | Research | `research/` | Stub — interface requirements from prospecting AI |
