@@ -86,10 +86,12 @@ TEST_CASE("the lattice is fixed; tier changes reach, not size", "[types]")
     }
 
     // What tier actually buys is a wider ring out from the sect at the centre.
-    REQUIRE(GetReachForTier(0) == 2);
-    REQUIRE(GetReachForTier(1) == 4);
-    REQUIRE(GetReachForTier(2) == 6);
-    REQUIRE(GetReachForTier(3) == 8);
+    // The rings scale with the lattice (16x16 now), keeping the same physical
+    // metres and the same fraction of ground per tier.
+    REQUIRE(GetReachForTier(0) == PROSPECTING_GRID_SIZE / 4);
+    REQUIRE(GetReachForTier(1) == PROSPECTING_GRID_SIZE / 2);
+    REQUIRE(GetReachForTier(2) == PROSPECTING_GRID_SIZE * 3 / 4);
+    REQUIRE(GetReachForTier(3) == PROSPECTING_GRID_SIZE);
 
     // Even sizes nest, so every tier-up lights a complete ring around what
     // the previous tier could already see.

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+
 // Sub-cell grid sizes per prospecting module tier
 // The prospecting grid is a FIXED lattice of sub-cells covering the parent
 // planet cell. Sub-cell size never changes; tier extends how far the
@@ -11,8 +13,12 @@
 // Even sizes nest perfectly (offsets 3/2/1/0), so every tier-up lights up a
 // complete ring. Because the grid is never reallocated, survey data and
 // collected samples survive a tier upgrade.
-constexpr int PROSPECTING_GRID_SIZE = 8;
-constexpr int PROSPECTING_MAX_GRID_SIZE = 8;
+// 16x16 -- the planned refinement (block-mining-design.md). Metric constants
+// (halo ranges, energy per metre, layer thickness) survive unchanged because
+// they were always in metres; only per-cell tonnage and the reach rings had
+// to follow the cell size.
+constexpr int PROSPECTING_GRID_SIZE = 16;
+constexpr int PROSPECTING_MAX_GRID_SIZE = PROSPECTING_GRID_SIZE;
 
 // Side length of the reachable square per tier, centred in the grid.
 //
@@ -21,7 +27,7 @@ constexpr int PROSPECTING_MAX_GRID_SIZE = 8;
 // The table and IsSubCellInReach stay because EXCAVATION still reads reach
 // with its own tier: hauling distance is a different question from where an
 // instrument may look.
-constexpr int PROSPECTING_REACH_PER_TIER[] = { 2, 4, 6, 8 };
+constexpr int PROSPECTING_REACH_PER_TIER[] = { 4, 8, 12, 16 };
 
 // Sample tray base capacities per tier (before objective bonuses)
 constexpr int TRAY_BASE_CAPACITY[] = { 4, 8, 12, 16 };
@@ -51,7 +57,7 @@ constexpr int MAX_DEPTH_PER_TIER[] = { 4, 4, 4, 4 };
 constexpr float LAYER_THICKNESS_M[4]    = { 12.0f, 22.0f, 34.0f, 52.0f };
 constexpr float LAYER_CENTRE_M[4]       = {  6.0f, 23.0f, 51.0f, 94.0f };
 constexpr float DRILL_ENERGY_PER_METRE[4] = { 1.2f, 1.9f, 2.8f, 4.0f };
-constexpr float SUBCELL_SIZE_M          = 12.5f;   // 100 m cell / 8 sub-cells
+constexpr float SUBCELL_SIZE_M          = 6.25f;   // 100 m cell / 16 sub-cells
 
 // Energy for a vertical hole from the surface down THROUGH depth layer d --
 // the auger cores everything above its target, so the cost is the whole
@@ -81,6 +87,31 @@ constexpr float LayerBottomM(int depthIndex)
     return LayerTopM(depthIndex) + LAYER_THICKNESS_M[depthIndex];
 }
 constexpr float FULL_COLUMN_M = LayerBottomM(3);
+
+// A plate is a SLAB, not a sheet: its iso rows (i+j, the axis running into
+// the screen) span the stratum's thickness top to bottom. This is the depth
+// a cell stands for -- used by aiming, coring and the hover tick, so a point
+// on a plane always corresponds to a point down the rock column.
+inline float CellRowDepthM(int layer, int i, int j, int gridSize)
+{
+    float row = (static_cast<float>(i + j) + 1.0f)
+              / (2.0f * static_cast<float>(gridSize));
+    return LayerTopM(layer) + row * LAYER_THICKNESS_M[layer];
+}
+
+// Energy to an arbitrary metre depth: full layers above plus the partial one.
+inline float DrillEnergyToDepthMetres(float m)
+{
+    float total = 0.0f;
+    for (int d = 0; d < 4; d++)
+    {
+        float top = LayerTopM(d);
+        if (m <= top) break;
+        float span = std::min(m - top, LAYER_THICKNESS_M[d]);
+        total += span * DRILL_ENERGY_PER_METRE[d];
+    }
+    return total;
+}
 
 inline int LayerOfDepthM(float m)
 {
@@ -119,9 +150,13 @@ constexpr float LAYER_HARDNESS[4] = { 0.25f, 0.55f, 0.45f, 0.95f };
 // rpm, and so does heat -- driving hard through basalt cooks the bit into
 // its auto-peck, which is the whole hands-on tension. AUTO (never clicking)
 // still finishes every hole, just slowly: hands-on is ceiling, not floor.
-constexpr float DRILL_RPM_IDLE = 0.60f;
-constexpr float DRILL_RPM_MAX  = 1.35f;
-constexpr float DRILL_RPM_KICK = 0.25f;
+// Tuned by campaign (docs/design/prospecting/drill-tuning.md): a single
+// click bumps speed +23%, not the +42% lurch the first cut had; sustained
+// clicking tops out at 1.9x idle, and past ~4 clicks/s heat converts the
+// extra drive into dwell time instead of depth.
+constexpr float DRILL_RPM_IDLE = 0.65f;
+constexpr float DRILL_RPM_MAX  = 1.25f;
+constexpr float DRILL_RPM_KICK = 0.15f;
 constexpr float DRILL_RPM_TAU  = 0.75f;      // seconds, decay back to idle
 
 // ---------------------------------------------------------------------------
@@ -145,7 +180,13 @@ constexpr float ESTIMATE_IDW_POWER = 3.0f;
 // the exact "prospecting becomes optional past the first pit" risk
 // module-interplay.md #5 warned about. At 10 m a dug spot's neighbour reads
 // ~0.21 (barely INFERRED): mining outward still hints, surveying still wins.
-constexpr float EXCAVATION_SUPPORT_RANGE_M = 10.0f;
+// Scales with the face: a working spot is one sub-cell across, so when the
+// lattice refined 12.5 -> 6.25 m this halved with it. At 5 m the immediate
+// neighbour of a dug spot reads support 0.21 (Inferred) -- the same ladder
+// the 8x8 lattice had -- and colony_sim's survey-beats-blind claim holds.
+// At the old 10 m every neighbour of every dug spot went Indicated and
+// blind digging self-mapped its way past the surveyor.
+constexpr float EXCAVATION_SUPPORT_RANGE_M = 4.0f;
 
 
 // Sweep energy costs per frequency band (high → low frequency)
@@ -178,7 +219,13 @@ constexpr float SURVEY_SAMPLE_WEIGHT  = 0.80f;
 constexpr float SURVEY_TESTING_WEIGHT = 0.00f;
 
 // Fraction of sub-cells that must be sampled for full sample coverage
-constexpr float SURVEY_SAMPLE_COVERAGE_TARGET = 0.25f;
+// A fraction of the LATTICE, so it must scale with the lattice: the physical
+// ground a hole speaks for is metric (its halo), and holding this at 0.25
+// after the 16x16 refinement would have quietly demanded 4x the holes for
+// the same progress -- which is exactly what flipped colony_sim's
+// "surveying beats digging blind" claim until this was scaled.
+constexpr float SURVEY_SAMPLE_COVERAGE_TARGET =
+    0.25f * (8.0f * 8.0f) / (PROSPECTING_GRID_SIZE * PROSPECTING_GRID_SIZE);
 
 // Survey progress threshold for marking a site for excavation
 constexpr float MARKED_SITE_THRESHOLD = 0.60f;

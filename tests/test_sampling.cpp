@@ -95,7 +95,7 @@ TEST_CASE("SamplingEngine CollectSample fails on out-of-bounds", "[sampling]")
     SamplingEngine engine(1);
 
     REQUIRE_FALSE(engine.CollectSample(grid, tray, -1, 0, DepthLayer::SURFACE));
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, 10, 0, DepthLayer::SURFACE));
+    REQUIRE_FALSE(engine.CollectSample(grid, tray, PROSPECTING_GRID_SIZE + 2, 0, DepthLayer::SURFACE));
     REQUIRE(tray.IsEmpty());
 }
 

@@ -17,6 +17,7 @@
 | 9 | [block-model-design.md](block-model-design.md) | **THE NEW PROSPECTING.** Drill holes with azimuth and dip, an interpolated estimate field, and a four-layer isometric block model. Supersedes the panel and interaction design in #1 and #7 | PARTLY BUILT — view, one-screen panel, LIBS-only sweep, certain cores shipped; estimate field and line holes not |
 | 10 | [progression-design.md](progression-design.md) | **PROGRESSION.** No tiers: rigs you buy (a stable, not a ladder) and techniques you learn (UnlockRegistry). Depth and reach ungated; disposition table for every `*_PER_TIER` constant | DESIGN — plan of record |
 | 11 | [prototypes/drill-dock.html](prototypes/drill-dock.html) | **DRILL DOCK.** Layout study docking the hands-on borehole view against the 4-layer block model: one ground across both panels, one trace in two projections, three placements (`?v=a/b/c`). Graphics per [Dark Plating](../graphics/dark-plating.md) | **PORTED TO THE GAME** — `v=b` in `DrawProspectingPanel` (borehole dock, shared depth axis, prescribed line with shadow/string/advance, drag-to-draw input, line holes cored over game time via `ProspectingSystem::UpdateLineHole`) |
+| 12 | [drill-tuning.md](drill-tuning.md) | **DRILL TUNING.** The clicking campaign, the screw-true spin law, and the full 16x16 migration ledger -- every constant the finer lattice touched, with the sim numbers that chose it | MEASURED |
 
 > **Two designs live here.** #1-#8 describe **v1** as it was built. The game
 > has since moved: the panel is one screen on a four-layer block model, the

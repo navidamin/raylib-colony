@@ -127,13 +127,20 @@ static int RunSurvey(ProspectingSystem& system, int budgetTicks)
         }
     }
 
+    // Sample at 25 m spacing -- every fourth cell of the 16x16 lattice. A
+    // hole speaks for its 20 m halo, so this classifies the whole reach
+    // (mid-gap support 0.68, Indicated) for a quarter of the holes; coring
+    // finer buys nothing the survey-progress cap can pay for. On the old
+    // 8x8 lattice the same physical plan was every second cell.
     int gridSize = grid.GetGridSize();
-    for (int y = 0; y < gridSize && spent < budgetTicks; y++)
+    for (int y = 2; y < gridSize && spent < budgetTicks; y += 4)
     {
-        for (int x = 0; x < gridSize && spent < budgetTicks; x++)
+        for (int x = 2; x < gridSize && spent < budgetTicks; x += 4)
         {
             if (!grid.IsInReach(x, y)) continue;
-            if (tray.IsFull()) break;
+            // A full tray never blocks drilling -- knowledge lives on the
+            // grid. This break starved the surveyor of the finer lattice's
+            // back half and flipped the survey-beats-blind claim.
             if (system.GetSampler().CollectSample(grid, tray, x, y, DepthLayer::SURFACE))
             {
                 spent++;
@@ -141,16 +148,9 @@ static int RunSurvey(ProspectingSystem& system, int budgetTicks)
         }
     }
 
-    // Analysing a sample is what turns it into confidence.
-    for (Sample& sample : tray.GetSamples())
-    {
-        if (spent >= budgetTicks) break;
-        if (system.GetLab().CanApplyTool(sample, AnalysisTool::XRF))
-        {
-            system.GetLab().ApplyTool(sample, AnalysisTool::XRF, system.gameTime);
-            spent++;
-        }
-    }
+    // No lab pass: the lab stage is retired -- a recovered core comes out of
+    // the ground assayed (SURVEY_TESTING_WEIGHT is zero). Grinding XRF here
+    // was ~19 dead ticks the surveyor paid and blind digging did not.
 
     return spent;
 }

@@ -42,7 +42,8 @@ TEST_CASE("a line hole cores each crossing as the bit passes it", "[linehole]")
     int coredWhenSurfaceDone = -1;
     for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
     {
-        doneEarly = sys.UpdateLineHole(0.05f) && sys.lineHole.depthM < 100.0f;
+        doneEarly = sys.UpdateLineHole(0.05f) &&
+                    sys.lineHole.depthM < sys.lineHole.endM - 0.5f;
         if (sys.lineHole.cored[0] && coredWhenSurfaceDone < 0)
         {
             coredWhenSurfaceDone = sys.lineHole.cored[3] ? 1 : 0;

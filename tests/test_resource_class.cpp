@@ -201,22 +201,24 @@ TEST_CASE("a core builds the designed halo of classes around it", "[class][field
 
     REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
 
-    // The support ladder at RANGE = 20 m, on the 12.5 m lattice:
-    //   cored block           1.00  MEASURED   (the rock is in your hand)
-    //   neighbour   12.5 m    0.68  INDICATED
-    //   two cells   25.0 m    0.21  INFERRED
-    //   three cells 37.5 m    0.03  UNCLASSIFIED
-    // This is the whole confidence vocabulary produced by one hole -- the
-    // thing that was impossible while confidence was local to the sampled
-    // cell.
+    // The support ladder at RANGE = 20 m, on the 6.25 m lattice. The METRIC
+    // footprint is identical to the old 12.5 m lattice -- the same distances
+    // just land on different cell offsets:
+    //   cored block            1.00  MEASURED  (the rock is in your hand)
+    //   neighbour     6.25 m   0.91  MEASURED  (a ~12.5 m Measured column,
+    //                                           exactly the old one-cell one)
+    //   two cells    12.50 m   0.68  INDICATED
+    //   four cells   25.00 m   0.21  INFERRED
+    //   six cells    37.50 m   0.03  UNCLASSIFIED
     auto cls = [&](int x, int y) {
         return GetResourceClass(GetDepthConfidence(grid, tray, x, y,
                                                    DepthLayer::SURFACE));
     };
     REQUIRE(cls(3, 3) == ResourceClass::MEASURED);
-    REQUIRE(cls(4, 3) == ResourceClass::INDICATED);
-    REQUIRE(cls(5, 3) == ResourceClass::INFERRED);
-    REQUIRE(cls(6, 3) == ResourceClass::UNCLASSIFIED);
+    REQUIRE(cls(4, 3) == ResourceClass::MEASURED);
+    REQUIRE(cls(5, 3) == ResourceClass::INDICATED);
+    REQUIRE(cls(7, 3) == ResourceClass::INFERRED);
+    REQUIRE(cls(9, 3) == ResourceClass::UNCLASSIFIED);
 
     // And per depth: the SURFACE core supports the layer below it only
     // weakly (17 m -> 0.49, INDICATED), and the deep layers not at all.
@@ -234,41 +236,69 @@ TEST_CASE("the ground is vertically continuous", "[field][generator]")
     // The generator seeds one 3D field per (cell, resource) -- depth is NOT
     // in the seed -- so adjacent layers must correlate. Four independent
     // layers was the defect that made aiming worthless.
+    //
+    // Measured, not hoped: the statistic is the Pearson correlation of the
+    // yield fields of layers 0 and 1 across the whole lattice. A global-peak
+    // drift test was the 8x8 version, and the finer lattice broke it for a
+    // reason worth recording -- with two shoots per field the global maximum
+    // can switch shoots between layers, reading as a huge "drift" over
+    // ground that is perfectly continuous. Correlation sees through that.
     ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
     rm.GenerateResourceMap(4242u);
 
-    int agree = 0, cells = 0;
+    int strong = 0, cells = 0;
     for (int gx = 4; gx < 16; gx += 3)
     {
         for (int gy = 4; gy < 16; gy += 3)
         {
             ProspectingGrid grid(3, gx, gy, rm);
-            ResourceType type =
-                grid.GetGroundTruth(0, 0, DepthLayer::SURFACE).begin()->first;
 
-            // Peak block of layer 0 and of layer 1 should sit near each
-            // other far more often than chance (chance: ~2% within 2 cells).
-            auto peak = [&](DepthLayer d) {
-                int bx = 0, by = 0; float best = -1.0f;
-                for (int y = 0; y < 8; y++)
-                    for (int x = 0; x < 8; x++)
-                    {
-                        float v = GetSubCellYield(grid, x, y, d, type);
-                        if (v > best) { best = v; bx = x; by = y; }
-                    }
-                return std::make_pair(bx, by);
-            };
-            auto p0 = peak(DepthLayer::SURFACE);
-            auto p1 = peak(DepthLayer::SHALLOW);
-            int dist = std::max(std::abs(p0.first - p1.first),
-                                std::abs(p0.second - p1.second));
-            if (dist <= 2) agree++;
+            // A resource that actually exists in BOTH layers -- picking the
+            // first surface element compared nine of these cells against a
+            // FLAT deeper layer (variance zero, correlation meaningless),
+            // which the old peak-drift test silently did too.
+            ResourceType type = ResourceType::Fe;
+            {
+                double bestVar = -1.0;
+                for (const auto& kv :
+                     grid.GetGroundTruth(0, 0, DepthLayer::SURFACE))
+                {
+                    double v0 = 0, v1 = 0, m0 = 0, m1 = 0;
+                    int nn = 0;
+                    for (int y = 0; y < PROSPECTING_GRID_SIZE; y += 2)
+                        for (int x = 0; x < PROSPECTING_GRID_SIZE; x += 2)
+                        {
+                            double a = GetSubCellYield(grid, x, y,
+                                                       DepthLayer::SURFACE, kv.first);
+                            double b = GetSubCellYield(grid, x, y,
+                                                       DepthLayer::SHALLOW, kv.first);
+                            m0 += a; m1 += b; v0 += a * a; v1 += b * b; nn++;
+                        }
+                    m0 /= nn; m1 /= nn;
+                    double var = std::min(v0 / nn - m0 * m0, v1 / nn - m1 * m1);
+                    if (var > bestVar) { bestVar = var; type = kv.first; }
+                }
+            }
+
+            const int n = PROSPECTING_GRID_SIZE * PROSPECTING_GRID_SIZE;
+            double sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0;
+            for (int y = 0; y < PROSPECTING_GRID_SIZE; y++)
+            {
+                for (int x = 0; x < PROSPECTING_GRID_SIZE; x++)
+                {
+                    double a = GetSubCellYield(grid, x, y, DepthLayer::SURFACE, type);
+                    double b = GetSubCellYield(grid, x, y, DepthLayer::SHALLOW, type);
+                    sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b;
+                }
+            }
+            double cov = sab / n - (sa / n) * (sb / n);
+            double va = saa / n - (sa / n) * (sa / n);
+            double vb = sbb / n - (sb / n) * (sb / n);
+            double r = (va > 1e-12 && vb > 1e-12) ? cov / std::sqrt(va * vb) : 0.0;
+            if (r > 0.35) strong++;
             cells++;
         }
     }
-
-    // A dipping shoot walks sideways with depth, so demand a strong majority,
-    // not unanimity.
     REQUIRE(cells >= 16);
-    REQUIRE(agree * 2 > cells);
+    REQUIRE(strong * 4 >= cells * 3);   // a strong positive in >= 3/4 of cells
 }

@@ -3111,6 +3111,7 @@ static void ProsDrawHead(float cx, float surfY, float clipTop,
 // The whole strip. Returns nothing; draws rock, hole, string, mud trace.
 static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                                  const ProsDockGeom& dg, float clipTop, float clipBot,
+                                 float hoverM,
                                  const Font& bodyFont, float sp, float fsSmall)
 {
     (void)unit;
@@ -3120,10 +3121,20 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     float surfY = dg.bandTop[0];
     float botY = dg.bandTop[4];
 
-    // spin + chips advance with the frame; a dwell winds the spin down and
-    // stops the cuttings -- the string is off the face, cooling
+    // The spin is SCREW-TRUE in ground soft enough to bite: rotation rate is
+    // derived so one turn descends one thread pitch on screen, which is what
+    // locks the auger illusion to the actual advance (campaign: the old fixed
+    // rate was HALF screw-true in regolith -- the drill looked pushed, not
+    // screwed). Hard rock floors at a grind rate: turning faster than it
+    // bites, which is honest. A dwell winds the spin down to a creep.
     float dt = GetFrameTime();
-    if (turning) prosSpin -= (cooling ? 0.12f : hole.rpm) * 9.0f * dt;
+    if (turning)
+    {
+        int L = LayerOfDepthM(hole.depthM);
+        float pxPerM = (dg.bandTop[L + 1] - dg.bandTop[L]) / LAYER_THICKNESS_M[L];
+        float screwTrue = DRILL_ADVANCE_MPS[L] * pxPerM * 2.0f * PI / PROS_PITCH;
+        prosSpin -= (cooling ? 1.1f : std::max(screwTrue, 6.0f) * hole.rpm) * dt;
+    }
 
     BeginScissorMode(static_cast<int>(dg.x), static_cast<int>(clipTop),
                      static_cast<int>(dg.w), static_cast<int>(clipBot - clipTop));
@@ -3281,6 +3292,18 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                          Fade({255, 60, 20, 255}, 0.10f * (hole.heat - 0.78f) / 0.22f));
 
     ProsDrawHead(rig.cx, surfY, clipTop, turning, cooling);
+
+    // the hovered plate cell's depth, shown as its twin on the rock column --
+    // every point on a plane corresponds to a point down the hole
+    if (hoverM >= 0.0f)
+    {
+        float hy = dg.YOf(hoverM);
+        DrawLineEx({dg.x + 2.0f, hy}, {dg.x + dg.w - 24.0f, hy}, 1.2f,
+                   Fade(EXT_ACCENT_CYAN, 0.75f));
+        const char* dm = TextFormat("%.0f", hoverM);
+        DrawTextEx(bodyFont, dm, {dg.x + dg.w - 21.0f, hy - 4.0f},
+                   fsSmall, sp, EXT_ACCENT_CYAN);
+    }
 
     // tag, bottom-right
     {
@@ -3536,13 +3559,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     static const char* geologyLabels[4] = {"REGOLITH", "MEGAREG.", "FRACTURED", "INTACT"};
 
     int focusDepth = static_cast<int>(ps->selectedDepth);
-    std::vector<Rectangle> hitAll[4];
-    std::vector<int> hitAllIdx[4];
     for (int L = 0; L < 4; L++)
     {
         ProsDrawBlockLayer(geom, layers[L], L, maxGrade, bodyFont, sp,
-                           depthLabels[L], geologyLabels[L],
-                           &hitAll[L], &hitAllIdx[L]);
+                           depthLabels[L], geologyLabels[L], nullptr, nullptr);
     }
 
     // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
@@ -3552,18 +3572,29 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // collar block again cancels; a click anywhere else just selects.
     bool stringDown = ps->lineHole.state == LineHoleState::DRILLING;
     bool aiming = ps->lineHole.state == LineHoleState::AIMING;
+    // Analytic pick: invert the iso transform per plate, so every pixel of a
+    // plate maps to its nearest cell -- at 16x16 per-cell hit rects would be
+    // smaller than any finger.
     int hovL = -1, hovX = -1, hovY = -1;
     for (int L = 0; L < 4 && hovL < 0; L++)
     {
-        for (size_t k = 0; k < hitAll[L].size(); k++)
-        {
-            if (!CheckCollisionPointRec(mouse, hitAll[L][k])) continue;
-            hovL = L;
-            hovX = hitAllIdx[L][k] % gridSize;
-            hovY = hitAllIdx[L][k] / gridSize;
-            DrawRectangleLinesEx(hitAll[L][k], 1.0f, Fade(PROS_HOVER_BORDER, 0.9f));
-            break;
-        }
+        float a = (mouse.x - geom.originX) / geom.tileX;
+        float b = (mouse.y - geom.originY - L * geom.gap) / geom.tileY;
+        float fi = (a + b) * 0.5f, fj = (b - a) * 0.5f;
+        if (fi < 0.0f || fj < 0.0f ||
+            fi >= static_cast<float>(gridSize) || fj >= static_cast<float>(gridSize))
+            continue;
+        hovL = L;
+        hovX = static_cast<int>(fi);
+        hovY = static_cast<int>(fj);
+        Vector2 q0 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY), L, 0.0f);
+        Vector2 q1 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY), L, 0.0f);
+        Vector2 q2 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY + 1), L, 0.0f);
+        Vector2 q3 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY + 1), L, 0.0f);
+        DrawLineEx(q0, q1, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(q1, q2, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(q2, q3, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(q3, q0, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
     }
 
     if (aiming && hovL > 0) ps->AimAt(hovL, hovX, hovY);   // preview tracks the pointer
@@ -3584,7 +3615,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         else if (aiming && hovL > 0)
         {
             ps->AimAt(hovL, hovX, hovY);
-            float lineCost = DrillEnergyToDepth(hovL);
+            float lineCost = DrillEnergyToDepthMetres(ps->lineHole.endM);
             if (unit->ConsumeResource(ResourceType::ENERGY, lineCost))
             {
                 ps->CommitHole();
@@ -3617,7 +3648,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     // the line over the stack, after the plates so it reads as through them
     ProsDrawTraceBlock(ps, geom, dock);
-    ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f, bodyFont, sp, FS(7.5f));
+    float hoverM = (hovL >= 0)
+        ? CellRowDepthM(hovL, hovX, hovY, gridSize) : -1.0f;
+    ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f,
+                         hoverM, bodyFont, sp, FS(7.5f));
 
     // ONE marker, on the layer it was selected on. The line's own points are
     // drawn by the trace: the collar ring while aiming, crossing rings as the
@@ -3751,11 +3785,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     const LineHole& lh = ps->lineHole;
     if (lh.state == LineHoleState::AIMING && lh.targetLayer > 0)
     {
-        float lineCost = DrillEnergyToDepth(lh.targetLayer);
+        float lineCost = DrillEnergyToDepthMetres(lh.endM);
         bool affordable = ProsCanAfford(unit, lineCost);
         static const char* layerNames[4] = {"REGOLITH", "MEGAREGOLITH", "FRACTURED", "BASALT"};
-        DrawTextEx(bodyFont, TextFormat("line into %s - %.0f E",
-                                        layerNames[lh.targetLayer], lineCost),
+        DrawTextEx(bodyFont, TextFormat("line to %.0f m (%s) - %.0f E",
+                                        lh.endM, layerNames[lh.targetLayer], lineCost),
                    {ctrlX, ctrlY}, FS(9.5f), sp,
                    affordable ? EXT_ACCENT_CYAN : EXT_ACCENT_GOLD);
         ctrlY += 13.0f;
