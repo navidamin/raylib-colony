@@ -20,6 +20,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read       # to download the other branch's Pages artifact
 
 concurrency:
   group: "pages"
@@ -72,6 +73,40 @@ jobs:
         if [ -f build/src/lunar_map.data ]; then
           cp build/src/lunar_map.data deploy/lunarmap/lunar_map.data
         fi
+
+    # One repo has one Pages site and every deploy replaces ALL of it. The
+    # excavation branch serves /playtest/ and /extraction/; this step pulls
+    # its latest successful Pages artifact and keeps any top-level directory
+    # this deploy does not itself provide, so a deploy from THIS branch
+    # serves the union instead of 404ing the other branch's sandboxes.
+    # The excavation branch carries the mirror of this step, naming this
+    # branch. Never fails the build: no artifact just means shipping alone.
+    - name: Overlay other branches' sandboxes
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set +e
+        for BR in claude/excavation-module-design-jhp3v1; do
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-web.yml \
+                   --branch "$BR" --status success --limit 1 \
+                   --json databaseId --jq '.[0].databaseId')
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "no successful run on $BR -- skipping"; continue
+          fi
+          rm -rf _other _other_x && mkdir -p _other _other_x
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+             -n github-pages -D _other || { echo "artifact gone on $BR"; continue; }
+          tar -xf _other/artifact.tar -C _other_x || continue
+          for d in _other_x/*/; do
+            name=$(basename "$d")
+            if [ ! -e "deploy/$name" ]; then
+              echo "carrying /$name/ from $BR"
+              cp -r "$d" "deploy/$name"
+            fi
+          done
+        done
+        rm -rf _other _other_x
+        true
 
     - name: Setup Pages
       uses: actions/configure-pages@v4
