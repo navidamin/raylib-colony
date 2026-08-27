@@ -37,6 +37,7 @@
 
 #include "raylib.h"
 #include "raymath.h"
+#include "rlgl.h"
 
 #include "lola_dem.h"
 #include "survey_cursor.h"
@@ -66,6 +67,9 @@ struct DemoSite
     double pickLat, pickLon;       // level-1 click
     double aimDx, aimDy;           // km east/north of pick the player aims at
     float sunElDeg;                // display sun: grazing at the poles
+    double altHoverLat, altHoverLon;   // extra L1 frame hovering elsewhere
+                                       // (9e9 = none): shows the highlight
+                                       // tracking the mouse, not the target
     // region card (fixed from level 1)
     const char* regionName;
     const char* terrane;
@@ -80,7 +84,7 @@ struct DemoSite
 
 static const DemoSite DEMO_SITES[] =
 {
-    { "imbrium", 32.8, -15.6, 13.0, 13.0, 30.0f,
+    { "imbrium", 32.8, -15.6, 13.0, 13.0, 30.0f, 28.0, 17.5,
       "Mare Imbrium", "Procellarum KREEP Terrane", "MARE INDUSTRIAL",
       Color{ 224, 168, 108, 255 },
       "mare basalt", 14.0f, 2.5f, 8.0f,
@@ -98,7 +102,7 @@ static const DemoSite DEMO_SITES[] =
           "Build allowed. What is UNDER this exact spot - hydrogen, regolith depth - stays unknown until prospected." },
       } },
 
-    { "apennine", 26.10, 3.60, -3.0, 1.0, 24.0f,
+    { "apennine", 26.10, 3.60, -3.0, 1.0, 24.0f, 9e9, 9e9,
       "Palus Putredinis", "PKT - Apennine boundary", "MIXED (SHORE)",
       Color{ 150, 200, 150, 255 },
       "mare basalt / highland breccia", 12.0f, 1.8f, 5.0f,
@@ -116,7 +120,7 @@ static const DemoSite DEMO_SITES[] =
           "Green here - and the closer to the front you push, the sooner the verdict flips." },
       } },
 
-    { "shackleton", -89.7, 110.0, 0.0, 10.5, 4.0f,
+    { "shackleton", -89.7, 110.0, 0.0, 10.5, 4.0f, 9e9, 9e9,
       "Shackleton rim", "Feldspathic Highlands (polar)", "POLAR VOLATILE",
       Color{ 140, 190, 235, 255 },
       "anorthosite breccia", 5.0f, 0.4f, 1.0f,
@@ -179,6 +183,7 @@ struct MapOptions
     // cursor aimed at one target, one PNG per level.
     bool ladder = false;
     int demo = -1;                 // --demo NAME: annotated ladder walk
+    int maxLevel = 5;              // --maxlevel N: stop the demo after Ln
     // Data-layer test: -1 none, else an index into INSTRUMENTS. --truth
     // renders the field at full resolution instead of on the
     // instrument's measurement grid -- the "what is actually there"
@@ -288,6 +293,7 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         }
         else if (arg == "--footprint" && hasNext) { options.footprintKm = std::atof(argv[++i]); }
         else if (arg == "--ladder") { options.ladder = true; }
+        else if (arg == "--maxlevel" && hasNext) { options.maxLevel = std::atoi(argv[++i]); }
         else if (arg == "--demo" && hasNext)
         {
             std::string name = argv[++i];
@@ -2006,6 +2012,281 @@ static void UpdateFrame(void* arg)
 // Levels 2-5 only: level 1 is the projected orbital disc, which lives in
 // the game's render path (OrbitalPickToLatLon), not in this instrument.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Level-1 region highlighting: the mechanism itself.
+//
+// The disc is a MAP OF REGIONS, not ground with a crosshair. Terranes
+// are colour-washed; the named features are outlined; whatever is under
+// the cursor lights up with its name on a chip. No cursor rectangle at
+// this level -- the lit region IS the selection.
+//
+// Feature circles carry real centres and radii from
+// src/assets/planet/zones.json. The PKT boundary is traced approximately
+// from Jolliff, Gillis & Haskin (2000) Fig. 1 -- test-grade, not
+// survey-grade; the game will classify from its own composition once the
+// generator is inverted.
+// ---------------------------------------------------------------------------
+
+struct DiscFeature
+{
+    const char* name;
+    double lat, lon, radiusKm;
+};
+
+static const DiscFeature DISC_FEATURES[] =
+{
+    { "Oceanus Procellarum", 18.4, -57.4, 1296 },
+    { "Mare Frigoris", 55.0, 0.0, 723 },
+    { "Mare Imbrium", 32.8, -15.6, 573 },
+    { "Mare Fecunditatis", -7.8, 51.3, 454 },
+    { "Mare Tranquillitatis", 8.5, 31.4, 436 },
+    { "Mare Nubium", -21.3, -16.5, 358 },
+    { "Mare Serenitatis", 28.0, 17.5, 354 },
+    { "Mare Crisium", 17.0, 59.1, 278 },
+    { "Mare Humorum", -24.4, -38.6, 194 },
+    { "Mare Cognitum", -10.0, -23.1, 175 },
+    { "Mare Nectaris", -15.2, 35.3, 170 },
+    { "Sinus Medii", 2.4, 1.7, 144 },
+    { "Sinus Iridum", 44.1, -31.5, 124 },
+    { "Mare Vaporum", 13.3, 3.6, 122 },
+    { "Clavius", -58.4, -14.4, 116 },
+    { "Ptolemaeus", -9.3, -1.9, 76 },
+    { "Copernicus", 9.6, -20.1, 47 },
+    { "Tycho", -43.3, -11.4, 43 },
+    { "Plato", 51.6, -9.4, 50 },
+};
+static const int DISC_FEATURE_COUNT =
+    (int)(sizeof(DISC_FEATURES) / sizeof(DISC_FEATURES[0]));
+
+// PKT outline, lat/lon vertices. Everything else on the near side is
+// FHT for this instrument; SPA is essentially a far-side terrane.
+static const double PKT_POLY[][2] =
+{
+    { 52, -72 }, { 57, -45 }, { 52, -20 }, { 47, -2 }, { 38, 8 },
+    { 28, 17 }, { 18, 14 }, { 8, 10 }, { -2, 7 }, { -12, 2 },
+    { -22, -6 }, { -30, -18 }, { -32, -33 }, { -26, -48 },
+    { -14, -60 }, { -2, -70 }, { 12, -78 }, { 28, -80 }, { 42, -79 },
+};
+static const int PKT_POLY_COUNT =
+    (int)(sizeof(PKT_POLY) / sizeof(PKT_POLY[0]));
+
+static bool InPkt(double lat, double lon)
+{
+    bool inside = false;
+    for (int i = 0, j = PKT_POLY_COUNT - 1; i < PKT_POLY_COUNT; j = i++)
+    {
+        double yi = PKT_POLY[i][0], xi = PKT_POLY[i][1];
+        double yj = PKT_POLY[j][0], xj = PKT_POLY[j][1];
+        if (((yi > lat) != (yj > lat)) &&
+            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
+        {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+static double FeatureDistKm(const DiscFeature& f, double lat, double lon)
+{
+    double la1 = lat * DEG2RAD, la2 = f.lat * DEG2RAD;
+    double c = std::sin(la1) * std::sin(la2) +
+               std::cos(la1) * std::cos(la2) *
+               std::cos((lon - f.lon) * DEG2RAD);
+    return std::acos(Clamp((float)c, -1.0f, 1.0f)) * LOLA_MOON_RADIUS_M / 1000.0;
+}
+
+// Smallest named feature containing the point, or -1.
+static int FeatureAt(double lat, double lon)
+{
+    int best = -1;
+    double bestR = 1e18;
+    for (int i = 0; i < DISC_FEATURE_COUNT; i++)
+    {
+        if (FeatureDistKm(DISC_FEATURES[i], lat, lon) <=
+            DISC_FEATURES[i].radiusKm && DISC_FEATURES[i].radiusKm < bestR)
+        {
+            best = i;
+            bestR = DISC_FEATURES[i].radiusKm;
+        }
+    }
+    return best;
+}
+
+// The near-side map is plate carree, square: lon -90..90 across the
+// screen, lat -90..90 down it.
+static void DiscToScreen(double lat, double lon, int w, int h,
+                         float* x, float* y)
+{
+    *x = (float)(w * 0.5 + lon / 180.0 * h);
+    *y = (float)(h * 0.5 - lat / 180.0 * h);
+}
+
+// Colour wash for the terranes, brightened inside the hovered region.
+// Built as an image so it costs one texture draw.
+static void DrawTerraneWash(int w, int h, int hoverFeature,
+                            bool hoverPkt, bool dimOthers)
+{
+    Image img = GenImageColor(w, h, BLANK);
+    Color* px = (Color*)img.data;
+    const Color pktCol = { 178, 148, 196, 255 };
+    const Color fhtCol = { 206, 196, 178, 255 };
+    for (int y = 0; y < h; y++)
+    {
+        double lat = (0.5 - (double)y / h) * 180.0;
+        for (int x = 0; x < w; x++)
+        {
+            double lon = ((double)x / w - 0.5) * 180.0;
+            bool pkt = InPkt(lat, lon);
+            Color c = pkt ? pktCol : fhtCol;
+            int alpha = 46;
+            if (dimOthers) alpha = (pkt == hoverPkt && hoverFeature < 0) ? 66 : 26;
+            if (hoverFeature >= 0)
+            {
+                const DiscFeature& f = DISC_FEATURES[hoverFeature];
+                if (FeatureDistKm(f, lat, lon) <= f.radiusKm)
+                {
+                    alpha = 96;
+                    c.r = (unsigned char)Clamp(c.r + 40.0f, 0.0f, 255.0f);
+                    c.g = (unsigned char)Clamp(c.g + 40.0f, 0.0f, 255.0f);
+                    c.b = (unsigned char)Clamp(c.b + 40.0f, 0.0f, 255.0f);
+                }
+            }
+            c.a = (unsigned char)alpha;
+            px[y * w + x] = c;
+        }
+    }
+    Texture2D tex = LoadTextureFromImage(img);
+    DrawTexture(tex, 0, 0, WHITE);
+    // NOTE: the texture must outlive the draw call until EndTextureMode
+    // flushes; raylib batches, so unload after a flush.
+    rlDrawRenderBatchActive();
+    UnloadTexture(tex);
+    UnloadImage(img);
+}
+
+static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
+                                    Color hoverTint)
+{
+    for (int i = 0; i < DISC_FEATURE_COUNT; i++)
+    {
+        const DiscFeature& f = DISC_FEATURES[i];
+        if (std::fabs(f.lat) > 80.0) continue;
+        float cx = 0.0f, cy = 0.0f;
+        DiscToScreen(f.lat, f.lon, w, h, &cx, &cy);
+        double rDeg = f.radiusKm / (LOLA_M_PER_DEG / 1000.0);
+        float ry = (float)(rDeg / 180.0 * h);
+        float rx = (float)(ry / Clamp((float)std::cos(f.lat * DEG2RAD),
+                                      0.2f, 1.0f));
+        if (i == hoverFeature)
+        {
+            DrawEllipseLines((int)cx, (int)cy, rx, ry, hoverTint);
+            DrawEllipseLines((int)cx, (int)cy, rx + 1.0f, ry + 1.0f, hoverTint);
+            DrawEllipseLines((int)cx, (int)cy, rx + 2.0f, ry + 2.0f,
+                             Color{ hoverTint.r, hoverTint.g, hoverTint.b, 120 });
+        }
+        else
+        {
+            DrawEllipseLines((int)cx, (int)cy, rx, ry,
+                             Color{ 255, 255, 255, 70 });
+        }
+    }
+}
+
+// The hover chip: what is under the cursor, named. This is the whole
+// answer at level 1 -- no numbers, no rectangle.
+static void DrawHoverChip(float mx, float my, const char* name,
+                          const char* sub, Color tint, int screenW)
+{
+    int tw = std::max(MeasureText(name, 19), MeasureText(sub, 12));
+    int bw = tw + 26, bh = 46;
+    float bx = mx + 22.0f, by = my - 12.0f;
+    if (bx + bw > screenW - 8) bx = mx - bw - 22.0f;
+    DrawRectangle((int)bx, (int)by, bw, bh, Color{ 12, 12, 16, 226 });
+    DrawRectangleLinesEx(Rectangle{ bx, by, (float)bw, (float)bh }, 2.0f, tint);
+    DrawText(name, (int)bx + 12, (int)by + 6, 19, WHITE);
+    DrawText(sub, (int)bx + 12, (int)by + 28, 12,
+             Color{ 175, 180, 192, 255 });
+}
+
+static void DrawTerraneLegend(int screenH)
+{
+    int x = 16, y = screenH - 66 - 74, w = 250, h = 66;
+    DrawRectangle(x, y, w, h, Color{ 12, 12, 16, 210 });
+    DrawRectangleLinesEx(Rectangle{ (float)x, (float)y, (float)w, (float)h },
+                         1.0f, Color{ 90, 96, 110, 255 });
+    DrawRectangle(x + 10, y + 10, 12, 12, Color{ 178, 148, 196, 200 });
+    DrawText("Procellarum KREEP Terrane", x + 30, y + 9, 13,
+             Color{ 210, 214, 224, 255 });
+    DrawRectangle(x + 10, y + 29, 12, 12, Color{ 206, 196, 178, 200 });
+    DrawText("Feldspathic Highlands", x + 30, y + 28, 13,
+             Color{ 210, 214, 224, 255 });
+    DrawText("South Pole-Aitken: far side", x + 30, y + 47, 12,
+             Color{ 130, 136, 148, 255 });
+}
+
+// Named-region boundaries at the window levels: arcs of the real
+// feature circles crossing the view, over unmodified imagery -- the
+// "boundaries only below orbital" rule.
+static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
+                                    int w, int h)
+{
+    float pxPerKm = (float)h / (float)spanKm;
+    double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
+    double cosC = Clamp((float)std::cos(cLat * DEG2RAD), 0.05f, 1.0f);
+    const char* insideName = nullptr;
+    for (int i = 0; i < DISC_FEATURE_COUNT; i++)
+    {
+        const DiscFeature& f = DISC_FEATURES[i];
+        double dist = FeatureDistKm(f, cLat, cLon);
+        if (dist > f.radiusKm + spanKm) continue;       // far outside
+        if (dist < f.radiusKm - spanKm)                 // deep inside
+        {
+            if (!insideName) insideName = f.name;
+            continue;
+        }
+        double rDeg = f.radiusKm / kmPerDeg;
+        Vector2 prev = { 0 };
+        bool havePrev = false;
+        Vector2 best = { 0 };
+        float bestD = 1e9f;
+        for (int k = 0; k <= 720; k++)
+        {
+            double t = k / 720.0 * 2.0 * PI;
+            double la = f.lat + rDeg * std::cos(t);
+            double lo = f.lon + rDeg * std::sin(t) /
+                        Clamp((float)std::cos(la * DEG2RAD), 0.2f, 1.0f);
+            float x = (float)(w * 0.5 + (lo - cLon) * kmPerDeg * cosC * pxPerKm);
+            float y = (float)(h * 0.5 - (la - cLat) * kmPerDeg * pxPerKm);
+            Vector2 pt = { x, y };
+            bool on = x > -w && x < 2 * w && y > -h && y < 2 * h;
+            if (on && havePrev && Vector2Distance(prev, pt) < 60.0f)
+            {
+                DrawLineEx(prev, pt, 2.0f, Color{ 240, 244, 255, 150 });
+            }
+            prev = pt;
+            havePrev = on;
+            float dC = Vector2Distance(pt, Vector2{ w * 0.5f, h * 0.5f });
+            if (on && x > 20 && x < w - 20 && y > 80 && y < h - 90 && dC < bestD)
+            {
+                bestD = dC;
+                best = pt;
+            }
+        }
+        if (bestD < h * 0.7f)
+        {
+            DrawText(f.name, (int)best.x + 8, (int)best.y + 6, 15,
+                     Color{ 240, 244, 255, 200 });
+        }
+    }
+    if (insideName)
+    {
+        int tw = MeasureText(insideName, 17);
+        DrawText(insideName, (w - tw) / 2, 58, 17,
+                 Color{ 255, 255, 255, 110 });
+    }
+}
+
 static void DrawLadderCursor(const SurveyCursor& cursor,
                              const SurveyViewport& viewport, Color tint)
 {
@@ -2057,65 +2338,133 @@ static int RenderLadder(AppState& app)
     int written = 0;
 
     // ---- Level 1: the orbital pick, rendered as the near-side map ----
-    // (the game draws a projected disc here; the map is this tool's
-    // equivalent surface). Demo mode only: this frame is about the
-    // region claim, which the plain --ladder does not model.
+    // The disc is a map of regions: terranes colour-washed, named
+    // features outlined, and whatever is under the cursor LIT UP with
+    // its name -- the highlight is the selection mechanism, so there is
+    // no cursor rectangle at this level. An optional extra frame hovers
+    // somewhere else first, to show the highlight tracking the mouse.
     if (demo)
     {
         MapOptions l1 = opts;
         l1.nearside = true;
+        // The map keeps a map sun: the demo's grazing polar sun is for
+        // the surface windows, and under it the whole disc goes black.
+        l1.sunElevationDeg = 30.0f;
         if (BuildScene(l1, app.dem, app.scene))
         {
-            RenderTexture2D target = LoadRenderTexture(opts.width, opts.height);
-            BeginTextureMode(target);
-            Camera3D camera = TopDownCamera(app.scene, 1.0f);
-            DrawScene(app.scene, l1, app.styleMode, camera);
-            DrawHud(app.scene, l1, app.styleMode, opts.width, opts.height, 1.0f);
-
-            // The claimed point, on the plate carree map (inverse of
-            // ScreenToLatLon).
-            float fovy = app.scene.ScaledH();
-            float worldPerPx = fovy / opts.height;
-            double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
-            float mx = opts.width * 0.5f +
-                (float)(opts.pickLon * kmPerDeg) * app.scene.worldScale / worldPerPx;
-            float my = opts.height * 0.5f -
-                (float)(opts.pickLat * kmPerDeg) * app.scene.worldScale / worldPerPx;
-            Color tint = demo->archetypeTint;
-            // A polar pick lands under the annotation strip on the plate
-            // carree map: clamp the marker into view and say so with an
-            // arrow instead of drawing it at a false latitude.
-            bool clamped = (my > opts.height - 96.0f);
-            if (clamped)
+            int passes = (demo->altHoverLat < 1e8) ? 2 : 1;
+            for (int pass = 0; pass < passes; pass++)
             {
-                float ay = opts.height - 100.0f;
-                DrawLineEx(Vector2{ mx, ay - 28.0f }, Vector2{ mx, ay }, 3.0f, tint);
-                DrawLineEx(Vector2{ mx - 8.0f, ay - 10.0f }, Vector2{ mx, ay }, 3.0f, tint);
-                DrawLineEx(Vector2{ mx + 8.0f, ay - 10.0f }, Vector2{ mx, ay }, 3.0f, tint);
-                my = ay - 44.0f;
+                bool alt = (passes == 2 && pass == 0);
+                double hLat = alt ? demo->altHoverLat : opts.pickLat;
+                double hLon = alt ? demo->altHoverLon : opts.pickLon;
+                int hover = FeatureAt(hLat, hLon);
+                bool hoverPkt = InPkt(hLat, hLon);
+                Color tint = alt ? Color{ 235, 240, 255, 255 }
+                                 : demo->archetypeTint;
+
+                RenderTexture2D target = LoadRenderTexture(opts.width,
+                                                           opts.height);
+                BeginTextureMode(target);
+                Camera3D camera = TopDownCamera(app.scene, 1.0f);
+                DrawScene(app.scene, l1, app.styleMode, camera);
+                DrawTerraneWash(opts.width, opts.height, hover, hoverPkt,
+                                true);
+                DrawDiscFeatureOutlines(opts.width, opts.height, hover, tint);
+                DrawHud(app.scene, l1, app.styleMode, opts.width,
+                        opts.height, 1.0f);
+
+                // Cursor position on the map (clamped with an arrow for
+                // polar picks rather than drawn at a false latitude).
+                float mx = 0.0f, my = 0.0f;
+                DiscToScreen(hLat, hLon, opts.width, opts.height, &mx, &my);
+                // A pick past the map edge (|lon| > 90 on plate carree)
+                // gets clamped with an arrow, not drawn at a false spot.
+                if (mx > opts.width - 44.0f)
+                {
+                    float ax = opts.width - 40.0f;
+                    DrawLineEx(Vector2{ ax - 28.0f, my }, Vector2{ ax, my },
+                               3.0f, tint);
+                    DrawLineEx(Vector2{ ax - 10.0f, my - 8.0f },
+                               Vector2{ ax, my }, 3.0f, tint);
+                    DrawLineEx(Vector2{ ax - 10.0f, my + 8.0f },
+                               Vector2{ ax, my }, 3.0f, tint);
+                    mx = ax - 44.0f;
+                }
+                bool clamped = (my > opts.height - 96.0f);
+                if (clamped)
+                {
+                    float ay = opts.height - 100.0f;
+                    DrawLineEx(Vector2{ mx, ay - 28.0f }, Vector2{ mx, ay },
+                               3.0f, tint);
+                    DrawLineEx(Vector2{ mx - 8.0f, ay - 10.0f },
+                               Vector2{ mx, ay }, 3.0f, tint);
+                    DrawLineEx(Vector2{ mx + 8.0f, ay - 10.0f },
+                               Vector2{ mx, ay }, 3.0f, tint);
+                    my = ay - 44.0f;
+                }
+                DrawCircleLinesV(Vector2{ mx, my }, 6.0f, tint);
+                DrawLineEx(Vector2{ mx - 16.0f, my }, Vector2{ mx - 7.0f, my },
+                           2.0f, tint);
+                DrawLineEx(Vector2{ mx + 7.0f, my }, Vector2{ mx + 16.0f, my },
+                           2.0f, tint);
+                DrawLineEx(Vector2{ mx, my - 16.0f }, Vector2{ mx, my - 7.0f },
+                           2.0f, tint);
+                DrawLineEx(Vector2{ mx, my + 7.0f }, Vector2{ mx, my + 16.0f },
+                           2.0f, tint);
+
+                if (alt)
+                {
+                    const char* hn = (hover >= 0)
+                        ? DISC_FEATURES[hover].name
+                        : (hoverPkt ? "Procellarum KREEP Terrane"
+                                    : "Feldspathic Highlands");
+                    DrawHoverChip(mx, my, hn,
+                                  hoverPkt ? "PKT  ·  hover to inspect"
+                                           : "FHT  ·  hover to inspect",
+                                  tint, opts.width);
+                }
+                else
+                {
+                    DrawHoverChip(mx, my, demo->regionName, demo->terrane,
+                                  tint, opts.width);
+                    DrawRegionCard(*demo, 0, 16, 64);
+                }
+                DrawTerraneLegend(opts.height);
+                DrawLevelCard(*demo, 0, GroundStats(), nullptr, nullptr,
+                              nullptr, opts.width - 352, 64, 336);
+                if (alt)
+                {
+                    Color amber = Color{ 240, 195, 110, 255 };
+                    int nh = 66, ny = opts.height - nh;
+                    DrawRectangle(0, ny, opts.width, nh,
+                                  Color{ 26, 20, 8, 232 });
+                    DrawRectangle(0, ny, opts.width, 2, amber);
+                    DrawText("TEST ANNOTATION", 14, ny + 8, 12, amber);
+                    DrawText("DECISION     None yet - the cursor is elsewhere. The region under it lights up and names itself.",
+                             14, ny + 24, 14, Color{ 235, 225, 205, 255 });
+                    DrawText("CONSEQUENCE  The highlight IS the selection: no rectangle, no numbers, just lit ground with a name.",
+                             14, ny + 44, 14, Color{ 185, 175, 155, 255 });
+                }
+                else
+                {
+                    DrawTestNote(*demo, 0, opts.width, opts.height);
+                }
+                EndTextureMode();
+
+                Image shot = LoadImageFromTexture(target.texture);
+                ImageFlipVertical(&shot);
+                std::string path = alt
+                    ? std::string(TextFormat("%s_L1_HOVER%s", stem.c_str(),
+                                             ext.c_str()))
+                    : std::string(TextFormat("%s_%s%s", stem.c_str(),
+                                             LEVEL_FILE[0], ext.c_str()));
+                ExportImage(shot, path.c_str());
+                std::cerr << "lunar_map: wrote " << path << "\n";
+                UnloadImage(shot);
+                UnloadRenderTexture(target);
+                written++;
             }
-            DrawCircleLinesV(Vector2{ mx, my }, 14.0f, tint);
-            DrawCircleLinesV(Vector2{ mx, my }, 15.0f, tint);
-            DrawLineEx(Vector2{ mx - 24.0f, my }, Vector2{ mx - 8.0f, my }, 2.0f, tint);
-            DrawLineEx(Vector2{ mx + 8.0f, my }, Vector2{ mx + 24.0f, my }, 2.0f, tint);
-            DrawLineEx(Vector2{ mx, my - 24.0f }, Vector2{ mx, my - 8.0f }, 2.0f, tint);
-            DrawLineEx(Vector2{ mx, my + 8.0f }, Vector2{ mx, my + 24.0f }, 2.0f, tint);
-
-            DrawRegionCard(*demo, 0, 16, 64);
-            DrawLevelCard(*demo, 0, GroundStats(), nullptr, nullptr, nullptr,
-                          opts.width - 352, 64, 336);
-            DrawTestNote(*demo, 0, opts.width, opts.height);
-            EndTextureMode();
-
-            Image shot = LoadImageFromTexture(target.texture);
-            ImageFlipVertical(&shot);
-            std::string path = TextFormat("%s_%s%s", stem.c_str(),
-                                          LEVEL_FILE[0], ext.c_str());
-            ExportImage(shot, path.c_str());
-            std::cerr << "lunar_map: wrote " << path << "\n";
-            UnloadImage(shot);
-            UnloadRenderTexture(target);
-            written++;
         }
     }
 
@@ -2188,6 +2537,11 @@ static int RenderLadder(AppState& app)
 
         if (demo)
         {
+            if (level == 1)
+            {
+                DrawFeatureArcsInWindow(opts.pickLat, opts.pickLon,
+                                        opts.spanKm, opts.width, opts.height);
+            }
             Color tint = haveVerdict
                 ? (verdict.allowed ? Color{ 60, 235, 120, 255 }
                                    : Color{ 255, 70, 70, 255 })
@@ -2221,6 +2575,7 @@ static int RenderLadder(AppState& app)
         UnloadRenderTexture(target);
         written++;
 
+        if (demo && cursor->level + 1 >= opts.maxLevel) break;
         if (!SurveyDescend(&descent)) break;
     }
     return written > 0 ? 0 : 1;
