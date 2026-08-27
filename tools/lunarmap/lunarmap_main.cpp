@@ -2289,6 +2289,9 @@ struct AppState
     int siteLevel = 0;               // 0 orbital, 1..4 = ladder levels 2..5
     bool sceneDirty = true;
     bool founded = false;
+    int userDemRes = 0;              // --demres, if the caller set one
+    bool sceneDraft = false;         // showing the low-res first pass
+    bool scenePending = false;       // full-res pass owed on a later frame
     Vector2 lastPointer = { 0.0f, 0.0f };
     bool havePointer = false;        // a settled pointer exists to click with
     bool touchStyle = false;         // a jumped click was seen -> tapping
@@ -2300,7 +2303,8 @@ static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
                                     Color hoverTint, float zoom);
 static float DiscFitZoom(int w, int h);
 static void DrawHoverChip(float mx, float my, const char* name,
-                          const char* sub, Color tint, int screenW);
+                          const char* sub, Color tint, int screenW,
+                          const char* coord = nullptr);
 static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
                                     int w, int h);
 static void DrawLadderCursor(const SurveyCursor& cursor,
@@ -2380,8 +2384,21 @@ static void BuildSiteScene(AppState& app)
         app.options.pickLon = c->windowLonDeg;
         app.options.spanKm = c->windowSpanKm;
     }
+    // Two-pass: a 512 draft first, then the full 2048 on the next frame.
+    // The window's synthesis is quadratic in texture resolution, so the
+    // draft's share of that is 1/16 -- the ground appears almost at once
+    // and sharpens a moment later, instead of the whole level freezing
+    // until it is perfect. Measured cost of the extra pass over a whole
+    // ladder walk: +30% total work, because the per-build fixed costs
+    // (albedo, mesh, shader) do not shrink with the resolution.
+    const int SITE_DRAFT_RES = 512;
+    app.options.demRes = app.userDemRes ? app.userDemRes
+                       : (app.scenePending ? 0 : SITE_DRAFT_RES);
     BuildScene(app.options, app.dem, app.scene);
+    app.options.demRes = app.userDemRes;
     app.sceneDirty = false;
+    app.sceneDraft = !app.scenePending;
+    app.scenePending = false;
 }
 
 static void UpdateSiteSelect(AppState& app)
@@ -2507,8 +2524,15 @@ static void UpdateSiteSelect(AppState& app)
             DrawLineEx(Vector2{ m.x + 7, m.y }, Vector2{ m.x + 16, m.y }, 2.0f, tint);
             DrawLineEx(Vector2{ m.x, m.y - 16 }, Vector2{ m.x, m.y - 7 }, 2.0f, tint);
             DrawLineEx(Vector2{ m.x, m.y + 7 }, Vector2{ m.x, m.y + 16 }, 2.0f, tint);
-            if (!hintKey) DrawHoverChip(m.x, m.y, hoverId.name,
-                                        hoverId.terrane, tint, screenW);
+            if (!hintKey)
+            {
+                const char* coord = TextFormat(
+                    "%.1f%c  %.1f%c",
+                    std::fabs(hoverLat), (hoverLat >= 0.0) ? 'N' : 'S',
+                    std::fabs(hoverLon), (hoverLon >= 0.0) ? 'E' : 'W');
+                DrawHoverChip(m.x, m.y, hoverId.name, hoverId.terrane,
+                              tint, screenW, coord);
+            }
         }
         if (onGround) DrawRegionCard(site, 0, regionX, regionY, hintKey, cardW);
     }
@@ -2601,6 +2625,16 @@ static void UpdateSiteSelect(AppState& app)
         }
     }
     if (!g_fake.active) EndDrawing();
+
+    // The draft is on screen now, so the frame after this one pays for
+    // the real thing. Ordering matters: the draft has to be presented
+    // before the full build blocks the loop, or it is never seen.
+    if (app.sceneDraft)
+    {
+        app.sceneDraft = false;
+        app.scenePending = true;
+        app.sceneDirty = true;
+    }
 
     // ---------- transitions ----------
     if (app.founded)
@@ -2878,10 +2912,12 @@ static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
 // The hover chip: what is under the cursor, named. This is the whole
 // answer at level 1 -- no numbers, no rectangle.
 static void DrawHoverChip(float mx, float my, const char* name,
-                          const char* sub, Color tint, int screenW)
+                          const char* sub, Color tint, int screenW,
+                          const char* coord)
 {
     int tw = std::max(MeasureText(name, 19), MeasureText(sub, 12));
-    int bw = tw + 26, bh = 46;
+    if (coord) tw = std::max(tw, MeasureText(coord, 12));
+    int bw = tw + 26, bh = coord ? 64 : 46;
     float bx = mx + 22.0f, by = my - 12.0f;
     if (bx + bw > screenW - 8) bx = mx - bw - 22.0f;
     if (bx < 8.0f) bx = 8.0f;              // narrow screen: no left overhang
@@ -2890,6 +2926,10 @@ static void DrawHoverChip(float mx, float my, const char* name,
     DrawText(name, (int)bx + 12, (int)by + 6, 19, WHITE);
     DrawText(sub, (int)bx + 12, (int)by + 28, 12,
              Color{ 175, 180, 192, 255 });
+    // Level 1 has no window to put coordinates in the HUD title, and
+    // without them the map cannot be aimed at a known place.
+    if (coord) DrawText(coord, (int)bx + 12, (int)by + 45, 12,
+                        Color{ 150, 190, 255, 255 });
 }
 
 // Named-region boundaries at the window levels: arcs of the real
@@ -3254,6 +3294,7 @@ int main(int argc, char** argv)
 {
     static AppState app;
     if (!ParseArgs(argc, argv, app.options)) return 1;
+    app.userDemRes = app.options.demRes;   // site mode overrides it per pass
     bool headless = !app.options.outPath.empty();
 
 #if defined(PLATFORM_WEB)
@@ -3338,6 +3379,21 @@ int main(int argc, char** argv)
                                   steps[i].y * app.options.height };
             g_fake.click = false;
             g_fake.escape = false;
+
+            // Settle the two-pass build first. Interactively the 512
+            // draft is on screen for one frame and the full build lands
+            // on the next; a harness that renders one frame per step
+            // would export nothing but drafts and quietly misreport what
+            // the player ends up judging.
+            for (int guard = 0;
+                 (app.sceneDirty || app.sceneDraft) && guard < 4; guard++)
+            {
+                RenderTexture2D warm = LoadRenderTexture(64, 64);
+                BeginTextureMode(warm);
+                UpdateSiteSelect(app);
+                EndTextureMode();
+                UnloadRenderTexture(warm);
+            }
 
             RenderTexture2D target = LoadRenderTexture(app.options.width,
                                                        app.options.height);
