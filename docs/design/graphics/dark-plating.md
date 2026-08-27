@@ -366,12 +366,17 @@ seam — never the chrome. Three proven joins:
   grain runs from the depth band in one panel to its counterpart's vertex in
   the other, ~0.30 alpha fill with firmer edge lines. Reads as "this band IS
   that plate".
-- **Continuous bands** (`v=b`): the strata bands span the full canvas — full
-  strength inside the working panel, ~0.20 alpha as a backdrop under the
-  instrument — and the boundary rules run unbroken across both, passing
-  through the instrument's explosion gaps. Requires mapping the working
-  panel's depth axis to the instrument's slots (a piecewise `yOf`), trading
-  true thickness for perfect alignment.
+- **Continuous bands** (`v=b`) — **CHOSEN for prospecting's panel**: the
+  strata bands span the full canvas — full strength inside the working
+  panel, ~0.20 alpha as a backdrop under the instrument — and the boundary
+  rules run unbroken across both, passing through the instrument's explosion
+  gaps, with **no leader lines at all**: alignment is the correlation.
+  Requires mapping the working panel's depth axis to the instrument's slots
+  (a piecewise `yOf`), trading true thickness for perfect alignment. Place
+  the plate slots at the band centres and the two panels share **one depth
+  mapping** — which is what makes §9.2's oblique line and level twin
+  cursors possible. The wedge and slab joins below remain available
+  patterns for pairs that cannot share an axis.
 - **The material slab** (`v=c`): the working panel is itself drawn as a body
   in the instrument's projection — an extruded column with a top cap and a
   darkened side face at the same iso slope (`dy/dx = 0.28`), so the panel and
@@ -395,9 +400,18 @@ same recipe, consumed by the same advance:
   drilled is fact, and fact is drawn like metal.
 - Progress markers accrue along the done part (assay ticks in Measured
   green), identical currency in both views.
-- Through an exploded stack, build the path as per-layer segments whose gap
-  connectors drop straight across the explosion — the line respects the
-  instrument's own geometry rather than cutting through it.
+- **Draw the oblique line as itself.** Through an exploded stack, do NOT
+  re-project the path into flat per-plate segments joined by vertical drops
+  across the gaps — that zigzag reads as plumbing, not a hole. Sample the
+  path densely in depth (every ~2 m) and map each sample with the shared
+  depth axis plus the instrument's iso offset:
+  `y(m) = yShared(m) + (i+j-7)·ty`, `x(m) = cx + (i-j)·tx`. The result is
+  one continuous slanting line that pierces every plate exactly at its
+  intersection cell, kinking only gently where the explosion stretches a
+  band. Where the two panels share the depth mapping (the chosen join
+  above), this same formula puts the block-view cursor and the mud-view
+  cursor at the **same canvas height** — the pair reads as one object
+  level across the seam, for free.
 
 ### 9.3 Twin cursors
 
@@ -415,6 +429,22 @@ cell the trace passes flips class with a brief white overlay flash and keeps
 a bore-ring; leaders to the active layer warm from dim steel to amber. Every
 correlation cue is *event-driven and reversible* — nothing permanent joins
 the panels except the ground itself.
+
+### 9.5 The animation recipes
+
+Approved in the drill-dock prototype; reuse verbatim:
+
+| Motion | Recipe |
+|---|---|
+| Marching dashes | `setLineDash([7,5])`, `lineDashOffset = -t·26` — flows toward the target; same offset in both views so the two lines advance in step |
+| Twin cursor pulse | size `4.6 + 1.2·sin(t·12.6)` (~2 Hz) over an `OUT` under-diamond +1.6 px; both views read the same `t` |
+| Class-flip flash | fill the cell top with its new class colour, then `rgba(255,255,255, 0.55·pop)` where `pop = 1-(t-flipT)/0.5` clamped — a white overlay decaying over 0.5 s, never a colour swap |
+| Flip pop | prism height +`4·pop` px during the flash, so the cell physically jumps |
+| Active-plate rim | bounding-diamond stroke in amber, alpha `0.45 + 0.25·sin(t·12.6)` — same clock as the cursor pulse |
+| Bore-ring | a cored cell keeps a 2.6 px `OUT` dot with a 1 px `--text` ring on its top face, permanently |
+
+One clock rule: every correlated motion samples the same `t`. Two animations
+on different clocks read as two apps; on one clock they read as one machine.
 
 ## 10. Capture — making stills and GIFs of it
 

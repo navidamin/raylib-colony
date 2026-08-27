@@ -49,7 +49,7 @@ button.on{border-color:var(--cy);color:var(--cy)}
 (function(){
 const CV=document.getElementById("cv"), CTX=CV.getContext("2d");
 const W=520, H=640;
-const V=(new URLSearchParams(location.search).get("v")||"a");
+const V=(new URLSearchParams(location.search).get("v")||"b");
 document.querySelectorAll("#vlinks a").forEach(a=>{
   if(a.href.endsWith("v="+V)) a.className="on";});
 
@@ -389,13 +389,21 @@ function shade(hex,f){
 }
 
 /* ---------------- the trace: one line, two projections ---------------- */
+function blockY(m){
+  if (V==="b") return yOf(m);              // one mapping, both panels
+  const A=CENTER_M.map((c,l)=>[c,L.slots[l]]);
+  if (m<=A[0][0]){ const sl=(A[1][1]-A[0][1])/(A[1][0]-A[0][0]);
+    return A[0][1]+(m-A[0][0])*sl; }
+  for(let k=0;k<3;k++) if (m<=A[k+1][0])
+    return lerp(A[k][1],A[k+1][1],(m-A[k][0])/(A[k+1][0]-A[k][0]));
+  const sl=(A[3][1]-A[2][1])/(A[3][0]-A[2][0]);
+  return A[3][1]+(m-A[3][0])*sl;
+}
 function tracePoints(){
   const pts=[];
-  for(let l=0;l<4;l++){
-    const [i0,j0]=traceIJ(STRATA[l].top), [i1,j1]=traceIJ(STRATA[l].bot);
-    const a=isoPt(l,i0,j0), b=isoPt(l,i1,j1);
-    pts.push({m:STRATA[l].top, x:a.x, y:a.y-TY-2});
-    pts.push({m:STRATA[l].bot, x:b.x, y:b.y-TY-2});
+  for(let m=0;m<=120;m+=2){
+    const [i,j]=traceIJ(m);
+    pts.push({m, x:L.bcx+(i-j)*TX, y:blockY(m)+(i+j-7)*TY-2});
   }
   return pts;
 }
