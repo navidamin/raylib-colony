@@ -561,6 +561,68 @@ static std::vector<float> GaussKernel(float sigma)
     return kernel;
 }
 
+// Box blur along one axis by running sums: cost per pixel is constant,
+// independent of the radius. Edges clamp, matching GaussianBlur.
+static void BoxBlurPass(std::vector<float>& field, std::vector<float>& tmp,
+                        int w, int h, int r, bool horizontal)
+{
+    if (r < 1) return;
+    float inv = 1.0f / (float)(2 * r + 1);
+    if (horizontal)
+    {
+        for (int y = 0; y < h; y++)
+        {
+            const float* row = &field[(size_t)y * w];
+            float* out = &tmp[(size_t)y * w];
+            float sum = 0.0f;
+            for (int i = -r; i <= r; i++) sum += row[std::clamp(i, 0, w - 1)];
+            for (int x = 0; x < w; x++)
+            {
+                out[x] = sum * inv;
+                sum += row[std::clamp(x + r + 1, 0, w - 1)]
+                     - row[std::clamp(x - r, 0, w - 1)];
+            }
+        }
+    }
+    else
+    {
+        for (int x = 0; x < w; x++)
+        {
+            float sum = 0.0f;
+            for (int i = -r; i <= r; i++)
+                sum += field[(size_t)std::clamp(i, 0, h - 1) * w + x];
+            for (int y = 0; y < h; y++)
+            {
+                tmp[(size_t)y * w + x] = sum * inv;
+                sum += field[(size_t)std::clamp(y + r + 1, 0, h - 1) * w + x]
+                     - field[(size_t)std::clamp(y - r, 0, h - 1) * w + x];
+            }
+        }
+    }
+    field.swap(tmp);
+}
+
+// Three box passes approximating a gaussian of the given sigma (their
+// variances add: 3*((2r+1)^2-1)/12 = sigma^2). Used where the radius is
+// large and the field is an amplitude envelope rather than the terrain
+// itself, so the exact kernel shape does not matter but the cost does:
+// a true gaussian is O(sigma) taps per pixel per axis, and at a 5 km
+// window sigma reaches ~3100 output pixels.
+static void FastBlur(std::vector<float>& field, int w, int h,
+                     float sigmaX, float sigmaY)
+{
+    std::vector<float> tmp((size_t)w * h);
+    int rx = (int)std::lround(
+        (std::sqrt(4.0 * sigmaX * sigmaX + 1.0) - 1.0) * 0.5);
+    int ry = (int)std::lround(
+        (std::sqrt(4.0 * sigmaY * sigmaY + 1.0) - 1.0) * 0.5);
+    for (int pass = 0; pass < 3; pass++)
+    {
+        if (sigmaX > 0.25f) BoxBlurPass(field, tmp, w, h, rx, true);
+        if (sigmaY > 0.25f) BoxBlurPass(field, tmp, w, h, ry, false);
+    }
+}
+
 // Anisotropic: near the poles a window can be upsampled far more in
 // one axis than the other, so each axis gets its own sigma.
 static void GaussianBlur(std::vector<float>& field, int w, int h,
@@ -1395,7 +1457,7 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
         }
         // Smooth the amplitude field itself, or its own graininess
         // modulates the synthesis and reads as blotching.
-        GaussianBlur(rough, res, res, (float)lagA, (float)lagA);
+        FastBlur(rough, res, res, (float)lagA, (float)lagA);
 
         std::vector<float> detail((size_t)res * res);
         for (int j = 0; j < res; j++)
