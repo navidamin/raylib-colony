@@ -1,0 +1,729 @@
+<title>Redline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+/* A drill console is a committed dark world -- the stage art is lit from a
+   near-black ground and a light surround would read as a bug, not a theme.
+   So: one theme, every colour painted explicitly, nothing inherited. */
+:root{
+  --ground:#070b11; --panel:#0d151e; --panel2:#111c27; --rule:#1c2a39;
+  --text:#c9d8e8; --dim:#61768a; --dimmer:#3d4e5e;
+  --am:#d9962f; --am-lit:#f4c66a;
+  --hot:#ff5a28; --cy:#50e1ff; --good:#5fd39a;
+  --ui:"Chakra Petch",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:700px;margin:0 auto;padding:22px 16px 44px}
+
+header{margin-bottom:16px}
+.eyebrow{font:700 10.5px/1 var(--mono);letter-spacing:.2em;color:var(--am);
+  text-transform:uppercase;margin-bottom:8px}
+h1{font:700 40px/1 var(--ui);margin:0 0 6px;letter-spacing:.01em;text-wrap:balance}
+.sub{color:var(--dim);max-width:60ch;margin:0;font-size:14.5px}
+.sub b{color:var(--text);font-weight:600}
+
+.rig{display:grid;grid-template-columns:152px 296px 180px;gap:14px;
+  align-items:start;justify-content:center}
+
+/* ---- stage: the borehole, and the whole click surface ---- */
+.stage{border:1px solid var(--rule);border-radius:6px;background:#070b11;
+  overflow:hidden;position:relative;cursor:pointer;touch-action:manipulation;
+  padding:0;display:block;width:100%;-webkit-tap-highlight-color:transparent}
+.stage:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+.stage canvas{display:block;width:100%;height:auto}
+.hint{position:absolute;left:0;right:0;bottom:0;padding:9px 10px 10px;
+  font:700 10.5px/1.35 var(--mono);letter-spacing:.13em;text-transform:uppercase;
+  color:var(--dim);text-align:center;
+  background:linear-gradient(rgba(7,11,17,0),rgba(7,11,17,.93) 55%);
+  transition:opacity .3s}
+.hint.gone{opacity:0}
+
+/* ---- instrument rails ---- */
+.rail{display:flex;flex-direction:column;gap:12px}
+.card{border:1px solid var(--rule);border-radius:6px;background:var(--panel);padding:11px 12px}
+h2{font:700 9.5px/1 var(--mono);letter-spacing:.17em;text-transform:uppercase;
+  color:var(--dim);margin:0 0 9px}
+
+.big{font:700 30px/1 var(--mono);color:var(--text);font-variant-numeric:tabular-nums;
+  letter-spacing:-.02em}
+.big small{font:700 13px/1 var(--mono);color:var(--dim);margin-left:3px}
+.best{font:400 11px/1 var(--mono);color:var(--dim);margin-top:7px;
+  font-variant-numeric:tabular-nums}
+.best b{color:var(--am);font-weight:700}
+
+/* segmented gauges, cut the way the rig's own bars are */
+.g{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+.g:last-child{margin-bottom:0}
+.g .lab{display:flex;justify-content:space-between;font:700 9.5px/1 var(--mono);
+  letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.g .lab i{font-style:normal;font-variant-numeric:tabular-nums;color:var(--text)}
+.bar{display:flex;gap:2px;height:11px}
+.bar span{flex:1;background:#101a24;border-radius:1px;transition:background .09s linear}
+.bar span.on{background:var(--cy)}
+.bar.warm span.on{background:var(--am)}
+.bar.crit span.on{background:var(--hot)}
+.bar.ok span.on{background:var(--good)}
+
+/* ---- stratum log: the column is a real sequence, so it is drawn as one ---- */
+.log{display:flex;flex-direction:column;gap:0}
+.lyr{position:relative;border-left:2px solid var(--rule);padding:0 0 0 10px;
+  min-height:46px;transition:border-color .2s}
+.lyr.here{border-left-color:var(--am)}
+.lyr.done{border-left-color:var(--dimmer)}
+.lyr .nm{font:700 9.5px/1.25 var(--mono);letter-spacing:.09em;color:var(--dimmer);
+  padding-top:2px;transition:color .2s}
+.lyr.here .nm{color:var(--am-lit)}
+.lyr.done .nm{color:var(--dim)}
+.lyr .dp{font:400 9.5px/1.6 var(--mono);color:var(--dimmer)}
+.lyr .hd{margin-top:3px;height:3px;background:#101a24;border-radius:2px;overflow:hidden}
+.lyr .hd i{display:block;height:100%;background:var(--dimmer);border-radius:2px;
+  transition:width .12s linear}
+.lyr.here .hd i{background:var(--am)}
+
+/* ---- end-of-run overlay ---- */
+.over{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;
+  justify-content:center;gap:12px;padding:20px;text-align:center;
+  background:rgba(7,11,17,.9);backdrop-filter:blur(2px)}
+.over.show{display:flex}
+.over .k{font:700 10.5px/1 var(--mono);letter-spacing:.19em;text-transform:uppercase}
+.over.fail .k{color:var(--hot)}
+.over.win .k{color:var(--good)}
+.over .d{font:700 34px/1 var(--mono);font-variant-numeric:tabular-nums}
+.over .w{font:400 12.5px/1.5 var(--mono);color:var(--dim);max-width:26ch}
+button{font:700 11px/1 var(--ui);letter-spacing:.11em;text-transform:uppercase;
+  padding:10px 18px;border-radius:4px;border:1px solid var(--am);
+  background:rgba(217,150,47,.12);color:var(--am-lit);cursor:pointer;
+  font-family:var(--mono)}
+button:hover{background:rgba(217,150,47,.24)}
+button:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+
+.foot{margin-top:14px;font:400 11.5px/1.6 var(--mono);color:var(--dim);max-width:74ch}
+.foot b{color:var(--text);font-weight:700}
+
+@media (max-width:700px){
+  .rig{grid-template-columns:1fr 1fr;gap:12px}
+  .stage{grid-column:1/-1;grid-row:1;width:100%;max-width:320px;margin:0 auto}
+  h1{font-size:32px}
+}
+@media (max-width:430px){
+  .rig{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  .bar span,.lyr .hd i{transition:none}
+}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Lunar subsurface &middot; drill control</div>
+  <h1>Redline</h1>
+  <p class="sub">The auger turns on its own, but barely. <b>Click the borehole</b> to kick the
+  spindle &mdash; every bite bores faster and drives more heat into the steel. Ease off and it
+  cools; hold it past the red line and the bit cracks apart. <b>Reach 120 m.</b></p>
+</header>
+
+<div class="rig">
+  <div class="rail">
+    <div class="card">
+      <h2>Column</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <div class="stage" id="stage" role="button" tabindex="0"
+       aria-label="Borehole - click or press space to drive the spindle">
+    <canvas id="cv" width="536" height="1120"></canvas>
+    <div class="hint" id="hint">Click to bite</div>
+    <div class="over" id="over">
+      <div class="k" id="overk"></div>
+      <div class="d" id="overd"></div>
+      <div class="w" id="overw"></div>
+      <button id="again" type="button">New hole</button>
+    </div>
+  </div>
+
+  <div class="rail">
+    <div class="card">
+      <h2>Depth</h2>
+      <div class="big"><span id="depth">0.0</span><small>m</small></div>
+      <div class="best">Best <b id="best">&mdash;</b></div>
+    </div>
+    <div class="card">
+      <h2>Spindle</h2>
+      <div class="g">
+        <div class="lab"><span>RPM</span><i id="rpmv">0</i></div>
+        <div class="bar" id="rpmb"></div>
+      </div>
+      <div class="g">
+        <div class="lab"><span>Bit temp</span><i id="heatv">0</i></div>
+        <div class="bar" id="heatb"></div>
+      </div>
+      <div class="g">
+        <div class="lab"><span>Bit</span><i id="wearv">100</i></div>
+        <div class="bar ok" id="wearb"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Face</h2>
+      <div class="g">
+        <div class="lab"><span>Stratum</span></div>
+        <div style="font:700 11px/1.3 var(--mono);color:var(--am-lit)" id="strat">REGOLITH</div>
+        <div class="lab" style="margin-top:7px"><span>Rate</span><i id="rate">0.00 m/s</i></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="foot"><b>Why it fights back:</b> hard rock cuts slower and heats faster, so the
+same clicking that flies through regolith will cook the bit in basalt. The last 52 m are
+basalt. You cannot spam your way down &mdash; you have to bite, then let go.</p>
+</div>
+
+<script>
+"use strict";
+(function(){
+const CV = document.getElementById("cv"), CTX = CV.getContext("2d");
+
+/* ---------------- viewport ----------------
+   The full 120 m column fits in 860 px, but at that scale the rig is a sliver.
+   So the canvas is a WINDOW onto the world and the camera follows the bit. */
+const VIEW_W = 268, VIEW_H = 560;
+const W = 640, H = 880;                             // world extents, unchanged
+const SURF_Y = 96;
+const M_TO_PX = (H - SURF_Y - 20) / 120;
+const CX = 300, VX0 = CX - VIEW_W/2;
+let cam = 0;
+
+const STRATA = [
+  {name:"REGOLITH",     top:0,  bot:12,  col:"#3a342b", edge:"#191510", grain:"#4c4437", hard:0.25},
+  {name:"MEGAREGOLITH", top:12, bot:34,  col:"#453e34", edge:"#1c1712", grain:"#5b5140", hard:0.55},
+  {name:"FRACTURED",    top:34, bot:68,  col:"#39424d", edge:"#161c23", grain:"#4d5a67", hard:0.45, icy:true},
+  {name:"INTACT BASALT",top:68, bot:120, col:"#272a30", edge:"#101216", grain:"#343841", hard:0.95},
+];
+const yOf  = m => SURF_Y + m * M_TO_PX;
+const strAt = m => STRATA.find(s => m >= s.top && m < s.bot) || STRATA[3];
+const TARGET = 120;
+
+/* ---------------- drill geometry (pass 6) ---------------- */
+const HAND=-1, R=17.0, RS=9.6, RS_BOT=8.0, ROD_TOP=13.0;
+const PITCH=21.5, TILT=1.9, TH_T=5.6, TH_C=2.1;
+const TAPER_PX=PITCH*1.5, CONE_LEN=21, THREAD_LEN=PITCH*6.2;
+
+/* ---------------- game rules ----------------
+   rpm falls back to a crawl on its own; a click is an impulse, not a setting.
+   Cutting scales with rpm and against hardness; heat scales with BOTH, which
+   is the whole tension -- the ground that needs the most clicking punishes it. */
+const IDLE_RPM=0.14, CLICK_KICK=0.26, RPM_MAX=1.35, RPM_TAU=0.65;
+const FEED=0.55, CUT_RATE=5.0;
+const HEAT_GAIN=0.50, HEAT_BLEED=0.20, REDLINE=0.82, WEAR_RATE=0.18;
+
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let st, chips, shake, over;
+function reset(){
+  st = { depthM:0, phase:0, heat:0, rpm:IDLE_RPM, feed:FEED,
+         wear:1, cracks:[], crackCool:0, t:0, rate:0, dead:false, won:false };
+  chips = []; shake = 0; over = false;
+  document.getElementById("over").className = "over";
+  document.getElementById("hint").className = "hint";
+}
+
+/* ---------------- helpers ---------------- */
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const OUT="#0a0e14", OUTB="#101820";
+
+function heatAt(yPx){
+  const d = Math.abs(yPx - yOf(st.depthM));
+  return st.heat * Math.exp(-(d*d)/(2*110*110));
+}
+function steel(shade, heat){
+  const base=[lerp(96,238,shade),lerp(104,244,shade),lerp(118,252,shade)];
+  const glow=[255,lerp(55,165,shade),25], t=clamp(heat*1.15,0,1);
+  return `rgb(${lerp(base[0],glow[0],t)|0},${lerp(base[1],glow[1],t)|0},${lerp(base[2],glow[2],t)|0})`;
+}
+function steelBands(x0,x1,heat,tones){
+  const g=CTX.createLinearGradient(x0,0,x1,0); let t=0;
+  for (const [span,shade] of tones){ const c=steel(shade,heat);
+    g.addColorStop(t,c); t=Math.min(1,t+span); g.addColorStop(t,c); }
+  return g;
+}
+function spawnCrack(m){ st.cracks.push({m, seed:Math.abs(Math.sin(m*77.7)*43758.5)%1}); }
+
+const bitYOf   = () => yOf(st.depthM);
+const coneApex = () => bitYOf() + 21;
+const coneTop  = () => coneApex() - CONE_LEN;
+function threadTop(){
+  const b = bitYOf();
+  return Math.max(Math.min(b - THREAD_LEN, coneTop() - 3.0*PITCH), SURF_Y + 18);
+}
+function shaftSegs(){
+  const tY = threadTop(), cTop = SURF_Y - 14;
+  const cBot = Math.min(SURF_Y + 26, Math.max(cTop + 14, tY - 10));
+  const segs = [{y0:-260,y1:cTop,r:ROD_TOP,kind:"rod"},
+                {y0:cTop,y1:cBot,r:ROD_TOP+5.6,kind:"chuck"}];
+  const run = Math.max(0, tY - cBot);
+  const n = run > 195 ? 3 : (run > 62 ? 2 : (run > 8 ? 1 : 0));
+  for (let i=0;i<n;i++)
+    segs.push({y0:cBot+run*i/n, y1:cBot+run*(i+1)/n,
+               r:lerp(ROD_TOP, RS+0.5, Math.pow((i+1)/n,0.85)), kind:"rod"});
+  return segs;
+}
+function rodHalfAt(y){
+  const tY=threadTop(), cT=coneTop(), cA=coneApex();
+  if (y >= cT) return Math.max(0.5, RS_BOT*(1-(y-cT)/(cA-cT)));
+  if (y >= tY) return lerp(RS, RS_BOT, (y-tY)/Math.max(1,cT-tY));
+  for (const s of shaftSegs()) if (y < s.y1) return s.r;
+  return ROD_TOP;
+}
+function crestAt(y){
+  const cT=coneTop(), start=cT-TAPER_PX;
+  if (y <= start) return R;
+  if (y >= cT) return rodHalfAt(y);
+  return lerp(R, rodHalfAt(y), clamp((y-start)/TAPER_PX,0,1));
+}
+const radAt = y => (y >= threadTop() && y <= coneTop()) ? crestAt(y) : rodHalfAt(y);
+
+/* ---------------- render ---------------- */
+let grainSeed=1;
+function rnd(){ grainSeed=(grainSeed*16807)%2147483647; return grainSeed/2147483647; }
+
+function drawGround(){
+  CTX.fillStyle="#0a1018"; CTX.fillRect(VX0,-420,VIEW_W,SURF_Y+420);
+  grainSeed=3; CTX.fillStyle="rgba(200,220,240,.5)";
+  for (let i=0;i<30;i++) CTX.fillRect(VX0+rnd()*VIEW_W, -300+rnd()*(SURF_Y+276), 1.5, 1.5);
+
+  grainSeed=7;
+  for (const s of STRATA){
+    const y0=yOf(s.top), y1=yOf(s.bot);
+    CTX.fillStyle=s.col; CTX.fillRect(VX0,y0,VIEW_W,y1-y0);
+    CTX.fillStyle=s.grain;
+    for (let i=0;i<(y1-y0)/9;i++)
+      CTX.fillRect(VX0+rnd()*VIEW_W, y0+rnd()*(y1-y0), 3+rnd()*3, 2.5);
+    if (s.icy){
+      for (let i=0;i<26;i++){
+        CTX.fillStyle=`rgba(160,225,245,${0.4+rnd()*0.5})`;
+        CTX.fillRect(VX0+rnd()*VIEW_W, y0+rnd()*(y1-y0), 4, 2);
+      }
+      CTX.strokeStyle="rgba(16,20,26,.7)"; CTX.lineWidth=1.3;
+      for (let i=0;i<8;i++){
+        let fx=VX0+rnd()*VIEW_W, fy=y0+rnd()*(y1-y0);
+        CTX.beginPath(); CTX.moveTo(fx,fy);
+        for (let k=0;k<4;k++){ fx+=14+rnd()*22; fy+=(rnd()-0.5)*14; CTX.lineTo(fx,fy); }
+        CTX.stroke();
+      }
+    }
+    CTX.fillStyle=s.edge; CTX.fillRect(VX0,y0,VIEW_W,2.5);
+    CTX.font="700 11px 'JetBrains Mono', monospace";
+    CTX.fillStyle="rgba(205,225,245,.45)";
+    CTX.fillText(s.name, VX0+9, y0+18);
+    CTX.textAlign="right"; CTX.fillText(s.top+" m", VX0+VIEW_W-9, y0+18);
+    CTX.textAlign="left";
+  }
+  CTX.fillStyle="#4a5560"; CTX.fillRect(VX0,SURF_Y-2,VIEW_W,2.5);
+
+  const bw=R*2+12, bitY=bitYOf();
+  CTX.fillStyle="#0e0b08"; CTX.fillRect(CX-bw/2,SURF_Y,bw,bitY-SURF_Y+16);
+  grainSeed=29; CTX.fillStyle="rgba(0,0,0,.8)";
+  for (let y=SURF_Y;y<bitY+14;y+=7){
+    CTX.fillRect(CX-bw/2-2-rnd()*3, y, 4+rnd()*3, 6);
+    CTX.fillRect(CX+bw/2-2+rnd()*3, y, 4+rnd()*3, 6);
+  }
+  const wall=CTX.createLinearGradient(CX-bw/2,0,CX+bw/2,0);
+  wall.addColorStop(0,"rgba(0,0,0,.7)"); wall.addColorStop(0.22,"rgba(0,0,0,0)");
+  wall.addColorStop(0.78,"rgba(0,0,0,0)"); wall.addColorStop(1,"rgba(0,0,0,.7)");
+  CTX.fillStyle=wall; CTX.fillRect(CX-bw/2,SURF_Y,bw,bitY-SURF_Y+16);
+}
+
+/* the thread is a real helicoid: each angle owns a radial segment from root to
+   crest, so the sawtooth silhouette falls out of the projection, not a drawing */
+function threadSegs(front){
+  const tY=threadTop(), cT=coneTop(), span=cT-tY;
+  if (span<=6) return [];
+  const out=[], step=0.075, thMax=(span/PITCH)*2*Math.PI;
+  for (let th=0; th<thMax; th+=step){
+    const a0=th+st.phase, a1=th+step+st.phase;
+    const c0=Math.cos(a0), c1=Math.cos(a1), cm=(c0+c1)*0.5;
+    if (front !== (cm>0)) continue;
+    const yb0=tY+PITCH*th/(2*Math.PI), yb1=tY+PITCH*(th+step)/(2*Math.PI);
+    const rc0=crestAt(yb0), rc1=crestAt(yb1);
+    const rr0=rodHalfAt(yb0), rr1=rodHalfAt(yb1);
+    if (rc0-rr0 < 1.3) continue;
+    const s0=Math.sin(a0)*HAND, s1=Math.sin(a1)*HAND;
+    out.push({ xr0:CX+rr0*s0, yr0:yb0+TILT*c0*(rr0/R),
+               xc0:CX+rc0*s0, yc0:yb0+TILT*c0*(rc0/R),
+               xr1:CX+rr1*s1, yr1:yb1+TILT*c1*(rr1/R),
+               xc1:CX+rc1*s1, yc1:yb1+TILT*c1*(rc1/R),
+               xe0:CX+(rc0+1.9)*s0, xe1:CX+(rc1+1.9)*s1,
+               c:cm, s:(s0+s1)*0.5, y:(yb0+yb1)*0.5 });
+  }
+  out.sort((p,q)=>p.c-q.c);
+  return out;
+}
+function drawThread(front){
+  const segs=threadSegs(front); if(!segs.length) return;
+  const M=1.5;
+  CTX.fillStyle = front ? OUT : OUTB;
+  for (const s of segs){
+    CTX.beginPath();
+    CTX.moveTo(s.xr0,s.yr0-M);        CTX.lineTo(s.xe0,s.yc0-M);
+    CTX.lineTo(s.xe1,s.yc1-M);        CTX.lineTo(s.xr1,s.yr1-M);
+    CTX.lineTo(s.xr1,s.yr1+TH_T+M);   CTX.lineTo(s.xe1,s.yc1+TH_C+M);
+    CTX.lineTo(s.xe0,s.yc0+TH_C+M);   CTX.lineTo(s.xr0,s.yr0+TH_T+M);
+    CTX.closePath(); CTX.fill();
+  }
+  const band=v=>Math.round(clamp(v,0,1)*7)/7;
+  const dim =v=>front ? v : 0.15+v*0.44;
+  for (const s of segs){
+    const h=heatAt(s.y), c=Math.max(0,s.c), lt=(1-s.s)*0.5;
+    const shRamp=dim(band(0.33+0.46*c+0.14*lt));
+    const shRim =dim(band(0.38+0.34*c+0.22*lt));
+    const shBody=dim(band(0.40+0.30*c+0.18*lt));
+    const shUnd =dim(band(0.10+0.16*c));
+    CTX.beginPath();
+    CTX.moveTo(s.xr0,s.yr0);        CTX.lineTo(s.xc0,s.yc0);
+    CTX.lineTo(s.xc1,s.yc1);        CTX.lineTo(s.xr1,s.yr1);
+    CTX.lineTo(s.xr1,s.yr1+TH_T);   CTX.lineTo(s.xc1,s.yc1+TH_C);
+    CTX.lineTo(s.xc0,s.yc0+TH_C);   CTX.lineTo(s.xr0,s.yr0+TH_T);
+    CTX.closePath(); CTX.fillStyle=steel(shBody,h); CTX.fill();
+
+    const u=TH_T*0.55, uC=TH_C*0.55;
+    CTX.beginPath();
+    CTX.moveTo(s.xr0,s.yr0+u);      CTX.lineTo(s.xc0,s.yc0+uC);
+    CTX.lineTo(s.xc1,s.yc1+uC);     CTX.lineTo(s.xr1,s.yr1+u);
+    CTX.lineTo(s.xr1,s.yr1+TH_T);   CTX.lineTo(s.xc1,s.yc1+TH_C);
+    CTX.lineTo(s.xc0,s.yc0+TH_C);   CTX.lineTo(s.xr0,s.yr0+TH_T);
+    CTX.closePath(); CTX.fillStyle=steel(shUnd,h); CTX.fill();
+
+    CTX.beginPath();
+    CTX.moveTo(s.xc0,s.yc0); CTX.lineTo(s.xc1,s.yc1);
+    CTX.lineTo(s.xc1,s.yc1+TH_C); CTX.lineTo(s.xc0,s.yc0+TH_C);
+    CTX.closePath(); CTX.fillStyle=steel(shRim,h); CTX.fill();
+
+    CTX.beginPath();
+    CTX.moveTo(s.xr0,s.yr0); CTX.lineTo(s.xc0,s.yc0);
+    CTX.lineTo(s.xc1,s.yc1); CTX.lineTo(s.xr1,s.yr1);
+    CTX.closePath(); CTX.fillStyle=steel(shRamp,h); CTX.fill();
+  }
+  if (front){
+    CTX.lineWidth=1.3; CTX.lineCap="round";
+    for (const s of segs){
+      const g=Math.round(clamp(0.54+0.30*Math.max(0,s.c)+0.12*(1-s.s)*0.5,0,1)*3)/3;
+      CTX.strokeStyle=steel(g,heatAt(s.y));
+      CTX.beginPath(); CTX.moveTo(s.xc0,s.yc0+0.8); CTX.lineTo(s.xc1,s.yc1+0.8); CTX.stroke();
+    }
+    CTX.lineCap="butt";
+  }
+}
+function drawThreadAO(){
+  CTX.save();
+  CTX.beginPath(); CTX.rect(CX-ROD_TOP-1,cam-20,(ROD_TOP+1)*2,VIEW_H+40); CTX.clip();
+  CTX.strokeStyle="rgba(0,0,0,.34)"; CTX.lineWidth=4; CTX.lineCap="round";
+  CTX.beginPath();
+  for (const s of threadSegs(true)){
+    CTX.moveTo(s.xr0,s.yr0+TH_T+3.2); CTX.lineTo(s.xr1,s.yr1+TH_T+3.2);
+  }
+  CTX.stroke(); CTX.lineCap="butt"; CTX.restore();
+}
+function drawJoint(y,r,big){
+  const hh=big?6.8:5.4, w=r+(big?4.2:3.1), h=heatAt(y);
+  CTX.fillStyle=OUT; CTX.fillRect(CX-w-2,y-hh-2,(w+2)*2,hh*2+4);
+  CTX.fillStyle=steelBands(CX-w,CX+w,h,
+    [[0.15,0.16],[0.18,0.94],[0.22,0.56],[0.26,0.28],[0.19,0.10]]);
+  CTX.fillRect(CX-w,y-hh,w*2,hh*2);
+  CTX.fillStyle="rgba(255,255,255,.34)"; CTX.fillRect(CX-w,y-hh,w*2,1.7);
+  CTX.fillStyle="rgba(0,0,0,.45)";       CTX.fillRect(CX-w,y+hh-2.1,w*2,2.1);
+}
+function drawChuck(y0,y1,r){
+  const h=heatAt((y0+y1)/2);
+  CTX.fillStyle=OUT; CTX.fillRect(CX-r-2.5,y0-2.5,(r+2.5)*2,y1-y0+5);
+  CTX.fillStyle=steelBands(CX-r,CX+r,h*0.6,
+    [[0.17,0.06],[0.16,0.62],[0.22,0.34],[0.26,0.18],[0.19,0.04]]);
+  CTX.fillRect(CX-r,y0,r*2,y1-y0);
+  CTX.fillStyle="rgba(255,255,255,.24)"; CTX.fillRect(CX-r,y0,r*2,2.6);
+  CTX.fillStyle="rgba(0,0,0,.40)";       CTX.fillRect(CX-r,y1-3,r*2,3);
+  CTX.fillStyle="rgba(0,0,0,.35)";
+  CTX.fillRect(CX-r+3,y0+5,2.4,y1-y0-11); CTX.fillRect(CX+r-5.4,y0+5,2.4,y1-y0-11);
+  CTX.fillStyle="#8e9aa6";
+  CTX.fillRect(CX-r+6.5,y1-9,3,3); CTX.fillRect(CX+r-9.5,y1-9,3,3);
+}
+function drawShaft(){
+  const bitY=bitYOf(), cA=coneApex(), tY=threadTop();
+  const topShaft=Math.max(-260, cam-30);
+  CTX.fillStyle=OUT;
+  for (let y=topShaft;y<cA;y+=1.4){ const w=rodHalfAt(y)+2.0; CTX.fillRect(CX-w,y,w*2,2.2); }
+  for (let y=topShaft;y<cA-1;y+=1.4){
+    const h=heatAt(y+1), w=rodHalfAt(y); if (w<0.7) continue;
+    CTX.fillStyle=steelBands(CX-w,CX+w,h,
+      [[0.15,0.11],[0.17,0.98],[0.21,0.58],[0.27,0.30],[0.20,0.07]]);
+    CTX.fillRect(CX-w,y,w*2,1.9);
+  }
+  const segs=shaftSegs();
+  for (let i=0;i<segs.length;i++){
+    const s=segs[i];
+    if (s.kind==="chuck"){ drawChuck(s.y0,s.y1,s.r); continue; }
+    if (i>0 && segs[i-1].kind!=="chuck") drawJoint(s.y0, Math.max(segs[i-1].r,s.r));
+  }
+  drawJoint(tY, RS+1.0, true);
+
+  const h=Math.min(1,heatAt(bitY)*1.35);
+  const sh=cA-CONE_LEN+1.5, cw=RS_BOT*0.90;
+  for (const [a,b2,t] of [[-1.00,-0.34,0.90],[-0.34,0.28,0.52],[0.28,1.00,0.22]]){
+    CTX.beginPath();
+    CTX.moveTo(CX+cw*a,sh); CTX.lineTo(CX+cw*b2,sh); CTX.lineTo(CX,cA-1.5);
+    CTX.closePath(); CTX.fillStyle=steel(t,h); CTX.fill();
+  }
+  CTX.fillStyle="rgba(0,0,0,.45)"; CTX.fillRect(CX-cw-1,sh-1.4,(cw+1)*2,1.6);
+
+  const hard=strAt(st.depthM).hard;
+  if (st.rpm>0.1 && hard>0.5 && !REDUCED){
+    for (let i=0;i<12*hard*st.rpm;i++){
+      const a=Math.random()*Math.PI, r2=8+Math.random()*28;
+      CTX.fillStyle=`rgba(255,${170+Math.random()*70|0},60,${0.4+Math.random()*0.5})`;
+      CTX.fillRect(CX+Math.cos(a)*r2, bitY+14-Math.random()*8+Math.sin(a)*8, 2.4, 2.4);
+    }
+  }
+}
+function drawPowerhead(){
+  const hx=CX, top=SURF_Y-88;
+  function box(x,y,w,h,fill,bevel){
+    CTX.fillStyle=OUT; CTX.fillRect(x-2.5,y-2.5,w+5,h+5);
+    CTX.fillStyle=fill; CTX.fillRect(x,y,w,h);
+    if (bevel){
+      CTX.fillStyle="rgba(255,255,255,.30)"; CTX.fillRect(x,y,w,3.5);
+      CTX.fillStyle="rgba(255,255,255,.14)"; CTX.fillRect(x,y,3.5,h);
+      CTX.fillStyle="rgba(0,0,0,.30)";       CTX.fillRect(x,y+h-3.5,w,3.5);
+      CTX.fillStyle="rgba(0,0,0,.22)";       CTX.fillRect(x+w-3.5,y,3.5,h);
+    }
+  }
+  box(hx-6,top-8,12,12,"#39424e",false);
+  box(hx-34,top+6,68,42,"#d9962f",true);
+  for (let i=0;i<3;i++){
+    CTX.fillStyle="#7a5115"; CTX.fillRect(hx-20,top+16+i*9,40,5);
+    CTX.fillStyle="rgba(0,0,0,.5)"; CTX.fillRect(hx-20,top+16+i*9+3.4,40,1.6);
+  }
+  box(hx+34,top+14,26,22,"#39424e",true);
+  // the motor pod lamp reads the spindle: cyan idling, amber driven, red past the line
+  CTX.fillStyle = st.heat>REDLINE ? "#ff5a28" : (st.rpm>0.5 ? "#ffc84d" : "#50e1ff");
+  CTX.fillRect(hx+41,top+20,5,5);
+  box(hx-15,top+48,30,12,"#4a545f",true);
+  box(hx-10,top+60,20,14,"#39424e",true);
+  CTX.fillStyle="#f4c66a";
+  CTX.fillRect(hx-30,top+10,4,4); CTX.fillRect(hx+26,top+10,4,4);
+  CTX.fillRect(hx-30,top+40,4,4); CTX.fillRect(hx+26,top+40,4,4);
+}
+function drawCollar(){
+  CTX.fillStyle=OUT; CTX.fillRect(CX-50,SURF_Y-20,100,24);
+  CTX.fillStyle="#1c2530"; CTX.fillRect(CX-48,SURF_Y-18,96,20);
+  CTX.fillStyle="rgba(255,255,255,.18)"; CTX.fillRect(CX-48,SURF_Y-18,96,3);
+  CTX.fillStyle="#463e31";
+  CTX.beginPath();
+  CTX.ellipse(CX-R-38,SURF_Y-1,34,13,0,Math.PI,0);
+  CTX.ellipse(CX+R+38,SURF_Y-1,34,13,0,Math.PI,0);
+  CTX.fill();
+  CTX.fillStyle="rgba(255,255,255,.07)";
+  CTX.beginPath();
+  CTX.ellipse(CX-R-44,SURF_Y-5,14,5,0,Math.PI,0);
+  CTX.ellipse(CX+R+32,SURF_Y-5,14,5,0,Math.PI,0);
+  CTX.fill();
+}
+function drawChips(dt){
+  const bitY=bitYOf();
+  if (st.rpm>0.05 && !st.dead && chips.length<110){
+    const g=strAt(st.depthM);
+    for (let i=0;i<3;i++) chips.push({y:bitY-8, a:Math.random()*6.28,
+                                      up:26+Math.random()*24, col:g.grain});
+  }
+  for (let i=chips.length-1;i>=0;i--){
+    const c=chips[i];
+    c.y -= c.up*dt*st.rpm*1.6; c.a -= st.rpm*9*dt;
+    if (c.y < SURF_Y-2 || c.y < cam-30){ chips.splice(i,1); continue; }
+    CTX.globalAlpha = Math.cos(c.a)>0 ? 0.95 : 0.45;
+    CTX.fillStyle = c.col || "#8c7860";
+    CTX.fillRect(CX+(radAt(c.y)+2.5)*Math.sin(c.a), c.y, 3.4, 2.6);
+    CTX.globalAlpha = 1;
+  }
+  for (let i=0;i<7;i++){
+    const a=(st.t*0.7+i*1.7)%6.28;
+    CTX.fillStyle="rgba(120,104,84,.7)";
+    const dy=bitY-10-((i*17+st.t*12)%46);
+    CTX.fillRect(CX+Math.sin(a)*(radAt(dy)+2), dy, 3, 3);
+  }
+}
+function drawCracks(){
+  for (const c of st.cracks){
+    const y=yOf(c.m); if (y > bitYOf()) continue;
+    const h=heatAt(y);
+    let x=CX-RS+3+(c.seed*13)%12, yy=y-9, sd=c.seed;
+    const pts=[[x,yy]];
+    CTX.beginPath(); CTX.moveTo(x,yy);
+    for (let i=0;i<7;i++){
+      sd=(sd*16807.17)%1; x+=(sd-0.48)*15; yy+=2.5+sd*5;
+      pts.push([x,yy]); CTX.lineTo(x,yy);
+    }
+    CTX.strokeStyle="#0d0805"; CTX.lineWidth=3; CTX.stroke();
+    CTX.strokeStyle=`rgba(255,130,35,${clamp(0.25+h,0,1)})`; CTX.lineWidth=1.2; CTX.stroke();
+    CTX.strokeStyle="rgba(255,255,255,.28)"; CTX.lineWidth=1;
+    CTX.beginPath(); CTX.moveTo(pts[0][0]+1.6,pts[0][1]);
+    for (const [px,py] of pts) CTX.lineTo(px+1.6,py);
+    CTX.stroke();
+  }
+}
+
+/* ---------------- simulation ---------------- */
+function step(dt){
+  st.t += dt;
+  if (!st.dead && !st.won){
+    const g = strAt(st.depthM);
+    // the spindle always sags back toward a crawl -- clicks are the only drive
+    st.rpm = IDLE_RPM + (st.rpm - IDLE_RPM) * Math.exp(-dt/RPM_TAU);
+    st.rate = st.rpm * FEED * (1.30 - g.hard*0.85) * CUT_RATE;
+    st.depthM = Math.min(TARGET, st.depthM + st.rate*dt);
+    st.heat = clamp(st.heat + (st.rpm*(0.35 + g.hard*0.75)*HEAT_GAIN - HEAT_BLEED)*dt, 0, 1);
+
+    if (st.heat > REDLINE){
+      const px = (st.heat-REDLINE)/(1-REDLINE);
+      st.wear = clamp(st.wear - px*px*WEAR_RATE*dt, 0, 1);
+      st.crackCool -= dt;
+      if (st.crackCool <= 0){ spawnCrack(st.depthM - 1 - Math.random()*7); st.crackCool = 0.9; }
+      if (st.wear <= 0) fail();
+    }
+    if (st.depthM >= TARGET) win();
+  } else {
+    st.rpm = Math.max(0, st.rpm - dt*0.9);
+    st.heat = clamp(st.heat - dt*0.22, 0, 1);
+  }
+  st.phase -= st.rpm * 9 * dt;
+  shake = Math.max(0, shake - dt*7);
+}
+
+function frame(dt){
+  step(dt);
+  const bitY = bitYOf();
+  const want = clamp(bitY - VIEW_H*0.62, -46, yOf(TARGET) + 70 - VIEW_H);
+  cam += (want - cam) * Math.min(1, dt*4.5);        // camera eases after the bit
+
+  const sx = shake ? (Math.random()-0.5)*shake*3 : 0;
+  const sy = shake ? (Math.random()-0.5)*shake*3 : 0;
+  CTX.setTransform(2,0,0,2,0,0);
+  CTX.clearRect(0,0,VIEW_W,VIEW_H);
+  CTX.setTransform(2,0,0,2,(-VX0+sx)*2,(-cam+sy)*2);
+
+  drawGround();
+  drawThread(false);
+  drawShaft();
+  drawThreadAO();
+  drawThread(true);
+  drawCracks();
+  drawChips(dt);
+  drawCollar();
+  drawPowerhead();
+
+  const g=CTX.createRadialGradient(CX,bitY,4,CX,bitY,95);
+  g.addColorStop(0,`rgba(255,110,30,${0.45*st.heat})`);
+  g.addColorStop(1,"rgba(255,110,30,0)");
+  CTX.fillStyle=g; CTX.fillRect(CX-100,bitY-100,200,200);
+
+  // a redline wash on the whole face, so you feel it before you read the gauge
+  if (st.heat > REDLINE){
+    const a=(st.heat-REDLINE)/(1-REDLINE);
+    CTX.fillStyle=`rgba(255,60,20,${0.10*a})`;
+    CTX.fillRect(VX0,cam,VIEW_W,VIEW_H);
+  }
+}
+
+/* ---------------- HUD ---------------- */
+const $ = id => document.getElementById(id);
+function segs(el,n){ el.innerHTML=""; for(let i=0;i<n;i++) el.appendChild(document.createElement("span")); }
+segs($("rpmb"),12); segs($("heatb"),12); segs($("wearb"),12);
+function fill(el,frac,cls){
+  const k=el.children, n=k.length, lit=Math.round(clamp(frac,0,1)*n);
+  el.className = "bar" + (cls?" "+cls:"");
+  for (let i=0;i<n;i++) k[i].className = i<lit ? "on" : "";
+}
+
+const LOG = $("log");
+STRATA.forEach(s=>{
+  const d=document.createElement("div"); d.className="lyr";
+  d.innerHTML = `<div class="nm">${s.name}</div><div class="dp">${s.top}&ndash;${s.bot} m</div>`
+              + `<div class="hd"><i style="width:0%"></i></div>`;
+  LOG.appendChild(d);
+});
+
+let best = 0;
+try { best = parseFloat(localStorage.getItem("redline.best")) || 0; } catch(e){}
+function showBest(){ $("best").textContent = best ? best.toFixed(1)+" m" : "—"; }
+showBest();
+
+function syncHUD(){
+  const g = strAt(st.depthM);
+  $("depth").textContent = st.depthM.toFixed(1);
+  $("rpmv").textContent  = Math.round(st.rpm*100);
+  $("heatv").textContent = Math.round(st.heat*100);
+  $("wearv").textContent = Math.round(st.wear*100);
+  $("strat").textContent = g.name;
+  $("rate").textContent  = st.rate.toFixed(2)+" m/s";
+  fill($("rpmb"),  st.rpm/RPM_MAX, st.rpm>0.75?"warm":"");
+  fill($("heatb"), st.heat, st.heat>REDLINE?"crit":(st.heat>0.55?"warm":""));
+  fill($("wearb"), st.wear, st.wear<0.3?"crit":(st.wear<0.6?"warm":"ok"));
+  STRATA.forEach((s,i)=>{
+    const el=LOG.children[i];
+    const f=clamp((st.depthM-s.top)/(s.bot-s.top),0,1);
+    el.className = "lyr" + (f>=1 ? " done" : (f>0 ? " here" : ""));
+    el.querySelector("i").style.width = (f*100).toFixed(1)+"%";
+  });
+}
+
+function endRun(kind, k, w){
+  over = true;
+  if (st.depthM > best){
+    best = st.depthM; showBest();
+    try { localStorage.setItem("redline.best", String(best)); } catch(e){}
+  }
+  $("overk").textContent = k;
+  $("overd").textContent = st.depthM.toFixed(1)+" m";
+  $("overw").textContent = w;
+  $("over").className = "over show " + kind;
+}
+function fail(){
+  st.dead = true;
+  endRun("fail","Bit failed",
+    "The steel cracked through. Ease off the spindle and let it cool before it gets that hot.");
+}
+function win(){
+  st.won = true;
+  endRun("win","Target depth",
+    "Core recovered at 120 m. The whole column is logged.");
+}
+
+/* ---------------- input ---------------- */
+function bite(){
+  if (over || st.dead || st.won) return;
+  st.rpm = Math.min(RPM_MAX, st.rpm + CLICK_KICK);
+  if (!REDUCED) shake = 1;
+  $("hint").className = "hint gone";
+}
+const stage = $("stage");
+stage.addEventListener("pointerdown", e => { e.preventDefault(); bite(); });
+stage.addEventListener("keydown", e => {
+  if (e.key === " " || e.key === "Enter"){ e.preventDefault(); bite(); }
+});
+$("again").addEventListener("pointerdown", e => { e.stopPropagation(); });
+$("again").addEventListener("click", e => { e.stopPropagation(); reset(); stage.focus(); });
+
+/* ---------------- loop ---------------- */
+reset();
+let last = performance.now(), acc = 0;
+function tick(now){
+  const dt = Math.min(0.05, (now-last)/1000); last = now;
+  frame(dt);
+  acc += dt; if (acc > 0.08){ syncHUD(); acc = 0; }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+})();
+</script>
