@@ -82,13 +82,43 @@ private:
     // ground: level 0 = PLANET (100 km), 1 = COLONY (25 km), 2 = SECT
     // (5 km). Because each level is the centre of the one above, the
     // views are registered to each other and zooming is continuous.
+    // Generating a chain costs ~0.5 s, so the cell you are standing on
+    // is kept alongside its eight neighbours — the only cells reachable
+    // in one step. Neighbours are built on worker threads before they
+    // are asked for, which is what makes crossing a cell boundary free
+    // rather than a 33-frame hitch. Nine cells at 512 is about 28 MB.
+    static const int TERRAIN_CACHE_SLOTS = 9;
+    static const int TERRAIN_RES = 512;
+
+    struct TerrainCacheEntry
+    {
+        Texture2D levels[3] = {};
+        int gx = -1;
+        int gy = -1;
+        unsigned int anchorVersion = 0;
+        unsigned int lastUsed = 0;      // LRU stamp
+        bool valid = false;
+    };
+    TerrainCacheEntry terrainCache[TERRAIN_CACHE_SLOTS];
+    unsigned int terrainClock;          // increments per lookup
+
+    // The chain the three view layers currently draw from.
     Texture2D terrainLevels[3];
     bool terrainLoaded;
     int terrainCellX;
     int terrainCellY;
     unsigned int terrainAnchorVersion;
+
     void EnsureTerrainForCell(int gx, int gy);
     void UnloadTerrainLevels();
+
+    // Cache plumbing.
+    int FindTerrainSlot(int gx, int gy, unsigned int anchorVersion) const;
+    int ClaimTerrainSlot();                       // LRU victim, unloaded
+    void BindTerrainSlot(int slot);               // slot -> terrainLevels
+    void UploadReadyTerrain();                    // worker Images -> GPU
+    void RequestNeighbourTerrain(int gx, int gy); // queue the ring of 8
+    void ShutdownTerrainWorkers();
 
     // Full-planet 2D map (the whole moon, equirectangular) that the
     // planet view zooms out to. Aligned with the playfield grid where
