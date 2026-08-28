@@ -2668,6 +2668,52 @@ static bool RunDescentZoom(AppState& app, const MapOptions& options,
     return false;
 }
 
+#if defined(PLATFORM_WEB)
+// Keep the canvas's CSS size equal to its drawing buffer.
+//
+// The shared shell (src/minshell.html) scales the canvas to fit:
+//   max-width: 100vw !important;  width: auto !important;  margin: auto;
+// That is correct for colony_game, whose framebuffer is a fixed 1280x720
+// and has to shrink onto a phone. It is wrong for this build, which sizes
+// its framebuffer TO the viewport: if the intrinsic size lands even a
+// hair over 100vw, the browser scales the canvas down and the CSS size
+// stops matching the buffer. Two things break at once -- the centring
+// margins clip the picture on both sides, and mouse coordinates arrive in
+// CSS pixels while the scene was drawn in buffer pixels, so the cursor
+// picks somewhere other than where it points.
+//
+// So pin the CSS size to the buffer size and turn the clamps off, for
+// this page only; the shell is left alone and keeps working for the game
+// and the view-ladder playtest.
+//
+// The remembered size also matters: comparing against GetScreenWidth()
+// could never settle on a HiDPI display, where the buffer and the CSS
+// viewport are legitimately different numbers, so the resize fired every
+// single frame.
+static void SyncWebCanvasToViewport()
+{
+    static int lastW = 0, lastH = 0;
+    // clientWidth, not innerWidth: it excludes any scrollbar gutter, and
+    // the gutter is exactly the sliver that pushed the canvas over 100vw.
+    int cw = EM_ASM_INT({ return document.documentElement.clientWidth; });
+    int ch = EM_ASM_INT({ return document.documentElement.clientHeight; });
+    if (cw < 240 || ch < 240) return;
+    if (cw == lastW && ch == lastH) return;
+    lastW = cw;
+    lastH = ch;
+
+    SetWindowSize(cw, ch);
+    EM_ASM({
+        var c = document.getElementById('canvas');
+        if (!c) return;
+        c.style.setProperty('max-width', 'none', 'important');
+        c.style.setProperty('max-height', 'none', 'important');
+        c.style.setProperty('width', $0 + 'px', 'important');
+        c.style.setProperty('height', $1 + 'px', 'important');
+    }, cw, ch);
+}
+#endif
+
 static void UpdateSiteSelect(AppState& app)
 {
     MapOptions& options = app.options;
@@ -3020,15 +3066,7 @@ static void UpdateFrame(void* arg)
 {
     AppState& app = *(AppState*)arg;
 #if defined(PLATFORM_WEB)
-    {
-        int cw = EM_ASM_INT({ return window.innerWidth; });
-        int ch = EM_ASM_INT({ return window.innerHeight; });
-        if (cw > 240 && ch > 240
-            && (cw != GetScreenWidth() || ch != GetScreenHeight()))
-        {
-            SetWindowSize(cw, ch);   // rotation, or a resized browser
-        }
-    }
+    SyncWebCanvasToViewport();
 #endif
     if (app.options.siteMode) { UpdateSiteSelect(app); return; }
     MapOptions& options = app.options;
@@ -3640,8 +3678,11 @@ int main(int argc, char** argv)
     // Size to the real viewport rather than a fixed square -- a scaled
     // 960 px canvas puts 14 pt card text at about 6 px on a phone.
     {
-        int cw = EM_ASM_INT({ return window.innerWidth; });
-        int ch = EM_ASM_INT({ return window.innerHeight; });
+        // clientWidth/Height, matching SyncWebCanvasToViewport: innerWidth
+        // includes any scrollbar gutter, and starting a hair too wide is
+        // what let the shell's scale-to-fit clamp kick in.
+        int cw = EM_ASM_INT({ return document.documentElement.clientWidth; });
+        int ch = EM_ASM_INT({ return document.documentElement.clientHeight; });
         app.options.width = (cw > 240) ? cw : 960;
         app.options.height = (ch > 240) ? ch : 960;
     }
