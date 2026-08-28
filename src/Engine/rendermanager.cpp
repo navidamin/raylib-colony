@@ -150,7 +150,10 @@ void RenderManager::EndDraw() {
 void RenderManager::DrawMenuView() {
     Color IVORY = {249,246,231,255};
     int fontSize = 60;
-    Texture2D image = LoadTexture("src/assets/Logo.png");
+    // Loaded once, not per frame. This used to call LoadTexture every
+    // draw with no matching unload -- ~1.6 MB leaked per frame, which
+    // walked the menu down from 60 fps to 41 in twelve seconds.
+    static Texture2D image = LoadTexture("src/assets/Logo.png");
 
     int textX = GetScreenWidth()/2 - MeasureText("COLONY", 60)/2;
     int textY = GetScreenHeight()/3;
