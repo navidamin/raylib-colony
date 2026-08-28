@@ -18,6 +18,11 @@ add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/Prospecting/lab_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/survey_progress_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/prospecting_system.cpp
+    # resource_manager reads real LOLA elevation and the terrain anchor,
+    # so the test library needs them to link. Added on the merge: this
+    # target was written before that dependency existed.
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen/lola_dem.cpp
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen/terrain_synthesis.cpp
 )
 
 set_target_properties(colony_testlib PROPERTIES
@@ -38,6 +43,7 @@ target_include_directories(colony_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src/GameTypes
     ${CMAKE_SOURCE_DIR}/src/UnlockRegistry
     ${CMAKE_SOURCE_DIR}/src/Prospecting
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen
 )
 
 target_link_libraries(colony_testlib PUBLIC raylib tomlplusplus::tomlplusplus)

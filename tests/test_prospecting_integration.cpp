@@ -21,18 +21,20 @@ TEST_CASE("Full pipeline: sweep grid, collect sample, analyze in lab", "[integra
     SweepResult result = sweep.ExecuteSweep(grid, 0, 100.0f);
     REQUIRE(result.cellsSwept > 0);
 
-    // All cells should now be swept
+    // Every cell within the tier's reach should now be swept
     for (int y = 0; y < grid.GetGridSize(); y++)
         for (int x = 0; x < grid.GetGridSize(); x++)
-            REQUIRE(grid.GetSubCell(x, y).hasBeenSwept);
+            if (grid.IsInReach(x, y))
+                REQUIRE(grid.GetSubCell(x, y).hasBeenSwept);
 
-    // Step 2: Find a cell with signal and collect a sample
-    int bestX = 0, bestY = 0;
+    // Step 2: Find a reachable cell with signal and collect a sample
+    auto [bestX, bestY] = InReachCoord(1);
     float bestSignal = 0.0f;
     for (int y = 0; y < grid.GetGridSize(); y++)
     {
         for (int x = 0; x < grid.GetGridSize(); x++)
         {
+            if (!grid.IsInReach(x, y)) continue;
             float sig = grid.GetSubCell(x, y).sweepSignal;
             if (sig > bestSignal)
             {
@@ -77,16 +79,16 @@ TEST_CASE("Sweep data persists through sampling and lab stages", "[integration]"
     sweep.ExecuteSweep(grid, 1, 200.0f);
 
     // Record pre-sample sweep state
-    float sweepSignalBefore = grid.GetSubCell(0, 0).sweepSignal;
-    float sweepConfBefore = grid.GetSubCell(0, 0).aggregateConfidence;
+    float sweepSignalBefore = grid.GetSubCell(3, 3).sweepSignal;
+    float sweepConfBefore = grid.GetSubCell(3, 3).aggregateConfidence;
 
     // Collect a sample
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
 
     // Sweep data should be unchanged by sampling
-    REQUIRE(grid.GetSubCell(0, 0).sweepSignal == sweepSignalBefore);
-    REQUIRE(grid.GetSubCell(0, 0).aggregateConfidence == sweepConfBefore);
-    REQUIRE(grid.GetSubCell(0, 0).hasBeenSwept);
+    REQUIRE(grid.GetSubCell(3, 3).sweepSignal == sweepSignalBefore);
+    REQUIRE(grid.GetSubCell(3, 3).aggregateConfidence == sweepConfBefore);
+    REQUIRE(grid.GetSubCell(3, 3).hasBeenSwept);
 }
 
 TEST_CASE("Sample composition from grid matches lab analysis targets", "[integration]")
@@ -97,7 +99,7 @@ TEST_CASE("Sample composition from grid matches lab analysis targets", "[integra
     SamplingEngine sampler(2);
     LabEngine lab(2);
 
-    sampler.CollectSample(grid, tray, 1, 1, DepthLayer::SURFACE);
+    sampler.CollectSample(grid, tray, 4, 4, DepthLayer::SURFACE);
     Sample* sample = tray.GetSampleByIndex(0);
     REQUIRE(sample != nullptr);
 
@@ -122,8 +124,8 @@ TEST_CASE("Multiple samples from same grid have consistent ground truth", "[inte
     SamplingEngine sampler(1);
 
     // Collect two samples from the same sub-cell at the same depth
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
-    sampler.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
     REQUIRE(tray.GetCount() == 2);
 
     Sample* s1 = tray.GetSampleByIndex(0);
@@ -220,17 +222,17 @@ TEST_CASE("Collected samples are registered in sub-cell sampleIds", "[integratio
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
-    REQUIRE(grid.GetSubCell(1, 1).sampleIds.empty());
+    REQUIRE(grid.GetSubCell(4, 4).sampleIds.empty());
 
-    sampler.CollectSample(grid, tray, 1, 1, DepthLayer::SURFACE);
+    sampler.CollectSample(grid, tray, 4, 4, DepthLayer::SURFACE);
 
-    REQUIRE(grid.GetSubCell(1, 1).sampleIds.size() == 1);
+    REQUIRE(grid.GetSubCell(4, 4).sampleIds.size() == 1);
 
-    int sampleId = grid.GetSubCell(1, 1).sampleIds[0];
+    int sampleId = grid.GetSubCell(4, 4).sampleIds[0];
     Sample* sample = tray.GetSampleById(sampleId);
     REQUIRE(sample != nullptr);
-    REQUIRE(sample->subCellX == 1);
-    REQUIRE(sample->subCellY == 1);
+    REQUIRE(sample->subCellX == 4);
+    REQUIRE(sample->subCellY == 4);
 }
 
 // --- Fire assay end-to-end ---
@@ -287,17 +289,26 @@ TEST_CASE("Degraded calibration reduces sweep confidence gain", "[integration]")
 {
     ResourceManager rm = MakeTestResourceManager();
 
-    // Fresh calibration sweep
-    ProspectingGrid grid1(1, 5, 5, rm);
-    SweepEngine sweep1(1);
+    // Both sweeps run at tier 3 so reach is identical and calibration is the
+    // only difference between them.
+    ProspectingGrid grid1(3, 5, 5, rm);
+    SweepEngine sweep1(3);
     sweep1.ExecuteSweep(grid1, 0, 100.0f);
 
     float freshConf = 0.0f;
+    int sweptCells = 0;
     int size = grid1.GetGridSize();
     for (int y = 0; y < size; y++)
+    {
         for (int x = 0; x < size; x++)
+        {
+            if (!grid1.IsInReach(x, y)) continue;
             freshConf += grid1.GetSubCell(x, y).aggregateConfidence;
-    freshConf /= (size * size);
+            sweptCells++;
+        }
+    }
+    REQUIRE(sweptCells > 0);
+    freshConf /= sweptCells;
 
     // Degrade calibration by sweeping many times on different grids
     SweepEngine sweep2(3);
@@ -314,11 +325,19 @@ TEST_CASE("Degraded calibration reduces sweep confidence gain", "[integration]")
     sweep2.ExecuteSweep(grid2, 0, 3000.0f);
 
     float degradedConf = 0.0f;
+    int degradedCells = 0;
     int size2 = grid2.GetGridSize();
     for (int y = 0; y < size2; y++)
+    {
         for (int x = 0; x < size2; x++)
+        {
+            if (!grid2.IsInReach(x, y)) continue;
             degradedConf += grid2.GetSubCell(x, y).aggregateConfidence;
-    degradedConf /= (size2 * size2);
+            degradedCells++;
+        }
+    }
+    REQUIRE(degradedCells == sweptCells);
+    degradedConf /= degradedCells;
 
     REQUIRE(degradedConf < freshConf);
 }

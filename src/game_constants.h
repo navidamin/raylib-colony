@@ -3,6 +3,7 @@
 
 #include <string>
 #include <map>
+#include <vector>
 #include <iostream>
 #include "resource_types.h"
 
@@ -136,6 +137,80 @@ const std::map<ResourceType, std::map<ResourceType, float>> FARMING_PRODUCTION_C
     }}
 };
 
+// ---------------------------------------------------------------------------
+// Module build / tier-upgrade costs
+//
+// PLACEHOLDER TUNING. These exist so the module menu's BUILD and UPGRADE
+// controls are operable for every unit type; the numbers are a flat curve, not
+// a balanced economy. Each module replaces this with its own table when it is
+// designed (see docs/guides/module-architecture.md, Part I §7 "Economy").
+//
+// Keys are tiers: key 1 doubles as the build cost and the tier 0 -> 1 cost,
+// matching Unit::BuildModule and Unit::UpgradeModuleTier.
+// ---------------------------------------------------------------------------
+
+// Per-tier multiplier applied to a unit type's base module cost.
+const float MODULE_TIER_COST_SCALE[4] = {0.0f, 1.0f, 2.2f, 4.0f};
+
+// Energy draw (kW) a module requires at each tier.
+const float MODULE_TIER_ENERGY[4] = {5.0f, 9.0f, 15.0f, 24.0f};
+
+// Base (tier 1) module cost per unit type. Scaled by MODULE_TIER_COST_SCALE.
+//
+// Every entry carries BOTH materials branches: construction stock, which
+// comes from plagioclase (Al/Ca, highland), and alloys, which come from
+// mafic rock (Fe/Ti, mare). That is the C1 invariant -- no single region
+// can supply its own upgrades, so a colony has to reach across terrain
+// types. It lives here rather than in MODULE_TIER_UPGRADE_COSTS because
+// this table supersedes that one: ApplyPlaceholderModuleCosts fills every
+// module's own upgradeCosts from here, and a module's own costs win.
+const std::map<std::string, std::map<ResourceType, float>> MODULE_BASE_COSTS = {
+    {"Extraction", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 40.0f},
+        {ResourceType::MACHINERY, 15.0f},
+        {ResourceType::ALLOYS, 25.0f}
+    }},
+    {"Farming", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 35.0f},
+        {ResourceType::WATER, 20.0f},
+        {ResourceType::ALLOYS, 12.0f}
+    }},
+    {"Energy", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 30.0f},
+        {ResourceType::Si, 25.0f},
+        {ResourceType::ALLOYS, 15.0f}
+    }},
+    {"Manufacture", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 45.0f},
+        {ResourceType::Fe, 30.0f},
+        {ResourceType::ALLOYS, 30.0f}
+    }},
+    {"Research", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 25.0f},
+        {ResourceType::ELECTRONICS, 20.0f},
+        {ResourceType::ALLOYS, 10.0f}
+    }},
+    {"Construction", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 50.0f},
+        {ResourceType::MACHINERY, 20.0f},
+        {ResourceType::ALLOYS, 30.0f}
+    }},
+    {"Transport", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 35.0f},
+        {ResourceType::MACHINERY, 25.0f},
+        {ResourceType::ALLOYS, 25.0f}
+    }},
+    {"Communication", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 20.0f},
+        {ResourceType::ELECTRONICS, 30.0f},
+        {ResourceType::ALLOYS, 10.0f}
+    }},
+    {"Core", {
+        {ResourceType::CONSTRUCTION_MATERIALS, 60.0f},
+        {ResourceType::ELECTRONICS, 25.0f},
+        {ResourceType::ALLOYS, 25.0f}
+    }}
+};
 
 // ---------------------------------------------------------------------------
 // C1 - the materials split

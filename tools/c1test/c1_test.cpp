@@ -123,9 +123,28 @@ int main()
     {
         auto& es = const_cast<std::map<ResourceType, float>&>(
             ext->GetResourceStorage());
-        const auto& t1 = MODULE_TIER_UPGRADE_COSTS.at(1);
-        // alloys only -> refused
+        // Read the costs that ACTUALLY apply. ApplyPlaceholderModuleCosts
+        // fills each module's own upgradeCosts from MODULE_BASE_COSTS, and
+        // a module's own costs win over the shared table -- so asserting
+        // against the shared table would test a path nothing takes.
+        const auto& t1 = ext->GetModules()[0].upgradeCosts.at(1);
+        Check(t1.count(ResourceType::ALLOYS) > 0 &&
+              t1.count(ResourceType::CONSTRUCTION_MATERIALS) > 0,
+              "the applied tier-1 costs name both branches");
+
+        // Stock every OTHER required resource generously, so a refusal
+        // below can only be about the two branches under test.
         es[ResourceType::ENERGY] = 10000.0f;
+        for (const auto& [res, amount] : t1)
+        {
+            if (res != ResourceType::ALLOYS &&
+                res != ResourceType::CONSTRUCTION_MATERIALS)
+            {
+                es[res] = amount * 10.0f;
+            }
+        }
+
+        // alloys only -> refused
         es[ResourceType::ALLOYS] = t1.at(ResourceType::ALLOYS) * 4.0f;
         es[ResourceType::CONSTRUCTION_MATERIALS] = 0.0f;
         int tierBefore = ext->GetModules()[0].tier;

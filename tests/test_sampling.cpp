@@ -44,8 +44,9 @@ TEST_CASE("SamplingEngine CollectSample adds to tray", "[sampling]")
     SampleTray tray(2);
     SamplingEngine engine(2);
 
+    auto [sx, sy] = InReachCoord(2);
     REQUIRE(tray.IsEmpty());
-    REQUIRE(engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE));
+    REQUIRE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SURFACE));
     REQUIRE(tray.GetCount() == 1);
 }
 
@@ -56,11 +57,30 @@ TEST_CASE("SamplingEngine CollectSample fails on full tray", "[sampling]")
     SampleTray tray(0);
     SamplingEngine engine(0);
 
+    // Tier 0 reaches a 2x2 window, which is exactly the tier 0 tray capacity
+    REQUIRE(InReachCellCount(0) == 4);
     for (int i = 0; i < 4; i++)
-        REQUIRE(engine.CollectSample(grid, tray, i % 3, 0, DepthLayer::SURFACE));
+    {
+        auto [x, y] = InReachCoord(0, i);
+        REQUIRE(engine.CollectSample(grid, tray, x, y, DepthLayer::SURFACE));
+    }
 
     REQUIRE(tray.IsFull());
+    auto [fx, fy] = InReachCoord(0);
+    REQUIRE_FALSE(engine.CollectSample(grid, tray, fx, fy, DepthLayer::SURFACE));
+}
+
+TEST_CASE("SamplingEngine CollectSample fails outside tier reach", "[sampling]")
+{
+    auto rm = MakeTestResourceManager();
+    ProspectingGrid grid(0, 5, 5, rm);
+    SampleTray tray(0);
+    SamplingEngine engine(0);
+
+    // In bounds, but outside the tier 0 reach window
+    REQUIRE_FALSE(grid.IsInReach(0, 0));
     REQUIRE_FALSE(engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE));
+    REQUIRE(tray.IsEmpty());
 }
 
 TEST_CASE("SamplingEngine CollectSample fails on inaccessible depth", "[sampling]")
@@ -70,7 +90,8 @@ TEST_CASE("SamplingEngine CollectSample fails on inaccessible depth", "[sampling
     SampleTray tray(0);
     SamplingEngine engine(0);
 
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, 0, 0, DepthLayer::SHALLOW));
+    auto [sx, sy] = InReachCoord(0);
+    REQUIRE_FALSE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SHALLOW));
     REQUIRE(tray.IsEmpty());
 }
 
@@ -93,11 +114,12 @@ TEST_CASE("Collected sample has ground truth composition", "[sampling]")
     SampleTray tray(2);
     SamplingEngine engine(2);
 
-    engine.CollectSample(grid, tray, 1, 1, DepthLayer::SURFACE);
+    auto [sx, sy] = InReachCoord(2);
+    REQUIRE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SURFACE));
     const Sample* s = tray.GetSampleByIndex(0);
     REQUIRE(s != nullptr);
 
-    auto groundTruth = grid.GetGroundTruth(1, 1, DepthLayer::SURFACE);
+    auto groundTruth = grid.GetGroundTruth(sx, sy, DepthLayer::SURFACE);
     for (const auto& [type, expected] : groundTruth)
     {
         auto it = s->trueComposition.find(type);
@@ -113,8 +135,10 @@ TEST_CASE("Collected sample starts with zero confidence", "[sampling]")
     SampleTray tray(1);
     SamplingEngine engine(1);
 
-    engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    auto [sx, sy] = InReachCoord(1);
+    REQUIRE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SURFACE));
     const Sample* s = tray.GetSampleByIndex(0);
+    REQUIRE(s != nullptr);
 
     REQUIRE(s->elementConfidence.empty());
     REQUIRE_THAT(s->GetAggregateConfidence(), Catch::Matchers::WithinAbs(0.0f, 0.001f));
@@ -179,7 +203,8 @@ TEST_CASE("Crystal visual glow starts at 0", "[sampling]")
     SampleTray tray(1);
     SamplingEngine engine(1);
 
-    engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    auto [sx, sy] = InReachCoord(1);
+    REQUIRE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SURFACE));
     REQUIRE(tray.GetSampleByIndex(0)->visual.glowLevel == 0);
 }
 
@@ -190,8 +215,10 @@ TEST_CASE("Crystal visual size matches richness", "[sampling]")
     SampleTray tray(2);
     SamplingEngine engine(2);
 
-    engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    auto [sx, sy] = InReachCoord(2);
+    REQUIRE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SURFACE));
     const Sample* s = tray.GetSampleByIndex(0);
+    REQUIRE(s != nullptr);
 
     REQUIRE(s->visual.sizeLevel == GetSizeLevel(s->richness));
 }
@@ -261,8 +288,10 @@ TEST_CASE("Crystal visual element color matches dominant element", "[sampling]")
     SampleTray tray(2);
     SamplingEngine engine(2);
 
-    engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE);
+    auto [sx, sy] = InReachCoord(2);
+    REQUIRE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SURFACE));
     const Sample* s = tray.GetSampleByIndex(0);
+    REQUIRE(s != nullptr);
 
     ResourceType dominant = SamplingEngine::GetDominantElement(s->trueComposition);
     Color expected = GetElementColor(dominant);
@@ -271,18 +300,24 @@ TEST_CASE("Crystal visual element color matches dominant element", "[sampling]")
     REQUIRE(s->visual.elementColor.b == expected.b);
 }
 
-TEST_CASE("CalculateRichness normalizes correctly", "[sampling]")
+TEST_CASE("CalculateRichnessFromQuantity normalizes correctly", "[sampling]")
 {
-    std::map<ResourceType, float> empty;
-    REQUIRE_THAT(SamplingEngine::CalculateRichness(empty),
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(0.0f),
                  Catch::Matchers::WithinAbs(0.0f, 0.001f));
 
-    std::map<ResourceType, float> moderate = {
-        {ResourceType::Fe, 0.5f}, {ResourceType::Si, 0.5f}
-    };
-    float expected = std::min(1.0f, 1.0f / RICHNESS_NORMALIZATION);
-    REQUIRE_THAT(SamplingEngine::CalculateRichness(moderate),
-                 Catch::Matchers::WithinAbs(expected, 0.001f));
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(RICHNESS_NORMALIZATION * 0.5f),
+                 Catch::Matchers::WithinAbs(0.5f, 0.001f));
+
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(RICHNESS_NORMALIZATION),
+                 Catch::Matchers::WithinAbs(1.0f, 0.001f));
+
+    // Deposits above the normalization ceiling saturate rather than overflow
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(RICHNESS_NORMALIZATION * 4.0f),
+                 Catch::Matchers::WithinAbs(1.0f, 0.001f));
+
+    // Negative quantities are clamped, never negative richness
+    REQUIRE_THAT(SamplingEngine::CalculateRichnessFromQuantity(-100.0f),
+                 Catch::Matchers::WithinAbs(0.0f, 0.001f));
 }
 
 TEST_CASE("GetDominantElement returns highest abundance", "[sampling]")

@@ -209,7 +209,7 @@ Units have a modular upgrade system where each unit type has specialized named m
 4. **Operations** - Efficiency modifier (tier 0=0.85 penalty, tier 3=1.2 bonus)
 5. **Directives** - Autonomous control (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, EMERGENCY_HARVEST, THERMAL_SYNC)
 
-**Other unit types** have 5 stub-named modules each (Farming, Energy, Manufacture, Research) using generic production logic.
+**Other unit types** have 5 stub-named modules each, using generic production logic. There are **eight** unit types in total — `Sect::CreateInitialUnits` (`src/Sect/sect.cpp`) is the authoritative list, not the `UnitType` enum, since units are constructed from strings: Extraction, Farming, Energy, Manufacture, Research, Construction, Transport, Communication. All 40 modules are reachable through the module menu; only Extraction's five have bespoke panels.
 
 **Extraction pipeline** (`ProcessExtraction()`):
 1. Survey-gated efficiency: `scanMultiplier = 0.35 + 0.65 × surveyProgress` (+ 0.15 if marked, × objective bonus). Each scan adds progress via diminishing returns formula.
@@ -307,6 +307,29 @@ to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
 3. Define production costs in `game_constants.h`
 4. Create module definitions in `Unit::InitializeModules()`
 
+**Adding a new module panel:** (see [`docs/guides/ui-panels.md`](docs/guides/ui-panels.md))
+1. Add `DrawFooPanel(Unit*, int x, int y, int w, int h)` to `RenderManager`
+2. Dispatch to it by `moduleType` in `DrawExtractionModuleCenter`
+3. Add the module's icon to the `ExtIcon` enum and `ExtModuleIcon()`
+4. Build the layout from the existing widget helpers and design tokens
+5. Keep persistent UI state on the module's facade, not the renderer
+6. Render every state (`--tier`, `--state`, `--energy`) and **look at the PNGs**
+7. Check against [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md)
+
+*Every unit type now draws through the shared modular chrome
+(`DrawModularUnitView`). Modules without a bespoke centre panel fall back to
+`DrawGenericModulePanel`, which renders the module's real data (tier arc,
+throughput, energy, tech deps) and marks itself PRELIMINARY. Replacing that
+fallback with a real panel is step 2 above — the legacy `unit->DrawInUnitView()`
+path in `unit_ui.cpp` is no longer reached.*
+
+**Building a new gameplay module:** (see [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md))
+1. `src/<Module>/` with constants / types / pure-logic engines / facade
+2. Name units at data boundaries (quantity vs fraction vs rate)
+3. Tier capability in constant tables, queried via `Can*()` methods
+4. Keep the contract with the rest of the game narrow
+5. Add sources to `COLONY_CORE_SOURCES` in `src/CMakeLists.txt`
+
 **Adding a new view:**
 1. Add enum to `View` in `game_enums.h`
 2. Create `RenderManager::Draw*View()` method
@@ -342,6 +365,55 @@ to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
 
 **Note:** CMakeLists.txt in src/ may be incomplete - not all .cpp files are listed in target_sources. Verify compilation if adding new files.
 
+## Development Guides
+
+General instructions distilled from building the prospecting module and the
+extraction UI. Read the relevant one **before** starting, not after.
+
+| Guide | Read when |
+|-------|-----------|
+| [`docs/guides/ui-panels.md`](docs/guides/ui-panels.md) | Building or restyling any module panel — design tokens, semantic colours, widget helpers, control semantics, touch feedback, IMGUI discipline |
+| [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md) | Starting a new module or unit — **a 13-aspect design brief to work through before writing code** (loop, contract, multi-scale control, tier arc, economy, friction, decision texture, scale, AI hook), then the implementation shape: engine/facade structure, **declaring units at data boundaries**, tier tables, hero visuals |
+| [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md) | You think a feature is done — the six questions that catch "engine-implemented but not player-reachable" |
+| [`docs/dev-workflow.md`](docs/dev-workflow.md) | Any UI or gameplay work — the testing instruments and the working loop |
+| [`docs/web-deploy-mobile.md`](docs/web-deploy-mobile.md) | Touching `minshell.html`, the Pages deploy, or the phone build |
+
+Three rules worth stating up front, each learned expensively:
+
+1. **Never claim a visual result without rendering it.** `preview.sh` takes
+   ~5 seconds.
+2. **When a value looks wrong, dump the data before theorising.**
+   `colony_inspect` found in one step what reading the generator twice missed.
+3. **Engine-implemented is not player-reachable.** Correct code that no input
+   path reaches is not a finished feature.
+
+## Dev Workflow & Testing Instruments
+
+**Read `docs/dev-workflow.md` before starting UI or gameplay work.** The
+repo has purpose-built instruments so changes can be seen and verified
+without a display:
+
+| Tool | Use it for |
+|------|-----------|
+| `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so screenshots are faithful and reproducible. |
+| `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
+| `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
+| `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
+| `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
+
+The working loop: **change → render preview → look at the PNG and iterate
+→ show the images → `--all` + build all targets → commit/push (deploy is
+automatic) → playtest on device.** Never claim a visual result without
+rendering it first.
+
+## Web Builds & Mobile
+
+Before touching `src/minshell.html`, the Pages deploy workflow, or
+anything about the web/phone builds, read `docs/web-deploy-mobile.md` —
+it documents the three-layer canvas sizing problem (CSS size vs
+framebuffer attributes vs game render size), the SHELL v4 enforcer that
+fixes it, the on-page diagnostic badge, and the deploy/caching gotchas.
+
 ## Design Documents
 
 Module-specific design planning lives in `docs/design/<module-name>/`. Each module has a README.md that serves as the entry point and table of contents.
@@ -353,6 +425,6 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
 | Site Selection | `docs/design/site-selection/README.md` | Working on `src/TerrainGen/survey_cursor.*`, the survey descent ladder, `View::SITE_SELECTION` / `DrawSiteSelectionView`, or colony placement in `gamemanager.cpp` |
-| Site Selection | `docs/design/site-selection/README.md` | Working on the orbital/site-selection descent, the survey cursor, `DrawSiteSelectionView`, or placement gating |
+| Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
 
 See `docs/design/README.md` for the full planning method explanation.

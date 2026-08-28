@@ -9,7 +9,7 @@
     <meta name="title" content="Colony - Planet Colonization Game">
     <meta name="description" content="Planet colonization game built with raylib">
     <meta name="keywords" content="colony, space, game, html5, raylib, webassembly">
-    <meta name="viewport" content="width=device-width">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 
     <!-- Open Graph metatags for sharing -->
     <meta property="og:type" content="website" />
@@ -35,10 +35,16 @@
 
     <!-- Web Style -->
     <style>
-        body { 
-          margin: 0px; 
-          overflow: hidden; 
+        html, body {
+          height: 100%;
+        }
+        body {
+          margin: 0px;
+          overflow: hidden;
           background-color: black;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
         canvas.emscripten {
           border: 0px none;
@@ -48,6 +54,16 @@
           margin-left: auto;
           margin-right: auto;
           display: block;
+          /* Scale to fit phones/tablets, preserving aspect ratio.
+             !important because Emscripten writes an inline style with the
+             framebuffer size (e.g. 1280x720) on the canvas, which would
+             otherwise override these rules and crop the page on mobile.
+             touch-action: none keeps taps from scrolling/zooming the page. */
+          max-width: 100vw !important;
+          max-height: 100vh !important;
+          width: auto !important;
+          height: auto !important;
+          touch-action: none;
         }
     </style>
     <script type='text/javascript' src="https://cdn.jsdelivr.net/gh/eligrey/FileSaver.js/dist/FileSaver.min.js"> </script>
@@ -72,6 +88,110 @@
     </head>
     <body>
         <canvas class=emscripten id=canvas oncontextmenu=event.preventDefault() tabindex=-1></canvas>
+        <!-- Live geometry readout for diagnosing mobile fit issues.
+             Hidden unless the page is loaded with ?debug=1 -- see
+             docs/web-deploy-mobile.md. -->
+        <div id="shellDebug" style="display:none;position:fixed;top:4px;left:4px;z-index:9999;
+             font:10px monospace;color:rgba(255,255,255,0.65);
+             background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
+             pointer-events:none;">SHELL v4 loading...</div>
+        <script type='text/javascript'>
+            // Fit the fixed-size framebuffer canvas to the device viewport,
+            // preserving aspect ratio. Emscripten/raylib write their own
+            // inline canvas style at unpredictable times (GL context
+            // creation, resizes), so this is a persistent enforcer, not a
+            // one-shot: it re-asserts the fitted size with !important
+            // priority whenever the canvas size or style changes, and polls
+            // as a final fallback.
+            (function()
+            {
+                // Diagnostics are opt-in: load with ?debug=1 to show the badge
+                var debugEnabled = /[?&]debug=1(&|$)/.test(window.location.search);
+                var debugEl = document.getElementById('shellDebug');
+                if (debugEnabled && debugEl) debugEl.style.display = 'block';
+
+                function updateDebug(c)
+                {
+                    if (!debugEnabled) return;
+                    var d = debugEl;
+                    if (!d || !c) return;
+                    var r = c.getBoundingClientRect();
+                    d.textContent = 'SHELL v4'
+                        + ' cnv=' + c.width + 'x' + c.height
+                        + ' style=' + c.style.getPropertyValue('width') + '/'
+                                    + c.style.getPropertyPriority('width')
+                        + ' rect=' + Math.round(r.width) + 'x' + Math.round(r.height)
+                                   + '@' + Math.round(r.x) + ',' + Math.round(r.y)
+                        + ' win=' + window.innerWidth + 'x' + window.innerHeight
+                        + ' vv=' + (window.visualViewport
+                                    ? Math.round(window.visualViewport.width) + 'x'
+                                      + Math.round(window.visualViewport.height)
+                                      + '@' + Math.round(window.visualViewport.offsetTop)
+                                    : 'none')
+                        + ' dpr=' + window.devicePixelRatio;
+                }
+
+                // The game renders a fixed-size framebuffer; resize plumbing
+                // in the wasm runtime shrinks the canvas attributes to the
+                // CSS size on mobile, which crops the game (it keeps
+                // rendering at full size). Pin the framebuffer and scale
+                // only via CSS.
+                var GAME_W = 1280;
+                var GAME_H = 720;
+
+                function fitCanvas()
+                {
+                    var c = document.getElementById('canvas');
+                    if (!c) return;
+
+                    // Restore the framebuffer if something shrank it. The
+                    // game loop repaints every frame, so the buffer clear
+                    // this causes is invisible.
+                    if (c.width !== GAME_W) c.width = GAME_W;
+                    if (c.height !== GAME_H) c.height = GAME_H;
+
+                    updateDebug(c);
+
+                    var vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
+                    var vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
+                    var scale = Math.min(vw / c.width, vh / c.height);
+                    var w = Math.floor(c.width * scale) + 'px';
+                    var h = Math.floor(c.height * scale) + 'px';
+
+                    // Guard: only touch style when wrong, so the observer
+                    // below does not loop on our own writes.
+                    if (c.style.getPropertyValue('width') !== w ||
+                        c.style.getPropertyPriority('width') !== 'important')
+                    {
+                        c.style.setProperty('width', w, 'important');
+                    }
+                    if (c.style.getPropertyValue('height') !== h ||
+                        c.style.getPropertyPriority('height') !== 'important')
+                    {
+                        c.style.setProperty('height', h, 'important');
+                    }
+                }
+
+                window.addEventListener('resize', fitCanvas);
+                window.addEventListener('orientationchange', function() { setTimeout(fitCanvas, 200); });
+                if (window.visualViewport)
+                {
+                    window.visualViewport.addEventListener('resize', fitCanvas);
+                }
+
+                // Re-assert whenever anything rewrites the canvas size/style
+                var c = document.getElementById('canvas');
+                if (window.MutationObserver && c)
+                {
+                    new MutationObserver(fitCanvas).observe(c,
+                        { attributes: true, attributeFilter: ['style', 'width', 'height'] });
+                }
+
+                // Fallback poll: cheap, and covers engines the observer misses
+                setInterval(fitCanvas, 500);
+                fitCanvas();
+            })();
+        </script>
         <p id="output" />
         <script>
             var Module = {

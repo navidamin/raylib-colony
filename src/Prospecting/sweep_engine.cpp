@@ -14,6 +14,10 @@ SweepEngine::SweepEngine(int tier)
 
 bool SweepEngine::CanSweep(const ProspectingGrid& grid, int frequencyBand) const
 {
+    // The instrument is offline while being calibrated
+    if (calibrating)
+        return false;
+
     if (frequencyBand < 0 || frequencyBand >= SWEEP_FREQUENCY_BANDS)
         return false;
 
@@ -41,7 +45,17 @@ SweepResult SweepEngine::ExecuteSweep(ProspectingGrid& grid, int frequencyBand,
         return {};
 
     int size = grid.GetGridSize();
-    int totalCells = size*size;
+
+    // Only sub-cells within instrument reach are surveyed. Out-of-reach cells
+    // keep whatever data they already have (nothing, until a tier extends
+    // range to them) and are excluded from every statistic below, so an
+    // unreachable region cannot skew normalization or the anomaly threshold.
+    int totalCells = 0;
+    for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+            if (grid.IsInReach(x, y)) totalCells++;
+
+    if (totalCells == 0) return {};
 
     // Step 1: raw signal per sub-cell
     std::vector<std::vector<float>> rawSignals(size, std::vector<float>(size, 0.0f));
@@ -51,6 +65,7 @@ SweepResult SweepEngine::ExecuteSweep(ProspectingGrid& grid, int frequencyBand,
     {
         for (int x = 0; x < size; x++)
         {
+            if (!grid.IsInReach(x, y)) continue;
             rawSignals[y][x] = CalculateRawSignal(grid, x, y, frequencyBand);
             if (rawSignals[y][x] > maxSignal)
                 maxSignal = rawSignals[y][x];
@@ -84,7 +99,8 @@ SweepResult SweepEngine::ExecuteSweep(ProspectingGrid& grid, int frequencyBand,
                     {
                         if (dx == 0 && dy == 0) continue;
                         int nx = x + dx, ny = y + dy;
-                        if (nx >= 0 && nx < size && ny >= 0 && ny < size)
+                        if (nx >= 0 && nx < size && ny >= 0 && ny < size &&
+                            grid.IsInReach(nx, ny))
                         {
                             neighborSum += rawSignals[ny][nx];
                             neighborCount++;
@@ -103,13 +119,14 @@ SweepResult SweepEngine::ExecuteSweep(ProspectingGrid& grid, int frequencyBand,
     float sum = 0.0f;
     for (int y = 0; y < size; y++)
         for (int x = 0; x < size; x++)
-            sum += blurred[y][x];
+            if (grid.IsInReach(x, y)) sum += blurred[y][x];
     float mean = sum / totalCells;
 
     float variance = 0.0f;
     for (int y = 0; y < size; y++)
         for (int x = 0; x < size; x++)
         {
+            if (!grid.IsInReach(x, y)) continue;
             float diff = blurred[y][x] - mean;
             variance += diff*diff;
         }
@@ -125,6 +142,10 @@ SweepResult SweepEngine::ExecuteSweep(ProspectingGrid& grid, int frequencyBand,
     {
         for (int x = 0; x < size; x++)
         {
+            // Never mark an out-of-reach cell as swept -- it stays dark until
+            // a tier upgrade brings it into range.
+            if (!grid.IsInReach(x, y)) continue;
+
             uint32_t seed = HashNoise(x, y, frequencyBand,
                                        grid.GetParentGridX(), grid.GetParentGridY());
             float noise = ((seed % 2001) - 1000) / 1000.0f * noiseFactor;
@@ -162,6 +183,12 @@ void SweepEngine::StartCalibration()
     calibrationTimer = CALIBRATION_DURATION;
 }
 
+float SweepEngine::GetCalibrationProgress() const
+{
+    if (!calibrating || CALIBRATION_DURATION <= 0.0f) return 0.0f;
+    return 1.0f - (calibrationTimer / CALIBRATION_DURATION);
+}
+
 void SweepEngine::UpdateCalibration(float deltaTime)
 {
     if (!calibrating) return;
@@ -191,11 +218,11 @@ float SweepEngine::CalculateRawSignal(const ProspectingGrid& grid, int subX, int
     for (int d = 0; d < penetration; d++)
     {
         DepthLayer depth = static_cast<DepthLayer>(d);
-        auto resources = grid.GetGroundTruth(subX, subY, depth);
 
-        float layerSignal = 0.0f;
-        for (const auto& [type, abundance] : resources)
-            layerSignal += abundance;
+        // Absolute quantity, not composition: GPR responds to how much
+        // material is present, and composition fractions sum to 1 everywhere
+        // (which would flatten the heat map).
+        float layerSignal = grid.GetQuantity(subX, subY, depth);
 
         float attenuation = 1.0f / (1.0f + d * SWEEP_DEPTH_ATTENUATION);
         signal += layerSignal * attenuation;
