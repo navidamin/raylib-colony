@@ -228,6 +228,13 @@
                     var vw = Math.min.apply(null, widths);
                     var vh = Math.min.apply(null, heights);
                     var scale = Math.min(vw / c.width, vh / c.height);
+                    // Downscale continuously (a phone needs the exact fit),
+                    // but upscale only in whole steps: a fractional upscale
+                    // (1.5x on a 1920x1200 desktop) resamples every pixel of
+                    // the fixed 1280x720 buffer, which Firefox on Windows
+                    // renders visibly soft. Integer scales stay crisp; below
+                    // 2x the canvas sits at its native size, centred.
+                    if (scale > 1.0) scale = Math.max(1.0, Math.floor(scale));
                     fittedW = Math.floor(c.width * scale);
                     fittedH = Math.floor(c.height * scale);
                     var w = fittedW + 'px';

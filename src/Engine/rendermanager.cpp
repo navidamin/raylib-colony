@@ -3323,15 +3323,19 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                Fade(EXT_PANEL_BORDER, 0.9f));
 }
 
-// One point of the prescribed line in BLOCK space: the shared depth mapping
-// plus the stack's own iso offset. Straight by construction between its ends.
+// One point of the prescribed line in BLOCK space: the point sits ON ITS
+// PLATE, at the drawn position of the cell the line passes through there.
+// The earlier band-space form (dg.YOf(m) + iso row offset) double-counted
+// the row -- the row IS the depth under the plate-slab mapping -- so both
+// ends drifted off the clicked cells, worst at the plate corners.
 static Vector2 ProsLinePoint(ProspectingSystem* ps, const BlockModelGeom& g,
                              const ProsDockGeom& dg, float m)
 {
+    (void)dg;
     float fx = 0.0f, fy = 0.0f;
     ps->GetLineCell(m, fx, fy);
-    return { g.originX + (fx - fy) * g.tileX,
-             dg.YOf(m) + (fx + fy + 1.0f - g.size) * g.tileY };
+    int L = LayerOfDepthM(std::min(m, ps->lineHole.endM));
+    return g.Iso(fx + 0.5f, fy + 0.5f, L, 0.0f);
 }
 static Vector2 ProsTraceAt(ProspectingSystem* ps, const BlockModelGeom& g,
                            const ProsDockGeom& dg, float m)
@@ -3395,10 +3399,22 @@ static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
     {
         int L = LayerOfDepthM(hole.depthM);
         float a = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
-        Vector2 top = g.Iso(0.0f, 0.0f, L, g.relief + 8.0f);
-        Vector2 right = g.Iso(static_cast<float>(g.size), 0.0f, L, 0.0f); right.x += 8.0f;
-        Vector2 bot = g.Iso(static_cast<float>(g.size), static_cast<float>(g.size), L, -8.0f);
-        Vector2 left = g.Iso(0.0f, static_cast<float>(g.size), L, 0.0f); left.x -= 8.0f;
+        // Exactly the plate's own base diamond, scaled a hair outward about
+        // its centre -- the edges stay parallel to the plate's, so the rim
+        // reads as a halo on the plate rather than a shape of its own (the
+        // old hand-tuned per-corner offsets skewed it off the diamond).
+        float n = static_cast<float>(g.size);
+        Vector2 C = g.Iso(n * 0.5f, n * 0.5f, L, 0.0f);
+        float k = 1.0f + 6.0f / std::max(1.0f, n * g.tileX);
+        auto rimPt = [&](float gx, float gy)
+        {
+            Vector2 p = g.Iso(gx, gy, L, 0.0f);
+            return Vector2{ C.x + (p.x - C.x) * k, C.y + (p.y - C.y) * k };
+        };
+        Vector2 top = rimPt(0.0f, 0.0f);
+        Vector2 right = rimPt(n, 0.0f);
+        Vector2 bot = rimPt(n, n);
+        Vector2 left = rimPt(0.0f, n);
         Color rim = Fade({244, 198, 106, 255}, a);
         DrawLineEx(top, right, 1.5f, rim); DrawLineEx(right, bot, 1.5f, rim);
         DrawLineEx(bot, left, 1.5f, rim);  DrawLineEx(left, top, 1.5f, rim);

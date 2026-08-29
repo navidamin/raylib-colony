@@ -38,13 +38,24 @@ const VIEWPORTS = [
     { name: 'tablet',          width: 1024, height: 768, dpr: 2 },
 ];
 
-// Desktop viewports for the CSS-size check below. The canvas is scaled UP
-// here, which is the case that goes wrong: a collapse to the natural 1280
-// cancels the pointer division instead of merely shifting it.
+// Desktop viewports for the CSS-size check below. Upscales are INTEGER-ONLY
+// (a fractional upscale of the fixed 1280x720 buffer renders visibly soft --
+// Firefox on Windows at 1920x1200 was the report), so the first two sit at
+// native 1280 and the 4K case exercises the 2x step. The stripped-style
+// check still matters at every size: a collapse to the natural 1280 cancels
+// the pointer division instead of merely shifting it.
 const DESKTOP_VIEWPORTS = [
     { name: 'desktop-1920',  width: 1920, height: 919 },
     { name: 'desktop-1680',  width: 1680, height: 1050 },
+    { name: 'desktop-4k',    width: 3840, height: 2010 },
 ];
+
+// The shell's fit law: continuous downscale, whole-step upscale.
+function fitScale(vw, vh) {
+    let scale = Math.min(vw / GAME_W, vh / GAME_H);
+    if (scale > 1.0) scale = Math.max(1.0, Math.floor(scale));
+    return scale;
+}
 
 // Stands in for the Emscripten/raylib runtime, behaving as badly as the real
 // one did on iOS: repaints constantly, and repeatedly mirrors the CSS size
@@ -173,7 +184,7 @@ async function main() {
             return Math.round(c.getBoundingClientRect().width);
         });
 
-        const wantFit = Math.floor(GAME_W * Math.min(vp.width / GAME_W, vp.height / GAME_H));
+        const wantFit = Math.floor(GAME_W * fitScale(vp.width, vp.height));
         const ok = Math.abs(measured - wantFit) <= 2;
         if (!ok) failures++;
 
