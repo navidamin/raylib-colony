@@ -2077,6 +2077,47 @@ static SurveyViewport LadderViewport(int screenW, int screenH)
     return viewport;
 }
 
+// The same viewport after zooming in by zoomK about a camera centred
+// camXKm east / camYKm north of the window centre.
+//
+// Everything that maps between screen and ground goes through the
+// viewport, so scaling and shifting it is all continuous zoom needs --
+// the cursor, its readout and its snapping keep working untouched.
+// pixels-per-km scales with zoomK; the origin shifts so the ground under
+// the camera lands on the screen centre.
+static SurveyViewport LadderViewportZoomed(int screenW, int screenH,
+                                           float zoomK, double camXKm,
+                                           double camYKm, double windowSpanKm)
+{
+    SurveyViewport v;
+    v.width = (float)screenH * zoomK;
+    v.height = (float)screenH * zoomK;
+    if (windowSpanKm <= 0.0) { v.x = 0.0f; v.y = 0.0f; return v; }
+
+    float pxPerKm = v.height / (float)windowSpanKm;
+    // SurveyOffsetKmToScreen puts north at smaller y, hence the signs.
+    float centreX = screenW * 0.5f - (float)camXKm * pxPerKm;
+    float centreY = screenH * 0.5f + (float)camYKm * pxPerKm;
+    v.x = centreX - v.width * 0.5f;
+    v.y = centreY - v.height * 0.5f;
+    return v;
+}
+
+// How far the camera has travelled toward the cursor at a given zoom.
+//
+// The same law the descent flight uses: a point sits on screen at
+// (P - centre) * zoom, so panning the centre on a clock while the zoom
+// climbs exponentially makes the destination swing outward before it
+// arrives. Driving the centre from the zoom instead keeps the approach
+// straight. 0 at zoomK = 1, 1 at zoomK = ratio.
+static float ZoomApproach(float zoomK, float ratio)
+{
+    if (ratio <= 1.0f || zoomK <= 1.0f) return 0.0f;
+    float e = std::log(zoomK) / std::log(ratio);
+    if (e > 1.0f) e = 1.0f;
+    return 1.0f - (1.0f - e) / zoomK;
+}
+
 static void DrawSurveyCursorNav(const SurveyCursor& cursor,
                                 const SurveyViewport& viewport,
                                 int screenW, int screenH)
@@ -2447,6 +2488,18 @@ struct AppState
     bool havePointer = false;        // a settled pointer exists to click with
     bool touchStyle = false;         // a jumped click was seen -> tapping
 
+    // Continuous zoom below the playfield.
+    //
+    // The ladder's rungs are where terrain windows get BUILT, not where
+    // the player has to stop. zoomK is how far in the camera has pushed
+    // past the current rung's window, 1 up to the ratio to the next rung;
+    // reaching that ratio swaps rungs and resets it, so scrolling down
+    // from the playfield to the build footprint is one motion instead of
+    // a sequence of clicks. The cursor keeps the ladder's own footprint
+    // at every rung, so it never leaves the 15-30% band.
+    float zoomK = 1.0f;
+    double camXKm = 0.0, camYKm = 0.0;   // camera centre within the window
+
     // Cached terrain frame.
     //
     // Site mode offers no sun, style or tilt control, so between level
@@ -2463,6 +2516,7 @@ struct AppState
     int cacheStage = -1;
     int cacheStyle = -1;
     float cacheZoom = 0.0f;
+    double cacheCamX = 0.0, cacheCamY = 0.0;
 };
 
 // Draw the shaded ground, reusing the last frame's pixels when nothing
@@ -2497,7 +2551,9 @@ static void RefreshSceneCache(AppState& app, const MapOptions& options,
               || app.cacheLevel != app.siteLevel
               || app.cacheStage != app.sceneStage
               || app.cacheStyle != app.styleMode
-              || app.cacheZoom != sceneZoom;
+              || app.cacheZoom != sceneZoom
+              || app.cacheCamX != app.camXKm
+              || app.cacheCamY != app.camYKm;
 
     if (stale)
     {
@@ -2509,6 +2565,8 @@ static void RefreshSceneCache(AppState& app, const MapOptions& options,
         app.cacheStage = app.sceneStage;
         app.cacheStyle = app.styleMode;
         app.cacheZoom = sceneZoom;
+        app.cacheCamX = app.camXKm;
+        app.cacheCamY = app.camYKm;
     }
 }
 
@@ -2814,6 +2872,36 @@ static void UpdateSiteSelect(AppState& app)
     SurveyViewport viewport = LadderViewport(screenW, screenH);
     float discZoom = DiscFitZoom(screenW, screenH);
 
+    // ---------- continuous zoom below the playfield ----------
+    //
+    // Ratio to the next rung: how much zoom turns this window into the
+    // one below it. The last rung has nowhere to go, so it holds at 1
+    // and stays a placement step rather than a descent.
+    const SurveyLevelDef* ladder = GetSurveyLadder();
+    float rungRatio = 1.0f;
+    if (app.siteLevel > 0 && app.siteLevel < SITE_LEVELS - 1)
+    {
+        rungRatio = (float)(ladder[app.siteLevel].windowSpanKm
+                            / ladder[app.siteLevel + 1].windowSpanKm);
+    }
+    bool zoomable = (app.siteLevel > 0) && (rungRatio > 1.0f)
+                    && !app.transActive && !app.founded;
+    float wheel = zoomable ? GetMouseWheelMove() : 0.0f;
+    if (wheel != 0.0f)
+    {
+        app.zoomK *= std::pow(1.25f, wheel);
+        if (app.zoomK < 1.0f) app.zoomK = 1.0f;
+    }
+    // The viewport for THIS frame uses last frame's camera, which breaks
+    // the circle between "where the cursor is" and "where the camera is
+    // looking". One frame of lag, invisible at 60 Hz.
+    if (app.siteLevel > 0 && app.zoomK > 1.0f)
+    {
+        viewport = LadderViewportZoomed(screenW, screenH, app.zoomK,
+                                        app.camXKm, app.camYKm,
+                                        ladder[app.siteLevel].windowSpanKm);
+    }
+
     // A touch screen has no hover: the finger arrives and clicks in the
     // same frame, which would claim whatever it landed on before the
     // player ever saw the card. So a click only counts once the pointer
@@ -2848,6 +2936,9 @@ static void UpdateSiteSelect(AppState& app)
             app.siteLevel++;
         }
         app.transKind = 0;
+        app.zoomK = 1.0f;
+        app.camXKm = 0.0;
+        app.camYKm = 0.0;
         app.sceneStage = 0;
         app.sceneDirty = true;
         return;
@@ -2888,6 +2979,13 @@ static void UpdateSiteSelect(AppState& app)
         SurveyCursorTrack(c, viewport, m.x, m.y);
         SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
         onGround = true;
+
+        // Fly the camera at the cursor as the zoom deepens, so the ground
+        // being aimed at is the ground that fills the screen when the
+        // next rung takes over.
+        float approach = ZoomApproach(app.zoomK, rungRatio);
+        app.camXKm = c->offsetXKm * approach;
+        app.camYKm = c->offsetYKm * approach;
     }
 
     // The card is fixed from the claim; before claiming it previews.
@@ -2935,8 +3033,17 @@ static void UpdateSiteSelect(AppState& app)
     }
 
     // ---------- draw ----------
-    float sceneZoom = (app.siteLevel == 0) ? discZoom : app.sceneAspect;
+    float sceneZoom = (app.siteLevel == 0) ? discZoom
+                                           : app.sceneAspect * app.zoomK;
     Camera3D camera = TopDownCamera(app.scene, sceneZoom);
+    if (app.siteLevel > 0 && app.zoomK > 1.0f)
+    {
+        float sc = app.scene.worldScale;
+        Vector3 tgt = { (float)(app.camXKm * sc), 0.0f,
+                        (float)(-app.camYKm * sc) };
+        camera.position = Vector3{ tgt.x, camera.position.y, tgt.z };
+        camera.target = tgt;
+    }
     // Render-to-texture must not nest inside BeginDrawing, so the cache
     // is brought up to date first. The headless step harness runs the
     // same path, so what it exports is what the playtest draws -- all
@@ -3087,11 +3194,49 @@ static void UpdateSiteSelect(AppState& app)
         }
     }
 
+    // ---------- continuous zoom crossing a rung ----------
+    //
+    // The zoom has reached the window of the rung below, so that rung
+    // takes over: same ground, same framing, but built at its own
+    // resolution and carrying its own cursor. No click, no flight -- the
+    // picture the player is already looking at simply becomes the next
+    // level. Scrolling back out below 1x hands it back the same way.
+    if (zoomable && app.zoomK >= rungRatio)
+    {
+        SurveyCursor* c = SurveyCurrent(&app.descent);
+        SurveyCursorTrack(c, viewport, m.x, m.y);
+        SurveyDescend(&app.descent);
+        app.siteLevel++;
+        app.zoomK = 1.0f;
+        app.camXKm = 0.0;
+        app.camYKm = 0.0;
+        app.sceneStage = 0;
+        app.sceneDirty = true;
+        return;
+    }
+    if (app.siteLevel > 1 && app.zoomK <= 1.0f && wheel < 0.0f
+        && !app.transActive && !app.founded)
+    {
+        if (SurveyAscend(&app.descent))
+        {
+            app.siteLevel--;
+            float back = (float)(ladder[app.siteLevel].windowSpanKm
+                                 / ladder[app.siteLevel + 1].windowSpanKm);
+            app.zoomK = std::max(1.0f, back * 0.98f);   // just inside the rung
+            app.camXKm = 0.0;
+            app.camYKm = 0.0;
+            app.sceneStage = 0;
+            app.sceneDirty = true;
+        }
+        return;
+    }
+
     // ---------- transitions ----------
     if (app.founded)
     {
         if (ascend) { app.founded = false; app.claimed = false;
                       app.siteLevel = 0; app.sceneStage = 0;
+                      app.zoomK = 1.0f; app.camXKm = 0.0; app.camYKm = 0.0;
                       app.sceneDirty = true; }
         return;
     }
@@ -3102,6 +3247,9 @@ static void UpdateSiteSelect(AppState& app)
             if (!SurveyAscend(&app.descent)) { }
             app.siteLevel--;
             if (app.siteLevel == 0) app.claimed = false;
+            app.zoomK = 1.0f;
+            app.camXKm = 0.0;
+            app.camYKm = 0.0;
             app.sceneStage = 0;
             app.sceneDirty = true;
         }
