@@ -56,16 +56,11 @@ float SiteView::GetTargetYield(const ProspectingGrid& grid,
                                int x, int y, DepthLayer depth,
                                ResourceType target) const
 {
-    // Absolute deposit amount at this spot and depth.
+    // Absolute deposit amount at this spot and depth, times the composition
+    // fraction. By-reference lookup -- the by-value GetGroundTruth copy was
+    // a heap allocation on a call the panel makes hundreds of times a frame.
     float quantity = grid.GetQuantity(x, y, depth);
-
-    // Composition fractions (0-1, sum to ~1) -- what the deposit is made of.
-    std::map<ResourceType, float> composition = grid.GetGroundTruth(x, y, depth);
-
-    auto it = composition.find(target);
-    if (it == composition.end()) return 0.0f;
-
-    return quantity * it->second;
+    return quantity * grid.GetGroundTruthFraction(x, y, depth, target);
 }
 
 SpotView SiteView::Describe(const ProspectingGrid& grid, const SampleTray& tray,

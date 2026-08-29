@@ -17,6 +17,7 @@
 #include "game_enums.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -37,6 +38,7 @@ struct PreviewOptions
     int spriteSize = 4;
     int spriteGlow = 3;
     float energy = -1.0f;   // <0 = leave the unit's default
+    int bench = 0;          // >0 = time this many frames, print ms/frame
     std::string outPath = "preview.png";
 };
 
@@ -97,6 +99,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--energy" && hasNext)
         {
             options.energy = static_cast<float>(TextToInteger(argv[++i]));
+        }
+        else if (arg == "--bench" && hasNext)
+        {
+            options.bench = TextToInteger(argv[++i]);
         }
         else if (arg == "--out" && hasNext)
         {
@@ -495,6 +501,24 @@ int main(int argc, char** argv)
             ClearBackground(BLACK);
             renderManager.DrawUnitView(&unit, timeManager);
             EndDrawing();
+        }
+
+        // Frame-cost instrument: the panel math runs on the CPU, so ms/frame
+        // here tracks what the wasm build feels like (times a wasm penalty).
+        if (options.bench > 0)
+        {
+            auto t0 = std::chrono::steady_clock::now();
+            for (int i = 0; i < options.bench; i++)
+            {
+                BeginDrawing();
+                ClearBackground(BLACK);
+                renderManager.DrawUnitView(&unit, timeManager);
+                EndDrawing();
+            }
+            double ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t0).count();
+            std::cout << "bench: " << options.bench << " frames, "
+                      << ms / options.bench << " ms/frame\n";
         }
 
         Image screenshot = LoadImageFromScreen();

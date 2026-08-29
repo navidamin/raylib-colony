@@ -26,6 +26,12 @@ public:
     // normalized here so the whole prospecting chain speaks in fractions.
     std::map<ResourceType, float> GetGroundTruth(int subX, int subY, DepthLayer depth) const;
 
+    // One fraction, by reference lookup. GetGroundTruth copies the whole map
+    // per call (a heap allocation); this is the innermost read of the
+    // estimate field and must not allocate.
+    float GetGroundTruthFraction(int subX, int subY, DepthLayer depth,
+                                 ResourceType type) const;
+
     // Absolute deposit quantity for a sub-cell layer -- how *much* is there.
     // Drives sweep signal strength and sample richness.
     float GetQuantity(int subX, int subY, DepthLayer depth) const;
@@ -112,6 +118,30 @@ float GetSubCellYield(const ProspectingGrid& grid, int x, int y,
 // -- relief is what you know, not what is there.
 float GetEstimatedYield(const ProspectingGrid& grid, int x, int y,
                         DepthLayer depth, ResourceType type);
+
+// The estimate field in bulk: the same grade and confidence numbers as the
+// scalar calls above, for EVERY cell of every layer, from one lattice pass
+// plus a short evidence list. The scalar functions rescan the whole grid per
+// call; per-cell per-frame use at 16x16 made the panel O(N^4) -- measured
+// 55 ms/frame in the preview bench. Anything reading the whole field (the
+// block model, the class split) must build one of these instead.
+struct EstimateField
+{
+    int size = 0;
+    std::vector<float> grade;        // [depth][y][x], flattened
+    std::vector<float> confidence;   // same layout
+
+    float GradeAt(int x, int y, int d) const
+    {
+        return grade[(static_cast<size_t>(d) * size + y) * size + x];
+    }
+    float ConfidenceAt(int x, int y, int d) const
+    {
+        return confidence[(static_cast<size_t>(d) * size + y) * size + x];
+    }
+};
+
+EstimateField BuildEstimateField(const ProspectingGrid& grid, ResourceType type);
 
 // Tonnage of one resource split by how well it is known. Summed over every
 // sub-cell within reach at `tier`, across every depth that tier can see.

@@ -39,6 +39,17 @@ std::map<ResourceType, float> ProspectingGrid::GetGroundTruth(int subX, int subY
     return subCellResources[d][subY][subX];
 }
 
+float ProspectingGrid::GetGroundTruthFraction(int subX, int subY, DepthLayer depth,
+                                              ResourceType type) const
+{
+    int d = static_cast<int>(depth);
+    if (d < 0 || d > 3) return 0.0f;
+    if (subY < 0 || subY >= gridSize || subX < 0 || subX >= gridSize) return 0.0f;
+    const auto& composition = subCellResources[d][subY][subX];
+    auto it = composition.find(type);
+    return (it == composition.end()) ? 0.0f : it->second;
+}
+
 bool ProspectingGrid::IsInReach(int subX, int subY) const
 {
     // UNGATED. Prospecting's reach ring was the same species of wall the
@@ -451,11 +462,7 @@ float GetSubCellYield(const ProspectingGrid& grid, int x, int y,
     float quantity = grid.GetQuantity(x, y, depth);
     if (quantity <= 0.0f) return 0.0f;
 
-    std::map<ResourceType, float> composition = grid.GetGroundTruth(x, y, depth);
-    auto it = composition.find(type);
-    if (it == composition.end()) return 0.0f;
-
-    return quantity * it->second;
+    return quantity * grid.GetGroundTruthFraction(x, y, depth, type);
 }
 
 // =======================================================================
@@ -553,6 +560,135 @@ float GetEstimatedYield(const ProspectingGrid& grid, int x, int y,
     return prior + (gSum / wSum - prior) * support;
 }
 
+EstimateField BuildEstimateField(const ProspectingGrid& grid, ResourceType type)
+{
+    EstimateField f;
+    int size = grid.GetGridSize();
+    f.size = size;
+    size_t cells = static_cast<size_t>(size) * size * 4;
+    f.grade.assign(cells, 0.0f);
+    f.confidence.assign(cells, 0.0f);
+
+    // Every point's true yield, once. The scalar path recomputes these N^2
+    // times per queried cell just for the layer-mean prior.
+    std::vector<float> yields(cells, 0.0f);
+    float layerMean[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    for (int d = 0; d < 4; d++)
+    {
+        for (int py = 0; py < size; py++)
+            for (int px = 0; px < size; px++)
+            {
+                float v = GetSubCellYield(grid, px, py,
+                                          static_cast<DepthLayer>(d), type);
+                yields[(static_cast<size_t>(d) * size + py) * size + px] = v;
+                layerMean[d] += v;
+            }
+        layerMean[d] /= static_cast<float>(size * size);
+    }
+
+    // The evidence list, in the exact (cy, cx, cd) scan order the scalar
+    // functions use, so the IDW sums land on the same floating-point totals.
+    struct Evidence { int x, y, d; bool isCore, isDug; float yield; };
+    std::vector<Evidence> pts;
+    for (int cy = 0; cy < size; cy++)
+        for (int cx = 0; cx < size; cx++)
+        {
+            const SubCell& c = grid.GetSubCell(cx, cy);
+            for (int cd = 0; cd < 4; cd++)
+            {
+                bool isCore = c.cored[cd];
+                bool isDug  = c.workedFraction[cd] > 0.0f;
+                if (!isCore && !isDug) continue;
+                pts.push_back({cx, cy, cd, isCore, isDug,
+                               yields[(static_cast<size_t>(cd) * size + cy) * size + cx]});
+            }
+        }
+
+    for (int d = 0; d < 4; d++)
+    {
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                size_t idx = (static_cast<size_t>(d) * size + y) * size + x;
+                const SubCell& self = grid.GetSubCell(x, y);
+
+                // Direct observation is not an estimate.
+                if (self.cored[d] || self.workedFraction[d] > 0.0f)
+                {
+                    f.grade[idx] = yields[idx];
+                    f.confidence[idx] = 1.0f;
+                    continue;
+                }
+
+                float prior = layerMean[d];
+                if (d == 0 && self.hasBeenSwept)
+                    prior = layerMean[0] + (yields[idx] - layerMean[0]) * 0.6f;
+
+                float wSum = 0.0f, gSum = 0.0f;
+                float nearestCore = 1.0e9f, nearestDug = 1.0e9f;
+                for (const Evidence& p : pts)
+                {
+                    float sep = PointSeparationM(x, y, d, p.x, p.y, p.d);
+                    if (p.isCore && sep < nearestCore) nearestCore = sep;
+                    if (p.isDug  && sep < nearestDug)  nearestDug  = sep;
+                    float s = (sep < 0.5f) ? 0.5f : sep;
+                    float w = 1.0f / powf(s, ESTIMATE_IDW_POWER);
+                    wSum += w;
+                    gSum += w * p.yield;
+                }
+
+                // Grade: the prior pulled toward the data by nearest-point
+                // support (GetEstimatedYield's law, same kernels).
+                if (wSum > 0.0f)
+                {
+                    float rc = nearestCore / ESTIMATE_RANGE_M;
+                    float rd = nearestDug / EXCAVATION_SUPPORT_RANGE_M;
+                    float support = std::max(expf(-rc * rc), expf(-rd * rd));
+                    f.grade[idx] = prior + (gSum / wSum - prior) * support;
+                }
+                else
+                {
+                    f.grade[idx] = prior;
+                }
+
+                // Confidence: nearest kernels plus the LIBS surface term,
+                // combined as independent evidence (GetDepthConfidence's law).
+                float coreSupport = 0.0f;
+                if (nearestCore < 1.0e8f)
+                {
+                    float r = nearestCore / ESTIMATE_RANGE_M;
+                    coreSupport = expf(-r * r);
+                }
+                if (nearestDug < 1.0e8f)
+                {
+                    float r = nearestDug / EXCAVATION_SUPPORT_RANGE_M;
+                    coreSupport = std::max(coreSupport, expf(-r * r));
+                }
+                float sweepConfidence = 0.0f;
+                if (self.hasBeenSwept && self.sweepFrequencyBand >= 0)
+                {
+                    int band = self.sweepFrequencyBand;
+                    if (band > SWEEP_FREQUENCY_BANDS - 1) band = SWEEP_FREQUENCY_BANDS - 1;
+                    if (d < SWEEP_DEPTH_PENETRATION[band])
+                    {
+                        float attenuation = 1.0f / (1.0f + d * SWEEP_DEPTH_ATTENUATION);
+                        sweepConfidence = self.aggregateConfidence * attenuation *
+                                          PROSPECT_SWEEP_CONFIDENCE_WEIGHT;
+                        sweepConfidence = std::min(sweepConfidence,
+                                                   PROSPECT_SWEEP_CONFIDENCE_CAP);
+                    }
+                }
+                float combined = 1.0f - (1.0f - sweepConfidence) * (1.0f - coreSupport);
+                if (combined < 0.0f) combined = 0.0f;
+                if (combined > 1.0f) combined = 1.0f;
+                f.confidence[idx] = combined;
+            }
+        }
+    }
+    return f;
+}
+
 float ClassSplit::Total() const
 {
     return measured + indicated + inferred + unclassified;
@@ -582,9 +718,15 @@ ClassSplit GetClassSplit(const ProspectingGrid& grid, const SampleTray& tray,
     // how well each block is known, which the class already expresses. The
     // tier parameter is kept for the call sites and ignored.
     (void)tier;
+    (void)tray;   // knowledge lives on the grid; signature kept for call sites
 
     ClassSplit split;
     int size = grid.GetGridSize();
+
+    // A statement is built from the ESTIMATE, not from ground truth --
+    // tonnage you have not measured is a belief. Built in bulk: the scalar
+    // per-cell calls made this O(N^4), and the panel reads it every frame.
+    EstimateField field = BuildEstimateField(grid, type);
 
     for (int y = 0; y < size; y++)
     {
@@ -592,16 +734,10 @@ ClassSplit GetClassSplit(const ProspectingGrid& grid, const SampleTray& tray,
         {
             for (int d = 0; d < 4; d++)
             {
-                DepthLayer depth = static_cast<DepthLayer>(d);
-
-                // A statement is built from the ESTIMATE, not from ground
-                // truth -- tonnage you have not measured is a belief.
-                float yield = GetEstimatedYield(grid, x, y, depth, type);
+                float yield = field.GradeAt(x, y, d);
                 if (yield <= 0.0f) continue;
 
-                float confidence = GetDepthConfidence(grid, tray, x, y, depth);
-
-                switch (GetResourceClass(confidence))
+                switch (GetResourceClass(field.ConfidenceAt(x, y, d)))
                 {
                     case ResourceClass::MEASURED:  split.measured     += yield; break;
                     case ResourceClass::INDICATED: split.indicated    += yield; break;

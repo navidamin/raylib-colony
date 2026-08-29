@@ -3534,22 +3534,22 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // ore, which is the whole thing the relief exists to show.
     std::vector<std::vector<BlockCell>> layers(4);
     float maxGrade = 0.0001f;
+    // BELIEVED grade, never ground truth. An undrilled layer is a flat plate
+    // at the layer mean -- the relief is what you have learned, and it grows
+    // as cores go in. Drawing truth here was the review's first finding: the
+    // model was the answer key. Built as ONE field per frame: the per-cell
+    // scalar calls were O(N^4) at 16x16 and cost 55 ms/frame on their own.
+    EstimateField field = BuildEstimateField(grid, shown);
     for (int L = 0; L < 4; L++)
     {
         layers[L].resize(gridSize * gridSize);
-        DepthLayer depth = static_cast<DepthLayer>(L);
         for (int gy = 0; gy < gridSize; gy++)
         {
             for (int gx = 0; gx < gridSize; gx++)
             {
                 BlockCell& c = layers[L][gy * gridSize + gx];
-                // BELIEVED grade, never ground truth. An undrilled layer is a
-                // flat plate at the layer mean -- the relief is what you have
-                // learned, and it grows as cores go in. Drawing truth here
-                // was the review's first finding: the model was the answer key.
-                c.grade = GetEstimatedYield(grid, gx, gy, depth, shown);
-                c.cls = GetResourceClass(
-                    GetDepthConfidence(grid, ps->GetTray(), gx, gy, depth));
+                c.grade = field.GradeAt(gx, gy, L);
+                c.cls = GetResourceClass(field.ConfidenceAt(gx, gy, L));
                 maxGrade = std::max(maxGrade, c.grade);
             }
         }
@@ -4043,14 +4043,31 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     // by the truth -- otherwise the map would quietly hand over the survey the
     // player has not paid for. Normalise across reachable spots so the ramp
     // uses its full range whatever the cell's absolute richness.
+    // Bulk the per-spot inputs once per frame: estimator.Estimate redoes a
+    // full-grid cell mean and a full-grid confidence scan for EVERY spot,
+    // which at 16x16 is the same O(N^4) frame-eater the block model had.
+    // Same numbers -- EstimateAt is the engine's own caller-supplied form.
+    float exCellMean = site.GetCellMeanYield(grid, es->selectedDepth,
+                                             es->targetResource);
+    EstimateField exField = BuildEstimateField(grid, es->targetResource);
+    int exDepth = static_cast<int>(es->selectedDepth);
+    auto EstimateSpot = [&](int gx, int gy)
+    {
+        return estimator.EstimateAt(
+            site.GetTargetYield(grid, gx, gy, es->selectedDepth,
+                                es->targetResource),
+            exCellMean, exField.ConfidenceAt(gx, gy, exDepth),
+            grid.GetParentGridX(), grid.GetParentGridY(),
+            gx, gy, es->selectedDepth, es->targetResource);
+    };
+
     float bestShown = 0.0f;
     for (int gy = 0; gy < gridSize; gy++)
     {
         for (int gx = 0; gx < gridSize; gx++)
         {
             if (!site.IsInReach(gx, gy)) continue;
-            SpotEstimate e = estimator.Estimate(grid, ps->GetTray(), site, gx, gy,
-                                                es->selectedDepth, es->targetResource);
+            SpotEstimate e = EstimateSpot(gx, gy);
             if (e.shown > bestShown) bestShown = e.shown;
         }
     }
@@ -4073,8 +4090,7 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
                 continue;
             }
 
-            SpotEstimate e = estimator.Estimate(grid, ps->GetTray(), site, gx, gy,
-                                                es->selectedDepth, es->targetResource);
+            SpotEstimate e = EstimateSpot(gx, gy);
             float normalized = bestShown > 0.0f ? e.shown / bestShown : 0.0f;
 
             Color fill = ExcYieldHeatColor(normalized);

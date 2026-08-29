@@ -41,7 +41,11 @@ tools/preview/preview.sh --module sprites # crystal sprite contact sheet
 ```
 
 Key flags: `--module`, `--tab`, `--state` (`empty`/`swept`/`sampled`/`analyzed`),
-`--tier 0-3`, `--energy N` (test cost gating), `--size`, `--out`.
+`--tier 0-3`, `--energy N` (test cost gating), `--size`, `--out`, and
+`--bench N` — time N frames of the panel and print ms/frame. The panel math
+runs on the CPU, so this is the number that predicts web-build lag (the
+16x16 O(N^4) estimate-field regression read 55 ms/frame here; the wasm
+build was unplayable). Bench any panel after touching per-cell logic.
 
 The world uses a **fixed seed** (`PREVIEW_MAP_SEED`), so screenshots are
 reproducible and comparable between runs. Full docs: `tools/preview/README.md`.
