@@ -2646,10 +2646,27 @@ static bool RunDescentZoom(AppState& app, const MapOptions& options,
     // spends most of its time already deep and reads as a lurch.
     float zoom = app.transFromZoom *
                  std::pow(app.transToZoom / app.transFromZoom, e);
+
+    // The camera centre must follow the zoom, not the clock.
+    //
+    // A point sits on screen at (P - centre) * zoom. Panning the centre
+    // linearly while the zoom climbs exponentially multiplies a shrinking
+    // offset by a growing scale, and the destination swings AWAY before
+    // it returns -- out to 2.8x its starting offset on the 24x level 1->2
+    // descent, which is the arc that reads as a curved, helical approach
+    // instead of a dive.
+    //
+    // Solve for the centre that makes the destination's screen offset
+    // fall straight to zero: (P - centre) * zoom == startOffset * (1 - e),
+    // which with centre = from + (to - from) * k gives
+    //   k = 1 - (1 - e) * fromZoom / zoom.
+    // k is 0 at e=0 and 1 at e=1, so the endpoints are unchanged; only
+    // the path between them straightens.
+    float k = 1.0f - (1.0f - e) * (app.transFromZoom / zoom);
     Vector3 tgt = {
-        app.transFromTarget.x + (app.transToTarget.x - app.transFromTarget.x) * e,
+        app.transFromTarget.x + (app.transToTarget.x - app.transFromTarget.x) * k,
         0.0f,
-        app.transFromTarget.z + (app.transToTarget.z - app.transFromTarget.z) * e };
+        app.transFromTarget.z + (app.transToTarget.z - app.transFromTarget.z) * k };
 
     if (!g_fake.active) BeginDrawing();
     Camera3D camera = TopDownCamera(app.scene, zoom);
