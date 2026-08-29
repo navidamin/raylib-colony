@@ -114,15 +114,11 @@ jobs:
         done
         rm -rf _other _other_x
         true
-
-        # Prospecting playtest sandbox at /playtest/
-        mkdir -p deploy/playtest
-        cp build/src/colony_playtest.html deploy/playtest/index.html
-        cp build/src/colony_playtest.js deploy/playtest/colony_playtest.js
-        cp build/src/colony_playtest.wasm deploy/playtest/colony_playtest.wasm
-        if [ -f build/src/colony_playtest.data ]; then
-          cp build/src/colony_playtest.data deploy/playtest/colony_playtest.data
-        fi
+        # NOTE: this branch must NOT build or copy its own /playtest/ or
+        # /extraction/ -- the excavation branch owns those and the loop
+        # above carries its build. A copy block appended here once
+        # clobbered the carried /playtest/ with this branch's stale
+        # compile of it, silently serving the old module.
 
     - name: Setup Pages
       uses: actions/configure-pages@v4
@@ -131,6 +127,10 @@ jobs:
       uses: actions/upload-pages-artifact@v3
       with:
         path: deploy
+        # Long enough for the other branch's overlay to still find this
+        # artifact after a quiet spell; the default 1 day made the union
+        # decay whenever one branch stopped pushing.
+        retention-days: 30
 
   deploy:
     needs: build
