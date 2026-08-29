@@ -35,7 +35,10 @@ permissions:
 
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  # Queue, do not cancel: two branches deploy to the one Pages site, and
+  # with cancel-in-progress they killed each other's runs instead of
+  # taking turns. Mirrors the lunar-elevation branch's setting.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -123,6 +126,10 @@ jobs:
       uses: actions/upload-pages-artifact@v3
       with:
         path: deploy
+        # Long enough for the other branch's overlay to still find this
+        # artifact after a quiet spell; the default 1 day made the union
+        # decay whenever one branch stopped pushing.
+        retention-days: 30
 
   deploy:
     needs: build

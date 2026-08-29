@@ -34,6 +34,19 @@ still clobbers the others until it copies the same step. Failures are
 swallowed deliberately: a missing or expired artifact means the deploy
 ships alone, never that it fails.
 
+Two rules learned from real regressions:
+
+- **Ownership is by directory, and a branch must not build the other's.**
+  The excavation branch owns `/playtest/` and `/extraction/`; the lunar
+  branch owns `/lunarmap/` and `/viewtest/`. The overlay only fills
+  directories *missing* from the local build -- a stray copy block on the
+  lunar branch that rebuilt its own `/playtest/` (from its stale checkout
+  of the prospecting code) silently served the old module for a day, with
+  every run green.
+- **Artifacts must outlive quiet spells**: `retention-days: 30` on the
+  Pages artifact upload. The action's default 1 day meant a branch that
+  paused pushing vanished from the union as soon as its artifact expired.
+
 This is a truce, not a fix. The fix is merging the branches so everything
 ships from main.
 
