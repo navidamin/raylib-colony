@@ -30,9 +30,27 @@
 // against. Rounded to 3000 km so the 500 km cursor tiles it exactly:
 // every level's span must be a whole number of its own cursors, or the
 // snap grid leaves ground the player can see but cannot select.
-// Level 4 -> 5 hands over at TERRAIN_CELL_KM, so the ladder lands
+// The site level hands over at TERRAIN_CELL_KM, so the ladder lands
 // exactly on the game's existing 5 km sect grid.
-const int SURVEY_LEVEL_COUNT = 4;
+//
+// Three levels, not four. LOCALITY (a 25 km window with a 5 km cursor)
+// and SITE (a 5 km window with a 1.5 km cursor) used to be separate
+// rungs, which made the player click through two framings to reach one
+// decision. They are now one level: the window stays at 25 km and the
+// CURSOR refines as the view zooms in, from a snapped 5 km cell while
+// navigating down to the free 1.5 km build footprint while placing --
+// which is what the design already asked for ("the cursor snaps to the
+// 5 km cell grid while navigating and is free-moving at the placement
+// step"). SurveyFootprintForSpan does the refining; it keeps the cursor
+// inside the 15-30% band at every zoom.
+const int SURVEY_LEVEL_COUNT = 3;
+
+// The base's own footprint: the smallest the site cursor ever refines
+// to, and the size the buildable verdict is measured over.
+const double SURVEY_BUILD_FOOTPRINT_KM = 1.5;
+// Zooming inside the site level stops once the view is this wide, which
+// puts the build footprint at 30% of it -- the top of the band.
+const double SURVEY_SITE_VIEW_KM = 5.0;
 const double SURVEY_MOON_DIAMETER_KM = 3474.8;
 const double SURVEY_ORBITAL_USABLE_KM = 3000.0;
 

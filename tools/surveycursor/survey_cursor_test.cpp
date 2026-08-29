@@ -71,7 +71,7 @@ int main()
     Check(std::fabs(dx - 2.5) < 1e-6 && std::fabs(dy - 1.0) < 1e-6,
           "km offsets use the smaller viewport dimension");
 
-    // 4. Snapping: the LOCALITY level (index 2 of four: 25 km window,
+    // 4. Snapping: the SITE level (index 2 of three: 25 km window,
     //    5 km cursor) has an
     //    odd cell count, so a cell sits on the centre.
     SurveyViewport square = { 0.0f, 0.0f, 1000.0f, 1000.0f };
@@ -145,13 +145,27 @@ int main()
         Check(inside && onScreen, "cursor clamped inside the window");
     }
 
-    // 7. The site level moves freely (no snap).
-    SurveyCursor site = MakeSurveyCursor(4, 0.0, 0.0);
+    // 7. The site level carries both halves of the old LOCALITY/SITE
+    //    split. Untouched it snaps to the 5 km sect grid -- still
+    //    choosing which cell. Once the zoom has refined its footprint
+    //    toward the build size the snap is released, because the choice
+    //    has become where within that cell the base sits.
+    //    1000 px over the 25 km window is 40 px/km, so 37 px is 0.925 km:
+    //    inside the centre cell when snapped, and its own offset when not.
+    SurveyCursor site = MakeSurveyCursor(SURVEY_LEVEL_COUNT - 1, 0.0, 0.0);
+    Check(site.snapToGrid && std::fabs(site.footprintKm - 5.0) < 1e-9,
+          "site level starts as a snapped 5 km cell");
     SurveyCursorTrack(&site, square, 500.0f + 37.0f, 500.0f);
-    Check(std::fabs(site.offsetXKm - 37.0 / 200.0) < 1e-6, "site level is free-moving");
+    Check(std::fabs(site.offsetXKm) < 1e-9, "site level snaps while navigating");
+
+    site.footprintKm = SURVEY_BUILD_FOOTPRINT_KM;
+    site.snapToGrid = false;                    // what the zoom does
+    SurveyCursorTrack(&site, square, 500.0f + 37.0f, 500.0f);
+    Check(std::fabs(site.offsetXKm - 37.0 / 40.0) < 1e-6,
+          "site level is free once refined to the build footprint");
 
     // 8. Cursor centre -> lat/lon, and back through the child window.
-    SurveyCursor c3 = MakeSurveyCursor(3, 32.8, -15.6);
+    SurveyCursor c3 = MakeSurveyCursor(SURVEY_LEVEL_COUNT - 1, 32.8, -15.6);
     c3.offsetXKm = 5.0;
     c3.offsetYKm = -5.0;
     double lat = 0.0, lon = 0.0;
@@ -162,7 +176,7 @@ int main()
           "cursor centre -> real lat/lon");
 
     // 8b. ...and straight back out again.
-    SurveyCursor c3b = MakeSurveyCursor(3, 32.8, -15.6);
+    SurveyCursor c3b = MakeSurveyCursor(SURVEY_LEVEL_COUNT - 1, 32.8, -15.6);
     double bx = 0.0, by = 0.0;
     SurveyLatLonToOffsetKm(c3b, lat, lon, &bx, &by);
     Check(std::fabs(bx - 5.0) < 1e-9 && std::fabs(by + 5.0) < 1e-9,

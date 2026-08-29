@@ -17,20 +17,26 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
 {
     // name          window span                  footprint  snap
     //
-    // Four levels, matching the master design's disc -> 100 -> 25 -> 5.
-    // A 500 km "REGIONAL" rung used to sit between the disc and the
-    // 100 km playfield; it was in the code but never in the design, it
-    // answered no question of its own (the region card freezes at level
-    // 1 and never refines, so there was no new mix to read at 500 km),
-    // and it matched no view the game itself has -- PLANET is 100 km,
-    // COLONY 25, SECT 5. The disc now frames the playfield directly.
+    // Three levels: disc -> 100 -> 25. Two rungs were dropped from the
+    // original five, each for the same reason -- it answered no question
+    // of its own. The 500 km "REGIONAL" rung went first (the region card
+    // freezes at level 1, so there was no new mix to read at 500 km).
+    // LOCALITY went next: a 25 km window choosing a 5 km cell, followed
+    // by a 5 km window placing inside it, is one decision wearing two
+    // framings. The site level now spans both -- the window holds at
+    // 25 km while the cursor refines from the 5 km cell to the 1.5 km
+    // footprint, so the player zooms once instead of clicking twice.
+    //
+    // Every rung's footprint is the next rung's window, which is what
+    // makes the descent register: the rectangle you aim with becomes the
+    // view you land in.
     { "ORBITAL",     SURVEY_ORBITAL_USABLE_KM,    100.0,     true  },
     { "DISTRICT",    100.0,                        25.0,     true  },
-    { "LOCALITY",     25.0,                         5.0,     true  },
-    // The site level is where a physical object is being placed, not a
-    // region chosen: free-moving, and a wider cursor because the choice
-    // is now "where within this cell", not "which cell".
-    { "SITE",          5.0,                         1.5,     false },
+    // Snapped to the 5 km sect grid as it stands -- the game's own cell
+    // size. Zooming refines the footprint below that and releases the
+    // snap, because the last choice is "where within this cell", not
+    // "which cell".
+    { "SITE",         25.0,                         5.0,     true  },
 };
 
 double SnapOffset(double offsetKm, double spanKm, double footprintKm)

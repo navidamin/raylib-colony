@@ -145,19 +145,28 @@ static const DemoSite DEMO_SITES[] =
 };
 static const int DEMO_SITE_COUNT = (int)(sizeof(DEMO_SITES) / sizeof(DEMO_SITES[0]));
 
-// The five questions, one per level (docs/design/site-selection SS2).
-// Four levels. "WHICH CELL?" went with the 500 km rung: with the disc
-// framing the playfield directly, choosing the 5 km cell and reading the
-// ground it offers are the same move, and that move is the last one.
-static const int SITE_LEVELS = 4;
+// One question per level (docs/design/site-selection SS2).
+//
+// Three levels, and the count comes from the ladder rather than being
+// declared here -- this constant was a private 4 that outlived two
+// ladder cuts, so the HUD went on promising levels the descent no
+// longer had. Keep it derived.
+//
+// "WHICH CELL?" went with the 500 km rung. "WHICH NEIGHBOURHOOD?" went
+// with LOCALITY: picking the 5 km cell and judging the ground inside it
+// are one move, made by refining the cursor rather than by descending
+// again.
+static const int SITE_LEVELS = SURVEY_LEVEL_COUNT;
 static const char* LEVEL_QUESTION[SITE_LEVELS] =
 {
-    "WHICH ECONOMY?", "WHICH MIX?", "WHICH NEIGHBOURHOOD?", "WHICH GROUND?"
+    "WHICH ECONOMY?", "WHICH MIX?", "WHICH GROUND?"
 };
 static const char* LEVEL_FILE[SITE_LEVELS] =
 {
-    "L1_ECONOMY", "L2_MIX", "L3_NEIGHBOURHOOD", "L4_GROUND"
+    "L1_ECONOMY", "L2_MIX", "L3_GROUND"
 };
+static_assert(SITE_LEVELS == SURVEY_LEVEL_COUNT,
+              "the HUD's level count must track the survey ladder");
 
 
 struct MapOptions
@@ -2884,6 +2893,16 @@ static void UpdateSiteSelect(AppState& app)
         rungRatio = (float)(ladder[app.siteLevel].windowSpanKm
                             / ladder[app.siteLevel + 1].windowSpanKm);
     }
+    // The last rung has nowhere below it, so its zoom refines the cursor
+    // instead of handing over: the window holds at 25 km while the
+    // rectangle shrinks from the 5 km cell to the 1.5 km build
+    // footprint. That is the whole of what used to be two levels.
+    bool siteRung = (app.siteLevel == SITE_LEVELS - 1);
+    if (siteRung)
+    {
+        rungRatio = (float)(ladder[app.siteLevel].windowSpanKm
+                            / SURVEY_SITE_VIEW_KM);
+    }
     bool zoomable = (app.siteLevel > 0) && (rungRatio > 1.0f)
                     && !app.transActive && !app.founded;
     float wheel = zoomable ? GetMouseWheelMove() : 0.0f;
@@ -2891,6 +2910,9 @@ static void UpdateSiteSelect(AppState& app)
     {
         app.zoomK *= std::pow(1.25f, wheel);
         if (app.zoomK < 1.0f) app.zoomK = 1.0f;
+        // The site rung refines rather than descends, so it stops where
+        // the build footprint fills 30% of the view.
+        if (siteRung && app.zoomK > rungRatio) app.zoomK = rungRatio;
     }
     // The viewport for THIS frame uses last frame's camera, which breaks
     // the circle between "where the cursor is" and "where the camera is
@@ -2980,6 +3002,24 @@ static void UpdateSiteSelect(AppState& app)
         SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
         onGround = true;
 
+        // On the site rung the rectangle itself refines: the visible
+        // span shrinks with the zoom, and SurveyFootprintForSpan keeps
+        // the cursor inside the 15-30% band the whole way down. The snap
+        // is released as soon as it is smaller than a sect cell, because
+        // by then the question is where within the cell, not which cell.
+        if (siteRung)
+        {
+            double visibleKm = c->windowSpanKm / app.zoomK;
+            double fp = SurveyFootprintForSpan(visibleKm);
+            if (fp < SURVEY_BUILD_FOOTPRINT_KM) fp = SURVEY_BUILD_FOOTPRINT_KM;
+            if (fp > ladder[app.siteLevel].footprintKm)
+                fp = ladder[app.siteLevel].footprintKm;
+            c->footprintKm = fp;
+            c->snapToGrid = (fp >= ladder[app.siteLevel].footprintKm - 1e-9);
+            SurveyCursorTrack(c, viewport, m.x, m.y);
+            SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
+        }
+
         // Fly the camera at the cursor as the zoom deepens, so the ground
         // being aimed at is the ground that fills the screen when the
         // next rung takes over.
@@ -3045,13 +3085,21 @@ static void UpdateSiteSelect(AppState& app)
         camera.target = tgt;
     }
     // Render-to-texture must not nest inside BeginDrawing, so the cache
-    // is brought up to date first. The headless step harness runs the
-    // same path, so what it exports is what the playtest draws -- all
-    // ten --siteshot frames are byte-identical to the direct render.
-    RefreshSceneCache(app, options, camera, sceneZoom, screenW, screenH);
+    // is brought up to date first.
+    //
+    // The step harness must NOT go through the cache: it already runs
+    // this whole function inside BeginTextureMode, and raylib's
+    // EndTextureMode pops to the default framebuffer rather than back to
+    // the caller's target, so refreshing a cache texture inside it
+    // silently redirects everything drawn afterwards and exports a black
+    // frame. It renders straight instead -- the cache is a pass-through,
+    // so what it exports is still what the playtest draws.
+    if (!g_fake.active)
+        RefreshSceneCache(app, options, camera, sceneZoom, screenW, screenH);
 
     if (!g_fake.active) BeginDrawing();
-    BlitSceneCache(app);
+    if (g_fake.active) DrawScene(app.scene, options, app.styleMode, camera);
+    else               BlitSceneCache(app);
 
     if (app.siteLevel == 0)
     {
@@ -3140,10 +3188,23 @@ static void UpdateSiteSelect(AppState& app)
                 : (narrow ? "Click a region to claim it."
                           : "Move over the moon - the region under the cursor names itself.  Click to claim it.");
         else if (app.siteLevel == SITE_LEVELS - 1)
-            msg = verdict.allowed
-                ? (narrow ? "Found the colony here." : "Click to found the colony here.  Esc to back out.")
-                : (narrow ? "Refused - move to better ground."
-                          : "Red: this ground is refused. Move to better ground.  Esc to back out.");
+        {
+            // The site level spans navigating and placing, so the prompt
+            // has to say which one is happening. A click on a 5 km cell
+            // closes in; only the refined footprint founds anything.
+            const SurveyCursor* pc = SurveyCurrent(&app.descent);
+            bool placing = pc->footprintKm <= SURVEY_BUILD_FOOTPRINT_KM * 1.05;
+            if (!placing)
+                msg = narrow
+                    ? "Scroll to close in on the ground."
+                    : "Scroll to close in - the cursor refines to the base footprint.  Esc to back out.";
+            else if (verdict.allowed)
+                msg = narrow ? "Found the colony here."
+                             : "Click to found the colony here.  Esc to back out.";
+            else
+                msg = narrow ? "Refused - move to better ground."
+                             : "Red: this ground is refused. Move to better ground.  Esc to back out.";
+        }
         else
             msg = app.touchStyle
                 ? (narrow ? "Tap to aim, tap again to descend."
@@ -3201,7 +3262,7 @@ static void UpdateSiteSelect(AppState& app)
     // resolution and carrying its own cursor. No click, no flight -- the
     // picture the player is already looking at simply becomes the next
     // level. Scrolling back out below 1x hands it back the same way.
-    if (zoomable && app.zoomK >= rungRatio)
+    if (zoomable && !siteRung && app.zoomK >= rungRatio)
     {
         SurveyCursor* c = SurveyCurrent(&app.descent);
         SurveyCursorTrack(c, viewport, m.x, m.y);
@@ -3288,7 +3349,15 @@ static void UpdateSiteSelect(AppState& app)
         }
         else if (app.siteLevel == SITE_LEVELS - 1)
         {
-            if (verdict.allowed) app.founded = true;
+            // A click while the cursor is still a 5 km cell means "get
+            // closer", not "build here" -- the verdict it would commit
+            // to is measured over five times the base's own footprint.
+            // Refine first, then found.
+            const SurveyCursor* c = SurveyCurrent(&app.descent);
+            bool refined = c->footprintKm
+                           <= SURVEY_BUILD_FOOTPRINT_KM * 1.05;
+            if (!refined) app.zoomK = std::min(rungRatio, app.zoomK * 1.6f);
+            else if (verdict.allowed) app.founded = true;
         }
         else
         {
