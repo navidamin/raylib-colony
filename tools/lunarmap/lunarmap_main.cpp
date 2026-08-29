@@ -2446,7 +2446,82 @@ struct AppState
     Vector2 lastPointer = { 0.0f, 0.0f };
     bool havePointer = false;        // a settled pointer exists to click with
     bool touchStyle = false;         // a jumped click was seen -> tapping
+
+    // Cached terrain frame.
+    //
+    // Site mode offers no sun, style or tilt control, so between level
+    // transitions the shaded ground is the same picture every frame --
+    // only the cursor, cards and hover chip move over it. Redrawing the
+    // 3D mesh through the lunar fragment shader 60 times a second to get
+    // an identical result is the single largest cost in the playtest.
+    // Render it once into a texture and blit that instead; the shader
+    // then runs on level changes and resizes rather than continuously.
+    RenderTexture2D sceneCache = {};
+    bool sceneCacheValid = false;
+    int cacheW = 0, cacheH = 0;      // what the cache was rendered at
+    int cacheLevel = -1;
+    int cacheStage = -1;
+    int cacheStyle = -1;
+    float cacheZoom = 0.0f;
 };
+
+// Draw the shaded ground, reusing the last frame's pixels when nothing
+// that affects them has changed. Returns having put the scene on the
+// current target either way.
+//
+// The cache is keyed on everything DrawScene reads that can vary in site
+// mode: the window that was built (sceneStage moves as the resolution
+// ladder sharpens), which ladder level is showing, the zoom, the style,
+// and the framebuffer size. A descent flight moves the camera every
+// frame and so bypasses this entirely.
+static void RefreshSceneCache(AppState& app, const MapOptions& options,
+                              const Camera3D& camera, float sceneZoom,
+                              int screenW, int screenH)
+{
+    bool sizeChanged = (screenW != app.cacheW) || (screenH != app.cacheH);
+    if (sizeChanged && app.sceneCache.id != 0)
+    {
+        UnloadRenderTexture(app.sceneCache);
+        app.sceneCache = {};
+        app.sceneCacheValid = false;
+    }
+    if (app.sceneCache.id == 0)
+    {
+        app.sceneCache = LoadRenderTexture(screenW, screenH);
+        app.cacheW = screenW;
+        app.cacheH = screenH;
+        app.sceneCacheValid = false;
+    }
+
+    bool stale = !app.sceneCacheValid
+              || app.cacheLevel != app.siteLevel
+              || app.cacheStage != app.sceneStage
+              || app.cacheStyle != app.styleMode
+              || app.cacheZoom != sceneZoom;
+
+    if (stale)
+    {
+        BeginTextureMode(app.sceneCache);
+        DrawScene(app.scene, options, app.styleMode, camera);
+        EndTextureMode();
+        app.sceneCacheValid = true;
+        app.cacheLevel = app.siteLevel;
+        app.cacheStage = app.sceneStage;
+        app.cacheStyle = app.styleMode;
+        app.cacheZoom = sceneZoom;
+    }
+}
+
+// Put the cached ground on the current target. Cheap: one textured quad
+// in place of the whole mesh-and-shader pass.
+static void BlitSceneCache(const AppState& app)
+{
+    if (app.sceneCache.id == 0) return;
+    // A render texture's rows run bottom-up, hence the negative height.
+    Rectangle src = { 0.0f, 0.0f, (float)app.sceneCache.texture.width,
+                      -(float)app.sceneCache.texture.height };
+    DrawTextureRec(app.sceneCache.texture, src, Vector2{ 0.0f, 0.0f }, WHITE);
+}
 
 // Drawn by the level-1 highlight and ladder helpers, which are defined
 // further down beside the --demo renderer and shared with it.
@@ -2860,10 +2935,16 @@ static void UpdateSiteSelect(AppState& app)
     }
 
     // ---------- draw ----------
-    if (!g_fake.active) BeginDrawing();
     float sceneZoom = (app.siteLevel == 0) ? discZoom : app.sceneAspect;
     Camera3D camera = TopDownCamera(app.scene, sceneZoom);
-    DrawScene(app.scene, options, app.styleMode, camera);
+    // Render-to-texture must not nest inside BeginDrawing, so the cache
+    // is brought up to date first. The headless step harness runs the
+    // same path, so what it exports is what the playtest draws -- all
+    // ten --siteshot frames are byte-identical to the direct render.
+    RefreshSceneCache(app, options, camera, sceneZoom, screenW, screenH);
+
+    if (!g_fake.active) BeginDrawing();
+    BlitSceneCache(app);
 
     if (app.siteLevel == 0)
     {
