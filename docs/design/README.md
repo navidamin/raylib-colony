@@ -50,7 +50,8 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 | Beneficiation | — | Future |
 | Operations | — | Future |
 | Directives | — | Future |
-| Farming | — | Future |
+| Farming | `farming/` | Maturation — concept tree growing on `claude/farming-unit-design-4rz536` |
+| Biomining | `biomining/` | Parked seed — farming × extraction crossover |
 | Energy | — | Future |
 | Manufacturing | — | Future |
 

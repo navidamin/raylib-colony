@@ -425,5 +425,6 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
 | Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
+| Farming | `docs/design/farming/README.md` | Working on `ProcessFarming` / `InitializeFarmingModules` in `unit.cpp`, farming entries in `game_types.toml`, or farming module panels. Design is in branch-maturation: navigate the concept tree by node code |
 
 See `docs/design/README.md` for the full planning method explanation.

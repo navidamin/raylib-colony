@@ -1,0 +1,314 @@
+<title>Farming Maturation Tree</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Exo+2:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#f3f5f2; --panel:#ffffff; --panel2:#eaeeea; --line:#d3dad2;
+    --ink:#20282e; --muted:#5c6a70; --accent:#3e7d3a; --code-bg:#e6ebe5;
+    --hA:#33698f; --hB:#3d7d39; --hC:#9a7420; --hD:#6f56a8; --hE:#a84f57; --hF:#1f7d68; --hG:#a86a2a;
+    color-scheme:light dark;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f151d; --panel:#171f2a; --panel2:#111823; --line:#26303d;
+      --ink:#dde6ee; --muted:#8b99a7; --accent:#7ec97a; --code-bg:#0d1219;
+      --hA:#6fb1e0; --hB:#7ec97a; --hC:#e0b35a; --hD:#a58ce0; --hE:#e08a92; --hF:#5fc9b0; --hG:#e09a5a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f151d; --panel:#171f2a; --panel2:#111823; --line:#26303d;
+    --ink:#dde6ee; --muted:#8b99a7; --accent:#7ec97a; --code-bg:#0d1219;
+    --hA:#6fb1e0; --hB:#7ec97a; --hC:#e0b35a; --hD:#a58ce0; --hE:#e08a92; --hF:#5fc9b0; --hG:#e09a5a;
+  }
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink); margin:0;
+    font:400 15px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  .wrap{max-width:1560px; margin:0 auto; padding:36px 32px 48px; display:flex; flex-direction:column; gap:22px}
+  header{display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:16px}
+  .eyebrow{
+    font:500 12px/1.4 "IBM Plex Mono",ui-monospace,monospace; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 6px;
+  }
+  .eyebrow b{color:var(--accent); font-weight:500}
+  h1{
+    font:700 34px/1.1 "Exo 2","IBM Plex Sans",system-ui,sans-serif;
+    margin:0; letter-spacing:.01em; text-wrap:balance;
+  }
+  .sub{margin:8px 0 0; color:var(--muted); max-width:62ch}
+  .sub code{font:500 13px "IBM Plex Mono",monospace; color:var(--ink)}
+  .legend{
+    display:flex; gap:14px; flex-wrap:wrap; align-items:center;
+    font:400 13px/1.4 "IBM Plex Sans",sans-serif; color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 14px;
+  }
+  .legend span b{font-weight:600; color:var(--ink); margin-right:4px}
+  .root{
+    background:linear-gradient(90deg, color-mix(in srgb, var(--accent) 14%, var(--panel)), var(--panel));
+    border:1px solid var(--line); border-left:4px solid var(--accent);
+    border-radius:10px; padding:14px 18px; display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+  }
+  .root .rcode{font:600 14px "IBM Plex Mono",monospace; color:var(--accent); letter-spacing:.06em}
+  .root p{margin:0; max-width:110ch}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(460px,1fr)); gap:18px}
+  .branch{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px 14px; display:flex; flex-direction:column; gap:10px;
+    border-top:3px solid var(--bh);
+  }
+  .bhead{display:flex; align-items:center; gap:12px}
+  .bcode{
+    font:600 17px/1 "IBM Plex Mono",monospace; color:var(--bg);
+    background:var(--bh); border-radius:7px; padding:8px 10px;
+  }
+  .bhead h2{
+    font:600 19px/1.15 "Exo 2",sans-serif; margin:0; letter-spacing:.02em;
+    color:var(--bh);
+  }
+  .bhead h2 small{font:500 14px "IBM Plex Sans",sans-serif; color:var(--ink); letter-spacing:0}
+  .bstate{margin-left:auto; font-size:15px; color:var(--muted); white-space:nowrap}
+  .nodes{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px}
+  .nodes>li{
+    display:grid; grid-template-columns:44px 18px 1fr; gap:8px; align-items:baseline;
+    padding:7px 9px; background:var(--panel2); border-radius:8px;
+  }
+  .ncode{font:500 13px "IBM Plex Mono",monospace; color:var(--bh)}
+  .st{font-size:13px; color:var(--muted); text-align:center}
+  .st.ready{color:var(--accent)}
+  .ntext b{font-weight:600}
+  .ntext{font-size:14px; line-height:1.45}
+  .subs{list-style:none; margin:6px 0 0; padding:0 0 0 2px; display:flex; flex-direction:column; gap:3px}
+  .subs li{font-size:13px; color:var(--muted); line-height:1.4}
+  .subs .ncode{font-size:12px; margin-right:6px}
+  .subs b{color:var(--ink); font-weight:500}
+  .strips{display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:18px}
+  .strip{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 18px}
+  .strip h3{
+    font:600 12px/1.3 "IBM Plex Mono",monospace; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 10px;
+  }
+  .verbs{display:flex; flex-wrap:wrap; gap:8px}
+  .verb{
+    border:1px solid var(--line); background:var(--code-bg); border-radius:999px;
+    padding:5px 12px; font:500 13px "IBM Plex Mono",monospace;
+  }
+  .verb b{color:var(--accent); font-weight:500}
+  .strip table{border-collapse:collapse; width:100%; font-size:13.5px}
+  .strip td{padding:4px 10px 4px 0; vertical-align:baseline; border-top:1px solid var(--line)}
+  .strip tr:first-child td{border-top:none}
+  .strip td:first-child{font:500 13px "IBM Plex Mono",monospace; white-space:nowrap; color:var(--accent)}
+  .qs{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px; font-size:13.5px}
+  .qs code{font:500 12.5px "IBM Plex Mono",monospace; color:var(--accent)}
+  footer{color:var(--muted); font-size:12.5px; border-top:1px solid var(--line); padding-top:12px}
+  footer code{font:500 12px "IBM Plex Mono",monospace}
+  @media (max-width:560px){ .wrap{padding:20px 14px 32px} .nodes>li{grid-template-columns:38px 16px 1fr} }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">raylib-colony · design maturation · git branch <b>claude/farming-unit-design-4rz536</b></p>
+      <h1>Farming Maturation Tree</h1>
+      <p class="sub">The navigable map of the farming-unit design space. Point at nodes by code —
+        <code>focus B2</code>, <code>graft under D3</code>, <code>mix C4 × D3</code>.
+        Canonical text lives in <code>CONCEPT_TREE.md</code>; this page is the map.</p>
+    </div>
+    <div class="legend">
+      <span><b>○</b> seed</span>
+      <span><b>●</b> maturing</span>
+      <span><b>◆</b> design-ready</span>
+      <span><b>⏸</b> parked</span>
+    </div>
+  </header>
+
+  <section class="root">
+    <span class="rcode">ROOT</span>
+    <p><b>Farming Unit</b> — turns light, water, regolith and biology into calories, oxygen and
+    morale — and pilots the <b>uniform definition of a unit</b>. Bound by the three project
+    principles: scientific coherence · multi-scale control · progressive disclosure.</p>
+  </section>
+
+  <div class="grid">
+
+    <article class="branch" style="--bh:var(--hA)">
+      <div class="bhead"><span class="bcode">A</span>
+        <h2>CHARTER <small>— the uniform unit definition</small></h2><span class="bstate">●</span></div>
+      <ul class="nodes">
+        <li><span class="ncode">A1</span><span class="st">●</span>
+          <div class="ntext"><b>Field grammar</b> — terms that survive all eight unit types
+            <ul class="subs">
+              <li><span class="ncode">A1.a</span><b>draws vs gates</b> — consumed rates vs held thresholds</li>
+              <li><span class="ncode">A1.b</span><b>stocks vs services</b> — Transport breaks naive uniformity ○</li>
+              <li><span class="ncode">A1.c</span><b>cycle</b> — duration + phases on TimeManager ticks</li>
+              <li><span class="ncode">A1.d</span><b>medium</b> — the generalized “type of planting”</li>
+              <li><span class="ncode">A1.e</span><b>couplings</b> — the “Look at” gauges as a field</li>
+            </ul>
+          </div></li>
+        <li><span class="ncode">A2</span><span class="st ready">◆</span>
+          <div class="ntext"><b>Naming decided</b> — <b>UnitDescriptor</b> { draws · gates · yields · cycle · medium · couplings } + <b>CropDescriptor</b>, on the ResourceDescriptor precedent</div></li>
+        <li><span class="ncode">A3</span><span class="st">●</span>
+          <div class="ntext"><b>Data-driven catalog</b> — “128 seeds” as CropDescriptor rows in <b>game_types.toml</b>; register sizes n∈{4,14,16,24,128} are views, not data</div></li>
+        <li><span class="ncode">A4</span><span class="st">○</span>
+          <div class="ntext"><b>Migration path</b> — farming pilots → service-yield hard cases → extraction retrofit last</div></li>
+        <li><span class="ncode">A5</span><span class="st">○</span>
+          <div class="ntext"><b>FOOD goes TYPED</b> — subtypes (grains · greens · protein · fungi) so variety, morale and the register have grip</div></li>
+      </ul>
+    </article>
+
+    <article class="branch" style="--bh:var(--hB)">
+      <div class="bhead"><span class="bcode">B</span>
+        <h2>MEDIA <small>— cultivation substrates</small></h2><span class="bstate">●</span></div>
+      <ul class="nodes">
+        <li><span class="ncode">B1</span><span class="st">●</span>
+          <div class="ntext"><b>SOIL</b> — regolith agriculture
+            <ul class="subs">
+              <li><span class="ncode">B1.a</span><b>regolith inputs</b> from beneficiation — REGOLITH · MEGAREGOLITH · FRACTURED · BASALT</li>
+              <li><span class="ncode">B1.b</span><b>conditioning & per-plot fertility</b> — a real degrade/restore loop (fixes decay-to-floor)</li>
+              <li><span class="ncode">B1.c</span><b>profile</b> — low power, high mass & time, fails soft</li>
+            </ul>
+          </div></li>
+        <li><span class="ncode">B2</span><span class="st">●</span>
+          <div class="ntext"><b>HYDRO</b> — hydroponics
+            <ul class="subs">
+              <li><span class="ncode">B2.a</span><b>closed water loop</b> — feed/drain ports are physical</li>
+              <li><span class="ncode">B2.b</span><b>nutrient solution</b> — NUTRIENT_PACK from extraction elements</li>
+              <li><span class="ncode">B2.c</span><b>profile</b> — fast, power-hungry, brittle: pump failure kills cohorts</li>
+            </ul>
+          </div></li>
+        <li><span class="ncode">B3</span><span class="st">○</span>
+          <div class="ntext"><b>Extended media</b> — MYCO (dark alphabet) · VAT (crew-free calories) · AERO (peak fragility)</div></li>
+        <li><span class="ncode">B4</span><span class="st">○</span>
+          <div class="ntext"><b>Trade-off table</b> — cost / speed / resilience / labor / morale per medium; siting picks the mix</div></li>
+      </ul>
+    </article>
+
+    <article class="branch" style="--bh:var(--hC)">
+      <div class="bhead"><span class="bcode">C</span>
+        <h2>REGISTER <small>— the implicit farming algorithm</small></h2><span class="bstate">●</span></div>
+      <ul class="nodes">
+        <li><span class="ncode">C1</span><span class="st">●</span>
+          <div class="ntext"><b>The invariant</b> — Eulerian rotation over crop pairs; siting only instantiates (n, tiers, service rate)</div></li>
+        <li><span class="ncode">C2</span><span class="st">●</span>
+          <div class="ntext"><b>Constraint → program map</b> — PHAROS · FORTNIGHT · DEEP REGISTER · ASHFIELD · PILGRIM · VAULT bound to SiteArchetypes</div></li>
+        <li><span class="ncode">C3</span><span class="st ready">◆</span>
+          <div class="ntext"><b>Implicitness principle</b> — never homework; UI shows rhythm & health <span style="color:var(--muted)">(C3.a ○ — how the nudge works)</span></div></li>
+        <li><span class="ncode">C4</span><span class="st">○</span>
+          <div class="ntext"><b>Time binding</b> — 20 ticks/day vs the 29.5-day synodic month; does the planet get a real light cycle? <b>Biggest engine ask.</b></div></li>
+        <li><span class="ncode">C5</span><span class="st">○</span>
+          <div class="ntext"><b>Recognition & reward</b> — the game names your settled rhythm; grand cycles as long-horizon milestones</div></li>
+      </ul>
+    </article>
+
+    <article class="branch" style="--bh:var(--hD)">
+      <div class="bhead"><span class="bcode">D</span>
+        <h2>ARRAY <small>— spatial plot gameplay</small></h2><span class="bstate">●</span></div>
+      <ul class="nodes">
+        <li><span class="ncode">D1</span><span class="st">●</span>
+          <div class="ntext"><b>Plot grid</b> — footprints by medium (soil bed 1×1, hydro rack 2×3); the array is the hero visual</div></li>
+        <li><span class="ncode">D2</span><span class="st">●</span>
+          <div class="ntext"><b>Flow networks</b> — light field, water chains, power buses over the grid; topology matters</div></li>
+        <li><span class="ncode">D3</span><span class="st">●</span>
+          <div class="ntext"><b>Time made spatial</b> — staggered planting waves, sweeping harvest fronts; the farm is the colony’s clock</div></li>
+        <li><span class="ncode">D4</span><span class="st">○</span>
+          <div class="ntext"><b>Neighborhood effects</b> — fungal spread, shading, pests, myco firebreaks</div></li>
+        <li><span class="ncode">D5</span><span class="st">○</span>
+          <div class="ntext"><b>Stakes test</b> — same parts, different layout → different yield; every placement a real trade-off</div></li>
+      </ul>
+    </article>
+
+    <article class="branch" style="--bh:var(--hE)">
+      <div class="bhead"><span class="bcode">E</span>
+        <h2>FORM <small>— module system evolution</small></h2><span class="bstate">●</span></div>
+      <ul class="nodes">
+        <li><span class="ncode">E1</span><span class="st ready">◆</span>
+          <div class="ntext"><b>Current chrome</b> — five stubs through DrawGenericModulePanel (known baseline)</div></li>
+        <li><span class="ncode">E2</span><span class="st">●</span>
+          <div class="ntext"><b>Stations reframe</b> — Seedbank & Nursery · Substrate Works · Fluids & Atmosphere · Harvest & Processing · Program Registry</div></li>
+        <li><span class="ncode">E3</span><span class="st">●</span>
+          <div class="ntext"><b>Lens model</b> — the centre is <i>always the array</i>; modules switch overlays, not views. The deliberate deformation.</div></li>
+        <li><span class="ncode">E4</span><span class="st">○</span>
+          <div class="ntext"><b>Tier arcs</b> — capability per tier: new media, larger array, grounding automation, register autopilot (AI hook)</div></li>
+        <li><span class="ncode">E5</span><span class="st">○</span>
+          <div class="ntext"><b>Visual language</b> — planter placeables, growth-stage sprites as living hero, ui-panels tokens</div></li>
+      </ul>
+    </article>
+
+    <article class="branch" style="--bh:var(--hF)">
+      <div class="bhead"><span class="bcode">F</span>
+        <h2>BIOLOGY <small>— fungi, microbes & nutrients</small></h2><span class="bstate">●</span></div>
+      <ul class="nodes">
+        <li><span class="ncode">F1</span><span class="st">●</span>
+          <div class="ntext"><b>Inoculant slot</b> — MYCORRHIZAL · NITROGEN FIXER · DEFENSE MOLD · NONE, per plot, any medium</div></li>
+        <li><span class="ncode">F2</span><span class="st">○</span>
+          <div class="ntext"><b>Living stock</b> — cultures are kept, consumed, can die out; strain quality as a slow-burn asset</div></li>
+        <li><span class="ncode">F3</span><span class="st">○</span>
+          <div class="ntext"><b>Nutrient chemistry</b> — pack recipes from extraction outputs; compost loop biomass → conditioner</div></li>
+        <li><span class="ncode">F4</span><span class="st">○</span>
+          <div class="ntext"><b>Atmosphere & waste</b> — O₂ out / CO₂ in with the sect; water reclaim; the farm as a life-support organ</div></li>
+        <li><span class="ncode">F5</span><span class="st">⏸</span>
+          <div class="ntext"><b>BIOMINING</b> — fungal/bacterial metal leaching; parked to <b>docs/design/biomining/</b></div></li>
+      </ul>
+    </article>
+
+    <article class="branch" style="--bh:var(--hG)">
+      <div class="bhead"><span class="bcode">G</span>
+        <h2>STAKES <small>— colony coupling</small></h2><span class="bstate">●</span></div>
+      <ul class="nodes">
+        <li><span class="ncode">G1</span><span class="st">●</span>
+          <div class="ntext"><b>Life-support ledger</b> — O₂ producer, water sink; reserves size the farm before calories do</div></li>
+        <li><span class="ncode">G2</span><span class="st">●</span>
+          <div class="ntext"><b>Crew</b> — variety-driven morale (needs A5), labor per grounding, the farm as anchor space</div></li>
+        <li><span class="ncode">G3</span><span class="st">○</span>
+          <div class="ntext"><b>Power politics</b> — the farm vs every other unit on the budget; DEEP REGISTER is what solving farming with power costs</div></li>
+        <li><span class="ncode">G4</span><span class="st">○</span>
+          <div class="ntext"><b>Food ledger</b> — calories vs variety vs spoilage; the existing BIOFUEL chain joins the biomass loop</div></li>
+      </ul>
+    </article>
+
+    <article class="branch" style="--bh:var(--accent)">
+      <div class="bhead"><span class="bcode">⇄</span>
+        <h2>CROSS-LINKS <small>— where the good ideas hide</small></h2></div>
+      <div class="strip" style="border:none; padding:0; background:transparent">
+        <table>
+          <tr><td>B1.a ↔ beneficiation</td><td>soil is made from extraction output — the first deep unit-to-unit chain</td></tr>
+          <tr><td>C2 ↔ site archetypes</td><td>siting already classifies exactly the constraints the programs need</td></tr>
+          <tr><td>C4 ↔ planet light model</td><td>the one engine-level dependency; decide early</td></tr>
+          <tr><td>A3 ↔ game_types.toml</td><td>the charter lands as data, not code</td></tr>
+          <tr><td>E4 ↔ ai-automation</td><td>register autopilot must fit the global AI-tree pattern</td></tr>
+          <tr><td>F5 ↔ biomining seed</td><td>parked; must not bloat this branch</td></tr>
+        </table>
+      </div>
+    </article>
+
+  </div>
+
+  <div class="strips">
+    <div class="strip">
+      <h3>Navigation verbs</h3>
+      <div class="verbs">
+        <span class="verb"><b>focus</b> B2</span>
+        <span class="verb"><b>graft</b> under B1</span>
+        <span class="verb"><b>prune</b> D4</span>
+        <span class="verb"><b>park</b> F5</span>
+        <span class="verb"><b>harvest</b> A → design doc</span>
+        <span class="verb"><b>mix</b> C4 × D3</span>
+      </div>
+    </div>
+    <div class="strip">
+      <h3>Open questions — the next conversations</h3>
+      <ol class="qs">
+        <li><code>C4</code> real day/night + polar light model, or per-archetype fake?</li>
+        <li><code>A1.b</code> one descriptor for stock <i>and</i> service yields, or two variants?</li>
+        <li><code>E3</code> how far can the lens model bend the shared chrome?</li>
+        <li><code>D1</code> array size & granularity; does area grow with tier?</li>
+        <li><code>A5</code> which FOOD subtypes, and what does each feed?</li>
+      </ol>
+    </div>
+  </div>
+
+  <footer>
+    Canonical: <code>docs/design/farming/maturation/CONCEPT_TREE.md</code> ·
+    Method: <code>BRANCH_MATURATION.md</code> · Sources: <code>SOURCES.md</code> ·
+    States: ○ seed · ● maturing · ◆ design-ready · ⏸ parked
+  </footer>
+</div>
