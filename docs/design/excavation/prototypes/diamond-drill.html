@@ -101,8 +101,9 @@ canvas{display:block;width:100%;height:auto;background:#070b11}
 <header>
   <div class="eyebrow">Excavation &middot; access &middot; shaft-sinking rig</div>
   <h1>Kerf</h1>
-  <p class="sub">A diamond crown does not scrape rock, it <b>grinds a ring</b> and
-  swallows what it leaves standing. Both rigs below take the <b>same two commands</b>
+  <p class="sub">A diamond bit does not chip rock loose, it <b>grinds it away</b>,
+  tooth by tooth, and only inside a band of weight it can actually deliver.
+  Both rigs below take the <b>same two commands</b>
   and answer differently: the compact runs out of weight before basalt does, and
   the heavy runs out of steadiness before depth does. Drive them and watch which
   one is wrong for the ground.</p>
@@ -128,22 +129,23 @@ canvas{display:block;width:100%;height:auto;background:#070b11}
 <div class="sheet" id="sheet"></div>
 
 <div class="foot">
-<p><b>Why two rigs and not one upgrade.</b> A diamond crown cuts only inside a
-band of weight: too little and it <b>polishes</b> &mdash; the crown glazes over,
+<p><b>Why two rigs and not one upgrade.</b> A diamond bit cuts only inside a
+band of weight: too little and it <b>polishes</b> &mdash; the diamond glazes over,
 the rock heats and nothing advances; too much and it <b>overloads</b>, jamming
-the barrel and breaking what it lifts. The band moves up with hardness, so the
+the string and breaking what it lifts. The band moves up with hardness, so the
 compact's whole range sits neatly inside soft ground and <b>misses basalt's band
 entirely</b>, while the heavy covers basalt and <b>overshoots regolith</b>.
 Neither is a strict upgrade &mdash; the machine table's rule
 (<span style="color:var(--text)">excavation_constants.h</span>) holds here too.</p>
 <p><b>What depth costs the heavy.</b> Rotation is what a long string turns into
-wobble, and wobble is what kills a crown. The mid-body stabiliser buys back a
+wobble, and wobble is what kills a bit. The mid-body stabiliser buys back a
 fixed amount of it; past that the only remedy is to <b>ease the rotation as the
 hole deepens</b>, which is slower, which is the decision.</p>
 <p><b>The open question this raises.</b> Access in
 <span style="color:var(--text)">excavation-design.md</span> is a shaft you pay
-for and sink blind &mdash; and the deepest ground is the least surveyed. But a
-coring rig comes back up holding the column it cut. If the shaft <b>is</b> the
+for and sink blind &mdash; and the deepest ground is the least surveyed. But run
+with a core barrel in the string, this rig comes back up holding the column it
+cut. If the shaft <b>is</b> the
 survey, then driving it gently buys knowledge and driving it hard buys only the
 hole, and siting a deep shaft stops being a pure gamble. The core strip beside
 each stratigraphy column is that proposal, drawn.</p>
@@ -168,7 +170,7 @@ each stratigraphy column is that proposal, drawn.</p>
    No camera here: the whole 0-120 m column is on screen at once, because the
    sheet's job is comparison, not immersion. Both variants share one depth
    scale so the compact's shorter reach is a thing you SEE, not a figure. */
-const W = 348, H = 720, SURF_Y = 62, BOT_Y = H - 26;
+const W = 348, H = 720, SURF_Y = 72, BOT_Y = H - 26;
 const M2PX  = (BOT_Y - SURF_Y) / 120;
 const RIG_X0 = 8,   RIG_X1 = 144, RIG_CX = 76;
 const COL_X0 = 156, COL_X1 = 276;
@@ -189,26 +191,48 @@ const strAt = m => STRATA.find(s => m >= s.top && m < s.bot) || STRATA[3];
    Geometry and physics in one table, so a variant is data and never a branch
    -- the same discipline as EXC_MACHINES in excavation_constants.h.
 
-   wobMax   what the rig's own mass can put on the crown. THE stat.
-   cutK     crown area: a bigger crown moves more rock per turn.
+   The drawn machine follows the concept sheet ("8. Diamond rotary drill --
+   two variants") segment for segment: bevelled-lid motor box, amber collar,
+   slotted neck, rod, then the variant's own lower works, then a toothed
+   cone bit. `stack` lists the lower works from the bit UP; `rings` and
+   `tip` are the bit's teeth.
+
+   wobMax   what the rig's own mass can put on the bit. THE stat.
+   cutK     bit size: a bigger cone moves more rock per turn.
    whirlK   how readily this string turns rotation into wobble.
    stabFloor how much wobble the stabiliser eats before any is felt.
    wearPerM abrasion, per metre of rock actually cut.
-   glazeK   the crown burned per second while polishing -- progress-free wear. */
+   glazeK   diamond burned per second while polishing -- progress-free wear. */
 const SPECS = [
   { key:"compact", name:"Compact", tag:"BR-2 &middot; pilot shaft &middot; T1",
-    headW:44, headH:25, podW:0, chuckR:12.5, rodTop:9.6, rodBot:8.4,
-    barrelR:10.2, barrelLen:56, crownR:14.6, crownRi:8.0, crownH:8.6, pads:8,
-    stabAt:0,
+    boxW:50, boxH:23, lidH:7, amberW:58, amberH:11, amberStyle:"hslot",
+    neckR:13.0, neckH:14, neckSlots:4,
+    rodTop:8.8, rodBot:7.8,
+    bitR:15.0, bitLen:23,
+    rings:[ {r:15.0, y:0,   len:9.5, w:4.6, n:8},
+            {r:9.6,  y:8,   len:8.0, w:4.2, n:6} ],
+    tip:{y:14.5, len:8.6, w:5.0},
+    stack:[ {kind:"collar",  h:7,  r:12.4},
+            {kind:"twotone", h:15, r:10.6} ],
     wobMax:0.70, cutK:1.00, whirlK:0.55, stabFloor:0.10,
     wearPerM:0.0062, glazeK:0.022 },
   { key:"heavy", name:"Heavy Duty", tag:"BR-6 &middot; deep shaft &middot; T3",
-    headW:58, headH:35, podW:20, chuckR:15.4, rodTop:12.2, rodBot:10.4,
-    barrelR:12.8, barrelLen:74, crownR:17.8, crownRi:9.8, crownH:10.4, pads:10,
-    stabAt:0.46,
+    boxW:62, boxH:31, lidH:8, amberW:70, amberH:12, amberStyle:"vslots",
+    neckR:16.6, neckH:16, neckSlots:3,
+    rodTop:11.6, rodBot:10.2,
+    bitR:18.6, bitLen:27,
+    rings:[ {r:18.6, y:0,   len:10.5, w:5.2, n:10},
+            {r:12.2, y:9.5, len:9.0,  w:4.6, n:7} ],
+    tip:{y:17, len:9.8, w:5.6},
+    stack:[ {kind:"collar",  h:8,  r:14.0},
+            {kind:"ventbox", h:17, r:15.6},
+            {kind:"amber",   h:15, r:18.8},
+            {kind:"hex",     h:9,  r:14.4},
+            {kind:"fluted",  h:34, r:15.8} ],
     wobMax:1.00, cutK:1.26, whirlK:1.05, stabFloor:0.30,
     wearPerM:0.0085, glazeK:0.028 },
 ];
+for (const sp of SPECS) sp.stackH = sp.stack.reduce((a, sg) => a + sg.h, 0);
 
 /* ---------------- rules ---------------- */
 const RATE_K   = 2.6;          // metres per second at full bite in soft ground
@@ -267,7 +291,7 @@ function stepRig(r, dt){
   if (r.spent || r.depthM >= TARGET || !running){
     r.rate = 0;
     r.heat += (0 - r.heat) * clamp(dt/HEAT_TAU, 0, 1);
-    if (r.spent) r.mode = "CROWN SPENT";
+    if (r.spent) r.mode = "BIT SPENT";
     else if (r.depthM >= TARGET) r.mode = "AT DEPTH";
     else r.mode = "HELD";
     r.eff = 0;
@@ -319,7 +343,7 @@ function stepRig(r, dt){
   r.wear -= adv * g.hard * sp.wearPerM * wearMul * (1 + 1.8*r.whirl);
   if (glazing) r.wear -= dt * g.hard * rpmCmd * sp.glazeK;
   r.wear = clamp(r.wear, 0, 1);
-  if (r.wear <= 0){ r.spent = true; r.mode = "CROWN SPENT"; }
+  if (r.wear <= 0){ r.spent = true; r.mode = "BIT SPENT"; }
 
   /* Heat chases a target set by the work rather than accumulating, so it
      settles instead of running away. Polishing is the HOT failure -- friction
@@ -331,30 +355,24 @@ function stepRig(r, dt){
 }
 
 /* ---------------- geometry of one rig, top to bottom ----------------
-   powerhead -> amber deck -> chuck -> jointed rod sections (each a step
-   thinner) -> [stabiliser] -> shoulder joint -> core barrel -> crown.
-   dark-plating S6.3, with the auger's threaded stem replaced by a barrel. */
-function crownTopOf(r){ return yOf(r.depthM) - r.spec.crownH; }
-function barrelTopOf(r){ return crownTopOf(r) - r.spec.barrelLen; }
-
-function rodSegs(r){
-  const sp = r.spec, y1 = barrelTopOf(r);
-  const cTop = SURF_Y - 6, cBot = Math.min(SURF_Y + 20, Math.max(cTop + 15, y1 - 8));
-  const segs = [{y0:cTop, y1:cBot, r:sp.chuckR, kind:"chuck"}];
-  const run = Math.max(0, y1 - cBot);
-  const n = clamp(Math.round(run/95), 1, 7);
-  for (let i = 0; i < n; i++)
-    segs.push({ y0: cBot + run*i/n, y1: cBot + run*(i+1)/n,
-                r: lerp(sp.rodTop, sp.rodBot, Math.pow((i+1)/n, 0.8)), kind:"rod" });
-  return segs;
+   motor box -> amber collar -> slotted neck -> rod (grows with depth, joints
+   riding the string) -> the variant's lower works (spec.stack, bottom-up) ->
+   the toothed cone bit, apex on the current depth. */
+function bitTopOf(r){ return yOf(r.depthM) - r.spec.bitLen; }
+function stackSegs(r){
+  let y1 = bitTopOf(r); const out = [];
+  for (const sg of r.spec.stack){ out.push({y0:y1 - sg.h, y1, r:sg.r, kind:sg.kind}); y1 -= sg.h; }
+  return out;
 }
+function neckBotOf(r){ return SURF_Y + r.spec.neckH; }
 /* the outer envelope, so particles ride the machine and never a constant */
 function radAt(r, y){
   const sp = r.spec;
-  if (y >= crownTopOf(r)) return sp.crownR;
-  if (y >= barrelTopOf(r)) return sp.barrelR;
-  for (const s of rodSegs(r)) if (y < s.y1) return s.r;
-  return sp.chuckR;
+  if (y >= bitTopOf(r)) return sp.bitR;
+  for (const sg of stackSegs(r)) if (y >= sg.y0 && y < sg.y1) return sg.r;
+  const nb = neckBotOf(r), st = bitTopOf(r) - sp.stackH;
+  if (y <= nb) return sp.neckR;
+  return lerp(sp.rodTop, sp.rodBot, clamp((y - nb)/Math.max(1, st - nb), 0, 1));
 }
 function heatAt(r, y){
   const d = Math.abs(y - yOf(r.depthM));
@@ -408,7 +426,7 @@ function drawGroundPanel(r){
 
   /* the hole: only as deep as this rig has cut, ragged walls, then a
      horizontal darkening so it reads as a hole and not a stripe (S5) */
-  const hw = sp.crownR + 2.4, hy = yOf(r.depthM);
+  const hw = sp.bitR + 2.4, hy = yOf(r.depthM);
   C.fillStyle = "#0e0b08"; C.fillRect(RIG_CX - hw, SURF_Y, hw*2, hy - SURF_Y);
   seed = 29; C.fillStyle = "rgba(0,0,0,.8)";
   for (let y = SURF_Y; y < hy; y += 7){
@@ -425,110 +443,95 @@ function drawGroundPanel(r){
   C.fillStyle = "#4a5560"; C.fillRect(RIG_X0, SURF_Y - 2, RIG_X1-RIG_X0, 2);
 }
 
-/* ---------------- the crown (NEW -- dark-plating S6.5) ----------------
-   A diamond crown is an ANNULUS of segmented pads split by waterways. Seen
-   from a camera sitting a little above, the ring projects to an ellipse; each
-   pad owns an arc, and the pads at the near silhouette are the only ones that
-   show their outer wall. So the segments emerge from the projection exactly as
-   the auger's teeth emerge from the helicoid -- they are never drawn as shapes.
+/* ---------------- the bit (dark-plating S6.5) ----------------
+   The concept sheet's bit is a CONE OF TEETH: two rings of diamond-tipped
+   conical cutters and one centre point, converging on the apex. Underneath it
+   is the same projection as the crown pads -- each ring is an elliptical
+   annulus, every tooth owns an angle on it, and rotation is the teeth
+   marching around it:
 
-   Front is cos(a) < 0 (nearer the viewer, lower on screen). */
-const SQ = 0.30;                            // how far above the ring the eye sits
-const GAP = 0.30;                           // of each pad's arc, the waterway slot
+     x = CX + r*sin(a)      y = ringY - SQ*r*cos(a)      front = cos(a) < 0
+
+   Back teeth ride higher on the ellipse, shrink, and dim through dimf();
+   front teeth carry the outline, the light and the grit. The cone shape
+   comes from tips pulled toward the axis -- it is never drawn as a cone. */
+const SQ = 0.36;                            // how far above the rings the eye sits
 const px = (cx, r, a) => cx + r*Math.sin(a);
 const py = (cy, r, a) => cy - SQ*r*Math.cos(a);
 
-function crownPads(r){
-  const sp = r.spec, out = [], step = 2*Math.PI/sp.pads;
-  for (let i = 0; i < sp.pads; i++){
-    const a0 = r.phase + i*step, a1 = a0 + step*(1 - GAP);
-    out.push({ i, a0, a1, f: -Math.cos((a0+a1)/2) });
-  }
-  out.sort((p, q) => p.f - q.f);            // painter order: back first
-  return out;
-}
-function padPath(cy, ri, ro, a0, a1){
-  const N = 4;
+function toothPath(bx, by, w, len, inx){
   C.beginPath();
-  for (let k = 0; k <= N; k++){ const a = lerp(a0, a1, k/N); C.lineTo(px(RIG_CX, ro, a), py(cy, ro, a)); }
-  for (let k = N; k >= 0; k--){ const a = lerp(a0, a1, k/N); C.lineTo(px(RIG_CX, ri, a), py(cy, ri, a)); }
+  C.moveTo(bx - w/2, by);
+  C.lineTo(bx + w/2, by);
+  C.lineTo(bx + inx + w*0.16, by + len*0.86);
+  C.lineTo(bx + inx - w*0.10, by + len);
   C.closePath();
 }
-function drawCrown(r){
-  const sp = r.spec, cyTop = crownTopOf(r), h = heatAt(r, yOf(r.depthM));
-  const ri = sp.crownRi, ro = sp.crownR;
+function drawBit(r){
+  const sp = r.spec, bT = bitTopOf(r), h = heatAt(r, yOf(r.depthM));
 
-  /* S2: ONE flood pass for the whole sweep, then faces over it. The waterway
-     slots are this fill showing through -- they are not drawn. */
+  /* the cone body the teeth are set in -- dark, so the teeth read against it */
   C.fillStyle = OUT;
   C.beginPath();
-  C.ellipse(RIG_CX, cyTop, ro + 1.8, (ro + 1.8)*SQ, 0, 0, Math.PI*2);
-  C.fill();
-  C.fillRect(RIG_CX - ro - 1.8, cyTop, (ro + 1.8)*2, sp.crownH + 1.8);
+  C.moveTo(RIG_CX - sp.bitR - 1.6, bT - 1.6);
+  C.lineTo(RIG_CX + sp.bitR + 1.6, bT - 1.6);
+  C.lineTo(RIG_CX + sp.bitR*0.22, bT + sp.bitLen + 1.2);
+  C.lineTo(RIG_CX - sp.bitR*0.22, bT + sp.bitLen + 1.2);
+  C.closePath(); C.fill();
+  C.fillStyle = steel(0.16, h);
   C.beginPath();
-  C.ellipse(RIG_CX, cyTop + sp.crownH, ro + 1.8, (ro + 1.8)*SQ, 0, 0, Math.PI);
-  C.fill();
+  C.moveTo(RIG_CX - sp.bitR + 1.2, bT);
+  C.lineTo(RIG_CX + sp.bitR - 1.2, bT);
+  C.lineTo(RIG_CX + sp.bitR*0.18, bT + sp.bitLen - 1.6);
+  C.lineTo(RIG_CX - sp.bitR*0.18, bT + sp.bitLen - 1.6);
+  C.closePath(); C.fill();
 
-  const pads = crownPads(r);
-  for (const p of pads){
-    const front = p.f > 0;
-    const lt = 0.5 - 0.5*Math.sin((p.a0 + p.a1)/2);      // light from upper-left
-    const sTop  = (front ? band(0.46 + 0.34*lt) : dimf(band(0.46 + 0.34*lt)));
-    const sWall = (front ? band(0.34 + 0.42*lt) : 0);
-
-    padPath(cyTop, ri, ro, p.a0, p.a1);
-    C.fillStyle = steel(sTop, h); C.fill();
-
-    if (front){
-      /* the outer wall: the cutting face, and the only place grit is visible */
-      C.beginPath();
-      const N = 4;
-      for (let k = 0; k <= N; k++){ const a = lerp(p.a0, p.a1, k/N); C.lineTo(px(RIG_CX, ro, a), py(cyTop, ro, a)); }
-      for (let k = N; k >= 0; k--){ const a = lerp(p.a0, p.a1, k/N); C.lineTo(px(RIG_CX, ro, a), py(cyTop, ro, a) + sp.crownH); }
-      C.closePath();
-      C.fillStyle = steel(sWall, h); C.fill();
-
-      /* Diamond grit: the crown's identity. Specks live in PAD-LOCAL
-         coordinates and are projected each frame, so the grit turns with its
-         own pad instead of swimming across the bit. Seeded per pad, never
-         Math.random -- grit must not shimmer (S5 determinism). */
-      let gs = (p.i*2654435761) % 2147483647;
-      const grnd = () => (gs = (gs*16807) % 2147483647) / 2147483647;
-      for (let k = 0; k < 11; k++){
-        const u = 0.10 + grnd()*0.80, v = 0.16 + grnd()*0.74;
-        const a = lerp(p.a0, p.a1, u);
-        const gx = px(RIG_CX, ro, a), gy = py(cyTop, ro, a) + sp.crownH*v;
-        C.fillStyle = "rgba(0,0,0,.40)"; C.fillRect(gx - 1.0, gy - 1.0, 2.0, 2.0);
-        C.fillStyle = steel(band(0.88 + 0.12*grnd()), h*0.35);
-        C.fillRect(gx - 0.9, gy - 0.9, 1.6, 1.6);
-      }
-      /* the kerf lip: the worn bright edge where this pad meets rock. Each pad
-         stands ~1 px proud of the flood outline, so the crown's foot is
-         scalloped by its waterways instead of ending on one flat line. */
-      C.fillStyle = steel(0.90, h*0.55);
-      C.beginPath();
-      const NL = 4;
-      for (let k = 0; k <= NL; k++){
-        const a = lerp(p.a0, p.a1, k/NL);
-        C.lineTo(px(RIG_CX, ro, a), py(cyTop, ro, a) + sp.crownH - 1.1);
-      }
-      for (let k = NL; k >= 0; k--){
-        const a = lerp(p.a0, p.a1, k/NL);
-        C.lineTo(px(RIG_CX, ro, a), py(cyTop, ro, a) + sp.crownH + 0.9);
-      }
-      C.closePath(); C.fill();
+  /* gather every ring's teeth, then painter-sort the lot: back first */
+  const teeth = [];
+  for (let k = 0; k < sp.rings.length; k++){
+    const rg = sp.rings[k], step = 2*Math.PI/rg.n, off = k*step*0.5;
+    for (let i = 0; i < rg.n; i++){
+      const a = r.phase + off + i*step;
+      teeth.push({ a, rg, f: -Math.cos(a), seed: k*31 + i, pull: k === 0 ? 0.20 : 0.36 });
     }
   }
-  /* the shoulder: the crown is proud of the barrel, and that step is the only
-     part of the bore geometry an outside view can actually show */
-  C.fillStyle = "rgba(0,0,0,.55)";
-  C.beginPath();
-  C.ellipse(RIG_CX, cyTop, sp.barrelR + 1.4, (sp.barrelR + 1.4)*SQ, 0, 0, Math.PI*2);
-  C.fill();
-  C.fillStyle = steel(0.20, h*0.6);
-  C.beginPath();
-  C.ellipse(RIG_CX, cyTop - 0.8, sp.barrelR + 0.4, (sp.barrelR + 0.4)*SQ, 0, 0, Math.PI*2);
-  C.fill();
+  teeth.sort((p, q) => p.f - q.f);
+  C.lineJoin = "round";
+  for (const t of teeth){
+    const front = t.f > 0, rg = t.rg;
+    const bx = px(RIG_CX, rg.r, t.a), by = py(bT + rg.y, rg.r, t.a);
+    const sc = front ? 1 : 0.78;
+    const inx = -Math.sin(t.a) * rg.r * t.pull * sc;  // outer splays, inner converges
+    const lt = 0.5 - 0.5*Math.sin(t.a);               // light from upper-left
+    const shade = front ? band(0.50 + 0.32*lt + 0.12*t.f)
+                        : dimf(band(0.48 + 0.30*lt));
+    if (front){
+      toothPath(bx, by, rg.w*sc, rg.len*sc, inx);
+      C.strokeStyle = OUT; C.lineWidth = 2.2; C.stroke();
+    }
+    toothPath(bx, by, rg.w*sc, rg.len*sc, inx);
+    C.fillStyle = steel(shade, front ? h : h*0.6); C.fill();
+    if (front){
+      /* bright worn edge on the lit side, and one diamond speck per tooth,
+         seeded so the grit rides its own tooth (S5 determinism) */
+      C.strokeStyle = steel(band(0.82 + 0.18*lt), h*0.4); C.lineWidth = 1;
+      C.beginPath(); C.moveTo(bx - rg.w*0.30, by + 1);
+      C.lineTo(bx + inx - rg.w*0.06, by + rg.len*0.82); C.stroke();
+      const gs = ((t.seed*2654435761) % 97 + 97) % 97;
+      C.fillStyle = steel(0.94, h*0.3);
+      C.fillRect(bx - 1.4 + (gs % 3), by + 2 + (gs % 4), 1.6, 1.6);
+    }
+  }
+  /* the centre point: on the axis, always front, always painted last */
+  const tp = sp.tip, tby = bT + tp.y;
+  toothPath(RIG_CX, tby, tp.w, tp.len, 0);
+  C.strokeStyle = OUT; C.lineWidth = 2.8; C.stroke();
+  toothPath(RIG_CX, tby, tp.w, tp.len, 0);
+  C.fillStyle = steel(band(0.56), h); C.fill();
+  C.strokeStyle = steel(0.92, h*0.4); C.lineWidth = 1;
+  C.beginPath(); C.moveTo(RIG_CX - tp.w*0.22, tby + 1.4);
+  C.lineTo(RIG_CX - tp.w*0.06, tby + tp.len*0.8); C.stroke();
+  C.lineJoin = "miter";
 }
 
 /* ---------------- the string ---------------- */
@@ -570,104 +573,173 @@ function boxPlate(x, y, w, h, fill, bevel){
     C.fillStyle = "rgba(0,0,0,.22)";       C.fillRect(x + w - 3, y, 3, h);
   }
 }
-/* the stabiliser: blades that ride the hole wall and eat the string's wobble.
-   Amber, because it is machinery you bought on purpose (S1.2 semantics). */
-function drawStabiliser(r, y){
-  const sp = r.spec, rad = sp.crownR - 0.8, hh = 10, h = heatAt(r, y);
-  C.fillStyle = OUT; C.fillRect(RIG_CX - rad - 2.5, y - hh - 2.5, (rad + 2.5)*2, hh*2 + 5);
-  boxPlate(RIG_CX - rad, y - hh, rad*2, hh*2, "#d9962f", true);
-  C.fillStyle = "rgba(0,0,0,.42)";
-  for (let i = -1; i <= 1; i++) C.fillRect(RIG_CX + i*rad*0.56 - 1.4, y - hh + 3, 2.8, hh*2 - 6);
-  C.fillStyle = "#f4c66a";
-  C.fillRect(RIG_CX - rad + 2.5, y - hh + 2, 2.4, 2.4);
-  C.fillRect(RIG_CX + rad - 4.9, y - hh + 2, 2.4, 2.4);
-  if (h > 0.02){ C.fillStyle = `rgba(255,110,30,${clamp(h*0.5,0,0.5)})`;
-                 C.fillRect(RIG_CX - rad, y - hh, rad*2, hh*2); }
+/* ---------------- the lower works ----------------
+   Each variant's business end is a stack of segments declared in spec.stack
+   and painted by one function -- a variant is a list, never a branch. */
+function drawStackSeg(r, sg){
+  const h = heatAt(r, (sg.y0 + sg.y1)/2), rr = sg.r, y0 = sg.y0, y1 = sg.y1;
+  if (sg.kind === "collar" || sg.kind === "hex"){
+    C.fillStyle = OUT; C.fillRect(RIG_CX - rr - 2, y0 - 1.5, (rr + 2)*2, y1 - y0 + 3);
+    C.fillStyle = steelBands(RIG_CX - rr, RIG_CX + rr, h, P_JOINT);
+    C.fillRect(RIG_CX - rr, y0, rr*2, y1 - y0);
+    C.fillStyle = "rgba(255,255,255,.34)"; C.fillRect(RIG_CX - rr, y0, rr*2, 1.6);
+    C.fillStyle = "rgba(0,0,0,.45)";       C.fillRect(RIG_CX - rr, y1 - 2, rr*2, 2);
+    if (sg.kind === "hex"){                    // side facets say hexagonal
+      C.fillStyle = "rgba(0,0,0,.35)";
+      C.beginPath(); C.moveTo(RIG_CX - rr, y0); C.lineTo(RIG_CX - rr + 4, (y0+y1)/2);
+      C.lineTo(RIG_CX - rr, y1); C.closePath(); C.fill();
+      C.beginPath(); C.moveTo(RIG_CX + rr, y0); C.lineTo(RIG_CX + rr - 4, (y0+y1)/2);
+      C.lineTo(RIG_CX + rr, y1); C.closePath(); C.fill();
+    }
+  }
+  else if (sg.kind === "twotone"){            // the compact's plain lower barrel
+    drawTube(y0, y1, rr, h, P_BARREL);
+    C.fillStyle = "rgba(0,0,0,.30)";
+    C.fillRect(RIG_CX - rr + 3, y0 + 3, 1.8, y1 - y0 - 6);
+    C.fillRect(RIG_CX + rr - 5, y0 + 3, 1.8, y1 - y0 - 6);
+    C.fillStyle = "rgba(0,0,0,.38)";
+    C.fillRect(RIG_CX - rr, (y0 + y1)/2 - 0.8, rr*2, 1.6);
+  }
+  else if (sg.kind === "ventbox"){            // the grey vented housing
+    boxPlate(RIG_CX - rr, y0, rr*2, y1 - y0, steel(0.34, h*0.5), true);
+    C.fillStyle = "rgba(0,0,0,.5)";
+    C.fillRect(RIG_CX - rr*0.52 - 1.6, y0 + 4, 3.2, 6);
+    C.fillRect(RIG_CX + rr*0.52 - 1.6, y0 + 4, 3.2, 6);
+    C.fillRect(RIG_CX - rr*0.62, y1 - 7, rr*1.24, 3);
+  }
+  else if (sg.kind === "amber"){
+    /* the stabiliser: blades that ride the hole wall and eat the string's
+       wobble. Amber, because it is machinery you bought on purpose (S1.2). */
+    boxPlate(RIG_CX - rr, y0, rr*2, y1 - y0, "#d9962f", true);
+    C.fillStyle = "rgba(0,0,0,.46)";
+    C.fillRect(RIG_CX - rr*0.42 - 1.8, y0 + 3.5, 3.6, y1 - y0 - 7);
+    C.fillRect(RIG_CX + rr*0.42 - 1.8, y0 + 3.5, 3.6, y1 - y0 - 7);
+    C.fillStyle = "#f4c66a";
+    C.fillRect(RIG_CX - rr + 2.5, y0 + 2, 2.4, 2.4);
+    C.fillRect(RIG_CX + rr - 4.9, y0 + 2, 2.4, 2.4);
+    if (h > 0.02){ C.fillStyle = `rgba(255,110,30,${clamp(h*0.5, 0, 0.5)})`;
+                   C.fillRect(RIG_CX - rr, y0, rr*2, y1 - y0); }
+  }
+  else if (sg.kind === "fluted"){
+    /* the bundled-column section: three rods side by side, capped both ends */
+    C.fillStyle = OUT; C.fillRect(RIG_CX - rr - 2, y0 - 1.5, (rr + 2)*2, y1 - y0 + 3);
+    C.fillStyle = steel(0.10, h*0.4); C.fillRect(RIG_CX - rr, y0, rr*2, y1 - y0);
+    const cw = rr*0.30;
+    for (const k of [-1, 0, 1]){
+      const cx0 = RIG_CX + k*rr*0.60;
+      C.fillStyle = steelBands(cx0 - cw, cx0 + cw, h, P_ROD);
+      C.fillRect(cx0 - cw, y0 + 4, cw*2, y1 - y0 - 8);
+    }
+    C.fillStyle = steelBands(RIG_CX - rr, RIG_CX + rr, h, P_JOINT);
+    C.fillRect(RIG_CX - rr, y0, rr*2, 4);
+    C.fillRect(RIG_CX - rr, y1 - 4, rr*2, 4);
+    C.fillStyle = "rgba(255,255,255,.3)"; C.fillRect(RIG_CX - rr, y0, rr*2, 1.3);
+    C.fillStyle = "rgba(0,0,0,.4)";       C.fillRect(RIG_CX - rr, y1 - 1.6, rr*2, 1.6);
+  }
 }
-/* The powerhead is where the WEIGHT comes from, so it has to look like mass.
-   Both variants share the grammar -- motor housing, amber rotary deck, base
-   sled -- and differ only in bulk and in whether a second pod is bolted on
-   (dark-plating S4.4: vary the tint and the bulk, never the structure). */
+
+/* The top works follow the concept sheet: a bevelled-lid motor box on a base
+   sled, the amber collar under it, and the slotted neck the string runs
+   through. Both variants share the grammar and differ in bulk and in how the
+   amber collar is dressed (S4.4: vary the tint and the bulk, never the
+   structure). */
 function drawPowerhead(r){
-  const sp = r.spec, deckH = 10;
-  const deckY = SURF_Y - 13 - deckH;               // the rotary table
-  const top = deckY - sp.headH;                    // motor housing sits on it
+  const sp = r.spec;
+  const deckY = SURF_Y - 13 - sp.amberH;
+  const boxY = deckY - sp.boxH, lidY = boxY - sp.lidH;
 
   /* base sled: the rig stands ON the ground, it does not hover over it */
   C.fillStyle = OUT;
-  C.fillRect(RIG_CX - sp.headW/2 - 12, SURF_Y - 13, sp.headW + 24, 13);
+  C.fillRect(RIG_CX - sp.boxW/2 - 12, SURF_Y - 13, sp.boxW + 24, 13);
   C.fillStyle = "#1c2530";
-  C.fillRect(RIG_CX - sp.headW/2 - 10, SURF_Y - 12, sp.headW + 20, 11);
+  C.fillRect(RIG_CX - sp.boxW/2 - 10, SURF_Y - 12, sp.boxW + 20, 11);
   C.fillStyle = "rgba(255,255,255,.16)";
-  C.fillRect(RIG_CX - sp.headW/2 - 10, SURF_Y - 12, sp.headW + 20, 2.4);
-  C.fillStyle = "rgba(0,0,0,.45)";
-  for (let i = -1; i <= 1; i += 2)
-    C.fillRect(RIG_CX + i*(sp.headW/2 + 3), SURF_Y - 10, 3, 8);
+  C.fillRect(RIG_CX - sp.boxW/2 - 10, SURF_Y - 12, sp.boxW + 20, 2.4);
 
-  /* motor housing, with vent slots that read at this size */
-  boxPlate(RIG_CX - sp.headW/2, top, sp.headW, sp.headH, "#39424e", true);
-  const nv = sp.headH > 30 ? 4 : 3, vs = (sp.headH - 9) / nv;
-  for (let i = 0; i < nv; i++){
-    const vy = top + 5.5 + i*vs;
-    C.fillStyle = "#212a34";
-    C.fillRect(RIG_CX - sp.headW/2 + 6, vy, sp.headW - 12, vs*0.52);
-    C.fillStyle = "rgba(0,0,0,.55)";
-    C.fillRect(RIG_CX - sp.headW/2 + 6, vy + vs*0.52 - 1.2, sp.headW - 12, 1.2);
-  }
-  if (sp.podW){        // heavy duty bolts on a second drive: more torque, more mass
-    boxPlate(RIG_CX + sp.headW/2 + 3, top + 6, sp.podW, sp.headH - 13, "#39424e", true);
-    C.fillStyle = "rgba(0,0,0,.5)";
-    C.fillRect(RIG_CX + sp.headW/2 + 6, top + 10, sp.podW - 6, 2);
+  /* the slotted neck, straddling the hole mouth */
+  drawChuck(SURF_Y - 4, SURF_Y + sp.neckH, sp.neckR, heatAt(r, SURF_Y));
+  for (let i = 0; i < sp.neckSlots; i++){
+    const t = (i + 0.5)/sp.neckSlots;
+    const sx = RIG_CX - sp.neckR + t*sp.neckR*2 - 1.3;
+    C.fillStyle = "rgba(0,0,0,.5)"; C.fillRect(sx, SURF_Y + 1, 2.6, 6);
+    if (sp.amberStyle === "vslots"){ C.fillStyle = "#f4c66a"; C.fillRect(sx + 0.4, SURF_Y + 1.6, 1.8, 1.8); }
   }
 
-  /* the amber rotary deck: the machine's signature colour (S1.2 -- amber is
-     always machinery), and the part the string actually turns in */
-  boxPlate(RIG_CX - sp.headW/2 - 5, deckY, sp.headW + 10, deckH, "#d9962f", true);
-  C.fillStyle = "#7a5115";
-  C.fillRect(RIG_CX - sp.headW/2 + 2, deckY + 3.4, sp.headW - 4, 3.4);
-  C.fillStyle = "#f4c66a";
-  C.fillRect(RIG_CX - sp.headW/2 - 2.5, deckY + 2, 2.6, 2.6);
-  C.fillRect(RIG_CX + sp.headW/2 - 0.1, deckY + 2, 2.6, 2.6);
+  /* motor box with its bevelled lid */
+  C.fillStyle = OUT;
+  C.beginPath();
+  C.moveTo(RIG_CX - sp.boxW*0.34 - 2, lidY - 2);
+  C.lineTo(RIG_CX + sp.boxW*0.34 + 2, lidY - 2);
+  C.lineTo(RIG_CX + sp.boxW/2 + 4, boxY + 1);
+  C.lineTo(RIG_CX - sp.boxW/2 - 4, boxY + 1);
+  C.closePath(); C.fill();
+  C.beginPath();
+  C.moveTo(RIG_CX - sp.boxW*0.34, lidY);
+  C.lineTo(RIG_CX + sp.boxW*0.34, lidY);
+  C.lineTo(RIG_CX + sp.boxW/2 + 2, boxY);
+  C.lineTo(RIG_CX - sp.boxW/2 - 2, boxY);
+  C.closePath();
+  C.fillStyle = steel(0.62, 0); C.fill();
+  C.fillStyle = "rgba(255,255,255,.30)";
+  C.fillRect(RIG_CX - sp.boxW*0.34, lidY, sp.boxW*0.68, 2.2);
 
-  /* the lamp reads the crown state semantically: green cutting, amber
+  boxPlate(RIG_CX - sp.boxW/2, boxY, sp.boxW, sp.boxH, "#39424e", true);
+  C.fillStyle = "rgba(0,0,0,.35)";                       // panel seams
+  C.fillRect(RIG_CX - sp.boxW/2 + 6, boxY + 5, sp.boxW - 12, 1.4);
+  C.fillRect(RIG_CX - 0.7, boxY + 5, 1.4, sp.boxH - 10);
+  /* the mouth slot, and the state lamp beside it: green cutting, amber
      polishing, hot overloaded, dim when there is nothing to say */
-  const lampX = sp.podW ? RIG_CX + sp.headW/2 + 7 : RIG_CX + sp.headW/2 - 9;
-  const lampY = sp.podW ? top + 15 : top + 6;
-  C.fillStyle = OUT; C.fillRect(lampX - 1.2, lampY - 1.2, 7.4, 7.4);
+  C.fillStyle = "#141a21";
+  C.fillRect(RIG_CX - 7, boxY + sp.boxH - 8, 14, 4.6);
+  C.fillStyle = "rgba(255,255,255,.14)";
+  C.fillRect(RIG_CX - 7, boxY + sp.boxH - 8, 14, 1.2);
+  C.fillStyle = OUT; C.fillRect(RIG_CX + sp.boxW/2 - 10.2, boxY + sp.boxH - 9.2, 7.4, 7.4);
   C.fillStyle = r.mode === "OVERLOAD"  ? "#ff5a28"
               : r.mode === "POLISHING" ? "#f4c66a"
               : r.mode === "CUTTING"   ? "#5fd39a" : "#3d4e5e";
-  C.fillRect(lampX, lampY, 5, 5);
+  C.fillRect(RIG_CX + sp.boxW/2 - 9, boxY + sp.boxH - 8, 5, 5);
+
+  /* amber collar: the machine's signature colour (S1.2 -- amber is always
+     machinery). The compact wears one dark mouth slot; the heavy, lit vents. */
+  boxPlate(RIG_CX - sp.amberW/2, deckY, sp.amberW, sp.amberH, "#d9962f", true);
+  if (sp.amberStyle === "hslot"){
+    C.fillStyle = "#7a5115";
+    C.fillRect(RIG_CX - sp.amberW*0.30, deckY + sp.amberH/2 - 1.8, sp.amberW*0.60, 3.6);
+    C.fillStyle = "rgba(0,0,0,.4)";
+    C.fillRect(RIG_CX - sp.amberW*0.30, deckY + sp.amberH/2 + 0.8, sp.amberW*0.60, 1);
+  } else {
+    for (const k of [-1, 0, 1]){
+      C.fillStyle = "#7a5115";
+      C.fillRect(RIG_CX + k*sp.amberW*0.16 - 2.4, deckY + 2.5, 4.8, sp.amberH - 5);
+      C.fillStyle = "#f4c66a";
+      C.fillRect(RIG_CX + k*sp.amberW*0.16 - 1.2, deckY + 3.5, 2.4, sp.amberH - 7);
+    }
+  }
 }
+
 function drawString(r){
-  const sp = r.spec, bT = barrelTopOf(r), cT = crownTopOf(r);
-  const segs = rodSegs(r);
-  for (let i = 0; i < segs.length; i++){
-    const s = segs[i];
-    if (s.kind === "chuck"){ drawChuck(s.y0, s.y1, s.r, heatAt(r, (s.y0+s.y1)/2)); continue; }
-    drawTube(s.y0, s.y1, s.r, heatAt(r, (s.y0+s.y1)/2), P_ROD);
-    if (i > 0) drawJoint(s.y0, Math.max(segs[i-1].r, s.r), false);
+  const sp = r.spec, bT = bitTopOf(r), nb = neckBotOf(r);
+  const st = bT - sp.stackH;              // top of the lower works
+  /* rod fill: neck down to the lower works, tapered in thin slices */
+  if (st > nb - 6){
+    C.fillStyle = OUT;
+    for (let y = nb - 6; y < st; y += 1.4){
+      const w = radAt(r, Math.max(y, nb + 0.1)) + 1.8; C.fillRect(RIG_CX - w, y, w*2, 2.2);
+    }
+    for (let y = nb - 6; y < st - 1; y += 1.4){
+      const w = radAt(r, Math.max(y, nb + 0.1));
+      C.fillStyle = steelBands(RIG_CX - w, RIG_CX + w, heatAt(r, y + 1), P_ROD);
+      C.fillRect(RIG_CX - w, y, w*2, 1.9);
+    }
+    /* joints ride the string, fixed offsets above the lower works: rods are
+       added at the top, so what is bolted together stays bolted together */
+    for (let k = 1; ; k++){
+      const jy = st - k*95;
+      if (jy < nb + 12) break;
+      drawJoint(jy, radAt(r, jy) + 0.8, false);
+    }
   }
-  if (sp.stabAt){
-    const s0 = segs[1] ? segs[1].y0 : SURF_Y;
-    drawStabiliser(r, lerp(s0, bT, sp.stabAt));
-  }
-  drawTube(bT, cT, sp.barrelR, heatAt(r, (bT+cT)/2), P_BARREL);
-  /* barrel scribe lines: a plain tube needs something to say it is machined */
-  C.fillStyle = "rgba(0,0,0,.30)";
-  C.fillRect(RIG_CX - sp.barrelR + 3, bT + 8, 1.6, cT - bT - 16);
-  C.fillStyle = "rgba(255,255,255,.10)";
-  C.fillRect(RIG_CX + sp.barrelR - 5, bT + 8, 1.6, cT - bT - 16);
-  drawJoint(bT, sp.barrelR, true);          // the shoulder, barrel to string
-  /* the core lifter: the bright ring that grips the column so it comes up with
-     the barrel. Small, but it is what says "this tool keeps what it cuts". */
-  const lift = cT - 4.2;
-  C.fillStyle = OUT; C.fillRect(RIG_CX - sp.barrelR - 3.5, lift - 3.5, (sp.barrelR + 3.5)*2, 7);
-  C.fillStyle = steelBands(RIG_CX - sp.barrelR - 1.5, RIG_CX + sp.barrelR + 1.5,
-                           heatAt(r, lift), P_JOINT);
-  C.fillRect(RIG_CX - sp.barrelR - 1.5, lift - 2.6, (sp.barrelR + 1.5)*2, 5.2);
-  C.fillStyle = "rgba(255,255,255,.40)";
-  C.fillRect(RIG_CX - sp.barrelR - 1.5, lift - 2.6, (sp.barrelR + 1.5)*2, 1.3);
+  for (const sg of stackSegs(r)) if (sg.y1 > SURF_Y + 2) drawStackSeg(r, sg);
 }
 
 /* The wear ladder, dark-plating S4.5: cracks past 0.55 consumed, one more per
@@ -680,13 +752,13 @@ function crackList(r){
   const out = [];
   for (let i = 0; i < n; i++){
     const sd = Math.abs(Math.sin((i + 1)*77.7)*43758.5) % 1;
-    out.push({ off: 8 + sd*(r.spec.barrelLen + 46), seed: sd });
+    out.push({ off: 8 + sd*(r.spec.stackH + 46), seed: sd });
   }
   return out;
 }
 function drawCracks(r){
   for (const c of crackList(r)){
-    const y = crownTopOf(r) - c.off; if (y < SURF_Y + 4) continue;
+    const y = bitTopOf(r) - c.off; if (y < SURF_Y + 4) continue;
     const h = heatAt(r, y), rad = radAt(r, y);
     let x = RIG_CX - rad + 2 + (c.seed*13) % 7, yy = y - 5, sd = c.seed;
     const pts = [[x, yy]];
@@ -706,11 +778,12 @@ function drawCracks(r){
 
 /* ---------------- particles ---------------- */
 function drawChips(r, dt){
-  const sp = r.spec, cT = crownTopOf(r);
+  const sp = r.spec, cT = bitTopOf(r);
   if (running && !r.spent && rpmCmd > 0.05 && r.chips.length < 46 && !REDUCED){
     const g = strAt(r.depthM);
     r.chips.push({ y: cT - 3, a: Math.random()*6.28,
-                   up: 20 + Math.random()*20, col: g.grain });
+                   up: 20 + Math.random()*20, col: g.grain,
+                   sz: Math.random() < 0.3 ? 4.4 : 2.8 });   // the odd chunky spall
   }
   for (let i = r.chips.length - 1; i >= 0; i--){
     const c = r.chips[i];
@@ -720,7 +793,8 @@ function drawChips(r, dt){
     if (c.y < SURF_Y || c.y > cT){ r.chips.splice(i, 1); continue; }
     C.globalAlpha = Math.cos(c.a) > 0 ? 0.92 : 0.42;
     C.fillStyle = c.col;
-    C.fillRect(RIG_CX + (radAt(r, c.y) + 2.2)*Math.sin(c.a), c.y, 3, 2.4);
+    const cs = c.sz || 3;
+    C.fillRect(RIG_CX + (radAt(r, c.y) + 2.2)*Math.sin(c.a), c.y, cs, cs*0.8);
     C.globalAlpha = 1;
   }
   /* sparks only where the work is genuinely hard (S4.5) */
@@ -787,7 +861,7 @@ function drawColumn(r){
   /* ---- the bit marker: one line, three panels, same y (S9.2) ---- */
   const y = yOf(r.depthM);
   C.strokeStyle = "rgba(217,150,47,.42)"; C.lineWidth = 1; C.setLineDash([4, 4]);
-  C.beginPath(); C.moveTo(RIG_CX + r.spec.crownR + 4, y); C.lineTo(COL_X0, y); C.stroke();
+  C.beginPath(); C.moveTo(RIG_CX + r.spec.bitR + 4, y); C.lineTo(COL_X0, y); C.stroke();
   C.setLineDash([]);
   C.fillStyle = "#d9962f"; C.fillRect(COL_X0, y - 1, RIB_X1 - COL_X0, 2);
   C.beginPath();                                    // the shared amber diamond
@@ -805,10 +879,13 @@ function drawRig(r, dt){
 
   drawGroundPanel(r);
   drawColumn(r);
+  C.save();
+  C.beginPath(); C.rect(RIG_X0, SURF_Y + 1, RIG_X1 - RIG_X0, BOT_Y - SURF_Y - 1); C.clip();
   drawString(r);
   drawCracks(r);          // cracks belong to the steel, so they ride the part
-  drawCrown(r);
+  drawBit(r);
   drawChips(r, dt);
+  C.restore();
   drawPowerhead(r);
 
   /* atmospherics: the ONE overlay this style allows -- a radial glow at the
@@ -840,7 +917,7 @@ for (const spec of SPECS){
     `<div class="card">` +
       `<div class="row"><span>Depth</span><b class="d">0.0 m</b></div>` +
       `<div class="row"><span>Stratum</span><b class="s">REGOLITH</b></div>` +
-      `<div class="row"><span>Crown</span><span class="state st">Idle</span></div>` +
+      `<div class="row"><span>Bit</span><span class="state st">Idle</span></div>` +
       `<div class="row" style="margin-bottom:5px"><span>Weight on bit</span>` +
         `<b class="w">0.00</b></div>` +
       `<div class="bar wb"></div>` +
@@ -865,7 +942,7 @@ function setPips(e, frac){
   for (let i = 0; i < 4; i++) e.children[i].className = i < lit ? "on" : "";
 }
 const MODE_CLS = { CUTTING:"cut", POLISHING:"polish", OVERLOAD:"over",
-                   "CROWN SPENT":"spent", "AT DEPTH":"cut" };
+                   "BIT SPENT":"spent", "AT DEPTH":"cut" };
 const WOB_MAX_SHOWN = 1.15;
 
 function syncCard(r, e){

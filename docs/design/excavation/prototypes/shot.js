@@ -43,10 +43,15 @@ const drive = () => (o) => {
   await p.waitForTimeout(150);
   await shot('c2-polishing', '.sheet');
 
-  // --- the crown, close enough to judge ---
+  // --- the bit and the lower works, aimed at the live bit position ---
+  const dep = await p.evaluate(() => window.__rigs[1].depthM);
   const box = await p.locator('.variant canvas').nth(1).boundingBox();
-  await p.screenshot({ path: `${process.argv[3]}-crown.png`,
-    clip: { x: box.x + 4, y: box.y + box.height * 0.845, width: 132, height: 132 } });
+  const sc = box.height / 720;
+  const bitY = box.y + (72 + dep * (720 - 72 - 26) / 120) * sc;
+  await p.screenshot({ path: `${process.argv[3]}-bit.png`,
+    clip: { x: box.x + 4, y: bitY - 78 * sc, width: 150, height: 112 * sc } });
+  await p.screenshot({ path: `${process.argv[3]}-works.png`,
+    clip: { x: box.x + 4, y: bitY - 200 * sc, width: 150, height: 130 * sc } });
 
   // --- a second run driven badly: heavy over-weighted and spun hard ---
   await p.evaluate(() => { document.getElementById('reset').click(); window.__step(0.001); });

@@ -354,16 +354,32 @@ it swims across the bit — the same class of error as chips positioned from a
 stale constant (§6.4).
 
 ```
-crown crest ≈ 1.35 × barrel radius      pads 8 (compact) – 10 (heavy)
-waterway ≈ 0.30 of each pad's arc       crown height ≈ 0.6 × crest radius
+pads or teeth per ring: 8 (compact) – 10 (heavy)
+waterway / gap ≈ 0.30 of each segment's arc
 ```
 
-**The coring string varies §6.3 at the bottom end only:** the threaded stem
-becomes a **plain heavy barrel** (`P_BARREL` — the same five-band structure with
-its ceiling dropped to 0.86), closed by a bright **core lifter** ring and then
-the crown. A mid-string **stabiliser** — amber housing, blade slots, radius just
-under the crown's — appears on long strings only, and reads as the part that
-buys back the wobble depth costs.
+**The toothed cone is the same projection.** The concept sheet's shipped bit
+is not a flat crown but a **cone of conical cutters** — and nothing changes
+underneath. Each ring of teeth is an elliptical annulus at its own height and
+radius; every tooth owns an angle on it; back teeth ride the far side of the
+ellipse smaller and remapped bright enough to survive against the dark cone
+body (a plain `dim()` sinks them into it — that was the failed pass). The cone
+is a *consequence*: the outer ring's tips pull toward the axis only ~0.20 of
+the ring radius (they splay), the inner ring ~0.36, the centre point sits on
+the axis and is painted last. Gather every ring's teeth into ONE painter sort
+— sorting per ring lets a front tooth of the outer ring vanish under a back
+tooth of the inner. Rotation is still one phase scalar marching the teeth
+around their rings.
+
+**The lower works vary §6.3 at the bottom end only** — and they are data, not
+drawing code: each variant declares a `stack` of segments (step collars, a
+two-tone barrel at `P_BARREL`, a vented box, the amber **stabiliser** with its
+blade slots, the heavy's bundled-column section) rendered bottom-up from the
+bit by one segment painter, so a variant is a list, never a branch. The top
+works are the concept sheet's: bevelled-lid motor box, amber collar (one dark
+mouth slot on the compact, three lit vents on the heavy), slotted neck. Rod
+joints ride at fixed offsets above the lower works — rods are added at the
+top, so what is bolted together stays bolted together as the hole deepens.
 
 **Two failed passes worth keeping.** The bore, and the core standing inside it,
 were drawn *under* the barrel — which is wider than the bore, so none of it ever
@@ -380,8 +396,11 @@ strip beside its stratigraphy column is §9.45's lane palette verbatim. A second
 language for a variable that already has one is the failure this guide exists
 to prevent — the crown is new geometry, not a new dialect.
 
-Reference: `../excavation/prototypes/diamond-drill.html` — `drawCrown`,
-`crownPads`, `padPath`, `drawString`, `crackList`.
+Reference: `../excavation/prototypes/diamond-drill.html` — `drawBit`,
+`toothPath`, `drawStackSeg`, `drawPowerhead`, `crackList`. (The flat pad-crown
+described above was the first pass; it lives on in this section because the
+projection, the flood pass and the grit rules are identical — only the
+segment shape changed when the concept sheet's toothed cone replaced it.)
 
 ---
 
