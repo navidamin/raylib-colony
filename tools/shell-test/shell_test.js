@@ -45,16 +45,31 @@ const VIEWPORTS = [
 // check still matters at every size: a collapse to the natural 1280 cancels
 // the pointer division instead of merely shifting it.
 const DESKTOP_VIEWPORTS = [
-    { name: 'desktop-1920',  width: 1920, height: 919 },
-    { name: 'desktop-1680',  width: 1680, height: 1050 },
-    { name: 'desktop-4k',    width: 3840, height: 2010 },
+    { name: 'desktop-1920',   width: 1920, height: 919 },
+    { name: 'desktop-1680',   width: 1680, height: 1050 },
+    { name: 'desktop-4k',     width: 3840, height: 2010 },
+    // Windows at 125% display scaling: device fit 1.5, and snapping to 1
+    // would cost a third of the size -- past the cap, so it stays big
+    // (sharpness on that machine comes from the supersampled builds).
+    { name: 'desktop-125pct', width: 1536, height: 864, dpr: 1.25 },
+    // A supersampling build (SHELL v6): the game publishes a 2x buffer and
+    // the fit becomes a continuous downscale that fills the viewport.
+    { name: 'desktop-super',  width: 1920, height: 919, bufW: 2560, bufH: 1440 },
 ];
 
-// The shell's fit law: continuous downscale, whole-step upscale.
-function fitScale(vw, vh) {
-    let scale = Math.min(vw / GAME_W, vh / GAME_H);
-    if (scale > 1.0) scale = Math.max(1.0, Math.floor(scale));
-    return scale;
+// The shell's fit law (v6): computed in DEVICE pixels against the game's
+// published buffer; continuous downscale, whole-step upscale, CSS size =
+// buffer * scale / dpr (fractional CSS is fine -- device-exact is the point).
+function fitScale(vp) {
+    const dpr = vp.dpr || 1;
+    const bufW = vp.bufW || GAME_W;
+    const bufH = vp.bufH || GAME_H;
+    let s = Math.min(vp.width * dpr / bufW, vp.height * dpr / bufH);
+    if (s > 1.0) {
+        const snapped = Math.max(1.0, Math.floor(s));
+        if (snapped / s >= 0.70) s = snapped;
+    }
+    return bufW * s / dpr;
 }
 
 // Stands in for the Emscripten/raylib runtime, behaving as badly as the real
@@ -173,7 +188,16 @@ async function main() {
     // A stylesheet rule is what survives this; an inline style cannot.
     // -------------------------------------------------------------------
     for (const vp of DESKTOP_VIEWPORTS) {
-        const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
+        const page = await browser.newPage({
+            viewport: { width: vp.width, height: vp.height },
+            deviceScaleFactor: vp.dpr || 1,
+        });
+        if (vp.bufW) {
+            await page.addInitScript(({ w, h }) => {
+                window.__colonyBufW = w;
+                window.__colonyBufH = h;
+            }, { w: vp.bufW, h: vp.bufH });
+        }
         await page.goto('file://' + pagePath);
         await page.waitForTimeout(4000);
 
@@ -184,7 +208,7 @@ async function main() {
             return Math.round(c.getBoundingClientRect().width);
         });
 
-        const wantFit = Math.floor(GAME_W * fitScale(vp.width, vp.height));
+        const wantFit = Math.round(fitScale(vp));
         const ok = Math.abs(measured - wantFit) <= 2;
         if (!ok) failures++;
 

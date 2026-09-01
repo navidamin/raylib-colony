@@ -103,7 +103,7 @@
         <div id="shellDebug" style="display:none;position:fixed;top:4px;left:4px;z-index:9999;
              font:10px monospace;color:rgba(255,255,255,0.65);
              background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
-             pointer-events:none;">SHELL v5 loading...</div>
+             pointer-events:none;">SHELL v6 loading...</div>
         <script type='text/javascript'>
             // Fit the fixed-size framebuffer canvas to the device viewport,
             // preserving aspect ratio. Emscripten/raylib write their own
@@ -125,7 +125,7 @@
                     var d = debugEl;
                     if (!d || !c) return;
                     var r = c.getBoundingClientRect();
-                    d.textContent = 'SHELL v5'
+                    d.textContent = 'SHELL v6'
                         + ' cnv=' + c.width + 'x' + c.height
                         + ' style=' + c.style.getPropertyValue('width') + '/'
                                     + c.style.getPropertyPriority('width')
@@ -191,11 +191,19 @@
                     var c = document.getElementById('canvas');
                     if (!c) return;
 
+                    // The game may render SUPERSAMPLED: it publishes its real
+                    // buffer size (window.__colonyBufW/H) and its logical
+                    // layout size (window.__colonyLogicalW/H -- the space
+                    // pointer coordinates must arrive in). Absent globals
+                    // mean an older build: fall back to the fixed 1280x720.
+                    var bufW = (window.__colonyBufW | 0) || GAME_W;
+                    var bufH = (window.__colonyBufH | 0) || GAME_H;
+
                     // Restore the framebuffer if something shrank it. The
                     // game loop repaints every frame, so the buffer clear
                     // this causes is invisible.
-                    if (c.width !== GAME_W) c.width = GAME_W;
-                    if (c.height !== GAME_H) c.height = GAME_H;
+                    if (c.width !== bufW) c.width = bufW;
+                    if (c.height !== bufH) c.height = bufH;
 
                     updateDebug(c);
 
@@ -227,18 +235,29 @@
 
                     var vw = Math.min.apply(null, widths);
                     var vh = Math.min.apply(null, heights);
-                    var scale = Math.min(vw / c.width, vh / c.height);
-                    // Downscale continuously (a phone needs the exact fit),
-                    // but upscale only in whole steps: a fractional upscale
-                    // (1.5x on a 1920x1200 desktop) resamples every pixel of
-                    // the fixed 1280x720 buffer, which Firefox on Windows
-                    // renders visibly soft. Integer scales stay crisp; below
-                    // 2x the canvas sits at its native size, centred.
-                    if (scale > 1.0) scale = Math.max(1.0, Math.floor(scale));
-                    fittedW = Math.floor(c.width * scale);
-                    fittedH = Math.floor(c.height * scale);
-                    var w = fittedW + 'px';
-                    var h = fittedH + 'px';
+                    // Fit in DEVICE pixels, not CSS pixels: on a display
+                    // scaled to 125% (dpr 1.25 -- common on Windows) a
+                    // CSS-fit canvas is still resampled fractionally by the
+                    // browser and every small glyph smears. Snap so
+                    // buffer -> device is 1:1 or a whole step; downscales
+                    // (phones, supersampled buffers) stay continuous --
+                    // shrinking is safe, stretching is not.
+                    var dpr = window.devicePixelRatio || 1;
+                    var scale = Math.min(vw * dpr / bufW, vh * dpr / bufH);
+                    if (scale > 1.0)
+                    {
+                        // ...but only when the snap is cheap. On a dpr-3
+                        // phone the device fit is ~1.7x and snapping to 1
+                        // would shrink the game to a corner; there, size
+                        // beats device-exactness. A build that wants sharp
+                        // at any size supersamples its buffer instead.
+                        var snapped = Math.max(1.0, Math.floor(scale));
+                        if (snapped / scale >= 0.70) scale = snapped;
+                    }
+                    fittedW = bufW * scale / dpr;
+                    fittedH = bufH * scale / dpr;
+                    var w = fittedW.toFixed(2) + 'px';
+                    var h = fittedH.toFixed(2) + 'px';
 
                     // The fitted size also goes in a real stylesheet rule, and
                     // this is what makes the fit safe rather than merely
@@ -337,8 +356,10 @@
                     if (point.clientX === undefined) return;
 
                     window.__colonyMouse = {
-                        x: (point.clientX - r.left) * (GAME_W / fittedW),
-                        y: (point.clientY - r.top) * (GAME_H / fittedH)
+                        x: (point.clientX - r.left)
+                           * (((window.__colonyLogicalW | 0) || GAME_W) / fittedW),
+                        y: (point.clientY - r.top)
+                           * (((window.__colonyLogicalH | 0) || GAME_H) / fittedH)
                     };
                 }
 

@@ -1508,12 +1508,22 @@ static void ExtDrawSegBar(float x, float y, float w, float h, float value, Color
     }
 }
 
+// Scissor rects are framebuffer-pixel, not matrix-transformed: under a
+// supersampled web build every BeginScissorMode multiplies by this.
+static float gPixelScale = 1.0f;
+void RenderManager::SetPixelScale(float scale)
+{
+    gPixelScale = scale > 0.0f ? scale : 1.0f;
+}
+
 // Diagonal hazard stripes clipped to a rectangle (danger button edges).
 static void ExtDrawHazardStripes(Rectangle r, Color c)
 {
     const float stride = 14.0f;
-    BeginScissorMode(static_cast<int>(r.x), static_cast<int>(r.y),
-                     static_cast<int>(r.width), static_cast<int>(r.height));
+    BeginScissorMode(static_cast<int>(r.x * gPixelScale),
+                     static_cast<int>(r.y * gPixelScale),
+                     static_cast<int>(r.width * gPixelScale),
+                     static_cast<int>(r.height * gPixelScale));
     for (float sx = r.x - r.height; sx < r.x + r.width; sx += stride)
     {
         DrawLineEx({sx, r.y + r.height}, {sx + r.height, r.y}, 4.0f, c);
@@ -3152,8 +3162,10 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         prosSpin += 2.4f * dt;
     }
 
-    BeginScissorMode(static_cast<int>(dg.x), static_cast<int>(clipTop),
-                     static_cast<int>(dg.w), static_cast<int>(clipBot - clipTop));
+    BeginScissorMode(static_cast<int>(dg.x * gPixelScale),
+                     static_cast<int>(clipTop * gPixelScale),
+                     static_cast<int>(dg.w * gPixelScale),
+                     static_cast<int>((clipBot - clipTop) * gPixelScale));
 
     // The stage shakes with the work (redline): a rumble scaling with the
     // spindle, a jolt when the bit lets go. The whole dock translates as one
@@ -3365,20 +3377,26 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     ProsDrawHead(rig.cx, surfY, clipTop, turning, cooling);
 
     // The core log (redline's third panel, folded into the dock): one lane
-    // of 5 m sticks down the left edge, FINER than the strata, each graded
-    // by the worst heat it was cut at -- the lane records how you drilled.
-    // Redline's own legend: intact / partial / lost, ice tick on volatiles.
+    // of 5 m sticks down the left edge, each graded by the worst heat it
+    // was cut at, in redline's own log legend. The lane is a DOCUMENT, not
+    // a cross-section: sticks are EQUAL height (linear in metres, exactly
+    // redline's flexed log rows) while the strip beside it stays depth-true
+    // -- the depth mapping squashed deep sticks to a third of shallow ones,
+    // which read as a glitch. Stratum seams are marked in the lane so the
+    // two mappings stay legible side by side.
     if (hole.state != LineHoleState::NONE)
     {
         float lx = dg.x + 4.0f, lw = 7.0f;
-        DrawRectangleRec({lx - 1.5f, surfY - 1.5f, lw + 3.0f, botY - surfY + 3.0f},
+        float laneH = botY - surfY;
+        auto laneY = [&](float m) { return surfY + laneH * m / FULL_COLUMN_M; };
+        DrawRectangleRec({lx - 1.5f, surfY - 1.5f, lw + 3.0f, laneH + 3.0f},
                          PROS_OUT);
         for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
         {
             float m0 = iv * PROS_LOG_INTERVAL_M;
             float m1 = std::min(m0 + PROS_LOG_INTERVAL_M, FULL_COLUMN_M);
-            float y0 = dg.YOf(m0) + 0.5f;
-            float y1 = dg.YOf(m1) - 0.5f;
+            float y0 = laneY(m0) + 0.5f;
+            float y1 = laneY(m1) - 0.5f;
             if (y1 <= y0) continue;
             Color fill = {15, 24, 33, 255};                      // uncut
             switch (hole.logQ[iv])
@@ -3395,18 +3413,22 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
             if (hole.logQ[iv] != 0 && m1 > LayerTopM(2) && m0 < LayerBottomM(2))
                 DrawRectangleRec({lx, y0, 2.0f, y1 - y0}, Fade(PROS_ICE_FLECK, 0.85f));
         }
+        // stratum seams, so the lane's linear scale stays tied to the rock
+        for (int L = 1; L < 4; L++)
+            DrawRectangleRec({lx - 1.5f, laneY(LayerTopM(L)) - 0.5f,
+                              lw + 3.0f, 1.2f}, Fade(PROS_ROCK_EDGE[L], 0.9f));
         // the core-landing flash still pings the whole stratum it came from
         for (int L = 0; L < 4; L++)
         {
             if (!hole.cored[L]) continue;
             float flash = 1.0f - (ps->gameTime - hole.coredTime[L]) / 0.5f;
             if (flash > 0.0f)
-                DrawRectangleRec({lx, dg.bandTop[L], lw,
-                                  dg.bandTop[L + 1] - dg.bandTop[L]},
+                DrawRectangleRec({lx, laneY(LayerTopM(L)), lw,
+                                  laneY(LayerBottomM(L)) - laneY(LayerTopM(L))},
                                  Fade(WHITE, 0.6f * flash));
         }
-        // the bit's own tick rides the lane, level with the string
-        DrawRectangleRec({lx - 1.5f, dg.YOf(std::min(depthShown, hole.endM)) - 1.0f,
+        // the bit's own tick rides the lane, on the LANE's scale
+        DrawRectangleRec({lx - 1.5f, laneY(std::min(depthShown, hole.endM)) - 1.0f,
                           lw + 3.0f, 2.0f}, {244, 198, 106, 255});
     }
 

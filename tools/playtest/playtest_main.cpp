@@ -26,6 +26,7 @@
 // and is playable on phone/tablet -- taps map to clicks.
 
 #include "raylib.h"
+#include "rlgl.h"
 #include "web_mouse.h"
 
 #include "rendermanager.h"
@@ -69,6 +70,12 @@ struct PlaytestContext
 
     int screenWidth = 1280;
     int screenHeight = 720;
+    // Web supersampling: on a screen larger than the layout the buffer is
+    // renderScale x bigger and every frame draws through a matrix scale, so
+    // the browser only ever DOWNSCALES -- sharp at any fraction, where
+    // stretching the 1280 buffer smeared every small glyph. Layout, input
+    // and all game code stay in 1280x720 logical space.
+    int renderScale = 1;
     int frame = 0;
     const char* shotPath = nullptr;
     bool done = false;
@@ -240,6 +247,15 @@ static void UpdateDrawFrame(void* arg)
 
     BeginDrawing();
     ClearBackground(BLACK);
+    // Everything draws in 1280x720 logical space; the matrix carries it into
+    // the (possibly supersampled) buffer. Scissors don't ride the matrix --
+    // RenderManager scales those itself via SetPixelScale.
+    rlPushMatrix();
+    if (ctx.renderScale != 1)
+    {
+        rlScalef(static_cast<float>(ctx.renderScale),
+                 static_cast<float>(ctx.renderScale), 1.0f);
+    }
     ctx.renderManager->DrawUnitView(ctx.unit.get(), *ctx.timeManager);
 
     // On-screen controls (touch-friendly), tucked into the top bar
@@ -253,6 +269,7 @@ static void UpdateDrawFrame(void* arg)
     // to clear the DIRECTIVES card above it and the panel border below.
     PlaytestDrawStatement(*ctx.unit, 18.0f, 497.0f, 250.0f, 80.0f);
 
+    rlPopMatrix();
     EndDrawing();
     ctx.frame++;
 
@@ -318,11 +335,37 @@ int main(int argc, char** argv)
     }
 
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(ctx.screenWidth, ctx.screenHeight, "Colony - Prospecting Playtest");
+#ifdef __EMSCRIPTEN__
+    // Choose the supersample before the window exists, and tell the shell
+    // (SHELL v6 reads __colonyBufW/H to pin the framebuffer, and
+    // __colonyLogicalW/H to keep pointer coordinates in layout space).
+    {
+        int devW = EM_ASM_INT({
+            return Math.round(document.documentElement.clientWidth
+                              * (window.devicePixelRatio || 1));
+        });
+        int devH = EM_ASM_INT({
+            return Math.round(document.documentElement.clientHeight
+                              * (window.devicePixelRatio || 1));
+        });
+        float fit = std::min(devW / static_cast<float>(ctx.screenWidth),
+                             devH / static_cast<float>(ctx.screenHeight));
+        ctx.renderScale = fit > 1.05f ? 2 : 1;
+        EM_ASM({
+            window.__colonyBufW = $0; window.__colonyBufH = $1;
+            window.__colonyLogicalW = $2; window.__colonyLogicalH = $3;
+        }, ctx.screenWidth * ctx.renderScale, ctx.screenHeight * ctx.renderScale,
+           ctx.screenWidth, ctx.screenHeight);
+    }
+#endif
+    InitWindow(ctx.screenWidth * ctx.renderScale,
+               ctx.screenHeight * ctx.renderScale,
+               "Colony - Prospecting Playtest");
     SetTargetFPS(60);
 
     {
         RenderManager renderManager(ctx.screenWidth, ctx.screenHeight);
+        renderManager.SetPixelScale(static_cast<float>(ctx.renderScale));
         renderManager.LoadFonts();
 
         // The constructor only allocates the grids; Planet normally calls this

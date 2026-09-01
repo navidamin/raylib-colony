@@ -548,10 +548,14 @@ the panels except the ground itself.
 ### 9.45 The core log lane
 
 The score sheet (redline's third panel), folded into the borehole strip as
-one narrow lane (7 px + OUT frame) down its left edge, sharing the strip's
-depth mapping exactly. Its sticks are FINER than the strata — 5 m each —
-and each is graded by the worst heat it was cut at, in redline's own log
-legend: **dark** `#0f1821` = uncut, **intact** `#93a7b8`, **partial**
+one narrow lane (7 px + OUT frame) down its left edge. The lane is a
+DOCUMENT, not a cross-section: its 5 m sticks are EQUAL height (linear in
+metres — exactly redline's flexed log rows), while the strip beside it
+stays depth-true; mapping the sticks through the strip's band scale
+squashed deep sticks to a third of shallow ones, which read as a glitch.
+Thin stratum-seam lines cross the lane so its linear scale stays tied to
+the rock. Each stick is graded by the worst heat it was cut at, in
+redline's own log legend: **dark** `#0f1821` = uncut, **intact** `#93a7b8`, **partial**
 (smoked) `#5c6675`, **lost** (cooked) `#241a17` with a `#3a2620` inner
 border; cut sticks of the icy stratum carry a 2 px ice tick `#7fd8ee`.
 A landing core still flashes its whole stratum white for 0.5 s (same

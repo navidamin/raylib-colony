@@ -114,6 +114,25 @@ A persistent enforcer, not a one-shot:
 **If the game's base resolution ever changes, update `GAME_W/GAME_H` in
 minshell.html.**
 
+### SHELL v6: device-pixel fit and supersampled buffers
+
+Two additions over v5, both driven by desktop text quality:
+
+- **The fit is computed in DEVICE pixels** (`dpr = devicePixelRatio`),
+  and an upscale snaps to a whole device step — but only when the snap
+  keeps >= 70% of the size. Snapping makes buffer -> device exact (crisp);
+  past the cap, size beats exactness (a dpr-3 phone would otherwise
+  shrink to a corner). CSS sizes may be fractional; that is the point.
+- **The buffer is no longer hardwired**: a build may publish
+  `window.__colonyBufW/H` (real framebuffer) and `__colonyLogicalW/H`
+  (the space pointer coordinates arrive in) before the shell runs.
+  The playtest uses this to SUPERSAMPLE on big screens: it renders the
+  1280x720 layout through a 2x matrix into a 2560x1440 buffer, so the
+  browser only ever downscales — sharp at any fraction, full viewport.
+  Scissor rects do not ride the matrix; `RenderManager::SetPixelScale`
+  covers them. Absent globals mean an older build: everything falls back
+  to the fixed `GAME_W/GAME_H`.
+
 ## The pointer-coordinate bug (Firefox, Aug 2026)
 
 A fourth way the three sizes bite, found after the fit was already correct.
@@ -172,7 +191,7 @@ relies on.
 
 **Diagnosing it again**: `?debug=1` plus the sandbox's F9 crosshair. If
 `game sees` matches `rel` rather than `expect`, the CSS size collapsed. Check
-the badge's version first -- it reads `SHELL v5`; anything older is a cached
+the badge's version first -- it reads `SHELL v6`; anything older is a cached
 page, not a live bug.
 
 ## The diagnostic badge

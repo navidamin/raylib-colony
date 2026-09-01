@@ -22,6 +22,13 @@ public:
 
     void LoadFonts();
 
+    // Web supersampling support: the caller renders the 1280x720 layout
+    // through an NxN matrix scale into a larger buffer. Matrices do not
+    // touch BeginScissorMode -- it clips in raw framebuffer pixels -- so
+    // the renderer multiplies its scissor rects by this. 1.0 everywhere
+    // except a supersampled web build.
+    void SetPixelScale(float scale);
+
     void BeginDraw();
     void EndDraw();
 
