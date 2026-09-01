@@ -214,6 +214,14 @@ For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
   not the world.
 - **Sparks**: only where the work is hard (`hard > 0.5`), 2.4 px squares in
   `rgba(255,170–240,60)`, scattered in a half-disc around the contact point.
+- **The wear ladder** (game dock): cracks appear past **0.55 wear**, one
+  more per ~0.09 after, capped at 6 — each with a FIXED seed so it is a
+  stable feature of the part, not per-frame noise. At wear 1.0 the bit
+  fractures: a shake jolt, then the **trip** — the string runs out of the
+  hole and back on a half-sine of the trip clock
+  (`shown = depth · (1 − sin(π·f))`), spin in slow REVERSE (backing rods
+  off), particles stopped, while the borehole itself stays cut to the
+  deepest point reached. The hole is a fact; only the tool leaves.
 
 ---
 
@@ -328,6 +336,12 @@ with depth. The lamp on the side pod reads machine state semantically
 - **Shake is an impulse**: set `shake = 1` on a hit, decay `−dt·7`, apply as
   ±1.5 px random offset to the whole scene transform. Gate behind
   `prefers-reduced-motion` along with sparks and idle particle churn.
+- **Shake, console form** (game dock): the whole stage translates as ONE
+  rigid body (`rlPushMatrix` inside the scissor) while the scissor and the
+  panel frame stay fixed — the console rattles *in its mount*. Continuous
+  rumble `0.35 + 1.1·rpmN²` px while cutting, plus a 5 px jolt decaying
+  over 0.6 s when the bit fractures. Never shake the frame or the text
+  panel; a readout that rattles is a bug, a stage that rattles is work.
 - **Clamp dt at both ends**: `clamp((now−last)/1000, 0, 0.05)`. The first
   rAF timestamp can *precede* the `performance.now()` captured before it —
   a negative dt once ran depth below zero and indexed an array at −1.
@@ -439,6 +453,19 @@ cell the trace passes flips class with a brief white overlay flash and keeps
 a bore-ring; leaders to the active layer warm from dim steel to amber. Every
 correlation cue is *event-driven and reversible* — nothing permanent joins
 the panels except the ground itself.
+
+### 9.45 The core log lane
+
+The score sheet (redline's third panel), folded into the borehole strip as
+one narrow lane (7 px + OUT frame) down its left edge, sharing the strip's
+depth mapping exactly — its interval boundaries ARE the band seams. Three
+fills tell the whole story without a legend: **dark** `#0f1821` = the line
+has not cut it, **mid-grey** `#4a5b6b` = cut, growing downward with the
+bit, **bright** `#93a7b8` = its core is aboard, flashed white for 0.5 s
+when it lands (same flash clock as the plate cell). The icy stratum
+carries a 2 px ice-fleck edge tick. The bit's own position rides the lane
+as an amber tick, level with the string — a third cursor on the same
+clock. The lane records; it never animates on its own.
 
 ### 9.5 The animation recipes
 

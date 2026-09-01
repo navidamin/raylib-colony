@@ -1,4 +1,5 @@
 #include "rendermanager.h"
+#include "rlgl.h"
 #include "web_mouse.h"
 #include "resource_manager.h"
 #include "resource_types.h"
@@ -3109,6 +3110,16 @@ static void ProsDrawHead(float cx, float surfY, float clipTop,
 }
 
 // The whole strip. Returns nothing; draws rock, hole, string, mud trace.
+// During a trip the string is OUT of the hole: the drawn depth runs the true
+// depth out and back on a half-sine (redline's lift) while the sim depth
+// holds. Everything visual that follows the bit reads this, never depthM.
+static float ProsShownDepthM(const LineHole& hole)
+{
+    if (!hole.tripping || hole.tripDur <= 0.0f) return hole.depthM;
+    float f = std::clamp(hole.tripT / hole.tripDur, 0.0f, 1.0f);
+    return hole.depthM * (1.0f - sinf(f * PI));
+}
+
 static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                                  const ProsDockGeom& dg, float clipTop, float clipBot,
                                  float hoverM,
@@ -3116,7 +3127,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
 {
     (void)unit;
     const LineHole& hole = ps->lineHole;
-    bool turning = hole.state == LineHoleState::DRILLING;
+    bool turning = hole.state == LineHoleState::DRILLING && !hole.tripping;
     bool cooling = turning && hole.dwelling;
     float surfY = dg.bandTop[0];
     float botY = dg.bandTop[4];
@@ -3126,7 +3137,8 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     // locks the auger illusion to the actual advance (campaign: the old fixed
     // rate was HALF screw-true in regolith -- the drill looked pushed, not
     // screwed). Hard rock floors at a grind rate: turning faster than it
-    // bites, which is honest. A dwell winds the spin down to a creep.
+    // bites, which is honest. A dwell winds the spin down to a creep; a trip
+    // backs the rods off in slow reverse.
     float dt = GetFrameTime();
     if (turning)
     {
@@ -3135,9 +3147,27 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         float screwTrue = DrillAdvanceAtM(hole.depthM) * pxPerM * 2.0f * PI / PROS_PITCH;
         prosSpin -= (cooling ? 1.1f : std::max(screwTrue, 6.0f) * hole.rpm) * dt;
     }
+    else if (hole.tripping)
+    {
+        prosSpin += 2.4f * dt;
+    }
 
     BeginScissorMode(static_cast<int>(dg.x), static_cast<int>(clipTop),
                      static_cast<int>(dg.w), static_cast<int>(clipBot - clipTop));
+
+    // The stage shakes with the work (redline): a rumble scaling with the
+    // spindle, a jolt when the bit lets go. The whole dock translates as one
+    // rigid console -- rock, string and cursors together -- inside the fixed
+    // scissor and frame, so the console rattles in its mount.
+    {
+        float rpmN0 = hole.rpm / DRILL_RPM_MAX;
+        float burst = std::max(0.0f, 1.0f - (ps->gameTime - hole.fracturedTime) / 0.6f);
+        float amp = (turning ? (0.35f + 1.1f * rpmN0 * rpmN0) : 0.0f) + burst * 5.0f;
+        float sx = amp > 0.01f ? (static_cast<float>(GetRandomValue(-100, 100)) / 100.0f) * amp : 0.0f;
+        float sy = amp > 0.01f ? (static_cast<float>(GetRandomValue(-100, 100)) / 100.0f) * amp : 0.0f;
+        rlPushMatrix();
+        rlTranslatef(sx, sy, 0.0f);
+    }
 
     // sky
     DrawRectangleRec({dg.x, clipTop, dg.w, surfY - clipTop}, {10, 16, 24, 255});
@@ -3177,7 +3207,8 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     rig.cx = dg.cx; rig.surfY = surfY;
     prosHeatAmt = hole.heat;
     float depthShown = (hole.state == LineHoleState::DRILLING ||
-                        hole.state == LineHoleState::DONE) ? hole.depthM : 1.5f;
+                        hole.state == LineHoleState::DONE)
+                       ? ProsShownDepthM(hole) : 1.5f;
     rig.bitY = dg.YOf(depthShown);
     rig.coneApex = rig.bitY;                    // the tip IS the depth
     rig.coneTop = rig.coneApex - PROS_CONE;
@@ -3185,17 +3216,20 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                                       rig.coneTop - 3.0f * PROS_PITCH), surfY + 10.0f);
     prosHeatBitY = rig.bitY;
 
-    // borehole with ragged walls, cut to the bit
+    // borehole with ragged walls, cut to the DEEPEST point the bit reached
+    // -- the hole stays a hole while a trip lifts the string out of it
+    float cutY = dg.YOf((hole.state == LineHoleState::DRILLING ||
+                         hole.state == LineHoleState::DONE) ? hole.depthM : 1.5f);
     float bw = PROS_DRILL_R * 2.0f + 9.0f;
-    DrawRectangleRec({rig.cx - bw / 2.0f, surfY, bw, rig.bitY - surfY + 4.0f}, {14, 11, 8, 255});
+    DrawRectangleRec({rig.cx - bw / 2.0f, surfY, bw, cutY - surfY + 4.0f}, {14, 11, 8, 255});
     prosGrain = 29;
-    for (float y = surfY; y < rig.bitY + 2.0f; y += 7.0f)
+    for (float y = surfY; y < cutY + 2.0f; y += 7.0f)
     {
         DrawRectangleRec({rig.cx - bw / 2.0f - 2.0f - ProsRnd() * 2.6f, y, 3.4f + ProsRnd() * 2.6f, 6.0f}, Fade(BLACK, 0.8f));
         DrawRectangleRec({rig.cx + bw / 2.0f - 1.4f + ProsRnd() * 2.6f, y, 3.4f + ProsRnd() * 2.6f, 6.0f}, Fade(BLACK, 0.8f));
     }
-    DrawRectangleRec({rig.cx - bw / 2.0f, surfY, 5.0f, rig.bitY - surfY + 4.0f}, Fade(BLACK, 0.45f));
-    DrawRectangleRec({rig.cx + bw / 2.0f - 5.0f, surfY, 5.0f, rig.bitY - surfY + 4.0f}, Fade(BLACK, 0.45f));
+    DrawRectangleRec({rig.cx - bw / 2.0f, surfY, 5.0f, cutY - surfY + 4.0f}, Fade(BLACK, 0.45f));
+    DrawRectangleRec({rig.cx + bw / 2.0f - 5.0f, surfY, 5.0f, cutY - surfY + 4.0f}, Fade(BLACK, 0.45f));
 
     // casing at the collar, spoil mounds either side
     DrawEllipse(static_cast<int>(rig.cx - 34.0f), static_cast<int>(surfY - 1.0f),
@@ -3214,6 +3248,38 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     ProsDrawThread(rig, false);
     ProsDrawString(rig, clipTop + 4.0f);
     ProsDrawThread(rig, true);
+
+    // Cracks climb the string as the bit wears (redline's recipe, Dark
+    // Plating hairline over OUT): a 3px near-black jag, a heat-orange glow
+    // pass, a white catch-light offset right. They appear past 0.55 wear and
+    // multiply toward the fracture; fixed per-crack seeds keep each one a
+    // stable feature rather than per-frame noise.
+    if (hole.state == LineHoleState::DRILLING && !hole.tripping && hole.wear > 0.55f)
+    {
+        int n = 1 + static_cast<int>((hole.wear - 0.55f) / 0.45f * 5.0f);
+        for (int i = 0; i < n; i++)
+        {
+            unsigned sd = 48271u * static_cast<unsigned>(i + 3);
+            auto crnd = [&sd]() {
+                sd = sd * 48271u % 2147483647u;
+                return static_cast<float>(sd % 1000u) / 1000.0f;
+            };
+            float y = rig.bitY - 14.0f - crnd() * 110.0f;
+            if (y < surfY + 12.0f) continue;
+            Vector2 p = {rig.cx - PROS_DRILL_R + 1.5f + crnd() * 9.0f, y};
+            for (int s = 0; s < 6; s++)
+            {
+                Vector2 q = {p.x + (crnd() - 0.48f) * 11.0f, p.y + 2.5f + crnd() * 4.5f};
+                DrawLineEx(p, q, 3.0f, {13, 8, 5, 255});
+                DrawLineEx(p, q, 1.2f,
+                           Fade({255, 130, 35, 255},
+                                std::clamp(0.25f + hole.heat, 0.0f, 1.0f)));
+                DrawLineEx({p.x + 1.6f, p.y}, {q.x + 1.6f, q.y}, 1.0f,
+                           Fade(WHITE, 0.28f));
+                p = q;
+            }
+        }
+    }
 
     // heat glow pooling at the working point
     if (hole.heat > 0.04f)
@@ -3268,7 +3334,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     if (hole.state != LineHoleState::NONE)
     {
         float endY = dg.YOf(hole.endM);
-        Vector2 tip = {rig.cx, dg.YOf(std::min(hole.depthM, hole.endM)) + 3.0f};
+        Vector2 tip = {rig.cx, dg.YOf(std::min(ProsShownDepthM(hole), hole.endM)) + 3.0f};
         if (hole.depthM < hole.endM - 0.5f)
         {
             DrawLineEx(tip, {rig.cx, endY}, 6.0f, Fade(EXT_ACCENT_CYAN, 0.10f));
@@ -3293,12 +3359,47 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
 
     ProsDrawHead(rig.cx, surfY, clipTop, turning, cooling);
 
+    // The core log (redline's third panel, folded into the dock): one lane
+    // of intervals down the left edge. Dark = the line has not cut it yet,
+    // grey = cut, bright = its core is aboard; the icy seam carries an ice
+    // tick. With no pressure band ported, a recovered interval always logs
+    // full -- the lane is the score sheet the disposition doc names.
+    if (hole.state != LineHoleState::NONE)
+    {
+        float lx = dg.x + 4.0f, lw = 7.0f;
+        DrawRectangleRec({lx - 1.5f, surfY - 1.5f, lw + 3.0f, botY - surfY + 3.0f},
+                         PROS_OUT);
+        for (int L = 0; L < 4; L++)
+        {
+            float y0 = dg.bandTop[L] + (L == 0 ? 0.0f : 1.0f);
+            float y1 = dg.bandTop[L + 1] - 1.0f;
+            DrawRectangleRec({lx, y0, lw, y1 - y0}, {15, 24, 33, 255});
+            float top = LayerTopM(L);
+            float cutTo = std::clamp(std::min(hole.depthM, hole.endM),
+                                     top, LayerBottomM(L));
+            if (cutTo > top)
+                DrawRectangleRec({lx, y0, lw, dg.YOf(cutTo) - y0}, {74, 91, 107, 255});
+            if (hole.cored[L])
+            {
+                DrawRectangleRec({lx, y0, lw, y1 - y0}, {147, 167, 184, 255});
+                float flash = 1.0f - (ps->gameTime - hole.coredTime[L]) / 0.5f;
+                if (flash > 0.0f)
+                    DrawRectangleRec({lx, y0, lw, y1 - y0}, Fade(WHITE, 0.6f * flash));
+            }
+            if (L == 2)
+                DrawRectangleRec({lx, y0, 2.0f, y1 - y0}, Fade(PROS_ICE_FLECK, 0.85f));
+        }
+        // the bit's own tick rides the lane, level with the string
+        DrawRectangleRec({lx - 1.5f, dg.YOf(std::min(depthShown, hole.endM)) - 1.0f,
+                          lw + 3.0f, 2.0f}, {244, 198, 106, 255});
+    }
+
     // the hovered plate cell's depth, shown as its twin on the rock column --
     // every point on a plane corresponds to a point down the hole
     if (hoverM >= 0.0f)
     {
         float hy = dg.YOf(hoverM);
-        DrawLineEx({dg.x + 2.0f, hy}, {dg.x + dg.w - 24.0f, hy}, 1.2f,
+        DrawLineEx({dg.x + 14.0f, hy}, {dg.x + dg.w - 24.0f, hy}, 1.2f,
                    Fade(EXT_ACCENT_CYAN, 0.75f));
         const char* dm = TextFormat("%.0f", hoverM);
         DrawTextEx(bodyFont, dm, {dg.x + dg.w - 21.0f, hy - 4.0f},
@@ -3313,6 +3414,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         DrawTextEx(bodyFont, tag, {dg.x + 5.0f, botY + 5.0f},
                    fsSmall, sp, EXT_DIM_TEXT);
     }
+    rlPopMatrix();
     EndScissorMode();
 
     // border: solid except the model-facing edge, which is a dashed cut mark
@@ -3357,7 +3459,7 @@ static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
 
     Vector2 P0 = ProsTraceAt(ps, g, dg, 0.0f);
     Vector2 P1 = ProsTraceAt(ps, g, dg, hole.endM);
-    Vector2 Pn = ProsTraceAt(ps, g, dg, std::min(hole.depthM, hole.endM));
+    Vector2 Pn = ProsTraceAt(ps, g, dg, std::min(ProsShownDepthM(hole), hole.endM));
 
     // shadow of the full prescribed path -- always there, quiet
     DrawLineEx(P0, P1, 6.0f, Fade(EXT_ACCENT_CYAN, 0.10f));
@@ -3813,6 +3915,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                    {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
         ctrlY += 16.0f;
     }
+    else if (lh.state == LineHoleState::DRILLING && lh.tripping)
+    {
+        DrawTextEx(bodyFont, TextFormat("bit fractured at %.0f m - tripping  %.0f / %.0f s",
+                                        lh.depthM, lh.tripT, lh.tripDur),
+                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_RED);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "out rod by rod, and back - depth is the price",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
     else if (lh.state == LineHoleState::DRILLING)
     {
         DrawTextEx(bodyFont, TextFormat("string down  %.0f / %.0f m%s",
@@ -3853,6 +3965,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         Color hc = lh.heat > 0.8f ? EXT_ACCENT_RED
                  : lh.heat > 0.5f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
         ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.heat, hc);
+        ctrlY += 15.0f;
+    }
+    // Bit wear: time-at-temperature plus metres cut. At full it fractures,
+    // and a fracture buys a TRIP -- time scaled by depth, never the run.
+    if (lh.state == LineHoleState::DRILLING || lh.wear > 0.02f)
+    {
+        DrawTextEx(bodyFont, "BIT WEAR", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+        Color wc = lh.wear > 0.8f ? EXT_ACCENT_RED
+                 : lh.wear > 0.55f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.wear, wc);
         ctrlY += 17.0f;
     }
     ctrlY += 6.0f;

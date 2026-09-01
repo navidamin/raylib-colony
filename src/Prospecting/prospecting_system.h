@@ -32,6 +32,12 @@ struct LineHole
     float heat = 0.0f;                // 0..1, bit temperature
     bool  dwelling = false;           // auto-peck: off the face, cooling
     float rpm = 0.0f;                 // spindle speed, idle..max
+    float wear = 0.0f;                // 0..1, bit spent; at 1.0 it fractures
+    bool  tripping = false;           // string out rod by rod, and back
+    float tripT = 0.0f;               // seconds into the trip
+    float tripDur = 0.0f;             // BIT_TRIP_BASE_S + depth * PER_M
+    float fracturedTime = -100.0f;    // when the bit last let go
+    int   trips = 0;                  // fractures this hole has cost
 };
 
 class ProspectingSystem

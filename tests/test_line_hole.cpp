@@ -174,13 +174,62 @@ TEST_CASE("an idle hole never cooks the bit", "[linehole]")
     REQUIRE(maxHeat < DRILL_HEAT_RESUME);
 }
 
+TEST_CASE("too hot for too long fractures the bit - a trip, never an ending", "[linehole]")
+{
+    // Rule 1 (drilling-procedure.md): broken equipment is the LESSER
+    // penalty. Driven flat out, thermal fatigue fractures the bit; the
+    // fracture buys a depth-priced trip with no advance, the bit returns
+    // fresh, and the hole still finishes.
+    ProspectingSystem sys = MakeSystem();
+    sys.StartAim(3, 3);
+    sys.AimAt(3, 3, 3);
+    sys.CommitHole();
+
+    bool advancedWhileTripping = false;
+    float wearAfterTrip = -1.0f;
+    for (int i = 0; i < 20000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    {
+        sys.KickString();                        // flat out, every step
+        float before = sys.lineHole.depthM;
+        bool wasTripping = sys.lineHole.tripping;
+        sys.UpdateLineHole(0.05f);
+        if (sys.lineHole.tripping && sys.lineHole.depthM > before + 0.0001f)
+            advancedWhileTripping = true;
+        if (wasTripping && !sys.lineHole.tripping && wearAfterTrip < 0.0f)
+            wearAfterTrip = sys.lineHole.wear;
+    }
+    REQUIRE(sys.lineHole.state == LineHoleState::DONE);   // never an ending
+    REQUIRE(sys.lineHole.trips >= 1);                     // it did fracture
+    REQUIRE_FALSE(advancedWhileTripping);                 // a trip is downtime
+    REQUIRE(wearAfterTrip >= 0.0f);
+    REQUIRE(wearAfterTrip < 0.1f);                        // fresh bit after
+}
+
+TEST_CASE("a cool hole never fractures the bit", "[linehole]")
+{
+    // Gentle pace: heat mostly under the fatigue onset, wear driven by
+    // abrasion alone -- a full column must not cost a trip.
+    ProspectingSystem sys = MakeSystem();
+    sys.StartAim(3, 3);
+    sys.AimAt(3, 3, 3);
+    sys.CommitHole();
+    for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    {
+        if (i % 10 == 0) sys.KickString();       // ~2 clicks/s
+        sys.UpdateLineHole(0.05f);
+    }
+    REQUIRE(sys.lineHole.state == LineHoleState::DONE);
+    REQUIRE(sys.lineHole.trips == 0);
+    REQUIRE(sys.lineHole.wear < 1.0f);
+}
+
 TEST_CASE("drill tuning campaign", "[.][campaign]")
 {
     // Not a check -- an instrument. Run explicitly:
     //   ./build/tests/colony_tests "[campaign]"
     // Prints click-rate vs column time for the full basalt hole; numbers
     // feed docs/design/prospecting/drill-tuning.md.
-    for (float f : {0.0f, 1.0f, 2.0f, 4.0f, 6.0f})
+    for (float f : {0.0f, 1.0f, 2.0f, 4.0f, 6.0f, 8.0f, 12.0f})
     {
         ProspectingSystem sys = MakeSystem();
         sys.StartAim(3, 3);
@@ -197,8 +246,9 @@ TEST_CASE("drill tuning campaign", "[.][campaign]")
             t += 0.05f;
         }
         printf("campaign: %.0f clicks/s -> %.0f m column in %.0f s "
-               "(dwell %.0f s, rpm peak %.2f)\n",
-               f, sys.lineHole.endM, t, dwellT, rpmPeak);
+               "(dwell %.0f s, rpm peak %.2f, trips %d, wear at end %.2f)\n",
+               f, sys.lineHole.endM, t, dwellT, rpmPeak, sys.lineHole.trips,
+               sys.lineHole.wear);
         REQUIRE(sys.lineHole.state == LineHoleState::DONE);
     }
 }

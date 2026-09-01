@@ -137,3 +137,40 @@ the border, reading as the drill refusing the boundary. Now
 coming). The renderer's sparks and screw-true spin read the same blended
 values, so nothing about the cut — speed, spin, heat, sparks — changes
 discontinuously at a plate border.
+
+## 7. The bit: wear, fracture, and the trip
+
+Redline's Tier 3 failure (redline-disposition.md §4), in the game. Wear
+runs 0 → 1 through two channels and NEVER ends the run:
+
+```
+abrasion:          dW  = adv_m · hard · BIT_WEAR_PER_M            (0.008 /m·hard)
+thermal fatigue:   dW/dt = BIT_FATIGUE_RATE · x²,                 (0.065 /s)
+                   x = (heat − BIT_FATIGUE_ONSET)/(1 − ONSET),    (onset 0.60)
+                   accruing whether or not the bit advances — hot is hot
+fracture at W=1:   trip of BIT_TRIP_BASE_S + depth · BIT_TRIP_S_PER_M
+                   (3 s + 0.30 s/m — 27 s from 79 m), no advance, fast
+                   cool, fresh bit (W=0) after
+```
+
+Quadratic-above-onset is the shape that makes "too long, too hot" the
+trigger rather than heat per se: cruising warm accrues nothing, riding
+the auto-peck cycle (0.45→1.0 sawtooth) accrues ~0.24·RATE per second of
+it. Measured on the 79 m basalt column (campaign instrument, now printing
+trips and end wear):
+
+| clicks/s | column | trips | wear at end |
+|---|---|---|---|
+| 0–2 | 180–63 s | 0 | 0.33 (abrasion only — a cool bit does two columns) |
+| 4 | 53 s | 0 | 0.95 |
+| 6–8 | 48 s | 0 | **0.97 — the fastest play finishes ON the redline** |
+| 12 (spam) | 75 s | 1 | fractured at depth, paid the 27 s trip |
+
+The gamble scales with depth twice over: a deeper hole gives fatigue more
+time to reach 1.0, and the trip it forces costs more from further down.
+The same 6/s pace that survives 79 m fractures on a longer column.
+
+Not ported with it (still out by decision or blocker): Tier 2 lost
+intervals need the pressure band (excluded for now); Tier 1 cooked
+evidence is blocked on the assay-quality term (disposition doc §5);
+voluntary tripping and wireline await a UI affordance.

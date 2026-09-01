@@ -103,6 +103,14 @@ for.
 
 ### Tier 3 — Bit wear and tripping (costs time — the lesser penalty)
 
+> **Status: IN THE GAME** (the line-hole dock). Wear = abrasion per metre
+> cut plus thermal fatigue quadratic in time-at-temperature above an
+> onset; at 1.0 the bit fractures and the string trips, depth-priced,
+> never ending the run. Constants and campaign numbers:
+> `docs/design/prospecting/drill-tuning.md` §7. Voluntary tripping and
+> wireline are not yet in. Tier 1 remains blocked on the assay term
+> (§5); Tier 2's pressure band is deliberately not ported yet.
+
 Bits dull with metres cut, faster in hard rock, much faster when driven hot.
 A dull bit does not end the run. It forces a **trip**: pull the string rod by
 rod and run it back, **time proportional to current depth**.

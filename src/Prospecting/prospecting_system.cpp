@@ -170,6 +170,7 @@ bool ProspectingSystem::CommitHole()
 void ProspectingSystem::KickString()
 {
     if (lineHole.state != LineHoleState::DRILLING) return;
+    if (lineHole.tripping) return;   // the string is out of the hole
     lineHole.rpm = std::min(DRILL_RPM_MAX, lineHole.rpm + DRILL_RPM_KICK);
 }
 
@@ -207,6 +208,40 @@ bool ProspectingSystem::UpdateLineHole(float dt)
     lineHole.rpm = DRILL_RPM_IDLE +
         (lineHole.rpm - DRILL_RPM_IDLE) * std::exp(-dt / DRILL_RPM_TAU);
 
+    // A fractured bit trips: the string comes out rod by rod and goes back,
+    // nothing advances, and the bit cools fast in the open. Time is the
+    // WHOLE price (drilling-procedure.md Rule 1), and it scales with depth.
+    if (lineHole.tripping)
+    {
+        lineHole.tripT += dt;
+        lineHole.heat = std::max(0.0f, lineHole.heat - DRILL_HEAT_COOL * 1.6f * dt);
+        if (lineHole.tripT >= lineHole.tripDur)
+        {
+            lineHole.tripping = false;
+            lineHole.wear = 0.0f;        // a fresh bit
+            lineHole.dwelling = false;
+        }
+        return false;
+    }
+
+    // Thermal fatigue: time at temperature, quadratic above the onset.
+    // Cracks grow while the bit is hot whether or not it is advancing, so
+    // this accrues through auto-peck dwells too -- hot is hot.
+    if (lineHole.heat > BIT_FATIGUE_ONSET)
+    {
+        float x = (lineHole.heat - BIT_FATIGUE_ONSET) / (1.0f - BIT_FATIGUE_ONSET);
+        lineHole.wear += x * x * BIT_FATIGUE_RATE * dt;
+    }
+    if (lineHole.wear >= 1.0f)
+    {
+        lineHole.tripping = true;
+        lineHole.tripT = 0.0f;
+        lineHole.tripDur = BIT_TRIP_BASE_S + lineHole.depthM * BIT_TRIP_S_PER_M;
+        lineHole.fracturedTime = gameTime;
+        lineHole.trips++;
+        return false;
+    }
+
     // Heat: climbs with rpm x the hardness being cut, bleeds at a flat rate.
     // Past the ceiling the string auto-pecks -- dwells off the face, no
     // advance -- until it has cooled enough to bite again. Driving hard
@@ -227,9 +262,13 @@ bool ProspectingSystem::UpdateLineHole(float dt)
         return false;
     }
 
+    float beforeM = lineHole.depthM;
     lineHole.depthM = std::min(lineHole.endM,
         lineHole.depthM + DrillAdvanceAtM(lineHole.depthM)
                         * lineHole.rpm * dt);
+
+    // Abrasion: metres cut, harder rock cuts the bit back.
+    lineHole.wear += (lineHole.depthM - beforeM) * hard * BIT_WEAR_PER_M;
 
     // Core each crossing as the bit passes the crossed cell's own row depth
     // -- knowledge lands DURING the hole, where the line actually is.

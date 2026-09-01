@@ -193,6 +193,30 @@ inline float DrillBlendAtM(float m, const float v[4])
 inline float DrillAdvanceAtM(float m)  { return DrillBlendAtM(m, DRILL_ADVANCE_MPS); }
 inline float DrillHardnessAtM(float m) { return DrillBlendAtM(m, LAYER_HARDNESS); }
 
+// The bit: wear, fracture, and the trip (redline-disposition.md section 4,
+// Tier 3 -- broken equipment is the LESSER penalty: it buys a TRIP, never an
+// ending). Wear runs 0 -> 1 through two channels:
+//
+//   abrasion -- metres cut, scaled by hardness ("bits dull with metres cut,
+//   faster in hard rock"):        dW = adv_m * hard * BIT_WEAR_PER_M
+//
+//   thermal fatigue -- TIME AT TEMPERATURE, quadratic above an onset. This
+//   is what fractures a bit driven too hot for too long, and it accrues
+//   whether or not the bit is advancing -- hot is hot:
+//       dW/dt = BIT_FATIGUE_RATE * ((heat - ONSET) / (1 - ONSET))^2
+//
+// At wear 1.0 the bit FRACTURES and the string trips: out rod by rod and
+// back, BIT_TRIP_BASE_S + depth * BIT_TRIP_S_PER_M seconds, nothing
+// advancing, the bit cooling in the open; it returns fresh (wear 0). Depth
+// pricing the trip is the push-your-luck the disposition doc names: driving
+// hot at 80 m is a gamble, at 20 m an errand. Campaign numbers in
+// docs/design/prospecting/drill-tuning.md.
+constexpr float BIT_WEAR_PER_M    = 0.008f;
+constexpr float BIT_FATIGUE_ONSET = 0.60f;
+constexpr float BIT_FATIGUE_RATE  = 0.065f;
+constexpr float BIT_TRIP_BASE_S   = 3.0f;
+constexpr float BIT_TRIP_S_PER_M  = 0.30f;
+
 // ---------------------------------------------------------------------------
 // The estimate field (block-model-design.md #3)
 //
