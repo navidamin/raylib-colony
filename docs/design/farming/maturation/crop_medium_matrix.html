@@ -1,0 +1,225 @@
+<title>Crop &times; Medium Fit</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Exo+2:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#f3f5f2; --panel:#ffffff; --panel2:#eaeeea; --line:#d3dad2;
+    --ink:#20282e; --muted:#5c6a70; --faint:#8b9aa0; --accent:#3e7d3a; --code-bg:#e6ebe5;
+    --s3:#2f7d33; --s2:#7bb377; --s1:#c3ddbe; --s0:#f0f2ef;
+    --onS3:#ffffff; --onS2:#16301a; --onS1:#25412a;
+    --photo:#2f7d33; --chemo:#7a4fbd; --hetero:#b06514; --special:#0f6fa8;
+    color-scheme:light dark;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f151d; --panel:#171f2a; --panel2:#111823; --line:#26303d;
+      --ink:#dde6ee; --muted:#8b99a7; --faint:#6b7a89; --accent:#7ec97a; --code-bg:#0d1219;
+      --s3:#5ec267; --s2:#2f7a3d; --s1:#1e4029; --s0:#141b24;
+      --onS3:#08150b; --onS2:#dff0e2; --onS1:#a9cdb0;
+      --photo:#48a94d; --chemo:#9370d8; --hetero:#c9812f; --special:#3f94cf;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f151d; --panel:#171f2a; --panel2:#111823; --line:#26303d;
+    --ink:#dde6ee; --muted:#8b99a7; --faint:#6b7a89; --accent:#7ec97a; --code-bg:#0d1219;
+    --s3:#5ec267; --s2:#2f7a3d; --s1:#1e4029; --s0:#141b24;
+    --onS3:#08150b; --onS2:#dff0e2; --onS1:#a9cdb0;
+    --photo:#48a94d; --chemo:#9370d8; --hetero:#c9812f; --special:#3f94cf;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg); color:var(--ink); margin:0;
+    font:400 15px/1.5 "IBM Plex Sans",system-ui,-apple-system,sans-serif}
+  .wrap{max-width:1320px; margin:0 auto; padding:34px 28px 44px; display:flex; flex-direction:column; gap:20px}
+  .eyebrow{font:500 12px/1.4 "IBM Plex Mono",ui-monospace,monospace; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 6px}
+  .eyebrow b{color:var(--accent); font-weight:500}
+  h1{font:700 33px/1.1 "Exo 2","IBM Plex Sans",sans-serif; margin:0; text-wrap:balance}
+  .sub{margin:9px 0 0; color:var(--muted); max-width:74ch}
+  .thesis{background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 13%,var(--panel)),var(--panel));
+    border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:10px; padding:13px 18px}
+  .thesis p{margin:0; max-width:104ch}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px}
+  .card h2{font:600 12px/1.3 "IBM Plex Mono",monospace; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 4px}
+  .card .note{margin:0 0 14px; color:var(--muted); font-size:13.5px; max-width:96ch}
+  .legend{display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:0 0 14px; font-size:13px; color:var(--muted)}
+  .lk{display:inline-flex; align-items:center; gap:7px}
+  .sw{width:24px;height:22px;border-radius:4px; display:grid; place-items:center;
+    font:600 13px "IBM Plex Sans",sans-serif; border:1px solid var(--line)}
+  .mx{overflow-x:auto}
+  table.m{border-collapse:separate; border-spacing:2px; font-size:13.5px; min-width:820px}
+  table.m th.cr{text-align:left; font:500 13.5px "IBM Plex Sans",sans-serif; color:var(--ink);
+    padding:0 12px 0 4px; white-space:nowrap; font-weight:500}
+  table.m th.cr small{color:var(--faint); font-size:11.5px; font-family:"IBM Plex Mono",monospace; margin-left:6px}
+  table.m th.md{font:500 11.5px "IBM Plex Mono",monospace; letter-spacing:.05em; color:var(--ink);
+    padding:0 0 8px; width:62px; vertical-align:bottom; font-weight:500}
+  table.m th.md i{display:block; height:3px; border-radius:2px; margin-bottom:6px; background:var(--photo)}
+  table.m th.md.sp i{background:var(--special)}
+  table.m td{width:62px; height:30px; border-radius:5px; padding:0}
+  table.m td span, .sw span{display:block; width:12px; height:12px; margin:0 auto; border-radius:50%}
+  .v3{background:var(--s3)}  .v3 span{background:var(--onS3)}
+  .v2{background:var(--s2)}  .v2 span{background:linear-gradient(90deg,var(--onS2) 50%,transparent 50%);
+    box-shadow:inset 0 0 0 1.5px var(--onS2)}
+  .v1{background:var(--s1)}  .v1 span{box-shadow:inset 0 0 0 1.5px var(--onS1)}
+  .v0{background:var(--s0)}  .v0 span{width:3px; height:3px; background:var(--faint); opacity:.38}
+  .axnote{display:flex; justify-content:space-between; font:500 11.5px "IBM Plex Mono",monospace;
+    color:var(--faint); letter-spacing:.05em; margin-top:9px; padding-left:180px}
+  .cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(400px,1fr)); gap:18px}
+  table.t{border-collapse:collapse; width:100%; font-size:13.5px}
+  table.t th{text-align:left; font:500 11.5px/1.3 "IBM Plex Mono",monospace; letter-spacing:.07em;
+    text-transform:uppercase; color:var(--faint); padding:0 10px 7px 0; font-weight:500}
+  table.t td{padding:7px 10px 7px 0; vertical-align:top; border-top:1px solid var(--line)}
+  table.t td:first-child{white-space:nowrap; font-weight:500}
+  code{font:500 12.5px "IBM Plex Mono",monospace; background:var(--code-bg); padding:1px 5px; border-radius:4px}
+  pre{margin:0; overflow-x:auto; background:var(--code-bg); border:1px solid var(--line);
+    border-radius:8px; padding:13px 15px; font:400 12.5px/1.62 "IBM Plex Mono",monospace}
+  pre b{color:var(--accent); font-weight:500}
+  .chip{display:inline-block; padding:2px 8px; border-radius:5px; margin:2px 4px 2px 0;
+    font:500 12px "IBM Plex Mono",monospace; border:1px solid; background:var(--panel2)}
+  .c-photo{color:var(--photo); border-color:color-mix(in srgb,var(--photo) 40%,transparent)}
+  .c-chemo{color:var(--chemo); border-color:color-mix(in srgb,var(--chemo) 40%,transparent)}
+  .c-hetero{color:var(--hetero); border-color:color-mix(in srgb,var(--hetero) 40%,transparent)}
+  .c-special{color:var(--special); border-color:color-mix(in srgb,var(--special) 40%,transparent)}
+  footer{color:var(--muted); font-size:12.5px; border-top:1px solid var(--line); padding-top:12px}
+  @media (max-width:620px){ .wrap{padding:20px 13px 30px} .axnote{padding-left:0} }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">raylib-colony · farming maturation · node <b>H2</b> · git branch claude/farming-unit-design-4rz536</p>
+    <h1>Crop &times; Medium Fit</h1>
+    <p class="sub">Which crops each cultivation medium can actually grow — and why. The cells are
+      not authored one by one; they are produced by a rule from crop traits and medium affordances,
+      so every refusal has a reason a player can learn.</p>
+  </header>
+
+  <section class="thesis">
+    <p><b>Media are sorted slow&nbsp;→&nbsp;fast, crops by root demand — and the filled cells
+      collapse into a triangle.</b> Soil grows everything; its cost is latency, mass and time,
+      never capability. The fast media are specialists, and what they specialise in is
+      <i>crops that store nothing</i>.</p>
+  </section>
+
+  <section class="card">
+    <h2>The fit matrix</h2>
+    <p class="note">Columns ordered by failure latency, slowest first. Rows ordered by how much
+      root volume, depth and organ-formation space the crop demands. Every cell below is generated
+      by the rule in the next panel — none is hand-placed.</p>
+    <div class="legend">
+      <span class="lk"><span class="sw v3"><span></span></span> <b style="color:var(--ink)">Native</b> — where it is actually grown</span>
+      <span class="lk"><span class="sw v2"><span></span></span> Workable, with a penalty</span>
+      <span class="lk"><span class="sw v1"><span></span></span> Marginal — possible, poor</span>
+      <span class="lk"><span class="sw v0"><span></span></span> Incompatible</span>
+    </div>
+    <div class="mx"><table class="m" id="mx"></table>
+      <div class="axnote"><span>← SLOW, FORGIVING, HEAVY</span><span>FAST, FRAGILE, LIGHT →</span></div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <section class="card">
+      <h2>The rule that generates it (H2)</h2>
+      <p class="note">A hand-written matrix is 136 numbers nobody can keep true. Traits in,
+        compatibility out — so a new crop costs one row, not thirteen judgement calls.</p>
+<pre><b>Medium offers</b>  depth · volume · anchoring
+               allowsSwelling · allowsPegging · flooded
+
+<b>Crop needs</b>     rootDepth · rootVolume · supportNeed
+               organFormation ∈ { NONE, SWELLING, TUBER,
+                                  GEOCARPIC, FLOODED }
+
+<b>fit(crop, medium)</b>
+  depth  = medium.depth     &gt;= crop.rootDepth
+  volume = medium.volume    &gt;= crop.rootVolume
+  anchor = medium.anchoring &gt;= crop.supportNeed
+  organ  = NONE
+         | (SWELLING|TUBER &amp;&amp; medium.allowsSwelling)
+         | (GEOCARPIC      &amp;&amp; medium.allowsPegging)
+         | (FLOODED        &amp;&amp; medium.flooded)
+
+  → <b>NATIVE</b> all pass with margin   → <b>WORKABLE</b> all pass
+    <b>MARGINAL</b> one fails softly     <b>INCOMPATIBLE</b> otherwise</pre>
+    </section>
+
+    <section class="card">
+      <h2>Why each refusal happens</h2>
+      <p class="note">The interesting cells are the empty ones. Each is a real horticultural
+        fact, not a balance decision.</p>
+      <table class="t">
+        <tr><th>Crop</th><th>Fails because</th></tr>
+        <tr><td>Carrot</td><td>a taproot forks on any obstruction — it needs deep, fine, uncompacted medium and nothing else will do</td></tr>
+        <tr><td>Peanut</td><td><b>geocarpic</b>: pods form underground, so its pegs need something to push into. Water offers nothing.</td></tr>
+        <tr><td>Potato</td><td>tubers need physical volume to swell into — hence soil-family media, or aeroponics used the way industry actually uses it: <b>seed tubers, not calories</b></td></tr>
+        <tr><td>Rice</td><td>wants standing water, so flood-and-drain is its native home and free-draining media are wrong</td></tr>
+        <tr><td>Tomato&nbsp;/&nbsp;pepper</td><td>large root mass clogs a nutrient film; and they need anchoring a channel cannot give — plus <b>hand pollination</b>, since there are no insects up here</td></tr>
+        <tr><td>Radish, beet</td><td><b>swelling</b> organs: the root must be free to expand, which a film or a bare-root chamber does not permit</td></tr>
+      </table>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>The media that grow no crops at all</h2>
+    <p class="note">Seven of the thirteen media in the roster do not take a crop list — they
+      grow their own organism. This is the other half of the portfolio, and it is where the
+      colony's protein, fats and B12 actually come from.</p>
+    <table class="t">
+      <tr><th>Medium</th><th>Grows</th><th>Why it matters</th></tr>
+      <tr><td><span class="chip c-photo">AQUATIC</span></td><td>spirulina, chlorella, duckweed</td><td>highest areal protein; doubles in days; also scrubs CO₂</td></tr>
+      <tr><td><span class="chip c-chemo">VAT</span></td><td><i>Cupriavidus necator</i></td><td>watts → calories with no light in the path — and a plausible <b>B12</b> source</td></tr>
+      <tr><td><span class="chip c-chemo">LITHO</span></td><td>Fe/S-oxidising mats</td><td>not food; the bridge to biomining (F5)</td></tr>
+      <tr><td><span class="chip c-hetero">MYCO</span></td><td>oyster, shiitake</td><td>eats the inedible half of every harvest — <b>wheat's 55% straw is its substrate</b></td></tr>
+      <tr><td><span class="chip c-hetero">INSECT</span></td><td>mealworm, black soldier fly</td><td><b>fat and B12</b>, which no plant on the matrix supplies</td></tr>
+      <tr><td><span class="chip c-hetero">AQUA</span></td><td>tilapia + nitrifiers</td><td>closes nitrogen; the highest-morale protein in the colony</td></tr>
+      <tr><td><span class="chip c-special">PIONEER</span></td><td>cyanobacteria</td><td>makes soil biologically instead of industrially</td></tr>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>H9 — what the triangle means</h2>
+    <p style="margin:0; max-width:100ch">Staples need volume, depth and time; the media that
+      provide those are exactly the slow, heavy, forgiving ones. The fast media grow leaves —
+      high value per gram, near-zero stored calories. <b>So the portfolio is not merely insurance
+      against a power failure; it is nutritionally mandatory.</b> You cannot eat from the fast
+      half of the farm, and you cannot react quickly with the slow half. The buffer↔speed
+      frontier is also a calories↔responsiveness frontier, and the player stands on both.</p>
+  </section>
+
+  <footer>
+    Canonical: <code>docs/design/farming/maturation/H-crops.md</code> ·
+    Media: <code>B3-media-roster.md</code> · Tree: <code>CONCEPT_TREE.md</code> § H
+  </footer>
+</div>
+
+<script>
+const MEDIA=[["SOIL",0],["SUBSTRATE",0],["EBB",0],["DRIP",0],["DWC",0],["NFT",0],["AERO",0],["HALO",1]];
+// 3 native · 2 workable · 1 marginal · 0 incompatible
+const CROPS=[
+ ["Lettuce","leaf",            [3,3,3,3,3,3,3,0]],
+ ["Mizuna / greens","leaf",    [3,3,3,3,3,3,3,0]],
+ ["Basil / herbs","leaf",      [3,3,3,3,3,3,3,0]],
+ ["Kale / chard","leaf",       [3,3,3,3,2,2,2,0]],
+ ["Strawberry","runner",       [3,3,3,3,2,3,2,0]],
+ ["Dwarf wheat","grain",       [3,3,3,2,1,2,1,0]],
+ ["Tomato","fruiting",         [3,3,3,3,1,0,1,0]],
+ ["Pepper","fruiting",         [3,3,3,3,1,0,1,0]],
+ ["Radish","swelling",         [3,3,3,2,1,0,1,0]],
+ ["Soybean","legume",          [3,3,3,2,1,0,0,0]],
+ ["Beet","swelling",           [3,3,2,2,1,0,0,0]],
+ ["Rice","flooded",            [3,2,3,0,2,0,0,0]],
+ ["Potato","tuber",            [3,3,3,2,0,0,2,0]],
+ ["Sweet potato","tuber",      [3,3,2,2,0,0,1,0]],
+ ["Peanut","geocarpic",        [3,3,1,0,0,0,0,0]],
+ ["Carrot","deep taproot",     [3,2,1,0,0,0,0,0]],
+ ["Salicornia","halophyte",    [2,2,2,0,2,0,0,3]]
+];
+const LBL=["incompatible","marginal","workable","native"];
+const t=document.getElementById("mx");
+let h="<tr><th class='cr'></th>";
+MEDIA.forEach(([m,sp])=>h+=`<th class="md${sp?' sp':''}"><i></i>${m}</th>`);
+h+="</tr>";
+CROPS.forEach(([c,tag,row])=>{
+  h+=`<tr><th class="cr">${c}<small>${tag}</small></th>`;
+  row.forEach((v,i)=>h+=`<td class="v${v}" title="${c} in ${MEDIA[i][0]}: ${LBL[v]}"><span></span></td>`);
+  h+="</tr>";
+});
+t.innerHTML=h;
+</script>

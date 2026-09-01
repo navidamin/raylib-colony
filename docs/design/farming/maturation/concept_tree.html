@@ -4,20 +4,20 @@
   :root{
     --bg:#f3f5f2; --panel:#ffffff; --panel2:#eaeeea; --line:#d3dad2;
     --ink:#20282e; --muted:#5c6a70; --accent:#3e7d3a; --code-bg:#e6ebe5;
-    --hA:#33698f; --hB:#3d7d39; --hC:#9a7420; --hD:#6f56a8; --hE:#a84f57; --hF:#1f7d68; --hG:#a86a2a;
+    --hA:#33698f; --hB:#3d7d39; --hC:#9a7420; --hD:#6f56a8; --hE:#a84f57; --hF:#1f7d68; --hG:#a86a2a; --hH:#9a5a86;
     color-scheme:light dark;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#0f151d; --panel:#171f2a; --panel2:#111823; --line:#26303d;
       --ink:#dde6ee; --muted:#8b99a7; --accent:#7ec97a; --code-bg:#0d1219;
-      --hA:#6fb1e0; --hB:#7ec97a; --hC:#e0b35a; --hD:#a58ce0; --hE:#e08a92; --hF:#5fc9b0; --hG:#e09a5a;
+      --hA:#6fb1e0; --hB:#7ec97a; --hC:#e0b35a; --hD:#a58ce0; --hE:#e08a92; --hF:#5fc9b0; --hG:#e09a5a; --hH:#d68fb8;
     }
   }
   :root[data-theme="dark"]{
     --bg:#0f151d; --panel:#171f2a; --panel2:#111823; --line:#26303d;
     --ink:#dde6ee; --muted:#8b99a7; --accent:#7ec97a; --code-bg:#0d1219;
-    --hA:#6fb1e0; --hB:#7ec97a; --hC:#e0b35a; --hD:#a58ce0; --hE:#e08a92; --hF:#5fc9b0; --hG:#e09a5a;
+    --hA:#6fb1e0; --hB:#7ec97a; --hC:#e0b35a; --hD:#a58ce0; --hE:#e08a92; --hF:#5fc9b0; --hG:#e09a5a; --hH:#d68fb8;
   }
   *{box-sizing:border-box}
   body{
@@ -295,6 +295,40 @@
       </div>
     </article>
 
+    <article class="branch" style="--bh:var(--hH)">
+      <div class="bhead"><span class="bcode">H</span>
+        <h2>CROPS <small>— the alphabet the farm spells with</small></h2><span class="bstate">●</span></div>
+      <ul class="nodes">
+        <li><span class="ncode">H1</span><span class="st">●</span>
+          <div class="ntext"><b>CropDescriptor</b> — the data shape <span style="color:var(--muted);font-size:12.5px">→ H-crops.md</span>
+            <ul class="subs">
+              <li><span class="ncode">H1.a</span><b>identity</b> — name, <i>botanical family</i> (drives shared disease + rotation)</li>
+              <li><span class="ncode">H1.b</span><b>requirements</b> — dli · ec/pH · temp · rootDepth · rootVolume · supportNeed · <b>organFormation</b></li>
+              <li><span class="ncode">H1.c</span><b>yield vector</b> — kcal · protein · fat · micros · edible fraction · <b>residue mass</b> (MYCO/INSECT input, not waste) · O₂</li>
+              <li><span class="ncode">H1.d</span><b>cycle</b> — days + harvestMode; cut-and-come-again never frees its plot</li>
+              <li><span class="ncode">H1.e</span><b>medium fit</b> — not stored, derived by H2</li>
+              <li><span class="ncode">H1.f</span><b>morale value</b> — uncorrelated with calories, which is the point</li>
+            </ul>
+          </div></li>
+        <li><span class="ncode">H2</span><span class="st ready">◆</span>
+          <div class="ntext"><b>Medium fit — computed, not authored</b> — media declare what they <i>offer</i>, crops what they <i>need</i>; fit is a function. A new crop costs one row, not 13 judgement calls, and every refusal has a reason a player can learn. Sorted slow→fast the cells form a <b>triangle thinning right</b>: soil grows everything; fast media specialise in crops that store nothing.</div></li>
+        <li><span class="ncode">H3</span><span class="st">●</span>
+          <div class="ntext"><b>Crop roles</b> — staple · protein · <b>fat</b> (scarcest macro) · fresh/morale · micronutrient · industrial · <b>service crops</b> grown for what they leave behind</div></li>
+        <li><span class="ncode">H4</span><span class="st">●</span>
+          <div class="ntext"><b>The diet ledger</b> — <b>B12 does not exist in plants</b>; fat is scarce; B6 caps SCP. The efficient farm and the survivable farm are different farms</div></li>
+        <li><span class="ncode">H5</span><span class="st">○</span>
+          <div class="ntext"><b>Cultivars</b> — dwarfs (Superdwarf wheat): height ↓ cycle ↓ DLI ↑ yield ↓. Research unlocks rows, not rules</div></li>
+        <li><span class="ncode">H6</span><span class="st">○</span>
+          <div class="ntext"><b>Seed stock</b> — the note's "128 seeds"; radiation decay (THE VAULT's premise); regeneration costs a harvest; a lost cultivar is gone</div></li>
+        <li><span class="ncode">H7</span><span class="st">○</span>
+          <div class="ntext"><b>Pathogens &amp; monoculture</b> — the recirculating loop that makes hydro efficient makes it an <b>epidemic vector</b>. Valves: rotation, family diversity, loop segmentation, defense mold</div></li>
+        <li><span class="ncode">H8</span><span class="st">●</span>
+          <div class="ntext"><b>The register's alphabet</b> — crops are what C cycles; pairs are what B1.b scores; legumes make rotation order <i>mean</i> something. Register runs over <b>crops</b>, medium is a plot property</div></li>
+        <li><span class="ncode">H9</span><span class="st ready">◆</span>
+          <div class="ntext"><b>Calorie–fragility coupling</b> — staples need the slow media; fast media grow leaves. <b>The portfolio is nutritionally mandatory, not just insurance</b> — you cannot eat from the fast half, nor react with the slow half</div></li>
+      </ul>
+    </article>
+
   </div>
 
   <div class="strips">
@@ -317,6 +351,8 @@
         <li><code>E3</code> how far can the lens model bend the shared chrome?</li>
         <li><code>D1</code> array size & granularity; does area grow with tier?</li>
         <li><code>A5</code> which FOOD subtypes, and what does each feed?</li>
+        <li><code>H6</code> is 128 the lifetime catalog, with ~16–24 live at once?</li>
+        <li><code>H4</code> does the B12 clock tick, or is it a one-time gate?</li>
       </ol>
     </div>
   </div>

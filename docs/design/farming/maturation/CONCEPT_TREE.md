@@ -276,6 +276,82 @@ its own panel. The read/write surface is A1.e; this branch is the
   (today's Storage stub, E2's Harvest & Processing); BIOFUEL chain
   already exists (FOOD → BIOFUEL) and should join the biomass loop (F3).
 
+## H. CROPS — the alphabet the farm spells with ●
+
+*(grafted 2026-09-01: [`H-crops.md`](H-crops.md). Codes are addresses, not
+reading order — H arrives late but sits at the centre.)*
+
+B decides *how* you grow; H decides *what*, and they are not independent —
+a medium's affordances and a crop's root architecture either meet or they
+do not. C cycles over crops, B1.b scores crop *pairs*, G weighs what a crop
+actually contains.
+
+- **H1. `CropDescriptor` — the data shape ●** *(named in A2, filled here)*
+  - **H1.a Identity** — name, **botanical family** (drives shared disease
+    and rotation in H7), cultivar.
+  - **H1.b Requirements** — A1.a's gates and draws at crop scale: `dli`,
+    `ecBand`, `phBand`, `tempBand`, `rootDepth`, `rootVolume`,
+    `supportNeed`, and **`organFormation`** (NONE / SWELLING / TUBER /
+    GEOCARPIC / FLOODED) — a small field that does most of H2's work.
+  - **H1.c Yield vector** — the note's *"calories, biomass, oxygen"* plus
+    *"nutrient pack"*: kcal, protein, fat, micronutrients, edible fraction,
+    **residue mass** (MYCO/INSECT feedstock — residue is an output, not
+    waste), O₂.
+  - **H1.d Cycle** — days to maturity + `harvestMode` (SINGLE /
+    CUT_AND_COME_AGAIN / CONTINUOUS). Harvest mode shapes the register's
+    rhythm as much as duration: a cut-and-come-again crop never frees its
+    plot.
+  - **H1.e Medium fit** — *not stored*; derived by H2.
+  - **H1.f Morale value** — uncorrelated with calories, which is the point.
+- **H2. Medium fit — computed, not authored ◆** — *decided.* Media declare
+  what they **offer** (depth, volume, anchoring, allowsSwelling,
+  allowsPegging, flooded); crops declare what they **need**; fit is a
+  function returning NATIVE / WORKABLE / MARGINAL / INCOMPATIBLE. A new crop
+  costs one row of traits, not thirteen judgement calls — and every "no"
+  carries a reason the player can learn (a carrot forks because nothing let
+  its taproot run straight; a peanut fails in water because its pegs have
+  nothing to push into). Ordered slow→fast, the compatible cells form a
+  **triangle that thins to the right**: *soil grows everything; the fast
+  media are specialists in crops that store nothing.*
+- **H3. Crop roles ●** — calorie staple · protein · **fat** (the scarcest
+  macro) · fresh/morale · micronutrient · industrial · **service crops**
+  (grown for what they leave behind: legumes fixing N, cover crops
+  conditioning a plot — ASHFIELD's hypothesis as a routine decision).
+- **H4. The diet ledger ●** — complete nutrition is a portfolio, enforced by
+  three hard facts: **B12 does not exist in plants at all** (it comes from
+  microbes and their hosts — INSECT/AQUA/VAT or imports); **fat is scarce**
+  in CEA crops; and B6's microbial ceiling. The efficient farm and the
+  survivable farm are different farms.
+- **H5. Cultivars & genetics ○** — space agronomy breeds **dwarfs** (NASA's
+  Superdwarf wheat): same crop, shifted trait vector — height ↓, cycle ↓,
+  DLI ↑, absolute yield ↓. Research unlocks *rows*, not rules.
+- **H6. Seed stock & viability ○** — the note's **"128 seeds."** Seed decays
+  under cosmic radiation (THE VAULT's whole premise); regenerating stock
+  means letting a cohort bolt, which costs that plot its harvest; a lost
+  cultivar is gone unless another sect carries it — diversity becomes an
+  asset, not a flourish.
+- **H7. Pathogens & monoculture ○** — sealed environments are sterile until
+  breached, then ideal. Shared botanical families share diseases, and **the
+  recirculating loop that makes hydro efficient makes it an epidemic
+  vector** — one root pathogen reaches every plant on the loop in hours.
+  Valves: rotation, family diversity, loop segmentation (a D placement
+  decision), F1's defense mold.
+- **H8. Crops as the register's alphabet ●** — H hands off to C: **n** is how
+  many crops the catalog exposes; crop pairs are what B1.b scores (ASHFIELD's
+  matrix is literally H×H); legumes make pairing *non-arbitrary*, the first
+  real reason rotation order matters. **Answers B's open question:** the
+  register runs over **crops**, with medium a property of the plot it
+  schedules onto — except FORTNIGHT, where the dark letters are organisms
+  (MYCO/INSECT/VAT), so it is two registers sharing a clock, not one bigger
+  one.
+- **H9. The calorie–fragility coupling ◆** — *decided, and the payoff of
+  grafting H at all.* Staples need volume, depth and time — exactly what the
+  slow, heavy, forgiving media provide. The fast media grow leaves: high
+  value per gram, near-zero stored calories. So **B5's portfolio is not
+  merely insurance, it is nutritionally mandatory**: you cannot eat from the
+  fast half of the farm, and you cannot react quickly with the slow half.
+  The buffer↔speed frontier is also a calories↔responsiveness frontier.
+
 ---
 
 ## Cross-links worth holding
@@ -287,6 +363,9 @@ its own panel. The read/write surface is A1.e; this branch is the
 | C4 ↔ planet light model | the one engine-level dependency; decide early |
 | A3 ↔ `game_types.toml` | the charter lands as data, not code |
 | F5 ↔ `docs/design/biomining/` | parked seed; do not let it bloat this branch |
+| H2 ↔ B3 | the medium roster's affordances are H2's other half — one rule, two branches |
+| H8 ↔ C1 | crops are the register's alphabet; legume pairs make rotation order mean something |
+| H1.c ↔ B3.c | residue mass is MYCO/INSECT's input — wheat straw is the loop closing visibly |
 | E4 ↔ `docs/design/ai-automation/` | register autopilot must fit the global AI-tree pattern |
 
 ## Open questions (the next conversations)
