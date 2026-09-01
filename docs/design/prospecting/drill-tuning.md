@@ -174,3 +174,26 @@ Not ported with it (still out by decision or blocker): Tier 2 lost
 intervals need the pressure band (excluded for now); Tier 1 cooked
 evidence is blocked on the assay-quality term (disposition doc §5);
 voluntary tripping and wireline await a UI affordance.
+
+### 7b. The fine core log (v2 of the lane)
+
+The lane's sticks are 5 m (`PROS_LOG_INTERVAL_M`), graded by the WORST
+heat each was cut at: intact (<= fatigue onset 0.60), partial/smoked
+(0.60..0.85), lost/cooked (>= 0.85). Advance-gated -- a dwell off the
+face marks nothing (recovery is a property of metres cut, disposition
+doc section 4b). Measured columns (campaign, I/P/L per stick):
+
+```
+0-1/s  IIIIIIIIIIIIIIII   clean
+2/s    IIIIIIIIIIIIIIIP   one smoked stick at the bottom
+4/s    IIIPLPLPLLPLLLLL   the edge-rider's scar tissue
+6-12/s IILLLLLL(L|P)...   spam cooks everything below ~10 m
+```
+
+PARTIAL is the signature of edge-riding, not of spam: at full spam even
+the transition sticks touch the redline. The grade is a record only --
+no survey term reads it yet (the disposition doc's named blocker).
+
+Shake (same pass): rumble is now `rpmN^2 * (0.25 + 1.2 * hardness)` --
+no base term, ground-scaled; the old flat `0.35 + 1.1*rpmN^2` was
+reported too strong at idle and identical in regolith and basalt.

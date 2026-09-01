@@ -400,10 +400,13 @@ Reference: `../excavation/prototypes/diamond-drill.html` — `drawCrown`,
   `prefers-reduced-motion` along with sparks and idle particle churn.
 - **Shake, console form** (game dock): the whole stage translates as ONE
   rigid body (`rlPushMatrix` inside the scissor) while the scissor and the
-  panel frame stay fixed — the console rattles *in its mount*. Continuous
-  rumble `0.35 + 1.1·rpmN²` px while cutting, plus a 5 px jolt decaying
-  over 0.6 s when the bit fractures. Never shake the frame or the text
-  panel; a readout that rattles is a bug, a stage that rattles is work.
+  panel frame stay fixed — the console rattles *in its mount*. The rumble
+  scales with the GROUND as well as the drive:
+  `rpmN² · (0.25 + 1.2·hardness)` px — regolith hums, basalt rattles, an
+  idle crawl is near still (no base term; drive earns all of it) — plus a
+  5 px jolt decaying over 0.6 s when the bit fractures. Never shake the
+  frame or the text panel; a readout that rattles is a bug, a stage that
+  rattles is work.
 - **Clamp dt at both ends**: `clamp((now−last)/1000, 0, 0.05)`. The first
   rAF timestamp can *precede* the `performance.now()` captured before it —
   a negative dt once ran depth below zero and indexed an array at −1.
@@ -527,14 +530,15 @@ the panels except the ground itself.
 
 The score sheet (redline's third panel), folded into the borehole strip as
 one narrow lane (7 px + OUT frame) down its left edge, sharing the strip's
-depth mapping exactly — its interval boundaries ARE the band seams. Three
-fills tell the whole story without a legend: **dark** `#0f1821` = the line
-has not cut it, **mid-grey** `#4a5b6b` = cut, growing downward with the
-bit, **bright** `#93a7b8` = its core is aboard, flashed white for 0.5 s
-when it lands (same flash clock as the plate cell). The icy stratum
-carries a 2 px ice-fleck edge tick. The bit's own position rides the lane
-as an amber tick, level with the string — a third cursor on the same
-clock. The lane records; it never animates on its own.
+depth mapping exactly. Its sticks are FINER than the strata — 5 m each —
+and each is graded by the worst heat it was cut at, in redline's own log
+legend: **dark** `#0f1821` = uncut, **intact** `#93a7b8`, **partial**
+(smoked) `#5c6675`, **lost** (cooked) `#241a17` with a `#3a2620` inner
+border; cut sticks of the icy stratum carry a 2 px ice tick `#7fd8ee`.
+A landing core still flashes its whole stratum white for 0.5 s (same
+clock as the plate cell), and the bit's position rides the lane as an
+amber tick — a third cursor on the shared clock. The lane records how
+the hole was drilled; it never animates on its own.
 
 ### 9.5 The animation recipes
 

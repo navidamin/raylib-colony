@@ -270,6 +270,22 @@ bool ProspectingSystem::UpdateLineHole(float dt)
     // Abrasion: metres cut, harder rock cuts the bit back.
     lineHole.wear += (lineHole.depthM - beforeM) * hard * BIT_WEAR_PER_M;
 
+    // The fine core log: every 5 m stick the bit cuts through is graded by
+    // the WORST heat it was cut at -- once smoked, always smoked.
+    if (lineHole.depthM > beforeM)
+    {
+        unsigned char grade = lineHole.heat >= PROS_LOG_LOST_HEAT ? 1
+                            : lineHole.heat > BIT_FATIGUE_ONSET   ? 2 : 3;
+        int iv0 = static_cast<int>(beforeM / PROS_LOG_INTERVAL_M);
+        int iv1 = std::min(PROS_LOG_INTERVALS - 1,
+                           static_cast<int>(lineHole.depthM / PROS_LOG_INTERVAL_M));
+        for (int iv = iv0; iv <= iv1; iv++)
+        {
+            if (lineHole.logQ[iv] == 0 || grade < lineHole.logQ[iv])
+                lineHole.logQ[iv] = grade;
+        }
+    }
+
     // Core each crossing as the bit passes the crossed cell's own row depth
     // -- knowledge lands DURING the hole, where the line actually is.
     for (int L = 0; L <= lineHole.targetLayer; L++)

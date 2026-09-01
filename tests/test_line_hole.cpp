@@ -223,6 +223,56 @@ TEST_CASE("a cool hole never fractures the bit", "[linehole]")
     REQUIRE(sys.lineHole.wear < 1.0f);
 }
 
+TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole]")
+{
+    // Gentle pace: heat never clears the fatigue onset, so every stick the
+    // bit passes logs INTACT (3).
+    ProspectingSystem cool = MakeSystem();
+    cool.StartAim(3, 3);
+    cool.AimAt(3, 3, 3);
+    cool.CommitHole();
+    for (int i = 0; i < 12000 && cool.lineHole.state == LineHoleState::DRILLING; i++)
+    {
+        if (i % 20 == 0) cool.KickString();      // ~1 click/s
+        cool.UpdateLineHole(0.05f);
+    }
+    REQUIRE(cool.lineHole.state == LineHoleState::DONE);
+    int cut = 0;
+    bool allIntact = true;
+    for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
+    {
+        if (cool.lineHole.logQ[iv] == 0) continue;
+        cut++;
+        if (cool.lineHole.logQ[iv] != 3) allIntact = false;
+    }
+    REQUIRE(cut >= 10);                          // 79 m of 5 m sticks
+    REQUIRE(allIntact);
+
+    // Riding the edge (~4 clicks/s) scars the column with a MIX: smoked
+    // sticks (PARTIAL) between cooked ones (LOST). Once smoked, always
+    // smoked -- the grade is the worst heat the stick saw. (Measured: at
+    // full spam even the transition sticks redline, so PARTIAL is the
+    // signature of edge-riding, not of spam.)
+    ProspectingSystem hot = MakeSystem();
+    hot.StartAim(3, 3);
+    hot.AimAt(3, 3, 3);
+    hot.CommitHole();
+    for (int i = 0; i < 20000 && hot.lineHole.state == LineHoleState::DRILLING; i++)
+    {
+        if (i % 5 == 0) hot.KickString();        // ~4 clicks/s
+        hot.UpdateLineHole(0.05f);
+    }
+    REQUIRE(hot.lineHole.state == LineHoleState::DONE);
+    bool sawSmoked = false, sawLost = false;
+    for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
+    {
+        if (hot.lineHole.logQ[iv] == 2) sawSmoked = true;
+        if (hot.lineHole.logQ[iv] == 1) sawLost = true;
+    }
+    REQUIRE(sawSmoked);
+    REQUIRE(sawLost);
+}
+
 TEST_CASE("drill tuning campaign", "[.][campaign]")
 {
     // Not a check -- an instrument. Run explicitly:
@@ -245,10 +295,13 @@ TEST_CASE("drill tuning campaign", "[.][campaign]")
             rpmPeak = std::max(rpmPeak, sys.lineHole.rpm);
             t += 0.05f;
         }
+        char log[PROS_LOG_INTERVALS + 1] = {};
+        for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
+            log[iv] = ".LPI"[sys.lineHole.logQ[iv]];
         printf("campaign: %.0f clicks/s -> %.0f m column in %.0f s "
-               "(dwell %.0f s, rpm peak %.2f, trips %d, wear at end %.2f)\n",
+               "(dwell %.0f s, rpm peak %.2f, trips %d, wear at end %.2f) log %s\n",
                f, sys.lineHole.endM, t, dwellT, rpmPeak, sys.lineHole.trips,
-               sys.lineHole.wear);
+               sys.lineHole.wear, log);
         REQUIRE(sys.lineHole.state == LineHoleState::DONE);
     }
 }

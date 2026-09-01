@@ -217,6 +217,20 @@ constexpr float BIT_FATIGUE_RATE  = 0.065f;
 constexpr float BIT_TRIP_BASE_S   = 3.0f;
 constexpr float BIT_TRIP_S_PER_M  = 0.30f;
 
+// The core log's fine intervals (redline's log, finer than the strata).
+// Each 5 m stick is graded by the WORST heat it was cut at -- knowledge
+// about how you drilled, laid down as you drill:
+//   cool (heat <= FATIGUE_ONSET)  -> INTACT   core in the barrel
+//   hot  (onset .. LOG_LOST_HEAT) -> PARTIAL  smoked, half the story
+//   redline (>= LOG_LOST_HEAT)    -> LOST     cooked to rubble
+// The grade is a record, not yet a survey term (redline-disposition.md
+// section 5 names that blocker); the lane tells the truth ahead of it.
+constexpr float PROS_LOG_INTERVAL_M = 5.0f;
+constexpr int   PROS_LOG_INTERVALS  = 24;    // covers FULL_COLUMN_M (120 m)
+constexpr float PROS_LOG_LOST_HEAT  = 0.85f;
+static_assert(PROS_LOG_INTERVALS * PROS_LOG_INTERVAL_M >= 120.0f,
+              "log intervals must cover the full column");
+
 // ---------------------------------------------------------------------------
 // The estimate field (block-model-design.md #3)
 //

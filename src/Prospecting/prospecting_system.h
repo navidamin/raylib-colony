@@ -38,6 +38,9 @@ struct LineHole
     float tripDur = 0.0f;             // BIT_TRIP_BASE_S + depth * PER_M
     float fracturedTime = -100.0f;    // when the bit last let go
     int   trips = 0;                  // fractures this hole has cost
+    // The fine core log: one grade per 5 m stick, worst heat it was cut at.
+    // 0 = uncut, 1 = LOST (cooked), 2 = PARTIAL (smoked), 3 = INTACT.
+    unsigned char logQ[PROS_LOG_INTERVALS] = {};
 };
 
 class ProspectingSystem

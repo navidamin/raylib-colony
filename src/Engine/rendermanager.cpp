@@ -3162,7 +3162,12 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     {
         float rpmN0 = hole.rpm / DRILL_RPM_MAX;
         float burst = std::max(0.0f, 1.0f - (ps->gameTime - hole.fracturedTime) / 0.6f);
-        float amp = (turning ? (0.35f + 1.1f * rpmN0 * rpmN0) : 0.0f) + burst * 5.0f;
+        // The rumble scales with the GROUND: soft regolith hums, basalt
+        // rattles the mount. Base is a whisper -- an idle crawl is near
+        // still, and only drive x hardness earns real shake.
+        float hardSh = DrillHardnessAtM(hole.depthM);
+        float amp = (turning ? rpmN0 * rpmN0 * (0.25f + 1.2f * hardSh) : 0.0f)
+                  + burst * 5.0f;
         float sx = amp > 0.01f ? (static_cast<float>(GetRandomValue(-100, 100)) / 100.0f) * amp : 0.0f;
         float sy = amp > 0.01f ? (static_cast<float>(GetRandomValue(-100, 100)) / 100.0f) * amp : 0.0f;
         rlPushMatrix();
@@ -3360,34 +3365,45 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     ProsDrawHead(rig.cx, surfY, clipTop, turning, cooling);
 
     // The core log (redline's third panel, folded into the dock): one lane
-    // of intervals down the left edge. Dark = the line has not cut it yet,
-    // grey = cut, bright = its core is aboard; the icy seam carries an ice
-    // tick. With no pressure band ported, a recovered interval always logs
-    // full -- the lane is the score sheet the disposition doc names.
+    // of 5 m sticks down the left edge, FINER than the strata, each graded
+    // by the worst heat it was cut at -- the lane records how you drilled.
+    // Redline's own legend: intact / partial / lost, ice tick on volatiles.
     if (hole.state != LineHoleState::NONE)
     {
         float lx = dg.x + 4.0f, lw = 7.0f;
         DrawRectangleRec({lx - 1.5f, surfY - 1.5f, lw + 3.0f, botY - surfY + 3.0f},
                          PROS_OUT);
+        for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
+        {
+            float m0 = iv * PROS_LOG_INTERVAL_M;
+            float m1 = std::min(m0 + PROS_LOG_INTERVAL_M, FULL_COLUMN_M);
+            float y0 = dg.YOf(m0) + 0.5f;
+            float y1 = dg.YOf(m1) - 0.5f;
+            if (y1 <= y0) continue;
+            Color fill = {15, 24, 33, 255};                      // uncut
+            switch (hole.logQ[iv])
+            {
+                case 3: fill = {147, 167, 184, 255}; break;      // intact
+                case 2: fill = {92, 102, 117, 255};  break;      // partial
+                case 1: fill = {36, 26, 23, 255};    break;      // lost
+                default: break;
+            }
+            DrawRectangleRec({lx, y0, lw, y1 - y0}, fill);
+            if (hole.logQ[iv] == 1)
+                DrawRectangleLinesEx({lx, y0, lw, y1 - y0}, 1.0f, {58, 38, 32, 255});
+            // volatiles tick on cut sticks of the icy stratum
+            if (hole.logQ[iv] != 0 && m1 > LayerTopM(2) && m0 < LayerBottomM(2))
+                DrawRectangleRec({lx, y0, 2.0f, y1 - y0}, Fade(PROS_ICE_FLECK, 0.85f));
+        }
+        // the core-landing flash still pings the whole stratum it came from
         for (int L = 0; L < 4; L++)
         {
-            float y0 = dg.bandTop[L] + (L == 0 ? 0.0f : 1.0f);
-            float y1 = dg.bandTop[L + 1] - 1.0f;
-            DrawRectangleRec({lx, y0, lw, y1 - y0}, {15, 24, 33, 255});
-            float top = LayerTopM(L);
-            float cutTo = std::clamp(std::min(hole.depthM, hole.endM),
-                                     top, LayerBottomM(L));
-            if (cutTo > top)
-                DrawRectangleRec({lx, y0, lw, dg.YOf(cutTo) - y0}, {74, 91, 107, 255});
-            if (hole.cored[L])
-            {
-                DrawRectangleRec({lx, y0, lw, y1 - y0}, {147, 167, 184, 255});
-                float flash = 1.0f - (ps->gameTime - hole.coredTime[L]) / 0.5f;
-                if (flash > 0.0f)
-                    DrawRectangleRec({lx, y0, lw, y1 - y0}, Fade(WHITE, 0.6f * flash));
-            }
-            if (L == 2)
-                DrawRectangleRec({lx, y0, 2.0f, y1 - y0}, Fade(PROS_ICE_FLECK, 0.85f));
+            if (!hole.cored[L]) continue;
+            float flash = 1.0f - (ps->gameTime - hole.coredTime[L]) / 0.5f;
+            if (flash > 0.0f)
+                DrawRectangleRec({lx, dg.bandTop[L], lw,
+                                  dg.bandTop[L + 1] - dg.bandTop[L]},
+                                 Fade(WHITE, 0.6f * flash));
         }
         // the bit's own tick rides the lane, level with the string
         DrawRectangleRec({lx - 1.5f, dg.YOf(std::min(depthShown, hole.endM)) - 1.0f,
