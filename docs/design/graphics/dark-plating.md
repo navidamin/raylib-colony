@@ -561,7 +561,18 @@ border; cut sticks of the icy stratum carry a 2 px ice tick `#7fd8ee`.
 A landing core still flashes its whole stratum white for 0.5 s (same
 clock as the plate cell), and the bit's position rides the lane as an
 amber tick — a third cursor on the shared clock. The lane records how
-the hole was drilled; it never animates on its own.
+the hole was drilled; it never animates on its own. Its **legend** is a
+small backed console chip at the strip's bottom-right (swatch + name per
+grade, the LOST swatch with its inner border) — a legend belongs on the
+instrument that uses it, not in the page chrome.
+
+The plates carry the same stratum identity: a plate's resting fill is
+`PROS_ROCK_COL[layer]` pulled toward the panel ground (0.80 mix, ~0.65
+lightness floor) — the dock paints the rock full-strength, the model
+paints its quieter twin. Colour-is-class still rules the relief, but the
+class **fades toward the rock as certainty falls** (MEASURED 0.90 →
+UNCLASSIFIED 0.12 class weight): unknown ground looks like its stratum,
+and knowledge reads as colour rising out of the rock.
 
 ### 9.5 The animation recipes
 

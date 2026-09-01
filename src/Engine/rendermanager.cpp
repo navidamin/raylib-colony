@@ -2581,6 +2581,10 @@ static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, flo
 // One plate. Painter's algorithm front-to-back within the plate; corner
 // heights are averaged from the blocks that touch them, so the surface reads
 // as ground rather than as data resolution.
+// The strata palette, shared by the borehole strip (full strength) and the
+// plates' resting tone (dimmed) -- declared ahead of both users.
+static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
+
 static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockCell>& cells,
                                int layer, float maxGrade, Font labelFont, float sp,
                                const char* depthLabel, const char* geologyLabel,
@@ -2615,12 +2619,33 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
                 g.Iso(static_cast<float>(i),     static_cast<float>(j + 1), layer, cornerLift(i,   j+1))
             };
 
+            // A plate's resting tone IS its stratum: the same PROS_ROCK_COL
+            // the borehole strip paints full-strength, dimmed to a quieter
+            // twin. Colour = class still holds, but the class fades toward
+            // the rock as certainty falls -- MEASURED speaks in full class
+            // colour, INFERRED is mostly a guess so it is mostly rock, and
+            // UNCLASSIFIED ground simply looks like its stratum. Relief
+            // lightness keeps tracking believed grade.
+            Color rock = PROS_ROCK_COL[layer];
+            Color ground = {
+                static_cast<unsigned char>(EXT_PANEL_BG.r + (rock.r - EXT_PANEL_BG.r) * 0.80f),
+                static_cast<unsigned char>(EXT_PANEL_BG.g + (rock.g - EXT_PANEL_BG.g) * 0.80f),
+                static_cast<unsigned char>(EXT_PANEL_BG.b + (rock.b - EXT_PANEL_BG.b) * 0.80f),
+                255 };
             Color base = ExtClassColor(c.cls);
-            float lit = (0.30f + 0.70f * std::min(c.grade / std::max(maxGrade, 0.0001f), 1.0f)) * fade;
+            float classW = c.cls == ResourceClass::MEASURED   ? 0.90f
+                         : c.cls == ResourceClass::INDICATED  ? 0.75f
+                         : c.cls == ResourceClass::INFERRED   ? 0.40f : 0.12f;
+            Color tone = {
+                static_cast<unsigned char>(ground.r + (base.r - ground.r) * classW),
+                static_cast<unsigned char>(ground.g + (base.g - ground.g) * classW),
+                static_cast<unsigned char>(ground.b + (base.b - ground.b) * classW),
+                255 };
+            float lit = (0.65f + 0.35f * std::min(c.grade / std::max(maxGrade, 0.0001f), 1.0f)) * fade;
             Color fill = {
-                static_cast<unsigned char>(EXT_PANEL_BG.r + (base.r - EXT_PANEL_BG.r) * lit),
-                static_cast<unsigned char>(EXT_PANEL_BG.g + (base.g - EXT_PANEL_BG.g) * lit),
-                static_cast<unsigned char>(EXT_PANEL_BG.b + (base.b - EXT_PANEL_BG.b) * lit),
+                static_cast<unsigned char>(EXT_PANEL_BG.r + (tone.r - EXT_PANEL_BG.r) * lit),
+                static_cast<unsigned char>(EXT_PANEL_BG.g + (tone.g - EXT_PANEL_BG.g) * lit),
+                static_cast<unsigned char>(EXT_PANEL_BG.b + (tone.b - EXT_PANEL_BG.b) * lit),
                 255 };
 
             // Two triangles rather than a quad -- raylib fills triangles only,
@@ -2795,7 +2820,7 @@ static void ProsDrawCellMarker(Rectangle r, const SubCell& cell)
 // ===========================================================================
 
 static const Color PROS_OUT          = {10, 14, 20, 255};
-static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
+// PROS_ROCK_COL lives above ProsDrawBlockLayer, which shares it.
 static const Color PROS_ROCK_EDGE[4] = {{25,21,16,255},{28,23,18,255},{22,28,35,255},{16,18,22,255}};
 static const Color PROS_ROCK_GRAIN[4]= {{76,68,55,255},{91,81,64,255},{77,90,103,255},{52,56,65,255}};
 static const Color PROS_ICE_FLECK    = {160, 225, 245, 255};
@@ -3430,6 +3455,32 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         // the bit's own tick rides the lane, on the LANE's scale
         DrawRectangleRec({lx - 1.5f, laneY(std::min(depthShown, hole.endM)) - 1.0f,
                           lw + 3.0f, 2.0f}, {244, 198, 106, 255});
+
+        // The lane's legend, redline's own chip, bottom-right of the box:
+        // a small backed console plate so it reads on any rock behind it.
+        {
+            float gw = 42.0f, gh = 42.0f;
+            float gx = dg.x + dg.w - gw - 5.0f;
+            float gy = botY - gh - 5.0f;
+            DrawRectangleRec({gx - 1.5f, gy - 1.5f, gw + 3.0f, gh + 3.0f}, PROS_OUT);
+            DrawRectangleRec({gx, gy, gw, gh}, {13, 21, 30, 235});
+            struct { Color c; const char* n; } items[4] = {
+                {{147, 167, 184, 255}, "INTCT"},
+                {{92, 102, 117, 255},  "PART"},
+                {{36, 26, 23, 255},    "LOST"},
+                {PROS_ICE_FLECK,       "ICE"},
+            };
+            for (int k = 0; k < 4; k++)
+            {
+                float ry = gy + 3.0f + k * 10.0f;
+                DrawRectangleRec({gx + 4.0f, ry + 1.0f, 6.0f, 6.0f}, items[k].c);
+                if (k == 2)
+                    DrawRectangleLinesEx({gx + 4.0f, ry + 1.0f, 6.0f, 6.0f},
+                                         1.0f, {58, 38, 32, 255});
+                DrawTextEx(bodyFont, items[k].n, {gx + 14.0f, ry},
+                           fsSmall, sp, EXT_DIM_TEXT);
+            }
+        }
     }
 
     // the hovered plate cell's depth, shown as its twin on the rock column --
