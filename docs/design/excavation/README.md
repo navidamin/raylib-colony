@@ -12,6 +12,7 @@
 | 4 | [design-options-v2.md](design-options-v2.md) | Round 2 exploration: three variants of the panel direction | SUPERSEDED |
 | 5 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
 | 6 | [block-mining-design.md](block-mining-design.md) | **Mining the block model.** What changes once prospecting v2 gives the ground a 3D shape: access, selectivity, the empty-out. Deltas only — #1 still holds | SKETCH — blocked on prospecting v2 |
+| 7 | [prototypes/diamond-drill.html](prototypes/diamond-drill.html) | **The shaft-sinker, playable.** Two variants of a diamond rotary rig on one depth scale, taking the same two commands. Argues the weight band, whirl-at-depth, and core-on-the-way-down | PROTOTYPE |
 
 ## Design Summary
 
@@ -88,6 +89,7 @@ genuinely different strengths rather than just bigger numbers. Details in
 | `src/Prospecting/prospecting_types.h` | `SubCell::aggregateConfidence`; `GetReachForTier`, `IsSubCellInReach`, `TierRequiredForSubCell` — excavation calls the reach helpers with its **own** tier |
 | `src/Prospecting/prospecting_constants.h` | `PROSPECTING_GRID_SIZE` (fixed 8), `PROSPECTING_REACH_PER_TIER` (2/4/6/8), `SUBCELL_VARIATION_MIN/MAX` (0.3–2.0), `MAX_DEPTH_PER_TIER` |
 | `src/game_constants.h` | `EXTRACTION_PRODUCTION_COSTS`, survey constants |
+| `src/Excavation/excavation_constants.h` | `EXC_MACHINES` — the machine table the prototype's two variants are shaped to join |
 
 ### Current State (what already exists)
 
@@ -102,6 +104,16 @@ exists today:
 - Wear accrues linearly; `wear >= 1.0` removes the excavator from the active count
 
 Everything in this design directory is about replacing that multiply-chain with mechanics.
+
+### Prototypes
+
+| File | What it is for |
+|------|----------------|
+| [`prototypes/diamond-drill.html`](prototypes/diamond-drill.html) | The **access rig**, drawn and driveable. Run it with `shot.js` for stills. Its argument: a diamond crown cuts only inside a *band* of weight that rises with hardness, so a light rig misses basalt's band entirely while a heavy one overshoots regolith — two machines, neither a strict upgrade, exactly as `EXC_MACHINES` requires. Raises one open question for §Access: if the shaft is sunk by a **coring** rig, the column it brings up is a survey, and gentle driving buys knowledge that hard driving does not |
+| `prototypes/shot.js` | Headless capture. Poses are reached by *running* the sim at fixed dt, never by setting depth — a jumped depth leaves the core strip empty and the still lies about the run |
+
+Style for both lives in [`../graphics/dark-plating.md`](../graphics/dark-plating.md)
+§6.5 (the crown) — read it before changing any of the drawing code.
 
 ### Related Module Designs
 

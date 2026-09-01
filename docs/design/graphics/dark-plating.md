@@ -3,10 +3,11 @@
 **Status: LIVING** — grows with every component. See the Rule in
 [README.md](README.md): read before drawing, extend in the same commit.
 
-Everything here was learned building the drill rig
-(`../subsurface/prototypes/drill-rig.html` and `redline.html` — the reference
-implementations; every helper named below exists in them verbatim). The guide
-is layered so a new graphic knows exactly how much it inherits:
+Everything here was learned building the drill rigs
+(`../subsurface/prototypes/drill-rig.html` and `redline.html` for the auger,
+`../excavation/prototypes/diamond-drill.html` for the coring crown — the
+reference implementations; every helper named below exists in them verbatim).
+The guide is layered so a new graphic knows exactly how much it inherits:
 
 | Layer | Sections | A new graphic... |
 |---|---|---|
@@ -195,6 +196,7 @@ response. Precedents:
 | Clamp/grip steel | same, capped shades (≤0.62) + reduced heat coupling |
 | Amber housing | flat fill + bevel instead of bands; bands are for *turned* parts |
 | Carbide (tips) | flat facets — 3 triangles at fixed shades (0.90/0.52/0.22), heat ×1.35 |
+| Diamond grit | bright specks at `band(0.88+)` on a 2 px dark seat, seeded per part and placed in **part-local** coordinates (§6.5) |
 
 For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
 `base`/`glow` pair, name it (`brass()`), and add it to this table.
@@ -321,6 +323,66 @@ with depth. The lamp on the side pod reads machine state semantically
 - **World consistency rule**: debris never below the bit — *there is no hole
   down there yet.* Annulus debris tumbles only in the cut section above it.
 
+### 6.5 The crown — a rotary bit as an elliptical annulus
+
+A diamond core bit is not a helix. It is a **ring of segmented pads split by
+waterways**, and the trick that draws it is the annulus counterpart of §6.1:
+the camera sits a little above, so the ring projects to an ellipse and every
+pad owns an arc of it.
+
+```
+x(θ) = CX + r·sin θ        y(θ) = crownTop − SQ·r·cos θ        SQ = 0.30
+front = cos θ < 0          (nearer the eye, so lower on screen)
+```
+
+Each pad is the quad swept between root radius `crownRi` and crest radius
+`crownR` across its arc, subdivided ~4 ways so the ring does not read as a
+polygon. **Only front pads show their outer wall** — the vertical extrusion by
+`crownH` — so the segmentation *emerges from the projection* exactly as the
+auger's teeth do; pads are never drawn as shapes. Painter-sort by `−cos θ`,
+back first, back faces through `dim()` (§3.2).
+
+The waterway slots are **not drawn**. One flood pass in `OUT` under the whole
+crown (§2), then pad faces painted over it; the gaps are that flood showing
+through. Each front pad's kerf lip sits ~1 px proud of the flood, which
+scallops the crown's foot instead of ending it on one flat line.
+
+**Grit is the crown's identity, and it lives in pad-local coordinates.** Specks
+are placed as *(u along the arc, v down the wall)* from a per-pad seeded LCG and
+projected every frame, so grit turns *with* its own pad. Placed in screen space
+it swims across the bit — the same class of error as chips positioned from a
+stale constant (§6.4).
+
+```
+crown crest ≈ 1.35 × barrel radius      pads 8 (compact) – 10 (heavy)
+waterway ≈ 0.30 of each pad's arc       crown height ≈ 0.6 × crest radius
+```
+
+**The coring string varies §6.3 at the bottom end only:** the threaded stem
+becomes a **plain heavy barrel** (`P_BARREL` — the same five-band structure with
+its ceiling dropped to 0.86), closed by a bright **core lifter** ring and then
+the crown. A mid-string **stabiliser** — amber housing, blade slots, radius just
+under the crown's — appears on long strings only, and reads as the part that
+buys back the wobble depth costs.
+
+**Two failed passes worth keeping.** The bore, and the core standing inside it,
+were drawn *under* the barrel — which is wider than the bore, so none of it ever
+appeared. An outside view of a coring tool cannot show its core: the recovered
+column has to be a second instrument (§9), never a detail on the machine. And
+the heat Gaussian was inherited at σ = 110 from a *scrolling* stage; on a
+full-column view that tinted the entire string mauve. At σ = 34, with the
+cutting heat target dropped so only *failure* runs hot, the read becomes a
+glowing crown on a cold string — which is the thing worth showing.
+
+**What the crown does NOT invent.** Its wear ladder is §4.5's verbatim (cracks
+past 0.55 consumed, one more per ~0.09, capped at 6, fixed seeds), and the core
+strip beside its stratigraphy column is §9.45's lane palette verbatim. A second
+language for a variable that already has one is the failure this guide exists
+to prevent — the crown is new geometry, not a new dialect.
+
+Reference: `../excavation/prototypes/diamond-drill.html` — `drawCrown`,
+`crownPads`, `padPath`, `drawString`, `crackList`.
+
 ---
 
 ## 7. The Stage — camera & motion
@@ -345,6 +407,13 @@ with depth. The lamp on the side pod reads machine state semantically
 - **Clamp dt at both ends**: `clamp((now−last)/1000, 0, 0.05)`. The first
   rAF timestamp can *precede* the `performance.now()` captured before it —
   a negative dt once ran depth below zero and indexed an array at −1.
+- **A comparison sheet takes no camera at all.** When two machines have to be
+  judged against each other, the whole world goes on screen at one shared scale
+  and nothing scrolls — a shorter reach becomes something you *see* rather than
+  a figure you read. Everything else in this section still applies to the
+  machine; only the follow is dropped. Note the knock-on: distances that a
+  cropped view kept off-screen are now all visible at once, so any
+  screen-space falloff (§4.5 heat) has to be retuned, not inherited.
 
 ## 8. Console Chrome
 
