@@ -14,6 +14,9 @@ with the tree.
 |---|---|---|
 | [`maturation/CONCEPT_TREE.md`](maturation/CONCEPT_TREE.md) | DRAFT | **The reference point.** Seven coded major nodes (A CHARTER · B MEDIA · C REGISTER · D ARRAY · E FORM · F BIOLOGY · G STAKES); navigate by code ("focus B2"). |
 | [`maturation/SOURCES.md`](maturation/SOURCES.md) | REFERENCE | Raw inputs: the reMarkable "uniform definition" note, the six constraint programs (PHAROS…VAULT), planter-tool concept images, code state. |
+| [`maturation/B2-hydroponics.md`](maturation/B2-hydroponics.md) | DRAFT | **Node B2 deep dive** — technique families, solution chemistry, root-zone oxygen, low-g drainage, light regime, atmosphere, failure latency; units, tier arc, decision texture. |
+| [`maturation/B3-media-roster.md`](maturation/B3-media-roster.md) | DRAFT | **Node B3** — thirteen cultivation media on two axes (trophic route × loop closed), the portfolio rule, and the program→portfolio map. |
+| [`maturation/media_map.html`](maturation/media_map.html) · [`.png`](maturation/media_map.png) | — | The medium roster as the buffer↔speed frontier. |
 | [`maturation/BRANCH_MATURATION.md`](maturation/BRANCH_MATURATION.md) | DRAFT | The branch-maturation method itself: node grammar, states, navigation verbs (focus / graft / prune / park / harvest / mix). |
 | [`maturation/concept_tree.html`](maturation/concept_tree.html) · [`.png`](maturation/concept_tree.png) | — | The tree as a visual, for opening beside a session. |
 | `farming-master-design.md` | — | **Not yet written** — harvested from ◆ nodes when maturation settles. |
@@ -22,7 +25,7 @@ with the tree.
 
 ```
 A CHARTER   uniform UnitDescriptor (draws/gates/yields/cycle/medium/couplings)
-B MEDIA     cultivation substrates: SOIL / HYDRO / AERO / MYCO / VAT
+B MEDIA     13 media, 4 trophic families; buffer<->speed is the spine
 C REGISTER  the implicit farming algorithm (six constraint programs)
 D ARRAY     spatial plot gameplay — placement, flows, staggered cycles
 E FORM      module evolution: stations serving the array + lens model

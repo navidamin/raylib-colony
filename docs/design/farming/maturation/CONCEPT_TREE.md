@@ -89,23 +89,67 @@ siting answer.
     conditioning matrix (S2.4) is this system's hidden ground truth.
   - **B1.c Profile** — cheap in power, expensive in mass and time;
     degrades gracefully (no pumps to fail); slow cycles.
-- **B2. HYDRO — hydroponics ●**
-  - **B2.a Water loop** — closed loop with losses; feed/drain topology
-    is physical (Power In / Water In / Water Out ports, S3) and feeds
-    the array gameplay (D2).
-  - **B2.b Nutrient solution** — NUTRIENT_PACK composed from extraction
-    elements; quality grades; ties to F3.
-  - **B2.c Profile** — fast cycles, high power, brittle: a pump/power
-    failure kills whole cohorts in hours. The anti-soil.
-- **B3. Extended media ○** — MYCO (fungiculture: dark-tolerant, eats
-  biomass — FORTNIGHT's dark alphabet), VAT (gas fermentation / algae:
-  crew-free calories, pure industry), AERO (aeroponics: peak efficiency,
-  peak fragility). Dark media pair with light media as (light parent →
-  dark consumer → light child) (S2.2).
-- **B4. Trade-off table ○** — one table: water / power / regolith /
-  mass cost, cycle speed, resilience, labor, morale value per medium.
-  These numbers are what make location pick the mix (C) — write them
-  against dumped real data, not vibes (guide Part II §2).
+- **B2. HYDRO — hydroponics ◆** *(elaborated: [`B2-hydroponics.md`](B2-hydroponics.md))*
+  - **B2.a Technique family** — DWC / NFT / EBB / DRIP, each a point on
+    (water inventory, pump dependence, failure latency, gravity sensitivity).
+    AERO promoted out to its own medium — a different class of fragile.
+  - **B2.b Solution chemistry** — EC (dS/m) and pH as live dials the *plants
+    themselves* push out of range: a real degrade/restore pair. Nutrient
+    sourcing is the good part — **N from the crew loop** (regolith has none
+    that is bioavailable; a conserved, leaky, initially-imported stock),
+    **K+P from KREEP** (the acronym is literally the fertilizer), micros from
+    beneficiation with **Al/Cr toxicity removed**, not just supplied.
+  - **B2.c Root zone** — **dissolved O₂ is the real limiter**, not nutrients;
+    temperature-coupled, and drawn from the colony's own air. Capillary rise
+    scales 1/g, so at 0.16 g the fringe is **~6× taller** — Earth-graded
+    substrate waterlogs. Fix is coarser particles → **`SIZE_SORT` becomes the
+    farm's substrate mill.**
+  - **B2.d Light regime** — PPFD / DLI as the real units; intensity and
+    photoperiod substitutable (the dial DEEP REGISTER turns). **The spectrum
+    tax**: efficient red+blue makes a magenta room crew cannot inspect or bear
+    — white light is watts spent on morale. Feeds off existing
+    `solarIllumination`.
+  - **B2.e Atmosphere** — CO₂ enrichment the habitat cannot tolerate →
+    **zoned atmospheres and time-boxed crew access**; ethylene accumulation as
+    friction that only arrives once the loop is properly sealed; transpiration
+    recovery makes the farm a **water purifier**, not only a sink.
+  - **B2.f Failure latency** — the designed, surfaced number: hours from power
+    loss to first crop death. Buffer is mass; mass is the lunar problem.
+- **B3. The medium roster ●** *(grafted: [`B3-media-roster.md`](B3-media-roster.md))*
+  — thirteen media on two real axes: **trophic route** (photo / chemo /
+  hetero) × **which loop it closes** (carbon / nitrogen / water / waste /
+  mineral). Validated by ESA's MELiSSA, which is exactly this shape.
+  - **B3.a Phototrophic ●** — SOIL · **SUBSTRATE** (inert graded regolith +
+    solution — the answer the physics actually recommends) · HYDRO · AERO ·
+    AQUATIC (algae PBR + duckweed).
+  - **B3.b Chemotrophic ●** — **VAT** (H₂+CO₂ → single-cell protein,
+    *Cupriavidus*; watts to calories with no photosynthesis in the path, and
+    lightless by nature) · **LITHO** (mineral-oxidizing mats → the F5 bridge).
+  - **B3.c Heterotrophic ●** — **MYCO** (eats the inedible half of every
+    harvest, runs through the lunar night) · **INSECT** (fats and B12 that
+    greens cannot supply) · AQUA (closes **nitrogen** via nitrification) ·
+    CULTURE (late luxury).
+  - **B3.d Special-loop ○** — SPROUT (vitamins, honestly a net calorie *loss*)
+    · **HALO** (halophytes eating the **brine dead-end**) · **PIONEER**
+    (cyanobacteria making soil biologically → feeds B1.b).
+  - **B3.e Ship order ◆** — Core: SOIL · SUBSTRATE · HYDRO · MYCO · VAT (one
+    per family + the hybrid). Unlock: AERO · AQUATIC · INSECT. Stretch: the
+    rest.
+- **B4. Trade-off table ●** — one table on the two axes that matter: **growth
+  rate × failure latency**, plus water/power/mass and morale. The roster
+  collapses onto one line, because fast systems are fast precisely by holding
+  no reserve.
+- **B5. The portfolio rule ◆** — *decided.* Every medium's latency is measured
+  against **the same failure: power**. So diversity is not flavour, it is
+  computable insurance — and the lightless families (chemo, hetero) survive
+  what kills every phototroph at once (the night, an eclipsed solar farm).
+  **Never put the whole farm in one medium.** This is what C's six programs
+  are portfolios *of*.
+- **B6. The microbial ceiling ◆** — *decided, and it is biology not balance.*
+  Single-cell protein carries a high nucleic-acid load; uric-acid handling caps
+  human intake near **20–25 g/day**. The most energy-efficient food source
+  cannot feed the crew alone — diet diversity is forced by the body, which is
+  the honest answer to "why not just build VATs" (→ G2, G4, A5).
 
 ## C. REGISTER — the implicit farming algorithm ●
 
