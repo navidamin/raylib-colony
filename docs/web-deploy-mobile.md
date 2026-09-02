@@ -234,3 +234,23 @@ the exact harness shape.
 - The deploy-from-branch trigger in `deploy-web.yml` is temporary for
   playtesting — remove it when the branch merges, or every branch push
   replaces the live site.
+
+## Which build am I looking at? (the stamp)
+
+The playtest draws `BUILD <sha>  <WxH>` in its bottom-right corner: the
+git short SHA the binary was **configured** from (`src/CMakeLists.txt`
+runs `git rev-parse --short HEAD` at configure time; CI configures fresh
+every run) and the live framebuffer size.
+
+This exists because "did my change deploy?" repeatedly cost a round trip.
+Every CI step can be green while the browser serves a cached `.wasm` —
+nothing on screen distinguished the two, so a screenshot could not settle
+it. Now it can: compare the stamp against the pushed SHA.
+
+If the stamp is behind the pushed commit, it is caching, not the
+pipeline. GitHub Pages serves subresources with a ~10 minute max-age, and
+a plain reload can reuse a cached `colony_playtest.js`/`.wasm` even when
+`index.html` is fresh. Either wait out the window or use DevTools →
+Network → **Disable cache**, or "Empty cache and hard reload". Appending
+`?v=N` busts `index.html` only, not the wasm — which is why the stamp,
+not the URL, is the thing to trust.

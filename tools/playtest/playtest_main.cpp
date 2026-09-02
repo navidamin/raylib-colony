@@ -38,6 +38,14 @@
 #include "prospecting_grid.h"
 #include "resource_types.h"
 
+// Which build is this? Set from the git short SHA at configure time (see
+// src/CMakeLists.txt). Drawn in the corner so "did my change deploy?" is a
+// glance, not a round trip -- a browser can serve a stale wasm while every
+// CI step is green.
+#ifndef COLONY_BUILD_ID
+#define COLONY_BUILD_ID "dev"
+#endif
+
 #include <algorithm>
 #include <map>
 #include <memory>
@@ -268,6 +276,17 @@ static void UpdateDrawFrame(void* arg)
     // Drawn after the panel, in the empty strip below the module list. Sized
     // to clear the DIRECTIVES card above it and the panel border below.
     PlaytestDrawStatement(*ctx.unit, 18.0f, 497.0f, 250.0f, 80.0f);
+
+    // Build stamp, bottom-right: the git SHA this binary was configured
+    // from, plus the live framebuffer, so a screenshot answers both "which
+    // build is this?" and "did the canvas fit as intended?".
+    {
+        const char* stamp = TextFormat("BUILD %s   %dx%d", COLONY_BUILD_ID,
+                                       GetScreenWidth(), GetScreenHeight());
+        int sw = MeasureText(stamp, 10);
+        DrawText(stamp, ctx.screenWidth - sw - 10, ctx.screenHeight - 15, 10,
+                 Color{90, 110, 130, 255});
+    }
 
     rlPopMatrix();
     EndDrawing();

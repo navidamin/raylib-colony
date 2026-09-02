@@ -71,6 +71,23 @@ if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
     target_link_libraries(colony_game m)
 endif()
 
+# Build stamp: the short SHA the binary was configured from, drawn in the
+# playtest corner. "Did my change deploy?" was costing a round trip every
+# time -- a browser can serve a stale wasm while every CI step is green,
+# and nothing on screen said which build you were looking at. Configure
+# time, not build time: CI configures fresh every run, which is the case
+# that matters. A dirty local tree reads as the SHA it was configured at.
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE COLONY_BUILD_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT COLONY_BUILD_SHA)
+    set(COLONY_BUILD_SHA "nogit")
+endif()
+message(STATUS "Colony build stamp: ${COLONY_BUILD_SHA}")
+
 # Web Configurations
 if ("${PLATFORM}" STREQUAL "Web")
     set_target_properties(colony_game PROPERTIES SUFFIX ".html")
@@ -178,6 +195,8 @@ if ("${PLATFORM}" STREQUAL "Web")
     set_target_properties(colony_playtest PROPERTIES SUFFIX ".html")
     set_target_properties(colony_playtest PROPERTIES LINK_FLAGS "${web_link_flags}")
 endif()
+
+target_compile_definitions(colony_playtest PRIVATE COLONY_BUILD_ID="${COLONY_BUILD_SHA}")
 
 if(APPLE)
     target_link_libraries(colony_playtest
