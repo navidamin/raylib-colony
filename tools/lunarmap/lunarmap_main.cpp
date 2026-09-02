@@ -2842,8 +2842,9 @@ static bool RunDescentZoom(AppState& app, const MapOptions& options,
 // picks somewhere other than where it points.
 //
 // So pin the CSS size to the buffer size and turn the clamps off, for
-// this page only; the shell is left alone and keeps working for the game
-// and the view-ladder playtest.
+// this page only. The shell's own enforcer is told to stand down at
+// start-up (window.COLONY_CANVAS_FREE); it keeps working unchanged for
+// the game and the view-ladder playtest, whose framebuffers are fixed.
 //
 // The remembered size also matters: comparing against GetScreenWidth()
 // could never settle on a HiDPI display, where the buffer and the CSS
@@ -4000,6 +4001,11 @@ int main(int argc, char** argv)
         int ch = EM_ASM_INT({ return document.documentElement.clientHeight; });
         app.options.width = (cw > 240) ? cw : 960;
         app.options.height = (ch > 240) ? ch : 960;
+        // The shell's enforcer pins the canvas framebuffer to the game's
+        // fixed 1280x720; this page sizes it to the viewport instead
+        // (SyncWebCanvasToViewport), so tell the shell to stand down
+        // before the first frame or it wins every poll.
+        EM_ASM({ window.COLONY_CANVAS_FREE = true; });
     }
     app.options.siteMode = true;
     app.options.nearside = true;

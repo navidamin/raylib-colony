@@ -44,7 +44,7 @@ What actually happened on iPhone, in order of discovery:
   (`cnv=402x226`) while raylib kept rendering 1280x720 → GL viewport
   anchored bottom-left → only the bottom-left corner of the UI visible.
 
-## The fix (SHELL v4, in `src/minshell.html`)
+## The fix (SHELL v4/v5, in `src/minshell.html`)
 
 A persistent enforcer, not a one-shot:
 
@@ -65,10 +65,20 @@ A persistent enforcer, not a one-shot:
 **If the game's base resolution ever changes, update `GAME_W/GAME_H` in
 minshell.html.**
 
+**Pages that size their own framebuffer** (SHELL v5): `lunar_map` sets
+the canvas to the viewport size and re-asserts it when the viewport
+changes, which the enforcer above undid on every poll — it drew a
+viewport-sized frame into a 1280x720 buffer, which the browser then
+stretched: bottom-left corner only, ~1.25x, cursor off by the same
+factor. Such a page sets `window.COLONY_CANVAS_FREE = true` before its
+first frame (see `SyncWebCanvasToViewport` in `lunarmap_main.cpp`), and
+`fitCanvas` then leaves both the framebuffer and the CSS box to it. The
+game and the playtest never set it and are unaffected.
+
 ## The diagnostic badge
 
 `#shellDebug` overlays live geometry:
-`SHELL v4 cnv=WxH style=Wpx/priority rect=WxH@x,y win=WxH vv=WxH@y dpr=N`.
+`SHELL v5 cnv=WxH style=Wpx/priority rect=WxH@x,y win=WxH vv=WxH@y dpr=N`.
 
 This exists because the dev container **cannot reach the deployed site
 at all** (github.io, unauthenticated api.github.com, and Azure artifact

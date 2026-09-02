@@ -25,6 +25,14 @@ Then, at each viewport, it asserts:
 1. the framebuffer is still **1280x720** (the game's fixed render size), and
 2. the rendered canvas **fits inside the viewport**.
 
+A second page stands in for `lunar_map`, which sets `window.COLONY_CANVAS_FREE`
+and sizes its own framebuffer to the viewport; there the harness asserts the
+opposite — the framebuffer **tracks the viewport** and is never pinned back.
+
+Outside the dev container: `npm install playwright && npx playwright install
+chromium` anywhere, then `NODE_PATH=<that>/node_modules node tools/shell-test/shell_test.js`.
+`SHELL_TEST_CHROME` overrides the browser executable.
+
 ## Why this exists
 
 The mobile build shipped cropped three times. A raylib web canvas has three

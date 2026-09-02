@@ -94,7 +94,7 @@
         <div id="shellDebug" style="display:none;position:fixed;top:4px;left:4px;z-index:9999;
              font:10px monospace;color:rgba(255,255,255,0.65);
              background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
-             pointer-events:none;">SHELL v4 loading...</div>
+             pointer-events:none;">SHELL v5 loading...</div>
         <script type='text/javascript'>
             // Fit the fixed-size framebuffer canvas to the device viewport,
             // preserving aspect ratio. Emscripten/raylib write their own
@@ -116,7 +116,7 @@
                     var d = debugEl;
                     if (!d || !c) return;
                     var r = c.getBoundingClientRect();
-                    d.textContent = 'SHELL v4'
+                    d.textContent = 'SHELL v5'
                         + ' cnv=' + c.width + 'x' + c.height
                         + ' style=' + c.style.getPropertyValue('width') + '/'
                                     + c.style.getPropertyPriority('width')
@@ -143,6 +143,16 @@
                 {
                     var c = document.getElementById('canvas');
                     if (!c) return;
+
+                    // A page that sizes its own framebuffer to the viewport
+                    // (lunar_map) sets this before its first frame, and
+                    // from then on the framebuffer and the CSS box are its
+                    // business. Without the opt-out the enforcer below
+                    // pinned its canvas back to 1280x720 on every poll, so
+                    // it drew a viewport-sized frame into a smaller buffer:
+                    // bottom-left corner only, scaled up, cursor off by the
+                    // same factor.
+                    if (window.COLONY_CANVAS_FREE) { updateDebug(c); return; }
 
                     // Restore the framebuffer if something shrank it. The
                     // game loop repaints every frame, so the buffer clear
