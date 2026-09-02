@@ -175,24 +175,32 @@ intervals need the pressure band (excluded for now); Tier 1 cooked
 evidence is blocked on the assay-quality term (disposition doc §5);
 voluntary tripping and wireline await a UI affordance.
 
-### 7b. The fine core log (v2 of the lane)
+### 7b. The fine core log (v3 of the lane)
 
-The lane's sticks are 5 m (`PROS_LOG_INTERVAL_M`), graded by the WORST
-heat each was cut at: intact (<= fatigue onset 0.60), partial/smoked
-(0.60..0.85), lost/cooked (>= 0.85). Advance-gated -- a dwell off the
-face marks nothing (recovery is a property of metres cut, disposition
-doc section 4b). Measured columns (campaign, I/P/L per stick):
+The lane's sticks are 5 m (`PROS_LOG_INTERVAL_M`), equal height (a log is
+a document), graded by the thermal DOSE they were cut under -- the mean
+over metres cut of x², x = heat excess above the fatigue onset. Smoked
+(PARTIAL) at dose >= `PROS_LOG_SMOKE_DOSE` (0.0005); LOST is the stick the
+bit fractured in. The threshold is a near-zero floor: in effect any
+hot metre smokes the stick -- a trough-cut stick with a sliver of hot
+metres must not read intact between two smoked ones. Advance-gated -- a dwell off the face marks nothing
+(recovery is a property of metres cut, disposition doc section 4b).
+
+v2 graded by the WORST INSTANT and the auto-peck sawtooth made the record
+alternate `PLPLPL` -- a stick that held the redline peak logged LOST, the
+next one, cut while cooling, PARTIAL. Real, but it read as random breaks
+(playtest report). Dose per metre reads the same cycle as one sustained
+band. Measured columns (campaign, I/P/L per stick):
 
 ```
 0-1/s  IIIIIIIIIIIIIIII   clean
 2/s    IIIIIIIIIIIIIIIP   one smoked stick at the bottom
-4/s    IIIPLPLPLLPLLLLL   the edge-rider's scar tissue
-6-12/s IILLLLLL(L|P)...   spam cooks everything below ~10 m
+4/s    IIIPPPPPPPPPPPPP   the hot run, as one band
+12/s   IIPPPPPPPPPPPPPL   spam: smoked throughout, LOST where the bit let go
 ```
 
-PARTIAL is the signature of edge-riding, not of spam: at full spam even
-the transition sticks touch the redline. The grade is a record only --
-no survey term reads it yet (the disposition doc's named blocker).
+The grade is a record only -- no survey term reads it yet (the
+disposition doc's named blocker).
 
 Shake (same pass): rumble is now `rpmN^2 * (0.25 + 1.2 * hardness)` --
 no base term, ground-scaled; the old flat `0.35 + 1.1*rpmN^2` was

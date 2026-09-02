@@ -218,16 +218,19 @@ constexpr float BIT_TRIP_BASE_S   = 3.0f;
 constexpr float BIT_TRIP_S_PER_M  = 0.30f;
 
 // The core log's fine intervals (redline's log, finer than the strata).
-// Each 5 m stick is graded by the WORST heat it was cut at -- knowledge
-// about how you drilled, laid down as you drill:
-//   cool (heat <= FATIGUE_ONSET)  -> INTACT   core in the barrel
-//   hot  (onset .. LOG_LOST_HEAT) -> PARTIAL  smoked, half the story
-//   redline (>= LOG_LOST_HEAT)    -> LOST     cooked to rubble
+// Each 5 m stick is graded by the thermal DOSE it was cut under -- mean
+// squared excess above the fatigue onset, per metre cut, so a stick that
+// merely brushed the redline once and one that rode it read the same
+// sustained level (worst-instant grading made the auto-peck sawtooth
+// alternate LOST/PARTIAL stick by stick, which read as noise):
+//   dose <  PROS_LOG_SMOKE_DOSE -> INTACT   core in the barrel
+//   dose >= PROS_LOG_SMOKE_DOSE -> PARTIAL  smoked, half the story
+//   the bit fractured in it    -> LOST     rubble where the core was
 // The grade is a record, not yet a survey term (redline-disposition.md
 // section 5 names that blocker); the lane tells the truth ahead of it.
 constexpr float PROS_LOG_INTERVAL_M = 5.0f;
 constexpr int   PROS_LOG_INTERVALS  = 24;    // covers FULL_COLUMN_M (120 m)
-constexpr float PROS_LOG_LOST_HEAT  = 0.85f;
+constexpr float PROS_LOG_SMOKE_DOSE = 0.0005f;  // in effect: any hot metre smokes the stick
 static_assert(PROS_LOG_INTERVALS * PROS_LOG_INTERVAL_M >= 120.0f,
               "log intervals must cover the full column");
 

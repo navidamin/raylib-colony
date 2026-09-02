@@ -554,10 +554,15 @@ metres — exactly redline's flexed log rows), while the strip beside it
 stays depth-true; mapping the sticks through the strip's band scale
 squashed deep sticks to a third of shallow ones, which read as a glitch.
 Thin stratum-seam lines cross the lane so its linear scale stays tied to
-the rock. Each stick is graded by the worst heat it was cut at, in
-redline's own log legend: **dark** `#0f1821` = uncut, **intact** `#93a7b8`, **partial**
-(smoked) `#5c6675`, **lost** (cooked) `#241a17` with a `#3a2620` inner
-border; cut sticks of the icy stratum carry a 2 px ice tick `#7fd8ee`.
+the rock, and every stick edge is pixel-snapped — fractional edges
+rasterised to uneven 0/1/2 px gaps that read as breaks in the record. Each stick is graded by the thermal DOSE it was cut under
+(mean squared heat-excess per metre — a sustained level, never a single
+instant: worst-instant grading made the auto-peck sawtooth alternate
+stick by stick, which read as random breaks), in redline's own log
+legend: **dark** `#0f1821` = uncut, **intact** `#93a7b8`, **partial**
+(smoked) `#5c6675`, **lost** — the stick the bit fractured in, rubble where the core was —
+a hot `#3a1e16` fill with a `#963e22` inner border (the hot semantic, so
+it can never be mistaken for uncut ground); cut sticks of the icy stratum carry a 2 px ice tick `#7fd8ee`.
 A landing core still flashes its whole stratum white for 0.5 s (same
 clock as the plate cell), and the bit's position rides the lane as an
 amber tick — a third cursor on the shared clock. The lane records how

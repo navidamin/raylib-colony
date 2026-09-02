@@ -239,6 +239,10 @@ bool ProspectingSystem::UpdateLineHole(float dt)
         lineHole.tripDur = BIT_TRIP_BASE_S + lineHole.depthM * BIT_TRIP_S_PER_M;
         lineHole.fracturedTime = gameTime;
         lineHole.trips++;
+        // The stick the bit let go in is rubble: LOST, whatever its dose.
+        int ivF = std::min(PROS_LOG_INTERVALS - 1,
+                           static_cast<int>(lineHole.depthM / PROS_LOG_INTERVAL_M));
+        lineHole.logQ[ivF] = 1;
         return false;
     }
 
@@ -270,19 +274,28 @@ bool ProspectingSystem::UpdateLineHole(float dt)
     // Abrasion: metres cut, harder rock cuts the bit back.
     lineHole.wear += (lineHole.depthM - beforeM) * hard * BIT_WEAR_PER_M;
 
-    // The fine core log: every 5 m stick the bit cuts through is graded by
-    // the WORST heat it was cut at -- once smoked, always smoked.
+    // The fine core log: the metres just cut are dosed with the heat they
+    // were cut at (squared excess above the fatigue onset), stick by stick.
+    // Grade follows the dose per metre -- a sustained level, not an instant
+    // -- so the auto-peck sawtooth reads as one smoked run, not a flicker.
     if (lineHole.depthM > beforeM)
     {
-        unsigned char grade = lineHole.heat >= PROS_LOG_LOST_HEAT ? 1
-                            : lineHole.heat > BIT_FATIGUE_ONSET   ? 2 : 3;
+        float x = std::max(0.0f, (lineHole.heat - BIT_FATIGUE_ONSET)
+                                 / (1.0f - BIT_FATIGUE_ONSET));
         int iv0 = static_cast<int>(beforeM / PROS_LOG_INTERVAL_M);
         int iv1 = std::min(PROS_LOG_INTERVALS - 1,
                            static_cast<int>(lineHole.depthM / PROS_LOG_INTERVAL_M));
         for (int iv = iv0; iv <= iv1; iv++)
         {
-            if (lineHole.logQ[iv] == 0 || grade < lineHole.logQ[iv])
-                lineHole.logQ[iv] = grade;
+            float s0 = std::max(beforeM, iv * PROS_LOG_INTERVAL_M);
+            float s1 = std::min(lineHole.depthM, (iv + 1) * PROS_LOG_INTERVAL_M);
+            float len = s1 - s0;
+            if (len <= 0.0f) continue;
+            lineHole.logDose[iv] += x * x * len;
+            lineHole.logLen[iv]  += len;
+            if (lineHole.logQ[iv] == 1) continue;          // lost stays lost
+            float dose = lineHole.logDose[iv] / lineHole.logLen[iv];
+            lineHole.logQ[iv] = dose >= PROS_LOG_SMOKE_DOSE ? 2 : 3;
         }
     }
 

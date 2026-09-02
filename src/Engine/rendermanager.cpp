@@ -2565,7 +2565,9 @@ static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, flo
     // the stack shrank 42% and the model used less than half the space it had.
     g.tileY = g.tileX * 0.28f;
     float diamondH = 2.0f * gridSize * g.tileY;
-    g.relief = std::max(13.0f, diamondH * 0.30f);
+    // Relief x1.5 by playtest request: the height channel is the model's whole
+    // point, and at 0.30 the shoots read as ripples.
+    g.relief = std::max(19.0f, diamondH * 0.45f);
     const float clearance = 7.0f;
     g.gap = diamondH + g.relief + clearance;
 
@@ -3420,20 +3422,22 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         {
             float m0 = iv * PROS_LOG_INTERVAL_M;
             float m1 = std::min(m0 + PROS_LOG_INTERVAL_M, FULL_COLUMN_M);
-            float y0 = laneY(m0) + 0.5f;
-            float y1 = laneY(m1) - 0.5f;
+            // Pixel-snapped: fractional stick edges rasterised to uneven
+            // 0/1/2 px gaps, which read as random breaks in the record.
+            float y0 = floorf(laneY(m0)) + 1.0f;
+            float y1 = floorf(laneY(m1));
             if (y1 <= y0) continue;
             Color fill = {15, 24, 33, 255};                      // uncut
             switch (hole.logQ[iv])
             {
                 case 3: fill = {147, 167, 184, 255}; break;      // intact
                 case 2: fill = {92, 102, 117, 255};  break;      // partial
-                case 1: fill = {36, 26, 23, 255};    break;      // lost
+                case 1: fill = {58, 30, 22, 255};    break;      // lost: hot, not a hole
                 default: break;
             }
             DrawRectangleRec({lx, y0, lw, y1 - y0}, fill);
             if (hole.logQ[iv] == 1)
-                DrawRectangleLinesEx({lx, y0, lw, y1 - y0}, 1.0f, {58, 38, 32, 255});
+                DrawRectangleLinesEx({lx, y0, lw, y1 - y0}, 1.0f, {150, 62, 34, 255});
             // volatiles tick on cut sticks of the icy stratum
             if (hole.logQ[iv] != 0 && m1 > LayerTopM(2) && m0 < LayerBottomM(2))
                 DrawRectangleRec({lx, y0, 2.0f, y1 - y0}, Fade(PROS_ICE_FLECK, 0.85f));
@@ -3467,7 +3471,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
             struct { Color c; const char* n; } items[4] = {
                 {{147, 167, 184, 255}, "INTCT"},
                 {{92, 102, 117, 255},  "PART"},
-                {{36, 26, 23, 255},    "LOST"},
+                {{58, 30, 22, 255},    "LOST"},
                 {PROS_ICE_FLECK,       "ICE"},
             };
             for (int k = 0; k < 4; k++)
@@ -3476,7 +3480,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                 DrawRectangleRec({gx + 4.0f, ry + 1.0f, 6.0f, 6.0f}, items[k].c);
                 if (k == 2)
                     DrawRectangleLinesEx({gx + 4.0f, ry + 1.0f, 6.0f, 6.0f},
-                                         1.0f, {58, 38, 32, 255});
+                                         1.0f, {150, 62, 34, 255});
                 DrawTextEx(bodyFont, items[k].n, {gx + 14.0f, ry},
                            fsSmall, sp, EXT_DIM_TEXT);
             }

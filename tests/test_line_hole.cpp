@@ -248,11 +248,9 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
     REQUIRE(cut >= 10);                          // 79 m of 5 m sticks
     REQUIRE(allIntact);
 
-    // Riding the edge (~4 clicks/s) scars the column with a MIX: smoked
-    // sticks (PARTIAL) between cooked ones (LOST). Once smoked, always
-    // smoked -- the grade is the worst heat the stick saw. (Measured: at
-    // full spam even the transition sticks redline, so PARTIAL is the
-    // signature of edge-riding, not of spam.)
+    // Riding the edge (~4 clicks/s) smokes the hot run of the column as
+    // ONE sustained band -- dose per metre, not the worst instant, so the
+    // auto-peck sawtooth does not flicker stick by stick.
     ProspectingSystem hot = MakeSystem();
     hot.StartAim(3, 3);
     hot.AimAt(3, 3, 3);
@@ -263,13 +261,35 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
         hot.UpdateLineHole(0.05f);
     }
     REQUIRE(hot.lineHole.state == LineHoleState::DONE);
-    bool sawSmoked = false, sawLost = false;
-    for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
+    bool sawSmoked = false, flicker = false;
+    for (int iv = 1; iv + 1 < PROS_LOG_INTERVALS; iv++)
     {
         if (hot.lineHole.logQ[iv] == 2) sawSmoked = true;
-        if (hot.lineHole.logQ[iv] == 1) sawLost = true;
+        // a smoked stick between two intact ones, or the reverse, is the
+        // flicker the dose grading exists to remove
+        if (hot.lineHole.logQ[iv] != 0 && hot.lineHole.logQ[iv - 1] != 0 &&
+            hot.lineHole.logQ[iv + 1] != 0 &&
+            hot.lineHole.logQ[iv - 1] == hot.lineHole.logQ[iv + 1] &&
+            hot.lineHole.logQ[iv] != hot.lineHole.logQ[iv - 1])
+            flicker = true;
     }
     REQUIRE(sawSmoked);
+    REQUIRE_FALSE(flicker);
+
+    // LOST is the stick the bit fractured in -- rubble where the core was.
+    ProspectingSystem spam = MakeSystem();
+    spam.StartAim(3, 3);
+    spam.AimAt(3, 3, 3);
+    spam.CommitHole();
+    for (int i = 0; i < 20000 && spam.lineHole.state == LineHoleState::DRILLING; i++)
+    {
+        spam.KickString();
+        spam.UpdateLineHole(0.05f);
+    }
+    REQUIRE(spam.lineHole.trips >= 1);
+    bool sawLost = false;
+    for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
+        if (spam.lineHole.logQ[iv] == 1) sawLost = true;
     REQUIRE(sawLost);
 }
 
