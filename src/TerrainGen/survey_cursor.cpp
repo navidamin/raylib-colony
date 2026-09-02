@@ -17,9 +17,9 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
 {
     // name          window span                  footprint  snap
     //
-    // Three levels: disc -> 100 -> 25. Two rungs were dropped from the
-    // original five, each for the same reason -- it answered no question
-    // of its own. The 500 km "REGIONAL" rung went first (the region card
+    // Three levels: disc -> 200 -> 25, zooming 15x, 8x and (inside the
+    // site level) 5x. Two rungs were dropped from the original five,
+    // each for the same reason -- it answered no question of its own. The 500 km "REGIONAL" rung went first (the region card
     // freezes at level 1, so there was no new mix to read at 500 km).
     // LOCALITY went next: a 25 km window choosing a 5 km cell, followed
     // by a 5 km window placing inside it, is one decision wearing two
@@ -27,11 +27,15 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
     // 25 km while the cursor refines from the 5 km cell to the 1.5 km
     // footprint, so the player zooms once instead of clicking twice.
     //
+    // The district widened from 100 to 200 km on 2026-09-02 so the three
+    // zooms read as 15x / 8x / 5x; it no longer matches the game's
+    // 100 km PLANET playfield, and its 25 km cursor sits at 12.5% of the
+    // window -- which is why the band floor is 12%, not 15%.
     // Every rung's footprint is the next rung's window, which is what
     // makes the descent register: the rectangle you aim with becomes the
     // view you land in.
-    { "ORBITAL",     SURVEY_ORBITAL_USABLE_KM,    100.0,     true  },
-    { "DISTRICT",    100.0,                        25.0,     true  },
+    { "ORBITAL",     SURVEY_ORBITAL_USABLE_KM,    200.0,     true  },
+    { "DISTRICT",    200.0,                        25.0,     true  },
     // Snapped to the 5 km sect grid as it stands -- the game's own cell
     // size. Zooming refines the footprint below that and releases the
     // snap, because the last choice is "where within this cell", not
@@ -49,9 +53,9 @@ double SnapOffset(double offsetKm, double spanKm, double footprintKm)
     double phase = (cells % 2 == 0) ? 0.5 : 0.0;
 
     // The index range is asymmetric when the grid straddles the centre:
-    // with a 100 km window and a 25 km cursor the cell centres are at
-    // -37.5, -12.5, +12.5, +37.5, i.e. indices -2..+1. Clamping to a
-    // symmetric +-1 would refuse the westmost/southmost cell and snap
+    // with a 200 km window and a 25 km cursor the cell centres are at
+    // -87.5 ... -12.5, +12.5 ... +87.5, i.e. indices -4..+3. Clamping to
+    // a symmetric +-3 would refuse the westmost/southmost cell and snap
     // the cursor a whole cell away from where the player is pointing.
     double limitKm = (spanKm - footprintKm) * 0.5;
     if (limitKm <= 0.0) return 0.0;

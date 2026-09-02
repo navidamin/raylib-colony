@@ -53,6 +53,16 @@ that:
 These are the game's own scales: PLANET is 100 km, COLONY 25, SECT 5.
 The ladder has no rung that is not a view the game already has.
 
+> **As built (2026-09-02).** The ladder in code is three rungs, not four:
+> ORBITAL (3000 km usable disc, 200 km cursor) → DISTRICT (200 km window,
+> 25 km cursor) → SITE (25 km window, cursor refining from the 5 km cell
+> to the 1.5 km footprint as the view zooms to 5 km). Colony and Site
+> merged on 2026-08-29 — one decision was wearing two framings — and the
+> district widened from 100 to 200 km on 2026-09-02 so the three zooms
+> read 15× / 8× / 5×. The district therefore no longer coincides with the
+> 100 km PLANET playfield, and the cursor floor is 12% (the 8× rung sits
+> at 12.5%). `src/TerrainGen/survey_cursor.cpp` is the authority.
+
 The code carried a fifth, 500 km "REGIONAL" rung between the disc and
 the playfield, which was never in this table. It answered no question of
 its own — the region card freezes at level 1 and never refines (§4.6),

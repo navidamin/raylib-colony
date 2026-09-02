@@ -16,7 +16,8 @@ not because an instrument improved. See §2 and the coherency contract in
 > You pick a region for what it has. You pick a spot for whether you can
 > build on it.
 
-Two decisions at two scales — a 100 km region (one playfield) chosen for
+Two decisions at two scales — a 200 km district (widened from the 100 km
+playfield on 2026-09-02, so the descent zooms 15x / 8x / 5x) chosen for
 what it holds, and a 1.5 km footprint chosen for whether it can carry a
 base. Everything between the two is camera movement, not decision.
 
@@ -66,8 +67,9 @@ there is no band to read, no ring to interpret, no instrument to learn.
 
 ## Open questions
 
-`[?]` **Region size.** 100 km = one playfield needs no new machinery and
-is the default. If regions feel too coarse to choose between, several
+`[?]` **Region size.** 100 km = one playfield needed no new machinery and
+was the default until 2026-09-02; the district is 200 km now (see the
+master design's "as built" note). If regions feel too coarse to choose between, several
 per playfield is the fallback — but that weakens "one region, one
 playfield", so try the simple version first.
 

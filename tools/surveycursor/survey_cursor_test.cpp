@@ -79,21 +79,25 @@ int main()
     SurveyCursorTrack(&local, square, 500.0f + 40.0f * 5.6f, 500.0f);
     Check(std::fabs(local.offsetXKm - 5.0) < 1e-9, "snap to 5 km grid (odd)");
 
-    // 5. Snapping: DISTRICT (index 1: 100 km / 25 km) has an even cell count, so
+    // 5. Snapping: DISTRICT (index 1: 200 km / 25 km) has an even cell count, so
     //    cells straddle the centre at +-12.5 km.
     SurveyCursor district = MakeSurveyCursor(1, 0.0, 0.0);
     SurveyCursorTrack(&district, square, 500.0f + 10.0f * 3.0f, 500.0f);
     Check(std::fabs(district.offsetXKm - 12.5) < 1e-9, "snap straddles centre (even)");
 
     // 5b. The outermost cell must be reachable in BOTH directions. With
-    //     an even cell count the index range is asymmetric (-2..+1 for a
-    //     100 km window and a 25 km cursor), and clamping symmetrically
-    //     would snap the cursor a whole cell away from the mouse.
+    //     an even cell count the index range is asymmetric (-4..+3 for a
+    //     200 km window and a 25 km cursor), and clamping symmetrically
+    //     would snap the cursor a whole cell away from the mouse. The
+    //     edge cell's centre is derived from the ladder so the check
+    //     follows the table.
+    const SurveyLevelDef* lad = GetSurveyLadder();
+    double edgeKm = (lad[1].windowSpanKm - lad[1].footprintKm) * 0.5;
     SurveyCursor edge = MakeSurveyCursor(1, 0.0, 0.0);
     SurveyCursorTrack(&edge, square, 0.0f, 500.0f);            // far west
-    Check(std::fabs(edge.offsetXKm + 37.5) < 1e-9, "westmost cell reachable");
+    Check(std::fabs(edge.offsetXKm + edgeKm) < 1e-9, "westmost cell reachable");
     SurveyCursorTrack(&edge, square, 1000.0f, 500.0f);         // far east
-    Check(std::fabs(edge.offsetXKm - 37.5) < 1e-9, "eastmost cell reachable");
+    Check(std::fabs(edge.offsetXKm - edgeKm) < 1e-9, "eastmost cell reachable");
 
     // 5c. Every snapped cell tiles the window: the union of the cells the
     //     mouse can reach must cover the whole span, with no gaps and no

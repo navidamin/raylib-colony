@@ -55,16 +55,17 @@ xvfb-run -a ...` (the script applies it).
 ./build/src/lunar_map --site
 ```
 
-The five-level site-selection ladder, played rather than rendered.
+The three-level site-selection ladder, played rather than rendered.
 Level 1 is the near-side map: move over the moon and the region under
 the cursor names itself — real named features where there are any,
 a measured mare/highland reading anywhere else — and the region card
 shows its composition, its terrane and its archetype. Click to claim
-it. The card then *freezes*: levels 2–5 descend 500 → 100 → 25 → 5 km
-and never revise it, because resources belong to the region while
+it. The card then *freezes*: levels 2–3 descend 200 → 25 km (15x from
+the disc, then 8x, then a 5x zoom inside the site level) and never
+revise it, because resources belong to the region while
 terrain belongs to the spot. The level card on the right is the part
 that sharpens — measured slope, relief, illumination, Earth link — and
-at level 5 the site is judged buildable or refused. Clicking a card
+at level 3 the site is judged buildable or refused. Clicking a card
 row opens its hint (what a high titanium reading is *for*). `Esc` or
 the on-screen BACK button steps back up.
 
@@ -147,7 +148,7 @@ craters must sit where the real ones sit.
 | `--place DX,DY` | placement cursor, km east/north of the window centre |
 | `--footprint KM` | cursor footprint size (default 1.5) |
 | `--ladder` | walk the survey descent, one PNG per level |
-| `--site` | interactive site-selection playtest (the five levels) |
+| `--site` | interactive site-selection playtest (the three levels) |
 | `--siteshot PATH` | scripted walk through `--site`, one PNG per step |
 | `--flyshot PATH` | the level-1 descent zoom, one PNG per phase |
 | `--out PATH` | render PNG and exit; without it a window opens |
@@ -160,14 +161,14 @@ tools/lunarmap/lunarmap.sh --pick -43.3,-11.4 --ladder \
     --out build/lunarmap/ladder/tycho.png
 ```
 
-Walks the site-selection descent — 500 km → 100 → 25 → 5 km window —
-with the cursor aimed at one fixed target, writing
-`tycho_2_REGIONAL.png` … `tycho_5_SITE.png`. At every level the cursor
+Walks the site-selection descent — 200 km → 25 km window — with the
+cursor aimed at one fixed target, writing `tycho_2_DISTRICT.png` and
+`tycho_3_SITE.png`. At every level the cursor
 is the footprint of the level *below*, so each image's cursor frames
 exactly the ground the next image shows. `--place DX,DY` moves the
 target (km east/north of `--pick`).
 
-Levels 2–5 only: level 1 is the projected orbital disc, which lives in
+Levels 2–3 only: level 1 is the projected orbital disc, which lives in
 the game's render path, not in this instrument. Geometry comes from
 `src/TerrainGen/survey_cursor.{h,cpp}` (shared with the game;
 `survey_cursor_test` is its headless self-test). Design:

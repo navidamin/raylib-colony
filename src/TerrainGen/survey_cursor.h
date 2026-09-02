@@ -8,7 +8,7 @@
 // One idea carries the whole interaction: at every zoom level the
 // cursor is the FOOTPRINT OF THE LEVEL BELOW. It is always "the thing
 // you are about to enter", so descending is picking, not just moving
-// the camera. Five levels, from the whole disc down to the 1.5 km patch
+// the camera. Three levels, from the whole disc down to the 1.5 km patch
 // the base actually sits on.
 //
 // This module is deliberately free of game and render code — it is pure
@@ -67,8 +67,10 @@ const SurveyLevelDef* GetSurveyLadder();
 
 // The cursor:window ratio band from the design. Below the floor the
 // cursor is a dot and its readout is unreadable; above the ceiling
-// there is nothing left to choose between.
-const double SURVEY_CURSOR_MIN_RATIO = 0.15;
+// there is nothing left to choose between. The floor was 15% until
+// 2026-09-02: the 8x district rung puts its 25 km cursor at 12.5% of
+// the 200 km window, so it is 12% now.
+const double SURVEY_CURSOR_MIN_RATIO = 0.12;
 const double SURVEY_CURSOR_MAX_RATIO = 0.30;
 
 // Footprint for an arbitrary window span, honouring the band. Prefers
