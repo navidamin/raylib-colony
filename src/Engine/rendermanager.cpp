@@ -2589,8 +2589,9 @@ static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,
 
 static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockCell>& cells,
                                int layer, float maxGrade, Font labelFont, float sp,
-                               const char* depthLabel, const char* geologyLabel,
-                               std::vector<Rectangle>* hitBoxes, std::vector<int>* hitIndex)
+                               const char* depthLabel, const char* levelLabel,
+                               std::vector<Rectangle>* hitBoxes, std::vector<int>* hitIndex,
+                               float rimPulse = 0.0f)
 {
     const int N = g.size;
     const float fade = powf(0.84f, static_cast<float>(layer));
@@ -2669,13 +2670,42 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
         }
     }
 
+    // The active-plate rim (section 9.4: the stratum being cut rim-lights its
+    // plate). Drawn HERE, not with the trace, because only this function knows
+    // cornerLift -- the plate's surface floats up to g.relief above its base
+    // plane, so a rim computed at lift 0 sat below the plate it was meant to
+    // hug, and the x1.5 relief pass made that gap plain. Tracing the boundary
+    // through the same cornerLift the surface uses cannot drift by
+    // construction, whatever the relief.
+    if (rimPulse > 0.0f)
+    {
+        Color rim = Fade({244, 198, 106, 255}, rimPulse);
+        auto edge = [&](int i0, int j0, int i1, int j1)
+        {
+            int steps = std::max(std::abs(i1 - i0), std::abs(j1 - j0));
+            Vector2 prev = g.Iso(static_cast<float>(i0), static_cast<float>(j0),
+                                 layer, cornerLift(i0, j0));
+            for (int t = 1; t <= steps; t++)
+            {
+                int i = i0 + (i1 - i0) * t / steps;
+                int j = j0 + (j1 - j0) * t / steps;
+                Vector2 cur = g.Iso(static_cast<float>(i), static_cast<float>(j),
+                                    layer, cornerLift(i, j));
+                DrawLineEx(prev, cur, 2.0f, rim);
+                prev = cur;
+            }
+        };
+        edge(0, 0, N, 0);   edge(N, 0, N, N);
+        edge(N, N, 0, N);   edge(0, N, 0, 0);
+    }
+
     // Depth ruling out to the left edge of this plate
     Vector2 leftCorner = g.Iso(0.0f, static_cast<float>(N), layer, 0.0f);
     float labelX = g.originX - N * g.tileX - 68.0f;
     for (float dx = labelX + 44.0f; dx < leftCorner.x - 5.0f; dx += 6.0f)
         DrawLineEx({dx, leftCorner.y}, {dx + 2.5f, leftCorner.y}, 1.0f, Fade(EXT_ACCENT_CYAN, 0.28f));
     DrawTextEx(labelFont, depthLabel, {labelX, leftCorner.y - 11.0f}, 11.0f, sp, EXT_ACCENT_CYAN);
-    DrawTextEx(labelFont, geologyLabel, {labelX, leftCorner.y + 1.0f}, 8.0f, sp, EXT_DIM_TEXT);
+    DrawTextEx(labelFont, levelLabel, {labelX, leftCorner.y + 1.0f}, 8.0f, sp, EXT_DIM_TEXT);
 }
 
 static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
@@ -3415,17 +3445,21 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     {
         float lx = dg.x + 4.0f, lw = 7.0f;
         float laneH = botY - surfY;
-        auto laneY = [&](float m) { return surfY + laneH * m / FULL_COLUMN_M; };
+        // One ground joins the panels (Dark Plating section 9.1): the lane
+        // reads depth through the SAME mapping as the strip and the string.
         DrawRectangleRec({lx - 1.5f, surfY - 1.5f, lw + 3.0f, laneH + 3.0f},
                          PROS_OUT);
         for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
         {
-            float m0 = iv * PROS_LOG_INTERVAL_M;
-            float m1 = std::min(m0 + PROS_LOG_INTERVAL_M, FULL_COLUMN_M);
+            float m0 = ProsLogTopM(iv);
+            float m1 = ProsLogBottomM(iv);
+            // Drawn through the STRIP's mapping, so the record stands level
+            // with the string beside it. Equal sticks per stratum keep every
+            // bar the same height even though the mapping is per-band.
             // Pixel-snapped: fractional stick edges rasterised to uneven
             // 0/1/2 px gaps, which read as random breaks in the record.
-            float y0 = floorf(laneY(m0)) + 1.0f;
-            float y1 = floorf(laneY(m1));
+            float y0 = floorf(dg.YOf(m0)) + 1.0f;
+            float y1 = floorf(dg.YOf(m1));
             if (y1 <= y0) continue;
             Color fill = {15, 24, 33, 255};                      // uncut
             switch (hole.logQ[iv])
@@ -3444,7 +3478,7 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         }
         // stratum seams, so the lane's linear scale stays tied to the rock
         for (int L = 1; L < 4; L++)
-            DrawRectangleRec({lx - 1.5f, laneY(LayerTopM(L)) - 0.5f,
+            DrawRectangleRec({lx - 1.5f, dg.YOf(LayerTopM(L)) - 0.5f,
                               lw + 3.0f, 1.2f}, Fade(PROS_ROCK_EDGE[L], 0.9f));
         // the core-landing flash still pings the whole stratum it came from
         for (int L = 0; L < 4; L++)
@@ -3452,12 +3486,15 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
             if (!hole.cored[L]) continue;
             float flash = 1.0f - (ps->gameTime - hole.coredTime[L]) / 0.5f;
             if (flash > 0.0f)
-                DrawRectangleRec({lx, laneY(LayerTopM(L)), lw,
-                                  laneY(LayerBottomM(L)) - laneY(LayerTopM(L))},
+                DrawRectangleRec({lx, dg.YOf(LayerTopM(L)), lw,
+                                  dg.YOf(LayerBottomM(L)) - dg.YOf(LayerTopM(L))},
                                  Fade(WHITE, 0.6f * flash));
         }
-        // the bit's own tick rides the lane, on the LANE's scale
-        DrawRectangleRec({lx - 1.5f, laneY(std::min(depthShown, hole.endM)) - 1.0f,
+        // The bit's own tick rides the lane as a third cursor, centred on the
+        // SAME point as the strip's amber diamond (which sits +3 px, on the
+        // cone tip) -- twin cursors share one ground, so they must be level to
+        // the pixel, not merely close.
+        DrawRectangleRec({lx - 1.5f, dg.YOf(std::min(depthShown, hole.endM)) + 2.0f,
                           lw + 3.0f, 2.0f}, {244, 198, 106, 255});
 
         // The lane's legend, redline's own chip, bottom-right of the box:
@@ -3589,31 +3626,8 @@ static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
         }
     }
 
-    // active-plate rim while the bit is inside its stratum
-    if (hole.state == LineHoleState::DRILLING)
-    {
-        int L = LayerOfDepthM(hole.depthM);
-        float a = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
-        // Exactly the plate's own base diamond, scaled a hair outward about
-        // its centre -- the edges stay parallel to the plate's, so the rim
-        // reads as a halo on the plate rather than a shape of its own (the
-        // old hand-tuned per-corner offsets skewed it off the diamond).
-        float n = static_cast<float>(g.size);
-        Vector2 C = g.Iso(n * 0.5f, n * 0.5f, L, 0.0f);
-        float k = 1.0f + 6.0f / std::max(1.0f, n * g.tileX);
-        auto rimPt = [&](float gx, float gy)
-        {
-            Vector2 p = g.Iso(gx, gy, L, 0.0f);
-            return Vector2{ C.x + (p.x - C.x) * k, C.y + (p.y - C.y) * k };
-        };
-        Vector2 top = rimPt(0.0f, 0.0f);
-        Vector2 right = rimPt(n, 0.0f);
-        Vector2 bot = rimPt(n, n);
-        Vector2 left = rimPt(0.0f, n);
-        Color rim = Fade({244, 198, 106, 255}, a);
-        DrawLineEx(top, right, 1.5f, rim); DrawLineEx(right, bot, 1.5f, rim);
-        DrawLineEx(bot, left, 1.5f, rim);  DrawLineEx(left, top, 1.5f, rim);
-    }
+    // The active-plate rim lives in ProsDrawBlockLayer, which knows the
+    // per-corner lifts it has to hug. Its pulse rides this same clock.
 
     // twin cursor, same clock as the mud panel's
     float pulse = 3.9f + 1.1f * sinf(ps->gameTime * 12.6f);
@@ -3766,14 +3780,26 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         }
     }
 
-    static const char* depthLabels[4]   = {"0 m", "12 m", "34 m", "68 m"};
-    static const char* geologyLabels[4] = {"REGOLITH", "MEGAREG.", "FRACTURED", "INTACT"};
+    // DEPTH-LEVEL names (the DepthLayer enum), not geology names. The strata
+    // are named on the borehole strip, where the rock actually is; naming them
+    // here too put "INTACT" (intact basalt) one column from the core log's
+    // "INTCT" (intact core recovered), so a rock label read as a core grade.
+    // One vocabulary per instrument.
+    static const char* depthLabels[4] = {"0 m", "12 m", "34 m", "68 m"};
+    static const char* levelLabels[4] = {"SURFACE", "SHALLOW", "MID", "DEEP"};
 
     int focusDepth = static_cast<int>(ps->selectedDepth);
+    // The stratum being cut rim-lights its plate, pulsing on the SAME clock as
+    // the twin cursors (Dark Plating section 9.3 -- an unsynced phase breaks
+    // the illusion that the two dots are one object).
+    int rimLayer = ps->lineHole.state == LineHoleState::DRILLING
+                 ? LayerOfDepthM(ps->lineHole.depthM) : -1;
+    float rimPulse = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
     for (int L = 0; L < 4; L++)
     {
         ProsDrawBlockLayer(geom, layers[L], L, maxGrade, bodyFont, sp,
-                           depthLabels[L], geologyLabels[L], nullptr, nullptr);
+                           depthLabels[L], levelLabels[L], nullptr, nullptr,
+                           L == rimLayer ? rimPulse : 0.0f);
     }
 
     // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE

@@ -177,8 +177,11 @@ voluntary tripping and wireline await a UI affordance.
 
 ### 7b. The fine core log (v3 of the lane)
 
-The lane's sticks are 5 m (`PROS_LOG_INTERVAL_M`), equal height (a log is
-a document), graded by the thermal DOSE they were cut under -- the mean
+The lane's sticks are counted PER STRATUM (`PROS_LOG_PER_LAYER` = 6, so 24
+in the column, 2.0/3.7/5.7/8.7 m by unit) and drawn through the borehole
+strip's own mapping -- equal height on screen AND level with the bit, which
+a fixed metre length could not be at once. They are graded by the thermal
+DOSE they were cut under -- the mean
 over metres cut of x², x = heat excess above the fatigue onset. Smoked
 (PARTIAL) at dose >= `PROS_LOG_SMOKE_DOSE` (0.0005); LOST is the stick the
 bit fractured in. The threshold is a near-zero floor: in effect any

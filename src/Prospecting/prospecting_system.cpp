@@ -240,8 +240,7 @@ bool ProspectingSystem::UpdateLineHole(float dt)
         lineHole.fracturedTime = gameTime;
         lineHole.trips++;
         // The stick the bit let go in is rubble: LOST, whatever its dose.
-        int ivF = std::min(PROS_LOG_INTERVALS - 1,
-                           static_cast<int>(lineHole.depthM / PROS_LOG_INTERVAL_M));
+        int ivF = ProsLogIndexOfDepth(lineHole.depthM);
         lineHole.logQ[ivF] = 1;
         return false;
     }
@@ -282,13 +281,12 @@ bool ProspectingSystem::UpdateLineHole(float dt)
     {
         float x = std::max(0.0f, (lineHole.heat - BIT_FATIGUE_ONSET)
                                  / (1.0f - BIT_FATIGUE_ONSET));
-        int iv0 = static_cast<int>(beforeM / PROS_LOG_INTERVAL_M);
-        int iv1 = std::min(PROS_LOG_INTERVALS - 1,
-                           static_cast<int>(lineHole.depthM / PROS_LOG_INTERVAL_M));
+        int iv0 = ProsLogIndexOfDepth(beforeM);
+        int iv1 = ProsLogIndexOfDepth(lineHole.depthM);
         for (int iv = iv0; iv <= iv1; iv++)
         {
-            float s0 = std::max(beforeM, iv * PROS_LOG_INTERVAL_M);
-            float s1 = std::min(lineHole.depthM, (iv + 1) * PROS_LOG_INTERVAL_M);
+            float s0 = std::max(beforeM, ProsLogTopM(iv));
+            float s1 = std::min(lineHole.depthM, ProsLogBottomM(iv));
             float len = s1 - s0;
             if (len <= 0.0f) continue;
             lineHole.logDose[iv] += x * x * len;

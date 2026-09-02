@@ -228,11 +228,42 @@ constexpr float BIT_TRIP_S_PER_M  = 0.30f;
 //   the bit fractured in it    -> LOST     rubble where the core was
 // The grade is a record, not yet a survey term (redline-disposition.md
 // section 5 names that blocker); the lane tells the truth ahead of it.
-constexpr float PROS_LOG_INTERVAL_M = 5.0f;
-constexpr int   PROS_LOG_INTERVALS  = 24;    // covers FULL_COLUMN_M (120 m)
+// Sticks are counted PER STRATUM, not per fixed metre. A fixed 5 m stick was
+// drawn through the borehole strip's mapping, where every stratum gets a
+// near-equal band while holding 12/22/34/52 m -- so a stick's pixel height
+// swung 4x with depth, and a lane drawn on its own linear scale instead ran
+// up to ~84 px BEHIND the bit mid-column (measured). Equal sticks per band
+// satisfies both: uniform on screen AND level with the string, because the
+// strip is linear within a band. The metre-length of a stick then varies by
+// unit (2.0 / 3.7 / 5.7 / 8.7 m), which is how a real log is cut anyway --
+// the sample interval belongs to the unit, not to the tape.
 constexpr float PROS_LOG_SMOKE_DOSE = 0.0005f;  // in effect: any hot metre smokes the stick
-static_assert(PROS_LOG_INTERVALS * PROS_LOG_INTERVAL_M >= 120.0f,
-              "log intervals must cover the full column");
+constexpr int   PROS_LOG_PER_LAYER = 6;
+constexpr int   PROS_LOG_INTERVALS = 4 * PROS_LOG_PER_LAYER;
+
+// Metre span of one stick, and the stick a depth falls in. Layer boundaries
+// are stick boundaries by construction, so no stick ever straddles a seam.
+inline float ProsLogTopM(int iv)
+{
+    int L = std::clamp(iv / PROS_LOG_PER_LAYER, 0, 3);
+    int k = iv - L * PROS_LOG_PER_LAYER;
+    return LayerTopM(L) + LAYER_THICKNESS_M[L] * static_cast<float>(k)
+                          / static_cast<float>(PROS_LOG_PER_LAYER);
+}
+inline float ProsLogBottomM(int iv)
+{
+    int L = std::clamp(iv / PROS_LOG_PER_LAYER, 0, 3);
+    return ProsLogTopM(iv) + LAYER_THICKNESS_M[L]
+                             / static_cast<float>(PROS_LOG_PER_LAYER);
+}
+inline int ProsLogIndexOfDepth(float m)
+{
+    int L = LayerOfDepthM(m);
+    float t = (m - LayerTopM(L)) / LAYER_THICKNESS_M[L];
+    int k = static_cast<int>(t * static_cast<float>(PROS_LOG_PER_LAYER));
+    k = std::clamp(k, 0, PROS_LOG_PER_LAYER - 1);
+    return L * PROS_LOG_PER_LAYER + k;
+}
 
 // ---------------------------------------------------------------------------
 // The estimate field (block-model-design.md #3)

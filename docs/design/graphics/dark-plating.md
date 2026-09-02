@@ -539,7 +539,13 @@ a second style or an unsynced phase breaks it instantly.
 ### 9.4 Sympathetic state
 
 State changes land in both views in the same tick: the stratum being cut
-rim-lights its plate (amber, pulsing alpha) while the bit is inside it; a
+rim-lights its plate (amber, pulsing alpha) — and that rim must be drawn
+**where the per-corner lifts are known**, tracing the plate's real
+silhouette through the same `cornerLift` the surface quads use. A rim
+computed at `lift = 0` sits on the plate's BASE plane while the surface
+floats up to `relief` above it, so it drifts off the shape it is meant to
+mark, by more the higher the relief runs (a x1.5 relief pass made it
+plain). Tracing the boundary cannot drift by construction while the bit is inside it; a
 cell the trace passes flips class with a brief white overlay flash and keeps
 a bore-ring; leaders to the active layer warm from dim steel to amber. Every
 correlation cue is *event-driven and reversible* — nothing permanent joins
@@ -548,14 +554,26 @@ the panels except the ground itself.
 ### 9.45 The core log lane
 
 The score sheet (redline's third panel), folded into the borehole strip as
-one narrow lane (7 px + OUT frame) down its left edge. The lane is a
-DOCUMENT, not a cross-section: its 5 m sticks are EQUAL height (linear in
-metres — exactly redline's flexed log rows), while the strip beside it
-stays depth-true; mapping the sticks through the strip's band scale
-squashed deep sticks to a third of shallow ones, which read as a glitch.
-Thin stratum-seam lines cross the lane so its linear scale stays tied to
-the rock, and every stick edge is pixel-snapped — fractional edges
-rasterised to uneven 0/1/2 px gaps that read as breaks in the record. Each stick is graded by the thermal DOSE it was cut under
+one narrow lane (7 px + OUT frame) down its left edge.
+
+**The lane reads depth through the strip's own mapping — never its own.**
+Two mappings side by side is the trap this lane fell into twice. Sticks of
+a fixed metre length drawn through the strip's per-band scale swing 4x in
+height with depth (the bands are equal pixels, the strata are 12/22/34/52
+m), which reads as a glitch; a lane given its own linear scale to fix that
+then ran up to **78 px behind the bit** mid-column, because the two
+projections no longer shared a ground.
+
+The resolution is to count sticks **per stratum**, not per metre:
+`PROS_LOG_PER_LAYER` equal sticks in every band. Within a band the strip is
+linear, so all sticks come out the same height; and because the lane is
+drawn with `YOf` like everything else, the record stands level with the
+string. A stick's metre-length then varies by unit (2.0 / 3.7 / 5.7 / 8.7
+m), which is how a log is cut anyway — the sample interval belongs to the
+unit, not to the tape. Layer boundaries are stick boundaries by
+construction, so no stick straddles a seam. Every stick edge is
+pixel-snapped: fractional edges rasterise to uneven 0/1/2 px gaps that read
+as breaks in the record. Each stick is graded by the thermal DOSE it was cut under
 (mean squared heat-excess per metre — a sustained level, never a single
 instant: worst-instant grading made the auto-peck sawtooth alternate
 stick by stick, which read as random breaks), in redline's own log
