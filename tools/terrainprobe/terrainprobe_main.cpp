@@ -17,6 +17,7 @@
 #include "terrain_synthesis.h"
 #include "terrain_gpu.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
