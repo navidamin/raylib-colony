@@ -67,6 +67,7 @@ add_executable(colony_tests
     test_sampling.cpp
     test_line_hole.cpp
     test_block_pick.cpp
+    test_dig_site.cpp
     test_lab_pipeline.cpp
     test_prospecting_integration.cpp
     test_survey_progress.cpp

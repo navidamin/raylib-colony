@@ -201,24 +201,25 @@ TEST_CASE("a core builds the designed halo of classes around it", "[class][field
 
     REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
 
-    // The support ladder at RANGE = 20 m, on the 6.25 m lattice. The METRIC
-    // footprint is identical to the old 12.5 m lattice -- the same distances
-    // just land on different cell offsets:
+    // The support ladder at RANGE = 20 m, on the 3.125 m lattice. The METRIC
+    // footprint is identical to the 12.5 m and 6.25 m lattices before it --
+    // the same distances just land on different cell offsets:
     //   cored block            1.00  MEASURED  (the rock is in your hand)
-    //   neighbour     6.25 m   0.91  MEASURED  (a ~12.5 m Measured column,
-    //                                           exactly the old one-cell one)
-    //   two cells    12.50 m   0.68  INDICATED
-    //   four cells   25.00 m   0.21  INFERRED
-    //   six cells    37.50 m   0.03  UNCLASSIFIED
+    //   neighbour     3.125 m  0.98  MEASURED
+    //   two cells     6.25 m   0.91  MEASURED  (the old one-cell column)
+    //   four cells   12.50 m   0.68  INDICATED
+    //   eight cells  25.00 m   0.21  INFERRED
+    //   twelve cells 37.50 m   0.03  UNCLASSIFIED
     auto cls = [&](int x, int y) {
         return GetResourceClass(GetDepthConfidence(grid, tray, x, y,
                                                    DepthLayer::SURFACE));
     };
-    REQUIRE(cls(3, 3) == ResourceClass::MEASURED);
-    REQUIRE(cls(4, 3) == ResourceClass::MEASURED);
-    REQUIRE(cls(5, 3) == ResourceClass::INDICATED);
-    REQUIRE(cls(7, 3) == ResourceClass::INFERRED);
-    REQUIRE(cls(9, 3) == ResourceClass::UNCLASSIFIED);
+    REQUIRE(cls(3, 3)  == ResourceClass::MEASURED);
+    REQUIRE(cls(4, 3)  == ResourceClass::MEASURED);
+    REQUIRE(cls(5, 3)  == ResourceClass::MEASURED);
+    REQUIRE(cls(7, 3)  == ResourceClass::INDICATED);
+    REQUIRE(cls(11, 3) == ResourceClass::INFERRED);
+    REQUIRE(cls(15, 3) == ResourceClass::UNCLASSIFIED);
 
     // And per depth: the SURFACE core supports the layer below it only
     // weakly (17 m -> 0.49, INDICATED), and the deep layers not at all.

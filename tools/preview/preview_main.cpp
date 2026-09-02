@@ -207,8 +207,8 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
     // the core log holding what was already cut.
     if (state == "trip")
     {
-        system.StartAim(2, 5);
-        system.AimAt(3, 5, 2);
+        system.StartAim(4, 10);
+        system.AimAt(3, 10, 4);
         system.CommitHole();
         for (int i = 0; i < 6000 && !system.lineHole.tripping; i++)
         {
@@ -231,8 +231,8 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
     // LIFTED surface, not just a flat one.
     if (state == "line-early")
     {
-        system.StartAim(2, 5);
-        system.AimAt(3, 5, 2);
+        system.StartAim(4, 10);
+        system.AimAt(3, 10, 4);
         system.CommitHole();
         int step = 0;
         for (float t = 0.0f; t < 4.0f; t += 0.1f)
@@ -245,8 +245,8 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
 
     if (state == "line" || state == "line-done")
     {
-        system.StartAim(2, 5);
-        system.AimAt(3, 5, 2);
+        system.StartAim(4, 10);
+        system.AimAt(3, 10, 4);
         system.CommitHole();
         // Drive like an engaged player: idle is a bare crawl by design, so
         // kick the string at ~4 clicks/s while it runs.

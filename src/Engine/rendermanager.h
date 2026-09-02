@@ -67,6 +67,10 @@ private:
 
     // Moon surface tile textures
     Texture2D moonTiles[3];
+    // The same tiles with their craters pushed harder, for the block model
+    // plates (see LoadMoonTiles). Zero-initialised so an unload before any
+    // load is a no-op.
+    Texture2D plateTiles[3] = {};
     bool tilesLoaded;
     std::vector<int> tilePattern;  // Store which tile to use for each grid cell
 

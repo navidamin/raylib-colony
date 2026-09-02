@@ -120,7 +120,7 @@ unit, once, and the rest of the design refers back to this table.
 | Name | Unit | Value | Note |
 |------|------|-------|------|
 | Parent cell | m | 100 × 100 | `SECT_CORE_RADIUS * 2`; 1 world unit = 1 m |
-| Sub-cell | m | 12.5 × 12.5 today; **target 6.25 × 6.25** (16 × 16) | fixed lattice, `PROSPECTING_GRID_SIZE`; resolution never changes with progression |
+| Sub-cell | m | 3.125 × 3.125 (32 × 32; was 12.5, then 6.25) | fixed lattice, `PROSPECTING_GRID_SIZE`; resolution never changes with progression |
 | Layer 0 · Regolith | m | 0 – 12 | fine impact-gardened soil |
 | Layer 1 · Megaregolith | m | 12 – 34 | coarse fragmented rock |
 | Layer 2 · Fractured bedrock | m | 34 – 68 | cracked but coherent; ice in fractures |
@@ -162,10 +162,10 @@ What does **not** change, and should not:
 - Determinism per parent cell. The same cell generates the same ground, always.
 - The FNV/LCG hash approach. It works and it is cheap.
 - The fixed lattice. Its resolution never changes at runtime — that is what
-  lets survey data survive everything. (The resolution itself is moving from
-  8 × 8 to a 16 × 16 target; every number measured on 8 × 8 —
-  `colony_measure_clusters`, the shaft footprint — must be re-derived when it
-  does. Prospecting's tier-based reach ring is deleted outright; excavation
+  lets survey data survive everything. (The resolution itself has moved
+  8 × 8 → 16 × 16 → 32 × 32; every number measured on an older lattice —
+  `colony_measure_clusters`, the shaft footprint — must be re-derived, see
+  prospecting's drill-tuning §3 and §3b. Prospecting's tier-based reach ring is deleted outright; excavation
   keeps its own reach, which is about hauling, not instruments.)
 - The `SUBCELL_VARIATION_MIN` / `MAX` clamps — though see the measurement below.
 

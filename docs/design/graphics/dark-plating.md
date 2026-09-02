@@ -248,6 +248,31 @@ For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
   stripe.
 - **Surface furniture**: casing block with top glint; spoil piles as
   half-ellipses in `#463e31` with faint highlight ellipses offset up-wind.
+- **The block model's plates are the same ground** (`ProsDrawBlockLayer`).
+  Each plate wears the moon tile the colony and sect views tile the world
+  with, stretched once over the plate so a crater spans a few cells, and
+  modulated by the cell's fill so class colour and stratum tone survive
+  underneath. The tile is a mid-grey with ±9 levels of crater in it — fine
+  tiled at full size under the sect view, invisible once stretched over a
+  dark plate — so the plates get their own contrast-pushed copy
+  (`plateTiles`: `ImageColorContrast +55`, bilinear) and a gain that undoes
+  the tile's mean (1.85), so a textured plate averages the tone its flat
+  fill would have had and no palette was re-tuned. One quad per cell on the
+  one texture: a plate is a single batch. `--bench` at 32x32 reads
+  17 ms/frame, the software-raster floor.
+- **Relief is read by slope, not height.** A flat-lit iso plate does not
+  show its shape at any relief (three rounds of "the curvature is not
+  visible enough" were spent raising it: 0.30 → 0.45 → 0.60 of the plate's
+  diamond height). What made it legible was hill-shading: light implied from
+  the upper-left of the screen,
+  `shade = 1 + a · tanh(0.45·toward + 0.25·left)`, with the slope measured in
+  *relief per plate width* (per-cell rise × N / relief) so a mound keeps its
+  light whether the lattice is 8 or 32 across — a denser lattice halves the
+  per-cell rise, and must not halve the light. `a` is 0.70 on the lit side
+  and 0.50 in shadow: a shadowed face still has to show its craters and its
+  class. tanh, not a clamp, so steep flanks grade off instead of going
+  two-tone. The plate gap is derived from the relief, so plates never
+  overlap whatever it is set to.
 
 ---
 
@@ -561,6 +586,16 @@ is also the correct occlusion answer (a block hidden behind a higher one
 cannot be clicked). Iterating from a flat guess does not work — for a lifted
 cell near the back edge the flat solve lands off the lattice entirely.
 `src/Prospecting/block_pick.h`, round-trip under test.
+
+**One lift law.** The plate's corners (`ProsCornerLift`: the mean grade of
+the blocks touching the corner, to the 0.8 power, times relief), the hover
+outline and the pick (`ProsCellLift`: the mean of a cell's four drawn
+corners), and both ends of the prescribed line (`ProsPlateLift`, handed to
+the trace by the pass that drew the plates) all go through the same two
+functions. The line's collar used to be placed at lift 0 — up to a full
+relief *under* the mound the player had just clicked on, and the x2 lattice
+would have moved it again. Anything that has to sit ON a plate asks the
+plate; nothing re-derives the height.
 
 ### 9.45 The core log lane
 

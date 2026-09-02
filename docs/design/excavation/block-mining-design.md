@@ -12,9 +12,9 @@
 > Two consequences for this document: (1) excavation **keeps its own tier and
 > reach for now** — its reach is about hauling and machines, not instruments —
 > but its machines already *are* the instrument frame, so when its tier
-> dissolves it dissolves the same way; (2) the lattice is moving from 8 × 8 to
-> a 16 × 16 target, and **every footprint number below was measured on 8 × 8**
-> (the 3 × 3 shaft = 37.5 m; the same metres are 6 × 6 at 16 × 16). Re-run
+> dissolves it dissolves the same way; (2) the lattice has moved from 8 × 8
+> through 16 × 16 to 32 × 32, and **every footprint number below was measured on 8 × 8**
+> (the 3 × 3 shaft = 37.5 m; the same metres are 12 × 12 at 32 × 32). Re-run
 > `colony_measure_clusters` before trusting any of them on the new lattice.
 >
 > **Relationship to [`excavation-design.md`](excavation-design.md):** that

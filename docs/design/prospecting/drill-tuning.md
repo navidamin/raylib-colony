@@ -98,6 +98,54 @@ element does not exist at depth. It now asserts Pearson correlation of the
 two layers' yield fields (> 0.35 in at least 3/4 of cells) on an element
 present in both.
 
+## 3b. The 32x32 ledger — the same rule, applied twice
+
+"Double the resolution of the layer planes." The playbook above held
+without amendment: metric constants never move, cell-denominated ones follow
+the cell. Everything below was found by running the tests and the sim, not
+by reading the code.
+
+| constant | 16x16 | 32x32 | why |
+|---|---|---|---|
+| `PROSPECTING_GRID_SIZE` | 16 | 32 | the ask |
+| `SUBCELL_SIZE_M` | 6.25 | 3.125 | 100 m cell / 32 |
+| `PROSPECTING_REACH_PER_TIER` | {4,8,12,16} | {8,16,24,32} | same metres, same fraction per tier |
+| `EXCAVATION_SUPPORT_RANGE_M` | 4 | 2 | one sub-cell across, as before |
+| `SURVEY_SAMPLE_COVERAGE_TARGET` | 0.25·(8²/16²) | 0.25·(8²/N²) | now written against `PROSPECTING_GRID_SIZE`, so it never needs touching again |
+| survey plan (sim player) | every 4th cell | every 8th cell | still 25 m — a hole speaks for its 20 m halo |
+| `DigSite::GRID` | **8 (literal)** | = `PROSPECTING_GRID_SIZE` | see below |
+| test aims | (3,3) | (7,6) | the same 79 m basalt column, re-celled; the halo ladder re-celled likewise |
+| block-model relief | 0.45·diamondH | 0.60·diamondH | "the curvature is not enough to be clearly visible" — height alone never was; the plates are now slope-shaded and textured, [Dark Plating §5](../graphics/dark-plating.md) |
+
+**The bug the lattice found.** `DigSite::GRID` was a literal 8 that never
+followed the 16x16 migration: any dig spot with x or y ≥ 8 read as
+exhausted, so three quarters of the lattice was undiggable — and nobody
+saw it, because the sim's players dig next to their survey holes and the
+16x16 numbers in section 3 were measured on the quarter that worked. At
+32x32 the tier-0 sim stalled outright (total 0), which is how it surfaced.
+It is now `PROSPECTING_GRID_SIZE`, with a test that digs the whole lattice
+(`tests/test_dig_site.cpp`).
+
+The classification ladder in 32x32 cells (metric footprint identical again):
+
+| distance | cells (32x32) | support | class |
+|---|---|---|---|
+| 0 | cored | 1.00 | MEASURED |
+| 3.125 m | 1 | > 0.91 | MEASURED |
+| 6.25 m | 2 | 0.91 | MEASURED |
+| 12.5 m | 4 | 0.68 | INDICATED |
+| 25 m | 8 | 0.21 | INFERRED |
+| 37.5 m | 12 | 0.03 | UNCLASSIFIED |
+
+`colony_sim`, 18/18 checks, after the fix (tier 3, one season): IDLE 10493 ·
+BLIND 14589 · SURVEYOR 17745 · EXPERT 18481 · HANDS-ON 22011; tier 0 ~930,
+HANDS-ON 1805; the surveyor's survey progress 44%. The ordering section 3
+argued for holds, with a wider gap between blind and surveyed than the
+16x16 run showed — which is what one expects once the whole lattice can be
+dug. Frame cost of the prospecting panel at 32x32: 17 ms/frame under
+`--bench`, the software-raster floor (the estimate field is built once per
+frame; nothing else scales with N⁴ any more).
+
 ## 4. The plate-row depth mapping
 
 A plate is a **slab**: its iso rows (`i+j`) span its stratum top to bottom —

@@ -43,10 +43,12 @@ to commit — which is the decision the whole extraction chain hangs on.
 Not a grid of squares. A **block model**: four depth layers of the sub-cell
 lattice, drawn as stacked isometric surfaces, all four visible at once. The
 lattice stays fixed-resolution (never resized by progression); the code is
-8 × 8 today and the **target is 16 × 16** (6.25 m blocks) — decided against
-the interactive mock-up, where 8 × 8 read as data resolution rather than
-ground. Note the switch invalidates every number measured on the 8 × 8
-lattice (`colony_measure_clusters`, the shaft footprint): re-run, re-derive.
+**32 × 32 today** (3.125 m blocks — 8 × 8, then 16 × 16, then doubled again;
+the ledgers are [drill-tuning.md](drill-tuning.md) §3 and §3b). The move off
+8 × 8 was decided against the interactive mock-up, where 8 × 8 read as data
+resolution rather than ground. Note each switch invalidates every number
+measured on the previous lattice (`colony_measure_clusters`, the shaft
+footprint): re-run, re-derive.
 
 ```
               ╱▔▔▔▔▔▔▔▔▔▔▔▔╲

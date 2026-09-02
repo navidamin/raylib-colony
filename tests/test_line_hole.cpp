@@ -111,8 +111,8 @@ TEST_CASE("the crossing cell never leaves the lattice", "[linehole]")
 TEST_CASE("hard rock heats the bit and the string pecks to cool", "[linehole]")
 {
     ProspectingSystem sys = MakeSystem();
-    sys.StartAim(3, 3);
-    sys.AimAt(3, 3, 3);          // vertical, all the way into basalt
+    sys.StartAim(7, 6);
+    sys.AimAt(3, 7, 6);          // vertical, all the way into basalt
     sys.CommitHole();
 
     // Idle deliberately never outruns the heat bleed -- an untouched hole
@@ -161,8 +161,8 @@ TEST_CASE("an idle hole never cooks the bit", "[linehole]")
     // The crawl is the floor: with no clicks at all, heat bleed beats gain
     // even in basalt, so AUTO finishes every hole cold -- just slowly.
     ProspectingSystem sys = MakeSystem();
-    sys.StartAim(3, 3);
-    sys.AimAt(3, 3, 3);
+    sys.StartAim(7, 6);
+    sys.AimAt(3, 7, 6);
     sys.CommitHole();
     float maxHeat = 0.0f;
     for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
@@ -181,8 +181,8 @@ TEST_CASE("too hot for too long fractures the bit - a trip, never an ending", "[
     // fracture buys a depth-priced trip with no advance, the bit returns
     // fresh, and the hole still finishes.
     ProspectingSystem sys = MakeSystem();
-    sys.StartAim(3, 3);
-    sys.AimAt(3, 3, 3);
+    sys.StartAim(7, 6);
+    sys.AimAt(3, 7, 6);
     sys.CommitHole();
 
     bool advancedWhileTripping = false;
@@ -210,8 +210,8 @@ TEST_CASE("a cool hole never fractures the bit", "[linehole]")
     // Gentle pace: heat mostly under the fatigue onset, wear driven by
     // abrasion alone -- a full column must not cost a trip.
     ProspectingSystem sys = MakeSystem();
-    sys.StartAim(3, 3);
-    sys.AimAt(3, 3, 3);
+    sys.StartAim(7, 6);
+    sys.AimAt(3, 7, 6);
     sys.CommitHole();
     for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
     {
@@ -228,8 +228,8 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
     // Gentle pace: heat never clears the fatigue onset, so every stick the
     // bit passes logs INTACT (3).
     ProspectingSystem cool = MakeSystem();
-    cool.StartAim(3, 3);
-    cool.AimAt(3, 3, 3);
+    cool.StartAim(7, 6);
+    cool.AimAt(3, 7, 6);
     cool.CommitHole();
     for (int i = 0; i < 12000 && cool.lineHole.state == LineHoleState::DRILLING; i++)
     {
@@ -252,8 +252,8 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
     // ONE sustained band -- dose per metre, not the worst instant, so the
     // auto-peck sawtooth does not flicker stick by stick.
     ProspectingSystem hot = MakeSystem();
-    hot.StartAim(3, 3);
-    hot.AimAt(3, 3, 3);
+    hot.StartAim(7, 6);
+    hot.AimAt(3, 7, 6);
     hot.CommitHole();
     for (int i = 0; i < 20000 && hot.lineHole.state == LineHoleState::DRILLING; i++)
     {
@@ -278,8 +278,8 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
 
     // LOST is the stick the bit fractured in -- rubble where the core was.
     ProspectingSystem spam = MakeSystem();
-    spam.StartAim(3, 3);
-    spam.AimAt(3, 3, 3);
+    spam.StartAim(7, 6);
+    spam.AimAt(3, 7, 6);
     spam.CommitHole();
     for (int i = 0; i < 20000 && spam.lineHole.state == LineHoleState::DRILLING; i++)
     {
@@ -302,8 +302,8 @@ TEST_CASE("drill tuning campaign", "[.][campaign]")
     for (float f : {0.0f, 1.0f, 2.0f, 4.0f, 6.0f, 8.0f, 12.0f})
     {
         ProspectingSystem sys = MakeSystem();
-        sys.StartAim(3, 3);
-        sys.AimAt(3, 3, 3);
+        sys.StartAim(7, 6);
+        sys.AimAt(3, 7, 6);
         sys.CommitHole();
         float t = 0.0f, dwellT = 0.0f, clickAcc = 0.0f, rpmPeak = 0.0f;
         while (sys.lineHole.state == LineHoleState::DRILLING && t < 1200.0f)

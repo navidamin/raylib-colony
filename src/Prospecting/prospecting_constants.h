@@ -13,11 +13,12 @@
 // Even sizes nest perfectly (offsets 3/2/1/0), so every tier-up lights up a
 // complete ring. Because the grid is never reallocated, survey data and
 // collected samples survive a tier upgrade.
-// 16x16 -- the planned refinement (block-mining-design.md). Metric constants
-// (halo ranges, energy per metre, layer thickness) survive unchanged because
-// they were always in metres; only per-cell tonnage and the reach rings had
-// to follow the cell size.
-constexpr int PROSPECTING_GRID_SIZE = 16;
+// 32x32 (playtest request: "double the precision of the layer planes",
+// after 8 -> 16 the round before). Metric constants (halo ranges, energy per
+// metre, layer thickness) survive unchanged because they were always in
+// metres; only per-cell tonnage, the reach rings and the face-support range
+// follow the cell size. Ledger: docs/design/prospecting/drill-tuning.md.
+constexpr int PROSPECTING_GRID_SIZE = 32;
 constexpr int PROSPECTING_MAX_GRID_SIZE = PROSPECTING_GRID_SIZE;
 
 // Side length of the reachable square per tier, centred in the grid.
@@ -27,7 +28,7 @@ constexpr int PROSPECTING_MAX_GRID_SIZE = PROSPECTING_GRID_SIZE;
 // The table and IsSubCellInReach stay because EXCAVATION still reads reach
 // with its own tier: hauling distance is a different question from where an
 // instrument may look.
-constexpr int PROSPECTING_REACH_PER_TIER[] = { 4, 8, 12, 16 };
+constexpr int PROSPECTING_REACH_PER_TIER[] = { 8, 16, 24, 32 };
 
 // Sample tray base capacities per tier (before objective bonuses)
 constexpr int TRAY_BASE_CAPACITY[] = { 4, 8, 12, 16 };
@@ -57,7 +58,7 @@ constexpr int MAX_DEPTH_PER_TIER[] = { 4, 4, 4, 4 };
 constexpr float LAYER_THICKNESS_M[4]    = { 12.0f, 22.0f, 34.0f, 52.0f };
 constexpr float LAYER_CENTRE_M[4]       = {  6.0f, 23.0f, 51.0f, 94.0f };
 constexpr float DRILL_ENERGY_PER_METRE[4] = { 1.2f, 1.9f, 2.8f, 4.0f };
-constexpr float SUBCELL_SIZE_M          = 6.25f;   // 100 m cell / 16 sub-cells
+constexpr float SUBCELL_SIZE_M          = 3.125f;  // 100 m cell / 32 sub-cells
 
 // Energy for a vertical hole from the surface down THROUGH depth layer d --
 // the auger cores everything above its target, so the cost is the whole
@@ -291,8 +292,9 @@ constexpr float ESTIMATE_IDW_POWER = 3.0f;
 // neighbour of a dug spot reads support 0.21 (Inferred) -- the same ladder
 // the 8x8 lattice had -- and colony_sim's survey-beats-blind claim holds.
 // At the old 10 m every neighbour of every dug spot went Indicated and
-// blind digging self-mapped its way past the surveyor.
-constexpr float EXCAVATION_SUPPORT_RANGE_M = 4.0f;
+// blind digging self-mapped its way past the surveyor. Halved again with the
+// 6.25 -> 3.125 m lattice, same rule, re-measured by colony_sim.
+constexpr float EXCAVATION_SUPPORT_RANGE_M = 2.0f;
 
 
 // Sweep energy costs per frequency band (high → low frequency)

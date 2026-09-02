@@ -133,9 +133,9 @@ static int RunSurvey(ProspectingSystem& system, int budgetTicks)
     // finer buys nothing the survey-progress cap can pay for. On the old
     // 8x8 lattice the same physical plan was every second cell.
     int gridSize = grid.GetGridSize();
-    for (int y = 2; y < gridSize && spent < budgetTicks; y += 4)
+    for (int y = 4; y < gridSize && spent < budgetTicks; y += 8)
     {
-        for (int x = 2; x < gridSize && spent < budgetTicks; x += 4)
+        for (int x = 4; x < gridSize && spent < budgetTicks; x += 8)
         {
             if (!grid.IsInReach(x, y)) continue;
             // A full tray never blocks drilling -- knowledge lives on the
@@ -264,9 +264,9 @@ static RunResult RunSession(Player player, int tier)
     // the crew moves on once there is nothing worth digging.
     for (int d = 0; d < 4; d++)
     {
-        for (int y = 0; y < 8; y++)
+        for (int y = 0; y < PROSPECTING_GRID_SIZE; y++)
         {
-            for (int x = 0; x < 8; x++)
+            for (int x = 0; x < PROSPECTING_GRID_SIZE; x++)
             {
                 if (excavation.GetWorked().Remaining(x, y, static_cast<DepthLayer>(d))
                     <= EXC_AI_ABANDON_BELOW)
@@ -376,7 +376,7 @@ int main()
 
     // Depletion in a sane band: spots must run out, but not instantly.
     Check(t3[4].spotsExhausted > 0, "faces do get worked out over 20 days");
-    Check(t3[4].spotsExhausted < 8 * 8 * 4,
+    Check(t3[4].spotsExhausted < PROSPECTING_GRID_SIZE * PROSPECTING_GRID_SIZE * 4,
           "20 days does not strip the entire lattice");
 
     // Selectivity has to show up in the mix, or the pace dial is cosmetic.

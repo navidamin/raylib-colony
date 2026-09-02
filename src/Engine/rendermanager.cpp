@@ -798,6 +798,19 @@ void RenderManager::LoadMoonTiles() {
         } else {
             std::cout << "Loaded tile texture: " << tileFiles[i] << std::endl;
         }
+
+        // The block model's copy of the same ground. The tile is a mid-grey
+        // with barely +-9 levels of crater in it -- fine tiled at full size
+        // under the sect view, invisible once it is stretched over a plate
+        // and modulated by a dark fill. Contrast is pushed so the craters
+        // survive that; bilinear so the minified plate does not sparkle.
+        Image plate = LoadImage(tileFiles[i]);
+        if (plate.data != nullptr) {
+            ImageColorContrast(&plate, 55.0f);
+            plateTiles[i] = LoadTextureFromImage(plate);
+            SetTextureFilter(plateTiles[i], TEXTURE_FILTER_BILINEAR);
+            UnloadImage(plate);
+        }
     }
 }
 
@@ -861,6 +874,10 @@ void RenderManager::UnloadMoonTiles() {
         if (moonTiles[i].id != 0) {
             UnloadTexture(moonTiles[i]);
             moonTiles[i].id = 0;
+        }
+        if (plateTiles[i].id != 0) {
+            UnloadTexture(plateTiles[i]);
+            plateTiles[i].id = 0;
         }
     }
     tilesLoaded = false;
@@ -2533,7 +2550,7 @@ struct BlockModelGeom
 {
     float tileX = 0.0f, tileY = 0.0f, relief = 0.0f, gap = 0.0f;
     float originX = 0.0f, originY = 0.0f;
-    int   size = 8;
+    int   size = PROSPECTING_GRID_SIZE;
 
     Vector2 Iso(float gx, float gy, int layer, float lift) const
     {
@@ -2555,9 +2572,12 @@ static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, flo
     // the stack shrank 42% and the model used less than half the space it had.
     g.tileY = g.tileX * 0.28f;
     float diamondH = 2.0f * gridSize * g.tileY;
-    // Relief x1.5 by playtest request: the height channel is the model's whole
-    // point, and at 0.30 the shoots read as ripples.
-    g.relief = std::max(19.0f, diamondH * 0.45f);
+    // Relief 0.30 -> 0.45 -> 0.60 across two playtest rounds ("the curvature
+    // is not enough to be clearly visible"). Height alone never reads well
+    // from a flat-lit iso plate, so ProsDrawBlockLayer also hill-shades the
+    // surface by slope -- which is what finally makes the shape legible --
+    // and the gap below is derived from this, so plates never overlap.
+    g.relief = std::max(24.0f, diamondH * 0.60f);
     const float clearance = 7.0f;
     g.gap = diamondH + g.relief + clearance;
 
@@ -2577,39 +2597,90 @@ static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, flo
 // plates' resting tone (dimmed) -- declared ahead of both users.
 static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
 
+// The one lift law. Everything that has to sit ON a plate's surface -- the
+// plate itself, the hover outline, the pick, the ends of the prescribed line
+// -- goes through these, so none of them can drift from the drawn ground
+// when the relief or the law changes (the x1.5 relief pass put the rim a
+// plate-height under its plate; the x2 lattice would have done it again).
+// Corner heights average the blocks that touch them, so the surface reads
+// as ground rather than as data resolution; the 0.8 power lifts the middle
+// grades, which is where most of a mound's flank lives.
+static float ProsCornerLift(const std::vector<BlockCell>& cells, int N, float maxGrade,
+                            float relief, int i, int j)
+{
+    float sum = 0.0f; int n = 0;
+    for (int dj = -1; dj <= 0; dj++)
+        for (int di = -1; di <= 0; di++)
+        {
+            int a = i + di, b = j + dj;
+            if (a < 0 || b < 0 || a >= N || b >= N) continue;
+            sum += cells[b * N + a].grade; n++;
+        }
+    if (n == 0) return 0.0f;
+    float t = std::min((sum / n) / std::max(maxGrade, 0.0001f), 1.0f);
+    return powf(t, 0.8f) * relief;
+}
+// The surface at a cell's centre: the mean of its four drawn corners.
+static float ProsCellLift(const std::vector<BlockCell>& cells, int N, float maxGrade,
+                          float relief, int i, int j)
+{
+    i = std::clamp(i, 0, N - 1); j = std::clamp(j, 0, N - 1);
+    return 0.25f * (ProsCornerLift(cells, N, maxGrade, relief, i,     j)
+                  + ProsCornerLift(cells, N, maxGrade, relief, i + 1, j)
+                  + ProsCornerLift(cells, N, maxGrade, relief, i + 1, j + 1)
+                  + ProsCornerLift(cells, N, maxGrade, relief, i,     j + 1));
+}
+// What the plates were drawn with this frame, handed to whatever draws on them.
+struct ProsPlateLift
+{
+    const std::vector<std::vector<BlockCell>>* layers = nullptr;
+    float maxGrade = 0.0001f;
+    float At(const BlockModelGeom& g, int L, int i, int j) const
+    {
+        if (!layers || L < 0 || L >= static_cast<int>(layers->size())) return 0.0f;
+        return ProsCellLift((*layers)[L], g.size, maxGrade, g.relief, i, j);
+    }
+};
+
 static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockCell>& cells,
                                int layer, float maxGrade, Font labelFont, float sp,
                                const char* depthLabel, const char* levelLabel,
                                std::vector<Rectangle>* hitBoxes, std::vector<int>* hitIndex,
-                               float rimPulse = 0.0f)
+                               const Texture2D* tex = nullptr, float rimPulse = 0.0f)
 {
     const int N = g.size;
     const float fade = powf(0.84f, static_cast<float>(layer));
+    // The moon-surface tile the colony and sect views tile the ground with,
+    // stretched once over the whole plate so a crater spans a few cells --
+    // the same ground, read as a surface instead of as data. Modulated by
+    // the cell's fill, so class colour and stratum tone survive underneath
+    // it. The gain undoes the tile's own mean (137 of 255 after the contrast
+    // push in LoadMoonTiles): a textured plate averages the same tone the
+    // flat fill would have had, so the palette below is not re-tuned.
+    const bool textured = tex != nullptr && tex->id != 0;
+    const float texGain = 1.85f;
 
     auto cornerLift = [&](int i, int j) -> float
     {
-        float sum = 0.0f; int n = 0;
-        for (int dj = -1; dj <= 0; dj++)
-            for (int di = -1; di <= 0; di++)
-            {
-                int a = i + di, b = j + dj;
-                if (a < 0 || b < 0 || a >= N || b >= N) continue;
-                sum += cells[b * N + a].grade; n++;
-            }
-        if (n == 0) return 0.0f;
-        return (sum / n) / std::max(maxGrade, 0.0001f) * g.relief;
+        return ProsCornerLift(cells, N, maxGrade, g.relief, i, j);
     };
+    auto clamp255 = [](float v) {
+        return static_cast<unsigned char>(std::clamp(v, 0.0f, 255.0f));
+    };
+    if (textured) rlSetTexture(tex->id);
 
     for (int j = 0; j < N; j++)
     {
         for (int i = 0; i < N; i++)
         {
             const BlockCell& c = cells[j * N + i];
+            float l00 = cornerLift(i, j),     l10 = cornerLift(i + 1, j);
+            float l11 = cornerLift(i + 1, j + 1), l01 = cornerLift(i, j + 1);
             Vector2 q[4] = {
-                g.Iso(static_cast<float>(i),     static_cast<float>(j),     layer, cornerLift(i,   j)),
-                g.Iso(static_cast<float>(i + 1), static_cast<float>(j),     layer, cornerLift(i+1, j)),
-                g.Iso(static_cast<float>(i + 1), static_cast<float>(j + 1), layer, cornerLift(i+1, j+1)),
-                g.Iso(static_cast<float>(i),     static_cast<float>(j + 1), layer, cornerLift(i,   j+1))
+                g.Iso(static_cast<float>(i),     static_cast<float>(j),     layer, l00),
+                g.Iso(static_cast<float>(i + 1), static_cast<float>(j),     layer, l10),
+                g.Iso(static_cast<float>(i + 1), static_cast<float>(j + 1), layer, l11),
+                g.Iso(static_cast<float>(i),     static_cast<float>(j + 1), layer, l01)
             };
 
             // A plate's resting tone IS its stratum: the same PROS_ROCK_COL
@@ -2641,12 +2712,53 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
                 static_cast<unsigned char>(EXT_PANEL_BG.b + (tone.b - EXT_PANEL_BG.b) * lit),
                 255 };
 
-            // Two triangles rather than a quad -- raylib fills triangles only,
-            // and the winding has to be consistent or faces drop out.
-            DrawTriangle(q[0], q[3], q[2], fill);
-            DrawTriangle(q[0], q[2], q[1], fill);
-            DrawLineEx(q[0], q[1], 0.6f, fill);
-            DrawLineEx(q[1], q[2], 0.6f, fill);
+            // Hill-shading (Dark Plating: light implied from the upper-left).
+            // A face tilting toward the viewer (front corner above the back)
+            // and toward the left catches light; one falling away loses it.
+            // Slope, not height, is what the eye reads as shape -- this is
+            // what makes the curvature legible at any relief. Slope is
+            // measured in relief-per-plate-width, so a mound keeps the same
+            // shading whether the lattice is 8 or 32 cells across (a denser
+            // lattice halves the per-cell rise; it must not halve the light).
+            // tanh keeps the gradation: steep flanks saturate gently instead
+            // of clipping to a flat two-tone.
+            float perCell = static_cast<float>(N) / std::max(g.relief, 1.0f);
+            float toward  = (l11 - l00) * perCell;
+            float left    = (l01 - l10) * perCell;
+            // The lit side swings further than the shadowed side: a face in
+            // shadow still has to show its craters and its class colour.
+            float slope   = tanhf(0.45f * toward + 0.25f * left);
+            float shade   = 1.0f + (slope >= 0.0f ? 0.70f : 0.50f) * slope;
+            Color lit3 = { clamp255(fill.r * shade), clamp255(fill.g * shade),
+                           clamp255(fill.b * shade), 255 };
+
+            if (textured)
+            {
+                // One quad per cell, all on the one texture, so the whole
+                // plate is a single batch. Same winding as the triangles.
+                Color m = { clamp255(lit3.r * texGain), clamp255(lit3.g * texGain),
+                            clamp255(lit3.b * texGain), 255 };
+                float u0 = static_cast<float>(i) / N,     v0 = static_cast<float>(j) / N;
+                float u1 = static_cast<float>(i + 1) / N, v1 = static_cast<float>(j + 1) / N;
+                rlCheckRenderBatchLimit(4);
+                rlBegin(RL_QUADS);
+                rlColor4ub(m.r, m.g, m.b, m.a);
+                rlNormal3f(0.0f, 0.0f, 1.0f);
+                rlTexCoord2f(u0, v0); rlVertex2f(q[0].x, q[0].y);
+                rlTexCoord2f(u0, v1); rlVertex2f(q[3].x, q[3].y);
+                rlTexCoord2f(u1, v1); rlVertex2f(q[2].x, q[2].y);
+                rlTexCoord2f(u1, v0); rlVertex2f(q[1].x, q[1].y);
+                rlEnd();
+            }
+            else
+            {
+                // Two triangles rather than a quad -- raylib fills triangles
+                // only, and the winding has to be consistent or faces drop out.
+                DrawTriangle(q[0], q[3], q[2], lit3);
+                DrawTriangle(q[0], q[2], q[1], lit3);
+                DrawLineEx(q[0], q[1], 0.6f, lit3);
+                DrawLineEx(q[1], q[2], 0.6f, lit3);
+            }
 
             if (hitBoxes && hitIndex)
             {
@@ -2659,6 +2771,8 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
             }
         }
     }
+
+    if (textured) rlSetTexture(0);
 
     // The active-plate rim (section 9.4: the stratum being cut rim-lights its
     // plate). Drawn HERE, not with the trace, because only this function knows
@@ -3545,25 +3659,28 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
 }
 
 // One point of the prescribed line in BLOCK space: the point sits ON ITS
-// PLATE, at the drawn position of the cell the line passes through there.
+// PLATE, at the drawn position of the cell the line passes through there --
+// on the plate's SURFACE, at the height the cell was drawn with, which is
+// also what the pick hit when the player clicked it. (Lift 0 put the collar
+// up to a full relief under the mound it was clicked on.)
 // The earlier band-space form (dg.YOf(m) + iso row offset) double-counted
 // the row -- the row IS the depth under the plate-slab mapping -- so both
 // ends drifted off the clicked cells, worst at the plate corners.
 static Vector2 ProsLinePoint(ProspectingSystem* ps, const BlockModelGeom& g,
-                             const ProsDockGeom& dg, float m)
+                             const ProsPlateLift& pl, float m)
 {
-    (void)dg;
     float fx = 0.0f, fy = 0.0f;
     ps->GetLineCell(m, fx, fy);
     int L = LayerOfDepthM(std::min(m, ps->lineHole.endM));
-    return g.Iso(fx + 0.5f, fy + 0.5f, L, 0.0f);
+    int ci = static_cast<int>(floorf(fx)), cj = static_cast<int>(floorf(fy));
+    return g.Iso(fx + 0.5f, fy + 0.5f, L, pl.At(g, L, ci, cj));
 }
 static Vector2 ProsTraceAt(ProspectingSystem* ps, const BlockModelGeom& g,
-                           const ProsDockGeom& dg, float m)
+                           const ProsDockGeom& dg, const ProsPlateLift& pl, float m)
 {
     const LineHole& hole = ps->lineHole;
-    Vector2 P0 = ProsLinePoint(ps, g, dg, 0.0f);
-    Vector2 P1 = ProsLinePoint(ps, g, dg, hole.endM);
+    Vector2 P0 = ProsLinePoint(ps, g, pl, 0.0f);
+    Vector2 P1 = ProsLinePoint(ps, g, pl, hole.endM);
     float u = (dg.YOf(m) - dg.YOf(0.0f)) / std::max(1.0f, dg.YOf(hole.endM) - dg.YOf(0.0f));
     return {P0.x + (P1.x - P0.x) * u, P0.y + (P1.y - P0.y) * u};
 }
@@ -3571,14 +3688,14 @@ static Vector2 ProsTraceAt(ProspectingSystem* ps, const BlockModelGeom& g,
 // The prescribed line over the stack: shadow, string, advance, twin cursor,
 // crossing rings, flip flash, active-plate rim (Dark Plating section 9).
 static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
-                               const ProsDockGeom& dg)
+                               const ProsDockGeom& dg, const ProsPlateLift& pl)
 {
     const LineHole& hole = ps->lineHole;
     if (hole.state == LineHoleState::NONE) return;
 
-    Vector2 P0 = ProsTraceAt(ps, g, dg, 0.0f);
-    Vector2 P1 = ProsTraceAt(ps, g, dg, hole.endM);
-    Vector2 Pn = ProsTraceAt(ps, g, dg, std::min(ProsShownDepthM(hole), hole.endM));
+    Vector2 P0 = ProsTraceAt(ps, g, dg, pl, 0.0f);
+    Vector2 P1 = ProsTraceAt(ps, g, dg, pl, hole.endM);
+    Vector2 Pn = ProsTraceAt(ps, g, dg, pl, std::min(ProsShownDepthM(hole), hole.endM));
 
     // shadow of the full prescribed path -- always there, quiet
     DrawLineEx(P0, P1, 6.0f, Fade(EXT_ACCENT_CYAN, 0.10f));
@@ -3784,11 +3901,19 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     int rimLayer = ps->lineHole.state == LineHoleState::DRILLING
                  ? LayerOfDepthM(ps->lineHole.depthM) : -1;
     float rimPulse = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
+    if (!tilesLoaded)
+    {
+        LoadMoonTiles();
+        tilesLoaded = true;
+    }
     for (int L = 0; L < 4; L++)
     {
+        const Texture2D* tile = (tilesLoaded && plateTiles[L % 3].id != 0) ? &plateTiles[L % 3]
+                              : (tilesLoaded && moonTiles[L % 3].id != 0)  ? &moonTiles[L % 3]
+                              : nullptr;
         ProsDrawBlockLayer(geom, layers[L], L, maxGrade, bodyFont, sp,
                            depthLabels[L], levelLabels[L], nullptr, nullptr,
-                           L == rimLayer ? rimPulse : 0.0f);
+                           tile, L == rimLayer ? rimPulse : 0.0f);
     }
 
     // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
@@ -3813,11 +3938,9 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     int hovL = -1, hovX = -1, hovY = -1;
     for (int L = 0; L < 4 && hovL < 0; L++)
     {
-        // The same height the surface is drawn at: cell grade over the shared
-        // scale, times the relief.
+        // The same height the surface is drawn at (the one lift law).
         auto liftAt = [&](int i, int j) {
-            return layers[L][j * gridSize + i].grade
-                   / std::max(maxGrade, 0.0001f) * geom.relief;
+            return ProsCellLift(layers[L], gridSize, maxGrade, geom.relief, i, j);
         };
         int pi = 0, pj = 0;
         if (!BlockPickCell(pick, L, mouse.x, mouse.y, liftAt, pi, pj)) continue;
@@ -3884,7 +4007,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     }
 
     // the line over the stack, after the plates so it reads as through them
-    ProsDrawTraceBlock(ps, geom, dock);
+    ProsPlateLift plateLift; plateLift.layers = &layers; plateLift.maxGrade = maxGrade;
+    ProsDrawTraceBlock(ps, geom, dock, plateLift);
     float hoverM = (hovL >= 0)
         ? CellRowDepthM(hovL, hovX, hovY, gridSize) : -1.0f;
     ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f,

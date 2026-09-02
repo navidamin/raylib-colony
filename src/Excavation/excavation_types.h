@@ -84,7 +84,12 @@ struct Machine
 // engines stay pure. Indexed [depth][y][x].
 struct DigSite
 {
-    static constexpr int GRID = 8;
+    // Sized by the lattice it indexes, never a literal. A stale literal 8
+    // survived the 8 -> 16 migration unnoticed: Remaining() bounds-checks
+    // against GRID, so every spot with x or y >= 8 read as exhausted -- half
+    // the lattice un-diggable, silently -- and at 32x32 the centre spot
+    // itself fell outside it and every sim player stalled from tick one.
+    static constexpr int GRID = PROSPECTING_GRID_SIZE;
     static constexpr int DEPTHS = 4;
 
     std::array<float, GRID * GRID * DEPTHS> remaining;
