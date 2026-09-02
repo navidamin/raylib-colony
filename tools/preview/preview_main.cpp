@@ -52,7 +52,7 @@ static void PrintUsage()
         << "  --sprite-size <n> crystal sprite size variant     (sprites only, default: 4)\n"
         << "  --sprite-glow <n> crystal sprite glow variant     (sprites only, default: 3)\n"
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
-        << "  --state <name>    empty | swept | sampled | analyzed | line | line-early |\n                    line-done | trip\n"
+        << "  --state <name>    empty | swept | sampled | analyzed | line | line-early |\n                    line-pull | line-done | trip\n"
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
         << "  --energy <n>      override stored energy (tests cost gating)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
@@ -240,6 +240,27 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
             if (step++ % 3 == 0) system.KickString();
             system.UpdateLineHole(0.1f);
         }
+        return;
+    }
+
+    // "line-pull": the hole is finished and the string is coming back out --
+    // caught mid-hoist, the one frame where the line over the plates is still
+    // drawn but is retreating up it. "line-done" is the same hole a few
+    // seconds later, string racked and the line gone from the block model.
+    if (state == "line-pull")
+    {
+        system.StartAim(4, 10);
+        system.AimAt(3, 10, 4);
+        system.CommitHole();
+        int step = 0;
+        for (int i = 0; i < 20000 &&
+                        system.lineHole.state == LineHoleState::DRILLING; i++)
+        {
+            if (step++ % 3 == 0) system.KickString();
+            system.UpdateLineHole(0.1f);
+        }
+        float hold = system.lineHole.pullDur * 0.45f;
+        for (float t = 0.0f; t < hold; t += 0.1f) system.UpdateLineHole(0.1f);
         return;
     }
 

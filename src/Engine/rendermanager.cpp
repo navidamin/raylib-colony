@@ -3284,8 +3284,25 @@ static void ProsDrawHead(float cx, float surfY, float clipTop,
 // During a trip the string is OUT of the hole: the drawn depth runs the true
 // depth out and back on a half-sine (redline's lift) while the sim depth
 // holds. Everything visual that follows the bit reads this, never depthM.
+// Where the bit rests with no hole under it: just below the collar, so the
+// rig reads as parked rather than as drilling nothing. The end-of-hole hoist
+// lands EXACTLY here, which is why the handover from RETRACTING to DONE does
+// not jump.
+static constexpr float PROS_IDLE_DEPTH_M = 1.5f;
+
 static float ProsShownDepthM(const LineHole& hole)
 {
+    // The hoist at the end of a hole: monotonic, back to the idle pose, on a
+    // smoothstep -- a winch takes up, runs, and eases the last rods in. (The
+    // trip below is the other motion: out AND BACK on a half-sine, because a
+    // trip resumes the same hole.)
+    if (hole.state == LineHoleState::RETRACTING)
+    {
+        float f = hole.pullDur > 0.0f
+                ? std::clamp(hole.pullT / hole.pullDur, 0.0f, 1.0f) : 1.0f;
+        float s = f * f * (3.0f - 2.0f * f);
+        return PROS_IDLE_DEPTH_M + (hole.depthM - PROS_IDLE_DEPTH_M) * (1.0f - s);
+    }
     if (!hole.tripping || hole.tripDur <= 0.0f) return hole.depthM;
     float f = std::clamp(hole.tripT / hole.tripDur, 0.0f, 1.0f);
     return hole.depthM * (1.0f - sinf(f * PI));
@@ -3384,9 +3401,11 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     ProsRig rig;
     rig.cx = dg.cx; rig.surfY = surfY;
     prosHeatAmt = hole.heat;
-    float depthShown = (hole.state == LineHoleState::DRILLING ||
-                        hole.state == LineHoleState::DONE)
-                       ? ProsShownDepthM(hole) : 1.5f;
+    // The string is only in the ground while it is cutting or coming out; a
+    // DONE hole is a hole with the rig parked over it.
+    bool stringInGround = hole.state == LineHoleState::DRILLING ||
+                          hole.state == LineHoleState::RETRACTING;
+    float depthShown = stringInGround ? ProsShownDepthM(hole) : PROS_IDLE_DEPTH_M;
     rig.bitY = dg.YOf(depthShown);
     rig.coneApex = rig.bitY;                    // the tip IS the depth
     rig.coneTop = rig.coneApex - PROS_CONE;
@@ -3396,8 +3415,11 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
 
     // borehole with ragged walls, cut to the DEEPEST point the bit reached
     // -- the hole stays a hole while a trip lifts the string out of it
-    float cutY = dg.YOf((hole.state == LineHoleState::DRILLING ||
-                         hole.state == LineHoleState::DONE) ? hole.depthM : 1.5f);
+    // The HOLE outlives the string in it: once cut, it stays cut to the
+    // deepest point the bit reached, through the hoist and after it.
+    float cutY = dg.YOf(hole.state == LineHoleState::NONE ||
+                        hole.state == LineHoleState::AIMING
+                        ? PROS_IDLE_DEPTH_M : hole.depthM);
     float bw = PROS_DRILL_R * 2.0f + 9.0f;
     DrawRectangleRec({rig.cx - bw / 2.0f, surfY, bw, cutY - surfY + 4.0f}, {14, 11, 8, 255});
     prosGrain = 29;
@@ -3524,10 +3546,14 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         // assay ticks accrue down the drilled wall, Measured green
         for (float m = 6.0f; m < hole.depthM; m += 6.0f)
             DrawRectangleRec({rig.cx + PROS_DRILL_R + 6.0f, dg.YOf(m), 3.4f, 1.5f}, EXT_ACCENT_GREEN);
-        // twin cursor
-        float pulse = 3.9f + 1.1f * sinf(ps->gameTime * 12.6f);
-        ProsFillDiamond(tip.x, tip.y, pulse + 1.4f, PROS_OUT);
-        ProsFillDiamond(tip.x, tip.y, pulse, {244, 198, 106, 255});
+        // Twin cursor -- one dot per projection, so it exists only while
+        // there is a bit for it to mark (Dark Plating section 9.3).
+        if (stringInGround)
+        {
+            float pulse = 3.9f + 1.1f * sinf(ps->gameTime * 12.6f);
+            ProsFillDiamond(tip.x, tip.y, pulse + 1.4f, PROS_OUT);
+            ProsFillDiamond(tip.x, tip.y, pulse, {244, 198, 106, 255});
+        }
     }
 
     // past the redline the whole face warms -- felt before the gauge is read
@@ -3691,7 +3717,13 @@ static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
                                const ProsDockGeom& dg, const ProsPlateLift& pl)
 {
     const LineHole& hole = ps->lineHole;
-    if (hole.state == LineHoleState::NONE) return;
+    // The line over the plates is the LIVE OPERATION, not a record: a hole
+    // being aimed, cut, or hoisted out of. When the string clears the collar
+    // the line goes with it, leaving the plates showing only what the hole
+    // taught them (cored cells, flipped classes). The record of the hole
+    // itself lives in the dock -- the borehole and the core log lane.
+    if (hole.state == LineHoleState::NONE ||
+        hole.state == LineHoleState::DONE) return;
 
     Vector2 P0 = ProsTraceAt(ps, g, dg, pl, 0.0f);
     Vector2 P1 = ProsTraceAt(ps, g, dg, pl, hole.endM);
@@ -4185,10 +4217,23 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                       lh.rpm > 0.9f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN);
         ctrlY += 15.0f;
     }
+    else if (lh.state == LineHoleState::RETRACTING)
+    {
+        DrawTextEx(bodyFont, TextFormat("line complete - hoisting  %.0f m",
+                                        ProsShownDepthM(lh)),
+                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "the string comes out; the hole and its log stay",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
     else if (lh.state == LineHoleState::DONE)
     {
         DrawTextEx(bodyFont, TextFormat("line complete - %.0f m cored", lh.endM),
                    {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "string racked - click a block to line the next",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
         ctrlY += 16.0f;
     }
     else

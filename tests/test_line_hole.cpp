@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "test_helpers.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 // The prescribed line: aim from a collar on the surface toward a cell at a
@@ -41,10 +42,11 @@ TEST_CASE("a line hole cores each crossing as the bit passes it", "[linehole]")
     // drill it out in small steps -- cores must land IN ORDER, mid-run
     bool doneEarly = false;
     int coredWhenSurfaceDone = -1;
-    for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 8000 && sys.lineHole.state != LineHoleState::DONE; i++)
     {
-        doneEarly = sys.UpdateLineHole(0.05f) &&
-                    sys.lineHole.depthM < sys.lineHole.endM - 0.5f;
+        doneEarly = doneEarly ||
+                    (sys.UpdateLineHole(0.05f) &&
+                     sys.lineHole.depthM < sys.lineHole.endM - 0.5f);
         if (sys.lineHole.cored[0] && coredWhenSurfaceDone < 0)
         {
             coredWhenSurfaceDone = sys.lineHole.cored[3] ? 1 : 0;
@@ -98,7 +100,7 @@ TEST_CASE("the crossing cell never leaves the lattice", "[linehole]")
     sys.StartAim(0, 0);
     sys.AimAt(1, 7, 7);                           // steep drift, extrapolates far
     sys.CommitHole();
-    while (sys.lineHole.state == LineHoleState::DRILLING) sys.UpdateLineHole(0.5f);
+    while (sys.lineHole.state != LineHoleState::DONE) sys.UpdateLineHole(0.5f);
     for (int L = 0; L <= sys.lineHole.targetLayer; L++)
     {
         int cx = -1, cy = -1;
@@ -120,7 +122,7 @@ TEST_CASE("hard rock heats the bit and the string pecks to cool", "[linehole]")
     // engaged player: ~4 clicks/s.
     bool dwellSeen = false, advancedWhileDwelling = false;
     float maxHeat = 0.0f;
-    for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 8000 && sys.lineHole.state != LineHoleState::DONE; i++)
     {
         if (i % 5 == 0) sys.KickString();
         float before = sys.lineHole.depthM;
@@ -165,7 +167,7 @@ TEST_CASE("an idle hole never cooks the bit", "[linehole]")
     sys.AimAt(3, 7, 6);
     sys.CommitHole();
     float maxHeat = 0.0f;
-    for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 8000 && sys.lineHole.state != LineHoleState::DONE; i++)
     {
         sys.UpdateLineHole(0.05f);
         maxHeat = std::max(maxHeat, sys.lineHole.heat);
@@ -187,7 +189,7 @@ TEST_CASE("too hot for too long fractures the bit - a trip, never an ending", "[
 
     bool advancedWhileTripping = false;
     float wearAfterTrip = -1.0f;
-    for (int i = 0; i < 20000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 20000 && sys.lineHole.state != LineHoleState::DONE; i++)
     {
         sys.KickString();                        // flat out, every step
         float before = sys.lineHole.depthM;
@@ -213,7 +215,7 @@ TEST_CASE("a cool hole never fractures the bit", "[linehole]")
     sys.StartAim(7, 6);
     sys.AimAt(3, 7, 6);
     sys.CommitHole();
-    for (int i = 0; i < 8000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 8000 && sys.lineHole.state != LineHoleState::DONE; i++)
     {
         if (i % 10 == 0) sys.KickString();       // ~2 clicks/s
         sys.UpdateLineHole(0.05f);
@@ -231,7 +233,7 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
     cool.StartAim(7, 6);
     cool.AimAt(3, 7, 6);
     cool.CommitHole();
-    for (int i = 0; i < 12000 && cool.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 12000 && cool.lineHole.state != LineHoleState::DONE; i++)
     {
         if (i % 20 == 0) cool.KickString();      // ~1 click/s
         cool.UpdateLineHole(0.05f);
@@ -255,7 +257,7 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
     hot.StartAim(7, 6);
     hot.AimAt(3, 7, 6);
     hot.CommitHole();
-    for (int i = 0; i < 20000 && hot.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 20000 && hot.lineHole.state != LineHoleState::DONE; i++)
     {
         if (i % 5 == 0) hot.KickString();        // ~4 clicks/s
         hot.UpdateLineHole(0.05f);
@@ -281,7 +283,7 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
     spam.StartAim(7, 6);
     spam.AimAt(3, 7, 6);
     spam.CommitHole();
-    for (int i = 0; i < 20000 && spam.lineHole.state == LineHoleState::DRILLING; i++)
+    for (int i = 0; i < 20000 && spam.lineHole.state != LineHoleState::DONE; i++)
     {
         spam.KickString();
         spam.UpdateLineHole(0.05f);
@@ -291,6 +293,63 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
     for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
         if (spam.lineHole.logQ[iv] == 1) sawLost = true;
     REQUIRE(sawLost);
+}
+
+TEST_CASE("a finished hole hoists its string out before it reads DONE", "[linehole]")
+{
+    // Reaching the bottom does not end the line: the string comes back up
+    // first, and only when it is out does the hole read DONE. That end state
+    // is what the block model watches -- a DONE hole draws no line over the
+    // plates, because there is no string in the ground to draw.
+    ProspectingSystem sys = MakeSystem();
+    sys.StartAim(7, 6);
+    sys.AimAt(3, 7, 6);
+    sys.CommitHole();
+
+    bool payoutFired = false;
+    for (int i = 0; i < 20000 && sys.lineHole.state == LineHoleState::DRILLING; i++)
+    {
+        if (i % 10 == 0) sys.KickString();
+        payoutFired = sys.UpdateLineHole(0.05f) || payoutFired;
+    }
+
+    // Bottom reached: hoisting, not finished.
+    REQUIRE(sys.lineHole.state == LineHoleState::RETRACTING);
+    REQUIRE(payoutFired);                        // and the payout fired AT the bottom
+    REQUIRE(std::fabs(sys.lineHole.pullDur
+                      - DrillPullSeconds(sys.lineHole.endM)) < 0.001f);
+
+    // The knowledge is already banked -- the hoist is a beat, not a gate.
+    for (int L = 0; L <= sys.lineHole.targetLayer; L++)
+        REQUIRE(sys.lineHole.cored[L]);
+    REQUIRE(sys.GetTray().GetCount() >= 1);
+
+    // A new line cannot be aimed while the string is still coming out.
+    sys.StartAim(1, 1);
+    REQUIRE(sys.lineHole.state == LineHoleState::RETRACTING);
+
+    // Halfway out and still hoisting; the HOLE stays cut to its full depth
+    // (the string leaves, the hole does not).
+    float half = sys.lineHole.pullDur * 0.5f;
+    for (float t = 0.0f; t < half; t += 0.05f) sys.UpdateLineHole(0.05f);
+    REQUIRE(sys.lineHole.state == LineHoleState::RETRACTING);
+    REQUIRE(std::fabs(sys.lineHole.depthM - sys.lineHole.endM) < 0.001f);
+
+    // The last rod clears the collar.
+    for (int i = 0; i < 2000 && sys.lineHole.state != LineHoleState::DONE; i++)
+        sys.UpdateLineHole(0.05f);
+    REQUIRE(sys.lineHole.state == LineHoleState::DONE);
+
+    // What the hole produced outlives it: the core log is still there to read
+    // after the line over the plates is gone.
+    int cut = 0;
+    for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
+        if (sys.lineHole.logQ[iv] != 0) cut++;
+    REQUIRE(cut >= 10);
+
+    // And the rig is free again.
+    sys.StartAim(1, 1);
+    REQUIRE(sys.lineHole.state == LineHoleState::AIMING);
 }
 
 TEST_CASE("drill tuning campaign", "[.][campaign]")
@@ -322,6 +381,9 @@ TEST_CASE("drill tuning campaign", "[.][campaign]")
                "(dwell %.0f s, rpm peak %.2f, trips %d, wear at end %.2f) log %s\n",
                f, sys.lineHole.endM, t, dwellT, rpmPeak, sys.lineHole.trips,
                sys.lineHole.wear, log);
+        REQUIRE(sys.lineHole.state == LineHoleState::RETRACTING);
+        for (int i = 0; i < 2000 && sys.lineHole.state != LineHoleState::DONE; i++)
+            sys.UpdateLineHole(0.05f);
         REQUIRE(sys.lineHole.state == LineHoleState::DONE);
     }
 }

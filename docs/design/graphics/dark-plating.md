@@ -523,7 +523,18 @@ palettes, never a second style.
 ### 9.2 One line, two projections
 
 A path the player draws exists **once**, rendered into each view with the
-same recipe, consumed by the same advance:
+same recipe, consumed by the same advance.
+
+**The line is the operation, not the record.** It is drawn while there is
+something in the ground to draw — being aimed, being cut, being hoisted out
+— and it goes when the string clears the collar, leaving the working panel
+showing only what the hole taught it. Everything the hole produced belongs
+to the instrument view and stays: the borehole, the log lane, the assay
+ticks. Draw a finished path forever and a second hole cannot be told from
+the first, and the machine is never seen to finish anything. The renderer
+asks the state machine one question — *is there a string in the ground* —
+and never re-derives it (`ProsDrawTraceBlock`, prospecting's RETRACTING
+state, [drill-tuning §8](../prospecting/drill-tuning.md)).
 
 The prescribed line is **dead straight** — one segment from collar point to
 target point, exactly as the player drew it. Never re-project it into flat

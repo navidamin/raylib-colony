@@ -256,3 +256,73 @@ disposition doc's named blocker).
 Shake (same pass): rumble is now `rpmN^2 * (0.25 + 1.2 * hardness)` --
 no base term, ground-scaled; the old flat `0.35 + 1.1*rpmN^2` was
 reported too strong at idle and identical in regolith and basalt.
+
+## 8. The end of a hole: the string comes out
+
+Playtest ask: *"When a drill is finished, the drill should be pulled back up
+and the drill line on the 4-layered panel should vanish."*
+
+Before this, a finished hole left its string parked at the bottom forever and
+its line drawn over the block model forever. Two holes in a session left two
+lines on the plates with no way to tell which one the rig was actually on,
+and the machine never visibly finished anything.
+
+**The state machine grew one state.**
+`NONE -> AIMING -> DRILLING -> RETRACTING -> DONE`
+(`LineHoleState`, `prospecting_system.h`). RETRACTING is the hoist: nothing
+advances, clicks do nothing, the bit cools in the open as it does on a trip.
+DONE now means something it did not mean before — **the string is out of the
+ground** — and that is the single fact the block model reads.
+
+| | drawn over the plates | in the borehole strip |
+|---|---|---|
+| DRILLING | line + string + twin cursor | string at depth |
+| RETRACTING | line + string, retreating up it | string rising, hole stays cut |
+| DONE | **nothing** | hole, core log, assay ticks, rig parked |
+
+What the hole *produced* outlives it: cored cells, flipped classes, the core
+log lane, the specimen, the borehole itself. What vanishes is the *live
+operation*. That split is the whole design — see
+[dark-plating §9.2](../graphics/dark-plating.md).
+
+**The hoist is a beat, not a price.**
+
+```
+DRILL_PULL_BASE_S  = 1.2       DrillPullSeconds(m) = BASE + m * PER_M
+DRILL_PULL_S_PER_M = 0.045     79 m column -> 4.8 s
+```
+
+Same winch as a trip, one direction and nothing to re-seat, so it is ~5x
+cheaper than the fracture trip's out-and-back (`BIT_TRIP_*`: 26.7 s at the
+same depth). The **payout fires at the bottom, not at the top** — the
+specimen is shelved and `UpdateLineHole` returns true the instant the bit
+reaches `endM`, while the machine spends the next few seconds hoisting.
+Delaying knowledge behind the animation would turn a flourish into a tax.
+
+Drawn depth runs `depthM -> PROS_IDLE_DEPTH_M` on a smoothstep
+(`ProsShownDepthM`) — a winch takes up, runs, and eases the last rods in.
+It lands exactly on the pose the rig rests at with no hole, so the handover
+to DONE cannot jump. The trip's motion stays what it was, a half-sine out
+**and back**, because a trip resumes the same hole.
+
+**Rejected, for the record:**
+
+- **Vanish on completion, no animation.** One frame: line, then no line.
+  Cheapest, and it fails the same way the old behaviour did in reverse —
+  the player never sees the machine finish, only the result blink away.
+- **Vanish the core log with it.** Simplest gate (`state == NONE` everywhere)
+  and it throws away the record the player just paid 79 m of heat for. The
+  log is the product; the line is the process.
+- **Reuse the trip's out-and-back motion.** Free code, wrong fiction: the
+  string would come back down into a finished hole.
+- **Trip-priced hoist** (26.7 s at 79 m). Physically consistent, and it is a
+  26-second lockout with no decision in it after every hole. Rule 1 says
+  costs buy *time when something went wrong*; nothing went wrong here.
+- **Let a new hole be aimed during the hoist.** Cuts the wait to zero, and
+  the aim would be drawn through a string still coming out of the last hole.
+  `StartAim` refuses while DRILLING or RETRACTING; 4.8 s is a beat, not a
+  queue.
+
+Covered by `tests/test_line_hole.cpp`, *"a finished hole hoists its string
+out before it reads DONE"*; preview states `line-pull` (mid-hoist) and
+`line-done` (racked, line gone).

@@ -218,6 +218,19 @@ constexpr float BIT_FATIGUE_RATE  = 0.065f;
 constexpr float BIT_TRIP_BASE_S   = 3.0f;
 constexpr float BIT_TRIP_S_PER_M  = 0.30f;
 
+// Finishing a hole hoists the string back out of it. Same winch as a trip,
+// but one direction only and with nothing to re-seat on the face, so it is a
+// fraction of the trip's cost -- and unlike a trip it is a BEAT, not a price:
+// the hole is already paid for and its knowledge already landed. Long enough
+// to watch the rods come up (~5 s at 79 m), short enough that the next hole
+// is never waiting on the animation.
+constexpr float DRILL_PULL_BASE_S  = 1.2f;
+constexpr float DRILL_PULL_S_PER_M = 0.045f;
+inline float DrillPullSeconds(float depthM)
+{
+    return DRILL_PULL_BASE_S + depthM * DRILL_PULL_S_PER_M;
+}
+
 // The core log's fine intervals (redline's log, finer than the strata).
 // Each 5 m stick is graded by the thermal DOSE it was cut under -- mean
 // squared excess above the fatigue onset, per metre cut, so a stick that

@@ -16,7 +16,14 @@ enum class ProspectingTab { SWEEP, SAMPLES, LAB };
 // (docs/design/prospecting/prototypes/drill-dock.html, variant b); the
 // knowledge contract is RecordCore at every layer the line crosses.
 // ---------------------------------------------------------------------------
-enum class LineHoleState { NONE, AIMING, DRILLING, DONE };
+// NONE -> AIMING -> DRILLING -> RETRACTING -> DONE.
+// RETRACTING is the hoist after the bit reaches the bottom: nothing advances,
+// the string comes back to the collar, and only when it is out does the hole
+// read as DONE. The two end states differ in exactly one way that matters to
+// the rest of the game: in DONE the string is OUT OF THE GROUND, so the
+// prescribed line stops being drawn over the block model. What the hole
+// produced -- the cored cells, the core log, the specimen -- outlives both.
+enum class LineHoleState { NONE, AIMING, DRILLING, RETRACTING, DONE };
 
 struct LineHole
 {
@@ -36,6 +43,8 @@ struct LineHole
     bool  tripping = false;           // string out rod by rod, and back
     float tripT = 0.0f;               // seconds into the trip
     float tripDur = 0.0f;             // BIT_TRIP_BASE_S + depth * PER_M
+    float pullT = 0.0f;               // seconds into the end-of-hole hoist
+    float pullDur = 0.0f;             // DrillPullSeconds(depth at the bottom)
     float fracturedTime = -100.0f;    // when the bit last let go
     int   trips = 0;                  // fractures this hole has cost
     // The fine core log: one grade per 5 m stick.

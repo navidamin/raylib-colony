@@ -122,7 +122,10 @@ void ProspectingSystem::EnsureCache() const
 
 void ProspectingSystem::StartAim(int collarX, int collarY)
 {
-    if (lineHole.state == LineHoleState::DRILLING) return;  // string is down
+    // The string is in motion -- down the hole, or on its way back out of
+    // one. Either way there is nothing to aim with until it is racked.
+    if (lineHole.state == LineHoleState::DRILLING ||
+        lineHole.state == LineHoleState::RETRACTING) return;
     lineHole = LineHole{};
     lineHole.state = LineHoleState::AIMING;
     lineHole.collarX = collarX;
@@ -198,6 +201,22 @@ void ProspectingSystem::GetCrossingCell(int layer, int& gx, int& gy) const
 
 bool ProspectingSystem::UpdateLineHole(float dt)
 {
+    // The end-of-hole hoist. Nothing advances and nothing can be driven; the
+    // bit cools fast in the open, as it does on a trip. When the last rod
+    // clears the collar the hole is DONE and the line stops being drawn over
+    // the block model -- see the state enum.
+    if (lineHole.state == LineHoleState::RETRACTING)
+    {
+        lineHole.pullT += dt;
+        lineHole.rpm = 0.0f;
+        lineHole.heat = std::max(0.0f, lineHole.heat - DRILL_HEAT_COOL * 1.6f * dt);
+        if (lineHole.pullT >= lineHole.pullDur)
+        {
+            lineHole.state = LineHoleState::DONE;
+        }
+        return false;
+    }
+
     if (lineHole.state != LineHoleState::DRILLING)
     {
         lineHole.heat = std::max(0.0f, lineHole.heat - DRILL_HEAT_COOL * dt);
@@ -315,7 +334,13 @@ bool ProspectingSystem::UpdateLineHole(float dt)
 
     if (lineHole.depthM >= lineHole.endM)
     {
-        lineHole.state = LineHoleState::DONE;
+        // Bottom reached. The KNOWLEDGE lands now -- the specimen is shelved
+        // and the cores are already recorded -- while the machine spends the
+        // next few seconds hoisting its string. Delaying the payout behind
+        // the animation would make the hoist a cost, and it is only a beat.
+        lineHole.state = LineHoleState::RETRACTING;
+        lineHole.pullT = 0.0f;
+        lineHole.pullDur = DrillPullSeconds(lineHole.depthM);
         lineHole.doneTime = gameTime;
         // One specimen per hole -- the deepest interval, the interesting one
         int cx = 0, cy = 0;
