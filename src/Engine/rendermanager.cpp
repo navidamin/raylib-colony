@@ -5,6 +5,7 @@
 #include "resource_types.h"
 #include "survey_progress_engine.h"
 #include "excavation_constants.h"
+#include "block_pick.h"
 #include <algorithm>
 #include <iostream>
 #include <cmath>
@@ -2449,17 +2450,6 @@ static Color ProsElementColor(ResourceType type)
     }
 }
 
-static const char* ProsDepthName(DepthLayer d)
-{
-    switch (d)
-    {
-        case DepthLayer::SURFACE: return "Regolith";
-        case DepthLayer::SHALLOW: return "Megaregolith";
-        case DepthLayer::MID: return "Fract. Bedrock";
-        case DepthLayer::DEEP: return "Intact Bedrock";
-        default: return "Unknown";
-    }
-}
 
 static const char* ProsConfLabel(float conf)
 {
@@ -3434,13 +3424,11 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     ProsDrawHead(rig.cx, surfY, clipTop, turning, cooling);
 
     // The core log (redline's third panel, folded into the dock): one lane
-    // of 5 m sticks down the left edge, each graded by the worst heat it
-    // was cut at, in redline's own log legend. The lane is a DOCUMENT, not
-    // a cross-section: sticks are EQUAL height (linear in metres, exactly
-    // redline's flexed log rows) while the strip beside it stays depth-true
-    // -- the depth mapping squashed deep sticks to a third of shallow ones,
-    // which read as a glitch. Stratum seams are marked in the lane so the
-    // two mappings stay legible side by side.
+    // down the left edge, each stick graded by the thermal dose it was cut
+    // under, in redline's own log legend. Sticks are counted PER STRATUM,
+    // so they come out equal height on screen AND level with the string --
+    // a fixed metre length could not be both, because the strip gives every
+    // stratum an equal band while they hold 12/22/34/52 m.
     if (hole.state != LineHoleState::NONE)
     {
         float lx = dg.x + 4.0f, lw = 7.0f;
@@ -3472,8 +3460,9 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
             DrawRectangleRec({lx, y0, lw, y1 - y0}, fill);
             if (hole.logQ[iv] == 1)
                 DrawRectangleLinesEx({lx, y0, lw, y1 - y0}, 1.0f, {150, 62, 34, 255});
-            // volatiles tick on cut sticks of the icy stratum
-            if (hole.logQ[iv] != 0 && m1 > LayerTopM(2) && m0 < LayerBottomM(2))
+            // volatiles tick on cut sticks of the icy stratum. Sticks are
+            // per-stratum now, so this is a layer test, not a straddle test.
+            if (hole.logQ[iv] != 0 && iv / PROS_LOG_PER_LAYER == 2)
                 DrawRectangleRec({lx, y0, 2.0f, y1 - y0}, Fade(PROS_ICE_FLECK, 0.85f));
         }
         // stratum seams, so the lane's linear scale stays tied to the rock
@@ -3811,23 +3800,34 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     bool aiming = ps->lineHole.state == LineHoleState::AIMING;
     // Analytic pick: invert the iso transform per plate, so every pixel of a
     // plate maps to its nearest cell -- at 16x16 per-cell hit rects would be
-    // smaller than any finger.
+    // smaller than any finger. Inverted against the LIFTED surface the player
+    // can see, not each plate's base plane: the lift reaches g.relief while a
+    // tile is only ~3.9 px tall, so a flat inversion picked several rows off
+    // the block under the cursor, and the x1.5 relief pass widened that.
+    // See src/Prospecting/block_pick.h; the round trip is under test.
+    BlockPickGeom pick;
+    pick.originX = geom.originX; pick.originY = geom.originY;
+    pick.tileX = geom.tileX;     pick.tileY = geom.tileY;
+    pick.gap = geom.gap;         pick.size = gridSize;
+
     int hovL = -1, hovX = -1, hovY = -1;
     for (int L = 0; L < 4 && hovL < 0; L++)
     {
-        float a = (mouse.x - geom.originX) / geom.tileX;
-        float b = (mouse.y - geom.originY - L * geom.gap) / geom.tileY;
-        float fi = (a + b) * 0.5f, fj = (b - a) * 0.5f;
-        if (fi < 0.0f || fj < 0.0f ||
-            fi >= static_cast<float>(gridSize) || fj >= static_cast<float>(gridSize))
-            continue;
-        hovL = L;
-        hovX = static_cast<int>(fi);
-        hovY = static_cast<int>(fj);
-        Vector2 q0 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY), L, 0.0f);
-        Vector2 q1 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY), L, 0.0f);
-        Vector2 q2 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY + 1), L, 0.0f);
-        Vector2 q3 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY + 1), L, 0.0f);
+        // The same height the surface is drawn at: cell grade over the shared
+        // scale, times the relief.
+        auto liftAt = [&](int i, int j) {
+            return layers[L][j * gridSize + i].grade
+                   / std::max(maxGrade, 0.0001f) * geom.relief;
+        };
+        int pi = 0, pj = 0;
+        if (!BlockPickCell(pick, L, mouse.x, mouse.y, liftAt, pi, pj)) continue;
+        hovL = L; hovX = pi; hovY = pj;
+
+        float lift = liftAt(pi, pj);
+        Vector2 q0 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY), L, lift);
+        Vector2 q1 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY), L, lift);
+        Vector2 q2 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY + 1), L, lift);
+        Vector2 q3 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY + 1), L, lift);
         DrawLineEx(q0, q1, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(q1, q2, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(q2, q3, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));

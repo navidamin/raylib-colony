@@ -551,6 +551,17 @@ a bore-ring; leaders to the active layer warm from dim steel to amber. Every
 correlation cue is *event-driven and reversible* — nothing permanent joins
 the panels except the ground itself.
 
+**Picking a lifted surface.** The same relief that the rim has to follow
+also breaks naive picking: inverting the iso transform at `lift = 0` answers
+for the base plane, not the surface under the cursor, and the error is
+`lift / tileY` lattice rows — tens of pixels against a ~4 px tile at 16x16.
+Lift only shifts Y, so a cell's own lift decides whether the point lands in
+it; scan the plate and take the FRONT-MOST cell that covers the point, which
+is also the correct occlusion answer (a block hidden behind a higher one
+cannot be clicked). Iterating from a flat guess does not work — for a lifted
+cell near the back edge the flat solve lands off the lattice entirely.
+`src/Prospecting/block_pick.h`, round-trip under test.
+
 ### 9.45 The core log lane
 
 The score sheet (redline's third panel), folded into the borehole strip as
