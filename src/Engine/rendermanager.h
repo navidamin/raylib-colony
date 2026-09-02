@@ -82,17 +82,21 @@ private:
     // ground: level 0 = PLANET (100 km), 1 = COLONY (25 km), 2 = SECT
     // (5 km). Because each level is the centre of the one above, the
     // views are registered to each other and zooming is continuous.
-    // Generating a chain costs ~0.5 s, so the cell you are standing on
-    // is kept alongside its eight neighbours — the only cells reachable
-    // in one step. Neighbours are built on worker threads before they
-    // are asked for, which is what makes crossing a cell boundary free
-    // rather than a 33-frame hitch. Nine cells at 512 is about 28 MB.
+    // The cell you are standing on is kept alongside its eight
+    // neighbours — the only cells reachable in one step — and the
+    // neighbours are built before they are asked for, which is what
+    // makes crossing a cell boundary free rather than a 33-frame hitch.
+    // Two ways to build one, chosen once by GetTerrainPath(): the CPU
+    // chain (~0.5 s, so it runs on worker threads) or the GPU chain
+    // (milliseconds, main thread, one neighbour per frame). Nine cells
+    // at 512 is about 28 MB; at the GPU's 1024, 113 MB.
     static const int TERRAIN_CACHE_SLOTS = 9;
-    static const int TERRAIN_RES = 512;
+    static const int TERRAIN_RES = 512;     // the CPU path's resolution
 
     struct TerrainCacheEntry
     {
         Texture2D levels[3] = {};
+        RenderTexture2D targets[3] = {};    // GPU-built: owns the textures
         int gx = -1;
         int gy = -1;
         unsigned int anchorVersion = 0;
@@ -116,7 +120,8 @@ private:
     int FindTerrainSlot(int gx, int gy, unsigned int anchorVersion) const;
     int ClaimTerrainSlot();                       // LRU victim, unloaded
     void BindTerrainSlot(int slot);               // slot -> terrainLevels
-    void UploadReadyTerrain();                    // worker Images -> GPU
+    void ReleaseTerrainEntry(TerrainCacheEntry& e);
+    void UploadReadyTerrain();                    // finished work -> cache
     void RequestNeighbourTerrain(int gx, int gy); // queue the ring of 8
     void ShutdownTerrainWorkers();
 

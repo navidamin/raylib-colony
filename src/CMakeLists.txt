@@ -14,6 +14,7 @@ set(COLONY_CORE_SOURCES
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
+    TerrainGen/terrain_gpu.cpp
     TerrainGen/lola_dem.cpp
     TerrainGen/survey_cursor.cpp
     Prospecting/prospecting_types.cpp
@@ -246,6 +247,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         # main wrote this target before that dependency existed.
         TerrainGen/lola_dem.cpp
         TerrainGen/terrain_synthesis.cpp
+        TerrainGen/terrain_gpu.cpp
     )
 
     set_target_properties(colony_inspect PROPERTIES
@@ -285,6 +287,7 @@ target_sources(colony_viewtest PRIVATE
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
+    TerrainGen/terrain_gpu.cpp
     TerrainGen/lola_dem.cpp
     TerrainGen/survey_cursor.cpp
     Prospecting/prospecting_types.cpp
@@ -374,6 +377,39 @@ if("${PLATFORM}" STREQUAL "Web")
 endif()
 
 # ---------------------------------------------------------------------------
+# terrain_probe: the terrain chain built both ways, side by side
+#
+# Times the GPU and CPU synthesizers for one location, writes every
+# level of both as PNG and reports how far apart they are. The check to
+# run after touching terrain_gpu.cpp or terrain_synthesis.cpp.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(terrain_probe)
+
+    target_sources(terrain_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/terrainprobe/terrainprobe_main.cpp"
+        TerrainGen/terrain_synthesis.cpp
+        TerrainGen/terrain_gpu.cpp
+    )
+
+    set_target_properties(terrain_probe PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(terrain_probe PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+    )
+
+    target_link_libraries(terrain_probe raylib)
+    if(NOT WIN32)
+        target_link_libraries(terrain_probe m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # survey_cursor_test: headless geometry self-test for the survey cursor
 #
 # No GL, no DEM, no window -- just the screen <-> km <-> lat/lon mapping,
@@ -425,6 +461,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         TimeManager/time_manager.cpp
         GameTypes/game_types_loader.cpp
         TerrainGen/terrain_synthesis.cpp
+        TerrainGen/terrain_gpu.cpp
         TerrainGen/lola_dem.cpp
         TerrainGen/survey_cursor.cpp
         Prospecting/prospecting_types.cpp

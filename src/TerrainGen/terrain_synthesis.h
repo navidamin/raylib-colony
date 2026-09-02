@@ -106,6 +106,24 @@ void GenerateTerrainChain(double latDeg, double lonDeg, int res,
                           Image outLevels[3],
                           const TerrainSiteDisturbance* site = nullptr);
 
+// Support for the GPU path (terrain_gpu.cpp), which runs the same chain
+// as fragment-shader passes. It needs three things the CPU keeps to
+// itself: the native-resolution WAC crop for the 100 km window (already
+// denoised; a few thousand texels, so uploading it and letting the GPU
+// upsample beats resizing here), the adaptive-contrast stats
+// SharpenAdaptive would derive for it, and the location seed. The crop
+// is packed 16-bit into R (high byte) and G (low byte) so no float
+// texture is needed anywhere -- WebGL1 has none. Caller owns the Image.
+struct TerrainMacroCrop
+{
+    Image image = {};        // R8G8B8, width x height texels, 16-bit in R:G
+    float gain = 1.0f;       // adaptive contrast gain (1..2.2)
+    float mid = 0.5f;        // ...about this midpoint
+    unsigned int seed = 0;   // LocationSeed(lat, lon)
+};
+bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out);
+unsigned int TerrainLocationSeed(double latDeg, double lonDeg);
+
 // Tuning knobs for the surface layers (all multipliers on the
 // baseline, except the weights which are absolute). Craters were
 // removed by user decision 2026-08-13 — the layers left are grain,

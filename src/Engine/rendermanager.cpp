@@ -1,6 +1,7 @@
 #include "rendermanager.h"
 #include "resource_manager.h"
 #include "terrain_synthesis.h"
+#include "terrain_gpu.h"
 #include "resource_types.h"
 #include "survey_progress_engine.h"
 #include <algorithm>
@@ -20,9 +21,20 @@
 // than one at a time. Only the upload is GL, and that stays on the main
 // thread — workers hand back Images, UploadReadyTerrain() turns them
 // into textures during the frame that asks for them.
+//
+// Only the CPU path uses it. In the browser there are no threads at
+// all (std::thread has nothing behind it without -pthread, and GitHub
+// Pages cannot send the headers SharedArrayBuffer needs), so there the
+// pool runs one job synchronously per frame instead of spawning — a
+// hitch per neighbour, but only if the GPU path is somehow unavailable,
+// which in a browser it never is.
 // ---------------------------------------------------------------------------
 namespace
 {
+
+// The CPU chain's resolution: the pyramid blur made 1024 cost 2.4 s a
+// cell, so the threads build 512 (RenderManager::TERRAIN_RES).
+const int CPU_TERRAIN_RES = 512;
 
 struct TerrainJob
 {
@@ -42,11 +54,15 @@ public:
     {
         if (started) return;
         started = true;
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+        // No threads here: TakeDone() processes the queue instead.
+#else
         unsigned int hw = std::thread::hardware_concurrency();
         int count = (int)((hw > 4) ? (hw / 2) : 2);
         if (count > 6) count = 6;      // enough to hide the ring of 8
         for (int i = 0; i < count; i++)
             workers.emplace_back([this] { Run(); });
+#endif
     }
 
     void Stop()
@@ -77,6 +93,26 @@ public:
 
     bool TakeDone(std::vector<TerrainJob>& out)
     {
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+        // Threadless: build one queued cell right here, one per frame.
+        Key key;
+        bool have = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (started && !pending.empty())
+            {
+                key = pending.front();
+                pending.pop_front();
+                have = true;
+            }
+        }
+        if (have)
+        {
+            TerrainJob job = Build(key);
+            std::lock_guard<std::mutex> lock(mutex);
+            done.push_back(std::move(job));
+        }
+#endif
         std::lock_guard<std::mutex> lock(mutex);
         if (done.empty()) return false;
         out.insert(out.end(), std::make_move_iterator(done.begin()),
@@ -118,6 +154,20 @@ private:
         return false;
     }
 
+    TerrainJob Build(const Key& key)
+    {
+        double lat, lon;
+        TerrainGridCellToLatLon(key.gx, key.gy, &lat, &lon);
+        TerrainSiteDisturbance site;
+        site.enabled = true;
+        TerrainJob job;
+        job.gx = key.gx;
+        job.gy = key.gy;
+        job.anchorVersion = key.anchorVersion;
+        GenerateTerrainChain(lat, lon, CPU_TERRAIN_RES, job.levels, &site);
+        return job;
+    }
+
     void Run()
     {
         for (;;)
@@ -132,15 +182,7 @@ private:
                 inFlight.push_back(key);
             }
 
-            double lat, lon;
-            TerrainGridCellToLatLon(key.gx, key.gy, &lat, &lon);
-            TerrainSiteDisturbance site;
-            site.enabled = true;
-            TerrainJob job;
-            job.gx = key.gx;
-            job.gy = key.gy;
-            job.anchorVersion = key.anchorVersion;
-            GenerateTerrainChain(lat, lon, 512, job.levels, &site);
+            TerrainJob job = Build(key);
 
             {
                 std::lock_guard<std::mutex> lock(mutex);
@@ -170,6 +212,18 @@ private:
 };
 
 TerrainPool g_terrainPool;
+
+// The GPU path's prefetch queue: cells to build, one per frame, on the
+// main thread. Nothing to synchronise.
+struct GpuKey { int gx, gy; unsigned int anchorVersion; };
+std::deque<GpuKey> g_gpuPending;
+
+bool GpuQueued(int gx, int gy, unsigned int v)
+{
+    for (const auto& k : g_gpuPending)
+        if (k.gx == gx && k.gy == gy && k.anchorVersion == v) return true;
+    return false;
+}
 
 } // namespace
 
@@ -822,20 +876,17 @@ void RenderManager::DrawPlanetMapLayer(Camera2D camera)
 void RenderManager::UnloadTerrainLevels()
 {
     ShutdownTerrainWorkers();
+    g_gpuPending.clear();
 
     for (int i = 0; i < TERRAIN_CACHE_SLOTS; i++)
     {
         TerrainCacheEntry& e = terrainCache[i];
         if (!e.valid) continue;
-        for (int j = 0; j < 3; j++)
-        {
-            if (e.levels[j].id != 0) UnloadTexture(e.levels[j]);
-            e.levels[j] = {0};
-        }
-        e.valid = false;
+        ReleaseTerrainEntry(e);
         e.gx = -1;
         e.gy = -1;
     }
+    UnloadTerrainGpu();
 
     for (int i = 0; i < 3; i++) terrainLevels[i] = {0};
     terrainLoaded = false;
@@ -877,16 +928,23 @@ int RenderManager::ClaimTerrainSlot()
     }
 
     TerrainCacheEntry& e = terrainCache[victim];
-    if (e.valid)
-    {
-        for (int i = 0; i < 3; i++)
-        {
-            if (e.levels[i].id != 0) UnloadTexture(e.levels[i]);
-            e.levels[i] = {0};
-        }
-        e.valid = false;
-    }
+    if (e.valid) ReleaseTerrainEntry(e);
     return victim;
+}
+
+// A GPU-built entry's textures belong to its render targets; a CPU-built
+// one owns plain textures. Either way the aliases in terrainLevels are
+// not freed here (see UnloadTerrainLevels).
+void RenderManager::ReleaseTerrainEntry(TerrainCacheEntry& e)
+{
+    for (int i = 0; i < 3; i++)
+    {
+        if (e.targets[i].id != 0) UnloadRenderTexture(e.targets[i]);
+        else if (e.levels[i].id != 0) UnloadTexture(e.levels[i]);
+        e.targets[i] = {};
+        e.levels[i] = {0};
+    }
+    e.valid = false;
 }
 
 // Point the drawing layers at a cached chain. No copy, no upload.
@@ -901,13 +959,53 @@ void RenderManager::BindTerrainSlot(int slot)
     terrainAnchorVersion = e.anchorVersion;
 }
 
-// Drain finished worker output. GL only happens here, on the main thread.
+// Bring finished prefetch work into the cache. On the GPU path that
+// means building one queued neighbour right now — a few milliseconds of
+// main-thread GPU work per frame, which is how the ring of eight fills
+// in without threads. On the CPU path it drains the worker pool and
+// uploads what it produced; GL only happens here, on the main thread.
 void RenderManager::UploadReadyTerrain()
 {
+    unsigned int anchorVersion = GetTerrainAnchorVersion();
+
+    if (GetTerrainPath() == TERRAIN_PATH_GPU)
+    {
+        while (!g_gpuPending.empty())
+        {
+            GpuKey key = g_gpuPending.front();
+            g_gpuPending.pop_front();
+            if (key.anchorVersion != anchorVersion) continue;
+            if (FindTerrainSlot(key.gx, key.gy, key.anchorVersion) >= 0) continue;
+
+            double lat, lon;
+            TerrainGridCellToLatLon(key.gx, key.gy, &lat, &lon);
+            TerrainSiteDisturbance site;
+            site.enabled = true;
+            TerrainGpuChain chain;
+            if (!GenerateTerrainChainGPU(lat, lon, GetTerrainPathResolution(),
+                                         &chain, &site))
+                return;
+
+            int slot = ClaimTerrainSlot();
+            TerrainCacheEntry& e = terrainCache[slot];
+            for (int i = 0; i < 3; i++)
+            {
+                e.targets[i] = chain.color[i];
+                e.levels[i] = chain.color[i].texture;
+            }
+            e.gx = key.gx;
+            e.gy = key.gy;
+            e.anchorVersion = key.anchorVersion;
+            e.lastUsed = 0;         // prefetched: evict before the current cell
+            e.valid = true;
+            return;                 // one per frame
+        }
+        return;
+    }
+
     std::vector<TerrainJob> finished;
     if (!g_terrainPool.TakeDone(finished)) return;
 
-    unsigned int anchorVersion = GetTerrainAnchorVersion();
     for (TerrainJob& job : finished)
     {
         bool stale = (job.anchorVersion != anchorVersion)
@@ -949,7 +1047,15 @@ void RenderManager::RequestNeighbourTerrain(int gx, int gy)
             int ny = gy + dy;
             if (nx < 0 || ny < 0 || nx >= PLANET_SIZE || ny >= PLANET_SIZE) continue;
             if (FindTerrainSlot(nx, ny, anchorVersion) >= 0) continue;
-            g_terrainPool.Request(nx, ny, anchorVersion);
+            if (GetTerrainPath() == TERRAIN_PATH_GPU)
+            {
+                if (!GpuQueued(nx, ny, anchorVersion))
+                    g_gpuPending.push_back({nx, ny, anchorVersion});
+            }
+            else
+            {
+                g_terrainPool.Request(nx, ny, anchorVersion);
+            }
         }
     }
 }
@@ -970,16 +1076,12 @@ void RenderManager::EnsureTerrainForCell(int gx, int gy)
     if (anchorVersion != terrainAnchorVersion)
     {
         g_terrainPool.Invalidate(anchorVersion);
+        g_gpuPending.clear();
         for (int i = 0; i < TERRAIN_CACHE_SLOTS; i++)
         {
             TerrainCacheEntry& e = terrainCache[i];
             if (!e.valid || e.anchorVersion == anchorVersion) continue;
-            for (int j = 0; j < 3; j++)
-            {
-                if (e.levels[j].id != 0) UnloadTexture(e.levels[j]);
-                e.levels[j] = {0};
-            }
-            e.valid = false;
+            ReleaseTerrainEntry(e);
         }
         terrainLoaded = false;
     }
@@ -994,24 +1096,39 @@ void RenderManager::EnsureTerrainForCell(int gx, int gy)
         TerrainGridCellToLatLon(gx, gy, &lat, &lon);
         TerrainSiteDisturbance site;
         site.enabled = true;
-        Image levels[3] = {};
-        GenerateTerrainChain(lat, lon, TERRAIN_RES, levels, &site);
+
+        TerrainGpuChain chain;
+        bool gpu = (GetTerrainPath() == TERRAIN_PATH_GPU)
+                && GenerateTerrainChainGPU(lat, lon, GetTerrainPathResolution(),
+                                           &chain, &site);
 
         slot = ClaimTerrainSlot();
         TerrainCacheEntry& e = terrainCache[slot];
-        for (int i = 0; i < 3; i++)
+        if (gpu)
         {
-            e.levels[i] = LoadTextureFromImage(levels[i]);
-            SetTextureFilter(e.levels[i], TEXTURE_FILTER_BILINEAR);
-            UnloadImage(levels[i]);
+            for (int i = 0; i < 3; i++)
+            {
+                e.targets[i] = chain.color[i];
+                e.levels[i] = chain.color[i].texture;
+            }
+        }
+        else
+        {
+            Image levels[3] = {};
+            GenerateTerrainChain(lat, lon, TERRAIN_RES, levels, &site);
+            for (int i = 0; i < 3; i++)
+            {
+                e.levels[i] = LoadTextureFromImage(levels[i]);
+                SetTextureFilter(e.levels[i], TEXTURE_FILTER_BILINEAR);
+                UnloadImage(levels[i]);
+            }
+            // The mosaic is warm now, so workers cannot race to load it.
+            g_terrainPool.Start();
         }
         e.gx = gx;
         e.gy = gy;
         e.anchorVersion = anchorVersion;
         e.valid = true;
-
-        // The mosaic is warm now, so workers cannot race to load it.
-        g_terrainPool.Start();
     }
 
     BindTerrainSlot(slot);

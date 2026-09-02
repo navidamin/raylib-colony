@@ -953,6 +953,70 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
              wantLevels, latDeg, lonDeg, (GetTime() - t0) * 1000.0);
 }
 
+unsigned int TerrainLocationSeed(double latDeg, double lonDeg)
+{
+    return LocationSeed(latDeg, lonDeg);
+}
+
+// The 100 km crop at the mosaic's own resolution, for the GPU path.
+// Mirrors CropMacro up to (not including) the upsample, then derives the
+// SharpenAdaptive stats the way that function does -- unsharp at the
+// same physical radius (5k px at res is cw/60 px here), then the 2/98
+// percentiles -- so the GPU's gain and midpoint match the CPU's.
+bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out)
+{
+    if (!out || !EnsureWacLoaded()) return false;
+    double spanDeg = 100.0 / MOON_KM_PER_DEG;
+    double c = std::max(0.2, std::cos(latDeg * DEG2RAD));
+    double lonSpan = spanDeg / c;
+    double lat0 = latDeg - spanDeg / 2.0, lat1 = latDeg + spanDeg / 2.0;
+    double lon0 = lonDeg - lonSpan / 2.0, lon1 = lonDeg + lonSpan / 2.0;
+    int y0 = std::max(0, (int)((90.0 - lat1) / 180.0 * g_wacH));
+    int y1 = std::min(g_wacH, (int)((90.0 - lat0) / 180.0 * g_wacH) + 1);
+    int x0 = (int)((lon0 + 180.0) / 360.0 * g_wacW);
+    int x1 = (int)((lon1 + 180.0) / 360.0 * g_wacW) + 1;
+    int cw = std::max(2, x1 - x0);
+    int ch = std::max(2, y1 - y0);
+    Field crop((size_t)cw * ch);
+    for (int y = 0; y < ch; y++)
+    {
+        int wy = std::clamp(y0 + y, 0, g_wacH - 1);
+        for (int x = 0; x < cw; x++)
+        {
+            int wx = ((x0 + x) % g_wacW + g_wacW) % g_wacW;
+            crop[y * cw + x] = g_wac[(size_t)wy * g_wacW + wx];
+        }
+    }
+    GaussianBlur(crop, cw, ch, 0.7f);         // denoise JPEG artifacts
+
+    Field sharp = crop;
+    Field blur = crop;
+    GaussianBlur(blur, cw, ch, std::max(0.3f, cw / 60.0f));
+    for (size_t i = 0; i < sharp.size(); i++)
+        sharp[i] = std::clamp(sharp[i] + 0.40f * (sharp[i] - blur[i]),
+                              0.0f, 1.0f);
+    std::sort(sharp.begin(), sharp.end());
+    float pLo = sharp[(size_t)(sharp.size() * 0.02)];
+    float pHi = sharp[(size_t)(sharp.size() * 0.98)];
+    float spread = std::max(pHi - pLo, 1e-4f);
+    out->gain = std::min(2.2f, std::max(1.0f, 0.60f / spread));
+    out->mid = 0.5f * (pHi + pLo);
+    out->seed = LocationSeed(latDeg, lonDeg);
+
+    Image img = GenImageColor(cw, ch, BLACK);
+    ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+    unsigned char* px = (unsigned char*)img.data;
+    for (size_t i = 0; i < crop.size(); i++)
+    {
+        int q = (int)std::lround(std::clamp(crop[i], 0.0f, 1.0f) * 65535.0f);
+        px[i * 3 + 0] = (unsigned char)(q >> 8);
+        px[i * 3 + 1] = (unsigned char)(q & 0xFF);
+        px[i * 3 + 2] = 0;
+    }
+    out->image = img;
+    return true;
+}
+
 void GenerateTerrainChain(double latDeg, double lonDeg, int res,
                           Image outLevels[3],
                           const TerrainSiteDisturbance* site)

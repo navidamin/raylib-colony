@@ -244,7 +244,22 @@ nothing is stored.
 all three: level 0 is the Planet backdrop, 1 the Colony, 2 the Sect.
 Because they are registered to each other by construction, zooming
 approaches the same ground instead of cutting to a different scene.
-`RenderManager` caches one chain per grid cell.
+`RenderManager` caches one chain per grid cell — the cell you stand on
+plus its eight neighbours, built before they are asked for.
+
+**Two synthesizers, one chosen at startup.** `terrain_gpu.{h,cpp}` runs
+the same chain as fragment-shader passes (both GLSL 330 and ES 100, so
+it is the path the browser and phone take). `GetTerrainPath()` decides
+once: `COLONY_TERRAIN=cpu|gpu` overrides; the web build is always GPU
+(no worker threads there); a desktop times one 512 px chain and picks
+GPU at 1024 (≤ 12 ms), GPU at 512 (≤ 40 ms) or the threaded CPU path
+(a software rasterizer such as WSL's llvmpipe). `COLONY_TERRAIN_RES`
+forces the GPU resolution. The GPU chain is *fused* — no float
+textures, the height field is never stored — and its noise is hashed
+rather than drawn from the CPU's xorshift stream, so it has the same
+texture statistics without the same pixels. `terrain_probe` builds a
+location both ways and reports the difference; run it after touching
+either synthesizer.
 
 **Real coordinates.** The 20x20 grid is anchored on a real lat/lon
 (`SetTerrainAnchor`, settable — clicking the orbital disc re-anchors the
@@ -399,6 +414,7 @@ without a display:
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
 | `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
+| `tools/terrainprobe/` | `terrain_probe`: one location's terrain chain built on the GPU and the CPU, timed, every level as PNG, per-level statistics and the mean difference between the two. |
 | `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
 
 The working loop: **change → render preview → look at the PNG and iterate
