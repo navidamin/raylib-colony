@@ -38,6 +38,7 @@ Renders any module panel to a PNG with no display, using the real
 tools/preview/preview.sh --module prospecting --tab lab --tier 3
 tools/preview/preview.sh --all            # 12-panel set, ~5s
 tools/preview/preview.sh --module sprites # crystal sprite contact sheet
+tools/preview/preview.sh --module strata  # the four generated rock textures
 ```
 
 Key flags: `--module`, `--tab`, `--state` (`empty`/`swept`/`sampled`/`analyzed`),

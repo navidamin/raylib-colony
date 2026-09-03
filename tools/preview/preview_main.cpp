@@ -15,6 +15,7 @@
 #include "time_manager.h"
 #include "game_constants.h"
 #include "game_enums.h"
+#include "rock_texture.h"
 
 #include <algorithm>
 #include <chrono>
@@ -48,7 +49,8 @@ static void PrintUsage()
         << "Usage: colony_preview [options]\n"
         << "\n"
         << "  --module <name>   prospecting | excavation | beneficiation | operations |\n"
-        << "                    directives | overview | sprites (default: prospecting)\n"
+        << "                    directives | overview | sprites | strata\n"
+        << "                    (default: prospecting)\n"
         << "  --sprite-size <n> crystal sprite size variant     (sprites only, default: 4)\n"
         << "  --sprite-glow <n> crystal sprite glow variant     (sprites only, default: 3)\n"
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
@@ -445,12 +447,105 @@ static int RenderSpriteSheet(const PreviewOptions& options)
     return status;
 }
 
+// --- Just the drill bar --------------------------------------------------
+// The four strata textures as the borehole strip wears them, plus each tile
+// raw at 1:1 so the grain can be judged at the size it was generated. These
+// are the ACTUAL pixels the game draws with -- same generator, same tint law
+// (x2 against a mean of 128), same near-1:1 tiling scale as the dock.
+static int RenderStrataSheet(const PreviewOptions& options)
+{
+    SetTraceLogLevel(LOG_WARNING);
+    InitWindow(options.width, options.height, "Strata textures");
+
+    int status = 0;
+    {
+        const Color rock[4] = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
+        const Color edge[4] = {{25,21,16,255},{28,23,18,255},{22,28,35,255},{16,18,22,255}};
+        const char* names[4]  = {"REGOLITH", "MEGAREGOLITH", "FRACTURED", "BASALT"};
+        const char* depths[4] = {"0 - 12 m", "12 - 34 m", "34 - 68 m", "68 - 120 m"};
+        const char* note[4]   = {"impact-gardened soil: fine grain, broad mottle, angular grit",
+                                 "coarse breccia: poorly sorted blocks, dark seams between",
+                                 "fractured rock: calm slabs cut by fractures, some ice-filled",
+                                 "dense lava: near-uniform, vesicles, faint columnar joints"};
+
+        Texture2D tex[4] = {};
+        for (int L = 0; L < 4; L++)
+        {
+            std::vector<unsigned char> px = RockTexture::Generate(L, RockTexture::SIZE);
+            Image img = { px.data(), RockTexture::SIZE, RockTexture::SIZE, 1,
+                          PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+            tex[L] = LoadTextureFromImage(img);
+            SetTextureFilter(tex[L], TEXTURE_FILTER_BILINEAR);
+            SetTextureWrap(tex[L], TEXTURE_WRAP_REPEAT);
+        }
+
+        for (int frame = 0; frame < 2; frame++)
+        {
+            BeginDrawing();
+            ClearBackground({10, 13, 20, 255});
+            DrawText("BOREHOLE - four generated strata", 40, 24, 20, {200, 220, 245, 255});
+            DrawText("one texture per rock; the block model's plates wear the same four",
+                     40, 50, 13, {120, 140, 165, 255});
+
+            const float barX = 44.0f, barW = 150.0f, barTop = 84.0f;
+            const float bandH = 142.0f;
+            const float k = static_cast<float>(RockTexture::SIZE) / 118.0f;
+
+            // sky above the collar, as the dock has it
+            DrawRectangleRec({barX, barTop - 22.0f, barW, 22.0f}, {10, 16, 24, 255});
+
+            for (int L = 0; L < 4; L++)
+            {
+                float y0 = barTop + L * bandH;
+                Color tint = { static_cast<unsigned char>(std::min(255, rock[L].r * 2)),
+                               static_cast<unsigned char>(std::min(255, rock[L].g * 2)),
+                               static_cast<unsigned char>(std::min(255, rock[L].b * 2)), 255 };
+                DrawTexturePro(tex[L], {0.0f, L * 41.0f, barW * k, bandH * k},
+                               {barX, y0, barW, bandH}, {0.0f, 0.0f}, 0.0f, tint);
+                DrawRectangleRec({barX, y0, barW, 2.0f}, edge[L]);
+
+                float tx = barX + barW + 26.0f;
+                DrawText(names[L], static_cast<int>(tx), static_cast<int>(y0 + 6.0f), 17,
+                         {214, 226, 240, 255});
+                DrawText(depths[L], static_cast<int>(tx), static_cast<int>(y0 + 28.0f), 13,
+                         {120, 200, 235, 255});
+                DrawText(note[L], static_cast<int>(tx), static_cast<int>(y0 + 48.0f), 12,
+                         {120, 140, 165, 255});
+
+                // the raw tile at 1:1, untinted, so the generated grain is
+                // visible without the stratum colour over it
+                float rx = static_cast<float>(options.width) - RockTexture::SIZE - 40.0f;
+                DrawTextureRec(tex[L], {0.0f, 0.0f, static_cast<float>(RockTexture::SIZE),
+                                        static_cast<float>(RockTexture::SIZE)},
+                               {rx, y0 + 4.0f}, WHITE);
+                DrawRectangleLines(static_cast<int>(rx), static_cast<int>(y0 + 4.0f),
+                                   RockTexture::SIZE, RockTexture::SIZE, {60, 72, 88, 255});
+            }
+            DrawText("128 x 128, tileable", static_cast<int>(options.width) - RockTexture::SIZE - 40,
+                     static_cast<int>(barTop - 18.0f), 12, {120, 140, 165, 255});
+            EndDrawing();
+        }
+
+        Image shot = LoadImageFromScreen();
+        bool exported = ExportImage(shot, options.outPath.c_str());
+        UnloadImage(shot);
+        for (int L = 0; L < 4; L++) UnloadTexture(tex[L]);
+
+        if (exported) std::cout << "Wrote " << options.outPath << " (strata textures)\n";
+        else { std::cout << "Failed to write " << options.outPath << "\n"; status = 1; }
+    }
+
+    CloseWindow();
+    return status;
+}
+
 int main(int argc, char** argv)
 {
     PreviewOptions options;
     if (!ParseArgs(argc, argv, options)) return 0;
 
     if (options.module == "sprites") return RenderSpriteSheet(options);
+    if (options.module == "strata") return RenderStrataSheet(options);
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(options.width, options.height, "Colony UI Preview");

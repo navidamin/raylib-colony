@@ -6,6 +6,7 @@
 #include "survey_progress_engine.h"
 #include "excavation_constants.h"
 #include "block_pick.h"
+#include "rock_texture.h"
 #include <algorithm>
 #include <iostream>
 #include <cmath>
@@ -45,6 +46,7 @@ RenderManager::~RenderManager() {
 
     // Unload moon surface tiles when done
     UnloadMoonTiles();
+    UnloadStrataTextures();
 
     // Unload cached crystal sample sprites
     for (auto& [path, texture] : crystalTextures)
@@ -798,20 +800,34 @@ void RenderManager::LoadMoonTiles() {
         } else {
             std::cout << "Loaded tile texture: " << tileFiles[i] << std::endl;
         }
+    }
+}
 
-        // The block model's copy of the same ground. The tile is a mid-grey
-        // with barely +-9 levels of crater in it -- fine tiled at full size
-        // under the sect view, invisible once it is stretched over a plate
-        // and modulated by a dark fill. Contrast is pushed so the craters
-        // survive that; bilinear so the minified plate does not sparkle.
-        Image plate = LoadImage(tileFiles[i]);
-        if (plate.data != nullptr) {
-            ImageColorContrast(&plate, 55.0f);
-            plateTiles[i] = LoadTextureFromImage(plate);
-            SetTextureFilter(plateTiles[i], TEXTURE_FILTER_BILINEAR);
-            UnloadImage(plate);
+// The strata textures: four procedural rocks, built once. Power-of-two and
+// REPEAT-wrapped, because the strip tiles them down a band of any height and
+// WebGL only repeats POT textures (a clamped tile shows its edges at once).
+void RenderManager::LoadStrataTextures() {
+    for (int L = 0; L < 4; L++) {
+        std::vector<unsigned char> px = RockTexture::Generate(L, RockTexture::SIZE);
+        Image img = { px.data(), RockTexture::SIZE, RockTexture::SIZE, 1,
+                      PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+        strataTex[L] = LoadTextureFromImage(img);
+        if (strataTex[L].id != 0) {
+            SetTextureFilter(strataTex[L], TEXTURE_FILTER_BILINEAR);
+            SetTextureWrap(strataTex[L], TEXTURE_WRAP_REPEAT);
         }
     }
+    strataLoaded = true;
+}
+
+void RenderManager::UnloadStrataTextures() {
+    for (int L = 0; L < 4; L++) {
+        if (strataTex[L].id != 0) {
+            UnloadTexture(strataTex[L]);
+            strataTex[L].id = 0;
+        }
+    }
+    strataLoaded = false;
 }
 
 // Function to generate random tile pattern for the planet surface
@@ -874,10 +890,6 @@ void RenderManager::UnloadMoonTiles() {
         if (moonTiles[i].id != 0) {
             UnloadTexture(moonTiles[i]);
             moonTiles[i].id = 0;
-        }
-        if (plateTiles[i].id != 0) {
-            UnloadTexture(plateTiles[i]);
-            plateTiles[i].id = 0;
         }
     }
     tilesLoaded = false;
@@ -2596,6 +2608,14 @@ static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, flo
 // The strata palette, shared by the borehole strip (full strength) and the
 // plates' resting tone (dimmed) -- declared ahead of both users.
 static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
+// How the one texture per stratum is laid into each projection. In the strip,
+// one tile covers this many screen pixels -- near 1:1 at the dock's width, so
+// the grain reads at the size it was generated and a band shows barely one
+// repeat. On a plate, which is far wider, one stretched tile would magnify
+// the grain past recognition, so it repeats: at x2 a clast on the plate is
+// about the size of the same clast in the band.
+static constexpr float PROS_ROCK_TEX_PX = 118.0f;
+static constexpr float PROS_PLATE_TEX_REPEAT = 2.0f;
 
 // The one lift law. Everything that has to sit ON a plate's surface -- the
 // plate itself, the hover outline, the pick, the ends of the prescribed line
@@ -2650,15 +2670,15 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
 {
     const int N = g.size;
     const float fade = powf(0.84f, static_cast<float>(layer));
-    // The moon-surface tile the colony and sect views tile the ground with,
-    // stretched once over the whole plate so a crater spans a few cells --
-    // the same ground, read as a surface instead of as data. Modulated by
-    // the cell's fill, so class colour and stratum tone survive underneath
-    // it. The gain undoes the tile's own mean (137 of 255 after the contrast
-    // push in LoadMoonTiles): a textured plate averages the same tone the
-    // flat fill would have had, so the palette below is not re-tuned.
+    // The stratum's generated rock (rock_texture.h), laid over the plate so
+    // a clast spans about a cell -- the same ground the borehole strip shows
+    // in section, read here as a surface instead of as data. Modulated by the
+    // cell's fill, so class colour and stratum tone survive underneath it.
+    // The gain is exactly 2 against the texture's mean of exactly 128: a
+    // textured plate averages the tone the flat fill would have had, which is
+    // why texture could be added without re-tuning a single palette entry.
     const bool textured = tex != nullptr && tex->id != 0;
-    const float texGain = 1.85f;
+    const float texGain = 2.0f;
 
     auto cornerLift = [&](int i, int j) -> float
     {
@@ -2738,8 +2758,9 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
                 // plate is a single batch. Same winding as the triangles.
                 Color m = { clamp255(lit3.r * texGain), clamp255(lit3.g * texGain),
                             clamp255(lit3.b * texGain), 255 };
-                float u0 = static_cast<float>(i) / N,     v0 = static_cast<float>(j) / N;
-                float u1 = static_cast<float>(i + 1) / N, v1 = static_cast<float>(j + 1) / N;
+                const float tr = PROS_PLATE_TEX_REPEAT;
+                float u0 = static_cast<float>(i) * tr / N,     v0 = static_cast<float>(j) * tr / N;
+                float u1 = static_cast<float>(i + 1) * tr / N, v1 = static_cast<float>(j + 1) * tr / N;
                 rlCheckRenderBatchLimit(4);
                 rlBegin(RL_QUADS);
                 rlColor4ub(m.r, m.g, m.b, m.a);
@@ -3311,7 +3332,8 @@ static float ProsShownDepthM(const LineHole& hole)
 static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                                  const ProsDockGeom& dg, float clipTop, float clipBot,
                                  float hoverM,
-                                 const Font& bodyFont, float sp, float fsSmall)
+                                 const Font& bodyFont, float sp, float fsSmall,
+                                 const Texture2D* strata)
 {
     (void)unit;
     const LineHole& hole = ps->lineHole;
@@ -3371,20 +3393,35 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         DrawRectangleRec({dg.x + ProsRnd() * dg.w, clipTop + ProsRnd() * (surfY - clipTop - 8.0f),
                           1.4f, 1.4f}, Fade({200, 220, 240, 255}, 0.5f));
 
-    // the rock, full strength: this is the SAME ground the plates float on
-    prosGrain = 7;
+    // The rock, full strength: this is the SAME ground the plates float on --
+    // and now literally the same image. One generated texture per stratum,
+    // tiled down the band here (a section) and stretched over the plate there
+    // (a plan view), so the band and the plate beside it are one rock. The
+    // hand-scattered speckle this replaces could not be: it was drawn from a
+    // seeded LCG that only this strip ran.
     for (int L = 0; L < 4; L++)
     {
         float y0 = dg.bandTop[L], y1 = dg.bandTop[L + 1];
-        DrawRectangleRec({dg.x, y0, dg.w, y1 - y0}, PROS_ROCK_COL[L]);
-        int n = static_cast<int>((y1 - y0) * dg.w / 2100.0f);
-        for (int i = 0; i < n; i++)
-            DrawRectangleRec({dg.x + ProsRnd() * dg.w, y0 + ProsRnd() * (y1 - y0),
-                              2.6f + ProsRnd() * 2.6f, 2.2f}, PROS_ROCK_GRAIN[L]);
-        if (L == 2)
-            for (int i = 0; i < 14; i++)
-                DrawRectangleRec({dg.x + ProsRnd() * dg.w, y0 + ProsRnd() * (y1 - y0), 3.4f, 1.7f},
-                                 Fade(PROS_ICE_FLECK, 0.4f + ProsRnd() * 0.4f));
+        if (strata != nullptr && strata[L].id != 0)
+        {
+            // x2 against the texture's mean of exactly 128 (rock_texture.h):
+            // a textured band holds the mean tone the flat fill had, so the
+            // stratum palette did not have to be re-tuned for texture.
+            Color tint = { static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].r * 2)),
+                           static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].g * 2)),
+                           static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].b * 2)),
+                           255 };
+            float k = static_cast<float>(RockTexture::SIZE) / PROS_ROCK_TEX_PX;
+            // Each band enters the tile at a different row, so four bands of
+            // similar height cannot line up into a visible repeat.
+            float off = static_cast<float>(L) * 41.0f;
+            DrawTexturePro(strata[L], {0.0f, off, dg.w * k, (y1 - y0) * k},
+                           {dg.x, y0, dg.w, y1 - y0}, {0.0f, 0.0f}, 0.0f, tint);
+        }
+        else
+        {
+            DrawRectangleRec({dg.x, y0, dg.w, y1 - y0}, PROS_ROCK_COL[L]);
+        }
         DrawRectangleRec({dg.x, y0, dg.w, 2.0f}, PROS_ROCK_EDGE[L]);
     }
     DrawRectangleRec({dg.x, surfY - 1.8f, dg.w, 2.0f}, {74, 85, 96, 255});
@@ -3933,16 +3970,13 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     int rimLayer = ps->lineHole.state == LineHoleState::DRILLING
                  ? LayerOfDepthM(ps->lineHole.depthM) : -1;
     float rimPulse = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
-    if (!tilesLoaded)
-    {
-        LoadMoonTiles();
-        tilesLoaded = true;
-    }
+    if (!strataLoaded) LoadStrataTextures();
     for (int L = 0; L < 4; L++)
     {
-        const Texture2D* tile = (tilesLoaded && plateTiles[L % 3].id != 0) ? &plateTiles[L % 3]
-                              : (tilesLoaded && moonTiles[L % 3].id != 0)  ? &moonTiles[L % 3]
-                              : nullptr;
+        // The stratum's own rock -- four textures for four layers, not one
+        // world tile reused; the strip's band at this depth wears the same.
+        const Texture2D* tile = (strataLoaded && strataTex[L].id != 0)
+                              ? &strataTex[L] : nullptr;
         ProsDrawBlockLayer(geom, layers[L], L, maxGrade, bodyFont, sp,
                            depthLabels[L], levelLabels[L], nullptr, nullptr,
                            tile, L == rimLayer ? rimPulse : 0.0f);
@@ -4044,7 +4078,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     float hoverM = (hovL >= 0)
         ? CellRowDepthM(hovL, hovX, hovY, gridSize) : -1.0f;
     ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f,
-                         hoverM, bodyFont, sp, FS(7.5f));
+                         hoverM, bodyFont, sp, FS(7.5f),
+                         strataLoaded ? strataTex : nullptr);
 
     // ONE marker, on the layer it was selected on. The line's own points are
     // drawn by the trace: the collar ring while aiming, crossing rings as the

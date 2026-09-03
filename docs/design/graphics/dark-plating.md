@@ -248,18 +248,36 @@ For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
   stripe.
 - **Surface furniture**: casing block with top glint; spoil piles as
   half-ellipses in `#463e31` with faint highlight ellipses offset up-wind.
-- **The block model's plates are the same ground** (`ProsDrawBlockLayer`).
-  Each plate wears the moon tile the colony and sect views tile the world
-  with, stretched once over the plate so a crater spans a few cells, and
-  modulated by the cell's fill so class colour and stratum tone survive
-  underneath. The tile is a mid-grey with ±9 levels of crater in it — fine
-  tiled at full size under the sect view, invisible once stretched over a
-  dark plate — so the plates get their own contrast-pushed copy
-  (`plateTiles`: `ImageColorContrast +55`, bilinear) and a gain that undoes
-  the tile's mean (1.85), so a textured plate averages the tone its flat
-  fill would have had and no palette was re-tuned. One quad per cell on the
-  one texture: a plate is a single batch. `--bench` at 32x32 reads
-  17 ms/frame, the software-raster floor.
+- **Rock is GENERATED, one texture per stratum**
+  (`src/Prospecting/rock_texture.h`). Reusing the world's moon-surface tile
+  failed twice over: three tiles for four strata meant the deepest layer wore
+  the surface's rock, and a tile authored as lunar plan-view ground says
+  nothing about what basalt looks like in section. Each stratum now gets its
+  own 128×128 tile built from a different *structure*, because what separates
+  these rocks on screen is how the grain is organised, not its colour:
+
+  | | structure | reads as |
+  |---|---|---|
+  | Regolith | fine sand + broad mottle + warped bedding laminae + angular grit | deposited soil |
+  | Megaregolith | two generations of wrapped Voronoi, dark seams, proud clasts | coarse breccia |
+  | Fractured | calm low-frequency slabs cut by 4 master joints + 9 branches, some ice-filled | broken rock |
+  | Basalt | near-uniform, vesicles (dark core, lit lower rim), columnar joints, cooling cracks | dense lava |
+
+  Two rules make it drop in without disturbing anything:
+  **the output is a modulation map, not a colour** — grey centred on exactly
+  128, so a surface drawn `PROS_ROCK_COL[L] * 2 * tex/255` keeps the mean tone
+  its flat fill had, and not one palette entry needed re-tuning (under test);
+  and **it is power-of-two and wrap-safe**, because the strip tiles a band
+  down a column of any height and WebGL repeats POT textures only. The single
+  deliberate hue in the set is the ice in the fractured layer, which the core
+  log's legend already names.
+- **One ground, both projections** (§9.1 in the small): the borehole strip's
+  band and the block model's plate at that depth wear the *same image* — tiled
+  near 1:1 down the section, repeated ×2 across the plan view so a clast is
+  about the same size in both. The strip's hand-scattered speckle this
+  replaced could not be the same ground: it was drawn from an LCG only the
+  strip ran. One quad per cell on the one texture keeps a plate a single
+  batch; `--bench` at 32×32 reads 17 ms/frame, the software-raster floor.
 - **Relief is read by slope, not height.** A flat-lit iso plate does not
   show its shape at any relief (three rounds of "the curvature is not
   visible enough" were spent raising it: 0.30 → 0.45 → 0.60 of the plate's

@@ -18,6 +18,7 @@ add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/Prospecting/lab_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/survey_progress_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/Prospecting/prospecting_system.cpp
+    ${CMAKE_SOURCE_DIR}/src/Prospecting/rock_texture.cpp
     # unit.h includes excavation_system.h, so anything compiling unit.h needs
     # these -- which is most of this library.
     ${CMAKE_SOURCE_DIR}/src/Excavation/site_view.cpp
@@ -68,6 +69,7 @@ add_executable(colony_tests
     test_line_hole.cpp
     test_block_pick.cpp
     test_dig_site.cpp
+    test_rock_texture.cpp
     test_lab_pipeline.cpp
     test_prospecting_integration.cpp
     test_survey_progress.cpp

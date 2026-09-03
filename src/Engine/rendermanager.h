@@ -67,11 +67,13 @@ private:
 
     // Moon surface tile textures
     Texture2D moonTiles[3];
-    // The same tiles with their craters pushed harder, for the block model
-    // plates (see LoadMoonTiles). Zero-initialised so an unload before any
-    // load is a no-op.
-    Texture2D plateTiles[3] = {};
     bool tilesLoaded;
+    // One procedural texture per stratum, worn by BOTH projections of the
+    // ground: the borehole strip's bands and the block model's plates.
+    // Generated, never authored -- see src/Prospecting/rock_texture.h.
+    // Zero-initialised so an unload before any load is a no-op.
+    Texture2D strataTex[4] = {};
+    bool strataLoaded = false;
     std::vector<int> tilePattern;  // Store which tile to use for each grid cell
 
     // Crystal sample sprites, lazy-loaded from src/assets/sprites/samples/
@@ -108,6 +110,8 @@ private:
 
     // Function to load the moon surface tiles
     void LoadMoonTiles();
+    void LoadStrataTextures();
+    void UnloadStrataTextures();
     // Function to render the tiled moon surface
     void RenderMoonSurface();
     // Function to unload moon surface tiles

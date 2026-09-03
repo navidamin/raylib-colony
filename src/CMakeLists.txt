@@ -21,6 +21,7 @@ set(COLONY_CORE_SOURCES
     Prospecting/lab_engine.cpp
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
+    Prospecting/rock_texture.cpp
     Excavation/site_view.cpp
     Excavation/estimate_engine.cpp
     Excavation/dig_engine.cpp
