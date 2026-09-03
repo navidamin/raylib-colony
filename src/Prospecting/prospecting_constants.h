@@ -99,13 +99,34 @@ constexpr float FULL_COLUMN_M = LayerBottomM(3);
 // verdict: "the z is z. the z should change in between the 4 horizontal
 // planes, not within each plane."
 //
-// The plane sits at the stratum's CENTRE rather than at a boundary. A plate
-// stands for its whole stratum (its cells carry that stratum's grade), so
-// the middle is what it represents; a marker parked on a boundary line reads
-// as belonging to either of the two bands it separates. Drilling to a plate
-// therefore means drilling to the middle of that rock -- which is already
-// what coring a stratum meant (LAYER_CENTRE_M, the crossing-cell depth).
-inline float PlateDepthM(int layer)
+// Two depths, because a plate answers two different questions.
+//
+// WHERE THE PLANE IS. The plate is the TOP FACE of its stratum, so its plane
+// sits at that stratum's top interface and its rock hangs below it -- which
+// is how the borehole strip is now laid out too, each band starting at its
+// own plate (ProsDockFrom). The centre was tried first and read wrong: a
+// plate drawn mid-band looks like it is floating inside rock that is partly
+// above it.
+//
+// This is what the correspondence cursor reads, and deliberately nothing
+// else. Coring is NOT credited here: the line reaches the cell the player
+// clicked at its TARGET depth, so crediting the core where the line crosses
+// the plane instead would land it a cell or two short of the one they picked
+// -- the same class of bug as a collar drawn off its clicked block. Tried
+// that way first; the crossing-cell test caught it.
+inline float PlatePlaneM(int layer)
+{
+    return LayerTopM(layer < 0 ? 0 : (layer > 3 ? 3 : layer));
+}
+// HOW DEEP A HOLE AIMED AT IT GOES. Reaching a plate's plane is not the same
+// as sampling the rock under it: a hole that stopped at 68 m would touch
+// basalt without ever cutting it, and basalt is what the whole drill campaign
+// is tuned against. So aiming at a plate drills INTO that stratum, to its
+// centre -- targets 6 / 23 / 51 / 94 m. It must stay strictly inside the
+// stratum whatever else changes: the trace draws its end on the plate for
+// LayerOfDepthM(endM), so a depth on the boundary would put the end of the
+// line on the wrong plate.
+inline float PlateTargetM(int layer)
 {
     return LAYER_CENTRE_M[layer < 0 ? 0 : (layer > 3 ? 3 : layer)];
 }

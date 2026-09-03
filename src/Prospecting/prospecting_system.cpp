@@ -142,14 +142,14 @@ void ProspectingSystem::AimAt(int layer, int cellX, int cellY)
     if (layer == 0)
     {
         // A surface target is the vertical degenerate case
-        lineHole.endM = PlateDepthM(0);
+        lineHole.endM = PlateTargetM(0);
         lineHole.dirX = 0.0f;
         lineHole.dirY = 0.0f;
         return;
     }
     // The clicked PLATE is the depth; the clicked CELL is only where on that
-    // plane the line comes out. One plate, one z (PlateDepthM).
-    float endDepth = PlateDepthM(layer);
+    // plane the line comes out. One plate, one z.
+    float endDepth = PlateTargetM(layer);
     lineHole.endM = endDepth;
     lineHole.dirX = (static_cast<float>(cellX) - lineHole.collarX) / endDepth;
     lineHole.dirY = (static_cast<float>(cellY) - lineHole.collarY) / endDepth;
@@ -203,7 +203,7 @@ void ProspectingSystem::GetCrossingCell(int layer, int& gx, int& gy) const
     layer = std::clamp(layer, 0, 3);
     int size = grid.GetGridSize();
     float fx = 0.0f, fy = 0.0f;
-    GetLineCell(std::min(LAYER_CENTRE_M[layer], lineHole.endM), fx, fy);
+    GetLineCell(std::min(PlateTargetM(layer), lineHole.endM), fx, fy);
     gx = std::clamp(static_cast<int>(std::lround(fx)), 0, size - 1);
     gy = std::clamp(static_cast<int>(std::lround(fy)), 0, size - 1);
     // one refinement: the cell's own row depth is where the line truly meets
@@ -335,7 +335,7 @@ bool ProspectingSystem::UpdateLineHole(float dt)
         if (lineHole.cored[L]) continue;
         int cx = 0, cy = 0;
         GetCrossingCell(L, cx, cy);
-        float rowM = std::min(PlateDepthM(L), lineHole.endM);
+        float rowM = std::min(PlateTargetM(L), lineHole.endM);
         if (lineHole.depthM < rowM) continue;
         grid.RecordCore(cx, cy, static_cast<DepthLayer>(L));
         lineHole.cored[L] = true;

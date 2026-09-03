@@ -314,7 +314,7 @@ TEST_CASE("a plate is one depth: where you click on it does not change z", "[lin
     far.StartAim(4, 4);
     far.AimAt(2, 31, 31);                         // back corner of the same plate
     REQUIRE(far.lineHole.endM == nearEnd);
-    REQUIRE(nearEnd == PlateDepthM(2));
+    REQUIRE(nearEnd == PlateTargetM(2));
 
     // and the four plates are four distinct depths, in order
     ProspectingSystem sys = MakeSystem();
@@ -323,7 +323,7 @@ TEST_CASE("a plate is one depth: where you click on it does not change z", "[lin
     {
         sys.StartAim(4, 4);
         sys.AimAt(L, 6, 6);
-        REQUIRE(sys.lineHole.endM == PlateDepthM(L));
+        REQUIRE(sys.lineHole.endM == PlateTargetM(L));
         REQUIRE(sys.lineHole.endM > last);
         last = sys.lineHole.endM;
         sys.CancelAim();
@@ -331,18 +331,20 @@ TEST_CASE("a plate is one depth: where you click on it does not change z", "[lin
 
     // the deepest plate still reaches into basalt -- the stratum the whole
     // drill campaign is tuned against
-    REQUIRE(LayerOfDepthM(PlateDepthM(3)) == 3);
+    REQUIRE(LayerOfDepthM(PlateTargetM(3)) == 3);
 
-    // And the invariant that makes a plate level with its OWN depth line in
-    // the borehole strip: the strip gives every stratum an equal band with
-    // the plate's slot at that band's centre, so the plane's depth has to be
-    // the stratum's midpoint or the plate floats half a band from the marker
-    // that names it. This is why the plane sits at the centre and not on an
-    // interface (drill-tuning section 4).
+    // The plate is the TOP FACE of its rock, and the strip hangs each band
+    // below its own plate, so the plane depth has to be the stratum's top or
+    // the plate drifts off the line that names it (drill-tuning section 4).
     for (int L = 0; L < 4; L++)
     {
-        float midpoint = (LayerTopM(L) + LayerBottomM(L)) * 0.5f;
-        REQUIRE(std::fabs(PlateDepthM(L) - midpoint) < 0.001f);
+        REQUIRE(PlatePlaneM(L) == LayerTopM(L));
+        // and the hole aimed at that plate goes INTO the rock under it,
+        // staying strictly inside the stratum -- on a boundary the trace
+        // would draw its end on the next plate down
+        REQUIRE(PlateTargetM(L) > PlatePlaneM(L));
+        REQUIRE(PlateTargetM(L) < LayerBottomM(L));
+        REQUIRE(LayerOfDepthM(PlateTargetM(L)) == L);
     }
 }
 

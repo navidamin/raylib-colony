@@ -172,20 +172,35 @@ explosion exists to remove. Now `PlateDepthM(L) = LAYER_CENTRE_M[L]` — one z
 for the whole plane; the clicked plate is the depth, the clicked cell is only
 where on that plane the hole comes out.
 
-**Why the centre and not a boundary.** Three reasons, and the third is the
-one that settles it:
+**Two depths, because a plate answers two questions.** The first pass gave a
+plate a single depth — its stratum's centre — reasoning that the plate stands
+for the whole stratum and that the centre was the only depth level with the
+plate, since the strip centred each band on its plate. The playtest rejected
+the *arrangement* rather than the arithmetic: *"each layer should be shown at
+the top of their corresponding rock layer, and the corresponding horizontal
+line should not be in the middle of the layer but at the top, at the
+intersection with the layer above."*
 
-1. A plate stands for its whole stratum — its cells carry that stratum's
-   grade — so the middle is what it represents.
-2. A marker parked on a boundary line reads as belonging to either of the two
-   bands it separates.
-3. **It is the only choice that is level with itself.** The strip gives every
-   stratum an equal band and puts each plate's slot at that band's centre
-   (`ProsDockFrom`), and `LAYER_CENTRE_M` is the exact midpoint of each layer
-   — so a plate drawn at its stratum's centre lands exactly on its own depth
-   line in the strip, by construction, at any layout. At an interface the
-   plate would float half a band away from the marker that names it. Pinned
-   by a test.
+Right again, and it exposes what was backwards: a plate is the **top face**
+of its rock, so the rock hangs *below* it. Centring the band on the plate put
+each plate inside rock that was half above it. So the strip now starts every
+band at its own plate (`ProsDockFrom`: `bandTop[L] = slot[L]`), which keeps
+plate and line level by construction — the same invariant, reached the other
+way round.
+
+| | depth | what it answers |
+|---|---|---|
+| `PlatePlaneM(L)` | stratum top: 0 / 12 / 34 / 68 m | where the plane *is* — the correspondence cursor, and where the plate is drawn |
+| `PlateTargetM(L)` | stratum centre: 6 / 23 / 51 / 94 m | how deep a hole aimed at that plate *goes* |
+
+They must stay separate, and the reason is a bug I wrote and the tests
+caught. Crediting the core where the line crosses the *plane* lands it a cell
+or two short of the cell the player clicked — the line reaches that cell at
+its TARGET depth, not at the plane — which is the same class of error as a
+collar drawn off its clicked block. Coring stays at the target. And the
+target must stay strictly *inside* its stratum: the trace draws its end on
+the plate for `LayerOfDepthM(endM)`, so a target on a boundary would put the
+end of the line on the wrong plate. Both pinned by tests.
 
 Cost: four target depths (6 / 23 / 51 / 94 m) instead of a continuum. That
 is the point — depth is now chosen by *which plate*, x and y by *which cell*,

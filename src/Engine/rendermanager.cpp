@@ -3048,9 +3048,13 @@ static ProsDockGeom ProsDockFrom(const BlockModelGeom& g, float stripX, float st
     float slot[4];
     for (int L = 0; L < 4; L++)
         slot[L] = g.originY + L * g.gap + g.size * g.tileY;
-    d.bandTop[0] = slot[0] - (slot[1] - slot[0]) * 0.5f;
-    for (int L = 1; L < 4; L++) d.bandTop[L] = (slot[L - 1] + slot[L]) * 0.5f;
-    d.bandTop[4] = slot[3] + (slot[3] - slot[2]) * 0.5f;
+    // Each band STARTS at its own plate: a plate is the top face of its rock,
+    // so the rock hangs below it. That makes YOf(PlatePlaneM(L)) land exactly
+    // on plate L by construction, at any layout -- the plate and the line that
+    // names it cannot drift apart. (The bands used to be CENTRED on the
+    // plates, which put a plate in the middle of rock that was half above it.)
+    for (int L = 0; L < 4; L++) d.bandTop[L] = slot[L];
+    d.bandTop[4] = slot[3] + g.gap;
     return d;
 }
 
@@ -3974,12 +3978,17 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                            static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].g * 2)),
                            static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].b * 2)),
                            255 };
+            // Far dimmer than a RESTING plate, not just dimmer than a lit
+            // one: at 0.34 this camouflaged the plates it was supposed to sit
+            // behind -- the dim plates rest at 0.38-0.50 of full, so the
+            // ground behind them has to be a fraction of THAT, or the panel
+            // reads as one texture with diamonds faintly in it.
             DrawTexturePro(strataTex[L], {0.0f, L * 41.0f, band.width * k, band.height * k},
-                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.34f));
+                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.11f));
         }
         else
         {
-            DrawRectangleRec(band, Fade(PROS_ROCK_COL[L], 0.30f));
+            DrawRectangleRec(band, Fade(PROS_ROCK_COL[L], 0.10f));
         }
         DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX, 1.6f},
                          Fade(PROS_ROCK_EDGE[L], 0.85f));
@@ -4164,7 +4173,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     ProsDrawTraceBlock(ps, geom, dock, plateLift);
     // ONE depth for the whole plane. Moving across a plate slides the strip's
     // cursor sideways, never up or down -- depth is the axis between plates.
-    float hoverM = (hovL >= 0) ? PlateDepthM(hovL) : -1.0f;
+    float hoverM = (hovL >= 0) ? PlatePlaneM(hovL) : -1.0f;
     // Where across the section that cell sits. The strip is a vertical slice,
     // so its horizontal axis is the same left-right the plates are drawn with:
     // iso screen x is (gx - gy), so this is that, normalised.

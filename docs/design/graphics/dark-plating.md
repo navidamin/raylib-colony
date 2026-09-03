@@ -742,9 +742,17 @@ playtest that read the stack's depth axis wrongly (prospecting's drill-tuning
 more the axis running away from the viewer invites being read as depth, which
 is the one meaning an exploded stack must reserve for the gaps between plates
 (0.28 → 0.22 of tileX here). And **texture the gaps**: the strata between the
-plates wear the same generated rock as the instrument beside them, at about a
-third strength, so the plates visibly float *in* ground rather than in
-nothing. The plates stay the loudest thing in their own half.
+plates wear the same generated rock as the instrument beside them, so the
+plates visibly float *in* ground rather than in nothing.
+
+But dim it against the plates' **resting** state, not their lit one. At a
+third strength this backdrop *camouflaged* the very plates it sat behind —
+they rest at 0.38–0.50 of full themselves, so a background at 0.34 is nearly
+their equal and the panel reads as one sheet of texture with diamonds faintly
+in it. At 0.11 the measured gap is 21 against 31–39 mean luminance: ground
+you can read as rock, that no resting plate has to compete with. The rule
+generalises — a backdrop is dim relative to the quietest state of what sits
+on it, never to the loudest.
 
 **The hover twin.** A dot on the plane and a dot in the section, moving
 together: the plane's dot at the cell, the section's at that plane's single
