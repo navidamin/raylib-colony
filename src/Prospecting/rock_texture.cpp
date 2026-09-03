@@ -154,30 +154,40 @@ void BuildRegolith(Canvas& c, unsigned seed)
             float broad = Fbm(u, v, 4, 3, seed) - 0.5f;              // patchiness
             // laminae: horizontal bands warped by noise so they read as
             // settled beds, not as printed lines. Whole periods only, or the
-            // tile would not wrap.
-            // Two beat frequencies and a heavier warp: one sine alone came
-            // out as corduroy, evenly spaced in a way soil never is.
+            // tile would not wrap. Two beat frequencies and a heavy warp: one
+            // sine alone came out as corduroy, evenly spaced in a way soil
+            // never is.
             float warp = (Fbm(u, v, 3, 2, seed + 55u) - 0.5f) * 0.22f;
             float bed = std::sin((v + warp) * 6.2832f * 6.0f) * 0.6f
                       + std::sin((v + warp * 1.7f) * 6.2832f * 11.0f) * 0.4f;
-            float fine = Hash2(x, y, seed + 101u) - 0.5f;            // sand
-            c.lum[y * N + x] = broad * 22.0f + bed * 6.0f + fine * 14.0f;
+            // Per-pixel sand, kept LOW. It reads as a veil rather than as
+            // grain -- a single pixel is the first thing any resampling
+            // averages away -- so the contrast budget goes to the grit below,
+            // which is drawn big enough to survive being looked at.
+            float fine = Hash2(x, y, seed + 101u) - 0.5f;
+            c.lum[y * N + x] = broad * 24.0f + bed * 9.0f + fine * 7.0f;
         }
-    // grit: 1-2 px clasts, lit on top, shadowed under
-    for (int i = 0; i < 430; i++)
+    // Grit: every fragment is a lit grain with a shadow under it, not a
+    // bright dot. Radius follows a power law -- a gardened soil is mostly
+    // fines with a few real fragments in it -- and even the smallest is a
+    // disc rather than a pixel, which is what makes the layer read as grain
+    // instead of noise.
+    // Sizes stay SMALL: regolith is the finest rock in the column, and the
+    // first crisp pass made it the coarsest thing on screen -- gravel above
+    // the breccia, which inverts the whole column. Contrast comes from each
+    // grain being lit and shadowed, not from being large.
+    for (int i = 0; i < 300; i++)
     {
-        int x = static_cast<int>(Hash2(i, 11, seed) * N);
-        int y = static_cast<int>(Hash2(i, 12, seed) * N);
-        float b = 15.0f + Hash2(i, 13, seed) * 16.0f;
-        c.Add(x, y, b);
-        if (Hash2(i, 14, seed) > 0.5f) c.Add(x + 1, y, b * 0.7f);
-        c.Add(x, y + 1, -b * 0.6f);
+        float h = Hash2(i, 13, seed);
+        float r = 0.7f + h * h * 1.5f;
+        c.Disc(Hash2(i, 11, seed) * N, Hash2(i, 12, seed) * N, r,
+               20.0f + h * 13.0f, -18.0f - h * 9.0f);
     }
-    // pebbles: the few fragments big enough to have a lit side
-    for (int i = 0; i < 34; i++)
+    // and the few big enough to cast a shadow of their own
+    for (int i = 0; i < 22; i++)
     {
         c.Disc(Hash2(i, 15, seed) * N, Hash2(i, 16, seed) * N,
-               1.1f + Hash2(i, 17, seed) * 1.5f, 11.0f, -9.0f);
+               1.5f + Hash2(i, 17, seed) * 1.2f, 16.0f, -22.0f);
     }
 }
 
@@ -359,8 +369,8 @@ void Generate(int layer, int size, unsigned char* dst)
     // How far a stratum may swing around 128. Basalt is drawn on the darkest
     // rock in the palette, where a multiplicative modulation loses most of its
     // absolute contrast, so it is allowed a wider range than the rest.
-    const float lo = (layer == 3) ? 38.0f : 60.0f;
-    const float hi = (layer == 3) ? 226.0f : 205.0f;
+    const float lo = (layer == 3) ? 38.0f : (layer == 0) ? 48.0f : 60.0f;
+    const float hi = (layer == 3) ? 226.0f : (layer == 0) ? 216.0f : 205.0f;
 
     for (int i = 0; i < size * size; i++)
     {

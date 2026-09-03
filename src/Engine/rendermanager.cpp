@@ -2615,13 +2615,16 @@ static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, flo
 // telling apart. Blue is now layer 2's alone, and basalt is still plainly
 // the darkest rock in the column.
 static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{53,52,55,255}};
-// How the one texture per stratum is laid into each projection. In the strip,
-// one tile covers this many screen pixels -- near 1:1 at the dock's width, so
-// the grain reads at the size it was generated and a band shows barely one
-// repeat. On a plate, which is far wider, one stretched tile would magnify
-// the grain past recognition, so it repeats: at x2 a clast on the plate is
-// about the size of the same clast in the band.
-static constexpr float PROS_ROCK_TEX_PX = 118.0f;
+// How the one texture per stratum is laid into each projection. In the strip
+// it is EXACTLY 1:1 -- one texel per screen pixel. This was 118, a 0.92
+// minification, and that alone was enough to average the finest grain into a
+// wash: anything a pixel or two across arrived blurred, so regolith read as
+// mush next to basalt's chunkier vesicles. A texture whose smallest feature
+// is a pixel has to be sampled at the size it was drawn.
+// On a plate, which is far wider, one stretched tile would magnify the grain
+// past recognition, so it repeats: at x2 a clast on the plate is about the
+// size of the same clast in the band.
+static constexpr float PROS_ROCK_TEX_PX = static_cast<float>(RockTexture::SIZE);
 static constexpr float PROS_PLATE_TEX_REPEAT = 2.0f;
 
 // The one lift law. Everything that has to sit ON a plate's surface -- the

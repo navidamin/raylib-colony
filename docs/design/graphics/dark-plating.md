@@ -263,6 +263,18 @@ For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
   | Fractured | calm low-frequency slabs cut by 4 master joints + 9 branches, some ice-filled | broken rock |
   | Basalt | near-uniform, vesicles (dark core, lit lower rim), columnar joints, cooling cracks | dense lava |
 
+  **Sample it 1:1, and draw nothing a pixel wide.** The strip mapped 128
+  texels onto 110 screen pixels — a 0.92 minification, which sounds like
+  nothing and was enough on its own to average the finest grain into a wash.
+  Regolith, whose whole character is fine grit, read as mush beside basalt's
+  chunkier vesicles. Two halves to the fix: the strip now maps one texel per
+  screen pixel, and every grain is a *disc with a lit top and a shadow under
+  it* rather than a bright pixel, because a single pixel is the first thing
+  any resampling averages away. Keep the sizes honest to the column while
+  you do it — the first crisp pass turned regolith into gravel sitting above
+  the breccia, which inverts the whole stratigraphy; contrast comes from each
+  grain being lit and shadowed, not from being large.
+
   **Dark rock swallows texture.** The modulation is multiplicative, so the
   same texture step is worth fewer screen levels the darker the stratum under
   it: on the old basalt `{39,42,48}` a step of 20 came out as about 6 levels
