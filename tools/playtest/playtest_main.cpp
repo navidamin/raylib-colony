@@ -110,7 +110,14 @@ static std::unique_ptr<Unit> MakeUnit(PlaytestContext& ctx)
         unit->SetSelectedModuleIndex(prospectingIndex);
         unit->SetIsInModuleView(true);
     }
-    unit->PublicShowMessage("[PLAYTEST] Tap cells to survey. TIER UP / RESET top right.");
+    // The deep plates rest dim and light up under the pointer. On a phone
+    // there is no pointer, and the behaviour survives only because the shell
+    // keeps publishing the last touch position after the finger lifts -- so
+    // a tap IS the hover. That is worth saying out loud on the one build
+    // people actually use on a phone; an unreachable feature is not a
+    // feature (docs/guides/feature-completeness.md).
+    unit->PublicShowMessage("[PLAYTEST] Tap cells to survey - tap a layer to light it. "
+                            "TIER UP / RESET top right.");
     return unit;
 }
 

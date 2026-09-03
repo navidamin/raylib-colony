@@ -1,4 +1,18 @@
-# Web Deploy & Mobile Canvas — Reference
+# Web Deploy & Mobile
+
+> **Hover-driven UI on a phone.** There is no hover on touch, so any state
+> keyed to "the thing under the pointer" needs an answer before it ships to
+> the device build. This one needs no code: the shell publishes
+> `__colonyMouse` on `touchstart`/`touchmove`/`touchend` (from
+> `changedTouches` on the last), and never clears it — so the position
+> persists after the finger lifts and **a tap behaves exactly like a hover
+> that stays**. raylib's own web backend does the same
+> (`rcore_web.c`: mouse position follows touch when `pointCount == 1`, and
+> TOUCHEND only clears the button state). The block model's plate focus
+> (dark-plating §9.46) rides on this: tap a layer, it lights and stays lit
+> until you tap elsewhere. Verify a hover feature on the phone build before
+> calling it done, and say so on screen — the playtest hint line names it,
+> because a feature nobody can discover is not reachable. Canvas — Reference
 
 How the playable web builds work, and the hard-won fixes that make them
 work on phones. Written after debugging the prospecting playtest on
