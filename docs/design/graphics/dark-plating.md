@@ -787,7 +787,17 @@ you can read as rock, that no resting plate has to compete with. The rule
 generalises — a backdrop is dim relative to the quietest state of what sits
 on it, never to the loudest.
 
-**The hover twin.** A dot on the plane and a dot in the section, moving
+**The hover twin, in three parts.** A bright dot on the plane says *where*;
+a pale, part-transparent one on the panel's own ground says *how deep that
+plane is*; the section's dot says the same depth again in the other view. The
+pale one is parked in the clear strip between the model and the instrument,
+so it always sits on background rather than on a plate — placed at the
+plate's own x it landed on the ore mound, which rises above the line — and
+the stratum's boundary rule runs from it across to the section's dot, so the
+eye joins the pair. A reading aid must never compete with the cursor marking
+the actual cell: pale and translucent is the whole point.
+
+A dot on the plane and a dot in the section, moving
 together: the plane's dot at the cell, the section's at that plane's single
 depth and at the same left-right position (iso screen x is `gx - gy`, so the
 section's horizontal axis is the one the plates already show). The section's

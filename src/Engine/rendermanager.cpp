@@ -4040,11 +4040,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             // ground behind them has to be a fraction of THAT, or the panel
             // reads as one texture with diamonds faintly in it.
             DrawTexturePro(strataTex[L], {0.0f, L * 41.0f, band.width * k, band.height * k},
-                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.11f));
+                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.13f));
         }
         else
         {
-            DrawRectangleRec(band, Fade(PROS_ROCK_COL[L], 0.10f));
+            DrawRectangleRec(band, Fade(PROS_ROCK_COL[L], 0.12f));
         }
         DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX, 1.6f},
                          Fade(PROS_ROCK_EDGE[L], 0.85f));
@@ -4186,6 +4186,23 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         DrawLineEx(q3, q0, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawCircleV(dot, 3.4f, Fade(PROS_OUT, 0.85f));
         DrawCircleV(dot, 2.0f, EXT_ACCENT_CYAN);
+
+        // The HEIGHT twin, on the panel's own ground rather than on a plate:
+        // the same y the borehole strip's cursor sits at, parked in the clear
+        // strip between the model and the dock so it is always against the
+        // dim strata and never on a plate -- at the plate's own x it landed
+        // on the ore mound, which rises above the line.
+        //
+        // Three marks, three questions: the bright dot says WHERE on the
+        // plane, this one says how deep that plane is on the panel's ground,
+        // and the strip's dot says the same depth again in section. The
+        // stratum's boundary rule runs between the last two, so the eye joins
+        // them. Deliberately pale and part-transparent: a reading aid, never
+        // competing with the cursor that marks the actual cell.
+        float lineY = ProsPlateLineY(geom, hovL);
+        float twinX = dock.x - 9.0f;
+        DrawCircleV({twinX, lineY}, 3.2f, Fade(PROS_OUT, 0.30f));
+        DrawCircleV({twinX, lineY}, 1.8f, Fade(Color{198, 232, 250, 255}, 0.55f));
     }
 
     // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
