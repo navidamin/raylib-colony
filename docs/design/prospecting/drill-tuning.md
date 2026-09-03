@@ -16,8 +16,9 @@ drill.** Idle is a bare crawl (0.15 rpm), the per-click kick is smaller
 (0.12), the decay window longer (1.2 s) so a *rhythm* is what holds speed.
 Sustained f clicks/s equilibrates near `IDLE + KICK·f·TAU`.
 
-Measured, full 79 m basalt column (surface → intact basalt), dwells
-included:
+Measured on the then-79 m basalt column (surface → intact basalt), dwells
+included. **Section 4 later made the deepest hole a fixed 94 m**, which
+retuned two constants — see 4b for the current numbers:
 
 | clicks/s | rpm held | column | dwell | note |
 |---|---|---|---|---|
@@ -146,14 +147,85 @@ dug. Frame cost of the prospecting panel at 32x32: 17 ms/frame under
 `--bench`, the software-raster floor (the estimate field is built once per
 frame; nothing else scales with N⁴ any more).
 
-## 4. The plate-row depth mapping
+## 4. One plate, one depth (the slab mapping, and why it went)
 
-A plate is a **slab**: its iso rows (`i+j`) span its stratum top to bottom —
-`CellRowDepthM = LayerTop + ((i+j+1)/2N)·thickness`. Used by aiming (the
-second click's cell IS the hole's end depth), coring (each crossing lands at
-the crossed cell's own row), the hover tick on the borehole strip, and
-per-metre pricing (`DrillEnergyToDepthMetres`). Depth resolution at 16x16:
-31 rows per layer, 0.4–1.7 m per row.
+A plate **was** a slab: its iso rows (`i+j`) spanned its stratum top to
+bottom, so a cell's depth was `LayerTop + ((i+j+1)/2N)·thickness`. Aiming,
+coring, the hover tick and per-metre pricing all read it. It bought
+continuous depth control — 31 rows per layer, 0.4–1.7 m apart — from the
+same click that chose x and y.
+
+**It was wrong, and the playtest named it exactly:** *"as I move the mouse on
+each of the 4 layer planes the vertical position in the drill bar changes,
+implying that the location in y (perpendicular to the monitor) is equivalent
+to depth. This is totally counter-intuitive. The z is z."*
+
+Quite right. The stack is **exploded so that depth is the axis BETWEEN
+plates**; a plate is a horizontal plane. Making the screen axis that runs
+away from the viewer *also* mean depth overloads it with the one meaning the
+explosion exists to remove. Now `PlateDepthM(L) = LAYER_CENTRE_M[L]` — one z
+for the whole plane; the clicked plate is the depth, the clicked cell is only
+where on that plane the hole comes out.
+
+**Why the centre and not a boundary.** Three reasons, and the third is the
+one that settles it:
+
+1. A plate stands for its whole stratum — its cells carry that stratum's
+   grade — so the middle is what it represents.
+2. A marker parked on a boundary line reads as belonging to either of the two
+   bands it separates.
+3. **It is the only choice that is level with itself.** The strip gives every
+   stratum an equal band and puts each plate's slot at that band's centre
+   (`ProsDockFrom`), and `LAYER_CENTRE_M` is the exact midpoint of each layer
+   — so a plate drawn at its stratum's centre lands exactly on its own depth
+   line in the strip, by construction, at any layout. At an interface the
+   plate would float half a band away from the marker that names it. Pinned
+   by a test.
+
+Cost: four target depths (6 / 23 / 51 / 94 m) instead of a continuum. That
+is the point — depth is now chosen by *which plate*, x and y by *which cell*,
+and neither axis pretends to be the other.
+
+Everything downstream followed: `AimAt`, the coring crossing, the hover
+cursor. `GetCrossingCell` lost its row-refinement step and got simpler.
+
+## 4b. Retuning for a 94 m hole: pushing must stay a gamble
+
+Fixing the depth law made the deepest hole 94 m instead of ~79. Two things
+broke, and only one of them had a test.
+
+The trip is **depth-priced** (`BIT_TRIP_BASE_S + m·BIT_TRIP_S_PER_M`), so at
+0.30 s/m a fracture now cost 31 s while driving hard saved about 12. Pushing
+the redline became **strictly dominated** — not a gamble, a trap — which is
+the exact inversion section 1 had already fixed once at the shallower depth.
+Repriced to **0.12 s/m**, with fatigue eased 0.065 → **0.055**:
+
+| clicks/s | column | trips |
+|---|---|---|
+| 0 (AUTO) | 207 s | 0 |
+| 1 | 107 s | 0 |
+| 2 | 75 s | 0 |
+| 4 | 75 s | 1 |
+| 6 | 69 s | 1 |
+| 8 | 68 s | 1 |
+| 12 | 69 s | 1 |
+
+Hands-on is 3.0x AUTO, harder is never slower, and a fracture is still a real
+event that shows in the core log — it just no longer eats more than it costs.
+
+**What the search taught, worth more than the numbers.** Past ~6 clicks/s the
+string is heat-capped (auto-peck), so 8/s and 20/s accrue fatigue at nearly
+the same rate: there is **no window** where one survives and the other
+fractures, and hunting for one produced knife-edge tunings (at 0.045: 4/s
+survived, 6 and 8 fractured, 12 survived). Fatigue low enough to make every
+rate survive deletes the mechanic outright. The lever was never the fatigue
+rate — it was the *price of the outcome*.
+
+**And the property that broke had no test.** Section 1 fixed this inversion
+once; nothing then guarded it, so it came back silently the moment a depth
+changed. The campaign instrument would have shown it, but nobody runs an
+instrument by accident. `driving the string harder is never slower` is a test
+now.
 
 ## 5. Advance rates are tuned against the DOCK (v2)
 

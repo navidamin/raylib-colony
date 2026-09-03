@@ -89,15 +89,25 @@ constexpr float LayerBottomM(int depthIndex)
 }
 constexpr float FULL_COLUMN_M = LayerBottomM(3);
 
-// A plate is a SLAB, not a sheet: its iso rows (i+j, the axis running into
-// the screen) span the stratum's thickness top to bottom. This is the depth
-// a cell stands for -- used by aiming, coring and the hover tick, so a point
-// on a plane always corresponds to a point down the rock column.
-inline float CellRowDepthM(int layer, int i, int j, int gridSize)
+// A plate is a PLANE at ONE depth. Every cell on it stands for the same z.
+//
+// It used to be a SLAB: the iso rows (i+j, the axis running into the screen)
+// spanned the stratum top to bottom, so moving the pointer across a plane
+// walked the depth marker down the rock column. That made the screen axis
+// running away from the viewer read as depth, which it is not -- the stack
+// is exploded precisely so that depth is the axis BETWEEN plates. Playtest
+// verdict: "the z is z. the z should change in between the 4 horizontal
+// planes, not within each plane."
+//
+// The plane sits at the stratum's CENTRE rather than at a boundary. A plate
+// stands for its whole stratum (its cells carry that stratum's grade), so
+// the middle is what it represents; a marker parked on a boundary line reads
+// as belonging to either of the two bands it separates. Drilling to a plate
+// therefore means drilling to the middle of that rock -- which is already
+// what coring a stratum meant (LAYER_CENTRE_M, the crossing-cell depth).
+inline float PlateDepthM(int layer)
 {
-    float row = (static_cast<float>(i + j) + 1.0f)
-              / (2.0f * static_cast<float>(gridSize));
-    return LayerTopM(layer) + row * LAYER_THICKNESS_M[layer];
+    return LAYER_CENTRE_M[layer < 0 ? 0 : (layer > 3 ? 3 : layer)];
 }
 
 // Energy to an arbitrary metre depth: full layers above plus the partial one.
@@ -214,9 +224,15 @@ inline float DrillHardnessAtM(float m) { return DrillBlendAtM(m, LAYER_HARDNESS)
 // docs/design/prospecting/drill-tuning.md.
 constexpr float BIT_WEAR_PER_M    = 0.008f;
 constexpr float BIT_FATIGUE_ONSET = 0.60f;
-constexpr float BIT_FATIGUE_RATE  = 0.065f;
+constexpr float BIT_FATIGUE_RATE  = 0.055f;
+// Retuned when a plate became one depth: the deepest hole went from ~79 m to
+// 94 m (PlateDepthM), and at 0.30 s/m a trip cost 31 s while driving hard
+// only saved ~12. Pushing the redline was then STRICTLY DOMINATED -- a trap,
+// not a gamble -- which is the inversion an earlier round had already fixed
+// once at the shallower depth. Repricing the trip restores the bargain:
+// hard driving still fractures, and still wins on the clock.
 constexpr float BIT_TRIP_BASE_S   = 3.0f;
-constexpr float BIT_TRIP_S_PER_M  = 0.30f;
+constexpr float BIT_TRIP_S_PER_M  = 0.12f;
 
 // Finishing a hole hoists the string back out of it. Same winch as a trip,
 // but one direction only and with nothing to re-seat on the face, so it is a

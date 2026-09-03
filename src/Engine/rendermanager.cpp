@@ -2578,11 +2578,15 @@ static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, flo
 
     // Fit the whole stack inside the area given, then derive the gap from it.
     g.tileX = (w - 84.0f) / (2.0f * gridSize);
-    // Flatter than a 2:1 isometric on purpose. Four exploded plates plus their
-    // relief have to fit one panel, and every degree of extra tilt costs
-    // vertical budget that then gets scaled back out of the width -- at 0.46
-    // the stack shrank 42% and the model used less than half the space it had.
-    g.tileY = g.tileX * 0.28f;
+    // Flatter than a 2:1 isometric on purpose, for two reasons. Four exploded
+    // plates plus their relief have to fit one panel, and every degree of
+    // extra tilt costs vertical budget that then gets scaled back out of the
+    // width -- at 0.46 the stack shrank 42% and the model used less than half
+    // the space it had. And the flatter the plate, the more plainly it reads
+    // as a HORIZONTAL PLANE at one depth: tilt invites the axis running away
+    // from the viewer to be read as depth, which is exactly the misreading
+    // PlateDepthM exists to kill. 0.28 -> 0.22 on that second count.
+    g.tileY = g.tileX * 0.22f;
     float diamondH = 2.0f * gridSize * g.tileY;
     // Relief 0.30 -> 0.45 -> 0.60 across two playtest rounds ("the curvature
     // is not enough to be clearly visible"). Height alone never reads well
@@ -3352,7 +3356,7 @@ static float ProsShownDepthM(const LineHole& hole)
 
 static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                                  const ProsDockGeom& dg, float clipTop, float clipBot,
-                                 float hoverM,
+                                 float hoverM, float hoverU,
                                  const Font& bodyFont, float sp, float fsSmall,
                                  const Texture2D* strata)
 {
@@ -3711,16 +3715,25 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         }
     }
 
-    // the hovered plate cell's depth, shown as its twin on the rock column --
-    // every point on a plane corresponds to a point down the hole
+    // The other half of the hover twin cursor. The plane's depth is ONE
+    // number, so the guide sits level and only the dot travels -- sideways,
+    // tracking where across the section the pointer is. A cursor that walked
+    // up and down as the pointer crossed a plane was the whole misreading:
+    // it made the screen axis running away from the viewer look like depth.
     if (hoverM >= 0.0f)
     {
         float hy = dg.YOf(hoverM);
-        DrawLineEx({dg.x + 14.0f, hy}, {dg.x + dg.w - 24.0f, hy}, 1.2f,
-                   Fade(EXT_ACCENT_CYAN, 0.75f));
+        DrawLineEx({dg.x + 14.0f, hy}, {dg.x + dg.w - 24.0f, hy}, 1.0f,
+                   Fade(EXT_ACCENT_CYAN, 0.30f));
         const char* dm = TextFormat("%.0f", hoverM);
         DrawTextEx(bodyFont, dm, {dg.x + dg.w - 21.0f, hy - 4.0f},
-                   fsSmall, sp, EXT_ACCENT_CYAN);
+                   fsSmall, sp, Fade(EXT_ACCENT_CYAN, 0.85f));
+        if (hoverU >= 0.0f)
+        {
+            float hx = dg.x + 8.0f + std::clamp(hoverU, 0.0f, 1.0f) * (dg.w - 34.0f);
+            DrawCircleV({hx, hy}, 3.4f, Fade(PROS_OUT, 0.85f));
+            DrawCircleV({hx, hy}, 2.0f, EXT_ACCENT_CYAN);
+        }
     }
 
     // tag, bottom-right
@@ -3938,12 +3951,29 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     // One ground, both panels (Dark Plating section 9.1): the strata bands run
     // dim under the whole stack and full-strength inside the dock, and the
-    // boundary rules cross unbroken through the explosion gaps.
+    // boundary rules cross unbroken through the explosion gaps. Same rock as
+    // the dock wears, same tiling, just quieter -- these bands are the ground
+    // the plates float in, and the plates have to stay the loudest thing in
+    // their own half of the panel.
+    if (!strataLoaded) LoadStrataTextures();
     for (int L = 0; L < 4; L++)
     {
-        DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX,
-                          dock.bandTop[L + 1] - dock.bandTop[L]},
-                         Fade(PROS_ROCK_COL[L], 0.16f));
+        Rectangle band = {gridX, dock.bandTop[L], dock.x - gridX,
+                          dock.bandTop[L + 1] - dock.bandTop[L]};
+        if (strataLoaded && strataTex[L].id != 0)
+        {
+            float k = static_cast<float>(RockTexture::SIZE) / PROS_ROCK_TEX_PX;
+            Color tint = { static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].r * 2)),
+                           static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].g * 2)),
+                           static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].b * 2)),
+                           255 };
+            DrawTexturePro(strataTex[L], {0.0f, L * 41.0f, band.width * k, band.height * k},
+                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.34f));
+        }
+        else
+        {
+            DrawRectangleRec(band, Fade(PROS_ROCK_COL[L], 0.30f));
+        }
         DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX, 1.6f},
                          Fade(PROS_ROCK_EDGE[L], 0.85f));
     }
@@ -4030,9 +4060,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // stays lit, the three below rest dim and the one under the pointer comes
     // up. Eased on the facade, which is where state that outlives a frame
     // belongs (prospecting_constants.h has the table).
-    ps->UpdatePlateLight(hovL, GetFrameTime());
+    ps->UpdatePlateLight(hovL, rimLayer, GetFrameTime());
 
-    if (!strataLoaded) LoadStrataTextures();
     for (int L = 0; L < 4; L++)
     {
         // The stratum's own rock -- four textures for four layers, not one
@@ -4045,11 +4074,15 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                            tile, L == rimLayer ? rimPulse : 0.0f);
     }
 
-    // The hovered cell's outline, drawn after the plates so it sits on top of
-    // the one it marks rather than under the plate below it.
+    // The hovered cell's outline and its cursor DOT, drawn after the plates so
+    // they sit on top of the one they mark rather than under the plate below.
+    // The dot is half of a twin cursor (Dark Plating 9.3): its other half sits
+    // in the borehole strip at the same depth, and the two move together --
+    // which is what says "this point on this plane IS that point in the rock".
     if (hovL >= 0)
     {
         float lift = LiftAt(hovL, hovX, hovY);
+        Vector2 dot = geom.Iso(hovX + 0.5f, hovY + 0.5f, hovL, lift);
         Vector2 q0 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY), hovL, lift);
         Vector2 q1 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY), hovL, lift);
         Vector2 q2 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY + 1), hovL, lift);
@@ -4058,6 +4091,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         DrawLineEx(q1, q2, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(q2, q3, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(q3, q0, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawCircleV(dot, 3.4f, Fade(PROS_OUT, 0.85f));
+        DrawCircleV(dot, 2.0f, EXT_ACCENT_CYAN);
     }
 
     // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
@@ -4120,10 +4155,16 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // the line over the stack, after the plates so it reads as through them
     ProsPlateLift plateLift; plateLift.layers = &layers; plateLift.maxGrade = maxGrade;
     ProsDrawTraceBlock(ps, geom, dock, plateLift);
-    float hoverM = (hovL >= 0)
-        ? CellRowDepthM(hovL, hovX, hovY, gridSize) : -1.0f;
+    // ONE depth for the whole plane. Moving across a plate slides the strip's
+    // cursor sideways, never up or down -- depth is the axis between plates.
+    float hoverM = (hovL >= 0) ? PlateDepthM(hovL) : -1.0f;
+    // Where across the section that cell sits. The strip is a vertical slice,
+    // so its horizontal axis is the same left-right the plates are drawn with:
+    // iso screen x is (gx - gy), so this is that, normalised.
+    float hoverU = (hovL >= 0)
+        ? (static_cast<float>(hovX - hovY) + gridSize) / (2.0f * gridSize) : -1.0f;
     ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f,
-                         hoverM, bodyFont, sp, FS(7.5f),
+                         hoverM, hoverU, bodyFont, sp, FS(7.5f),
                          strataLoaded ? strataTex : nullptr);
 
     // ONE marker, on the layer it was selected on. The line's own points are

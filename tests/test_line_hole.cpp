@@ -269,8 +269,12 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
         if (hot.lineHole.logQ[iv] == 2) sawSmoked = true;
         // a smoked stick between two intact ones, or the reverse, is the
         // flicker the dose grading exists to remove
-        if (hot.lineHole.logQ[iv] != 0 && hot.lineHole.logQ[iv - 1] != 0 &&
-            hot.lineHole.logQ[iv + 1] != 0 &&
+        // LOST is excluded: it marks the stick the bit fractured in, an
+        // event rather than a dose grade, so P-L-P is a record of something
+        // that happened and not the grading alternating with itself.
+        if (hot.lineHole.logQ[iv] != 0 && hot.lineHole.logQ[iv] != 1 &&
+            hot.lineHole.logQ[iv - 1] != 0 && hot.lineHole.logQ[iv - 1] != 1 &&
+            hot.lineHole.logQ[iv + 1] != 0 && hot.lineHole.logQ[iv + 1] != 1 &&
             hot.lineHole.logQ[iv - 1] == hot.lineHole.logQ[iv + 1] &&
             hot.lineHole.logQ[iv] != hot.lineHole.logQ[iv - 1])
             flicker = true;
@@ -293,6 +297,53 @@ TEST_CASE("the core log grades each stick by the heat it was cut at", "[linehole
     for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
         if (spam.lineHole.logQ[iv] == 1) sawLost = true;
     REQUIRE(sawLost);
+}
+
+TEST_CASE("a plate is one depth: where you click on it does not change z", "[linehole]")
+{
+    // The block model is exploded so that DEPTH is the axis between plates.
+    // Within a plate, the two screen axes are x and y -- so every cell on a
+    // plate targets the same z, and moving across it only moves where the
+    // hole comes out, never how deep it goes.
+    ProspectingSystem near = MakeSystem();
+    near.StartAim(4, 4);
+    near.AimAt(2, 0, 0);                          // front corner of MID
+    float nearEnd = near.lineHole.endM;
+
+    ProspectingSystem far = MakeSystem();
+    far.StartAim(4, 4);
+    far.AimAt(2, 31, 31);                         // back corner of the same plate
+    REQUIRE(far.lineHole.endM == nearEnd);
+    REQUIRE(nearEnd == PlateDepthM(2));
+
+    // and the four plates are four distinct depths, in order
+    ProspectingSystem sys = MakeSystem();
+    float last = -1.0f;
+    for (int L = 0; L < 4; L++)
+    {
+        sys.StartAim(4, 4);
+        sys.AimAt(L, 6, 6);
+        REQUIRE(sys.lineHole.endM == PlateDepthM(L));
+        REQUIRE(sys.lineHole.endM > last);
+        last = sys.lineHole.endM;
+        sys.CancelAim();
+    }
+
+    // the deepest plate still reaches into basalt -- the stratum the whole
+    // drill campaign is tuned against
+    REQUIRE(LayerOfDepthM(PlateDepthM(3)) == 3);
+
+    // And the invariant that makes a plate level with its OWN depth line in
+    // the borehole strip: the strip gives every stratum an equal band with
+    // the plate's slot at that band's centre, so the plane's depth has to be
+    // the stratum's midpoint or the plate floats half a band from the marker
+    // that names it. This is why the plane sits at the centre and not on an
+    // interface (drill-tuning section 4).
+    for (int L = 0; L < 4; L++)
+    {
+        float midpoint = (LayerTopM(L) + LayerBottomM(L)) * 0.5f;
+        REQUIRE(std::fabs(PlateDepthM(L) - midpoint) < 0.001f);
+    }
 }
 
 TEST_CASE("a finished hole hoists its string out before it reads DONE", "[linehole]")
@@ -350,6 +401,43 @@ TEST_CASE("a finished hole hoists its string out before it reads DONE", "[lineho
     // And the rig is free again.
     sys.StartAim(1, 1);
     REQUIRE(sys.lineHole.state == LineHoleState::AIMING);
+}
+
+TEST_CASE("driving the string harder is never slower", "[linehole]")
+{
+    // The bargain the whole clicking loop rests on. A fracture is meant to be
+    // a GAMBLE -- push the redline, maybe pay a trip -- and a gamble whose
+    // cost always exceeds its winnings is a trap, not a choice.
+    //
+    // This has now broken twice, both times silently, because nothing checked
+    // it: once when the fatigue rate was too high, and again when the deepest
+    // hole grew from ~79 m to 94 m and the depth-priced trip grew with it.
+    // The campaign instrument would have shown it both times; nobody runs an
+    // instrument by accident, so it is a test now.
+    auto RunToDone = [](float clicksPerSecond)
+    {
+        ProspectingSystem sys = MakeSystem();
+        sys.StartAim(7, 6);
+        sys.AimAt(3, 7, 6);                       // the deepest plate: basalt
+        sys.CommitHole();
+        float t = 0.0f, acc = 0.0f;
+        while (sys.lineHole.state != LineHoleState::DONE && t < 1200.0f)
+        {
+            acc += clicksPerSecond * 0.05f;
+            while (acc >= 1.0f) { sys.KickString(); acc -= 1.0f; }
+            sys.UpdateLineHole(0.05f);
+            t += 0.05f;
+        }
+        return t;
+    };
+
+    float idle = RunToDone(0.0f);
+    float easy = RunToDone(2.0f);
+    float hard = RunToDone(8.0f);
+
+    REQUIRE(easy < idle);                         // clicking is worth something
+    REQUIRE(hard <= easy);                        // and more clicking never costs
+    REQUIRE(idle < 1200.0f);                      // even hands-off finishes
 }
 
 TEST_CASE("drill tuning campaign", "[.][campaign]")

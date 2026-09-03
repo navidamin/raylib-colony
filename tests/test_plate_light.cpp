@@ -16,10 +16,11 @@ static ProspectingSystem MakeSys()
 {
     return ProspectingSystem(3, 10, 10, PlateRM());
 }
-static void Settle(ProspectingSystem& sys, int hovered, float seconds = 1.0f)
+static void Settle(ProspectingSystem& sys, int hovered, int active = -1,
+                   float seconds = 1.0f)
 {
     for (float t = 0.0f; t < seconds; t += 1.0f / 60.0f)
-        sys.UpdatePlateLight(hovered, 1.0f / 60.0f);
+        sys.UpdatePlateLight(hovered, active, 1.0f / 60.0f);
 }
 
 TEST_CASE("the surface plate is always lit, the rest rest dim", "[platelight]")
@@ -62,18 +63,42 @@ TEST_CASE("the plate light eases, and settles quickly", "[platelight]")
     ProspectingSystem sys = MakeSys();
     float start = sys.plateLight[3];
 
-    sys.UpdatePlateLight(3, 1.0f / 60.0f);
+    sys.UpdatePlateLight(3, -1, 1.0f / 60.0f);
     float afterOne = sys.plateLight[3];
     REQUIRE(afterOne > start);                    // it moved
     REQUIRE(afterOne < 0.9f);                     // but did not snap
 
-    for (int i = 0; i < 7; i++) sys.UpdatePlateLight(3, 1.0f / 60.0f);
+    for (int i = 0; i < 7; i++) sys.UpdatePlateLight(3, -1, 1.0f / 60.0f);
     REQUIRE(sys.plateLight[3] > 0.9f);            // ~0.13 s and it is there
 
     // framerate independence: the same wall clock gets to the same place
     ProspectingSystem slow = MakeSys();
     ProspectingSystem fast = MakeSys();
-    for (int i = 0; i < 6; i++)  slow.UpdatePlateLight(1, 1.0f / 30.0f);
-    for (int i = 0; i < 24; i++) fast.UpdatePlateLight(1, 1.0f / 120.0f);
+    for (int i = 0; i < 6; i++)  slow.UpdatePlateLight(1, -1, 1.0f / 30.0f);
+    for (int i = 0; i < 24; i++) fast.UpdatePlateLight(1, -1, 1.0f / 120.0f);
     REQUIRE(std::fabs(slow.plateLight[1] - fast.plateLight[1]) < 0.02f);
+}
+
+TEST_CASE("the plate being cut lights, pointer or no pointer", "[platelight]")
+{
+    // The stratum the bit is in is live work. It rim-lights either way, but a
+    // dim plate with a bright rim reads as marked-but-inactive, and it is the
+    // one plate the player is actually operating on.
+    ProspectingSystem sys = MakeSys();
+    Settle(sys, -1, 3);                           // drilling DEEP, pointer away
+
+    REQUIRE(sys.plateLight[3] > 0.99f);
+    REQUIRE(std::fabs(sys.plateLight[1] - PLATE_REST_LIGHT[1]) < 0.01f);
+    REQUIRE(std::fabs(sys.plateLight[2] - PLATE_REST_LIGHT[2]) < 0.01f);
+
+    // hovering elsewhere lights that one too -- both are live at once
+    Settle(sys, 1, 3);
+    REQUIRE(sys.plateLight[1] > 0.99f);
+    REQUIRE(sys.plateLight[3] > 0.99f);
+    REQUIRE(std::fabs(sys.plateLight[2] - PLATE_REST_LIGHT[2]) < 0.01f);
+
+    // and when the hole ends, only the pointer holds a plate up
+    Settle(sys, 1, -1);
+    REQUIRE(sys.plateLight[1] > 0.99f);
+    REQUIRE(std::fabs(sys.plateLight[3] - PLATE_REST_LIGHT[3]) < 0.01f);
 }

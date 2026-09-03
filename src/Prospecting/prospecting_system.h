@@ -100,7 +100,10 @@ public:
     // is persistent presentation state, so it lives on the facade: the
     // renderer is rebuilt from nothing each frame and could only ever snap.
     // Pass the layer under the pointer, or -1 for none.
-    void UpdatePlateLight(int hoveredLayer, float dt);
+    // Lit: the plate under the pointer, and the plate the bit is cutting --
+    // the stratum being worked is live whether or not you are pointing at it.
+    // Either may be -1.
+    void UpdatePlateLight(int hoveredLayer, int activeLayer, float dt);
     float plateLight[4] = { PLATE_REST_LIGHT[0], PLATE_REST_LIGHT[1],
                             PLATE_REST_LIGHT[2], PLATE_REST_LIGHT[3] };
     // The preview tool renders headless and has no pointer, so hover states

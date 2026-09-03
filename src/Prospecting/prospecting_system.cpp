@@ -142,14 +142,14 @@ void ProspectingSystem::AimAt(int layer, int cellX, int cellY)
     if (layer == 0)
     {
         // A surface target is the vertical degenerate case
-        lineHole.endM = CellRowDepthM(0, cellX, cellY, grid.GetGridSize());
+        lineHole.endM = PlateDepthM(0);
         lineHole.dirX = 0.0f;
         lineHole.dirY = 0.0f;
         return;
     }
-    // The clicked cell's iso row is a depth within its stratum -- the line
-    // ends exactly there, passing through that cell at that depth.
-    float endDepth = CellRowDepthM(layer, cellX, cellY, grid.GetGridSize());
+    // The clicked PLATE is the depth; the clicked CELL is only where on that
+    // plane the line comes out. One plate, one z (PlateDepthM).
+    float endDepth = PlateDepthM(layer);
     lineHole.endM = endDepth;
     lineHole.dirX = (static_cast<float>(cellX) - lineHole.collarX) / endDepth;
     lineHole.dirY = (static_cast<float>(cellY) - lineHole.collarY) / endDepth;
@@ -177,7 +177,7 @@ void ProspectingSystem::KickString()
     lineHole.rpm = std::min(DRILL_RPM_MAX, lineHole.rpm + DRILL_RPM_KICK);
 }
 
-void ProspectingSystem::UpdatePlateLight(int hoveredLayer, float dt)
+void ProspectingSystem::UpdatePlateLight(int hoveredLayer, int activeLayer, float dt)
 {
     // Exponential approach, framerate-independent: the same wall-clock rise
     // whether the panel is running at 30 or 144. The surface's rest value IS
@@ -186,7 +186,8 @@ void ProspectingSystem::UpdatePlateLight(int hoveredLayer, float dt)
     float k = 1.0f - std::exp(-std::max(dt, 0.0f) / PLATE_LIGHT_TAU_S);
     for (int L = 0; L < 4; L++)
     {
-        float target = (L == hoveredLayer) ? PLATE_LIGHT_FULL : PLATE_REST_LIGHT[L];
+        float target = (L == hoveredLayer || L == activeLayer)
+                     ? PLATE_LIGHT_FULL : PLATE_REST_LIGHT[L];
         plateLight[L] += (target - plateLight[L]) * k;
     }
 }
@@ -207,10 +208,7 @@ void ProspectingSystem::GetCrossingCell(int layer, int& gx, int& gy) const
     gy = std::clamp(static_cast<int>(std::lround(fy)), 0, size - 1);
     // one refinement: the cell's own row depth is where the line truly meets
     // this plate, so re-read the line there and re-snap
-    float rowM = std::min(CellRowDepthM(layer, gx, gy, size), lineHole.endM);
-    GetLineCell(rowM, fx, fy);
-    gx = std::clamp(static_cast<int>(std::lround(fx)), 0, size - 1);
-    gy = std::clamp(static_cast<int>(std::lround(fy)), 0, size - 1);
+    (void)size;
 }
 
 bool ProspectingSystem::UpdateLineHole(float dt)
@@ -337,8 +335,7 @@ bool ProspectingSystem::UpdateLineHole(float dt)
         if (lineHole.cored[L]) continue;
         int cx = 0, cy = 0;
         GetCrossingCell(L, cx, cy);
-        float rowM = std::min(CellRowDepthM(L, cx, cy, grid.GetGridSize()),
-                              lineHole.endM);
+        float rowM = std::min(PlateDepthM(L), lineHole.endM);
         if (lineHole.depthM < rowM) continue;
         grid.RecordCore(cx, cy, static_cast<DepthLayer>(L));
         lineHole.cored[L] = true;

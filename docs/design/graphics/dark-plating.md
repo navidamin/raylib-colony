@@ -728,6 +728,24 @@ Give the stack a **focus** instead:
 Measured on the real panel: a hovered plate's own region rises 32 → 46 mean
 luminance while the pinned plate does not move.
 
+**A plane must look like a plane.** Two supports, both learned from a
+playtest that read the stack's depth axis wrongly (prospecting's drill-tuning
+§4). Draw the plates **flatter** — the more tilt an iso plane carries, the
+more the axis running away from the viewer invites being read as depth, which
+is the one meaning an exploded stack must reserve for the gaps between plates
+(0.28 → 0.22 of tileX here). And **texture the gaps**: the strata between the
+plates wear the same generated rock as the instrument beside them, at about a
+third strength, so the plates visibly float *in* ground rather than in
+nothing. The plates stay the loudest thing in their own half.
+
+**The hover twin.** A dot on the plane and a dot in the section, moving
+together: the plane's dot at the cell, the section's at that plane's single
+depth and at the same left-right position (iso screen x is `gx - gy`, so the
+section's horizontal axis is the one the plates already show). The section's
+dot travels **sideways only** — the guide line it rides is level, because the
+whole plane is one depth. A cursor that walked up and down as the pointer
+crossed a plane was the misreading itself, drawn.
+
 ### 9.5 The animation recipes
 
 Approved in the drill-dock prototype; reuse verbatim:
