@@ -3075,6 +3075,20 @@ struct ProsDockGeom
         float t = (m - LayerTopM(d)) / LAYER_THICKNESS_M[d];
         return bandTop[d] + (bandTop[d + 1] - bandTop[d]) * t;
     }
+    // ...and back again. The strata bands run the full width of the panel, so
+    // any height in it IS a depth -- which is what lets the pointer read a
+    // depth off the empty ground between the plates.
+    float DepthAtY(float y) const
+    {
+        if (y <= bandTop[0]) return 0.0f;
+        for (int d = 0; d < 4; d++)
+        {
+            if (y >= bandTop[d + 1]) continue;
+            float span = std::max(1.0f, bandTop[d + 1] - bandTop[d]);
+            return LayerTopM(d) + LAYER_THICKNESS_M[d] * (y - bandTop[d]) / span;
+        }
+        return FULL_COLUMN_M;
+    }
 };
 
 static ProsDockGeom ProsDockFrom(const BlockModelGeom& g, float stripX, float stripW)
@@ -3423,7 +3437,7 @@ static float ProsShownDepthM(const LineHole& hole)
 
 static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
                                  const ProsDockGeom& dg, float clipTop, float clipBot,
-                                 float hoverM, float hoverU,
+                                 float hoverM, float hoverU, float hoverAlpha,
                                  const Font& bodyFont, float sp, float fsSmall,
                                  const Texture2D* strata)
 {
@@ -3791,15 +3805,15 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
     {
         float hy = dg.YOf(hoverM);
         DrawLineEx({dg.x + 14.0f, hy}, {dg.x + dg.w - 24.0f, hy}, 1.0f,
-                   Fade(EXT_ACCENT_CYAN, 0.30f));
+                   Fade(EXT_ACCENT_CYAN, 0.30f * hoverAlpha));
         const char* dm = TextFormat("%.0f", hoverM);
         DrawTextEx(bodyFont, dm, {dg.x + dg.w - 21.0f, hy - 4.0f},
-                   fsSmall, sp, Fade(EXT_ACCENT_CYAN, 0.85f));
+                   fsSmall, sp, Fade(EXT_ACCENT_CYAN, 0.85f * hoverAlpha));
         if (hoverU >= 0.0f)
         {
             float hx = dg.x + 8.0f + std::clamp(hoverU, 0.0f, 1.0f) * (dg.w - 34.0f);
-            DrawCircleV({hx, hy}, 3.4f, Fade(PROS_OUT, 0.85f));
-            DrawCircleV({hx, hy}, 2.0f, EXT_ACCENT_CYAN);
+            DrawCircleV({hx, hy}, 3.4f, Fade(PROS_OUT, 0.85f * hoverAlpha));
+            DrawCircleV({hx, hy}, 2.0f, Fade(EXT_ACCENT_CYAN, hoverAlpha));
         }
     }
 
@@ -4187,22 +4201,6 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         DrawCircleV(dot, 3.4f, Fade(PROS_OUT, 0.85f));
         DrawCircleV(dot, 2.0f, EXT_ACCENT_CYAN);
 
-        // The HEIGHT twin, on the panel's own ground rather than on a plate:
-        // the same y the borehole strip's cursor sits at, parked in the clear
-        // strip between the model and the dock so it is always against the
-        // dim strata and never on a plate -- at the plate's own x it landed
-        // on the ore mound, which rises above the line.
-        //
-        // Three marks, three questions: the bright dot says WHERE on the
-        // plane, this one says how deep that plane is on the panel's ground,
-        // and the strip's dot says the same depth again in section. The
-        // stratum's boundary rule runs between the last two, so the eye joins
-        // them. Deliberately pale and part-transparent: a reading aid, never
-        // competing with the cursor that marks the actual cell.
-        float lineY = ProsPlateLineY(geom, hovL);
-        float twinX = dock.x - 9.0f;
-        DrawCircleV({twinX, lineY}, 3.2f, Fade(PROS_OUT, 0.30f));
-        DrawCircleV({twinX, lineY}, 1.8f, Fade(Color{198, 232, 250, 255}, 0.55f));
     }
 
     // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
@@ -4268,13 +4266,37 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // ONE depth for the whole plane. Moving across a plate slides the strip's
     // cursor sideways, never up or down -- depth is the axis between plates.
     float hoverM = (hovL >= 0) ? PlatePlaneM(hovL) : -1.0f;
+    // Off the plates, the pointer still has a height, and the strata bands run
+    // the full width of the panel -- so bare ground between the plates is a
+    // depth too. Reading it out is what ties the two panels together: sweep
+    // the pointer down the empty rock and the strip's cursor tracks it, which
+    // says "these two views are the same column" more directly than any
+    // static rule can. Paler than the cell cursor, because it marks a height
+    // and not a block you could drill.
+    bool groundHover = false;
+    if (hovL < 0 && mouse.x >= gridX && mouse.x < dock.x &&
+        mouse.y >= dock.bandTop[0] && mouse.y <= dock.bandTop[4])
+    {
+        groundHover = true;
+        hoverM = dock.DepthAtY(mouse.y);
+    }
     // Where across the section that cell sits. The strip is a vertical slice,
     // so its horizontal axis is the same left-right the plates are drawn with:
     // iso screen x is (gx - gy), so this is that, normalised.
     float hoverU = (hovL >= 0)
-        ? (static_cast<float>(hovX - hovY) + gridSize) / (2.0f * gridSize) : -1.0f;
+        ? (static_cast<float>(hovX - hovY) + gridSize) / (2.0f * gridSize)
+        : groundHover
+        ? std::clamp((mouse.x - gridX) / std::max(1.0f, dock.x - gridX), 0.0f, 1.0f)
+        : -1.0f;
+    if (groundHover)
+    {
+        // the pointer's own mark, on the ground it is reading
+        DrawCircleV(mouse, 3.4f, Fade(PROS_OUT, 0.30f));
+        DrawCircleV(mouse, 2.0f, Fade(Color{198, 232, 250, 255}, 0.60f));
+    }
     ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f,
-                         hoverM, hoverU, bodyFont, sp, FS(7.5f),
+                         hoverM, hoverU, groundHover ? 0.55f : 1.0f,
+                         bodyFont, sp, FS(7.5f),
                          strataLoaded ? strataTex : nullptr);
 
     // ONE marker, on the layer it was selected on. The line's own points are

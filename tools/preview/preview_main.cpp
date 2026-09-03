@@ -40,7 +40,8 @@ struct PreviewOptions
     int spriteGlow = 3;
     float energy = -1.0f;   // <0 = leave the unit's default
     int bench = 0;
-    int hover = -1;          // >0 = time this many frames, print ms/frame
+    int hover = -1;
+    int mouseX = -1, mouseY = -1;          // >0 = time this many frames, print ms/frame
     std::string outPath = "preview.png";
 };
 
@@ -59,6 +60,8 @@ static void PrintUsage()
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
         << "  --energy <n>      override stored energy (tests cost gating)\n"
         << "  --hover <0-3>     light a plate as if hovered (headless: no pointer)\n"
+        << "  --mouse <X,Y>     park the real pointer here -- exercises the true\n"
+        << "                    hover path (pick, cursors, ground readout)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
         << "  --out <path>      output PNG path                (default: preview.png)\n"
         << "  --help            show this message\n";
@@ -103,6 +106,16 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--energy" && hasNext)
         {
             options.energy = static_cast<float>(TextToInteger(argv[++i]));
+        }
+        else if (arg == "--mouse" && hasNext)
+        {
+            std::string v = argv[++i];
+            size_t comma = v.find(',');
+            if (comma != std::string::npos)
+            {
+                options.mouseX = TextToInteger(v.substr(0, comma).c_str());
+                options.mouseY = TextToInteger(v.substr(comma + 1).c_str());
+            }
         }
         else if (arg == "--hover" && hasNext)
         {
@@ -660,6 +673,9 @@ int main(int argc, char** argv)
         // Draw twice: the first frame lets fonts and textures settle before capture.
         for (int frame = 0; frame < 2; frame++)
         {
+            // Park the pointer before the frame reads it, so the hover paths
+            // run exactly as they do under a hand.
+            if (options.mouseX >= 0) SetMousePosition(options.mouseX, options.mouseY);
             BeginDrawing();
             ClearBackground(BLACK);
             renderManager.DrawUnitView(&unit, timeManager);

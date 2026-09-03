@@ -796,15 +796,20 @@ you can read as rock, that no resting plate has to compete with. The rule
 generalises — a backdrop is dim relative to the quietest state of what sits
 on it, never to the loudest.
 
-**The hover twin, in three parts.** A bright dot on the plane says *where*;
-a pale, part-transparent one on the panel's own ground says *how deep that
-plane is*; the section's dot says the same depth again in the other view. The
-pale one is parked in the clear strip between the model and the instrument,
-so it always sits on background rather than on a plate — placed at the
-plate's own x it landed on the ore mound, which rises above the line — and
-the stratum's boundary rule runs from it across to the section's dot, so the
-eye joins the pair. A reading aid must never compete with the cursor marking
-the actual cell: pale and translucent is the whole point.
+**The hover twin, and the ground between.** On a plate, a bright dot marks
+the cell and its twin marks the same point in the section. But the strata
+bands run the **full width** of the panel, so the empty ground between the
+plates is a depth too — and reading it out is what makes the two views feel
+like one column. Hover bare rock and a pale, part-transparent dot appears
+under the pointer with its twin sliding to the same height in the section,
+depth in metres beside it. Sweep down the gap and the section's cursor tracks
+you.
+
+Two cursors, two jobs, and the styling has to say which is which: the cell
+cursor is solid and saturated because it marks something you can act on, the
+ground reading is pale and translucent because it marks only a height. Give a
+reading aid the same weight as an actionable cursor and the panel starts
+lying about what is clickable.
 
 A dot on the plane and a dot in the section, moving
 together: the plane's dot at the cell, the section's at that plane's single
