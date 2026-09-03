@@ -755,12 +755,23 @@ relief. So a layout computed against the base plane put the visible plate
 22 px **above** a line that was, on paper, 5 px above its base. The eye sees
 the lifted surface; the layout has to be told about it.
 
-The boundary therefore sits `relief + 0.5 × half-height` above the plate's
-base, which lands a fully lifted plate half a half-height *below* its line.
-Reference the FULL lift, never the current mean: the bands are the depth
-scale and must not move as survey data arrives. Pinned to the plate's ceiling
-instead, the richest cells rise toward the boundary and poorer ground hangs
-further below it — which is the right reading anyway.
+Compensating every plate by the same full relief is not enough, and the way
+it fails is instructive: lift is normalised against the max grade across the
+WHOLE stack, so on an unsurveyed field the richest layer floats to the full
+relief while poorer ones sit lower, by more the poorer they are. Measured on
+the playtest, the plate-to-line gaps ran 24 / 27 / 35 / 40 px going down and
+read as the stack drifting away from its own borders.
+
+So **hang each plate from its own ceiling**: push it down by its tallest
+corner (`plateDrop`, applied inside `Iso` so the draw, the pick, the trace
+and the hover cursor all inherit it), and the plate's top lands on its slot
+whatever its layer holds. The boundary is then a plain half-a-half-height
+above that, identical for all four — verified by dumping the geometry: every
+lateral corner at `+11.31 px` below its line, spread zero. Amplitude still
+comes from the shared scale, so a barren layer is still visibly flatter than
+the ore; only the plate's *placement* became its own business. With real data
+a plate hangs from its mound, so the richest cells rise toward the boundary
+and poorer ground sits further below it — which is the right reading anyway.
 
 Whatever draws at that boundary — the strip's band, the plate, the depth
 label and its ruling — must derive it from **one** function. They did not,

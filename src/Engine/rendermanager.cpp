@@ -2563,11 +2563,27 @@ struct BlockModelGeom
     float tileX = 0.0f, tileY = 0.0f, relief = 0.0f, gap = 0.0f;
     float originX = 0.0f, originY = 0.0f;
     int   size = PROSPECTING_GRID_SIZE;
+    // How far this plate is pushed down so that its HIGHEST point lands on
+    // its own slot, whatever its data. Filled in once the layers are built.
+    //
+    // Without it a plate's position depends on how rich it is relative to the
+    // rest of the stack: lift is normalised against the max grade across ALL
+    // four layers, so on an unsurveyed field -- every cell holding its own
+    // layer mean -- the richest layer floats to the full relief and the
+    // poorer ones sit lower, by more the poorer they are. Measured on the
+    // playtest: plate-to-line gaps of 24 / 27 / 35 / 40 px going down, read
+    // as the stack drifting away from its own borders.
+    //
+    // Amplitude still comes from the shared scale, so a barren layer is still
+    // visibly flatter than the ore -- it is only the plate's PLACEMENT that
+    // is now its own business.
+    float plateDrop[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
     Vector2 Iso(float gx, float gy, int layer, float lift) const
     {
+        int L = layer < 0 ? 0 : (layer > 3 ? 3 : layer);
         return { originX + (gx - gy) * tileX,
-                 originY + (gx + gy) * tileY + layer * gap - lift };
+                 originY + (gx + gy) * tileY + layer * gap + plateDrop[L] - lift };
     }
 };
 
@@ -2640,8 +2656,11 @@ static constexpr float PROS_PLATE_TUCK = 0.50f;
 // time the plates moved and the labels stayed anchored to the plate instead.
 static float ProsPlateLineY(const BlockModelGeom& g, int layer)
 {
+    // The plate's own ceiling sits at its slot (see plateDrop), so the line is
+    // simply a little above that -- no relief term, and the same offset for
+    // every plate however rich or poor its layer is.
     float slot = g.originY + layer * g.gap + g.size * g.tileY;
-    return slot - (g.relief + g.size * g.tileY * PROS_PLATE_TUCK);
+    return slot - g.size * g.tileY * PROS_PLATE_TUCK;
 }
 
 
@@ -4059,6 +4078,24 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         }
     }
 
+    // Hang every plate from its own ceiling: push it down by its tallest
+    // corner, so that corner lands on the plate's slot and the plate's top is
+    // in the same place whatever its layer holds. Taken over CORNERS, not
+    // cells, because a corner averages the four blocks that touch it and is
+    // what the surface is actually drawn through.
+    for (int L = 0; L < 4; L++)
+    {
+        float top = 0.0f;
+        for (int j = 0; j <= gridSize; j++)
+            for (int i = 0; i <= gridSize; i++)
+            {
+                float lift = ProsCornerLift(layers[L], gridSize, maxGrade,
+                                            geom.relief, i, j);
+                if (lift > top) top = lift;
+            }
+        geom.plateDrop[L] = top;
+    }
+
     // DEPTH-LEVEL names (the DepthLayer enum), not geology names. The strata
     // are named on the borehole strip, where the rock actually is; naming them
     // here too put "INTACT" (intact basalt) one column from the core log's
@@ -4100,7 +4137,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     for (int L = 0; L < 4 && hovL < 0; L++)
     {
         int pi = 0, pj = 0;
-        if (!BlockPickCell(pick, L, mouse.x, mouse.y,
+        // The plate is drawn plateDrop lower than its slot, so the pointer has
+        // to be read in the plate's own frame -- otherwise picking answers for
+        // where the plate would have been.
+        if (!BlockPickCell(pick, L, mouse.x, mouse.y - geom.plateDrop[L],
                            [&](int i, int j) { return LiftAt(L, i, j); }, pi, pj)) continue;
         hovL = L; hovX = pi; hovY = pj;
     }
