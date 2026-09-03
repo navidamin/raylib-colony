@@ -95,6 +95,19 @@ public:
 
     LineHole lineHole;
 
+    // ---- Block model focus ----------------------------------------------
+    // How lit each plate is, 0..1, eased toward its target every frame. This
+    // is persistent presentation state, so it lives on the facade: the
+    // renderer is rebuilt from nothing each frame and could only ever snap.
+    // Pass the layer under the pointer, or -1 for none.
+    void UpdatePlateLight(int hoveredLayer, float dt);
+    float plateLight[4] = { PLATE_REST_LIGHT[0], PLATE_REST_LIGHT[1],
+                            PLATE_REST_LIGHT[2], PLATE_REST_LIGHT[3] };
+    // The preview tool renders headless and has no pointer, so hover states
+    // could not be screenshotted at all. -1 is off; otherwise the renderer
+    // treats this layer as hovered. Only the preview sets it.
+    int previewHoverLayer = -1;
+
     // UI state
     ProspectingTab activeTab = ProspectingTab::SWEEP;
     int selectedCellX = -1;

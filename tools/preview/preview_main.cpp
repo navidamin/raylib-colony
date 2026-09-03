@@ -39,7 +39,8 @@ struct PreviewOptions
     int spriteSize = 4;
     int spriteGlow = 3;
     float energy = -1.0f;   // <0 = leave the unit's default
-    int bench = 0;          // >0 = time this many frames, print ms/frame
+    int bench = 0;
+    int hover = -1;          // >0 = time this many frames, print ms/frame
     std::string outPath = "preview.png";
 };
 
@@ -57,6 +58,7 @@ static void PrintUsage()
         << "  --state <name>    empty | swept | sampled | analyzed | line | line-early |\n                    line-pull | line-done | trip\n"
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
         << "  --energy <n>      override stored energy (tests cost gating)\n"
+        << "  --hover <0-3>     light a plate as if hovered (headless: no pointer)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
         << "  --out <path>      output PNG path                (default: preview.png)\n"
         << "  --help            show this message\n";
@@ -101,6 +103,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--energy" && hasNext)
         {
             options.energy = static_cast<float>(TextToInteger(argv[++i]));
+        }
+        else if (arg == "--hover" && hasNext)
+        {
+            options.hover = TextToInteger(argv[++i]);
         }
         else if (arg == "--bench" && hasNext)
         {
@@ -635,6 +641,9 @@ int main(int argc, char** argv)
 
             system->activeTab = TabFromName(options.tab);
             ApplyProspectingState(*system, options.state);
+            // Headless: there is no pointer to put on a plate, so the hover
+            // is handed to the panel directly.
+            system->previewHoverLayer = options.hover;
 
             // Select a cell inside instrument reach, so the cell readout shows
             // real data rather than an out-of-range cell.

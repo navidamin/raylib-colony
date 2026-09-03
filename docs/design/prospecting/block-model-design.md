@@ -40,6 +40,12 @@ to commit — which is the decision the whole extraction chain hangs on.
 
 ### What the player is looking at
 
+**Focus:** the four plates are not equal citizens on screen — the surface is
+pinned lit and the three below rest dim until hovered. The law, the numbers
+and why depth-fade alone failed are in
+[dark-plating §9.46](../graphics/dark-plating.md); the state is
+`ProspectingSystem::plateLight`.
+
 Not a grid of squares. A **block model**: four depth layers of the sub-cell
 lattice, drawn as stacked isometric surfaces, all four visible at once. The
 lattice stays fixed-resolution (never resized by progression); the code is

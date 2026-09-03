@@ -2673,13 +2673,18 @@ struct ProsPlateLift
 };
 
 static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockCell>& cells,
-                               int layer, float maxGrade, Font labelFont, float sp,
+                               int layer, float maxGrade, float plateLight,
+                               Font labelFont, float sp,
                                const char* depthLabel, const char* levelLabel,
                                std::vector<Rectangle>* hitBoxes, std::vector<int>* hitIndex,
                                const Texture2D* tex = nullptr, float rimPulse = 0.0f)
 {
     const int N = g.size;
-    const float fade = powf(0.84f, static_cast<float>(layer));
+    // How lit this plate is, decided by the focus law on the facade and
+    // eased there. It used to be powf(0.84, layer) -- depth alone, so all
+    // four competed for attention at once and the deep ones were never fully
+    // readable however long you looked at them.
+    const float fade = plateLight;
     // The stratum's generated rock (rock_texture.h), laid over the plate so
     // a clast spans about a cell -- the same ground the borehole strip shows
     // in section, read here as a surface instead of as data. Modulated by the
@@ -2838,9 +2843,15 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
     Vector2 leftCorner = g.Iso(0.0f, static_cast<float>(N), layer, 0.0f);
     float labelX = g.originX - N * g.tileX - 68.0f;
     for (float dx = labelX + 44.0f; dx < leftCorner.x - 5.0f; dx += 6.0f)
-        DrawLineEx({dx, leftCorner.y}, {dx + 2.5f, leftCorner.y}, 1.0f, Fade(EXT_ACCENT_CYAN, 0.28f));
-    DrawTextEx(labelFont, depthLabel, {labelX, leftCorner.y - 11.0f}, 11.0f, sp, EXT_ACCENT_CYAN);
-    DrawTextEx(labelFont, levelLabel, {labelX, leftCorner.y + 1.0f}, 8.0f, sp, EXT_DIM_TEXT);
+        DrawLineEx({dx, leftCorner.y}, {dx + 2.5f, leftCorner.y}, 1.0f,
+                   Fade(EXT_ACCENT_CYAN, 0.12f + 0.20f * std::clamp(fade, 0.0f, 1.0f)));
+    // The label belongs to the plate, so it recedes with it -- never all the
+    // way out, since it is also the depth scale of the whole stack.
+    float labelA = 0.40f + 0.60f * std::clamp(fade, 0.0f, 1.0f);
+    DrawTextEx(labelFont, depthLabel, {labelX, leftCorner.y - 11.0f}, 11.0f, sp,
+               Fade(EXT_ACCENT_CYAN, labelA));
+    DrawTextEx(labelFont, levelLabel, {labelX, leftCorner.y + 1.0f}, 8.0f, sp,
+               Fade(EXT_DIM_TEXT, labelA));
 }
 
 static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
@@ -3980,25 +3991,12 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     int rimLayer = ps->lineHole.state == LineHoleState::DRILLING
                  ? LayerOfDepthM(ps->lineHole.depthM) : -1;
     float rimPulse = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
-    if (!strataLoaded) LoadStrataTextures();
-    for (int L = 0; L < 4; L++)
-    {
-        // The stratum's own rock -- four textures for four layers, not one
-        // world tile reused; the strip's band at this depth wears the same.
-        const Texture2D* tile = (strataLoaded && strataTex[L].id != 0)
-                              ? &strataTex[L] : nullptr;
-        ProsDrawBlockLayer(geom, layers[L], L, maxGrade, bodyFont, sp,
-                           depthLabels[L], levelLabels[L], nullptr, nullptr,
-                           tile, L == rimLayer ? rimPulse : 0.0f);
-    }
-
-    // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
-    // block to collar it, then click a block on the layer the hole should
-    // reach -- the string starts on that second click (and charges energy).
-    // While aiming, the dashed preview follows the pointer. Clicking the
-    // collar block again cancels; a click anywhere else just selects.
-    bool stringDown = ps->lineHole.state == LineHoleState::DRILLING;
-    bool aiming = ps->lineHole.state == LineHoleState::AIMING;
+    // ---- Which plate is under the pointer, decided BEFORE anything is
+    // drawn: the plates' brightness now depends on it (a hovered plate comes
+    // up to full), and a hover computed after the draw would light the plate
+    // one frame late -- which on a fast pointer is a visible smear of the
+    // wrong layer.
+    //
     // Analytic pick: invert the iso transform per plate, so every pixel of a
     // plate maps to its nearest cell -- at 16x16 per-cell hit rects would be
     // smaller than any finger. Inverted against the LIFTED surface the player
@@ -4011,27 +4009,64 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     pick.tileX = geom.tileX;     pick.tileY = geom.tileY;
     pick.gap = geom.gap;         pick.size = gridSize;
 
+    auto LiftAt = [&](int L, int i, int j) {
+        // The same height the surface is drawn at (the one lift law).
+        return ProsCellLift(layers[L], gridSize, maxGrade, geom.relief, i, j);
+    };
     int hovL = -1, hovX = -1, hovY = -1;
     for (int L = 0; L < 4 && hovL < 0; L++)
     {
-        // The same height the surface is drawn at (the one lift law).
-        auto liftAt = [&](int i, int j) {
-            return ProsCellLift(layers[L], gridSize, maxGrade, geom.relief, i, j);
-        };
         int pi = 0, pj = 0;
-        if (!BlockPickCell(pick, L, mouse.x, mouse.y, liftAt, pi, pj)) continue;
+        if (!BlockPickCell(pick, L, mouse.x, mouse.y,
+                           [&](int i, int j) { return LiftAt(L, i, j); }, pi, pj)) continue;
         hovL = L; hovX = pi; hovY = pj;
+    }
+    if (hovL < 0 && ps->previewHoverLayer >= 0)
+    {
+        hovL = std::clamp(ps->previewHoverLayer, 0, 3);
+        hovX = gridSize / 2; hovY = gridSize / 2;
+    }
+    // Four plates of data is more than anyone reads at once: the surface
+    // stays lit, the three below rest dim and the one under the pointer comes
+    // up. Eased on the facade, which is where state that outlives a frame
+    // belongs (prospecting_constants.h has the table).
+    ps->UpdatePlateLight(hovL, GetFrameTime());
 
-        float lift = liftAt(pi, pj);
-        Vector2 q0 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY), L, lift);
-        Vector2 q1 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY), L, lift);
-        Vector2 q2 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY + 1), L, lift);
-        Vector2 q3 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY + 1), L, lift);
+    if (!strataLoaded) LoadStrataTextures();
+    for (int L = 0; L < 4; L++)
+    {
+        // The stratum's own rock -- four textures for four layers, not one
+        // world tile reused; the strip's band at this depth wears the same.
+        const Texture2D* tile = (strataLoaded && strataTex[L].id != 0)
+                              ? &strataTex[L] : nullptr;
+        ProsDrawBlockLayer(geom, layers[L], L, maxGrade, ps->plateLight[L],
+                           bodyFont, sp,
+                           depthLabels[L], levelLabels[L], nullptr, nullptr,
+                           tile, L == rimLayer ? rimPulse : 0.0f);
+    }
+
+    // The hovered cell's outline, drawn after the plates so it sits on top of
+    // the one it marks rather than under the plate below it.
+    if (hovL >= 0)
+    {
+        float lift = LiftAt(hovL, hovX, hovY);
+        Vector2 q0 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY), hovL, lift);
+        Vector2 q1 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY), hovL, lift);
+        Vector2 q2 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY + 1), hovL, lift);
+        Vector2 q3 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY + 1), hovL, lift);
         DrawLineEx(q0, q1, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(q1, q2, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(q2, q3, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(q3, q0, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
     }
+
+    // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
+    // block to collar it, then click a block on the layer the hole should
+    // reach -- the string starts on that second click (and charges energy).
+    // While aiming, the dashed preview follows the pointer. Clicking the
+    // collar block again cancels; a click anywhere else just selects.
+    bool stringDown = ps->lineHole.state == LineHoleState::DRILLING;
+    bool aiming = ps->lineHole.state == LineHoleState::AIMING;
 
     if (aiming && hovL > 0) ps->AimAt(hovL, hovX, hovY);   // preview tracks the pointer
 

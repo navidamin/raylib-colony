@@ -224,6 +224,26 @@ constexpr float BIT_TRIP_S_PER_M  = 0.30f;
 // the hole is already paid for and its knowledge already landed. Long enough
 // to watch the rods come up (~5 s at 79 m), short enough that the next hole
 // is never waiting on the animation.
+// ---------------------------------------------------------------------------
+// Block model focus
+// ---------------------------------------------------------------------------
+// Four plates of data at once is more than anyone reads at once. The SURFACE
+// plate is pinned lit -- it is the one holes are collared on, and the one
+// that answers "where am I" -- while the three below it rest dim and rise to
+// full when the pointer is on them. Dim means RECEDE, not hide: at these
+// values class colour is still legible, it just stops competing.
+//
+// The rest values keep a slight gradient with depth so the stack still reads
+// as depth when nothing is hovered (further away is dimmer, which is the one
+// cue an exploded iso stack has left).
+constexpr float PLATE_LIGHT_FULL    = 1.0f;
+constexpr float PLATE_REST_LIGHT[4] = { 1.0f, 0.50f, 0.44f, 0.38f };
+// Time constant of the rise and fall. An exponential needs about 3 tau to
+// arrive, so this is ~0.14 s to full: long enough to read as a light coming
+// up rather than a state flipping, short enough to still feel like the
+// pointer did it (past ~0.15 s a hover response starts to feel laggy).
+constexpr float PLATE_LIGHT_TAU_S   = 0.045f;
+
 constexpr float DRILL_PULL_BASE_S  = 1.2f;
 constexpr float DRILL_PULL_S_PER_M = 0.045f;
 inline float DrillPullSeconds(float depthM)

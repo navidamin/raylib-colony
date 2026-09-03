@@ -695,6 +695,39 @@ class **fades toward the rock as certainty falls** (MEASURED 0.90 →
 UNCLASSIFIED 0.12 class weight): unknown ground looks like its stratum,
 and knowledge reads as colour rising out of the rock.
 
+### 9.46 One plate at a time
+
+Four planes of data stacked in one panel is more than anyone reads at once,
+and dimming them *by depth* — the obvious move, and what this panel did for
+months — helps nobody: every plate is a bit quieter than the last, none is
+ever fully readable, and the stack competes with itself at every moment.
+
+Give the stack a **focus** instead:
+
+- **One plate is pinned lit** whatever the pointer does. In prospecting that
+  is the surface: it is the plate holes are collared on and the one that
+  answers *where am I*. A stack with no anchor reads as four dim things.
+- **The rest rest dim, and the one under the pointer comes up to full.**
+  Dim means *recede*, not hide — at `{0.50, 0.44, 0.38}` of full, class
+  colour is still legible, it has just stopped competing. Keep a slight
+  gradient across the dim values so depth still reads when nothing is
+  hovered; that is the only depth cue an exploded iso stack has left.
+- **Ease it, and put the eased value where it survives a frame.** A snap
+  flickers as the pointer crosses the stack. ~0.14 s to full (exponential,
+  `tau = 0.045`) reads as a light coming up while still feeling like the
+  pointer did it; past ~0.15 s a hover response starts to feel laggy. The
+  renderer is rebuilt from nothing every frame and can only ever snap, so the
+  value lives on the module facade (`ProspectingSystem::plateLight`, under
+  test) — the same rule as every other piece of persistent UI state.
+- **Decide before you draw.** The hover was computed *after* the plates in
+  this panel, which was harmless while nothing in the draw depended on it and
+  became a one-frame lag the moment brightness did — a visible smear of the
+  wrong plate under a fast pointer. Pick, then light, then draw, then put the
+  cursor decoration on top.
+
+Measured on the real panel: a hovered plate's own region rises 32 → 46 mean
+luminance while the pinned plate does not move.
+
 ### 9.5 The animation recipes
 
 Approved in the drill-dock prototype; reuse verbatim:

@@ -177,6 +177,20 @@ void ProspectingSystem::KickString()
     lineHole.rpm = std::min(DRILL_RPM_MAX, lineHole.rpm + DRILL_RPM_KICK);
 }
 
+void ProspectingSystem::UpdatePlateLight(int hoveredLayer, float dt)
+{
+    // Exponential approach, framerate-independent: the same wall-clock rise
+    // whether the panel is running at 30 or 144. The surface's rest value IS
+    // full, so "the surface is always lit" needs no special case here -- it
+    // is a fact about the table, stated once, in the table.
+    float k = 1.0f - std::exp(-std::max(dt, 0.0f) / PLATE_LIGHT_TAU_S);
+    for (int L = 0; L < 4; L++)
+    {
+        float target = (L == hoveredLayer) ? PLATE_LIGHT_FULL : PLATE_REST_LIGHT[L];
+        plateLight[L] += (target - plateLight[L]) * k;
+    }
+}
+
 void ProspectingSystem::GetLineCell(float m, float& gx, float& gy) const
 {
     gx = lineHole.collarX + lineHole.dirX * m;
