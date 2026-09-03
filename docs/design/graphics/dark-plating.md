@@ -286,6 +286,15 @@ For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
   telling apart. Playtest report: *"needs more contrast between the scattered
   dots and the background, it's very dim all together."*
 
+  **Alpha is not lightness.** Asked to lift the dim interbands "20%", the
+  obvious move — scale the alpha 0.11 → 0.13 — moved the band from 20.5 to
+  21.8 mean luminance, **1.3 levels out of 255**, and the playtest reported
+  nothing had changed. Blending a dim overlay onto a near-black panel makes
+  the alpha a poor proxy for what the eye gets. Solve it against the rendered
+  pixels instead: measure the region, set a target (+20% → 24.6), and bracket
+  the alpha until it lands — 0.20 gave 25.0, +21.7%. Two renders and a
+  measurement, against one guess that shipped invisible.
+
   Two rules make it drop in without disturbing anything:
   **the output is a modulation map, not a colour** — grey centred on exactly
   128, so a surface drawn `PROS_ROCK_COL[L] * 2 * tex/255` keeps the mean tone

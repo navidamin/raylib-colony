@@ -4040,11 +4040,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             // ground behind them has to be a fraction of THAT, or the panel
             // reads as one texture with diamonds faintly in it.
             DrawTexturePro(strataTex[L], {0.0f, L * 41.0f, band.width * k, band.height * k},
-                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.13f));
+                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.20f));
         }
         else
         {
-            DrawRectangleRec(band, Fade(PROS_ROCK_COL[L], 0.12f));
+            DrawRectangleRec(band, Fade(PROS_ROCK_COL[L], 0.18f));
         }
         DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX, 1.6f},
                          Fade(PROS_ROCK_EDGE[L], 0.85f));
