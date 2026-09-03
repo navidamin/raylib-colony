@@ -299,8 +299,16 @@ For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
   near 1:1 down the section, repeated ×2 across the plan view so a clast is
   about the same size in both. The strip's hand-scattered speckle this
   replaced could not be the same ground: it was drawn from an LCG only the
-  strip ran. One quad per cell on the one texture keeps a plate a single
-  batch; `--bench` at 32×32 reads 17 ms/frame, the software-raster floor.
+  strip ran.
+
+  **The textured path is the FAST one, by a factor of eight.** One quad per
+  cell on one bound texture keeps a whole plate in a single batch: measured
+  on llvmpipe, 27 ms/frame textured against **216 ms** for the untextured
+  `DrawTriangle` fallback, which pays the generic batch per triangle 4096
+  times over. Texture was expected to cost something and instead paid for
+  itself many times; the fallback is now the thing to avoid, and it says so
+  in the code. (Texturing the dim interbands as well costs 0.4 ms; drawing
+  the plates larger after flattening them costs ~3 ms.)
 - **Relief is read by slope, not height.** A flat-lit iso plate does not
   show its shape at any relief (three rounds of "the curvature is not
   visible enough" were spent raising it: 0.30 → 0.45 → 0.60 of the plate's

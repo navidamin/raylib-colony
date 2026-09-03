@@ -143,9 +143,14 @@ BLIND 14589 · SURVEYOR 17745 · EXPERT 18481 · HANDS-ON 22011; tier 0 ~930,
 HANDS-ON 1805; the surveyor's survey progress 44%. The ordering section 3
 argued for holds, with a wider gap between blind and surveyed than the
 16x16 run showed — which is what one expects once the whole lattice can be
-dug. Frame cost of the prospecting panel at 32x32: 17 ms/frame under
-`--bench`, the software-raster floor (the estimate field is built once per
-frame; nothing else scales with N⁴ any more).
+dug. Frame cost of the prospecting panel at 32x32 under `--bench`: 17 ms/frame
+when this was written, ~27 ms after the panel gained generated rock, flatter
+plates and textured interbands. Only ~3.5 ms of that is attributable by
+isolation (see dark-plating §5, where the surprise is that the TEXTURED path
+is 8x faster than the untextured fallback); the remainder does not reproduce
+against a same-session baseline and is most likely host variance between
+sessions — software-raster numbers are only comparable within one sitting.
+The estimate field is still built once per frame and nothing scales with N⁴.
 
 ## 4. One plate, one depth (the slab mapping, and why it went)
 
