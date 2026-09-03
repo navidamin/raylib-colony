@@ -2630,9 +2630,20 @@ static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,
 // size of the same clast in the band.
 static constexpr float PROS_ROCK_TEX_PX = static_cast<float>(RockTexture::SIZE);
 static constexpr float PROS_PLATE_TEX_REPEAT = 2.0f;
-// How far a stratum's top boundary sits above its plate's centre, as a
-// fraction of the plate diamond's half-height (see ProsDockFrom).
-static constexpr float PROS_PLATE_TUCK = 0.22f;
+// How far a plate's DRAWN surface hangs below its stratum's top boundary,
+// as a fraction of the plate diamond's half-height (see ProsDockFrom).
+static constexpr float PROS_PLATE_TUCK = 0.50f;
+
+// The y of a stratum's top boundary -- the line the plate hangs under, the
+// line the strip's band starts at, and the line the depth label names.
+// Derived in ONE place so those three cannot drift apart; they did, the first
+// time the plates moved and the labels stayed anchored to the plate instead.
+static float ProsPlateLineY(const BlockModelGeom& g, int layer)
+{
+    float slot = g.originY + layer * g.gap + g.size * g.tileY;
+    return slot - (g.relief + g.size * g.tileY * PROS_PLATE_TUCK);
+}
+
 
 // The one lift law. Everything that has to sit ON a plate's surface -- the
 // plate itself, the hover outline, the pick, the ends of the prescribed line
@@ -2853,8 +2864,11 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
         edge(N, N, 0, N);   edge(0, N, 0, 0);
     }
 
-    // Depth ruling out to the left edge of this plate
+    // Depth ruling out to the left edge of this plate. Anchored to the
+    // stratum's BOUNDARY, which is the depth the label names -- not to the
+    // plate, which hangs below it by design (ProsPlateLineY).
     Vector2 leftCorner = g.Iso(0.0f, static_cast<float>(N), layer, 0.0f);
+    leftCorner.y = ProsPlateLineY(g, layer);
     float labelX = g.originX - N * g.tileX - 68.0f;
     for (float dx = labelX + 44.0f; dx < leftCorner.x - 5.0f; dx += 6.0f)
         DrawLineEx({dx, leftCorner.y}, {dx + 2.5f, leftCorner.y}, 1.0f,
@@ -3057,14 +3071,26 @@ static ProsDockGeom ProsDockFrom(const BlockModelGeom& g, float stripX, float st
     // names it cannot drift apart. (The bands used to be CENTRED on the
     // plates, which put a plate in the middle of rock that was half above it.)
     //
-    // The boundary sits a little ABOVE the plate's centre, by a fraction of
-    // the diamond's half-height, so the plane's two lateral corners -- which
-    // in an iso diamond are exactly at its centre height -- come to rest just
-    // under the line rather than balanced on it. A plate whose widest points
-    // touch its own boundary reads as pinned to it; tucked slightly under, it
-    // reads as the ceiling of the rock below.
-    float tuck = g.size * g.tileY * PROS_PLATE_TUCK;
-    for (int L = 0; L < 4; L++) d.bandTop[L] = slot[L] - tuck;
+    // The boundary sits above the plate so the plate hangs UNDER its own
+    // ceiling. Two terms, and the first one is the whole lesson:
+    //
+    //   g.relief -- because a plate is drawn LIFTED, not at its base plane.
+    //     cornerLift raises each corner by (grade/maxGrade)^0.8 * relief, so
+    //     a field with nothing surveyed yet -- every cell holding the same
+    //     layer mean -- lifts EVERY corner the full relief. Positioning
+    //     against the base plane therefore put the visible plate 22 px above
+    //     a line that was, on paper, 5 px above its base. The eye sees the
+    //     lifted surface; the layout has to be told about it.
+    //   the fraction -- the "a bit below" itself, applied to the drawn
+    //     surface: a fully lifted plate rests half a half-height under its
+    //     line.
+    //
+    // Referenced to the FULL lift on purpose. The layout must not move as
+    // survey data arrives (the bands are the depth scale), so it is pinned to
+    // the plate's ceiling: the richest cells rise toward the boundary and
+    // poorer ground hangs further below it, which is the right reading.
+    (void)slot;
+    for (int L = 0; L < 4; L++) d.bandTop[L] = ProsPlateLineY(g, L);
     d.bandTop[4] = d.bandTop[3] + g.gap;
     return d;
 }

@@ -745,13 +745,27 @@ is the one meaning an exploded stack must reserve for the gaps between plates
 plates wear the same generated rock as the instrument beside them, so the
 plates visibly float *in* ground rather than in nothing.
 
-**Tuck the plane under its own boundary.** An iso diamond's two lateral
-corners sit exactly at its centre height, so a plate whose centre is on its
-boundary line has its widest points balanced *on* the line, and reads as
-pinned to it. Dropped a little below — 0.22 of the diamond's half-height,
-chosen by rendering 0.14 / 0.22 / 0.34 and looking: at 0.14 the edge still
-touches, at 0.34 the plate starts to detach — it reads instead as the
-ceiling of the rock below, which is what it is.
+**Tuck the plane under its own boundary — and measure against the DRAWN
+surface, not the base plane.** An iso diamond's lateral corners sit at its
+centre height, so a plate centred on its boundary has its widest points
+balanced *on* the line. But a plate is drawn LIFTED: `cornerLift` raises each
+corner by `(grade/maxGrade)^0.8 × relief`, and a field with nothing surveyed
+holds the same layer mean in every cell — which lifts every corner the *full*
+relief. So a layout computed against the base plane put the visible plate
+22 px **above** a line that was, on paper, 5 px above its base. The eye sees
+the lifted surface; the layout has to be told about it.
+
+The boundary therefore sits `relief + 0.5 × half-height` above the plate's
+base, which lands a fully lifted plate half a half-height *below* its line.
+Reference the FULL lift, never the current mean: the bands are the depth
+scale and must not move as survey data arrives. Pinned to the plate's ceiling
+instead, the richest cells rise toward the boundary and poorer ground hangs
+further below it — which is the right reading anyway.
+
+Whatever draws at that boundary — the strip's band, the plate, the depth
+label and its ruling — must derive it from **one** function. They did not,
+and the first time the plates moved the labels stayed anchored to the plate
+and drifted off the depth they name.
 
 But dim it against the plates' **resting** state, not their lit one. At a
 third strength this backdrop *camouflaged* the very plates it sat behind —
