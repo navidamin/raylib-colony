@@ -2607,7 +2607,14 @@ static BlockModelGeom ProsBlockGeom(int gridSize, float x, float y, float w, flo
 // as ground rather than as data resolution.
 // The strata palette, shared by the borehole strip (full strength) and the
 // plates' resting tone (dimmed) -- declared ahead of both users.
-static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
+// Basalt was {39,42,48}: so dark that everything drawn on it -- vesicles,
+// joints, the whole texture -- was multiplied down into a flat smudge, and
+// the band read as dim rather than as dense. Lifted enough to carry detail,
+// and NEUTRAL rather than blue: the first lift went to {52,56,64} and put it
+// in the fractured layer's cool grey, so the two deepest bands stopped
+// telling apart. Blue is now layer 2's alone, and basalt is still plainly
+// the darkest rock in the column.
+static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{53,52,55,255}};
 // How the one texture per stratum is laid into each projection. In the strip,
 // one tile covers this many screen pixels -- near 1:1 at the dock's width, so
 // the grain reads at the size it was generated and a band shows barely one

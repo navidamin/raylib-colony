@@ -263,6 +263,17 @@ For a genuinely new alloy (brass, blued steel...), clone `steel()` with a new
   | Fractured | calm low-frequency slabs cut by 4 master joints + 9 branches, some ice-filled | broken rock |
   | Basalt | near-uniform, vesicles (dark core, lit lower rim), columnar joints, cooling cracks | dense lava |
 
+  **Dark rock swallows texture.** The modulation is multiplicative, so the
+  same texture step is worth fewer screen levels the darker the stratum under
+  it: on the old basalt `{39,42,48}` a step of 20 came out as about 6 levels
+  and the band read as dim rather than as dense. The darkest rock in a set
+  therefore needs *both* halves of the fix — a lifted base tone and a wider
+  swing (basalt clamps to ±88 of 128 where the others take ±68) — and the
+  lift has to stay in its own hue, since the first attempt at it walked
+  basalt into the fractured layer's blue and the two deepest bands stopped
+  telling apart. Playtest report: *"needs more contrast between the scattered
+  dots and the background, it's very dim all together."*
+
   Two rules make it drop in without disturbing anything:
   **the output is a modulation map, not a colour** — grey centred on exactly
   128, so a surface drawn `PROS_ROCK_COL[L] * 2 * tex/255` keeps the mean tone

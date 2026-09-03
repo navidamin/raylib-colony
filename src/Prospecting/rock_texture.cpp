@@ -291,15 +291,15 @@ void BuildBasalt(Canvas& c, unsigned seed)
             c.lum[y * N + x] = (Fbm(u, v, 4, 2, seed) - 0.5f) * 13.0f
                              + (Hash2(x, y, seed + 404u) - 0.5f) * 6.0f;
         }
-    // columnar jointing: near-vertical, low contrast, one lit face
+    // columnar jointing: near-vertical, one lit face
     for (int j = 0; j < 6; j++)
     {
         float x = Hash2(j, 40, seed) * N;
         for (int y = 0; y < N; y++)
         {
             x += (Hash2(y, 41, seed + j * 13u) - 0.5f) * 0.5f;
-            c.Add(static_cast<int>(x), y, -11.0f);
-            c.Add(static_cast<int>(x) + 1, y, 5.0f);
+            c.Add(static_cast<int>(x), y, -15.0f);
+            c.Add(static_cast<int>(x) + 1, y, 8.0f);
         }
     }
     // cooling cracks across the columns
@@ -314,12 +314,20 @@ void BuildBasalt(Canvas& c, unsigned seed)
             c.Add(static_cast<int>(x0) + i, static_cast<int>(y), -9.0f);
         }
     }
-    // vesicles
-    for (int i = 0; i < 240; i++)
+    // Vesicles. These carry the entire layer -- basalt has nothing else --
+    // and they are drawn on the DARKEST stratum in the palette, where the
+    // modulation is multiplicative and so compressed hardest: at rock tone
+    // {52,56,64} a texture step of 20 is a screen step of about 8 levels.
+    // Hence the amplitude, and the wider clamp below: a vug is a hole, and
+    // it should read as one.
+    for (int i = 0; i < 260; i++)
     {
         float cx = Hash2(i, 42, seed) * N, cy = Hash2(i, 43, seed) * N;
-        float r = 0.8f + Hash2(i, 44, seed) * 1.9f;
-        c.Disc(cx, cy, r, -20.0f, 13.0f);
+        // Power law, not uniform: mostly small vugs with a few big ones, the
+        // way gas actually froze in. A uniform radius came out as polka dots.
+        float h = Hash2(i, 44, seed);
+        float r = 0.7f + h * h * h * 3.4f;
+        c.Disc(cx, cy, r, -38.0f, 24.0f);
     }
 }
 
@@ -348,9 +356,15 @@ void Generate(int layer, int size, unsigned char* dst)
     for (float v : c.lum) sum += v;
     float shift = 128.0f - static_cast<float>(sum / c.lum.size());
 
+    // How far a stratum may swing around 128. Basalt is drawn on the darkest
+    // rock in the palette, where a multiplicative modulation loses most of its
+    // absolute contrast, so it is allowed a wider range than the rest.
+    const float lo = (layer == 3) ? 38.0f : 60.0f;
+    const float hi = (layer == 3) ? 226.0f : 205.0f;
+
     for (int i = 0; i < size * size; i++)
     {
-        float g = std::clamp(c.lum[i] + shift, 60.0f, 205.0f);
+        float g = std::clamp(c.lum[i] + shift, lo, hi);
         float t = std::min(1.0f, c.ice[i]);
         dst[i * 4 + 0] = static_cast<unsigned char>(std::clamp(g - 16.0f * t, 0.0f, 255.0f));
         dst[i * 4 + 1] = static_cast<unsigned char>(std::clamp(g +  2.0f * t, 0.0f, 255.0f));
