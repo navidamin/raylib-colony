@@ -62,6 +62,14 @@ jobs:
 
     - name: Prepare deployment directory
       run: |
+        SHA=$(git rev-parse --short HEAD)
+        # Version every asset URL in a deployed page, so a new publish can
+        # never be served from a browser cache under an old name. See the
+        # locateFile note in src/minshell.html.
+        Bust() {
+          sed -i "s/COLONY_BUILD_STAMP/${SHA}/g" "$1"
+          sed -i "s|src=\"\(colony_[a-z_]*\.js\)\"|src=\"\1?v=${SHA}\"|g" "$1"
+        }
         mkdir -p deploy
         cp build/src/colony_game.html deploy/index.html
         cp build/src/colony_game.js deploy/colony_game.js
@@ -70,6 +78,8 @@ jobs:
         if [ -f build/src/colony_game.data ]; then
           cp build/src/colony_game.data deploy/colony_game.data
         fi
+
+        Bust deploy/index.html
 
         # Prospecting playtest sandbox at /playtest/
         mkdir -p deploy/playtest
@@ -80,6 +90,8 @@ jobs:
           cp build/src/colony_playtest.data deploy/playtest/colony_playtest.data
         fi
 
+        Bust deploy/playtest/index.html
+
         # Whole extraction unit sandbox at /extraction/
         mkdir -p deploy/extraction
         cp build/src/colony_extraction.html deploy/extraction/index.html
@@ -88,6 +100,11 @@ jobs:
         if [ -f build/src/colony_extraction.data ]; then
           cp build/src/colony_extraction.data deploy/extraction/colony_extraction.data
         fi
+        Bust deploy/extraction/index.html
+
+        echo "--- asset URLs versioned to $SHA ---"
+        grep -o 'src="colony_[a-z_]*\.js?v=[0-9a-f]*"' deploy/playtest/index.html || true
+        grep -c "$SHA" deploy/playtest/index.html || true
 
     # See the note at the top: pull the other active branch's latest site and
     # keep any sandbox it has that this deploy does not. Never fails the build

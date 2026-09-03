@@ -412,7 +412,24 @@
                 canvas: (function() {
                     var canvas = document.getElementById('canvas');
                     return canvas;
-                })()
+                })(),
+                // CACHE BUSTING. The asset filenames never change between
+                // deploys -- every build ships colony_<target>.wasm -- so a
+                // browser that has one cached will happily reuse it forever
+                // and the page looks untouched however green the deploy was.
+                // This cost a playtest round to diagnose: the site was
+                // current and the screen was not.
+                //
+                // The deploy step rewrites the stamp below to the commit SHA
+                // (and versions the .js tag the same way), so every publish
+                // asks for URLs no browser has seen. Left as the literal
+                // placeholder by a local build, where it correctly does
+                // nothing -- a file:// page has no stale copy to fight.
+                locateFile: function(path, prefix) {
+                    var v = "COLONY_BUILD_STAMP";
+                    if (v.lastIndexOf("COLONY_", 0) === 0) return prefix + path;
+                    return prefix + path + "?v=" + v;
+                }
             };
         </script>
         {{{ SCRIPT }}}
