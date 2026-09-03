@@ -745,6 +745,14 @@ is the one meaning an exploded stack must reserve for the gaps between plates
 plates wear the same generated rock as the instrument beside them, so the
 plates visibly float *in* ground rather than in nothing.
 
+**Tuck the plane under its own boundary.** An iso diamond's two lateral
+corners sit exactly at its centre height, so a plate whose centre is on its
+boundary line has its widest points balanced *on* the line, and reads as
+pinned to it. Dropped a little below — 0.22 of the diamond's half-height,
+chosen by rendering 0.14 / 0.22 / 0.34 and looking: at 0.14 the edge still
+touches, at 0.34 the plate starts to detach — it reads instead as the
+ceiling of the rock below, which is what it is.
+
 But dim it against the plates' **resting** state, not their lit one. At a
 third strength this backdrop *camouflaged* the very plates it sat behind —
 they rest at 0.38–0.50 of full themselves, so a background at 0.34 is nearly

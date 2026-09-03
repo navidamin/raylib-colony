@@ -2630,6 +2630,9 @@ static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,
 // size of the same clast in the band.
 static constexpr float PROS_ROCK_TEX_PX = static_cast<float>(RockTexture::SIZE);
 static constexpr float PROS_PLATE_TEX_REPEAT = 2.0f;
+// How far a stratum's top boundary sits above its plate's centre, as a
+// fraction of the plate diamond's half-height (see ProsDockFrom).
+static constexpr float PROS_PLATE_TUCK = 0.22f;
 
 // The one lift law. Everything that has to sit ON a plate's surface -- the
 // plate itself, the hover outline, the pick, the ends of the prescribed line
@@ -3049,12 +3052,20 @@ static ProsDockGeom ProsDockFrom(const BlockModelGeom& g, float stripX, float st
     for (int L = 0; L < 4; L++)
         slot[L] = g.originY + L * g.gap + g.size * g.tileY;
     // Each band STARTS at its own plate: a plate is the top face of its rock,
-    // so the rock hangs below it. That makes YOf(PlatePlaneM(L)) land exactly
-    // on plate L by construction, at any layout -- the plate and the line that
+    // so the rock hangs below it. That makes YOf(PlatePlaneM(L)) land on
+    // plate L by construction, at any layout -- the plate and the line that
     // names it cannot drift apart. (The bands used to be CENTRED on the
     // plates, which put a plate in the middle of rock that was half above it.)
-    for (int L = 0; L < 4; L++) d.bandTop[L] = slot[L];
-    d.bandTop[4] = slot[3] + g.gap;
+    //
+    // The boundary sits a little ABOVE the plate's centre, by a fraction of
+    // the diamond's half-height, so the plane's two lateral corners -- which
+    // in an iso diamond are exactly at its centre height -- come to rest just
+    // under the line rather than balanced on it. A plate whose widest points
+    // touch its own boundary reads as pinned to it; tucked slightly under, it
+    // reads as the ceiling of the rock below.
+    float tuck = g.size * g.tileY * PROS_PLATE_TUCK;
+    for (int L = 0; L < 4; L++) d.bandTop[L] = slot[L] - tuck;
+    d.bandTop[4] = d.bandTop[3] + g.gap;
     return d;
 }
 
