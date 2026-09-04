@@ -3847,10 +3847,11 @@ static void UpdateSiteSelect(AppState& app)
         }
         else if (app.siteLevel == SITE_LEVELS - 1)
         {
-            // A click while the cursor is still a 5 km cell means "get
-            // closer", not "build here" -- the verdict it would commit
-            // to is measured over five times the base's own footprint.
-            // Refine first, then found.
+            // The cursor here IS the base's footprint, so a click is
+            // always "build here" and the verdict it commits to is
+            // measured over exactly the ground the rectangle covers.
+            // (Until 2026-09-03 a click on an unrefined 5 km cursor
+            // zoomed instead of founding -- docs/graveyard.md, 6.)
             if (verdict.allowed) app.founded = true;
         }
         else
