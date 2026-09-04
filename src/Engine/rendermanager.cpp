@@ -7393,15 +7393,39 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     const DigResult& last = es->GetLastResult();
     const char* targetName = ResourceTypeToString(es->targetResource);
 
-    const char* expectation = sel.isCertain
-        ? TextFormat("SPOT %d,%d   %s  %.0f  (known)", es->selectedSpotX, es->selectedSpotY,
-                     targetName, sel.shown)
-        : TextFormat("SPOT %d,%d   %s  %.0f  (%.0f-%.0f, %s)", es->selectedSpotX, es->selectedSpotY,
-                     targetName, sel.shown, sel.low, sel.high,
-                     ProsConfLabel(sel.confidence));
+    // Drawn as SEGMENTS, dim label against bright value, the way the control
+    // rail states everything else. It was one prose run in one colour -- five
+    // numbers and two parenthesised asides with nothing to tell the figure
+    // that matters from the words carrying it, and it is the line the whole
+    // module reports through.
+    auto Segments = [&](float startX, std::initializer_list<std::pair<const char*, Color>> parts)
+    {
+        float sx = startX;
+        for (const auto& part : parts)
+        {
+            DrawTextEx(bodyFont, part.first, {sx, readY}, FS(10.0f), sp, part.second);
+            sx += MeasureTextEx(bodyFont, part.first, FS(10.0f), sp).x;
+        }
+        return sx - startX;
+    };
+    auto SegmentsWidth = [&](std::initializer_list<std::pair<const char*, Color>> parts)
+    {
+        float w = 0.0f;
+        for (const auto& part : parts)
+            w += MeasureTextEx(bodyFont, part.first, FS(10.0f), sp).x;
+        return w;
+    };
 
-    DrawTextEx(bodyFont, expectation, {px, readY}, FS(10.0f), sp,
-               sel.isCertain ? EXT_TEXT : EXT_DIM_TEXT);
+    // Left: what you believe is in the selected spot.
+    Segments(px, {
+        {TextFormat("SPOT %d,%d   ", es->selectedSpotX, es->selectedSpotY), EXT_DIM_TEXT},
+        {TextFormat("%s %.0f", targetName, sel.shown),
+         sel.isCertain ? EXT_TEXT : EXT_DIM_TEXT},
+        {sel.isCertain ? "   known"
+                       : TextFormat("   %.0f-%.0f  %s", sel.low, sel.high,
+                                    ProsConfLabel(sel.confidence)),
+         Fade(EXT_DIM_TEXT, 0.85f)},
+    });
 
     // Right side: what actually came up last tick, and the share of it that
     // was the thing being aimed at.
@@ -7415,13 +7439,19 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         float frame = GetFrameTime();
         float perDay = frame > 0.0f ? (TICKS_PER_DAY / frame) : 0.0f;
 
-        const char* got = TextFormat("GETTING  %.0f %s/day  of  %.0f moved   (%.0f%% useful)",
-                                     last.targetMass * perDay, targetName,
-                                     last.totalMass * perDay, share * 100.0f);
-        float gw = MeasureTextEx(bodyFont, got, FS(10.0f), sp).x;
         Color gotColor = share > 0.6f ? EXT_ACCENT_GREEN
                                       : (share > 0.3f ? EXT_TEXT : EXT_ACCENT_GOLD);
-        DrawTextEx(bodyFont, got, {px + pw - gw, readY}, FS(10.0f), sp, gotColor);
+        // The rate is the figure; the rest is what it is a share OF. Putting
+        // the percentage against the tonnage it divides beats "(75% useful)"
+        // floating at the end of the sentence.
+        auto parts = {
+            std::make_pair(TextFormat("%.0f %s/day", last.targetMass * perDay, targetName),
+                           gotColor),
+            std::make_pair(TextFormat("   %.0f%% of %.0f moved", share * 100.0f,
+                                      last.totalMass * perDay),
+                           Fade(EXT_DIM_TEXT, 0.9f)),
+        };
+        Segments(px + pw - SegmentsWidth(parts), parts);
     }
     else
     {

@@ -545,6 +545,24 @@ changed there was the *word*: prospecting now says LATTICE, because one term
 meaning two things across twin panels is how a real limit gets read as
 decoration and a fixed fact gets read as a wall.
 
+### 7a2. A readout is not a sentence
+
+The line a module reports through earns structure, not prose. Excavation's
+read "SPOT 16,16  C 2219 (known)" against "GETTING 323 C/day of 431 moved
+(75% useful)" -- five numbers and two parenthesised asides in one weight and
+one colour, so nothing told the figure that matters from the words carrying
+it.
+
+Same information, drawn as **segments**: dim label, bright value, dim
+qualifier. "SPOT 16,16" recedes, `C 2219` reads, "known" recedes; the rate
+takes the state colour and the share sits against the tonnage it divides
+("75% of 237 moved" rather than "(75% useful)" adrift at the end). Words that
+only carried grammar -- GETTING, useful -- are gone; the layout says what
+they said.
+
+The rule: in a readout, colour and weight ARE the grammar. If every token is
+the same weight, the reader parses a sentence to find a number.
+
 ### 7b. One type scale, reachable from everywhere that draws
 
 A view with a font scale has to apply it to *all* of its text, and the way
