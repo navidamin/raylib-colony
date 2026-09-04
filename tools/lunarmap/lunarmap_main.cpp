@@ -1062,6 +1062,171 @@ static void WindowCacheStore(double lat, double lon, double spanKm, int res,
     g_windowCache.push_back(std::move(e));
 }
 
+
+// ---------------------------------------------------------------------------
+// The chain layer: built ONCE per window, kept across the sharpening rungs.
+//
+// Building it per rung cost two seconds on the last one, and worse, it
+// changed the ground. The scale targets a slope and the chain's grain
+// lattice is fixed in pixels, so a finer rung put the same five degrees
+// into smaller features: relief fell 12.3 -> 5.4 -> 2.7 m rms across the
+// three rungs and the player watched the surface change character while
+// it was supposed to be coming into focus. One layer, resampled onto
+// whatever grid a rung happens to use, is what site-ground-texture.md 5.5
+// asks for and it answers both complaints at once.
+// ---------------------------------------------------------------------------
+
+struct ChainLayer
+{
+    std::vector<float> heightM;   // metres, band-limited, ready to add
+    std::vector<float> albedo;    // already divided by its own local mean
+    int res = 0;
+    float reliefRms = 0.0f;
+    double buildMs = 0.0;
+};
+
+struct ChainCacheEntry
+{
+    double latDeg = 0.0, lonDeg = 0.0, spanKm = 0.0;
+    float strength = 0.0f;
+    ChainLayer layer;
+};
+static std::vector<ChainCacheEntry> g_chainCache;
+
+// What the CPU chain affords, and deliberately NOT
+// GetTerrainPathResolution(): that answers for whichever path the machine
+// chose, and only the CPU path can produce fields today, so on a box with
+// a GPU it would promise 1024 for work the CPU is still doing.
+static const int CHAIN_LAYER_RES = 512;
+
+static void ResampleField(const std::vector<float>& src, int sw,
+                          std::vector<float>& dst, int dw)
+{
+    dst.assign((size_t)dw * dw, 0.0f);
+    if (sw < 2 || dw < 1 || src.size() != (size_t)sw * sw) return;
+    for (int y = 0; y < dw; y++)
+    {
+        double fy = (y + 0.5) * sw / (double)dw - 0.5;
+        int y0 = std::clamp((int)std::floor(fy), 0, sw - 1);
+        int y1 = std::min(y0 + 1, sw - 1);
+        float ty = (float)std::clamp(fy - y0, 0.0, 1.0);
+        for (int x = 0; x < dw; x++)
+        {
+            double fx = (x + 0.5) * sw / (double)dw - 0.5;
+            int x0 = std::clamp((int)std::floor(fx), 0, sw - 1);
+            int x1 = std::min(x0 + 1, sw - 1);
+            float tx = (float)std::clamp(fx - x0, 0.0, 1.0);
+            float a = src[(size_t)y0 * sw + x0] * (1 - tx)
+                    + src[(size_t)y0 * sw + x1] * tx;
+            float b = src[(size_t)y1 * sw + x0] * (1 - tx)
+                    + src[(size_t)y1 * sw + x1] * tx;
+            dst[(size_t)y * dw + x] = a + (b - a) * ty;
+        }
+    }
+}
+
+static bool BuildChainLayer(double lat, double lon, double spanKm,
+                            double nativeKm, float strength, ChainLayer* out)
+{
+    double t0 = GetTime();
+    const int R = CHAIN_LAYER_RES;
+    TerrainChainFields fields;
+    if (!GenerateTerrainFields(lat, lon, R, spanKm, &fields)) return false;
+
+    // Band-limit to what the elevation data cannot resolve. The chain's
+    // long wavelengths are the imagery's landforms read as topography;
+    // LOLA already carries those, and where the two disagree the
+    // measurement wins. Everything finer than the data floor is what the
+    // chain is here for.
+    double kmPerPx = spanKm / (double)R;
+    float sigmaPx = (float)std::max(1.0, 0.5 * nativeKm / kmPerPx);
+    std::vector<float> coarse = fields.height;
+    BoxBlurField(coarse, R, R, sigmaPx);
+
+    // Scale by the SLOPE it produces, not by the chain's own height
+    // convention. heightScaleM reproduces the shading the chain drew for
+    // itself, which is soft; this shader is harsh Lambert with near-black
+    // shadows, and the same geometry under it reads as a blown-out mess.
+    // What a surface has to get right is its slopes, so aim at those:
+    // solve for the scale giving the added relief a target mean gradient.
+    // Five degrees is regolith at tens of metres per pixel -- ground you
+    // could drive over, which is what the site level is asking about.
+    const double TARGET_SLOPE_DEG = 5.0;
+    double pixelM = spanKm * 1000.0 / R;
+    double g2 = 0.0;
+    size_t gn = 0;
+    for (int y = 1; y + 1 < R; y++)
+    {
+        for (int x = 1; x + 1 < R; x++)
+        {
+            size_t i = (size_t)y * R + x;
+            float hx = (fields.height[i + 1] - coarse[i + 1])
+                     - (fields.height[i - 1] - coarse[i - 1]);
+            float hy = (fields.height[i + R] - coarse[i + R])
+                     - (fields.height[i - R] - coarse[i - R]);
+            g2 += 0.25 * (double)(hx * hx + hy * hy);
+            gn++;
+        }
+    }
+    double gradRms = (gn > 0) ? std::sqrt(g2 / gn) : 0.0;
+    float scaleM = 0.0f;
+    if (gradRms > 1e-9)
+        scaleM = (float)(std::tan(TARGET_SLOPE_DEG * DEG2RAD) * pixelM
+                         / gradRms) * strength;
+
+    out->heightM.resize((size_t)R * R);
+    double rms = 0.0;
+    for (size_t i = 0; i < out->heightM.size(); i++)
+    {
+        float add = (fields.height[i] - coarse[i]) * scaleM;
+        out->heightM[i] = add;
+        rms += (double)add * add;
+    }
+    out->reliefRms = (float)std::sqrt(rms / out->heightM.size());
+
+    // The albedo is band-limited for the same reason. Used whole it
+    // carries the imagery's landform tone re-amplified -- the wash the
+    // WAC fade suppresses below 100 km, measured as overall contrast
+    // going 19 to 35 while the mid-scale structure it was meant to help
+    // fell. Divided by its own local mean it is a pure tint.
+    std::vector<float> albLow = fields.albedo;
+    BoxBlurField(albLow, R, R, sigmaPx);
+    out->albedo.resize((size_t)R * R);
+    for (size_t i = 0; i < out->albedo.size(); i++)
+        out->albedo[i] = fields.albedo[i] / std::max(0.02f, albLow[i]);
+
+    out->res = R;
+    out->buildMs = (GetTime() - t0) * 1000.0;
+    return true;
+}
+
+// built tells the caller whether THIS call paid for the layer, which is
+// the number worth watching: the whole point is that only one rung does.
+static const ChainLayer* ChainLayerFor(double lat, double lon, double spanKm,
+                                       double nativeKm, float strength,
+                                       bool* built)
+{
+    if (built) *built = false;
+    for (ChainCacheEntry& e : g_chainCache)
+    {
+        if (std::fabs(e.latDeg - lat) < 1e-9
+            && std::fabs(e.lonDeg - lon) < 1e-9
+            && std::fabs(e.spanKm - spanKm) < 1e-6
+            && std::fabs(e.strength - strength) < 1e-6)
+            return &e.layer;
+    }
+    ChainCacheEntry e;
+    e.latDeg = lat; e.lonDeg = lon; e.spanKm = spanKm; e.strength = strength;
+    if (!BuildChainLayer(lat, lon, spanKm, nativeKm, strength, &e.layer))
+        return nullptr;
+    if (built) *built = true;
+    // A few is plenty -- backing out and in again should be free, and each
+    // is 2 MB at 512.
+    if (g_chainCache.size() >= 4) g_chainCache.erase(g_chainCache.begin());
+    g_chainCache.push_back(std::move(e));
+    return &g_chainCache.back().layer;
+}
+
 static bool BuildScene(const MapOptions& options, const LolaDem& dem,
                        TerrainScene& scene, bool keepAlbedo = false)
 {
@@ -1160,117 +1325,64 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     // The site rung only. A window wider than the chain's own 100 km
     // macro has nothing above it to crop from, so the layer stops being
     // detail below the data floor and becomes a second opinion about
-    // landforms the DEM already resolves -- and it would cost two
-    // seconds a rung on the way down for the privilege.
+    // landforms the DEM already resolves.
     if (options.chain && !options.nearside && options.spanKm <= 100.0)
     {
-        double t0 = GetTime();
         scene.chainSpanKm = scene.worldWidthKm;
-        TerrainChainFields fields;
-        if (GenerateTerrainFields(options.pickLat, options.pickLon, texRes,
-                                  scene.chainSpanKm, &fields)
-            && fields.height.size() == scene.window.elevationM.size())
+        bool built = false;
+        const ChainLayer* layer =
+            ChainLayerFor(options.pickLat, options.pickLon, scene.chainSpanKm,
+                          scene.nativeKm, options.chainStrength, &built);
+        if (layer && layer->res > 0
+            && scene.window.elevationM.size() == (size_t)texRes * texRes)
         {
-            // Band-limit to what the elevation data cannot resolve. The
-            // chain's long wavelengths are the imagery's landforms read
-            // as topography; LOLA already carries those and, where the
-            // two disagree, the measurement wins. Everything finer than
-            // the data floor is what the chain is here for.
-            double kmPerPx = scene.chainSpanKm / (double)texRes;
-            float sigmaPx = (float)std::max(1.0,
-                                            0.5 * scene.nativeKm / kmPerPx);
-            std::vector<float> coarse = fields.height;
-            BoxBlurField(coarse, texRes, texRes, sigmaPx);
-
-            // Scale by the SLOPE it produces, not by the chain's own
-            // height convention. heightScaleM reproduces the shading the
-            // chain drew for itself, which is soft; this shader is harsh
-            // Lambert with near-black shadows, and the same geometry
-            // under it reads as a blown-out mess. What a surface has to
-            // get right is its slopes, so aim at those directly: solve
-            // for the scale that gives the added relief a target mean
-            // gradient, and let --chain-strength move the target.
-            //
-            // 5 degrees is regolith at tens of metres per pixel -- a
-            // surface you could drive over, which is what the site level
-            // is asking about.
-            const double TARGET_SLOPE_DEG = 5.0;
-            double pixelM = scene.chainSpanKm * 1000.0 / texRes;
-            double g2 = 0.0;
-            size_t gn = 0;
-            for (int y = 1; y + 1 < texRes; y++)
-            {
-                for (int x = 1; x + 1 < texRes; x++)
-                {
-                    size_t i = (size_t)y * texRes + x;
-                    float hx = (fields.height[i + 1] - coarse[i + 1])
-                             - (fields.height[i - 1] - coarse[i - 1]);
-                    float hy = (fields.height[i + texRes] - coarse[i + texRes])
-                             - (fields.height[i - texRes] - coarse[i - texRes]);
-                    g2 += 0.25 * (double)(hx * hx + hy * hy);
-                    gn++;
-                }
-            }
-            double gradRms = (gn > 0) ? std::sqrt(g2 / gn) : 0.0;
-            float scaleM = 0.0f;
-            if (gradRms > 1e-9)
-                scaleM = (float)(std::tan(TARGET_SLOPE_DEG * DEG2RAD)
-                                 * pixelM / gradRms)
-                         * options.chainStrength;
+            // The layer is metres, so it resamples onto whatever grid this
+            // rung is using without changing what it says about the
+            // ground. Sharpening changes the sampling, not the terrain.
+            std::vector<float> h, a;
+            ResampleField(layer->heightM, layer->res, h, texRes);
+            ResampleField(layer->albedo, layer->res, a, texRes);
 
             float lo = 1e30f, hi = -1e30f;
-            double addRms = 0.0;
-            for (size_t i = 0; i < fields.height.size(); i++)
+            for (size_t i = 0; i < scene.window.elevationM.size(); i++)
             {
-                float add = (fields.height[i] - coarse[i]) * scaleM;
-                addRms += (double)add * add;
-                scene.window.elevationM[i] += add;
+                scene.window.elevationM[i] += h[i];
                 lo = std::min(lo, scene.window.elevationM[i]);
                 hi = std::max(hi, scene.window.elevationM[i]);
             }
-            addRms = std::sqrt(addRms / fields.height.size());
-            scene.chainReliefM = (float)addRms;
             // The mesh centres itself on the window's elevation range, so
             // leaving these stale drops the ground out from under the
             // camera by however much the chain added.
             scene.window.minElevationM = lo;
             scene.window.maxElevationM = hi;
-
-            // The albedo gets band-limited too, and for the same
-            // reason. Used whole it carries the imagery's landform tone
-            // re-amplified, which is the "expressionist wash" the WAC
-            // fade exists to suppress below 100 km -- measured, it took
-            // the picture's overall contrast from 19 to 35 while the
-            // mid-scale structure it was supposed to help actually fell.
-            // Divided by its own LOCAL mean it is a pure tint: what the
-            // mosaic cannot resolve, and nothing it can.
-            std::vector<float> albLow = fields.albedo;
-            BoxBlurField(albLow, texRes, texRes, sigmaPx);
+            scene.chainReliefM = layer->reliefRms;
+            scene.chainMs = layer->buildMs;
 
             Image img = GenImageColor(texRes, texRes, BLACK);
             ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_GRAYSCALE);
             unsigned char* px = (unsigned char*)img.data;
-            for (size_t i = 0; i < fields.albedo.size(); i++)
+            for (size_t i = 0; i < a.size(); i++)
             {
-                float ratio = fields.albedo[i]
-                            / std::max(0.02f, albLow[i]);
                 // Stored as ratio - 0.5, so 0.5..1.5 fits a byte and the
                 // shader adds the half back.
                 px[i] = (unsigned char)std::lround(
-                    std::clamp(ratio - 0.5f, 0.0f, 1.0f) * 255.0f);
+                    std::clamp(a[i] - 0.5f, 0.0f, 1.0f) * 255.0f);
             }
             scene.chainTexOwned = LoadTextureFromImage(img);
             UnloadImage(img);
             SetTextureFilter(scene.chainTexOwned, TEXTURE_FILTER_BILINEAR);
             SetTextureWrap(scene.chainTexOwned, TEXTURE_WRAP_CLAMP);
             scene.chainTex = scene.chainTexOwned;
+
+            std::fprintf(stderr,
+                         "CHAIN: %.1f km layer at %d px -> rung %d  "
+                         "(relief %.1f m rms, %s)\n",
+                         scene.chainSpanKm, layer->res, texRes,
+                         scene.chainReliefM,
+                         built ? TextFormat("built in %.0f ms",
+                                            layer->buildMs)
+                               : "cached");
         }
-        scene.chainMs = (GetTime() - t0) * 1000.0;
-        std::fprintf(stderr,
-                     "CHAIN: %.1f km fields at %d px in %.1f ms  "
-                     "(relief %.1f m rms)\n",
-                     scene.chainSpanKm, texRes, scene.chainMs,
-                     scene.chainReliefM);
     }
 
     scene.heightTex = BuildHeightTexture(scene.window);
