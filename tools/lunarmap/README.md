@@ -61,8 +61,7 @@ the cursor names itself — real named features where there are any,
 a measured mare/highland reading anywhere else — and the region card
 shows its composition, its terrane and its archetype. Click to claim
 it. The card then *freezes*: levels 2–3 descend 200 → 25 km (15x from
-the disc, then 8x, then a 5x zoom inside the site level) and never
-revise it, because resources belong to the region while
+the globe, then 8x) and never revise it, because resources belong to the region while
 terrain belongs to the spot. The level card on the right is the part
 that sharpens — measured slope, relief, illumination, Earth link — and
 at level 3 the site is judged buildable or refused. Clicking a card
@@ -210,3 +209,10 @@ the game's render path, not in this instrument. Geometry comes from
 - `src/TerrainGen/lola_dem.{h,cpp}` (the DEM loader + windowing, a C++
   port of `prototypes/planet_visuals/elevation.py`) is game-ready: the
   same class can later feed real relief into the game's terrain chain.
+
+## What used to be here
+
+Level 1 was a flat plate-carrée map of the near side before it became a
+globe, and the site level used to zoom while its cursor refined. Both are
+written up in [`docs/graveyard.md`](../../docs/graveyard.md), with the
+constants needed to rebuild them.

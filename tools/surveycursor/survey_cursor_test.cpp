@@ -50,6 +50,29 @@ int main()
         }
     }
 
+    // 1b. Zooming inside a level can never reach the level below.
+    //     This is what keeps the wheel from changing rung: the tightest
+    //     view a rung can reach must still be wider than the next rung's
+    //     whole window.
+    for (int i = 0; i < SURVEY_LEVEL_COUNT; i++)
+    {
+        double zmax = SurveyZoomMax(i);
+        double tightestKm = ladder[i].windowSpanKm / zmax;
+        printf("   level %d %-9s zoom x1 .. x%.2f   tightest view %8.1f km\n",
+               i + 1, ladder[i].name, zmax, tightestKm);
+        Check(zmax >= 1.0, "zoom ceiling is at least 1x");
+        if (i + 1 < SURVEY_LEVEL_COUNT)
+        {
+            Check(tightestKm > ladder[i + 1].windowSpanKm,
+                  "zoomed in fully, still wider than the level below");
+        }
+        else
+        {
+            // The last rung does not zoom: it refines its cursor instead.
+            Check(std::fabs(zmax - 1.0) < 1e-9, "site level does not zoom");
+        }
+    }
+
     // 2. Each level's cursor is the next level's window.
     for (int i = 0; i + 1 < SURVEY_LEVEL_COUNT; i++)
     {

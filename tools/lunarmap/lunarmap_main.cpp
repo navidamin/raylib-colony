@@ -36,10 +36,14 @@
 // cover style, view, sun and exaggeration, so a phone can drive it.
 
 #include "raylib.h"
+#include "rlgl.h"        // rlReadScreenPixels, for the web chain bench
 #include "raymath.h"
 
 #include "lola_dem.h"
 #include "survey_cursor.h"
+#include "lunar_globe.h"
+#include "lunar_regions.h"
+#include "terrain_gpu.h"
 #include "survey_hints.h"
 
 #if defined(PLATFORM_WEB)
@@ -222,6 +226,12 @@ struct MapOptions
     std::string demPath = DEFAULT_DEM_PATH;
     std::string wacPath = DEFAULT_WAC_PATH;
     bool webShader = false;        // force the GLSL ES 100 shader (debug)
+    bool noLabels = false;         // --nolabels: start with a clean view
+    // --chain: ROUTE A prototype. Lay the terrain synthesizer's own 25 km
+    // level over the site window as a texture layer. Off by default; this
+    // exists to be measured, not shipped.
+    bool chain = false;
+    float chainStrength = 1.0f;
     float orbitYawDeg = 180.0f;    // tilt-view camera angles (--orbit)
     float orbitPitchDeg = 52.0f;
 };
@@ -261,6 +271,10 @@ static void PrintUsage()
         << "  --out PATH        render PNG and exit (else: interactive)\n"
         << "  --dem PATH        DEM TIFF path\n"
         << "  --webshader       use the GLSL ES 100 shader on desktop\n"
+        << "  --globe LAT,LON[,ZOOM]  where level 1's globe starts\n"
+        << "  --nolabels        start with the labels off (L toggles them)\n"
+        << "  --chain           route A: synthesizer texture over the site window\n"
+        << "  --chain-strength F  how hard it is laid on (default 1.0)\n"
         << "  --help            show this message\n"
         << "\n"
         << "Interactive: click the near-side map to dive into a 200 km\n"
@@ -384,6 +398,25 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--out" && hasNext) { options.outPath = argv[++i]; }
         else if (arg == "--dem" && hasNext) { options.demPath = argv[++i]; }
         else if (arg == "--webshader") { options.webShader = true; }
+        else if (arg == "--nolabels") { options.noLabels = true; }
+        else if (arg == "--chain") { options.chain = true; }
+        else if (arg == "--chain-strength" && hasNext)
+        { options.chain = true; options.chainStrength = (float)std::atof(argv[++i]); }
+        else if (arg == "--globe" && hasNext)
+        {
+            // Where level 1's globe starts. Without it a scripted shot
+            // can only ever see the near side, which is exactly the half
+            // the far-side regions are not on.
+            double la = 0.0, lo = 0.0, z = 1.0;
+            if (std::sscanf(argv[++i], "%lf,%lf,%lf", &la, &lo, &z) < 2)
+            {
+                std::cerr << "--globe wants LAT,LON[,ZOOM]\n";
+                return false;
+            }
+            OrbitalCamera cam;
+            cam.subLatDeg = la; cam.subLonDeg = lo; cam.zoom = z;
+            SetOrbitalCamera(cam);
+        }
         else
         {
             std::cerr << "Unknown option: " << arg << "\n";
@@ -467,6 +500,14 @@ uniform float ambient;
 uniform float styleFlag;       // 0 shaded, 1 colour elevation
 uniform float curveStrength;   // crater-rim emphasis (map scales only)
 uniform float albedoStrength;  // WAC contribution (map scales only)
+// Route A: the terrain synthesizer's 25 km level, laid on as TEXTURE.
+// High-passed with four neighbour taps so only its fine detail survives
+// -- its own baked hillshade and cast shadows are exactly what must not
+// come across, or the ground gets lit twice.
+uniform sampler2D chainMap;
+uniform float chainStrength;   // 0 disables the whole path
+uniform float chainUvScale;    // window span / the chain's own 25 km
+uniform float chainTexel;      // 1 / chain resolution
 
 // Hash-based value noise — cheap regolith variation, several scales.
 float Hash(vec2 p)
@@ -572,6 +613,22 @@ void main()
     surface *= 1.0 + variation * (0.25 + 0.75 * lit);
     surface *= 1.0 + curve * 1.6;
 
+    if (chainStrength > 0.0)
+    {
+        vec2 cuv = vec2(0.5) + (uv - vec2(0.5)) * chainUvScale;
+        // The chain only covers the central 25 km; outside that it has
+        // nothing to say, so it fades rather than smearing its edge.
+        vec2 edge = min(cuv, vec2(1.0) - cuv);
+        float inside = clamp(min(edge.x, edge.y) * 24.0, 0.0, 1.0);
+        float o = chainTexel;
+        float c = TEX(chainMap, cuv).r;
+        float m = 0.25 * (TEX(chainMap, cuv + vec2(o, 0.0)).r +
+                          TEX(chainMap, cuv - vec2(o, 0.0)).r +
+                          TEX(chainMap, cuv + vec2(0.0, o)).r +
+                          TEX(chainMap, cuv - vec2(0.0, o)).r);
+        surface *= 1.0 + (c - m) * chainStrength * inside * 6.0;
+    }
+
     vec3 color = surface * light;
     // Slight tonal lift so shadow detail is not pure black on screens.
     color = pow(clamp(color, 0.0, 1.0), vec3(0.92));
@@ -596,6 +653,13 @@ struct TerrainScene
     Texture2D shadeTex = { 0 };
     Texture2D heightTex = { 0 };
     Texture2D albedoTex = { 0 };
+    // Route A's layer. The GPU path hands back render textures it owns;
+    // the CPU path hands back an Image we upload ourselves. Exactly one
+    // of these is live at a time.
+    TerrainGpuChain chainGpu = {};
+    Texture2D chainTexOwned = { 0 };
+    Texture2D chainTex = { 0 };      // whichever of the two is in use
+    double chainMs = 0.0;            // what it cost to make
     Shader shader = { 0 };
     bool nearside = true;
     double nativeKm = 0.0;         // finest data actually feeding this window
@@ -605,6 +669,7 @@ struct TerrainScene
     double lat0 = 0.0, lat1 = 0.0, lon0 = 0.0, lon1 = 0.0;
     int locTexel = 0, locSunDir = 0, locSunColor = 0;
     int locAmbient = 0, locStyle = 0, locCurve = 0, locAlbedoStr = 0;
+    int locChainStr = 0, locChainUv = 0, locChainTexel = 0;
 
     float ScaledW() const { return worldWidthKm * worldScale; }
     float ScaledH() const { return worldHeightKm * worldScale; }
@@ -826,6 +891,9 @@ static void UnloadSceneGpu(TerrainScene& scene)
     if (scene.albedoTex.id > 0) UnloadTexture(scene.albedoTex);
     if (scene.shader.id > 0) UnloadShader(scene.shader);
     scene.model = Model{ 0 };
+    if (scene.chainTexOwned.id > 0) UnloadTexture(scene.chainTexOwned);
+    UnloadTerrainGpuChain(&scene.chainGpu);
+    scene.chainTexOwned = scene.chainTex = Texture2D{ 0 };
     scene.shadeTex = scene.heightTex = scene.albedoTex = Texture2D{ 0 };
     scene.shader = Shader{ 0 };
 }
@@ -852,6 +920,10 @@ static void BuildSceneGeometry(TerrainScene& scene,
         scene.heightTex;
     scene.model.materials[0].maps[MATERIAL_MAP_NORMAL].texture =
         scene.albedoTex;
+    // raylib's DrawMesh binds every material map that has a texture, so
+    // the fourth slot carries route A's layer when there is one.
+    scene.model.materials[0].maps[MATERIAL_MAP_ROUGHNESS].texture =
+        scene.chainTex;
 }
 
 // keepAlbedo: the sharpening ladder rebuilds the same ground at a higher
@@ -1025,6 +1097,44 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.worldScale = 200.0f /
         std::max(scene.worldWidthKm, scene.worldHeightKm);
 
+    // ---------- route A: the synthesizer's own 25 km level ----------
+    //
+    // Generated for the window's centre, so it lines up with the ground
+    // the DEM is showing. The chain's spans are hard-coded 100/25/5 km,
+    // so it only covers the central 25 km of a wider window -- the
+    // shader scales its UVs and fades the edge.
+    if (scene.chainTexOwned.id > 0) UnloadTexture(scene.chainTexOwned);
+    scene.chainTexOwned = Texture2D{ 0 };
+    UnloadTerrainGpuChain(&scene.chainGpu);
+    scene.chainTex = Texture2D{ 0 };
+    scene.chainMs = 0.0;
+    if (options.chain && !options.nearside)
+    {
+        double t0 = GetTime();
+        bool gpu = (GetTerrainPath() == TERRAIN_PATH_GPU)
+                && GenerateTerrainChainGPU(options.pickLat, options.pickLon,
+                                           texRes, &scene.chainGpu, nullptr);
+        if (gpu)
+        {
+            scene.chainTex = scene.chainGpu.color[1].texture;
+        }
+        else
+        {
+            Image lv[3] = {};
+            GenerateTerrainChain(options.pickLat, options.pickLon, texRes,
+                                 lv, nullptr);
+            scene.chainTexOwned = LoadTextureFromImage(lv[1]);
+            for (int i = 0; i < 3; i++) UnloadImage(lv[i]);
+            scene.chainTex = scene.chainTexOwned;
+        }
+        SetTextureFilter(scene.chainTex, TEXTURE_FILTER_BILINEAR);
+        SetTextureWrap(scene.chainTex, TEXTURE_WRAP_CLAMP);
+        scene.chainMs = (GetTime() - t0) * 1000.0;
+        std::fprintf(stderr,
+                     "CHAIN: 25 km layer at %d px in %.1f ms  (%s path)\n",
+                     texRes, scene.chainMs, gpu ? "GPU" : "CPU");
+    }
+
     scene.heightTex = BuildHeightTexture(scene.window);
     if (keptAlbedo.id > 0)
     {
@@ -1052,6 +1162,8 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
         GetShaderLocation(scene.shader, "shadeMap");
     scene.shader.locs[SHADER_LOC_MAP_SPECULAR] =
         GetShaderLocation(scene.shader, "heightMap");
+    scene.shader.locs[SHADER_LOC_MAP_ROUGHNESS] =
+        GetShaderLocation(scene.shader, "chainMap");
     scene.shader.locs[SHADER_LOC_MAP_NORMAL] =
         GetShaderLocation(scene.shader, "albedoMap");
     scene.locTexel = GetShaderLocation(scene.shader, "texelSize");
@@ -1061,6 +1173,9 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.locStyle = GetShaderLocation(scene.shader, "styleFlag");
     scene.locCurve = GetShaderLocation(scene.shader, "curveStrength");
     scene.locAlbedoStr = GetShaderLocation(scene.shader, "albedoStrength");
+    scene.locChainStr = GetShaderLocation(scene.shader, "chainStrength");
+    scene.locChainUv = GetShaderLocation(scene.shader, "chainUvScale");
+    scene.locChainTexel = GetShaderLocation(scene.shader, "chainTexel");
 
     BuildSceneGeometry(scene, options);
     return true;
@@ -1095,6 +1210,18 @@ static void ApplyShaderState(const TerrainScene& scene,
         ? 1.0f
         : Clamp((scene.worldWidthKm - 20.0f) / 80.0f, 0.0f, 1.0f);
     SetShaderValue(scene.shader, scene.locAlbedoStr, &albedoStrength,
+                   SHADER_UNIFORM_FLOAT);
+
+    float chainStr = (scene.chainTex.id > 0) ? options.chainStrength : 0.0f;
+    float chainUv = (scene.worldWidthKm > 0.0f)
+                    ? scene.worldWidthKm / 25.0f : 1.0f;
+    float chainTexel = (scene.chainTex.width > 0)
+                       ? 1.0f / (float)scene.chainTex.width : 0.002f;
+    SetShaderValue(scene.shader, scene.locChainStr, &chainStr,
+                   SHADER_UNIFORM_FLOAT);
+    SetShaderValue(scene.shader, scene.locChainUv, &chainUv,
+                   SHADER_UNIFORM_FLOAT);
+    SetShaderValue(scene.shader, scene.locChainTexel, &chainTexel,
                    SHADER_UNIFORM_FLOAT);
 }
 
@@ -2258,7 +2385,7 @@ struct DiscFeature
     float fePct, tiPct, thPpm;
 };
 
-static const DiscFeature DISC_FEATURES[] =
+static const DiscFeature BUILTIN_FEATURES[] =
 {
     { "Oceanus Procellarum", 18.4, -57.4, 1296, 13.5f, 3.0f, 6.0f },
     { "Mare Frigoris", 55.0, 0.0, 723, 12.0f, 1.5f, 3.0f },
@@ -2280,8 +2407,54 @@ static const DiscFeature DISC_FEATURES[] =
     { "Tycho", -43.3, -11.4, 43, 6.0f, 0.8f, 1.5f },
     { "Plato", 51.6, -9.4, 50, 12.5f, 2.0f, 4.0f },
 };
-static const int DISC_FEATURE_COUNT =
-    (int)(sizeof(DISC_FEATURES) / sizeof(DISC_FEATURES[0]));
+static const int BUILTIN_FEATURE_COUNT =
+    (int)(sizeof(BUILTIN_FEATURES) / sizeof(BUILTIN_FEATURES[0]));
+
+// The live table: zones.json supplies the names, positions and sizes --
+// all 59 regions of them, far side included -- and the table above
+// supplies composition for the entries the dataset leaves null. Those
+// numbers were hand-entered here before anything read the asset, and
+// dropping them would lose real figures for most of the near side. Where
+// both carry a value the asset wins; it is the documented one.
+//
+// Names point into the loaded regions, which are parsed once and never
+// moved, so the pointers stay good for the life of the process.
+static std::vector<DiscFeature> g_features;
+
+static const std::vector<DiscFeature>& Features()
+{
+    if (!g_features.empty()) return g_features;
+
+    const std::vector<LunarRegion>& regions = GetLunarRegions();
+    if (regions.empty())
+    {
+        // No asset: the instrument still works, on the near side only.
+        for (int i = 0; i < BUILTIN_FEATURE_COUNT; i++)
+            g_features.push_back(BUILTIN_FEATURES[i]);
+        return g_features;
+    }
+    for (const LunarRegion& r : regions)
+    {
+        DiscFeature f;
+        f.name = r.name.c_str();
+        f.lat = r.latDeg;
+        f.lon = r.lonDeg;
+        f.radiusKm = r.radiusKm;
+        f.fePct = r.fePct;
+        f.tiPct = r.tiPct;
+        f.thPpm = r.thPpm;
+        for (int i = 0; i < BUILTIN_FEATURE_COUNT; i++)
+        {
+            if (r.name != BUILTIN_FEATURES[i].name) continue;
+            if (f.fePct < 0.0f) f.fePct = BUILTIN_FEATURES[i].fePct;
+            if (f.tiPct < 0.0f) f.tiPct = BUILTIN_FEATURES[i].tiPct;
+            if (f.thPpm < 0.0f) f.thPpm = BUILTIN_FEATURES[i].thPpm;
+            break;
+        }
+        g_features.push_back(f);
+    }
+    return g_features;
+}
 
 // PKT outline, lat/lon vertices. Everything else on the near side is
 // FHT for this instrument; SPA is essentially a far-side terrane.
@@ -2323,15 +2496,16 @@ static double FeatureDistKm(const DiscFeature& f, double lat, double lon)
 // Smallest named feature containing the point, or -1.
 static int FeatureAt(double lat, double lon)
 {
+    const std::vector<DiscFeature>& all = Features();
     int best = -1;
     double bestR = 1e18;
-    for (int i = 0; i < DISC_FEATURE_COUNT; i++)
+    for (int i = 0; i < (int)all.size(); i++)
     {
-        if (FeatureDistKm(DISC_FEATURES[i], lat, lon) <=
-            DISC_FEATURES[i].radiusKm && DISC_FEATURES[i].radiusKm < bestR)
+        if (all[i].radiusKm < bestR &&
+            FeatureDistKm(all[i], lat, lon) <= all[i].radiusKm)
         {
             best = i;
-            bestR = DISC_FEATURES[i].radiusKm;
+            bestR = all[i].radiusKm;
         }
     }
     return best;
@@ -2372,22 +2546,30 @@ static RegionIdentity IdentifyRegion(const LolaDem& dem, double lat, double lon)
                              : "Feldspathic Highlands");
     r.rock = r.isMare ? "mare basalt" : "anorthosite breccia";
 
+    // Derived from the ground itself: mafic ground carries iron and
+    // titanium, feldspathic ground does not; thorium is the terrane's to
+    // give. This is the answer for unnamed ground -- and for the many
+    // named regions nobody has measured, which is most of them.
+    const float derivedFe = r.isMare ? 13.0f : 5.0f;
+    const float derivedTi = r.isMare ? 2.5f : 0.5f;
+    const float derivedTh = pkt ? 5.0f : 1.0f;
+
     if (r.featureIndex >= 0)
     {
-        const DiscFeature& f = DISC_FEATURES[r.featureIndex];
+        const DiscFeature& f = Features()[r.featureIndex];
         std::snprintf(r.name, sizeof(r.name), "%s", f.name);
-        r.fePct = f.fePct; r.tiPct = f.tiPct; r.thPpm = f.thPpm;
+        r.fePct = (f.fePct >= 0.0f) ? f.fePct : derivedFe;
+        r.tiPct = (f.tiPct >= 0.0f) ? f.tiPct : derivedTi;
+        r.thPpm = (f.thPpm >= 0.0f) ? f.thPpm : derivedTh;
     }
     else
     {
         std::snprintf(r.name, sizeof(r.name), "%s %s",
                       r.isMare ? "Unnamed mare" : "Unnamed highland",
                       polar ? "(polar)" : "");
-        // Derived: mafic ground carries iron and titanium, feldspathic
-        // ground does not; thorium is the terrane's to give.
-        r.fePct = r.isMare ? 13.0f : 5.0f;
-        r.tiPct = r.isMare ? 2.5f : 0.5f;
-        r.thPpm = pkt ? 5.0f : 1.0f;
+        r.fePct = derivedFe;
+        r.tiPct = derivedTi;
+        r.thPpm = derivedTh;
     }
 
     if (polar)
@@ -2488,6 +2670,10 @@ struct AppState
     float transT = 0.0f;
     float transSeconds = 0.45f;      // set per flight from its zoom span
     float transFromZoom = 1.0f, transToZoom = 1.0f;
+    // The level 1 -> 2 flight happens on the globe, so it interpolates a
+    // sub-point and an orbital zoom rather than a flat camera.
+    double transFromLat = 0.0, transFromLon = 0.0;
+    double transFromGZoom = 1.0, transToGZoom = 1.0;
     Vector3 transFromTarget = { 0.0f, 0.0f, 0.0f };
     Vector3 transToTarget = { 0.0f, 0.0f, 0.0f };
     int userDemRes = 0;              // --demres, if the caller set one
@@ -2496,16 +2682,25 @@ struct AppState
     Vector2 lastPointer = { 0.0f, 0.0f };
     bool havePointer = false;        // a settled pointer exists to click with
     bool touchStyle = false;         // a jumped click was seen -> tapping
+    // Everything drawn OVER the moon that is commentary rather than
+    // control: the HUD, the cards, the hover chip, the region outlines.
+    // Off leaves the ground, the cursor and the strip -- enough to keep
+    // playing, and enough to actually look at the terrain.
+    bool showLabels = true;
+    // The idle drift, off by default in site mode: a target that walks
+    // away from the pointer is not one you can aim at. Right-click puts
+    // it back on for a look around.
+    bool globeSpin = false;
 
-    // Continuous zoom below the playfield.
+    // Zoom within the rung.
     //
-    // The ladder's rungs are where terrain windows get BUILT, not where
-    // the player has to stop. zoomK is how far in the camera has pushed
-    // past the current rung's window, 1 up to the ratio to the next rung;
-    // reaching that ratio swaps rungs and resets it, so scrolling down
-    // from the playfield to the build footprint is one motion instead of
-    // a sequence of clicks. The cursor keeps the ladder's own footprint
-    // at every rung, so it never leaves the 15-30% band.
+    // zoomK is how far the camera has pushed in past the current rung's
+    // window: 1 is the whole window, and the ceiling is the rung's own
+    // (see zoomMax in UpdateSiteSelect). It is bounded at both ends so
+    // that zooming can read the ground closely without ever arriving at
+    // a neighbouring level's view -- crossing a rung is a click, not a
+    // scroll. The cursor keeps the ladder's footprint at every rung, so
+    // it never leaves the 15-30% band.
     float zoomK = 1.0f;
     double camXKm = 0.0, camYKm = 0.0;   // camera centre within the window
 
@@ -2592,9 +2787,113 @@ static void BlitSceneCache(const AppState& app)
 
 // Drawn by the level-1 highlight and ladder helpers, which are defined
 // further down beside the --demo renderer and shared with it.
+static void DrawGlobeHud(int screenW, int screenH);
+
+// Level 1 is a globe, so a named region is a circle ON A SPHERE, not an
+// ellipse on a flat grid: walk its rim in real bearings and project each
+// point, dropping the ones that have turned away. That way a feature
+// near the limb foreshortens correctly instead of spilling off the edge,
+// and a feature straddling the limb draws the half you can see.
+static void GlobeCircleAt(double latDeg, double lonDeg, double radiusKm,
+                          int w, int h, Vector2* out, bool* vis, int n)
+{
+    const double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
+    double angRad = (radiusKm / kmPerDeg) * DEG2RAD;   // angular radius
+    double lat = latDeg * DEG2RAD, lon = lonDeg * DEG2RAD;
+    for (int i = 0; i < n; i++)
+    {
+        double bearing = (2.0 * PI * i) / n;
+        // Standard destination-point-on-a-sphere from centre, angle and
+        // bearing -- the same formula a navigator would use.
+        double sinLat = std::sin(lat) * std::cos(angRad)
+                      + std::cos(lat) * std::sin(angRad) * std::cos(bearing);
+        sinLat = std::clamp(sinLat, -1.0, 1.0);
+        double pLat = std::asin(sinLat);
+        double pLon = lon + std::atan2(std::sin(bearing) * std::sin(angRad) * std::cos(lat),
+                                       std::cos(angRad) - std::sin(lat) * sinLat);
+        float sx = 0.0f, sy = 0.0f;
+        vis[i] = OrbitalLatLonToScreen(pLat / DEG2RAD, pLon / DEG2RAD, w, h, &sx, &sy);
+        out[i] = Vector2{ sx, sy };
+    }
+}
+
+static void DrawGlobeRing(const Vector2* pts, const bool* vis, int n,
+                          Color c, float thick)
+{
+    for (int i = 0; i < n; i++)
+    {
+        int j = (i + 1) % n;
+        if (!vis[i] || !vis[j]) continue;     // crossing the limb
+        DrawLineEx(pts[i], pts[j], thick, c);
+    }
+}
+
+static void DrawGlobeFeatureOutlines(int w, int h, int hoverFeature,
+                                     Color hoverTint)
+{
+    const int N = 48;
+    Vector2 pts[N]; bool vis[N];
+    const std::vector<DiscFeature>& all = Features();
+    for (int i = 0; i < (int)all.size(); i++)
+    {
+        const DiscFeature& f = all[i];
+        // The globe reaches the far side, so unlike the flat map there is
+        // no reason to drop high latitudes -- only what is turned away.
+        float cx = 0.0f, cy = 0.0f;
+        if (!OrbitalLatLonToScreen(f.lat, f.lon, w, h, &cx, &cy)) continue;
+        GlobeCircleAt(f.lat, f.lon, f.radiusKm, w, h, pts, vis, N);
+        if (i == hoverFeature)
+        {
+            // The one shape that is both real data and pickable, so the
+            // only one allowed to lift off the imagery.
+            DrawGlobeRing(pts, vis, N, hoverTint, 2.0f);
+            DrawGlobeRing(pts, vis, N,
+                          Color{ hoverTint.r, hoverTint.g, hoverTint.b, 120 }, 4.0f);
+        }
+        else
+        {
+            DrawGlobeRing(pts, vis, N, Color{ 255, 255, 255, 70 }, 1.0f);
+        }
+    }
+}
+
+// The cursor: the window the next rung would open, drawn on the sphere.
+// At whole-moon zoom this is a 38 px speck -- which is the honest size of
+// 200 km on a 3,476 km ball, and the wheel is how you make it bigger.
+static void DrawGlobeCursorBox(double latDeg, double lonDeg, double spanKm,
+                               int w, int h, Color tint)
+{
+    const double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
+    double halfLat = (spanKm * 0.5) / kmPerDeg;
+    double cosLat = std::max(0.2, std::cos(latDeg * DEG2RAD));
+    double halfLon = halfLat / cosLat;          // a box in km, not in degrees
+
+    const int PER_EDGE = 10;                    // subdivided: 200 km curves
+    const int N = PER_EDGE * 4;
+    Vector2 pts[N]; bool vis[N];
+    int k = 0;
+    for (int e = 0; e < 4; e++)
+    {
+        for (int s = 0; s < PER_EDGE; s++)
+        {
+            double u = (double)s / PER_EDGE;
+            double dLat = 0.0, dLon = 0.0;
+            if (e == 0) { dLat = -halfLat; dLon = -halfLon + 2 * halfLon * u; }
+            if (e == 1) { dLon =  halfLon; dLat = -halfLat + 2 * halfLat * u; }
+            if (e == 2) { dLat =  halfLat; dLon =  halfLon - 2 * halfLon * u; }
+            if (e == 3) { dLon = -halfLon; dLat =  halfLat - 2 * halfLat * u; }
+            float sx = 0.0f, sy = 0.0f;
+            vis[k] = OrbitalLatLonToScreen(latDeg + dLat, lonDeg + dLon,
+                                           w, h, &sx, &sy);
+            pts[k] = Vector2{ sx, sy };
+            k++;
+        }
+    }
+    DrawGlobeRing(pts, vis, N, tint, 2.0f);
+}
+
 static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
                                     Color hoverTint, float zoom);
-static float DiscFitZoom(int w, int h);
 static void DrawHoverChip(float mx, float my, const char* name,
                           const char* sub, Color tint, int screenW,
                           const char* coord = nullptr);
@@ -2602,6 +2901,7 @@ static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
                                     int w, int h);
 static void DrawLadderCursor(const SurveyCursor& cursor,
                              const SurveyViewport& viewport, Color tint);
+static void DrawCursorCallout(Rectangle r, const char* text, Color tint);
 
 // ---------------------------------------------------------------------------
 // Interactive site selection (--site): the playtest.
@@ -2629,11 +2929,73 @@ static Vector2 SitePointer()
 {
     return g_fake.active ? g_fake.pos : GetMousePosition();
 }
+// A press that travels is a drag, not a click.
+//
+// The globe made this rule necessary -- turning the moon must not also
+// pick a district -- but it was never the globe's rule. Below the globe
+// a press was acted on the instant it went down, so sliding the mouse
+// across the ground descended a level before it had moved a pixel, and
+// the map could not be dragged at all. The gesture is tracked once here
+// and every level reads the same answer.
+struct PressGesture
+{
+    bool down = false;
+    bool moved = false;          // travelled past the threshold this press
+    Vector2 from = { 0.0f, 0.0f };
+};
+static PressGesture g_press;
+
+// Far enough to mean it, close enough that a firm click still counts.
+static const float SITE_DRAG_THRESHOLD_PX = 5.0f;
+
+static void UpdatePressGesture(Vector2 m)
+{
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        g_press.down = true;
+        g_press.moved = false;   // cleared on press, so it survives release
+        g_press.from = m;
+    }
+    if (g_press.down &&
+        Vector2Distance(m, g_press.from) > SITE_DRAG_THRESHOLD_PX)
+    {
+        g_press.moved = true;
+    }
+    if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) g_press.down = false;
+}
+
+static bool SiteDragged() { return g_press.moved; }
+
+// Commit on RELEASE, and only if the press stayed put. The scripted
+// harness has no drag, so it keeps its instantaneous click.
 static bool SiteClick()
 {
-    return g_fake.active ? g_fake.click
-                         : IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    if (g_fake.active) return g_fake.click;
+    return IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && !SiteDragged();
 }
+// The two view switches, top right.
+//
+// They are controls, not annotations, so they stay put when the
+// annotations go -- otherwise turning them off would take away the thing
+// that turns them back on. Top right because the top LEFT is the header
+// they hide, and the strip along the bottom belongs to the prompt.
+static const double GLOBE_SPIN_DEG_PER_SEC = 2.5;
+
+static Rectangle ViewToggleRect(int screenW, int row)
+{
+    const float w = 196.0f, h = 22.0f, pad = 8.0f;
+    return Rectangle{ (float)screenW - w - pad, pad + row * (h + 4.0f), w, h };
+}
+
+static void DrawViewToggle(Rectangle r, const char* text, bool on)
+{
+    Color edge = on ? Color{ 120, 145, 190, 255 } : Color{ 78, 90, 112, 255 };
+    Color ink  = on ? Color{ 200, 214, 236, 255 } : Color{ 128, 142, 166, 255 };
+    DrawRectangleRec(r, Color{ 12, 14, 20, (unsigned char)(on ? 225 : 170) });
+    DrawRectangleLinesEx(r, 1.0f, edge);
+    DrawText(text, (int)r.x + 10, (int)r.y + 4, 13, ink);
+}
+
 static bool SiteEscape()
 {
     return g_fake.active ? g_fake.escape
@@ -2734,6 +3096,44 @@ static const float SITE_TRANS_MAX_SECONDS = 3.00f;
 // Aim the transition at the ground the next level will show. Everything
 // is expressed against the CURRENT scene, because the current scene's
 // texture is what the animation draws.
+// The descent off the globe. Same idea as the flight below it -- dive
+// straight at the target while the zoom climbs -- but on a sphere the
+// "pan" is a rotation of the sub-point, so that is what gets driven by
+// the zoom instead of by the clock.
+//
+// It ends at the zoom where the district exactly fills the viewport, so
+// when level 2 takes over on the next frame it opens on the same ground
+// at the same scale: the handover is a change of SOURCE (mosaic to DEM),
+// not a change of framing.
+static void BeginGlobeDescent(AppState& app, double targetLat,
+                              double targetLon, double districtKm)
+{
+    const OrbitalCamera& cam = GetOrbitalCamera();
+    app.transFromLat = cam.subLatDeg;
+    app.transFromLon = cam.subLonDeg;
+    app.transFromGZoom = cam.zoom;
+    app.transToGZoom = OrbitalZoomForSpan(districtKm);
+    app.transLat = targetLat;
+    app.transLon = targetLon;
+
+    if (g_fake.active && !g_fake.fly)
+    {
+        // The step harness does not fly, but it still reports where the
+        // flight WOULD land, so the geometry stays checkable headlessly.
+        std::fprintf(stderr, "GLOBECHK sub=(%.2f,%.2f) -> (%.2f,%.2f) "
+                             "zoom %.2f -> %.2f (district %.0f km)\n",
+                     app.transFromLat, app.transFromLon, targetLat, targetLon,
+                     app.transFromGZoom, app.transToGZoom, districtKm);
+        return;
+    }
+    app.transT = 0.0f;
+    app.transSeconds = std::clamp(
+        std::log2((float)std::max(1.001, app.transToGZoom / app.transFromGZoom))
+            / SITE_TRANS_OCTAVES_PER_SEC,
+        SITE_TRANS_MIN_SECONDS, SITE_TRANS_MAX_SECONDS);
+    app.transActive = true;
+}
+
 static void BeginDescentZoom(AppState& app, float fromZoom,
                              double targetXKm, double targetYKm,
                              double fromSpanKm, double toSpanKm)
@@ -2783,6 +3183,39 @@ static bool RunDescentZoom(AppState& app, const MapOptions& options,
     app.transT += dt / app.transSeconds;
     float t = std::clamp(app.transT, 0.0f, 1.0f);
     float e = t * t * (3.0f - 2.0f * t);               // smoothstep
+
+    // Leaving the globe: turn and zoom rather than pan and zoom.
+    if (app.transKind == 1)
+    {
+        double zoom = app.transFromGZoom *
+                      std::pow(app.transToGZoom / app.transFromGZoom, (double)e);
+        // The same straight-dive law the flat flight uses: drive the
+        // rotation from the zoom, so the target falls to the centre
+        // instead of swinging out and coming back.
+        double k = 1.0 - (1.0 - e) * (app.transFromGZoom / zoom);
+        double dLon = app.transLon - app.transFromLon;
+        while (dLon > 180.0) dLon -= 360.0;            // take the short way round
+        while (dLon < -180.0) dLon += 360.0;
+
+        OrbitalCamera cam;
+        cam.subLatDeg = app.transFromLat + (app.transLat - app.transFromLat) * k;
+        cam.subLonDeg = app.transFromLon + dLon * k;
+        cam.zoom = zoom;
+        SetOrbitalCamera(cam);
+
+        if (!g_fake.active) BeginDrawing();
+        ClearBackground(Color{ 6, 7, 12, 255 });
+        DrawLunarGlobe(screenW, screenH);
+        int hh = 40, yy = screenH - hh;
+        DrawRectangle(0, yy, screenW, hh, Color{ 12, 12, 16, 220 });
+        DrawRectangle(0, yy, screenW, 1, Color{ 90, 110, 150, 255 });
+        DrawText("Descending...", 16, yy + 12, 16, Color{ 150, 190, 255, 255 });
+        if (!g_fake.active) EndDrawing();
+
+        if (app.transT < 1.0f) return true;
+        app.transActive = false;
+        return false;
+    }
 
     // Zoom interpolates in log space: a linear ramp between 1x and 11x
     // spends most of its time already deep and reads as a lurch.
@@ -2880,40 +3313,42 @@ static void UpdateSiteSelect(AppState& app)
     int screenW = GetScreenWidth(), screenH = GetScreenHeight();
     Vector2 m = SitePointer();
     SurveyViewport viewport = LadderViewport(screenW, screenH);
-    float discZoom = DiscFitZoom(screenW, screenH);
 
-    // ---------- continuous zoom below the playfield ----------
-    //
-    // Ratio to the next rung: how much zoom turns this window into the
-    // one below it. The last rung has nowhere to go, so it holds at 1
-    // and stays a placement step rather than a descent.
+    // ---------- zoom within the rung ----------
     const SurveyLevelDef* ladder = GetSurveyLadder();
-    float rungRatio = 1.0f;
-    if (app.siteLevel > 0 && app.siteLevel < SITE_LEVELS - 1)
-    {
-        rungRatio = (float)(ladder[app.siteLevel].windowSpanKm
-                            / ladder[app.siteLevel + 1].windowSpanKm);
-    }
-    // The last rung has nowhere below it, so its zoom refines the cursor
-    // instead of handing over: the window holds at 25 km while the
-    // rectangle shrinks from the 5 km cell to the 1.5 km build
-    // footprint. That is the whole of what used to be two levels.
+    // The last rung has nowhere below it: it refines its cursor in place
+    // rather than descending or zooming, which is the whole of what used
+    // to be two levels.
     bool siteRung = (app.siteLevel == SITE_LEVELS - 1);
-    if (siteRung)
+    // How far this rung may zoom, in or out.
+    //
+    // Zooming reads the ground; it does not change rung. Both ends are
+    // the rung's own geometry, so no amount of scrolling can arrive at a
+    // neighbouring level's view:
+    //
+    //   out  1x  - the rung's whole window. Wider than this is the rung
+    //              ABOVE, which is reached by backing out, not scrolling.
+    //   in   the zoom at which the cursor fills the top of the design's
+    //        15-30% legibility band. Past that the cursor is most of the
+    //        screen and there is nothing left to choose between -- and it
+    //        lands far short of the next rung's window either way.
+    //
+    // District: 0.30 * 200 / 25 = 2.4x, so the view bottoms out at 83 km
+    // against the site rung's 25 km window. Site: its cursor refines as
+    // the zoom deepens, so the same band rule puts it at 25 / 5 = 5x,
+    // where the 1.5 km build footprint fills 30% of a 5 km view.
+    float zoomMax = 1.0f;
+    if (app.siteLevel > 0)
     {
-        rungRatio = (float)(ladder[app.siteLevel].windowSpanKm
-                            / SURVEY_SITE_VIEW_KM);
+        zoomMax = (float)SurveyZoomMax(app.siteLevel);
     }
-    bool zoomable = (app.siteLevel > 0) && (rungRatio > 1.0f)
+    bool zoomable = (app.siteLevel > 0) && (zoomMax > 1.0f)
                     && !app.transActive && !app.founded;
     float wheel = zoomable ? GetMouseWheelMove() : 0.0f;
     if (wheel != 0.0f)
     {
-        app.zoomK *= std::pow(1.25f, wheel);
-        if (app.zoomK < 1.0f) app.zoomK = 1.0f;
-        // The site rung refines rather than descends, so it stops where
-        // the build footprint fills 30% of the view.
-        if (siteRung && app.zoomK > rungRatio) app.zoomK = rungRatio;
+        app.zoomK = std::clamp(app.zoomK * std::pow(1.25f, wheel),
+                               1.0f, zoomMax);
     }
     // The viewport for THIS frame uses last frame's camera, which breaks
     // the circle between "where the cursor is" and "where the camera is
@@ -2936,7 +3371,17 @@ static void UpdateSiteSelect(AppState& app)
     app.lastPointer = m;
     app.havePointer = true;
 
-    if (app.sceneDirty) BuildSiteScene(app);
+    if (app.sceneDirty)
+    {
+        // Level 1 is the globe: there is no DEM window to build. This
+        // used to extract a 2048 px plate-carree window of the whole
+        // near side and shade it, ~1.9 s a visit, only for the globe to
+        // be drawn straight over the top of it. The flag is cleared so
+        // the scripted harness's settle loop still terminates.
+        // See docs/graveyard.md for what that map was.
+        if (app.siteLevel > 0) BuildSiteScene(app);
+        else { app.sceneDirty = false; app.sceneDraft = false; }
+    }
 
     // A descent in flight owns the frame: the old texture is still the
     // right picture, and no input should land mid-move.
@@ -2967,6 +3412,13 @@ static void UpdateSiteSelect(AppState& app)
         return;
     }
 
+    // Level 1 is the globe: drag turns it, the wheel zooms it. Done
+    // before the pointer is read so the hover lands on this frame's
+    // orientation, not the last one's.
+    if (app.siteLevel == 0 && !g_fake.active && !app.transActive)
+        UpdateLunarGlobeInput(screenW, screenH, GetFrameTime());
+
+    UpdatePressGesture(m);
     bool rawClick = SiteClick();
     bool descend = rawClick;
     bool ascend = SiteEscape();
@@ -2981,6 +3433,48 @@ static void UpdateSiteSelect(AppState& app)
         ascend = true;
         descend = false;
     }
+    // ---------- view switches, top right ----------
+    Rectangle annBtn = ViewToggleRect(screenW, 0);
+    Rectangle spinBtn = ViewToggleRect(screenW, 1);
+    Rectangle resetBtn = ViewToggleRect(screenW, 2);
+    bool spinShown = (app.siteLevel == 0);   // nothing to spin below the globe
+    auto toggleSpin = [&app]() {
+        app.globeSpin = !app.globeSpin;
+        SetLunarGlobeSpin(app.globeSpin ? GLOBE_SPIN_DEG_PER_SEC : 0.0);
+    };
+    // Back to where the globe started: the equator on the prime meridian,
+    // zoomed out to the whole disc. A default-constructed camera IS that
+    // position, so this cannot drift from the opening view.
+    auto resetGlobe = []() { SetOrbitalCamera(OrbitalCamera{}); };
+    if (rawClick && CheckCollisionPointRec(m, annBtn))
+    {
+        app.showLabels = !app.showLabels;
+        descend = false;
+        ascend = false;
+    }
+    else if (spinShown && rawClick && CheckCollisionPointRec(m, spinBtn))
+    {
+        toggleSpin();
+        descend = false;
+        ascend = false;
+    }
+    else if (spinShown && rawClick && CheckCollisionPointRec(m, resetBtn))
+    {
+        resetGlobe();
+        descend = false;
+        ascend = false;
+    }
+    if (spinShown && !g_fake.active && IsKeyPressed(KEY_R)) resetGlobe();
+    // Right-click spins the globe. It is free to take here: below the
+    // globe right-click still backs out a level, but AT the globe there
+    // is nowhere to back out to, so it did nothing at all.
+    if (spinShown && !g_fake.active &&
+        IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+    {
+        toggleSpin();
+        ascend = false;
+    }
+    if (!g_fake.active && IsKeyPressed(KEY_L)) app.showLabels = !app.showLabels;
 
     // ---------- state that depends on the pointer ----------
     RegionIdentity hoverId = app.region;
@@ -2989,8 +3483,10 @@ static void UpdateSiteSelect(AppState& app)
 
     if (app.siteLevel == 0)
     {
-        if (ScreenToLatLon(app.scene, discZoom, screenW, screenH, m,
-                           &hoverLat, &hoverLon))
+        // The same projection the globe's shader draws with, inverted --
+        // so the region named is the region under the pointer.
+        if (OrbitalPickToLatLon(m.x, m.y, screenW, screenH,
+                                &hoverLat, &hoverLon))
         {
             onGround = true;
             hoverId = IdentifyRegion(app.dem, hoverLat, hoverLon);
@@ -3003,20 +3499,22 @@ static void UpdateSiteSelect(AppState& app)
         SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
         onGround = true;
 
-        // On the site rung the rectangle itself refines: the visible
-        // span shrinks with the zoom, and SurveyFootprintForSpan keeps
-        // the cursor inside the 15-30% band the whole way down. The snap
-        // is released as soon as it is smaller than a sect cell, because
-        // by then the question is where within the cell, not which cell.
+        // The site rung neither zooms nor refines: the window holds at
+        // its own span and the cursor is the base's own footprint from
+        // the moment you arrive. There is one question here -- where
+        // does the base go -- so the rectangle is the answer's real
+        // size, and it moves freely because "which 5 km cell" is not
+        // being asked.
+        //
+        // That footprint is ~6% of the window, under the design's 15-30%
+        // legibility band. The band is there so a cursor you are CHOOSING
+        // BETWEEN cells with stays readable; this one is a placement, and
+        // drawing it larger would misreport the ground the verdict is
+        // actually measured over.
         if (siteRung)
         {
-            double visibleKm = c->windowSpanKm / app.zoomK;
-            double fp = SurveyFootprintForSpan(visibleKm);
-            if (fp < SURVEY_BUILD_FOOTPRINT_KM) fp = SURVEY_BUILD_FOOTPRINT_KM;
-            if (fp > ladder[app.siteLevel].footprintKm)
-                fp = ladder[app.siteLevel].footprintKm;
-            c->footprintKm = fp;
-            c->snapToGrid = (fp >= ladder[app.siteLevel].footprintKm - 1e-9);
+            c->footprintKm = SURVEY_BUILD_FOOTPRINT_KM;
+            c->snapToGrid = false;
             SurveyCursorTrack(c, viewport, m.x, m.y);
             SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
         }
@@ -3024,7 +3522,10 @@ static void UpdateSiteSelect(AppState& app)
         // Fly the camera at the cursor as the zoom deepens, so the ground
         // being aimed at is the ground that fills the screen when the
         // next rung takes over.
-        float approach = ZoomApproach(app.zoomK, rungRatio);
+        // Lean the camera onto the cursor as the zoom deepens, reaching
+        // it at this rung's own limit rather than at the next rung's
+        // window, which the zoom no longer travels to.
+        float approach = ZoomApproach(app.zoomK, zoomMax);
         app.camXKm = c->offsetXKm * approach;
         app.camYKm = c->offsetYKm * approach;
     }
@@ -3074,8 +3575,7 @@ static void UpdateSiteSelect(AppState& app)
     }
 
     // ---------- draw ----------
-    float sceneZoom = (app.siteLevel == 0) ? discZoom
-                                           : app.sceneAspect * app.zoomK;
+    float sceneZoom = app.sceneAspect * app.zoomK;   // levels below the globe
     Camera3D camera = TopDownCamera(app.scene, sceneZoom);
     if (app.siteLevel > 0 && app.zoomK > 1.0f)
     {
@@ -3095,19 +3595,35 @@ static void UpdateSiteSelect(AppState& app)
     // silently redirects everything drawn afterwards and exports a black
     // frame. It renders straight instead -- the cache is a pass-through,
     // so what it exports is still what the playtest draws.
-    if (!g_fake.active)
+    if (!g_fake.active && app.siteLevel > 0)
         RefreshSceneCache(app, options, camera, sceneZoom, screenW, screenH);
 
     if (!g_fake.active) BeginDrawing();
-    if (g_fake.active) DrawScene(app.scene, options, app.styleMode, camera);
-    else               BlitSceneCache(app);
-
     if (app.siteLevel == 0)
     {
-        DrawDiscFeatureOutlines(screenW, screenH, hoverId.featureIndex,
-                                hoverId.archetypeTint, discZoom);
+        // A globe, not a DEM window: no mesh, no scene cache, and the
+        // whole moon including the far side is reachable.
+        ClearBackground(Color{ 6, 7, 12, 255 });
+        DrawLunarGlobe(screenW, screenH);
+        if (app.showLabels)
+        {
+            DrawGlobeFeatureOutlines(screenW, screenH, hoverId.featureIndex,
+                                     hoverId.archetypeTint);
+        }
+        // The cursor stays whatever the labels do: it is what you are
+        // about to take, not a note about it.
+        if (onGround)
+        {
+            DrawGlobeCursorBox(hoverLat, hoverLon, ladder[0].footprintKm,
+                               screenW, screenH, hoverId.archetypeTint);
+        }
+        if (app.showLabels) DrawGlobeHud(screenW, screenH);
     }
-    DrawHud(app.scene, options, app.styleMode, screenW, screenH, sceneZoom);
+    else
+    {
+        if (g_fake.active) DrawScene(app.scene, options, app.styleMode, camera);
+        else               BlitSceneCache(app);
+    }
 
     if (app.siteLevel == 0)
     {
@@ -3119,7 +3635,7 @@ static void UpdateSiteSelect(AppState& app)
             DrawLineEx(Vector2{ m.x + 7, m.y }, Vector2{ m.x + 16, m.y }, 2.0f, tint);
             DrawLineEx(Vector2{ m.x, m.y - 16 }, Vector2{ m.x, m.y - 7 }, 2.0f, tint);
             DrawLineEx(Vector2{ m.x, m.y + 7 }, Vector2{ m.x, m.y + 16 }, 2.0f, tint);
-            if (!hintKey)
+            if (!hintKey && app.showLabels)
             {
                 const char* coord = TextFormat(
                     "%.1f%c  %.1f%c",
@@ -3129,12 +3645,13 @@ static void UpdateSiteSelect(AppState& app)
                               tint, screenW, coord);
             }
         }
-        if (onGround) DrawRegionCard(site, 0, regionX, regionY, hintKey, cardW);
+        if (onGround && app.showLabels)
+            DrawRegionCard(site, 0, regionX, regionY, hintKey, cardW);
     }
     else
     {
         const SurveyCursor* c = SurveyCurrent(&app.descent);
-        if (c->windowSpanKm >= 25.0)
+        if (app.showLabels && c->windowSpanKm >= 25.0)
         {
             DrawFeatureArcsInWindow(c->windowLatDeg, c->windowLonDeg,
                                     c->windowSpanKm, screenW, screenH);
@@ -3144,8 +3661,17 @@ static void UpdateSiteSelect(AppState& app)
                                : Color{ 255, 70, 70, 255 })
             : Color{ 232, 238, 255, 255 };
         DrawLadderCursor(*c, viewport, tint);
+        // Say what a click will do, next to the thing it will do it to.
+        if (siteRung && !app.founded && app.showLabels)
+        {
+            const char* say = (haveVerdict && verdict.allowed)
+                ? "Click to build the colony here"
+                : "Refused - move to better ground";
+            DrawCursorCallout(SurveyCursorRect(*c, viewport), say, tint);
+        }
         int levelY = 64;
-        if (narrow)
+        if (!app.showLabels) { /* cards are commentary */ }
+        else if (narrow)
         {
             // Region reduced to its name and archetype: claimed, fixed,
             // and no longer the question being asked.
@@ -3168,12 +3694,33 @@ static void UpdateSiteSelect(AppState& app)
         {
             DrawRegionCard(site, app.siteLevel, 16, 64, hintKey);
         }
-        DrawLevelCard(site, app.siteLevel, g, nullptr,
-                      haveVerdict ? &b : nullptr,
-                      haveVerdict ? &verdict : nullptr,
-                      narrow ? cardX : screenW - 352, levelY, cardW);
+        if (app.showLabels)
+        {
+            DrawLevelCard(site, app.siteLevel, g, nullptr,
+                          haveVerdict ? &b : nullptr,
+                          haveVerdict ? &verdict : nullptr,
+                          narrow ? cardX : screenW - 352, levelY, cardW);
+            DrawHud(app.scene, options, app.styleMode, screenW, screenH,
+                    sceneZoom);
+        }
     }
-    DrawPendingHintTooltip();
+    if (app.showLabels) DrawPendingHintTooltip();
+
+    // Drawn last so nothing covers them, and outside every showLabels
+    // guard so they survive their own switch.
+    DrawViewToggle(annBtn,
+                   app.showLabels ? "ANNOTATIONS   ON" : "ANNOTATIONS   OFF",
+                   app.showLabels);
+    if (spinShown)
+    {
+        DrawViewToggle(spinBtn,
+                       app.globeSpin ? "SPIN  ON    right-click"
+                                     : "SPIN  OFF   right-click",
+                       app.globeSpin);
+        // An action, not a state, so it is drawn lit rather than showing
+        // an on/off of its own.
+        DrawViewToggle(resetBtn, "RECENTRE   0N 0E   R", true);
+    }
 
     // ---------- prompt strip ----------
     {
@@ -3190,16 +3737,10 @@ static void UpdateSiteSelect(AppState& app)
                           : "Move over the moon - the region under the cursor names itself.  Click to claim it.");
         else if (app.siteLevel == SITE_LEVELS - 1)
         {
-            // The site level spans navigating and placing, so the prompt
-            // has to say which one is happening. A click on a 5 km cell
-            // closes in; only the refined footprint founds anything.
-            const SurveyCursor* pc = SurveyCurrent(&app.descent);
-            bool placing = pc->footprintKm <= SURVEY_BUILD_FOOTPRINT_KM * 1.05;
-            if (!placing)
-                msg = narrow
-                    ? "Scroll to close in on the ground."
-                    : "Scroll to close in - the cursor refines to the base footprint.  Esc to back out.";
-            else if (verdict.allowed)
+            // One question, one answer: the cursor is already the base's
+            // footprint, so the prompt only has to say whether this
+            // ground will take it.
+            if (verdict.allowed)
                 msg = narrow ? "Found the colony here."
                              : "Click to found the colony here.  Esc to back out.";
             else
@@ -3256,49 +3797,20 @@ static void UpdateSiteSelect(AppState& app)
         }
     }
 
-    // ---------- continuous zoom crossing a rung ----------
-    //
-    // The zoom has reached the window of the rung below, so that rung
-    // takes over: same ground, same framing, but built at its own
-    // resolution and carrying its own cursor. No click, no flight -- the
-    // picture the player is already looking at simply becomes the next
-    // level. Scrolling back out below 1x hands it back the same way.
-    if (zoomable && !siteRung && app.zoomK >= rungRatio)
-    {
-        SurveyCursor* c = SurveyCurrent(&app.descent);
-        SurveyCursorTrack(c, viewport, m.x, m.y);
-        SurveyDescend(&app.descent);
-        app.siteLevel++;
-        app.zoomK = 1.0f;
-        app.camXKm = 0.0;
-        app.camYKm = 0.0;
-        app.sceneStage = 0;
-        app.sceneDirty = true;
-        return;
-    }
-    if (app.siteLevel > 1 && app.zoomK <= 1.0f && wheel < 0.0f
-        && !app.transActive && !app.founded)
-    {
-        if (SurveyAscend(&app.descent))
-        {
-            app.siteLevel--;
-            float back = (float)(ladder[app.siteLevel].windowSpanKm
-                                 / ladder[app.siteLevel + 1].windowSpanKm);
-            app.zoomK = std::max(1.0f, back * 0.98f);   // just inside the rung
-            app.camXKm = 0.0;
-            app.camYKm = 0.0;
-            app.sceneStage = 0;
-            app.sceneDirty = true;
-        }
-        return;
-    }
+    // The rungs used to hand over to each other when the zoom reached
+    // the next window, and to hand back when it fell below 1x. They do
+    // not any more: the zoom is bounded to this rung (see zoomMax), so
+    // changing level is always a deliberate act -- a click to go down, a
+    // click on BACK or Esc to come up -- and never something the wheel
+    // does to you while you are reading the ground.
 
     // ---------- transitions ----------
     if (app.founded)
     {
         if (ascend) { app.founded = false; app.claimed = false;
                       app.siteLevel = 0; app.sceneStage = 0;
-                      app.zoomK = 1.0f; app.camXKm = 0.0; app.camYKm = 0.0;
+                      app.zoomK = 1.0f;
+                      app.camXKm = 0.0; app.camYKm = 0.0;
                       app.sceneDirty = true; }
         return;
     }
@@ -3326,16 +3838,11 @@ static void UpdateSiteSelect(AppState& app)
             app.transRegion = hoverId;
             app.transLat = hoverLat;
             app.transLon = hoverLon;
-            double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
             SurveyCursor next = MakeSurveyCursor(1, hoverLat, hoverLon);
-            // The span the camera is SHOWING, not the scene's own: level
-            // 1 is already zoomed out by discZoom to letterbox the near
-            // side, and feeding the scene span here lands the flight
-            // 1/discZoom too wide (2.2x on a portrait phone).
-            BeginDescentZoom(app, discZoom,
-                             hoverLon * kmPerDeg, hoverLat * kmPerDeg,
-                             app.scene.worldHeightKm / discZoom,
-                             next.windowSpanKm);
+            // Off the globe, not across a flat map: turn the sub-point to
+            // what was clicked while the orbital zoom climbs, landing at
+            // the framing level 2 opens on.
+            BeginGlobeDescent(app, hoverLat, hoverLon, next.windowSpanKm);
             if (!app.transActive)      // headless: no flight, act now
             {
                 app.region = hoverId;
@@ -3354,11 +3861,7 @@ static void UpdateSiteSelect(AppState& app)
             // closer", not "build here" -- the verdict it would commit
             // to is measured over five times the base's own footprint.
             // Refine first, then found.
-            const SurveyCursor* c = SurveyCurrent(&app.descent);
-            bool refined = c->footprintKm
-                           <= SURVEY_BUILD_FOOTPRINT_KM * 1.05;
-            if (!refined) app.zoomK = std::min(rungRatio, app.zoomK * 1.6f);
-            else if (verdict.allowed) app.founded = true;
+            if (verdict.allowed) app.founded = true;
         }
         else
         {
@@ -3524,17 +4027,6 @@ static double DiscPxPerDeg(int h, float zoom)
     return (double)h * zoom / 180.0;
 }
 
-// The zoom that fits the whole near side on screen. A portrait phone is
-// narrower than it is tall, and at zoom 1 the ortho camera fills the
-// height and crops longitude -- which would put the eastern and western
-// near side out of reach on the one screen where the player picks a
-// region. Zooming out to the aspect ratio letterboxes instead.
-static float DiscFitZoom(int w, int h)
-{
-    float aspect = (float)w / (float)h;
-    return (aspect < 1.0f) ? aspect : 1.0f;
-}
-
 static void DiscToScreen(double lat, double lon, int w, int h,
                          float* x, float* y, float zoom = 1.0f)
 {
@@ -3568,9 +4060,10 @@ static void DiscToScreen(double lat, double lon, int w, int h,
 static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
                                     Color hoverTint, float zoom)
 {
-    for (int i = 0; i < DISC_FEATURE_COUNT; i++)
+    const std::vector<DiscFeature>& all = Features();
+    for (int i = 0; i < (int)all.size(); i++)
     {
-        const DiscFeature& f = DISC_FEATURES[i];
+        const DiscFeature& f = all[i];
         if (std::fabs(f.lat) > 80.0) continue;
         float cx = 0.0f, cy = 0.0f;
         DiscToScreen(f.lat, f.lon, w, h, &cx, &cy, zoom);
@@ -3597,6 +4090,22 @@ static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
                              Color{ 255, 255, 255, 70 });
         }
     }
+}
+
+// Level 1's header. The DEM HUD above it describes a window that does
+// not exist here -- there is no elevation window at level 1, only the
+// mosaic on a sphere -- so the globe states its own case.
+static void DrawGlobeHud(int screenW, int screenH)
+{
+    const OrbitalCamera& cam = GetOrbitalCamera();
+    DrawText(TextFormat("MOON  -  ORBIT      sub-point %.1f%c %.1f%c      x%.1f",
+                        std::fabs(cam.subLatDeg), cam.subLatDeg < 0 ? 'S' : 'N',
+                        std::fabs(cam.subLonDeg), cam.subLonDeg < 0 ? 'W' : 'E',
+                        cam.zoom),
+             14, 12, 19, Color{ 232, 236, 245, 255 });
+    DrawText("drag  turn the globe        wheel  zoom        "
+             "click  take this district",
+             14, 36, 13, Color{ 150, 160, 180, 255 });
 }
 
 // The hover chip: what is under the cursor, named. This is the whole
@@ -3632,9 +4141,10 @@ static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
     double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
     double cosC = Clamp((float)std::cos(cLat * DEG2RAD), 0.05f, 1.0f);
     const char* insideName = nullptr;
-    for (int i = 0; i < DISC_FEATURE_COUNT; i++)
+    const std::vector<DiscFeature>& all = Features();
+    for (int i = 0; i < (int)all.size(); i++)
     {
-        const DiscFeature& f = DISC_FEATURES[i];
+        const DiscFeature& f = all[i];
         double dist = FeatureDistKm(f, cLat, cLon);
         if (dist > f.radiusKm + spanKm) continue;       // far outside
         if (dist < f.radiusKm - spanKm)                 // deep inside
@@ -3682,6 +4192,23 @@ static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
         DrawText(insideName, (w - tw) / 2, 58, 17,
                  Color{ 255, 255, 255, 110 });
     }
+}
+
+// A line of text riding just above the cursor, in the cursor's own
+// colour. The prompt strip along the bottom says the same thing, but at
+// the moment of placing a base the eye is on the rectangle, not on the
+// footer -- so the answer has to be where the question is.
+static void DrawCursorCallout(Rectangle r, const char* text, Color tint)
+{
+    const int fs = 15;
+    int tw = MeasureText(text, fs);
+    float bw = (float)tw + 18.0f, bh = 24.0f;
+    float bx = r.x + r.width * 0.5f - bw * 0.5f;
+    float by = r.y - bh - 8.0f;
+    if (by < 4.0f) by = r.y + r.height + 8.0f;   // no room above: go below
+    DrawRectangleRec(Rectangle{ bx, by, bw, bh }, Color{ 10, 11, 16, 226 });
+    DrawRectangleLinesEx(Rectangle{ bx, by, bw, bh }, 1.5f, tint);
+    DrawText(text, (int)(bx + 9.0f), (int)(by + 5.0f), fs, tint);
 }
 
 static void DrawLadderCursor(const SurveyCursor& cursor,
@@ -3812,7 +4339,7 @@ static int RenderLadder(AppState& app)
                 if (alt)
                 {
                     const char* hn = (hover >= 0)
-                        ? DISC_FEATURES[hover].name
+                        ? Features()[hover].name
                         : (hoverPkt ? "Procellarum KREEP Terrane"
                                     : "Feldspathic Highlands");
                     DrawHoverChip(mx, my, hn,
@@ -4011,6 +4538,16 @@ int main(int argc, char** argv)
     app.options.nearside = true;
 #endif
 
+    // Both of these were inside the web-only block above, which meant
+    // the desktop build silently ignored them: the globe kept drifting
+    // in site mode and --nolabels did nothing.
+    //
+    // No idle drift in site mode. In the game's orbital view a globe
+    // turning on its own is scenery; on a screen where you are aiming at
+    // a 200 km box it is a target that walks away from the pointer.
+    if (app.options.siteMode) SetLunarGlobeSpin(0.0);
+    app.showLabels = !app.options.noLabels;
+
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(app.options.width, app.options.height,
                "lunar_map - LOLA elevation");
@@ -4078,13 +4615,21 @@ int main(int argc, char** argv)
         Shot("1_click");                      // the click starts the flight
         g_fake.click = false;
 
-        // 0.45 s at the headless 1/60 s step is 27 frames; sample it.
-        int frame = 0;
-        while (app.transActive && frame < 60)
+        // Sample by PROGRESS, not by frame index. The flight's length
+        // depends on how many octaves of zoom it covers -- leaving the
+        // globe is ~2.4 s, which at the headless 1/60 s step is ~140
+        // frames, so fixed frame numbers would all land in its first
+        // tenth and the strip would show nothing moving.
+        int frame = 0, shot = 0;
+        const float marks[3] = { 0.25f, 0.50f, 0.80f };
+        while (app.transActive && frame < 400)
         {
             frame++;
-            if (frame == 7 || frame == 14 || frame == 21)
-                Shot(TextFormat("2_fly%02d", frame));
+            if (shot < 3 && app.transT >= marks[shot])
+            {
+                Shot(TextFormat("2_fly%02d", (int)(marks[shot] * 100.0f)));
+                shot++;
+            }
             else
             {
                 RenderTexture2D t = LoadRenderTexture(64, 64);
@@ -4137,8 +4682,11 @@ int main(int argc, char** argv)
             { 0.52f, 0.62f, false, "4_playfield", false },
             { 0.52f, 0.62f, true,  "5_descend",   false },
             { 0.42f, 0.70f, true,  "6_descend",   false },
-            { 0.46f, 0.68f, false, "7_site",      false },
-            { 0.46f, 0.68f, false, "8_back",      true  },
+            // The site level arrives already holding the base's own
+            // 1.5 km footprint, so one click founds. Nothing exercised
+            // founding before this.
+            { 0.46f, 0.68f, true,  "7_found",     false },
+            { 0.46f, 0.68f, false, "8_founded",   false },
             { 0.46f, 0.68f, false, "9_back",      true  },
             { 0.46f, 0.68f, false, "10_back",     true  },
         };
@@ -4255,7 +4803,11 @@ int main(int argc, char** argv)
         return rc;
     }
 
-    if (!BuildScene(app.options, app.dem, app.scene))
+    // Site mode opens on the globe, which needs no DEM window -- so do
+    // not spend a near-side window build on the way in. The first
+    // descent builds the window it actually lands in. Every other mode
+    // draws a scene immediately and cannot start without one.
+    if (!app.options.siteMode && !BuildScene(app.options, app.dem, app.scene))
     {
         CloseWindow();
         return 1;
@@ -4265,6 +4817,85 @@ int main(int argc, char** argv)
     app.yawDeg = app.options.orbitYawDeg;
     app.pitchDeg = app.options.orbitPitchDeg;
     app.pendingExag = app.options.exaggeration;
+
+#if defined(PLATFORM_WEB)
+    // ?chainbench=1 -- what route A actually costs in a browser.
+    //
+    // The web build takes no arguments and its ladder can only be reached
+    // by clicking, which a headless browser cannot do. This measures the
+    // one quantity in question directly: how long the synthesizer's chain
+    // takes on a real GPU at each resolution, and whether the CPU-side
+    // mosaic copy it needs survives at all. It runs once and logs; it
+    // draws nothing and changes no state the playtest reads.
+    if (EM_ASM_INT({
+            var m = /[?&]chainbench=1/.exec(window.location.search);
+            return m ? 1 : 0;
+        }))
+    {
+        int maxTex = EM_ASM_INT({
+            var c = document.getElementById('canvas');
+            var gl = c && (c.getContext('webgl') ||
+                           c.getContext('experimental-webgl'));
+            return gl ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : -1;
+        });
+        TraceLog(LOG_WARNING, "CHAINBENCH: WebGL MAX_TEXTURE_SIZE = %d", maxTex);
+        TraceLog(LOG_WARNING, "CHAINBENCH: terrain path = %s",
+                 GetTerrainPathName());
+        const int kRes[] = { 256, 512, 1024, 2048 };
+        for (int i = 0; i < 4; i++)
+        {
+            int r = kRes[i];
+            if (maxTex > 0 && r > maxTex)
+            {
+                TraceLog(LOG_WARNING, "CHAINBENCH: res %d skipped, over the "
+                                      "texture limit", r);
+                continue;
+            }
+            // Twice: the first pass pays for the mosaic decode, the
+            // shader build and the scratch targets, which a second
+            // window would not pay again.
+            for (int pass = 0; pass < 2; pass++)
+            {
+                TerrainGpuChain c = {};
+                // In-page clocks are useless here. raylib's GetTime()
+                // comes from GLFW, which emscripten only advances per
+                // frame, and this bench finishes before the first frame.
+                // emscripten_get_now() would work -- except a headless
+                // browser needs --virtual-time-budget to load the page
+                // at all, and virtual time FAKES performance.now(), so
+                // that reads zero too.
+                //
+                // The browser's own log timestamps are real wall clock
+                // regardless, so bracket each build with markers and
+                // measure the gap between them from outside.
+                TraceLog(LOG_WARNING, "CHAINMARK begin res %d pass %d",
+                         r, pass + 1);
+                double t0 = emscripten_get_now();
+                bool ok = GenerateTerrainChainGPU(-25.0, 5.0, r, &c, nullptr);
+                // GL is asynchronous: the call above only SUBMITS the
+                // passes. Reading one pixel back off the result forces
+                // the driver to finish them, which is the number that
+                // matters -- without this the bench reports 0.0 ms.
+                if (ok)
+                {
+                    BeginTextureMode(c.color[1]);
+                    unsigned char* one = rlReadScreenPixels(1, 1);
+                    EndTextureMode();
+                    if (one) RL_FREE(one);
+                }
+                double ms = emscripten_get_now() - t0;
+                TraceLog(LOG_WARNING, "CHAINMARK end   res %d pass %d",
+                         r, pass + 1);
+                UnloadTerrainGpuChain(&c);
+                TraceLog(LOG_WARNING,
+                         "CHAINBENCH: res %-5d pass %d  %8.1f ms  %s",
+                         r, pass + 1, ms, ok ? "ok" : "FAILED");
+                if (!ok) break;
+            }
+        }
+        TraceLog(LOG_WARNING, "CHAINBENCH: done");
+    }
+#endif
     std::cerr << TextFormat(
         "lunar_map: window %.1f..%.1f km elevation, %d px shading texture\n",
         app.scene.window.minElevationM / 1000.0f,

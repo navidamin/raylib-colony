@@ -31,6 +31,7 @@ there is no band to read, no ring to interpret, no instrument to learn.
 |----------|---------|--------|
 | [site-selection-master-design.md](site-selection-master-design.md) | The two decisions, cursor behaviour, where resource information lives, implementation plan | SETTLED |
 | ↳ Appendix A | The five-level instrument-floor model this replaced, kept as reasoning, not as work | ARCHIVED |
+| [site-ground-texture.md](site-ground-texture.md) | Why the site level looks like grey noise over 99.8 % of the Moon, and the design for laying the terrain synthesizer over it — platform tiers by measured cost, web memory, phased delivery | DESIGNED — prototype behind `--chain` |
 
 ## Progress
 
@@ -64,6 +65,13 @@ there is no band to read, no ring to interpret, no instrument to learn.
 **Roadmap**
 
 - `ROADMAP_IMMINENT.md` — site selection is part of the colony founding loop
+
+## Removed on purpose
+
+Earlier versions of this ladder — the flat near-side level 1, the
+scroll-that-changes-level, the site level's zoom-driven cursor
+refinement — are described in [`../../graveyard.md`](../../graveyard.md)
+with the constants they used. Read it before reinstating any of them.
 
 ## Open questions
 

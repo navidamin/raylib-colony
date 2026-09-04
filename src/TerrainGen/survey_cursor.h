@@ -36,21 +36,20 @@
 // Three levels, not four. LOCALITY (a 25 km window with a 5 km cursor)
 // and SITE (a 5 km window with a 1.5 km cursor) used to be separate
 // rungs, which made the player click through two framings to reach one
-// decision. They are now one level: the window stays at 25 km and the
-// CURSOR refines as the view zooms in, from a snapped 5 km cell while
-// navigating down to the free 1.5 km build footprint while placing --
-// which is what the design already asked for ("the cursor snaps to the
-// 5 km cell grid while navigating and is free-moving at the placement
-// step"). SurveyFootprintForSpan does the refining; it keeps the cursor
-// inside the 15-30% band at every zoom.
+// decision. They are now one level: the window holds at 25 km and the
+// cursor is the base's own 1.5 km footprint from the moment you arrive,
+// free-moving, because the only question left there is where the base
+// goes. It neither zooms nor refines -- one question, one answer, at the
+// size the answer really is.
 const int SURVEY_LEVEL_COUNT = 3;
 
-// The base's own footprint: the smallest the site cursor ever refines
-// to, and the size the buildable verdict is measured over.
+// The base's own footprint: what the site cursor IS, and the size the
+// buildable verdict is measured over. It is about 6% of the site
+// window, deliberately under the band below: the band keeps a cursor
+// you are choosing BETWEEN cells with readable, and this one is a
+// placement, so drawing it larger would misreport the ground the
+// verdict actually covers.
 const double SURVEY_BUILD_FOOTPRINT_KM = 1.5;
-// Zooming inside the site level stops once the view is this wide, which
-// puts the build footprint at 30% of it -- the top of the band.
-const double SURVEY_SITE_VIEW_KM = 5.0;
 const double SURVEY_MOON_DIAMETER_KM = 3474.8;
 const double SURVEY_ORBITAL_USABLE_KM = 3000.0;
 
@@ -77,6 +76,21 @@ const double SURVEY_CURSOR_MAX_RATIO = 0.30;
 // the ladder's own footprints so free zooming still snaps to familiar
 // sizes; falls back to a clamped fraction of the span.
 double SurveyFootprintForSpan(double spanKm);
+
+// How far a level may zoom in, as a multiple of its own window.
+//
+// Zooming reads the ground; it does not change rung. The ceiling is the
+// zoom at which the cursor fills the TOP of the band above -- past that
+// the cursor is most of the screen and there is nothing left to choose
+// between. The site level is a special case: it does not zoom at all,
+// because its cursor is already the base's footprint and its window is
+// already the ground being chosen within.
+//
+// The useful consequence is that the tightest view a level can reach is
+// still wider than the window of the level below it, so no amount of
+// scrolling arrives at a neighbouring level's picture. Crossing a rung
+// is a click. survey_cursor_test checks that this holds for every rung.
+double SurveyZoomMax(int level);
 
 // ---------------------------------------------------------------------------
 // Cursor state

@@ -24,8 +24,8 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
     // LOCALITY went next: a 25 km window choosing a 5 km cell, followed
     // by a 5 km window placing inside it, is one decision wearing two
     // framings. The site level now spans both -- the window holds at
-    // 25 km while the cursor refines from the 5 km cell to the 1.5 km
-    // footprint, so the player zooms once instead of clicking twice.
+    // 25 km and the cursor is the 1.5 km build footprint directly, so
+    // the player places the base instead of clicking down to it.
     //
     // The district widened from 100 to 200 km on 2026-09-02 so the three
     // zooms read as 15x / 8x / 5x; it no longer matches the game's
@@ -85,6 +85,27 @@ double ClampOffset(double offsetKm, double spanKm, double footprintKm)
 const SurveyLevelDef* GetSurveyLadder()
 {
     return LADDER;
+}
+
+double SurveyZoomMax(int level)
+{
+    if (level < 0 || level >= SURVEY_LEVEL_COUNT) return 1.0;
+    const SurveyLevelDef& d = LADDER[level];
+    double z;
+    if (level == SURVEY_LEVEL_COUNT - 1)
+    {
+        // The site level does not zoom at all. Its window is already the
+        // ground you are choosing within and its cursor is already the
+        // footprint the base occupies, so zooming could only take the
+        // surroundings away from the decision.
+        z = 1.0;
+    }
+    else
+    {
+        // A fixed cursor: the limit is where it fills the band's ceiling.
+        z = SURVEY_CURSOR_MAX_RATIO * d.windowSpanKm / d.footprintKm;
+    }
+    return (z < 1.0) ? 1.0 : z;
 }
 
 double SurveyFootprintForSpan(double spanKm)

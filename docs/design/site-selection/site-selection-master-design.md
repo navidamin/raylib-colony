@@ -53,15 +53,19 @@ that:
 These are the game's own scales: PLANET is 100 km, COLONY 25, SECT 5.
 The ladder has no rung that is not a view the game already has.
 
-> **As built (2026-09-02).** The ladder in code is three rungs, not four:
-> ORBITAL (3000 km usable disc, 200 km cursor) → DISTRICT (200 km window,
-> 25 km cursor) → SITE (25 km window, cursor refining from the 5 km cell
-> to the 1.5 km footprint as the view zooms to 5 km). Colony and Site
-> merged on 2026-08-29 — one decision was wearing two framings — and the
-> district widened from 100 to 200 km on 2026-09-02 so the three zooms
-> read 15× / 8× / 5×. The district therefore no longer coincides with the
-> 100 km PLANET playfield, and the cursor floor is 12% (the 8× rung sits
-> at 12.5%). `src/TerrainGen/survey_cursor.cpp` is the authority.
+> **As built (2026-09-03).** The ladder in code is three rungs, not four:
+> ORBITAL (the globe, 200 km cursor) → DISTRICT (200 km window, 25 km
+> cursor) → SITE (25 km window, 1.5 km cursor). Colony and Site merged on
+> 2026-08-29 — one decision was wearing two framings — and the district
+> widened from 100 to 200 km on 2026-09-02, so the descent reads 15× then
+> 8×. The district therefore no longer coincides with the 100 km PLANET
+> playfield, and the cursor floor is 12% (the 8× rung sits at 12.5%).
+>
+> Zoom no longer changes level anywhere: each rung is bounded to its own
+> range (`SurveyZoomMax`), crossing one is always a click, and the site
+> rung does not zoom at all — it arrives holding the base's own footprint.
+> `src/TerrainGen/survey_cursor.cpp` is the authority; what the earlier
+> designs did instead is in `docs/graveyard.md`.
 
 The code carried a fifth, 500 km "REGIONAL" rung between the disc and
 the playfield, which was never in this table. It answered no question of
@@ -161,10 +165,12 @@ ground the player can see but cannot select. Below ~12% the cursor is a
 dot with an unreadable label; above ~40% there is nothing left to choose
 between.
 
-**Snapping.** The cursor snaps to the 5 km cell grid while navigating and
-is **free-moving** at the placement step — the whole point of the final
-step is choosing *where within* the cell the base sits, and the buildable
-ground may be a corner of it.
+**Snapping.** Snapping belongs to the levels that choose BETWEEN cells:
+ORBITAL and DISTRICT snap their cursor to the grid of the window below.
+The site level does not — it arrives holding the base's own 1.5 km
+footprint and moves it freely, because the question there is where the
+base goes, not which cell it goes in. (As built 2026-09-03; the earlier
+snap-then-refine behaviour is in `docs/graveyard.md`.)
 
 ---
 
