@@ -1157,7 +1157,12 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.chainTex = Texture2D{ 0 };
     scene.chainMs = 0.0;
     scene.chainSpanKm = 0.0f;
-    if (options.chain && !options.nearside)
+    // The site rung only. A window wider than the chain's own 100 km
+    // macro has nothing above it to crop from, so the layer stops being
+    // detail below the data floor and becomes a second opinion about
+    // landforms the DEM already resolves -- and it would cost two
+    // seconds a rung on the way down for the privilege.
+    if (options.chain && !options.nearside && options.spanKm <= 100.0)
     {
         double t0 = GetTime();
         scene.chainSpanKm = scene.worldWidthKm;
