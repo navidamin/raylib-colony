@@ -50,15 +50,66 @@ struct TerrainRng
     float Uniform() { return (Next() >> 8) * (1.0f / 16777216.0f); }
 };
 
-static uint32_t LocationSeed(double latDeg, double lonDeg)
+// Where a level's pixels sit on the moon, so invented detail can be a
+// function of GROUND rather than of the window that happens to frame it.
+//
+// Two windows over the same site -- a pick a kilometre off, the game's
+// cell grid against the instrument's ladder -- have to invent the same
+// detail there, or the ground a player judged changes when they come
+// back to it. That only holds if the noise lattice is pinned to the
+// moon: every lattice value is a hash of its own world cell, not the
+// next number out of a per-window stream.
+//
+// The frame is a local tangent plane in km, x east and y south, with
+// longitude scaled by cos(lat) at the window centre -- the same
+// approximation the game's own cell grid makes (TerrainGridCellToLatLon).
+// Two windows near each other differ only to second order in it.
+struct NoiseFrame
 {
-    // Same quantisation as the Python prototype: 0.01 deg (~300 m).
-    int qlat = (int)std::lround((latDeg + 90.0) * 100.0);
-    int qlon = (int)std::lround((lonDeg + 180.0) * 100.0);
-    uint32_t x = ((uint32_t)(qlat * 73856093)) ^ ((uint32_t)(qlon * 19349663));
-    x = (x ^ (x >> 16)) * 0x45D9F3Bu;
-    x = (x ^ (x >> 16)) * 0x45D9F3Bu;
-    return x ^ (x >> 16);
+    double originKmX = 0.0;    // world km at the window's pixel (0,0)
+    double originKmY = 0.0;
+    double kmPerPx = 1.0;
+    uint32_t salt = 0;         // which layer this is
+};
+
+// Layers used to be decorrelated by the order they drew from one stream.
+// A hash has to be told instead.
+enum : uint32_t
+{
+    NOISE_GRAIN      = 0x9E3779B9u,
+    NOISE_GRAIN_FINE = 0x85EBCA6Bu,
+    NOISE_UNDULATION = 0xC2B2AE35u,
+    NOISE_SPECKLE    = 0x27D4EB2Fu,
+    NOISE_LUMPS      = 0x165667B1u,
+    NOISE_BOULDER    = 0xD3A2646Cu,
+    NOISE_SITE       = 0xFD7046C5u,
+};
+
+static NoiseFrame MakeNoiseFrame(double latDeg, double lonDeg,
+                                 double spanKm, int res, uint32_t salt)
+{
+    NoiseFrame f;
+    f.kmPerPx = spanKm / (double)res;
+    double c = std::max(0.2, std::cos(latDeg * DEG2RAD));
+    double centreX = lonDeg * MOON_KM_PER_DEG * c;
+    double centreY = -latDeg * MOON_KM_PER_DEG;
+    f.originKmX = centreX - spanKm * 0.5;
+    f.originKmY = centreY - spanKm * 0.5;
+    f.salt = salt;
+    return f;
+}
+
+// One value per world lattice cell, in 0..1. The same cell hashes the
+// same however it is reached, which is the whole point.
+static float HashCell(int64_t cx, int64_t cy, uint32_t salt)
+{
+    uint32_t h = (uint32_t)((uint64_t)cx * 73856093u)
+               ^ (uint32_t)((uint64_t)cy * 19349663u)
+               ^ (salt * 83492791u);
+    h ^= h >> 16; h *= 0x45D9F3Bu;
+    h ^= h >> 16; h *= 0x45D9F3Bu;
+    h ^= h >> 16;
+    return (float)(h >> 8) * (1.0f / 16777216.0f);
 }
 
 // ---------------------------------------------------------------------------
@@ -228,18 +279,54 @@ static Field ResizeBilinear(const Field& src, int sw, int sh, int dw, int dh)
 // Single-octave smooth value noise: coarse random lattice, bilinear
 // upsample, light blur — matches the prototype's value_noise closely
 // enough for grain purposes.
-static Field ValueNoise(int res, int scale, TerrainRng& rng)
+// scale stays in PIXELS, so a feature keeps its physical size; what
+// moved is the lattice it lands on. The window's corner falls somewhere
+// inside a world cell, and sampling at that sub-cell phase is what pins
+// the result to the ground instead of to the frame.
+static Field ValueNoise(int res, int scale, const NoiseFrame& frame,
+                        uint32_t octaveSalt)
 {
-    int g = std::max(2, res / scale + 2);
+    scale = std::max(2, scale);
+    double cellKm = std::max(1e-12, scale * frame.kmPerPx);
+    double u0 = frame.originKmX / cellKm;
+    double v0 = frame.originKmY / cellKm;
+    int64_t i0 = (int64_t)std::floor(u0);
+    int64_t j0 = (int64_t)std::floor(v0);
+
+    int g = res / scale + 3;
     Field grid((size_t)g * g);
-    for (float& v : grid) v = rng.Uniform();
-    Field up = ResizeBilinear(grid, g, g, res, res);
-    GaussianBlur(up, res, res, scale * 0.45f);
-    return up;
+    uint32_t salt = frame.salt ^ octaveSalt;
+    for (int j = 0; j < g; j++)
+        for (int i = 0; i < g; i++)
+            grid[(size_t)j * g + i] = HashCell(i0 + i, j0 + j, salt);
+
+    Field out((size_t)res * res);
+    double fx0 = u0 - (double)i0;
+    double fy0 = v0 - (double)j0;
+    double step = 1.0 / (double)scale;      // cells per pixel
+    for (int y = 0; y < res; y++)
+    {
+        double gy = fy0 + y * step;
+        int jy = std::clamp((int)gy, 0, g - 2);
+        float ty = (float)(gy - jy);
+        for (int x = 0; x < res; x++)
+        {
+            double gx = fx0 + x * step;
+            int ix = std::clamp((int)gx, 0, g - 2);
+            float tx = (float)(gx - ix);
+            const float* row0 = &grid[(size_t)jy * g + ix];
+            const float* row1 = &grid[(size_t)(jy + 1) * g + ix];
+            float a = row0[0] + (row0[1] - row0[0]) * tx;
+            float b = row1[0] + (row1[1] - row1[0]) * tx;
+            out[(size_t)y * res + x] = a + (b - a) * ty;
+        }
+    }
+    GaussianBlur(out, res, res, scale * 0.45f);
+    return out;
 }
 
 static Field Fbm(int res, int octaves, int baseScale, float persistence,
-                 TerrainRng& rng)
+                 const NoiseFrame& frame)
 {
     Field out((size_t)res * res, 0.0f);
     float amp = 1.0f;
@@ -247,7 +334,8 @@ static Field Fbm(int res, int octaves, int baseScale, float persistence,
     int scale = baseScale;
     for (int o = 0; o < octaves; o++)
     {
-        Field n = ValueNoise(res, scale, rng);
+        Field n = ValueNoise(res, scale, frame,
+                             0x9E3779B9u * (uint32_t)(o + 1));
         for (size_t i = 0; i < out.size(); i++) out[i] += amp * n[i];
         norm += amp;
         amp *= persistence;
@@ -274,12 +362,24 @@ static void NormalizeField(Field& g)
 // smooth low-frequency blobs; pink noise carries equal energy per
 // octave down to the pixel, so mix in a fine per-pixel component —
 // without it the ground renders flat (C++ std was 3x below Python's).
-static Field GrainNoise(int res, TerrainRng& rng)
+static Field GrainNoise(int res, const NoiseFrame& frame)
 {
-    Field g = Fbm(res, 5, 64, 0.8f, rng);
+    NoiseFrame coarse = frame; coarse.salt ^= NOISE_GRAIN;
+    Field g = Fbm(res, 5, 64, 0.8f, coarse);
     NormalizeField(g);
+    // The finest layer is one value per pixel, so its lattice cell IS
+    // the pixel: hash the world cell the pixel covers, not its index.
     Field fine((size_t)res * res);
-    for (float& v : fine) v = rng.Uniform() - 0.5f;
+    {
+        double cellKm = std::max(1e-12, frame.kmPerPx);
+        int64_t i0 = (int64_t)std::floor(frame.originKmX / cellKm);
+        int64_t j0 = (int64_t)std::floor(frame.originKmY / cellKm);
+        for (int y = 0; y < res; y++)
+            for (int x = 0; x < res; x++)
+                fine[(size_t)y * res + x] =
+                    HashCell(i0 + x, j0 + y,
+                             frame.salt ^ NOISE_GRAIN_FINE) - 0.5f;
+    }
     GaussianBlur(fine, res, res, 0.5f);
     NormalizeField(fine);
     for (size_t i = 0; i < g.size(); i++)
@@ -525,17 +625,41 @@ static void SharpenAdaptive(Field& macro, int res)
 
 // Boulder speckle: tiny sharp bumps; the shared relighting gives each
 // one its lit face and cast-shadow pixel automatically.
-static void SprinkleBoulders(Field& height, int res, TerrainRng& rng,
+// One boulder per world cell, on a hashed pixel inside it -- the scheme
+// the GPU shader already uses, and the only one that puts a boulder on
+// the same rock twice. count sets the cell size: a boulder is a
+// landmark once the chain IS the ground, so where it sits has to be a
+// property of the moon and not of the frame.
+static void SprinkleBoulders(Field& height, int res, const NoiseFrame& frame,
                              int count, float amp)
 {
-    for (int b = 0; b < count; b++)
+    if (count <= 0) return;
+    int cellPx = std::max(2, (int)std::lround(res / std::sqrt((double)count)));
+    double cellKm = std::max(1e-12, cellPx * frame.kmPerPx);
+    int64_t i0 = (int64_t)std::floor(frame.originKmX / cellKm);
+    int64_t j0 = (int64_t)std::floor(frame.originKmY / cellKm);
+    double fx0 = frame.originKmX / cellKm - (double)i0;
+    double fy0 = frame.originKmY / cellKm - (double)j0;
+    int cells = res / cellPx + 2;
+    uint32_t salt = frame.salt ^ NOISE_BOULDER;
+    for (int j = 0; j < cells; j++)
     {
-        int x = 1 + (int)(rng.Uniform() * (res - 2));
-        int y = 1 + (int)(rng.Uniform() * (res - 2));
-        float a = amp * (0.4f + rng.Uniform());
-        height[y * res + x] += a;
-        if (rng.Uniform() < 0.5f) height[y * res + x + 1] += a * 0.6f;
-        if (rng.Uniform() < 0.3f) height[(y + 1) * res + x] += a * 0.5f;
+        for (int i = 0; i < cells; i++)
+        {
+            float jx = HashCell(i0 + i, j0 + j, salt);
+            float jy = HashCell(i0 + i, j0 + j, salt ^ 0x5BD1E995u);
+            double px = ((double)i - fx0 + jx) * cellPx;
+            double py = ((double)j - fy0 + jy) * cellPx;
+            int x = (int)px, y = (int)py;
+            if (x < 1 || y < 1 || x >= res - 1 || y >= res - 1) continue;
+            float a = amp * (0.4f + HashCell(i0 + i, j0 + j,
+                                             salt ^ 0x27220A95u));
+            height[(size_t)y * res + x] += a;
+            if (HashCell(i0 + i, j0 + j, salt ^ 0x165667B1u) < 0.5f)
+                height[(size_t)y * res + x + 1] += a * 0.6f;
+            if (HashCell(i0 + i, j0 + j, salt ^ 0x9E3779B1u) < 0.3f)
+                height[(size_t)(y + 1) * res + x] += a * 0.5f;
+        }
     }
 }
 
@@ -594,7 +718,7 @@ static void LevelSiteMacro(Field& macro, int res, float pxPerKm,
 // a whole. Everything goes into the HEIGHT field, so the shared sun
 // gives it the shading and small shadows for free.
 static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
-                                 TerrainRng& rng,
+                                 const NoiseFrame& frame,
                                  const TerrainSiteDisturbance& site)
 {
     const float cx = res * 0.5f;
@@ -606,8 +730,14 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
     // Worked spots: the central core plus the ring of unit domes.
     struct Spot { float x, y, r, amp; };
     std::vector<Spot> spots;
-    spots.push_back({cx, cy, site.coreRadiusKm * pxPerKm,
-                     site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
+    // The spots sit at fixed offsets from the site, which is itself at
+    // a fixed place on the moon, so only their amplitudes needed a
+    // number: index them instead of drawing them.
+    uint32_t siteSalt = frame.salt ^ NOISE_SITE;
+    auto spotAmp = [&](int i) {
+        return site.spotAmp * (HashCell(i, 0, siteSalt) - 0.5f) * 2.0f;
+    };
+    spots.push_back({cx, cy, site.coreRadiusKm * pxPerKm, spotAmp(0)});
     for (int i = 0; i < site.domeCount; i++)
     {
         // Same layout the sect view draws: 8 units, 45 deg apart,
@@ -617,7 +747,7 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
         spots.push_back({cx + ring * std::cos(ang),
                          cy - ring * std::sin(ang),
                          site.domeWorkKm * pxPerKm,
-                         site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
+                         spotAmp(i + 1)});
     }
 
     // Level the natural elevation swings down to a calmer baseline
@@ -652,8 +782,9 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
     // Two noise fields: soft lumps for undulation, fine grain for the
     // random alterations. Sampled, not re-rolled per pixel, so the
     // result stays deterministic for the location.
-    Field lumps = Fbm(res, 3, std::max(4, (int)(res / 12)), 0.55f, rng);
-    Field fine = GrainNoise(res, rng);
+    NoiseFrame lumpFrame = frame; lumpFrame.salt ^= NOISE_LUMPS;
+    Field lumps = Fbm(res, 3, std::max(4, (int)(res / 12)), 0.55f, lumpFrame);
+    Field fine = GrainNoise(res, frame);
 
     for (int y = 0; y < res; y++)
     {
@@ -691,7 +822,8 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
 // The anti-matte relight + grain stage (port of _texture_modulate).
 // boulderCount > 0 adds sub-resolution boulder speckle — only used on
 // zoom levels below the real-data floor.
-static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
+static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
+                            float amp,
                             const TerrainTuning& tune,
                             int boulderCount = 0,
                             const TerrainSiteDisturbance* site = nullptr,
@@ -712,8 +844,9 @@ static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
     GaussianBlur(height, res, res, 2.5f * k);
     for (float& v : height) v = (v - 0.5f) * 0.13f * tune.formRelief;
 
-    Field grain = GrainNoise(res, rng);
-    Field undul = Fbm(res, 3, (int)(64 * k), 0.5f, rng);
+    Field grain = GrainNoise(res, frame);
+    NoiseFrame undulFrame = frame; undulFrame.salt ^= NOISE_UNDULATION;
+    Field undul = Fbm(res, 3, (int)(64 * k), 0.5f, undulFrame);
     for (size_t i = 0; i < height.size(); i++)
     {
         float rough = 0.45f + 0.55f * density[i];
@@ -722,20 +855,20 @@ static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
     }
 
     if (boulderCount > 0)
-        SprinkleBoulders(height, res, rng,
+        SprinkleBoulders(height, res, frame,
                          (int)(boulderCount * tune.boulders),
                          0.010f * tune.boulderAmp);
 
     if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
-        ApplySiteDisturbance(height, res, pxPerKm, rng, *site);
+        ApplySiteDisturbance(height, res, pxPerKm, frame, *site);
 
     const float z = 110.0f;
     Field hs = Hillshade(height, res, z, 0.6f);
     float flatRef = std::sin(35.0f * DEG2RAD);
     Field light = CastShadows(height, res, z, 22.0f * k, 1.5f);
 
-    TerrainRng rng2(rng.Next());
-    Field speckle = Fbm(res, 2, 4, 0.5f, rng2);
+    NoiseFrame speckleFrame = frame; speckleFrame.salt ^= NOISE_SPECKLE;
+    Field speckle = Fbm(res, 2, 4, 0.5f, speckleFrame);
     for (size_t i = 0; i < macro.size(); i++)
     {
         float rel = std::clamp(hs[i] / flatRef, 0.0f, 1.6f);
@@ -993,11 +1126,14 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     for (int i = 0; i < levelCount; i++)
         spans[i] = levelSpanKm[i] / MOON_KM_PER_DEG;
 
-    uint32_t seed = LocationSeed(latDeg, lonDeg);
-    TerrainRng rng0(seed);
+    // No per-window seed any more: every layer hashes the ground it
+    // covers, so the same site invents the same detail from any window
+    // that frames it. LocationSeed survives only for the GPU macro crop.
     Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
     SharpenAdaptive(lum, res);
-    TextureModulate(lum, res, rng0, 1.0f, tune, 0, siteForLevel[0],
+    TextureModulate(lum, res,
+                    MakeNoiseFrame(latDeg, lonDeg, levelSpanKm[0], res, 0),
+                    1.0f, tune, 0, siteForLevel[0],
                     (float)res / levelSpanKm[0]);
 
     auto emit = [&](int level)
@@ -1031,10 +1167,12 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
         for (size_t i = 0; i < lum.size(); i++)
             lum[i] = std::clamp(lum[i] + 0.40f * (lum[i] - blur[i]),
                                 0.0f, 1.0f);
-        TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
         int boulderBase = (levelSpanKm[lvl] <= 5.0f + 1e-3f)
                           ? (int)(120 * k * k) : 0;
-        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune, boulderBase,
+        TextureModulate(lum, res,
+                        MakeNoiseFrame(latDeg, lonDeg, levelSpanKm[lvl], res,
+                                       0x9E3779B9u * (uint32_t)lvl),
+                        1.0f + 0.7f * lvl, tune, boulderBase,
                         siteForLevel[lvl], (float)res / levelSpanKm[lvl]);
         emit(lvl);
     }
@@ -1042,11 +1180,6 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     TraceLog(LOG_INFO,
              "TERRAIN: %d level(s) at (%.3f, %.3f) in %.0f ms",
              wantLevels, latDeg, lonDeg, (GetTime() - t0) * 1000.0);
-}
-
-unsigned int TerrainLocationSeed(double latDeg, double lonDeg)
-{
-    return LocationSeed(latDeg, lonDeg);
 }
 
 // The 100 km crop at the mosaic's own resolution, for the GPU path.
@@ -1093,7 +1226,6 @@ bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
     float spread = std::max(pHi - pLo, 1e-4f);
     out->gain = std::min(2.2f, std::max(1.0f, 0.60f / spread));
     out->mid = 0.5f * (pHi + pLo);
-    out->seed = LocationSeed(latDeg, lonDeg);
 
     Image img = GenImageColor(cw, ch, BLACK);
     ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8);

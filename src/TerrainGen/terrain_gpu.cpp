@@ -96,10 +96,15 @@ float vnoise(vec2 p, float s, vec2 seed)
     vec2 i = floor(q);
     vec2 f = q - i;
     vec2 u = f * f * (3.0 - 2.0 * f);
-    float a = hash21(i + seed);
-    float b = hash21(i + vec2(1.0, 0.0) + seed);
-    float c = hash21(i + vec2(0.0, 1.0) + seed);
-    float d = hash21(i + vec2(1.0, 1.0) + seed);
+    // The lattice is global now, so i runs to hundreds of thousands and
+    // hash21 loses its spread long before that. Wrap it. 4096 cells is
+    // 356 km at the finest lattice and 78,000 km at the coarsest --
+    // wider than any window at either end, so nothing repeats on screen.
+    vec2 w = mod(i + seed, 4096.0);
+    float a = hash21(w);
+    float b = hash21(mod(i + vec2(1.0, 0.0) + seed, 4096.0));
+    float c = hash21(mod(i + vec2(0.0, 1.0) + seed, 4096.0));
+    float d = hash21(mod(i + vec2(1.0, 1.0) + seed, 4096.0));
     float v = mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
     return 0.5 + (v - 0.5) * 0.63;
 }
@@ -261,6 +266,14 @@ uniform vec2 uSeedG;
 uniform vec2 uSeedL;
 uniform vec2 uSeedF;
 uniform vec2 uSeedB;
+// Where this target's pixel (0,0) sits on the moon, in pixels of this
+// level. Noise reads world(pix), never pix, so the lattice is pinned to
+// the ground and the same site invents the same detail from any window
+// that frames it. Bounded by half the moon's circumference over
+// kmPerPx -- about 560k at the sect level, well inside the range where
+// a float still counts integers exactly.
+uniform vec2 uWorldPx;
+vec2 world(vec2 pix) { return pix + uWorldPx; }
 
 float siteW(vec2 p)
 {
@@ -298,10 +311,16 @@ float boulderAt(vec2 pix)
     {
         vec2 off = (n == 1) ? vec2(1.0, 0.0) : ((n == 2) ? vec2(0.0, 1.0) : vec2(0.0));
         vec2 target = ip - off;
-        vec2 cell = floor(target / uBoulder.x);
-        vec2 sd = cell * 7.13 + uSeedB;
+        // The cell a boulder belongs to is a patch of moon, so it is
+        // chosen in world pixels; only the comparison comes back to
+        // local ones. Both sides are integers under 2^24, so the trip
+        // out and back is exact.
+        vec2 wtarget = world(target);
+        vec2 cell = floor(wtarget / uBoulder.x);
+        vec2 sd = mod(cell, 4096.0) * 7.13 + uSeedB;
         vec2 bp = floor(cell * uBoulder.x
-                        + vec2(hash21(sd), hash21(sd + 11.7)) * uBoulder.x);
+                        + vec2(hash21(sd), hash21(sd + 11.7)) * uBoulder.x)
+                  - uWorldPx;
         if (all(equal(bp, target)))
         {
             float a = uBoulder.y * (0.4 + hash21(sd + 23.1));
@@ -325,13 +344,17 @@ float heightAt(vec2 pix, float tone, float hmean, float grainAmp)
     float m = toneAt(pix, w, tone);
     float rough = roughAt(m);
     float h = reliefAt(pix, w, tone);
-    h += 0.02 * uAmp * uTune.y * (fbm(pix, 64.0 * uK, 0.5, 3, uSeedU) - 0.5) * rough;
-    if (grainAmp > 0.0) h += 0.004 * uAmp * uTune.x * grain(pix, uSeedG) * rough * grainAmp;
+    h += 0.02 * uAmp * uTune.y
+         * (fbm(world(pix), 64.0 * uK, 0.5, 3, uSeedU) - 0.5) * rough;
+    if (grainAmp > 0.0)
+        h += 0.004 * uAmp * uTune.x * grain(world(pix), uSeedG)
+             * rough * grainAmp;
     h += boulderAt(pix);
     if (w > 0.0)
     {
         h = mix(h, hmean, uSiteAmp.y * w);
-        float lumps = fbm(pix, max(4.0, floor(uRes / 12.0)), 0.55, 3, uSeedL);
+        float lumps = fbm(world(pix), max(4.0, floor(uRes / 12.0)),
+                          0.55, 3, uSeedL);
         float domeW = 0.0;
         float spotH = 0.0;
         for (int i = 0; i < 9; i++)
@@ -349,7 +372,8 @@ float heightAt(vec2 pix, float tone, float hmean, float grainAmp)
         }
         h += uSiteAmp.z * (lumps - 0.5) * 2.0 * w;
         if (grainAmp > 0.0)
-            h += uSiteAmp.w * grain(pix, uSeedF) * (0.35 * w + 0.65 * domeW) * grainAmp;
+            h += uSiteAmp.w * grain(world(pix), uSeedF)
+                 * (0.35 * w + 0.65 * domeW) * grainAmp;
         h += spotH;
     }
     return h;
@@ -388,7 +412,8 @@ void main()
             float m = toneAt(p, w, tone);
             float h = reliefAt(p, w, tone)
                     + 0.02 * uAmp * uTune.y
-                      * (fbm(p, 64.0 * uK, 0.5, 3, uSeedU) - 0.5) * roughAt(m);
+                      * (fbm(world(p), 64.0 * uK, 0.5, 3, uSeedU) - 0.5)
+                        * roughAt(m);
             hsum += h * w;
             wsum += w;
         }
@@ -458,7 +483,7 @@ void main()
     }
     float light = 1.0 - clamp((maxBlock - tanAlt) / (tanAlt * 0.35), 0.0, 1.0);
 
-    float speckle = fbm(pix, 4.0, 0.5, 2, uSeedS);
+    float speckle = fbm(world(pix), 4.0, 0.5, 2, uSeedS);
     float lum = m * (0.62 + 0.38 * rel) * (0.45 + 0.55 * light);
     lum *= 1.0 + 0.04 * min(uAmp, 1.6) * (speckle - 0.5) * rough;
     lum = clamp(lum, 0.0, 1.0);
@@ -848,7 +873,8 @@ SiteUniforms BuildSite(const TerrainSiteDisturbance* site, int res,
 
 void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
                 float amp, float k, const SiteUniforms& su, float boulderCell,
-                float boulderAmp, unsigned int seed)
+                float boulderAmp, unsigned int salt,
+                float worldPxX, float worldPxY)
 {
     SetTex(sh, "uMacro", macro.texture);
     SetTex(sh, "uRelief", relief.texture);
@@ -862,12 +888,17 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
     SetV4Array(sh, "uSpots", su.spots, 9);
     SetI(sh, "uSpotCount", su.spotCount);
     SetV2(sh, "uBoulder", boulderCell, boulderAmp);
+    SetV2(sh, "uWorldPx", worldPxX, worldPxY);
+    // The salt separates LAYERS and levels, nothing else. Where the
+    // ground is no longer enters here: it enters through uWorldPx, which
+    // is the whole point -- a seed keyed to the window would put
+    // different detail on the same rock the moment the window moved.
     float v[2];
-    SeedVec(seed, 3.0f, v);  SetV2(sh, "uSeedU", v[0], v[1]);
-    SeedVec(seed, 11.0f, v); SetV2(sh, "uSeedG", v[0], v[1]);
-    SeedVec(seed, 19.0f, v); SetV2(sh, "uSeedL", v[0], v[1]);
-    SeedVec(seed, 29.0f, v); SetV2(sh, "uSeedF", v[0], v[1]);
-    SeedVec(seed, 41.0f, v); SetV2(sh, "uSeedB", v[0], v[1]);
+    SeedVec(salt, 3.0f, v);  SetV2(sh, "uSeedU", v[0], v[1]);
+    SeedVec(salt, 11.0f, v); SetV2(sh, "uSeedG", v[0], v[1]);
+    SeedVec(salt, 19.0f, v); SetV2(sh, "uSeedL", v[0], v[1]);
+    SeedVec(salt, 29.0f, v); SetV2(sh, "uSeedF", v[0], v[1]);
+    SeedVec(salt, 41.0f, v); SetV2(sh, "uSeedB", v[0], v[1]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1079,11 +1110,25 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
 
         // 4. Site geometry and its means; boulders on the sect level.
         float pxPerKm = (float)res / levelSpanKm[lvl];
-        unsigned int lvlSeed = (lvl == 0) ? crop.seed
-                             : (crop.seed ^ (0x9E3779B9u * (unsigned int)lvl));
-        SiteUniforms su = BuildSite(siteFor[lvl], res, pxPerKm, crop.seed, lvl);
+        unsigned int lvlSalt = 0x9E3779B9u * (unsigned int)(lvl + 1);
+
+        // This level's pixel (0,0) on the moon, in its own pixels --
+        // the same tangent-plane frame MakeNoiseFrame builds for the CPU
+        // path: x east, y south, longitude scaled by cos(lat) at the
+        // window centre.
+        const double D2R = 3.14159265358979323846 / 180.0;
+        double cosLat = std::max(0.2, std::cos(latDeg * D2R));
+        double kmPerPx = levelSpanKm[lvl] / (double)res;
+        double originKmX = lonDeg * MOON_KM_PER_DEG * cosLat
+                         - levelSpanKm[lvl] * 0.5;
+        double originKmY = -latDeg * MOON_KM_PER_DEG
+                         - levelSpanKm[lvl] * 0.5;
+        float worldPxX = (float)(originKmX / kmPerPx);
+        float worldPxY = (float)(originKmY / kmPerPx);
+
+        SiteUniforms su = BuildSite(siteFor[lvl], res, pxPerKm, lvlSalt, lvl);
         float boulderCell = 0.0f, boulderAmp = 0.0f;
-        if (lvl == 2)
+        if (levelSpanKm[lvl] <= 5.0f + 1e-3f)
         {
             int count = (int)(120 * k * k * tune.boulders);
             if (count > 0)
@@ -1098,18 +1143,20 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
             Pass(G.meansSh, G.means, [&]() {
                 SetF(G.meansSh, "uRes", (float)res);   // the grid spans the macro, not the 1x1 target
                 BindHeight(G.meansSh, G.C, relief, amp, k, su,
-                           boulderCell, boulderAmp, lvlSeed);
+                           boulderCell, boulderAmp, lvlSalt,
+                           worldPxX, worldPxY);
             });
         }
 
         // 5. The fused relight.
         Pass(G.fusedSh, *lumCur, [&]() {
             BindHeight(G.fusedSh, G.C, relief, amp, k, su,
-                       boulderCell, boulderAmp, lvlSeed);
+                       boulderCell, boulderAmp, lvlSalt,
+                       worldPxX, worldPxY);
             SetTex(G.fusedSh, "uMeans", G.means.texture);
             SetF(G.fusedSh, "uShadowSteps", (float)(int)(22.0f * k / 1.5f));
             float v[2];
-            SeedVec(lvlSeed, 53.0f, v);
+            SeedVec(lvlSalt, 53.0f, v);
             SetV2(G.fusedSh, "uSeedS", v[0], v[1]);
         });
 

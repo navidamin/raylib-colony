@@ -216,3 +216,63 @@ point and a zoom (`OrbitalCamera`, `OrbitalDiscRadiusPx`), which reduces
 is really "the special case that became the general one".
 
 **Might it come back?** No. It is a strict subset of what replaced it.
+
+---
+
+## 8. Per-window seeded noise (`LocationSeed`)
+
+**Was:** the chain made one RNG per window — `TerrainRng rng(LocationSeed(lat,
+lon))`, the seed quantised to 0.01° (~300 m) — and every layer drew from
+it in order. Layers were decorrelated by *when* they drew, and the GPU
+mirrored it with `SeedVec()` turning the same seed into a per-layer
+`vec2` added to the lattice index.
+
+**Replaced 2026-09-04** by a world frame (`NoiseFrame` on the CPU,
+`uWorldPx` in the shader): every lattice value is a hash of the world
+cell it covers, so the same ground invents the same detail from any
+window that frames it.
+
+**Why it went**
+
+The detail belonged to the frame, not the ground. `terrain_probe --res
+512` at two windows 1.953 km apart, compared over their overlap:
+
+| | before, aligned / control | after, aligned / control |
+|---|---|---|
+| planet 100 km, CPU | 15.23 / 18.59 | 9.39 / 18.66 |
+| colony 25 km, CPU | 20.84 / 23.87 | 12.63 / 24.17 |
+| sect 5 km, CPU | **11.45 / 11.45** | 5.18 / 14.63 |
+| sect 5 km, GPU | **11.89 / 11.94** | 4.05 / 11.88 |
+
+The sect rows are the whole argument: aligning the ground made *no
+difference at all*, because nothing in that picture tracked the ground.
+
+**Shape, if it is ever wanted back**
+
+```cpp
+static uint32_t LocationSeed(double latDeg, double lonDeg)   // 0.01 deg
+{
+    int qlat = (int)std::lround((latDeg + 90.0) * 100.0);
+    int qlon = (int)std::lround((lonDeg + 180.0) * 100.0);
+    uint32_t x = ((uint32_t)(qlat * 73856093)) ^ ((uint32_t)(qlon * 19349663));
+    x = (x ^ (x >> 16)) * 0x45D9F3Bu;
+    x = (x ^ (x >> 16)) * 0x45D9F3Bu;
+    return x ^ (x >> 16);
+}
+```
+
+- `TerrainMacroCrop::seed` carried it to the GPU; the struct's comment
+  called it one of "three things the CPU keeps to itself".
+- `TerrainLocationSeed()` exposed it publicly. Nothing ever called it.
+- `ValueNoise` filled a `g x g` grid from `rng.Uniform()` and stretched
+  it with `ResizeBilinear`, so the lattice spacing was `res/(g-1)` rather
+  than exactly `scale` — a few percent wider than it claimed.
+- `SprinkleBoulders` placed `count` boulders at `rng.Uniform() * res`.
+  The world-cell version is more even, which is why the sect level's
+  deviation went 0.012 -> 0.016 and CPU/GPU agreement there 3.5 -> 4.1
+  out of 255. Planet and colony were unmoved at 2.9 and 7.0.
+
+**Might it come back?** Only for something that genuinely is per-window
+and not per-ground. Nothing in the chain is: it invents what a place
+looks like, and a place does not change because you framed it
+differently.
