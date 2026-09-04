@@ -615,18 +615,18 @@ void main()
 
     if (chainStrength > 0.0)
     {
+        // The chain is built for this window's own span, so it covers
+        // the whole of it: chainUvScale is 1 and there is no edge to
+        // fade. It stays a scale rather than a constant because a cached
+        // chain outliving a resize would otherwise silently mis-register.
         vec2 cuv = vec2(0.5) + (uv - vec2(0.5)) * chainUvScale;
-        // The chain only covers the central 25 km; outside that it has
-        // nothing to say, so it fades rather than smearing its edge.
-        vec2 edge = min(cuv, vec2(1.0) - cuv);
-        float inside = clamp(min(edge.x, edge.y) * 24.0, 0.0, 1.0);
         float o = chainTexel;
         float c = TEX(chainMap, cuv).r;
         float m = 0.25 * (TEX(chainMap, cuv + vec2(o, 0.0)).r +
                           TEX(chainMap, cuv - vec2(o, 0.0)).r +
                           TEX(chainMap, cuv + vec2(0.0, o)).r +
                           TEX(chainMap, cuv - vec2(0.0, o)).r);
-        surface *= 1.0 + (c - m) * chainStrength * inside * 6.0;
+        surface *= 1.0 + (c - m) * chainStrength * 6.0;
     }
 
     vec3 color = surface * light;
@@ -660,6 +660,7 @@ struct TerrainScene
     Texture2D chainTexOwned = { 0 };
     Texture2D chainTex = { 0 };      // whichever of the two is in use
     double chainMs = 0.0;            // what it cost to make
+    float chainSpanKm = 0.0f;        // the ground it actually covers
     Shader shader = { 0 };
     bool nearside = true;
     double nativeKm = 0.0;         // finest data actually feeding this window
@@ -1097,42 +1098,50 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.worldScale = 200.0f /
         std::max(scene.worldWidthKm, scene.worldHeightKm);
 
-    // ---------- route A: the synthesizer's own 25 km level ----------
+    // ---------- route A: the synthesizer's own level over the window ----------
     //
-    // Generated for the window's centre, so it lines up with the ground
-    // the DEM is showing. The chain's spans are hard-coded 100/25/5 km,
-    // so it only covers the central 25 km of a wider window -- the
-    // shader scales its UVs and fades the edge.
+    // Generated for the window's centre AND for the window's own span,
+    // so it covers the ground the DEM is showing instead of the central
+    // 25 km of it. On a 16:9 screen the site window is 25 x 1.78 =
+    // 44.5 km, and a fixed 25 km layer reached 56% of it.
     if (scene.chainTexOwned.id > 0) UnloadTexture(scene.chainTexOwned);
     scene.chainTexOwned = Texture2D{ 0 };
     UnloadTerrainGpuChain(&scene.chainGpu);
     scene.chainTex = Texture2D{ 0 };
     scene.chainMs = 0.0;
+    scene.chainSpanKm = 0.0f;
     if (options.chain && !options.nearside)
     {
         double t0 = GetTime();
+        scene.chainSpanKm = scene.worldWidthKm;
+        TerrainChainSpans ladder =
+            TerrainChainSpansForWindow(scene.chainSpanKm);
         bool gpu = (GetTerrainPath() == TERRAIN_PATH_GPU)
                 && GenerateTerrainChainGPU(options.pickLat, options.pickLon,
-                                           texRes, &scene.chainGpu, nullptr);
+                                           texRes, &scene.chainGpu, nullptr,
+                                           &ladder);
         if (gpu)
         {
-            scene.chainTex = scene.chainGpu.color[1].texture;
+            scene.chainTex =
+                scene.chainGpu.color[scene.chainGpu.levels - 1].texture;
         }
         else
         {
-            Image lv[3] = {};
+            Image lv[TERRAIN_CHAIN_MAX_LEVELS] = {};
             GenerateTerrainChain(options.pickLat, options.pickLon, texRes,
-                                 lv, nullptr);
-            scene.chainTexOwned = LoadTextureFromImage(lv[1]);
-            for (int i = 0; i < 3; i++) UnloadImage(lv[i]);
+                                 lv, nullptr, &ladder);
+            scene.chainTexOwned = LoadTextureFromImage(lv[ladder.count - 1]);
+            for (int i = 0; i < TERRAIN_CHAIN_MAX_LEVELS; i++)
+                UnloadImage(lv[i]);
             scene.chainTex = scene.chainTexOwned;
         }
         SetTextureFilter(scene.chainTex, TEXTURE_FILTER_BILINEAR);
         SetTextureWrap(scene.chainTex, TEXTURE_WRAP_CLAMP);
         scene.chainMs = (GetTime() - t0) * 1000.0;
         std::fprintf(stderr,
-                     "CHAIN: 25 km layer at %d px in %.1f ms  (%s path)\n",
-                     texRes, scene.chainMs, gpu ? "GPU" : "CPU");
+                     "CHAIN: %.1f km layer at %d px in %.1f ms  (%s path)\n",
+                     scene.chainSpanKm, texRes, scene.chainMs,
+                     gpu ? "GPU" : "CPU");
     }
 
     scene.heightTex = BuildHeightTexture(scene.window);
@@ -1213,8 +1222,8 @@ static void ApplyShaderState(const TerrainScene& scene,
                    SHADER_UNIFORM_FLOAT);
 
     float chainStr = (scene.chainTex.id > 0) ? options.chainStrength : 0.0f;
-    float chainUv = (scene.worldWidthKm > 0.0f)
-                    ? scene.worldWidthKm / 25.0f : 1.0f;
+    float chainUv = (scene.chainSpanKm > 0.0f)
+                    ? scene.worldWidthKm / scene.chainSpanKm : 1.0f;
     float chainTexel = (scene.chainTex.width > 0)
                        ? 1.0f / (float)scene.chainTex.width : 0.002f;
     SetShaderValue(scene.shader, scene.locChainStr, &chainStr,

@@ -36,7 +36,8 @@ int GetTerrainPathResolution();
 // each a res x res colour render target. Caller owns all three.
 struct TerrainGpuChain
 {
-    RenderTexture2D color[3] = {};
+    RenderTexture2D color[TERRAIN_CHAIN_MAX_LEVELS] = {};
+    int levels = TERRAIN_CHAIN_MAX_LEVELS;   // how many of them are real
 };
 
 // Same contract as GenerateTerrainChain, same registration between
@@ -44,9 +45,13 @@ struct TerrainGpuChain
 // context; safe to call mid-frame, inside a camera or another render
 // texture -- the GL state it disturbs is put back before returning.
 // Returns false if the shaders failed to build (caller uses the CPU).
+// spans == nullptr walks the game's own 100 / 25 / 5; anything else
+// walks the ladder it is given, exactly as the CPU path does. The last
+// real level is out->color[out->levels - 1].
 bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
                              TerrainGpuChain* out,
-                             const TerrainSiteDisturbance* site = nullptr);
+                             const TerrainSiteDisturbance* site = nullptr,
+                             const TerrainChainSpans* spans = nullptr);
 
 void UnloadTerrainGpuChain(TerrainGpuChain* chain);
 

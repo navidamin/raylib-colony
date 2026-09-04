@@ -977,16 +977,23 @@ int GetTerrainPathResolution()
 
 bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
                              TerrainGpuChain* out,
-                             const TerrainSiteDisturbance* site)
+                             const TerrainSiteDisturbance* site,
+                             const TerrainChainSpans* spans)
 {
     if (!out || res < 64) return false;
     if (!InitGpu() || !EnsureScratch(res)) return false;
 
+    TerrainChainSpans game;
+    const TerrainChainSpans& ladder = spans ? *spans : game;
+    const int levelCount = std::clamp(ladder.count, 1,
+                                      TERRAIN_CHAIN_MAX_LEVELS);
+    out->levels = levelCount;
+
     TerrainMacroCrop crop;
-    if (!GetTerrainMacroCrop(latDeg, lonDeg, &crop))
+    if (!GetTerrainMacroCrop(latDeg, lonDeg, &crop, ladder.km[0]))
     {
         // No mosaic: the CPU path's flat grey, so the views still draw.
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < levelCount; i++)
         {
             out->color[i] = MakeTarget(res, res, true);
             BeginTextureMode(out->color[i]);
@@ -1008,12 +1015,14 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
 
     // Level geometry, as GenerateChainInternal has it.
     const float k = res / 300.0f;
-    const float levelSpanKm[3] = {100.0f, 25.0f, 5.0f};
-    const double spans[3] = {100.0 / MOON_KM_PER_DEG, 25.0 / MOON_KM_PER_DEG,
-                             5.0 / MOON_KM_PER_DEG};
+    const float* levelSpanKm = ladder.km;
+    double spanDeg[TERRAIN_CHAIN_MAX_LEVELS] = {};
+    for (int i = 0; i < levelCount; i++)
+        spanDeg[i] = levelSpanKm[i] / MOON_KM_PER_DEG;
     const float SECT_SITE_SCALE = 0.63f;
     TerrainSiteDisturbance sectSite;
-    const TerrainSiteDisturbance* siteFor[3] = {site, site, site};
+    const TerrainSiteDisturbance* siteFor[TERRAIN_CHAIN_MAX_LEVELS] =
+        {site, site, site};
     if (site)
     {
         sectSite = *site;
@@ -1022,15 +1031,17 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
         sectSite.domeWorkKm *= SECT_SITE_SCALE;
         sectSite.workedRadiusKm *= SECT_SITE_SCALE;
         sectSite.fadeKm *= SECT_SITE_SCALE;
-        siteFor[2] = &sectSite;
+        for (int i = 0; i < levelCount; i++)
+            if (levelSpanKm[i] <= 5.0f + 1e-3f) siteFor[i] = &sectSite;
     }
     TerrainTuning tune;
 
-    for (int i = 0; i < 3; i++) out->color[i] = MakeTarget(res, res, true);
+    for (int i = 0; i < levelCount; i++)
+        out->color[i] = MakeTarget(res, res, true);
 
     RenderTexture2D* lumPrev = &G.L0;
     RenderTexture2D* lumCur = &G.L1;
-    for (int lvl = 0; lvl < 3; lvl++)
+    for (int lvl = 0; lvl < levelCount; lvl++)
     {
         // 1. The macro: WAC crop upsampled, or the level above's centre.
         if (lvl == 0)
@@ -1042,7 +1053,7 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
         }
         else
         {
-            float frac = (float)(spans[lvl] / spans[lvl - 1]);
+            float frac = (float)(spanDeg[lvl] / spanDeg[lvl - 1]);
             float half = frac * res / 2.0f;
             int lo = (int)std::lround(res / 2.0f - half);
             int hi = std::max(lo + 2, (int)std::lround(res / 2.0f + half));
@@ -1119,7 +1130,11 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
 void UnloadTerrainGpuChain(TerrainGpuChain* chain)
 {
     if (!chain) return;
-    for (int i = 0; i < 3; i++) FreeTarget(chain->color[i]);
+    // Every slot, not just the real ones: a chain reused for a shorter
+    // ladder would otherwise leak the targets the longer one made.
+    for (int i = 0; i < TERRAIN_CHAIN_MAX_LEVELS; i++)
+        FreeTarget(chain->color[i]);
+    chain->levels = TERRAIN_CHAIN_MAX_LEVELS;
 }
 
 void UnloadTerrainGpu()

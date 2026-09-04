@@ -143,9 +143,35 @@ bool IsSiteDisturbanceEnabled();
 // Generating a sect's ground already computes 0 and 1 on the way down,
 // so emitting all three costs nothing extra. Caller owns every Image.
 // site == nullptr (or disabled) leaves the ground completely untouched.
+// The span ladder a chain walks, widest first, in km. The game's is
+// 100 / 25 / 5 -- PLANET, COLONY, SECT -- and that is what every caller
+// gets by default. An instrument that frames its own window passes its
+// own last span instead: a layer covering the central 56% of the window
+// it is meant to texture is not a layer, it is a patch.
+//
+// The FIRST span is where the WAC macro crop is taken, so it is also the
+// widest ground the chain has to invent detail from. Every span after it
+// is a centre crop of the level above's OUTPUT, which is what registers
+// the levels to each other and makes zooming continuous.
+const int TERRAIN_CHAIN_MAX_LEVELS = 3;
+
+struct TerrainChainSpans
+{
+    int count = 3;
+    float km[TERRAIN_CHAIN_MAX_LEVELS] = {100.0f, 25.0f, 5.0f};
+};
+
+// The ladder for a window of an arbitrary span: the 100 km macro, then
+// one crop straight to spanKm. A window at or wider than the macro takes
+// its crop directly and has no second step, because there is nothing
+// above it to crop from.
+TerrainChainSpans TerrainChainSpansForWindow(double spanKm);
+
+// spans == nullptr walks the game's own 100 / 25 / 5.
 void GenerateTerrainChain(double latDeg, double lonDeg, int res,
                           Image outLevels[3],
-                          const TerrainSiteDisturbance* site = nullptr);
+                          const TerrainSiteDisturbance* site = nullptr,
+                          const TerrainChainSpans* spans = nullptr);
 
 // Support for the GPU path (terrain_gpu.cpp), which runs the same chain
 // as fragment-shader passes. It needs three things the CPU keeps to
@@ -162,7 +188,8 @@ struct TerrainMacroCrop
     float mid = 0.5f;        // ...about this midpoint
     unsigned int seed = 0;   // LocationSeed(lat, lon)
 };
-bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out);
+bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
+                         double spanKm = 100.0);
 unsigned int TerrainLocationSeed(double latDeg, double lonDeg);
 
 // Tuning knobs for the surface layers (all multipliers on the

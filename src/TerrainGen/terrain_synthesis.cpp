@@ -941,18 +941,22 @@ void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg)
     *lonDeg = lon;
 }
 
-// Shared engine: walk the 100 -> 25 -> 5 km ladder, writing an Image
-// for every level requested. Level i+1 is the centre crop of level i's
-// OUTPUT, so real forms flow down and the levels are registered to each
-// other by construction — that is what makes zooming continuous.
+// Shared engine: walk a span ladder, writing an Image for every level
+// requested. Level i+1 is the centre crop of level i's OUTPUT, so real
+// forms flow down and the levels are registered to each other by
+// construction — that is what makes zooming continuous.
 static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                                   const TerrainTuning& tune,
                                   Image* outLevels, int wantLevels,
-                                  const TerrainSiteDisturbance* site = nullptr)
+                                  const TerrainSiteDisturbance* site,
+                                  const TerrainChainSpans& ladder)
 {
-    // Levels cover 100 / 25 / 5 km, so a kilometre is a different
-    // number of pixels in each.
-    const float levelSpanKm[3] = {100.0f, 25.0f, 5.0f};
+    // A kilometre is a different number of pixels in each level, because
+    // every level is res wide and they cover different ground.
+    const float* levelSpanKm = ladder.km;
+    const int levelCount = std::clamp(ladder.count, 1,
+                                      TERRAIN_CHAIN_MAX_LEVELS);
+    if (wantLevels > levelCount) wantLevels = levelCount;
 
     // The sect view draws the settlement at 0.63x the physical size the
     // colony view draws it (both use fixed screen fractions). The site
@@ -961,7 +965,10 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     // 5 km window entirely and the effect cannot be seen there.
     const float SECT_SITE_SCALE = 0.63f;
     TerrainSiteDisturbance sectSite;
-    const TerrainSiteDisturbance* siteForLevel[3] = {site, site, site};
+    // The sect shrink belongs to the 5 km level, whichever index that
+    // lands on -- an instrument's ladder may not have one at all.
+    const TerrainSiteDisturbance* siteForLevel[TERRAIN_CHAIN_MAX_LEVELS] =
+        {site, site, site};
     if (site)
     {
         sectSite = *site;
@@ -970,7 +977,8 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
         sectSite.domeWorkKm *= SECT_SITE_SCALE;
         sectSite.workedRadiusKm *= SECT_SITE_SCALE;
         sectSite.fadeKm *= SECT_SITE_SCALE;
-        siteForLevel[2] = &sectSite;
+        for (int i = 0; i < levelCount; i++)
+            if (levelSpanKm[i] <= 5.0f + 1e-3f) siteForLevel[i] = &sectSite;
     }
     if (!EnsureWacLoaded())
     {
@@ -981,9 +989,9 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
 
     double t0 = GetTime();
 
-    const double spans[3] = {100.0 / MOON_KM_PER_DEG,
-                             25.0 / MOON_KM_PER_DEG,
-                             5.0 / MOON_KM_PER_DEG};
+    double spans[TERRAIN_CHAIN_MAX_LEVELS] = {};
+    for (int i = 0; i < levelCount; i++)
+        spans[i] = levelSpanKm[i] / MOON_KM_PER_DEG;
 
     uint32_t seed = LocationSeed(latDeg, lonDeg);
     TerrainRng rng0(seed);
@@ -1004,7 +1012,7 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
 
     emit(0);
 
-    for (int lvl = 1; lvl < 3; lvl++)
+    for (int lvl = 1; lvl < levelCount; lvl++)
     {
         float k = res / 300.0f;
         float frac = (float)(spans[lvl] / spans[lvl - 1]);
@@ -1024,7 +1032,8 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
             lum[i] = std::clamp(lum[i] + 0.40f * (lum[i] - blur[i]),
                                 0.0f, 1.0f);
         TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
-        int boulderBase = (lvl == 2) ? (int)(120 * k * k) : 0;
+        int boulderBase = (levelSpanKm[lvl] <= 5.0f + 1e-3f)
+                          ? (int)(120 * k * k) : 0;
         TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune, boulderBase,
                         siteForLevel[lvl], (float)res / levelSpanKm[lvl]);
         emit(lvl);
@@ -1045,10 +1054,11 @@ unsigned int TerrainLocationSeed(double latDeg, double lonDeg)
 // SharpenAdaptive stats the way that function does -- unsharp at the
 // same physical radius (5k px at res is cw/60 px here), then the 2/98
 // percentiles -- so the GPU's gain and midpoint match the CPU's.
-bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out)
+bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
+                         double spanKm)
 {
     if (!out || !EnsureWacLoaded()) return false;
-    double spanDeg = 100.0 / MOON_KM_PER_DEG;
+    double spanDeg = spanKm / MOON_KM_PER_DEG;
     double c = std::max(0.2, std::cos(latDeg * DEG2RAD));
     double lonSpan = spanDeg / c;
     double lat0 = latDeg - spanDeg / 2.0, lat1 = latDeg + spanDeg / 2.0;
@@ -1099,12 +1109,33 @@ bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out)
     return true;
 }
 
+TerrainChainSpans TerrainChainSpansForWindow(double spanKm)
+{
+    TerrainChainSpans s;
+    if (spanKm >= 100.0)
+    {
+        // Nothing above it to crop from: the macro IS the window.
+        s.count = 1;
+        s.km[0] = (float)spanKm;
+    }
+    else
+    {
+        s.count = 2;
+        s.km[0] = 100.0f;
+        s.km[1] = (float)spanKm;
+    }
+    return s;
+}
+
 void GenerateTerrainChain(double latDeg, double lonDeg, int res,
                           Image outLevels[3],
-                          const TerrainSiteDisturbance* site)
+                          const TerrainSiteDisturbance* site,
+                          const TerrainChainSpans* spans)
 {
     TerrainTuning defaults;
-    GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3, site);
+    TerrainChainSpans game;
+    GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3, site,
+                          spans ? *spans : game);
 }
 
 Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
@@ -1113,7 +1144,8 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
     TerrainTuning defaults;
     const TerrainTuning& tune = tuning ? *tuning : defaults;
     Image levels[3] = {};
-    GenerateChainInternal(latDeg, lonDeg, res, tune, levels, 3);
+    TerrainChainSpans game;
+    GenerateChainInternal(latDeg, lonDeg, res, tune, levels, 3, nullptr, game);
     UnloadImage(levels[0]);
     UnloadImage(levels[1]);
     return levels[2];
