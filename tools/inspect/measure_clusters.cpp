@@ -42,6 +42,7 @@ static const int G = PROSPECTING_GRID_SIZE;
 static const int WIN[] = { 2, 3, 4, 6, 8, 12, 16 };
 static const int NWIN = static_cast<int>(sizeof(WIN) / sizeof(WIN[0]));
 
+
 struct Accum
 {
     double sum = 0.0;
@@ -64,6 +65,19 @@ struct Accum
         double var = sumSq / n - m*m;
         return var > 0.0 ? std::sqrt(var) : 0.0;
     }
+};
+
+// What surveying is WORTH, per excavation tier. The design's table for this
+// came from subcell_distribution_sim.py -- a Python model of the generator, at
+// the old {2,4,6,8} reach rings. This measures the generator itself at the
+// live rings, so the two questions the design leans on are answered off the
+// same data: how much better is the best reachable spot than an average one,
+// and how often is the field's true best spot reachable at all.
+struct TierStat
+{
+    Accum meanSpot;      // mean yield inside the ring, over the field mean
+    Accum bestSpot;      // best yield inside the ring, over the field mean
+    long  holdsBest = 0; // fields whose global best spot falls inside the ring
 };
 
 // Best-placed NxN window: the largest share of the lattice's total yield that
@@ -159,6 +173,7 @@ int main(int argc, char** argv)
 
     // per-window-size capture share
     Accum share[NWIN];           // index into WIN[]
+    TierStat tier[4];
     Accum richCount;             // sub-cells at >= 1.5x the lattice mean
     Accum richBoxW, richBoxH;    // bounding box of that rich ground
     Accum peakShare;             // share held by the single best sub-cell
@@ -240,6 +255,35 @@ int main(int argc, char** argv)
                     for (int wi = 0; wi < NWIN; wi++)
                         share[wi].Add(BestWindowShare(f, WIN[wi], total));
 
+                    // Survey payoff by excavation tier. Everything is expressed
+                    // over the FIELD mean, so a rich cell and a poor one
+                    // contribute the same kind of number and the tiers can be
+                    // compared across 8,948 fields of wildly different tonnage.
+                    {
+                        int bx = 0, by = 0; double bv = -1.0;
+                        for (int y = 0; y < G; y++)
+                            for (int x = 0; x < G; x++)
+                                if (f[y][x] > bv) { bv = f[y][x]; bx = x; by = y; }
+
+                        for (int t = 0; t < 4; t++)
+                        {
+                            double sum = 0.0, best = 0.0; int cnt = 0;
+                            for (int y = 0; y < G; y++)
+                            {
+                                for (int x = 0; x < G; x++)
+                                {
+                                    if (!IsSubCellInReach(x, y, t)) continue;
+                                    sum += f[y][x]; cnt++;
+                                    if (f[y][x] > best) best = f[y][x];
+                                }
+                            }
+                            if (cnt == 0 || mean <= 0.0) continue;
+                            tier[t].meanSpot.Add((sum / cnt) / mean);
+                            tier[t].bestSpot.Add(best / mean);
+                            if (IsSubCellInReach(bx, by, t)) tier[t].holdsBest++;
+                        }
+                    }
+
                     // rich ground: >= 1.5x mean
                     int cnt = 0, minx = G, maxx = -1, miny = G, maxy = -1;
                     double peak = 0.0;
@@ -290,6 +334,19 @@ int main(int argc, char** argv)
                N, N, N * SUBCELL_SIZE_M, (100.0*N*N)/(G*G),
                100.0*share[wi].Mean(), 100.0*share[wi].Sd(),
                100.0*share[wi].lo, 100.0*share[wi].hi);
+    }
+
+    printf("\n What surveying is worth, by EXCAVATION tier\n");
+    printf(" (yields over the field mean; reach rings are centred squares)\n\n");
+    printf("   tier   reach    spots   mean spot   best reachable   surveying   holds best\n");
+    for (int t = 0; t < 4; t++)
+    {
+        int r = GetReachForTier(t);
+        double ms = tier[t].meanSpot.Mean(), bs = tier[t].bestSpot.Mean();
+        printf("    T%d    %2dx%-2d   %5d      %.2f          %.2f         %+5.0f%%       %3.0f%%\n",
+               t, r, r, r * r, ms, bs,
+               ms > 0.0 ? 100.0 * (bs / ms - 1.0) : 0.0,
+               100.0 * tier[t].holdsBest / (double)std::max(1L, bodies));
     }
 
     printf("\n Rich ground (sub-cells at >= 1.5x the field's mean)\n\n");

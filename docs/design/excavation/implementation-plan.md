@@ -111,7 +111,7 @@ summed.
 > player is actually choosing on — and it must **re-shade when the target changes**, which
 > is what makes the target selector visibly drive the map.
 
-Reproduce with `docs/design/excavation/subcell_distribution_sim.py`.
+Reproduce with `build/src/colony_measure_clusters` (the Python model that produced the original figures is buried -- see `docs/design/graveyard/subcell-distribution-sim.md`).
 
 ---
 
@@ -514,7 +514,7 @@ Using the instruments the prospecting branch built (`docs/dev-workflow.md`):
 | `tools/preview` | Phase 5 — headless screenshots of the panel at each tier |
 | `tools/playtest` | Phases 3, 6, 7 — drive a unit to any tier via `DebugUpgradeModuleTier()`, no economy needed |
 | `tools/shell-test` | Phase 5 — web/phone canvas regression |
-| `subcell_distribution_sim.py` | Phase 7 — re-derive survey value if the generator ever changes |
+| `tools/inspect/measure_clusters.cpp` | Phase 7 — re-derive survey value and the access footprint if the generator ever changes |
 | **`colony_measure_clusters`** | **Ore body footprint on the real lattice.** Best-placed N×N capture, rich-ground bounding boxes, and which variation clamp actually binds. Run it before changing `SUBCELL_VARIATION_*` or the shaft footprint |
 | **`colony_sim`** | **A playtest that runs in CI.** Runs the real engines for 20 game days under five different players and asserts the design's orderings |
 

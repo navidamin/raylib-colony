@@ -1,16 +1,12 @@
 # Excavation — The Design
 
-> ⚠ **Numbers measured on the 8×8 lattice are suspect.** The lattice grew
-> 8 → 16 → 32 and `colony_measure_clusters` was silently broken by that growth
-> (its field arrays stayed `float f[8][8]` while `G` followed the constant up to
-> 32), so anything it produced after the 8×8 era was garbage and anything from
-> before it describes a twelfth of the ground the same words mean today.
->
-> The **access footprint** table has been re-measured and corrected. Still
-> **unverified**, and to be re-run before they are relied on: the survey-payoff
-> table (+33% at T0 to +130% at T3), the "best spot inside T0 reach only 7% of
-> the time" figure, and the shoot-count/normalisation claims. Each was measured
-> against the 8×8 lattice.
+> **On the numbers in this document.** The lattice grew 8 → 16 → 32, and
+> `colony_measure_clusters` was silently broken by that growth (its field arrays
+> stayed `float f[8][8]` while `G` followed the constant to 32). The two tables
+> that mattered — the **access footprint** and the **survey payoff** — have both
+> been re-measured against the real generator at 32×32 and corrected in place,
+> with the old readings quoted where they were wrong. Anything else quoting an
+> 8×8 figure should be treated as unchecked.
 
 Status: DRAFT — the agreed frame, firmed up
 > Last Updated: 2026-08-24 (added §2 access, and the three confidence classes in §3)
@@ -366,39 +362,61 @@ long you'll stay.
 value of surveying ≈ (best spot − average spot) × how long you'll work here
 ```
 
-**These numbers are measured from the actual generator**, not assumed. The grid is built
-from 1–2 Gaussian hot spots per resource per depth over the fixed 8×8 lattice, normalised
-to mean 1.0 and clamped to 0.3–2.0. Simulating it 200,000 times
-(`subcell_distribution_sim.py`) gives:
+**These numbers are measured from the real generator** — `colony_measure_clusters`
+over all 400 parent cells × 4 depths × every resource, 8,948 fields at the
+standard seed. Yields are expressed over each field's own mean, so a rich cell
+and a poor one contribute the same kind of number:
 
 | Tier | Reach | Spots | Mean spot | Best reachable | **Surveying is worth** | **Best cell reachable** |
 |------|-------|-------|-----------|----------------|----------------------|------------------------|
-| T0 | 2×2 | 4 | 1.03 | 1.34 | **+33%** | **7%** |
-| T1 | 4×4 | 16 | 1.01 | 1.86 | **+97%** | 25% |
-| T2 | 6×6 | 36 | 0.96 | 2.00 | **+114%** | 50% |
-| T3 | 8×8 | 64 | 0.87 | 2.00 | **+130%** | 100% |
+| T0 | 8×8 | 64 | 1.07 | 1.40 | **+31%** | **5%** |
+| T1 | 16×16 | 256 | 1.06 | 1.73 | **+63%** | 22% |
+| T2 | 24×24 | 576 | 1.04 | 1.85 | **+78%** | 47% |
+| T3 | 32×32 | 1024 | 1.00 | 1.89 | **+89%** | 100% |
 
-Three things fall out of this, and they matter more than the individual figures.
+> **What this replaces, and what it cost.** The previous table came from
+> `subcell_distribution_sim.py`, a 53-line Python *model* of the generator, run
+> on an **8×8** lattice with the old `{2,4,6,8}` reach rings. It claimed
+> **+33% → +130%**. Measuring the generator itself at the live 32×32 lattice and
+> `{8,16,24,32}` rings gives **+31% → +89%** — the same shape, about two-thirds
+> the magnitude at the top end. The model is buried
+> ([graveyard](../graveyard/subcell-distribution-sim.md)); the generator is the
+> only thing worth asking.
 
-**1. At tier 0 you are not choosing — you are stuck.** The grid's best spot is inside your
-reach only **7%** of the time. Four spots, barely any spread, +33% for surveying them all.
-Early game isn't about whether to survey; it's about being pinned to whatever lies directly
-under the sect. That is a far better early-game story than "you should have surveyed", and
-it makes the first reach upgrade land hard: T0 → T1 raises the best spot you can touch by
-**1.40×** on its own, before any surveying.
+Three things fall out, and they matter more than the individual figures.
 
-**2. Expanding reach widens the spread at both ends.** The best reachable spot climbs
-1.34 → 2.00, while the *mean* reachable spot **falls** 1.03 → 0.87. More ground is not
-better ground; it's more varied ground. So choosing well matters more at every tier, and
-choosing badly costs more — which is exactly the pressure targeted digging should be under.
+**1. At tier 0 you are not choosing — you are stuck.** The field's best spot is
+inside your reach only **5%** of the time. That is the conclusion the old table
+drew and the measurement makes it *stronger* (it said 7%). Early game isn't
+about whether to survey; it's about being pinned to whatever lies under the
+sect. It also means the first reach upgrade lands: T0 → T1 raises the best spot
+you can touch by **1.24×** on its own, before any surveying.
 
-**3. Surveying and reaching are different purchases.** Reach raises your ceiling; surveying
-lets you find it. Reach alone tops out at T2 (the best spot is pinned to the 2.0 clamp from
-there on), so past that point every further gain comes from knowing where to point. The two
-upgrades stop being interchangeable.
+**2. Reach widens the top end and barely touches the middle.** The best
+reachable spot climbs 1.40 → 1.89 while the mean reachable spot drifts only
+1.07 → 1.00. So choosing well matters *more* at every tier, because the prize
+grows while the default does not.
 
-> Balance note: the top end is limited by the **clamp**, not the grid — at T2 and T3 the best
-> spot sits at 2.0. If late game needs more headroom, raise `SUBCELL_VARIATION_MAX`.
+> ⚠ **This corrects the previous reading.** The old table had the mean
+> reachable spot *falling* 1.03 → 0.87 and concluded "more ground is not better
+> ground; it's more varied ground". At 32×32 the mean is near-flat: the fall was
+> an artifact of a 4-spot T0 window in an 8-cell model. Reach does not make your
+> average ground worse. It raises the ceiling and leaves the floor alone — which
+> is a *better* argument for surveying, not a worse one, because the gap you are
+> paying to find is real rather than a shifting baseline.
+
+**3. Surveying and reaching are different purchases.** Reach raises your
+ceiling; surveying lets you find it. The returns on reach diminish sharply —
++0.33 from T0→T1, then +0.12, then +0.04 — so past T1 almost every further gain
+comes from knowing where to point rather than from being able to point further.
+
+> ⚠ **The clamp claim was wrong.** The old note said the top end was "limited by
+> the **clamp**, not the grid — at T2 and T3 the best spot sits at 2.0". It does
+> not: measured best-reachable tops out at **1.89**, and the single best sub-cell
+> in a field averages **1.89× the mean** against a `SUBCELL_VARIATION_MAX` of
+> 2.0. The ceiling is the *generator's* peak, not the clamp, so raising
+> `SUBCELL_VARIATION_MAX` would not buy late-game headroom. More shoots, tighter
+> shoots, or a finer lattice would.
 
 ### The ground is clustered, and that matters
 

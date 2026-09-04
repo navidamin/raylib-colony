@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [`subcell_distribution_sim.py`](subcell-distribution-sim.md) — the Python model of the generator | Excavation rebuild phase 4 groundwork | `colony_measure_clusters`, measuring the real thing |
 | [The flat excavation lattice](excavation-flat-lattice.md) — and its four cell helpers | Excavation rebuild phase 2 | the four-plate block model |
 | [Excavator controls](excavator-controls.md) — `MoveExcavator`, `SetExcavatorDepth`, `SetExcavatorRate`, `GetExcavators` | Excavation rebuild phase 0 | `ExcavationSystem` public state |
 | [Depth from the first excavator](extraction-depth-from-excavator.md) | Excavation rebuild phase 0 | `ExcavationSystem::selectedDepth` |
