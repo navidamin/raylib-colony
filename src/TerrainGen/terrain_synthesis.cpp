@@ -799,11 +799,65 @@ void GetTerrainAnchor(double* latDeg, double* lonDeg)
 
 unsigned int GetTerrainAnchorVersion() { return g_anchorVersion; }
 
-// The orbital disc as baked by prototypes/planet_visuals/asset_bake.py:
-// 1200 px square, 12 px margin, near side (camera lon 0), centred on
-// screen by DrawOrbitalView.
-static const double ORBITAL_DISC_PX = 1200.0;
-static const double ORBITAL_MARGIN_PX = 12.0;
+// ---------------------------------------------------------------------------
+// The orbital globe's projection
+//
+// Orthographic, because that is what a body seen from far away looks
+// like and what the baked discs were: no perspective, the silhouette is
+// a circle, and the scale is one number (the radius in pixels). It also
+// keeps the inverse exact, so picking is not a search.
+//
+// A surface point is
+//     P(lat, lon) = (cos lat sin lon, sin lat, cos lat cos lon)
+// with +Z toward the viewer. Turning the globe to face (lat0, lon0) is
+//     V = Rx(lat0) . Ry(-lon0) . P
+// which is the identity at (0, 0) -- so the near-side view the old fixed
+// disc gave is just this camera's default, not a special case.
+// V.z > 0 is the visible hemisphere; screen x is V.x, screen y is -V.y
+// (screen y grows downward).
+//
+// The fragment shader in lunar_globe.cpp runs this same math per pixel,
+// inverted. Both live off GetOrbitalCamera(), so the picture and the
+// pick cannot drift apart.
+// ---------------------------------------------------------------------------
+
+static OrbitalCamera g_orbitalCamera;
+
+const OrbitalCamera& GetOrbitalCamera() { return g_orbitalCamera; }
+
+void SetOrbitalCamera(const OrbitalCamera& camera)
+{
+    g_orbitalCamera = camera;
+    // Latitude past the poles would flip the globe's handedness, and
+    // longitude is periodic; normalising here means callers can add a
+    // delta per frame without ever thinking about it.
+    g_orbitalCamera.subLatDeg = std::clamp(g_orbitalCamera.subLatDeg, -89.0, 89.0);
+    while (g_orbitalCamera.subLonDeg > 180.0) g_orbitalCamera.subLonDeg -= 360.0;
+    while (g_orbitalCamera.subLonDeg < -180.0) g_orbitalCamera.subLonDeg += 360.0;
+    g_orbitalCamera.zoom = std::clamp(g_orbitalCamera.zoom,
+                                      ORBITAL_ZOOM_MIN, ORBITAL_ZOOM_MAX);
+}
+
+// 0.46 of the smaller dimension: the whole moon at zoom 1 with a margin
+// that leaves room for the HUD. The old disc was a fixed 588 px radius
+// regardless of the window, so on a 1280x720 screen it was cropped top
+// and bottom -- a globe you can turn should not have its poles off
+// screen.
+double OrbitalDiscRadiusPx(int screenWidth, int screenHeight)
+{
+    double minDim = (double)std::min(screenWidth, screenHeight);
+    return minDim * 0.46 * g_orbitalCamera.zoom;
+}
+
+// The viewport cancels: a span fills the height when the disc's diameter
+// is (moon / span) times it, and the disc is 0.92 of the height at
+// zoom 1. So 2*1737.4 / (0.92 * spanKm).
+double OrbitalZoomForSpan(double spanKm)
+{
+    if (spanKm <= 0.0) return ORBITAL_ZOOM_MAX;
+    double z = (2.0 * 1737.4) / (0.92 * spanKm);
+    return std::clamp(z, ORBITAL_ZOOM_MIN, ORBITAL_ZOOM_MAX);
+}
 
 bool OrbitalPickToLatLon(float screenX, float screenY,
                          int screenWidth, int screenHeight,
@@ -811,18 +865,32 @@ bool OrbitalPickToLatLon(float screenX, float screenY,
 {
     double cx = screenWidth / 2.0;
     double cy = screenHeight / 2.0;
-    double r = ORBITAL_DISC_PX / 2.0 - ORBITAL_MARGIN_PX;
+    double r = OrbitalDiscRadiusPx(screenWidth, screenHeight);
+    if (r <= 0.0) return false;
 
     double xn = (screenX - cx) / r;
     double yn = -(screenY - cy) / r;          // screen y grows downward
     double d2 = xn * xn + yn * yn;
     if (d2 > 0.985 * 0.985) return false;     // outside, or on the limb
 
-    double z = std::sqrt(std::max(0.0, 1.0 - d2));
-    double lat = std::asin(std::clamp(yn, -1.0, 1.0)) / DEG2RAD;
-    double lon = std::atan2(xn, z) / DEG2RAD;  // camera lon 0 = near side
-    if (latDeg) *latDeg = lat;
-    if (lonDeg) *lonDeg = lon;
+    // Unproject to the visible hemisphere, then turn the globe back.
+    double zn = std::sqrt(std::max(0.0, 1.0 - d2));
+
+    double lat0 = g_orbitalCamera.subLatDeg * DEG2RAD;
+    double lon0 = g_orbitalCamera.subLonDeg * DEG2RAD;
+    double cl = std::cos(lat0), sl = std::sin(lat0);
+    double co = std::cos(lon0), so = std::sin(lon0);
+
+    // Rx(-lat0)
+    double y1 = yn * cl + zn * sl;
+    double z1 = -yn * sl + zn * cl;
+    double x1 = xn;
+    // Ry(lon0)
+    double x0 = x1 * co + z1 * so;
+    double z0 = -x1 * so + z1 * co;
+
+    if (latDeg) *latDeg = std::asin(std::clamp(y1, -1.0, 1.0)) / DEG2RAD;
+    if (lonDeg) *lonDeg = std::atan2(x0, z0) / DEG2RAD;
     return true;
 }
 
@@ -838,11 +906,25 @@ bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
     double x = std::cos(lat) * std::sin(lon);
     double y = std::sin(lat);
     double z = std::cos(lat) * std::cos(lon);
-    if (z <= 0.0) return false;               // far side
 
-    double r = ORBITAL_DISC_PX / 2.0 - ORBITAL_MARGIN_PX;
-    if (screenX) *screenX = (float)(screenWidth / 2.0 + x * r);
-    if (screenY) *screenY = (float)(screenHeight / 2.0 - y * r);
+    double lat0 = g_orbitalCamera.subLatDeg * DEG2RAD;
+    double lon0 = g_orbitalCamera.subLonDeg * DEG2RAD;
+    double cl = std::cos(lat0), sl = std::sin(lat0);
+    double co = std::cos(lon0), so = std::sin(lon0);
+
+    // Ry(-lon0)
+    double x1 = x * co - z * so;
+    double z1 = x * so + z * co;
+    double y1 = y;
+    // Rx(lat0)
+    double y2 = y1 * cl - z1 * sl;
+    double z2 = y1 * sl + z1 * cl;
+
+    if (z2 <= 0.0) return false;              // turned away from the viewer
+
+    double r = OrbitalDiscRadiusPx(screenWidth, screenHeight);
+    if (screenX) *screenX = (float)(screenWidth / 2.0 + x1 * r);
+    if (screenY) *screenY = (float)(screenHeight / 2.0 - y2 * r);
     return true;
 }
 

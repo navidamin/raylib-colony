@@ -15,6 +15,8 @@ set(COLONY_CORE_SOURCES
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
     TerrainGen/terrain_gpu.cpp
+    TerrainGen/lunar_globe.cpp
+    TerrainGen/lunar_regions.cpp
     TerrainGen/lola_dem.cpp
     TerrainGen/survey_cursor.cpp
     Prospecting/prospecting_types.cpp
@@ -248,6 +250,8 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         TerrainGen/lola_dem.cpp
         TerrainGen/terrain_synthesis.cpp
         TerrainGen/terrain_gpu.cpp
+        TerrainGen/lunar_globe.cpp
+        TerrainGen/lunar_regions.cpp
     )
 
     set_target_properties(colony_inspect PROPERTIES
@@ -288,6 +292,8 @@ target_sources(colony_viewtest PRIVATE
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
     TerrainGen/terrain_gpu.cpp
+    TerrainGen/lunar_globe.cpp
+    TerrainGen/lunar_regions.cpp
     TerrainGen/lola_dem.cpp
     TerrainGen/survey_cursor.cpp
     Prospecting/prospecting_types.cpp
@@ -348,6 +354,12 @@ target_sources(lunar_map PRIVATE
     "${CMAKE_SOURCE_DIR}/tools/lunarmap/lunarmap_main.cpp"
     TerrainGen/lola_dem.cpp
     TerrainGen/survey_cursor.cpp
+    # Level 1 is the orbital globe now: the shader and the shared orbital
+    # camera the projection reads.
+    TerrainGen/terrain_synthesis.cpp
+    TerrainGen/terrain_gpu.cpp
+    TerrainGen/lunar_globe.cpp
+    TerrainGen/lunar_regions.cpp
 )
 
 set_target_properties(lunar_map PROPERTIES
@@ -371,7 +383,11 @@ if("${PLATFORM}" STREQUAL "Web")
     set(lm_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
     # Only the DEM and the WAC albedo are needed — not the game assets.
     set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_SOURCE_DIR}/prototypes/planet_visuals/data/lola/ldem_16_uint.tif@prototypes/planet_visuals/data/lola/ldem_16_uint.tif")
-    set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/wac_global.jpg@src/assets/planet/wac_global.jpg --use-preload-plugins")
+    set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/wac_global.jpg@src/assets/planet/wac_global.jpg")
+    # Level 1's named regions. Without it the web build silently falls
+    # back to the built-in near-side table and the far side has nothing
+    # to name.
+    set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/zones.json@src/assets/planet/zones.json --use-preload-plugins")
     set(lm_link_flags "${lm_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
     set_target_properties(lunar_map PROPERTIES LINK_FLAGS "${lm_link_flags}")
 endif()
@@ -390,6 +406,8 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         "${CMAKE_SOURCE_DIR}/tools/terrainprobe/terrainprobe_main.cpp"
         TerrainGen/terrain_synthesis.cpp
         TerrainGen/terrain_gpu.cpp
+        TerrainGen/lunar_globe.cpp
+        TerrainGen/lunar_regions.cpp
     )
 
     set_target_properties(terrain_probe PROPERTIES
@@ -462,6 +480,8 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         GameTypes/game_types_loader.cpp
         TerrainGen/terrain_synthesis.cpp
         TerrainGen/terrain_gpu.cpp
+        TerrainGen/lunar_globe.cpp
+        TerrainGen/lunar_regions.cpp
         TerrainGen/lola_dem.cpp
         TerrainGen/survey_cursor.cpp
         Prospecting/prospecting_types.cpp

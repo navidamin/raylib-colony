@@ -19,10 +19,12 @@
 #include "resource_manager.h"
 #include "time_manager.h"
 #include "terrain_synthesis.h"
+#include "lunar_globe.h"
 #include "game_constants.h"
 #include "game_enums.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -53,6 +55,13 @@ struct PreviewOptions
     int cellX = 10;    // planet grid cell for --view sect
     int cellY = 10;
     std::string tune;  // named terrain tuning preset (sect view)
+    // Orbital globe: a fixed camera makes a screenshot reproducible,
+    // which a drifting one never is.
+    bool globeFixed = false;
+    double globeLat = 0.0, globeLon = 0.0, globeZoom = 1.0;
+    float globeSun = -1.0f;    // <0 keeps the renderer's own default
+    double globeSunLon = -35.0, globeSunLat = 8.0;
+    bool globeMarks = false;   // crosshair known craters, to check the projection
 };
 
 static void PrintUsage()
@@ -94,6 +103,9 @@ static void PrintUsage()
         << "View mode (renders a whole game view instead of a module panel):\n"
         << "\n"
         << "  --view <name>     orbital | planet | sect\n"
+        << "  --globe LAT,LON[,ZOOM]  orbital: fix the globe camera (stops the drift)\n"
+        << "  --globe-sun MIX[,LON[,LAT]]  orbital: 0 flat mosaic .. 1 full terminator\n"
+        << "  --globe-marks     orbital: crosshair known craters (projection check)\n"
         << "  --cell <X,Y>      planet grid cell for sect view (default: 10,10)\n"
         << "  --tune <name>     terrain preset: baseline|silky|rough|rolling|\n"
         << "                    boulders|dramatic              (sect view)\n";
@@ -146,6 +158,35 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--view" && hasNext)
         {
             options.view = argv[++i];
+        }
+        else if (arg == "--globe" && hasNext)
+        {
+            if (std::sscanf(argv[++i], "%lf,%lf,%lf", &options.globeLat,
+                            &options.globeLon, &options.globeZoom) < 2)
+            {
+                std::cerr << "--globe wants LAT,LON[,ZOOM]\n";
+                return false;
+            }
+            options.globeFixed = true;
+        }
+        else if (arg == "--globe-sun" && hasNext)
+        {
+            // MIX[,LON[,LAT]] -- the angle matters as much as the amount:
+            // a sun behind the viewer puts the terminator on the limb,
+            // where limb darkening hides it entirely.
+            double mix = 0.0;
+            int got = std::sscanf(argv[++i], "%lf,%lf,%lf", &mix,
+                                  &options.globeSunLon, &options.globeSunLat);
+            if (got < 1)
+            {
+                std::cerr << "--globe-sun wants MIX[,LON[,LAT]]\n";
+                return false;
+            }
+            options.globeSun = (float)mix;
+        }
+        else if (arg == "--globe-marks")
+        {
+            options.globeMarks = true;
         }
         else if (arg == "--tune" && hasNext)
         {
@@ -491,6 +532,37 @@ static int RenderSpriteSheet(const PreviewOptions& options)
 }
 
 // Renders a whole game view (--view) rather than a single module panel.
+// Playtest-only overlay: put a crosshair where OrbitalLatLonToScreen says
+// a known crater is. The globe's pixels come from the shader and these
+// marks come from the C++ projection, so if they land on the real
+// craters the two are demonstrably running the same camera.
+static void DrawGlobeMarks(const PreviewOptions& options)
+{
+    struct Mark { const char* name; double lat, lon; };
+    static const Mark marks[] = {
+        { "Tycho",         -43.3,  -11.4 },
+        { "Copernicus",      9.6,  -20.1 },
+        { "Mare Crisium",   17.0,   59.1 },
+        { "Grimaldi",       -5.5,  -68.3 },
+        { "Imbrium anchor", 32.8,  -15.6 },   // where the playfield sits
+        { "Tsiolkovskiy",  -21.2,  128.9 },   // far side: hidden until turned
+    };
+    for (const Mark& m : marks)
+    {
+        float x = 0.0f, y = 0.0f;
+        if (!OrbitalLatLonToScreen(m.lat, m.lon, options.width, options.height,
+                                   &x, &y))
+            continue;
+        Color c = Color{ 120, 220, 255, 235 };
+        DrawCircleLines((int)x, (int)y, 9.0f, c);
+        DrawLine((int)x - 16, (int)y, (int)x - 11, (int)y, c);
+        DrawLine((int)x + 11, (int)y, (int)x + 16, (int)y, c);
+        DrawLine((int)x, (int)y - 16, (int)x, (int)y - 11, c);
+        DrawLine((int)x, (int)y + 11, (int)x, (int)y + 16, c);
+        DrawText(m.name, (int)x + 14, (int)y - 6, 15, c);
+    }
+}
+
 static int RenderGameView(const PreviewOptions& options)
 {
     SetTraceLogLevel(LOG_WARNING);
@@ -570,6 +642,19 @@ static int RenderGameView(const PreviewOptions& options)
         camera.rotation = 0.0f;
         camera.zoom = 1.0f;
 
+        if (options.globeFixed)
+        {
+            OrbitalCamera cam;
+            cam.subLatDeg = options.globeLat;
+            cam.subLonDeg = options.globeLon;
+            cam.zoom = options.globeZoom;
+            SetOrbitalCamera(cam);
+            SetLunarGlobeSpin(0.0);      // a drifting globe is not reproducible
+        }
+        if (options.globeSun >= 0.0f)
+            SetLunarGlobeSun(options.globeSunLon, options.globeSunLat,
+                             options.globeSun);
+
         // Draw twice: the first frame lets fonts and textures settle.
         for (int frame = 0; frame < 2; frame++)
         {
@@ -588,6 +673,7 @@ static int RenderGameView(const PreviewOptions& options)
             else
             {
                 renderManager.DrawOrbitalView();
+                if (options.globeMarks) DrawGlobeMarks(options);
             }
 
             EndDrawing();

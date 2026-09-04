@@ -2,6 +2,7 @@
 #include "resource_manager.h"
 #include "terrain_synthesis.h"
 #include "terrain_gpu.h"
+#include "lunar_globe.h"
 #include "resource_types.h"
 #include "survey_progress_engine.h"
 #include <algorithm>
@@ -242,7 +243,6 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
 {
     planetMapTexture = {0};
     orbitalNearTexture = {0};
-    orbitalFarTexture = {0};
     for (int i = 0; i < 3; i++) terrainLevels[i] = {0};
 }
 
@@ -6327,13 +6327,13 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
 
 void RenderManager::LoadOrbitalAssets() {
     if (orbitalAssetsLoaded) return;
+    // Only the near side, and only as the fallback for a machine where
+    // the globe's shader or mosaic will not load. The far-side disc and
+    // the 12 baked rotation frames that used to sit beside it are in
+    // docs/graveyard.md -- the globe renders both from the mosaic now.
     orbitalNearTexture = LoadTexture("src/assets/planet/orbital_near.png");
-    orbitalFarTexture  = LoadTexture("src/assets/planet/orbital_far.png");
     if (orbitalNearTexture.id == 0) {
         std::cout << "WARNING: failed to load orbital_near.png" << std::endl;
-    }
-    if (orbitalFarTexture.id == 0) {
-        std::cout << "WARNING: failed to load orbital_far.png" << std::endl;
     }
     orbitalAssetsLoaded = true;
 }
@@ -6341,30 +6341,65 @@ void RenderManager::LoadOrbitalAssets() {
 void RenderManager::UnloadOrbitalAssets() {
     if (!orbitalAssetsLoaded) return;
     if (orbitalNearTexture.id != 0) UnloadTexture(orbitalNearTexture);
-    if (orbitalFarTexture.id  != 0) UnloadTexture(orbitalFarTexture);
     orbitalAssetsLoaded = false;
 }
 
 void RenderManager::DrawOrbitalView() {
-    if (!orbitalAssetsLoaded) {
-        LoadOrbitalAssets();
-    }
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
 
     Color spaceBg = {6, 7, 12, 255};
     ClearBackground(spaceBg);
 
-    // Centre the disc in the screen. The texture is square (1200x1200).
-    // If the screen is smaller in either dimension, the texture overflows
-    // the visible area — that's fine, the disc is still centred.
-    if (orbitalNearTexture.id != 0) {
-        int x = (GetScreenWidth()  - orbitalNearTexture.width)  / 2;
-        int y = (GetScreenHeight() - orbitalNearTexture.height) / 2;
-        DrawTexture(orbitalNearTexture, x, y, WHITE);
+    // The moon is a globe: turn it, zoom it, and the point under the
+    // cursor is real ground. The baked disc stays as the fallback for a
+    // machine where the shader or the mosaic will not load.
+    if (LunarGlobeReady()) {
+        UpdateLunarGlobeInput(w, h, GetFrameTime());
+        DrawLunarGlobe(w, h);
+
+        const OrbitalCamera& cam = GetOrbitalCamera();
+        DrawText("Lunar Orbit", 20, 20, 26, RAYWHITE);
+        DrawText(TextFormat("%.1f%c  %.1f%c    x%.1f",
+                            std::fabs(cam.subLatDeg), cam.subLatDeg < 0 ? 'S' : 'N',
+                            std::fabs(cam.subLonDeg), cam.subLonDeg < 0 ? 'W' : 'E',
+                            cam.zoom),
+                 20, 52, 17, Color{150, 165, 195, 255});
+
+        // Reading back the ground under the pointer is the cheapest proof
+        // that the picture and the picker agree: it is the same
+        // projection, inverted.
+        Vector2 m = GetMousePosition();
+        double lat = 0.0, lon = 0.0;
+        if (OrbitalPickToLatLon(m.x, m.y, w, h, &lat, &lon)) {
+            const char* label = TextFormat("%.1f%c  %.1f%c",
+                                           std::fabs(lat), lat < 0 ? 'S' : 'N',
+                                           std::fabs(lon), lon < 0 ? 'W' : 'E');
+            int tw = MeasureText(label, 16);
+            DrawRectangle((int)m.x + 14, (int)m.y - 10, tw + 12, 24,
+                          Color{8, 10, 16, 200});
+            DrawText(label, (int)m.x + 20, (int)m.y - 5, 16,
+                     Color{190, 205, 235, 255});
+            DrawCircleLines((int)m.x, (int)m.y, 5.0f, Color{120, 200, 255, 220});
+        }
+
+        // Kept up here with the readout rather than down with the
+        // ENTER/ESC hints: harnesses that overlay the orbital view draw
+        // their own instructions along the bottom, and two hint lines
+        // 12 px apart collide.
+        DrawText("drag  turn the moon      wheel  zoom",
+                 20, 76, 17, Color{120, 135, 165, 255});
+    } else {
+        // Centre the baked disc. The texture is square (1200x1200); if the
+        // screen is smaller it overflows, which is fine, it is still centred.
+        if (orbitalNearTexture.id != 0) {
+            int x = (w - orbitalNearTexture.width)  / 2;
+            int y = (h - orbitalNearTexture.height) / 2;
+            DrawTexture(orbitalNearTexture, x, y, WHITE);
+        }
+        DrawText("Lunar Orbit", 20, 20, 26, RAYWHITE);
     }
 
-    DrawText("Lunar Orbit",            20, 20, 26, RAYWHITE);
-    DrawText("ENTER  descend to surface",
-             20, GetScreenHeight() - 60, 18, LIGHTGRAY);
-    DrawText("ESC    return to menu",
-             20, GetScreenHeight() - 36, 18, LIGHTGRAY);
+    DrawText("ENTER  descend to surface", 20, h - 60, 18, LIGHTGRAY);
+    DrawText("ESC    return to menu",     20, h - 36, 18, LIGHTGRAY);
 }

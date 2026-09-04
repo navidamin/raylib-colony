@@ -392,6 +392,7 @@ extraction UI. Read the relevant one **before** starting, not after.
 | [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md) | You think a feature is done — the six questions that catch "engine-implemented but not player-reachable" |
 | [`docs/dev-workflow.md`](docs/dev-workflow.md) | Any UI or gameplay work — the testing instruments and the working loop |
 | [`docs/web-deploy-mobile.md`](docs/web-deploy-mobile.md) | Touching `minshell.html`, the Pages deploy, or the phone build |
+| [`docs/graveyard.md`](docs/graveyard.md) | Before rebuilding something that feels missing, or before deleting something that looks unused — what was removed on purpose, with the numbers needed to reproduce it |
 
 Three rules worth stating up front, each learned expensively:
 

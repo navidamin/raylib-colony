@@ -28,6 +28,7 @@
 #include "game_constants.h"
 #include "game_enums.h"
 #include "terrain_synthesis.h"
+#include "lunar_globe.h"
 
 #include <cstdlib>
 #include <string>
@@ -63,7 +64,7 @@ static ViewNotes NotesForView(int level)
     {
     case 0:
         return {
-            "ORBITAL VIEW", "whole moon, ~3,476 km disc",
+            "ORBITAL VIEW", "whole moon, ~3,476 km sphere",
             {
                 {"OK",   "Real LROC WAC imagery, wrapped to a sphere."},
                 {"OK",   "MOVE over the moon: a ghost box tracks the"},
@@ -74,8 +75,11 @@ static ViewNotes NotesForView(int level)
                 {"OK",   "Changed your mind? Just click another spot;"},
                 {"OK",   "  the proposal moves there. Clicking off the"},
                 {"OK",   "  moon cancels. The prompt never traps you."},
-                {"GAP",  "Static disc: no rotation yet, so only the near"},
-                {"GAP",  "  side is reachable (12 baked frames unused)."},
+                {"OK",   "DRAG turns the globe and the WHEEL zooms, so"},
+                {"OK",   "  the far side is reachable too. Turning it is"},
+                {"OK",   "  not a click: a drag never proposes a site."},
+                {"GAP",  "Zoom stops at x8 - past that the WAC mosaic"},
+                {"GAP",  "  (~1.3 km/px) has nothing left to resolve."},
             }};
     case 1:
         return {
@@ -457,7 +461,13 @@ static void HandleInput(ViewTestContext& ctx)
         RebuildSect(ctx);
     }
 
-    bool descend = IsMouseButtonPressed(MOUSE_BUTTON_LEFT)
+    // In orbit the moon is a globe you can spin, so a press is not yet a
+    // choice: commit on release, and only if the press did not turn it.
+    // Below orbit a press is still the fastest thing to react to.
+    bool descend = (ctx.level == 0
+                    ? (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)
+                       && !LunarGlobeWasDragged())
+                    : IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
                    || IsKeyPressed(KEY_DOWN);
     bool ascend = IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_UP)
                   || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);

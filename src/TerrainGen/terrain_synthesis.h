@@ -41,17 +41,58 @@ unsigned int GetTerrainAnchorVersion();
 // south, matching the game grid's y-down convention).
 void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg);
 
-// Invert the orbital disc projection: turn a screen-space click on the
-// moon disc into real lat/lon. Returns false if the click misses the
-// disc (or lands on the limb, where the projection is degenerate).
-// The disc is drawn centred on screen at 1200 px with a 12 px margin
-// (see prototypes/planet_visuals/asset_bake.py), near side, lon 0.
+// Where the orbital view is looking from.
+//
+// The moon is a globe, so "which way is it turned" is part of the
+// projection. Three numbers say it: the point of the surface facing the
+// viewer, and how large the disc is drawn. The renderer
+// (lunar_globe.h) and the two projection functions below both read this
+// one camera, which is what makes a click land on the pixel it points
+// at however the globe is turned.
+//
+// subLat 0, subLon 0 is the near side -- the fixed view the baked
+// orbital_near.png gave -- so the defaults reproduce the old geometry,
+// up to the disc now being fitted to the viewport instead of a fixed
+// 1200 px square that overflowed it.
+struct OrbitalCamera
+{
+    double subLatDeg = 0.0;     // surface point facing the viewer
+    double subLonDeg = 0.0;     // 0 = near side
+    double zoom = 1.0;          // 1 = whole disc visible, with a margin
+};
+
+const OrbitalCamera& GetOrbitalCamera();
+void SetOrbitalCamera(const OrbitalCamera& camera);
+
+// Zoom limits. The floor keeps the whole moon on screen. The ceiling is
+// what the DESCENT needs, not what the wheel offers: flying into a
+// 200 km district means 3476/(2*0.46*200) = 18.9x, past the point where
+// the WAC mosaic (~1.3 km/px) resolves anything new. The wheel stops at
+// ORBITAL_ZOOM_USER_MAX so a player never drives it into the mush; the
+// flight is allowed past because it ends by handing over to the DEM.
+const double ORBITAL_ZOOM_MIN = 1.0;
+const double ORBITAL_ZOOM_MAX = 20.0;
+const double ORBITAL_ZOOM_USER_MAX = 8.0;
+
+// The zoom at which a window of spanKm fills the viewport height. This
+// is where a descent flight has to end for the next rung to take over
+// on the same framing, with no jump.
+double OrbitalZoomForSpan(double spanKm);
+
+// The disc's radius in pixels for a viewport, at the camera's current
+// zoom. One definition, shared by the renderer and both projections, so
+// they cannot disagree about where the moon is.
+double OrbitalDiscRadiusPx(int screenWidth, int screenHeight);
+
+// Invert the orbital projection: turn a screen-space click on the moon
+// into real lat/lon. Returns false if the click misses the globe (or
+// lands on the limb, where the projection is degenerate).
 bool OrbitalPickToLatLon(float screenX, float screenY,
                          int screenWidth, int screenHeight,
                          double* latDeg, double* lonDeg);
 
-// Project lat/lon back onto the orbital disc — the inverse of the above,
-// for drawing the pick marker. Returns false if on the far side.
+// Project lat/lon back onto the globe — the inverse of the above, for
+// drawing markers. Returns false if the point is turned away.
 bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
                            int screenWidth, int screenHeight,
                            float* screenX, float* screenY);

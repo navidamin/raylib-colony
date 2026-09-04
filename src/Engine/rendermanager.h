@@ -71,7 +71,6 @@ private:
 
     // Orbital view textures (baked by prototypes/planet_visuals/asset_bake.py)
     Texture2D orbitalNearTexture;
-    Texture2D orbitalFarTexture;
     bool orbitalAssetsLoaded;
     void LoadOrbitalAssets();
     void UnloadOrbitalAssets();
