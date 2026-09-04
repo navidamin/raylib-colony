@@ -111,6 +111,7 @@ Everything in this design directory is about replacing that multiply-chain with 
 | File | What it is for |
 |------|----------------|
 | [`prototypes/diamond-drill.html`](prototypes/diamond-drill.html) | The **access rig**, drawn and driveable. Run it with `shot.js` for stills. Its argument: a diamond crown cuts only inside a *band* of weight that rises with hardness, so a light rig misses basalt's band entirely while a heavy one overshoots regolith — two machines, neither a strict upgrade, exactly as `EXC_MACHINES` requires. Raises one open question for §Access: if the shaft is sunk by a **coring** rig, the column it brings up is a survey, and gentle driving buys knowledge that hard driving does not |
+| [`prototypes/depletion-lane.html`](prototypes/depletion-lane.html) | **Column or block?** The shaft bar's second lane, three ways, against one block of ground. Answers a phase-4 open question by showing it rather than arguing it: a spot empties in a minute and a block of 64 takes hours, so a lane reading only the column is a needle that never settles and one reading only the block is a dial that never moves. Recommends **both** — the block as the fill, the column as a tick riding on it, with the gap between them as its own reading |
 | `prototypes/shot.js` | Headless capture. Poses are reached by *running* the sim at fixed dt, never by setting depth — a jumped depth leaves the core strip empty and the still lies about the run |
 
 Style for both lives in [`../graphics/dark-plating.md`](../graphics/dark-plating.md)

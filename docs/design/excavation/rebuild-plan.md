@@ -322,8 +322,15 @@ Flagged rather than guessed, to be settled when the phase arrives:
    access (a shaft) and production (machines at a spot) are different purchases,
    which argues for both. Phase 4 has to show they do not compete for the same
    screen space.
-2. **Does the depletion lane show the selected column, or the whole 3×3 a shaft
-   opened?** The column is simpler; the block is what the player actually bought.
+2. ~~**Does the depletion lane show the selected column, or the whole block a
+   shaft opened?**~~ **Settled: both.** Prototyped in
+   [`prototypes/depletion-lane.html`](prototypes/depletion-lane.html). The two
+   readings move on different clocks — a spot empties in a minute, a block of
+   64 takes hours — so the column alone is a needle that never settles and the
+   block alone is a dial that never moves. The lane draws the block as its fill
+   and the column as an amber tick riding on it; the **gap between them** is
+   the reading. Rock colour for ground, amber for the machine, per
+   dark-plating §1.2, so the tick can never be mistaken for the fill.
 3. **Does prospecting's `previewHoverLayer` pattern get generalised?** It is the
    only way hover states are screenshottable headlessly, and excavation will
    want it too.
