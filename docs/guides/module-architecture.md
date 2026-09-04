@@ -359,6 +359,33 @@ constexpr float SURVEY_TESTING_WEIGHT = 0.30f;
 If a stage contributes nothing measurable, players will skip it — and you
 have built a decorative UI, not a mechanic.
 
+### The hierarchy owns the recursion
+
+The entity tree is Planet → Colony → Sect → Unit, and **each level updates the
+level below it. Exactly one caller ticks a thing.** This has been broken twice,
+at two different levels, in the same way:
+
+- `Unit::ProcessModuleEffects` called `ProcessExtraction()` inside its
+  per-module loop. `ProcessExtraction` runs the *whole unit's* pipeline, so a
+  unit with prospecting, excavation and beneficiation active dug three times a
+  tick and every number downstream was three times too big.
+- `GameManager::Update` called `sect->Update(dt)` and then looped
+  `sect->GetUnits()` calling `unit->Update(dt)` again — the same vector
+  `Sect::Update` had just walked. Every active unit ran a full tick twice per
+  frame.
+
+Both read as harmless: a loop over the right things, doing the right thing to
+each. Neither fails loudly — output is simply an integer multiple of correct,
+which looks like a tuning problem and gets "fixed" in the constants.
+
+> Before writing a loop that updates children, ask what the thing you already
+> called does with *its* children. If it owns them, it ticks them.
+
+Note which harness caught neither: `colony_sim` drives `unit->Update()`
+directly, so it measured the intended single tick throughout while the running
+game did something else. **A harness that skips a layer cannot test that
+layer.**
+
 ## 5. Hero visuals
 
 Key the visual by a small struct whose fields index the sprite tree:

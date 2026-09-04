@@ -51,14 +51,18 @@ void GameManager::Update(float deltaTime) {
         }
         */
 
-        // Loop over sects to update the sects and units
+        // Loop over sects. A SECT UPDATES ITS OWN UNITS -- Sect::Update already
+        // walks GetUnits() and calls Update on each. This loop used to walk the
+        // same vector a second time, so every active unit ran a full tick
+        // twice: dug twice, consumed twice, produced twice, wore twice. The
+        // hierarchy owns the recursion; whoever holds a sect calls one method.
+        //
+        // Same shape as the bug Unit::ProcessModuleEffects carries a comment
+        // about, one level up: there, ProcessExtraction ran once per active
+        // module; here, the whole unit ran once per level that thought it was
+        // responsible for it.
         for (auto& sect: colony->GetSects()) {
             sect->Update(deltaTime);
-            for (auto& unit : sect->GetUnits()) {
-                if (unit->IsActive()) {
-                    unit->Update(deltaTime);
-                }
-            }
         }
 
         // Manage colony resources (push surplus from sects to colony reserves)
