@@ -507,7 +507,6 @@ uniform float albedoStrength;  // WAC contribution (map scales only)
 uniform sampler2D chainMap;
 uniform float chainStrength;   // 0 disables the whole path
 uniform float chainUvScale;    // window span / the chain's own 25 km
-uniform float chainTexel;      // 1 / chain resolution
 
 // Hash-based value noise — cheap regolith variation, several scales.
 float Hash(vec2 p)
@@ -615,18 +614,22 @@ void main()
 
     if (chainStrength > 0.0)
     {
-        // The chain is built for this window's own span, so it covers
-        // the whole of it: chainUvScale is 1 and there is no edge to
-        // fade. It stays a scale rather than a constant because a cached
-        // chain outliving a resize would otherwise silently mis-register.
+        // chainMap is the chain's UNLIT albedo, so it is used whole
+        // rather than high-passed: there is no baked hillshade in it to
+        // fight the sun above, which is what the high-pass existed to
+        // strip. Its relief is not here at all -- it went into the
+        // window's elevation, so this shader lights it like any ground.
+        //
+        // It arrives already divided by its own LOCAL mean, so it tints
+        // rather than washes: the tonal level at every scale the mosaic
+        // can resolve belongs to the DEM's shading, and only what the
+        // mosaic cannot resolve belongs to the chain.
+        // The chain is built for this window's span, so chainUvScale is
+        // 1; it stays a scale because a cached chain outliving a resize
+        // would otherwise silently mis-register.
         vec2 cuv = vec2(0.5) + (uv - vec2(0.5)) * chainUvScale;
-        float o = chainTexel;
-        float c = TEX(chainMap, cuv).r;
-        float m = 0.25 * (TEX(chainMap, cuv + vec2(o, 0.0)).r +
-                          TEX(chainMap, cuv - vec2(o, 0.0)).r +
-                          TEX(chainMap, cuv + vec2(0.0, o)).r +
-                          TEX(chainMap, cuv - vec2(0.0, o)).r);
-        surface *= 1.0 + (c - m) * chainStrength * 6.0;
+        float a = 0.5 + TEX(chainMap, cuv).r;
+        surface *= mix(1.0, a, chainStrength);
     }
 
     vec3 color = surface * light;
@@ -661,6 +664,7 @@ struct TerrainScene
     Texture2D chainTex = { 0 };      // whichever of the two is in use
     double chainMs = 0.0;            // what it cost to make
     float chainSpanKm = 0.0f;        // the ground it actually covers
+    float chainReliefM = 0.0f;       // what the height actually added
     Shader shader = { 0 };
     bool nearside = true;
     double nativeKm = 0.0;         // finest data actually feeding this window
@@ -670,7 +674,7 @@ struct TerrainScene
     double lat0 = 0.0, lat1 = 0.0, lon0 = 0.0, lon1 = 0.0;
     int locTexel = 0, locSunDir = 0, locSunColor = 0;
     int locAmbient = 0, locStyle = 0, locCurve = 0, locAlbedoStr = 0;
-    int locChainStr = 0, locChainUv = 0, locChainTexel = 0;
+    int locChainStr = 0, locChainUv = 0;
 
     float ScaledW() const { return worldWidthKm * worldScale; }
     float ScaledH() const { return worldHeightKm * worldScale; }
@@ -681,6 +685,43 @@ struct TerrainScene
 // Heights are centred on the window's mid elevation: at small spans the
 // world scale magnifies absolute elevations (a -2.7 km site in a 1 km
 // window would sit 1080 units below the origin, outside the far clip).
+// Three box passes stand in for a gaussian closely enough to split a
+// field into "coarser than the data floor" and "finer than it", which is
+// all this is for.
+static void BoxBlurField(std::vector<float>& f, int w, int h, float sigma)
+{
+    int r = (int)std::lround(sigma * 1.2f);
+    if (r < 1 || f.size() != (size_t)w * h) return;
+    std::vector<float> tmp(f.size());
+    for (int pass = 0; pass < 3; pass++)
+    {
+        for (int y = 0; y < h; y++)          // horizontal
+        {
+            double acc = 0.0;
+            for (int x = -r; x <= r; x++)
+                acc += f[(size_t)y * w + std::clamp(x, 0, w - 1)];
+            for (int x = 0; x < w; x++)
+            {
+                tmp[(size_t)y * w + x] = (float)(acc / (2 * r + 1));
+                acc -= f[(size_t)y * w + std::clamp(x - r, 0, w - 1)];
+                acc += f[(size_t)y * w + std::clamp(x + r + 1, 0, w - 1)];
+            }
+        }
+        for (int x = 0; x < w; x++)          // vertical
+        {
+            double acc = 0.0;
+            for (int y = -r; y <= r; y++)
+                acc += tmp[(size_t)std::clamp(y, 0, h - 1) * w + x];
+            for (int y = 0; y < h; y++)
+            {
+                f[(size_t)y * w + x] = (float)(acc / (2 * r + 1));
+                acc -= tmp[(size_t)std::clamp(y - r, 0, h - 1) * w + x];
+                acc += tmp[(size_t)std::clamp(y + r + 1, 0, h - 1) * w + x];
+            }
+        }
+    }
+}
+
 static Mesh BuildTerrainMesh(const LolaWindow& window, float worldW,
                              float worldH, float exaggeration, int gridRes)
 {
@@ -1098,12 +1139,18 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.worldScale = 200.0f /
         std::max(scene.worldWidthKm, scene.worldHeightKm);
 
-    // ---------- route A: the synthesizer's own level over the window ----------
+    // ---------- the synthesizer as this window's ground ----------
     //
-    // Generated for the window's centre AND for the window's own span,
-    // so it covers the ground the DEM is showing instead of the central
-    // 25 km of it. On a 16:9 screen the site window is 25 x 1.78 =
-    // 44.5 km, and a fixed 25 km layer reached 56% of it.
+    // Not a picture laid over the DEM: the two fields the chain builds
+    // BEFORE it lights anything. Height goes into the window's own
+    // elevation, so the mesh carries it, the one lunar sun shades it and
+    // the tilt view sees it as relief. Albedo multiplies the surface,
+    // which is what the faded WAC stopped being able to do below 100 km.
+    //
+    // The chain never lights this. That is the whole difference from the
+    // earlier high-pass composite, which could only smuggle the chain's
+    // finest detail past a hillshade that would otherwise have lit the
+    // ground twice.
     if (scene.chainTexOwned.id > 0) UnloadTexture(scene.chainTexOwned);
     scene.chainTexOwned = Texture2D{ 0 };
     UnloadTerrainGpuChain(&scene.chainGpu);
@@ -1114,34 +1161,111 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     {
         double t0 = GetTime();
         scene.chainSpanKm = scene.worldWidthKm;
-        TerrainChainSpans ladder =
-            TerrainChainSpansForWindow(scene.chainSpanKm);
-        bool gpu = (GetTerrainPath() == TERRAIN_PATH_GPU)
-                && GenerateTerrainChainGPU(options.pickLat, options.pickLon,
-                                           texRes, &scene.chainGpu, nullptr,
-                                           &ladder);
-        if (gpu)
+        TerrainChainFields fields;
+        if (GenerateTerrainFields(options.pickLat, options.pickLon, texRes,
+                                  scene.chainSpanKm, &fields)
+            && fields.height.size() == scene.window.elevationM.size())
         {
-            scene.chainTex =
-                scene.chainGpu.color[scene.chainGpu.levels - 1].texture;
-        }
-        else
-        {
-            Image lv[TERRAIN_CHAIN_MAX_LEVELS] = {};
-            GenerateTerrainChain(options.pickLat, options.pickLon, texRes,
-                                 lv, nullptr, &ladder);
-            scene.chainTexOwned = LoadTextureFromImage(lv[ladder.count - 1]);
-            for (int i = 0; i < TERRAIN_CHAIN_MAX_LEVELS; i++)
-                UnloadImage(lv[i]);
+            // Band-limit to what the elevation data cannot resolve. The
+            // chain's long wavelengths are the imagery's landforms read
+            // as topography; LOLA already carries those and, where the
+            // two disagree, the measurement wins. Everything finer than
+            // the data floor is what the chain is here for.
+            double kmPerPx = scene.chainSpanKm / (double)texRes;
+            float sigmaPx = (float)std::max(1.0,
+                                            0.5 * scene.nativeKm / kmPerPx);
+            std::vector<float> coarse = fields.height;
+            BoxBlurField(coarse, texRes, texRes, sigmaPx);
+
+            // Scale by the SLOPE it produces, not by the chain's own
+            // height convention. heightScaleM reproduces the shading the
+            // chain drew for itself, which is soft; this shader is harsh
+            // Lambert with near-black shadows, and the same geometry
+            // under it reads as a blown-out mess. What a surface has to
+            // get right is its slopes, so aim at those directly: solve
+            // for the scale that gives the added relief a target mean
+            // gradient, and let --chain-strength move the target.
+            //
+            // 5 degrees is regolith at tens of metres per pixel -- a
+            // surface you could drive over, which is what the site level
+            // is asking about.
+            const double TARGET_SLOPE_DEG = 5.0;
+            double pixelM = scene.chainSpanKm * 1000.0 / texRes;
+            double g2 = 0.0;
+            size_t gn = 0;
+            for (int y = 1; y + 1 < texRes; y++)
+            {
+                for (int x = 1; x + 1 < texRes; x++)
+                {
+                    size_t i = (size_t)y * texRes + x;
+                    float hx = (fields.height[i + 1] - coarse[i + 1])
+                             - (fields.height[i - 1] - coarse[i - 1]);
+                    float hy = (fields.height[i + texRes] - coarse[i + texRes])
+                             - (fields.height[i - texRes] - coarse[i - texRes]);
+                    g2 += 0.25 * (double)(hx * hx + hy * hy);
+                    gn++;
+                }
+            }
+            double gradRms = (gn > 0) ? std::sqrt(g2 / gn) : 0.0;
+            float scaleM = 0.0f;
+            if (gradRms > 1e-9)
+                scaleM = (float)(std::tan(TARGET_SLOPE_DEG * DEG2RAD)
+                                 * pixelM / gradRms)
+                         * options.chainStrength;
+
+            float lo = 1e30f, hi = -1e30f;
+            double addRms = 0.0;
+            for (size_t i = 0; i < fields.height.size(); i++)
+            {
+                float add = (fields.height[i] - coarse[i]) * scaleM;
+                addRms += (double)add * add;
+                scene.window.elevationM[i] += add;
+                lo = std::min(lo, scene.window.elevationM[i]);
+                hi = std::max(hi, scene.window.elevationM[i]);
+            }
+            addRms = std::sqrt(addRms / fields.height.size());
+            scene.chainReliefM = (float)addRms;
+            // The mesh centres itself on the window's elevation range, so
+            // leaving these stale drops the ground out from under the
+            // camera by however much the chain added.
+            scene.window.minElevationM = lo;
+            scene.window.maxElevationM = hi;
+
+            // The albedo gets band-limited too, and for the same
+            // reason. Used whole it carries the imagery's landform tone
+            // re-amplified, which is the "expressionist wash" the WAC
+            // fade exists to suppress below 100 km -- measured, it took
+            // the picture's overall contrast from 19 to 35 while the
+            // mid-scale structure it was supposed to help actually fell.
+            // Divided by its own LOCAL mean it is a pure tint: what the
+            // mosaic cannot resolve, and nothing it can.
+            std::vector<float> albLow = fields.albedo;
+            BoxBlurField(albLow, texRes, texRes, sigmaPx);
+
+            Image img = GenImageColor(texRes, texRes, BLACK);
+            ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_GRAYSCALE);
+            unsigned char* px = (unsigned char*)img.data;
+            for (size_t i = 0; i < fields.albedo.size(); i++)
+            {
+                float ratio = fields.albedo[i]
+                            / std::max(0.02f, albLow[i]);
+                // Stored as ratio - 0.5, so 0.5..1.5 fits a byte and the
+                // shader adds the half back.
+                px[i] = (unsigned char)std::lround(
+                    std::clamp(ratio - 0.5f, 0.0f, 1.0f) * 255.0f);
+            }
+            scene.chainTexOwned = LoadTextureFromImage(img);
+            UnloadImage(img);
+            SetTextureFilter(scene.chainTexOwned, TEXTURE_FILTER_BILINEAR);
+            SetTextureWrap(scene.chainTexOwned, TEXTURE_WRAP_CLAMP);
             scene.chainTex = scene.chainTexOwned;
         }
-        SetTextureFilter(scene.chainTex, TEXTURE_FILTER_BILINEAR);
-        SetTextureWrap(scene.chainTex, TEXTURE_WRAP_CLAMP);
         scene.chainMs = (GetTime() - t0) * 1000.0;
         std::fprintf(stderr,
-                     "CHAIN: %.1f km layer at %d px in %.1f ms  (%s path)\n",
+                     "CHAIN: %.1f km fields at %d px in %.1f ms  "
+                     "(relief %.1f m rms)\n",
                      scene.chainSpanKm, texRes, scene.chainMs,
-                     gpu ? "GPU" : "CPU");
+                     scene.chainReliefM);
     }
 
     scene.heightTex = BuildHeightTexture(scene.window);
@@ -1184,7 +1308,6 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.locAlbedoStr = GetShaderLocation(scene.shader, "albedoStrength");
     scene.locChainStr = GetShaderLocation(scene.shader, "chainStrength");
     scene.locChainUv = GetShaderLocation(scene.shader, "chainUvScale");
-    scene.locChainTexel = GetShaderLocation(scene.shader, "chainTexel");
 
     BuildSceneGeometry(scene, options);
     return true;
@@ -1224,13 +1347,9 @@ static void ApplyShaderState(const TerrainScene& scene,
     float chainStr = (scene.chainTex.id > 0) ? options.chainStrength : 0.0f;
     float chainUv = (scene.chainSpanKm > 0.0f)
                     ? scene.worldWidthKm / scene.chainSpanKm : 1.0f;
-    float chainTexel = (scene.chainTex.width > 0)
-                       ? 1.0f / (float)scene.chainTex.width : 0.002f;
     SetShaderValue(scene.shader, scene.locChainStr, &chainStr,
                    SHADER_UNIFORM_FLOAT);
     SetShaderValue(scene.shader, scene.locChainUv, &chainUv,
-                   SHADER_UNIFORM_FLOAT);
-    SetShaderValue(scene.shader, scene.locChainTexel, &chainTexel,
                    SHADER_UNIFORM_FLOAT);
 }
 

@@ -3,6 +3,8 @@
 
 #include "raylib.h"
 
+#include <vector>
+
 // Procedural terrain amplification on real lunar imagery.
 //
 // C++ port of prototypes/planet_visuals/site_synthesis.py (the
@@ -219,6 +221,46 @@ struct TerrainTuning
     float speckle = 1.0f;       // albedo mottling (x 0.04)
     float sCurve = 0.20f;       // shadow-deepening mix (absolute)
 };
+
+// The chain's two fields at its last level, BEFORE it lights them.
+//
+// GenerateTerrainChain returns a picture with a hillshade and a cast
+// shadow march already baked into it. That is what the game's views
+// want and it is the wrong thing for a consumer that has its own sun:
+// laid under another light the ground is shaded twice, and being a
+// picture it carries no relief that a mesh or a normal map can use.
+//
+// These are the two things the chain computes on the way to that
+// picture. Height is the relief it would have lit -- the imagery's form
+// re-read as topography, plus grain, undulation and boulders. Albedo is
+// the surface with the speckle in it and no shading at all.
+//
+// Skipping the shading makes this CHEAPER than the lit chain, not dearer:
+// the shadow march is the largest per-pixel cost in the fused pass.
+//
+// height is in chain units, near zero mean. Multiply by heightScaleM for
+// metres -- the factor comes from the hillshade's own z, so it is the
+// scale at which the chain treats this field as terrain in the first
+// place, not a number invented here.
+//
+// The caller almost certainly wants to HIGH-PASS the height before using
+// it: its long wavelengths are the imagery's landforms re-read as
+// topography, which real elevation data already carries and which the
+// chain cannot confirm. Everything below the data's own floor is what
+// this is for.
+struct TerrainChainFields
+{
+    std::vector<float> height;    // res * res, chain units
+    std::vector<float> albedo;    // res * res, 0..1, unlit
+    int res = 0;
+    float heightScaleM = 0.0f;    // height * this = metres
+};
+
+// spanKm is the window the fields cover; the chain walks 100 km down to
+// it exactly as GenerateTerrainChain does.
+bool GenerateTerrainFields(double latDeg, double lonDeg, int res,
+                           double spanKm, TerrainChainFields* out,
+                           const TerrainSiteDisturbance* site = nullptr);
 
 // Generate the SECT view ground for a location: a res x res RGB image
 // of the 5 km cell, amplified through the real-imagery chain

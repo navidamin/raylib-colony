@@ -956,12 +956,17 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
 // The anti-matte relight + grain stage (port of _texture_modulate).
 // boulderCount > 0 adds sub-resolution boulder speckle — only used on
 // zoom levels below the real-data floor.
+// outHeight/outAlbedo, when both are given, take the two fields the
+// chain builds on its way to the picture and skip the lighting -- see
+// TerrainChainFields. macro is left alone in that case.
 static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
                             float amp,
                             const TerrainTuning& tune,
                             int boulderCount = 0,
                             const TerrainSiteDisturbance* site = nullptr,
-                            float pxPerKm = 0.0f)
+                            float pxPerKm = 0.0f,
+                            Field* outHeight = nullptr,
+                            Field* outAlbedo = nullptr)
 {
     // Pixel-based sizes below are tuned at 300 px; k rescales them so
     // physical feature sizes stay fixed at other resolutions.
@@ -995,6 +1000,25 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
 
     if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
         ApplySiteDisturbance(height, res, pxPerKm, frame, *site);
+
+    if (outHeight && outAlbedo)
+    {
+        // The speckle belongs to the albedo, not to the light, so it
+        // comes across; the hillshade and the shadow march do not.
+        NoiseFrame sf = frame; sf.salt ^= NOISE_SPECKLE;
+        Field speckle = Fbm(res, 2, 4, 0.5f, sf);
+        *outHeight = height;
+        outAlbedo->resize((size_t)res * res);
+        for (size_t i = 0; i < macro.size(); i++)
+        {
+            float rough = 0.45f + 0.55f * density[i];
+            (*outAlbedo)[i] = std::clamp(
+                macro[i] * (1.0f + 0.04f * std::min(amp, 1.6f)
+                                  * (speckle[i] - 0.5f) * rough),
+                0.0f, 1.0f);
+        }
+        return;
+    }
 
     const float z = 110.0f;
     Field hs = Hillshade(height, res, z, 0.6f);
@@ -1216,7 +1240,9 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                                   const TerrainTuning& tune,
                                   Image* outLevels, int wantLevels,
                                   const TerrainSiteDisturbance* site,
-                                  const TerrainChainSpans& ladder)
+                                  const TerrainChainSpans& ladder,
+                                  Field* outHeight = nullptr,
+                                  Field* outAlbedo = nullptr)
 {
     // A kilometre is a different number of pixels in each level, because
     // every level is res wide and they cover different ground.
@@ -1265,10 +1291,15 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     // that frames it. LocationSeed survives only for the GPU macro crop.
     Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
     SharpenAdaptive(lum, res);
+    // The fields belong to the LAST level; every level above it still
+    // has to be lit, because the next one down is a crop of its output.
+    const bool wantFields = (outHeight != nullptr && outAlbedo != nullptr);
     TextureModulate(lum, res,
                     MakeNoiseFrame(latDeg, lonDeg, levelSpanKm[0], res, 0),
                     1.0f, tune, 0, siteForLevel[0],
-                    (float)res / levelSpanKm[0]);
+                    (float)res / levelSpanKm[0],
+                    (wantFields && levelCount == 1) ? outHeight : nullptr,
+                    (wantFields && levelCount == 1) ? outAlbedo : nullptr);
 
     auto emit = [&](int level)
     {
@@ -1322,11 +1353,14 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                                 0.0f, 1.0f);
         int boulderBase = (levelSpanKm[lvl] <= 5.0f + 1e-3f)
                           ? (int)(120 * k * k) : 0;
+        bool last = (lvl == levelCount - 1);
         TextureModulate(lum, res,
                         MakeNoiseFrame(latDeg, lonDeg, levelSpanKm[lvl], res,
                                        0x9E3779B9u * (uint32_t)lvl),
                         1.0f + 0.7f * lvl, tune, boulderBase,
-                        siteForLevel[lvl], (float)res / levelSpanKm[lvl]);
+                        siteForLevel[lvl], (float)res / levelSpanKm[lvl],
+                        (wantFields && last) ? outHeight : nullptr,
+                        (wantFields && last) ? outAlbedo : nullptr);
         emit(lvl);
     }
 
@@ -1436,6 +1470,29 @@ void GenerateTerrainChain(double latDeg, double lonDeg, int res,
     TerrainChainSpans game;
     GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3, site,
                           spans ? *spans : game);
+}
+
+bool GenerateTerrainFields(double latDeg, double lonDeg, int res,
+                           double spanKm, TerrainChainFields* out,
+                           const TerrainSiteDisturbance* site)
+{
+    if (!out || res < 8 || spanKm <= 0.0) return false;
+    TerrainTuning defaults;
+    TerrainChainSpans ladder = TerrainChainSpansForWindow(spanKm);
+    Field height, albedo;
+    GenerateChainInternal(latDeg, lonDeg, res, defaults, nullptr, 0, site,
+                          ladder, &height, &albedo);
+    if (height.empty() || albedo.empty()) return false;
+    out->height = std::move(height);
+    out->albedo = std::move(albedo);
+    out->res = res;
+    // The hillshade multiplies this field by z = 110 and differences it
+    // per pixel for a slope, so one unit of it is 110 pixel-widths of
+    // rise. That is the scale at which the chain ALREADY treats the field
+    // as terrain; any other number here would light the ground
+    // differently from the way the chain drew it.
+    out->heightScaleM = 110.0f * (float)(spanKm * 1000.0 / res);
+    return true;
 }
 
 Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
