@@ -1570,9 +1570,17 @@ static const int EXT_LEFT_PANEL_W  = 280;
 static const int EXT_RIGHT_PANEL_W = 300;
 static const int EXT_GAP           = 8;    // margin around floating cards
 
+// The extraction view's type scale. It lived only inside RenderManager::FS,
+// which the free-standing block-model helpers cannot call -- so their labels
+// were the one text in the panel drawn at its raw base size, and the level
+// name came out at 8 px against everything else's 10-18. Same number, one
+// home, reachable from both.
+static constexpr float EXT_FONT_SCALE = 1.30f;
+static float ExtFS(float baseSize) { return baseSize * EXT_FONT_SCALE; }
+
 float RenderManager::FS(float baseSize)
 {
-    return baseSize * 1.30f;
+    return ExtFS(baseSize);
 }
 
 // --- Procedural UI-kit widgets -------------------------------------------
@@ -4644,9 +4652,12 @@ static void DrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockCell>
     // The label belongs to the plate, so it recedes with it -- never all the
     // way out, since it is also the depth scale of the whole stack.
     float labelA = 0.40f + 0.60f * std::clamp(fade, 0.0f, 1.0f);
-    DrawTextEx(labelFont, depthLabel, {labelX, leftCorner.y - 11.0f}, 11.0f, sp,
+    // Scaled like every other label in this view (ExtFS). The level name also
+    // gains a point of base size: it is the word that says WHICH layer you are
+    // looking at, and it was the smallest thing on screen.
+    DrawTextEx(labelFont, depthLabel, {labelX, leftCorner.y - 12.0f}, ExtFS(11.0f), sp,
                Fade(EXT_ACCENT_CYAN, labelA));
-    DrawTextEx(labelFont, levelLabel, {labelX, leftCorner.y + 1.0f}, 8.0f, sp,
+    DrawTextEx(labelFont, levelLabel, {labelX, leftCorner.y + 2.0f}, ExtFS(9.0f), sp,
                Fade(EXT_DIM_TEXT, labelA));
 }
 

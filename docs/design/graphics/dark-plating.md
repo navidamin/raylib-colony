@@ -520,6 +520,19 @@ segment shape changed when the concept sheet's toothed cone replaced it.)
   cropped view kept off-screen are now all visible at once, so any
   screen-space falloff (§4.5 heat) has to be retuned, not inherited.
 
+### 7b. One type scale, reachable from everywhere that draws
+
+A view with a font scale has to apply it to *all* of its text, and the way
+that quietly fails is scope: `RenderManager::FS` is a member, the block-model
+helpers are free functions, so their labels were the only text in the panel
+drawn at raw base size. The level name came out at 8 px against everything
+else's 10-18 and read as mush -- reported twice in playtest before the cause
+was found, because "that text is small" looks like a choice, not a bug.
+
+Put the multiplier at file scope and have the member call *it*, so a helper
+that cannot reach the class can still reach the scale. Then a size that
+bypasses it is visible as an anomaly rather than hiding among the others.
+
 ## 8. Console Chrome
 
 The instrument-panel language around a stage (in-game panels: defer to
