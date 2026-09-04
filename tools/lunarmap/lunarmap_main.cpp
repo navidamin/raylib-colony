@@ -419,7 +419,31 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         }
         else
         {
-            std::cerr << "Unknown option: " << arg << "\n";
+            // Every option that takes a value is matched with && hasNext,
+            // so leaving the value off drops it through to here and it
+            // gets reported as unknown -- sending the reader to the usage
+            // list, where they find the option they just typed. Tell them
+            // which mistake they actually made.
+            //
+            // Diagnostics only: an option missing from this list still
+            // parses correctly, it just gets the vaguer message.
+            static const char* kNeedsValue[] = {
+                "--ambient", "--chain-strength", "--dem", "--demdecim",
+                "--demo", "--demres", "--detail", "--exag", "--flyshot",
+                "--footprint", "--globe", "--interp", "--layer",
+                "--layeralpha", "--maxlevel", "--meshres", "--orbit",
+                "--out", "--pick", "--place", "--siteshot", "--size",
+                "--span", "--style", "--sun", "--texture",
+            };
+            bool needsValue = false;
+            for (const char* n : kNeedsValue)
+                if (arg == n) { needsValue = true; break; }
+
+            if (needsValue)
+                std::cerr << "Option " << arg << " needs a value, e.g. "
+                          << arg << " 1.0\n";
+            else
+                std::cerr << "Unknown option: " << arg << "\n";
             PrintUsage();
             return false;
         }
