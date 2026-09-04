@@ -22,6 +22,7 @@ set(COLONY_CORE_SOURCES
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
     Prospecting/rock_texture.cpp
+    TerrainGen/terrain_synthesis.cpp
     Excavation/site_view.cpp
     Excavation/estimate_engine.cpp
     Excavation/dig_engine.cpp
@@ -43,6 +44,7 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/Excavation"
 )
 
@@ -424,4 +426,79 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
     if(NOT WIN32)
         target_link_libraries(colony_measure_clusters m)
     endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# colony_sectwalk: sect-view walkthrough
+#
+# Boots into the Sect view so every unit and every module can be inspected by
+# hand -- the only harness that covers the whole tree (tools/preview renders
+# one panel at a time). See tools/sectwalk/README.md. Builds for Web too.
+# ---------------------------------------------------------------------------
+add_executable(colony_sectwalk)
+
+target_sources(colony_sectwalk PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/sectwalk/sectwalk_main.cpp"
+    ${COLONY_CORE_SOURCES}
+)
+
+set_target_properties(colony_sectwalk PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(colony_sectwalk PRIVATE ${COLONY_INCLUDE_DIRS})
+
+target_link_libraries(colony_sectwalk raylib tomlplusplus::tomlplusplus)
+
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(colony_sectwalk m)
+endif()
+
+if ("${PLATFORM}" STREQUAL "Web")
+    set_target_properties(colony_sectwalk PROPERTIES SUFFIX ".html")
+    set_target_properties(colony_sectwalk PROPERTIES LINK_FLAGS "${web_link_flags}")
+endif()
+
+if(APPLE)
+    target_link_libraries(colony_sectwalk
+        "-framework IOKit"
+        "-framework Cocoa"
+        "-framework OpenGL"
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# colony_viewtest: view-ladder playtest (Orbital -> Planet -> Colony -> Sect)
+#
+# Playable build that walks the geographic views and overlays the known
+# issues per view. Annotations are playtest-only commentary.
+# ---------------------------------------------------------------------------
+add_executable(colony_viewtest)
+
+target_sources(colony_viewtest PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/viewtest/viewtest_main.cpp"
+    ${COLONY_CORE_SOURCES}
+)
+
+set_target_properties(colony_viewtest PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(colony_viewtest PRIVATE ${COLONY_INCLUDE_DIRS})
+
+target_link_libraries(colony_viewtest raylib tomlplusplus::tomlplusplus)
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(colony_viewtest m)
+endif()
+
+if("${PLATFORM}" STREQUAL "Web")
+    set_target_properties(colony_viewtest PROPERTIES SUFFIX ".html")
+    set(vt_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
+    set(vt_link_flags "${vt_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@src/assets --use-preload-plugins")
+    set(vt_link_flags "${vt_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
+    set_target_properties(colony_viewtest PROPERTIES LINK_FLAGS "${vt_link_flags}")
 endif()

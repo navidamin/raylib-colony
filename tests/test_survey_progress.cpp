@@ -47,7 +47,7 @@ TEST_CASE("Sample-only produces sample component only", "[survey]")
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
-    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
 
     CellSurveyResult result = SurveyProgressEngine::Calculate(grid, tray);
     REQUIRE(result.sweepConfidence == 0.0f);
@@ -92,7 +92,7 @@ TEST_CASE("Survey progress is weighted sum of components", "[survey]")
     LabEngine lab(2);
 
     sweep.ExecuteSweep(grid, 0, 100.0f);
-    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
     lab.ApplyTool(*tray.GetSampleByIndex(0), AnalysisTool::XRF, 200.0f);
 
     CellSurveyResult result = SurveyProgressEngine::Calculate(grid, tray);
@@ -129,7 +129,7 @@ TEST_CASE("Sweep and sampling stages increase survey progress", "[survey]")
     float p1 = SurveyProgressEngine::Calculate(grid, tray).surveyProgress;
     REQUIRE(p1 > p0);
 
-    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
     float p2 = SurveyProgressEngine::Calculate(grid, tray).surveyProgress;
     REQUIRE(p2 > p1);
 }
@@ -142,7 +142,7 @@ TEST_CASE("Lab analysis adds testing component to progress", "[survey]")
     SamplingEngine sampler(2);
     LabEngine lab(2);
 
-    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
     Sample* sample = tray.GetSampleByIndex(0);
 
     float beforeLab = SurveyProgressEngine::Calculate(grid, tray).testingConfidence;
@@ -182,66 +182,16 @@ TEST_CASE("More samples increase sample component", "[survey]")
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
-    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
     float after1 = SurveyProgressEngine::ComputeSampleComponent(grid, tray);
 
-    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    sampler.CollectSample(grid, tray, 4, 4, DepthLayer::SURFACE);
     float after2 = SurveyProgressEngine::ComputeSampleComponent(grid, tray);
 
     // Coverage increases; combined product should not decrease
     REQUIRE(after2 >= after1);
 }
 
-TEST_CASE("A core makes its own spot certain", "[survey]")
-{
-    ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 5, 5, rm);
-    SampleTray tray(2);
-    SamplingEngine sampler(2);
-
-    float before = GetDepthConfidence(grid, tray, 3, 3, DepthLayer::SURFACE);
-    REQUIRE(GetResourceClass(before) == ResourceClass::UNCLASSIFIED);
-
-    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
-
-    // Rock you are holding. No further step, no lab, no decision.
-    REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 3, 3, DepthLayer::SURFACE))
-            == ResourceClass::MEASURED);
-
-    // ...and only at that spot and that depth. A core says nothing about the
-    // layer beneath it, which is what keeps deep ground a bet.
-    REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 3, 3, DepthLayer::MID))
-            == ResourceClass::UNCLASSIFIED);
-}
-
-TEST_CASE("A wide sweep never classifies on its own", "[survey]")
-{
-    ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm);
-    SampleTray tray(3);
-    SweepEngine sweep(3);
-
-    // Every band, as hard as the instrument can be run.
-    for (int band = 0; band < SWEEP_FREQUENCY_BANDS; band++)
-    {
-        if (sweep.CanSweep(grid, band)) sweep.ExecuteSweep(grid, band, 100.0f);
-    }
-
-    // A surface reading may make ground look interesting. It may never make it
-    // count -- you cannot put tonnage in a statement on the strength of one.
-    int size = grid.GetGridSize();
-    for (int y = 0; y < size; y++)
-    {
-        for (int x = 0; x < size; x++)
-        {
-            for (int d = 0; d < 4; d++)
-            {
-                float c = GetDepthConfidence(grid, tray, x, y, static_cast<DepthLayer>(d));
-                REQUIRE(GetResourceClass(c) == ResourceClass::UNCLASSIFIED);
-            }
-        }
-    }
-}
 
 // --- Marked site qualification ---
 
@@ -322,7 +272,7 @@ TEST_CASE("Removed samples don't count toward testing component", "[survey]")
     LabEngine lab(2);
 
     // Collect and analyze with LIBS for guaranteed confidence gain
-    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE);
     lab.ApplyTool(*tray.GetSampleByIndex(0), AnalysisTool::LIBS_PULSE, 100.0f);
 
     float testingBefore = SurveyProgressEngine::ComputeTestingComponent(grid, tray);
@@ -367,4 +317,62 @@ TEST_CASE("Survey progress is clamped to 0-1", "[survey]")
     CellSurveyResult result = SurveyProgressEngine::Calculate(grid, tray);
     REQUIRE(result.surveyProgress >= 0.0f);
     REQUIRE(result.surveyProgress <= 1.0f);
+}
+
+// ---------------------------------------------------------------
+// Carried across the main merge: cases this branch added while main
+// reworked the same files. Main's versions of the shared cases won
+// -- they derive coordinates from PROSPECTING_GRID_SIZE and so hold
+// at any lattice size, which hard-coded cells did not.
+// ---------------------------------------------------------------
+
+TEST_CASE("A core makes its own spot certain", "[survey]")
+{
+    ResourceManager rm = MakeTestResourceManager();
+    ProspectingGrid grid(2, 5, 5, rm);
+    SampleTray tray(2);
+    SamplingEngine sampler(2);
+
+    float before = GetDepthConfidence(grid, tray, 3, 3, DepthLayer::SURFACE);
+    REQUIRE(GetResourceClass(before) == ResourceClass::UNCLASSIFIED);
+
+    REQUIRE(sampler.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+
+    // Rock you are holding. No further step, no lab, no decision.
+    REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 3, 3, DepthLayer::SURFACE))
+            == ResourceClass::MEASURED);
+
+    // ...and only at that spot and that depth. A core says nothing about the
+    // layer beneath it, which is what keeps deep ground a bet.
+    REQUIRE(GetResourceClass(GetDepthConfidence(grid, tray, 3, 3, DepthLayer::MID))
+            == ResourceClass::UNCLASSIFIED);
+}
+
+TEST_CASE("A wide sweep never classifies on its own", "[survey]")
+{
+    ResourceManager rm = MakeTestResourceManager();
+    ProspectingGrid grid(3, 5, 5, rm);
+    SampleTray tray(3);
+    SweepEngine sweep(3);
+
+    // Every band, as hard as the instrument can be run.
+    for (int band = 0; band < SWEEP_FREQUENCY_BANDS; band++)
+    {
+        if (sweep.CanSweep(grid, band)) sweep.ExecuteSweep(grid, band, 100.0f);
+    }
+
+    // A surface reading may make ground look interesting. It may never make it
+    // count -- you cannot put tonnage in a statement on the strength of one.
+    int size = grid.GetGridSize();
+    for (int y = 0; y < size; y++)
+    {
+        for (int x = 0; x < size; x++)
+        {
+            for (int d = 0; d < 4; d++)
+            {
+                float c = GetDepthConfidence(grid, tray, x, y, static_cast<DepthLayer>(d));
+                REQUIRE(GetResourceClass(c) == ResourceClass::UNCLASSIFIED);
+            }
+        }
+    }
 }

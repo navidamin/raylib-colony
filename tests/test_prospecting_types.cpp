@@ -67,6 +67,62 @@ TEST_CASE("GetDepthLayerInfo returns valid names", "[types]")
     REQUIRE(std::string(deep.name) == "Intact Bedrock");
 }
 
+
+TEST_CASE("GetGridSizeForTier is tier-independent", "[types]")
+{
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        REQUIRE(GetGridSizeForTier(tier) == PROSPECTING_GRID_SIZE);
+    }
+}
+
+
+TEST_CASE("GetTrayCapacityForTier returns correct capacities", "[types]")
+{
+    REQUIRE(GetTrayCapacityForTier(0) == 4);
+    REQUIRE(GetTrayCapacityForTier(1) == 8);
+    REQUIRE(GetTrayCapacityForTier(2) == 12);
+    REQUIRE(GetTrayCapacityForTier(3) == 16);
+}
+
+TEST_CASE("Sample::IsElementRevealed checks confidence > 0", "[sample]")
+{
+    Sample s = MakeSampleWithConfidence(0.5f, 0.0f);
+    REQUIRE(s.IsElementRevealed(ResourceType::Fe) == true);
+    REQUIRE(s.IsElementRevealed(ResourceType::Si) == false);
+    REQUIRE(s.IsElementRevealed(ResourceType::Ti) == false);
+}
+
+TEST_CASE("Sample::GetRevealedValue returns true value when confident", "[sample]")
+{
+    Sample s = MakeSampleWithConfidence(0.8f, 0.0f);
+    REQUIRE_THAT(s.GetRevealedValue(ResourceType::Fe),
+                 Catch::Matchers::WithinAbs(0.40f, 0.001f));
+    REQUIRE_THAT(s.GetRevealedValue(ResourceType::Si),
+                 Catch::Matchers::WithinAbs(0.0f, 0.001f));
+}
+
+TEST_CASE("Sample::GetAggregateConfidence is abundance-weighted", "[sample]")
+{
+    Sample s = MakeDummySample();
+    s.elementConfidence[ResourceType::Fe] = 0.80f;
+    s.elementConfidence[ResourceType::Si] = 0.50f;
+    // Ti = 0.10 abundance, above 0.05 threshold, but no confidence set
+
+    // Expected: (0.80 * 0.40 + 0.50 * 0.25 + 0.0 * 0.10) / (0.40 + 0.25 + 0.10)
+    // = (0.32 + 0.125 + 0.0) / 0.75 = 0.445 / 0.75 = 0.5933...
+    float expected = (0.80f * 0.40f + 0.50f * 0.25f) / (0.40f + 0.25f + 0.10f);
+    REQUIRE_THAT(s.GetAggregateConfidence(),
+                 Catch::Matchers::WithinAbs(expected, 0.001f));
+}
+
+// ---------------------------------------------------------------
+// Carried across the main merge: cases this branch added while main
+// reworked the same files. Main's versions of the shared cases won
+// -- they derive coordinates from PROSPECTING_GRID_SIZE and so hold
+// at any lattice size, which hard-coded cells did not.
+// ---------------------------------------------------------------
+
 TEST_CASE("every layer is accessible at every tier", "[types]")
 {
     // Depth is ungated -- MAX_DEPTH_PER_TIER is all fours, kept as a table
@@ -108,43 +164,4 @@ TEST_CASE("the lattice is fixed; tier changes reach, not size", "[types]")
             }
         }
     }
-}
-
-TEST_CASE("GetTrayCapacityForTier returns correct capacities", "[types]")
-{
-    REQUIRE(GetTrayCapacityForTier(0) == 4);
-    REQUIRE(GetTrayCapacityForTier(1) == 8);
-    REQUIRE(GetTrayCapacityForTier(2) == 12);
-    REQUIRE(GetTrayCapacityForTier(3) == 16);
-}
-
-TEST_CASE("Sample::IsElementRevealed checks confidence > 0", "[sample]")
-{
-    Sample s = MakeSampleWithConfidence(0.5f, 0.0f);
-    REQUIRE(s.IsElementRevealed(ResourceType::Fe) == true);
-    REQUIRE(s.IsElementRevealed(ResourceType::Si) == false);
-    REQUIRE(s.IsElementRevealed(ResourceType::Ti) == false);
-}
-
-TEST_CASE("Sample::GetRevealedValue returns true value when confident", "[sample]")
-{
-    Sample s = MakeSampleWithConfidence(0.8f, 0.0f);
-    REQUIRE_THAT(s.GetRevealedValue(ResourceType::Fe),
-                 Catch::Matchers::WithinAbs(0.40f, 0.001f));
-    REQUIRE_THAT(s.GetRevealedValue(ResourceType::Si),
-                 Catch::Matchers::WithinAbs(0.0f, 0.001f));
-}
-
-TEST_CASE("Sample::GetAggregateConfidence is abundance-weighted", "[sample]")
-{
-    Sample s = MakeDummySample();
-    s.elementConfidence[ResourceType::Fe] = 0.80f;
-    s.elementConfidence[ResourceType::Si] = 0.50f;
-    // Ti = 0.10 abundance, above 0.05 threshold, but no confidence set
-
-    // Expected: (0.80 * 0.40 + 0.50 * 0.25 + 0.0 * 0.10) / (0.40 + 0.25 + 0.10)
-    // = (0.32 + 0.125 + 0.0) / 0.75 = 0.445 / 0.75 = 0.5933...
-    float expected = (0.80f * 0.40f + 0.50f * 0.25f) / (0.40f + 0.25f + 0.10f);
-    REQUIRE_THAT(s.GetAggregateConfidence(),
-                 Catch::Matchers::WithinAbs(expected, 0.001f));
 }

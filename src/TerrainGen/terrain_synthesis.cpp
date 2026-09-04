@@ -1,0 +1,884 @@
+#include "terrain_synthesis.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <vector>
+
+// Global switch for the site disturbance (playtest comparisons).
+static bool g_siteDisturbEnabled = true;
+void SetSiteDisturbanceEnabled(bool e) { g_siteDisturbEnabled = e; }
+bool IsSiteDisturbanceEnabled() { return g_siteDisturbEnabled; }
+
+// ---------------------------------------------------------------------------
+// Deterministic RNG (xorshift128) — the seed is the location, so the
+// same spot always regenerates the same ground.
+// ---------------------------------------------------------------------------
+
+struct TerrainRng
+{
+    uint32_t s[4];
+
+    explicit TerrainRng(uint32_t seed)
+    {
+        // SplitMix32 expansion of the seed into state
+        uint32_t x = seed;
+        for (int i = 0; i < 4; i++)
+        {
+            x += 0x9E3779B9u;
+            uint32_t z = x;
+            z = (z ^ (z >> 16)) * 0x85EBCA6Bu;
+            z = (z ^ (z >> 13)) * 0xC2B2AE35u;
+            s[i] = z ^ (z >> 16);
+        }
+    }
+
+    uint32_t Next()
+    {
+        uint32_t t = s[3];
+        uint32_t v = s[0];
+        s[3] = s[2];
+        s[2] = s[1];
+        s[1] = v;
+        t ^= t << 11;
+        t ^= t >> 8;
+        s[0] = t ^ v ^ (v >> 19);
+        return s[0];
+    }
+
+    float Uniform() { return (Next() >> 8) * (1.0f / 16777216.0f); }
+};
+
+static uint32_t LocationSeed(double latDeg, double lonDeg)
+{
+    // Same quantisation as the Python prototype: 0.01 deg (~300 m).
+    int qlat = (int)std::lround((latDeg + 90.0) * 100.0);
+    int qlon = (int)std::lround((lonDeg + 180.0) * 100.0);
+    uint32_t x = ((uint32_t)(qlat * 73856093)) ^ ((uint32_t)(qlon * 19349663));
+    x = (x ^ (x >> 16)) * 0x45D9F3Bu;
+    x = (x ^ (x >> 16)) * 0x45D9F3Bu;
+    return x ^ (x >> 16);
+}
+
+// ---------------------------------------------------------------------------
+// Float-field helpers. All fields are res*res, row-major.
+// ---------------------------------------------------------------------------
+
+typedef std::vector<float> Field;
+
+static void GaussianBlur(Field& a, int w, int h, float sigma)
+{
+    if (sigma <= 0.05f) return;
+    int radius = (int)std::ceil(sigma * 3.0f);
+    std::vector<float> kernel(2 * radius + 1);
+    float norm = 0.0f;
+    for (int i = -radius; i <= radius; i++)
+    {
+        float v = std::exp(-0.5f * (i * i) / (sigma * sigma));
+        kernel[i + radius] = v;
+        norm += v;
+    }
+    for (float& k : kernel) k /= norm;
+
+    Field tmp(a.size());
+    // Horizontal pass
+    for (int y = 0; y < h; y++)
+    {
+        for (int x = 0; x < w; x++)
+        {
+            float acc = 0.0f;
+            for (int i = -radius; i <= radius; i++)
+            {
+                int xi = std::clamp(x + i, 0, w - 1);
+                acc += a[y * w + xi] * kernel[i + radius];
+            }
+            tmp[y * w + x] = acc;
+        }
+    }
+    // Vertical pass
+    for (int y = 0; y < h; y++)
+    {
+        for (int x = 0; x < w; x++)
+        {
+            float acc = 0.0f;
+            for (int i = -radius; i <= radius; i++)
+            {
+                int yi = std::clamp(y + i, 0, h - 1);
+                acc += tmp[yi * w + x] * kernel[i + radius];
+            }
+            a[y * w + x] = acc;
+        }
+    }
+}
+
+static Field ResizeBilinear(const Field& src, int sw, int sh, int dw, int dh)
+{
+    Field dst((size_t)dw * dh);
+    for (int y = 0; y < dh; y++)
+    {
+        float fy = (y + 0.5f) * sh / dh - 0.5f;
+        int y0 = std::clamp((int)std::floor(fy), 0, sh - 1);
+        int y1 = std::min(y0 + 1, sh - 1);
+        float ty = fy - y0;
+        for (int x = 0; x < dw; x++)
+        {
+            float fx = (x + 0.5f) * sw / dw - 0.5f;
+            int x0 = std::clamp((int)std::floor(fx), 0, sw - 1);
+            int x1 = std::min(x0 + 1, sw - 1);
+            float tx = fx - x0;
+            float top = src[y0 * sw + x0] * (1 - tx) + src[y0 * sw + x1] * tx;
+            float bot = src[y1 * sw + x0] * (1 - tx) + src[y1 * sw + x1] * tx;
+            dst[y * dw + x] = top * (1 - ty) + bot * ty;
+        }
+    }
+    return dst;
+}
+
+// Single-octave smooth value noise: coarse random lattice, bilinear
+// upsample, light blur — matches the prototype's value_noise closely
+// enough for grain purposes.
+static Field ValueNoise(int res, int scale, TerrainRng& rng)
+{
+    int g = std::max(2, res / scale + 2);
+    Field grid((size_t)g * g);
+    for (float& v : grid) v = rng.Uniform();
+    Field up = ResizeBilinear(grid, g, g, res, res);
+    GaussianBlur(up, res, res, scale * 0.45f);
+    return up;
+}
+
+static Field Fbm(int res, int octaves, int baseScale, float persistence,
+                 TerrainRng& rng)
+{
+    Field out((size_t)res * res, 0.0f);
+    float amp = 1.0f;
+    float norm = 0.0f;
+    int scale = baseScale;
+    for (int o = 0; o < octaves; o++)
+    {
+        Field n = ValueNoise(res, scale, rng);
+        for (size_t i = 0; i < out.size(); i++) out[i] += amp * n[i];
+        norm += amp;
+        amp *= persistence;
+        scale = std::max(2, scale / 2);
+    }
+    for (float& v : out) v /= norm;
+    return out;
+}
+
+static void NormalizeField(Field& g)
+{
+    double mean = 0.0;
+    for (float v : g) mean += v;
+    mean /= g.size();
+    double var = 0.0;
+    for (float v : g) var += (v - mean) * (v - mean);
+    float stdev = (float)std::sqrt(var / g.size());
+    if (stdev < 1e-6f) stdev = 1.0f;
+    for (float& v : g) v = (float)((v - mean) / stdev);
+}
+
+// Zero-mean, unit-std noise standing in for the prototype's FFT pink
+// noise (regolith grain). Plain FBM concentrates its variance in
+// smooth low-frequency blobs; pink noise carries equal energy per
+// octave down to the pixel, so mix in a fine per-pixel component —
+// without it the ground renders flat (C++ std was 3x below Python's).
+static Field GrainNoise(int res, TerrainRng& rng)
+{
+    Field g = Fbm(res, 5, 64, 0.8f, rng);
+    NormalizeField(g);
+    Field fine((size_t)res * res);
+    for (float& v : fine) v = rng.Uniform() - 0.5f;
+    GaussianBlur(fine, res, res, 0.5f);
+    NormalizeField(fine);
+    for (size_t i = 0; i < g.size(); i++)
+        g[i] = 0.55f * g[i] + 0.75f * fine[i];
+    NormalizeField(g);
+    return g;
+}
+
+// Lambertian hillshade, sun from azimuth 315 (NW), altitude 35 deg.
+static Field Hillshade(const Field& height, int res, float zFactor,
+                       float smoothPx)
+{
+    Field h = height;
+    GaussianBlur(h, res, res, smoothPx);
+    const float az = (float)((360.0 - 315.0 + 90.0) * DEG2RAD);
+    const float alt = 35.0f * DEG2RAD;
+    Field out((size_t)res * res);
+    for (int y = 0; y < res; y++)
+    {
+        int ym = std::max(0, y - 1), yp = std::min(res - 1, y + 1);
+        for (int x = 0; x < res; x++)
+        {
+            int xm = std::max(0, x - 1), xp = std::min(res - 1, x + 1);
+            // np.gradient convention: dy along axis 0, dx along axis 1
+            float dy = (h[yp * res + x] - h[ym * res + x]) * zFactor
+                       / (float)(yp - ym);
+            float dx = (h[y * res + xp] - h[y * res + xm]) * zFactor
+                       / (float)(xp - xm);
+            float slope = std::atan(std::hypot(dx, dy));
+            float aspect = std::atan2(dy, -dx);
+            float v = std::cos(slope) * std::sin(alt)
+                      + std::sin(slope) * std::cos(alt)
+                        * std::cos(az - aspect);
+            out[y * res + x] = std::clamp(v, 0.0f, 1.0f);
+        }
+    }
+    return out;
+}
+
+// Horizon ray-march toward the sun: 1 = lit, 0 = blocked. Gives crater
+// floors and slope bases their soft cast shadows.
+static Field CastShadows(const Field& height, int res, float zFactor,
+                         float maxDistPx, float stepPx)
+{
+    const float az = (float)((360.0 - 315.0 + 90.0) * DEG2RAD);
+    float sx = std::cos(az);
+    float syImage = -std::sin(az);
+    float tanAlt = std::tan(35.0f * DEG2RAD);
+
+    int nSteps = (int)(maxDistPx / stepPx);
+    Field light((size_t)res * res);
+    for (int y = 0; y < res; y++)
+    {
+        for (int x = 0; x < res; x++)
+        {
+            float hHere = height[y * res + x] * zFactor;
+            float maxBlock = -1e9f;
+            for (int s = 1; s <= nSteps; s++)
+            {
+                float dist = s * stepPx;
+                int sxp = std::clamp((int)(x + sx * dist), 0, res - 1);
+                int syp = std::clamp((int)(y + syImage * dist), 0, res - 1);
+                float blockSlope =
+                    (height[syp * res + sxp] * zFactor - hHere) / dist;
+                if (blockSlope > maxBlock) maxBlock = blockSlope;
+            }
+            float band = tanAlt * 0.35f;
+            float shadow = std::clamp((maxBlock - tanAlt) / band, 0.0f, 1.0f);
+            light[y * res + x] = 1.0f - shadow;
+        }
+    }
+    GaussianBlur(light, res, res, 0.8f);
+    for (float& v : light) v = std::clamp(v, 0.0f, 1.0f);
+    return light;
+}
+
+// ---------------------------------------------------------------------------
+// WAC source (grayscale float, loaded once)
+// ---------------------------------------------------------------------------
+
+static Field g_wac;
+static int g_wacW = 0;
+static int g_wacH = 0;
+
+static bool EnsureWacLoaded()
+{
+    if (g_wacW > 0) return true;
+    Image img = LoadImage("src/assets/planet/wac_global.jpg");
+    if (img.data == nullptr) return false;
+    ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+    g_wacW = img.width;
+    g_wacH = img.height;
+    g_wac.resize((size_t)g_wacW * g_wacH);
+    const unsigned char* px = (const unsigned char*)img.data;
+    for (size_t i = 0; i < g_wac.size(); i++)
+    {
+        int r = px[i * 3 + 0], g = px[i * 3 + 1], b = px[i * 3 + 2];
+        g_wac[i] = (r + g + b) / (3.0f * 255.0f);
+    }
+    UnloadImage(img);
+    TraceLog(LOG_INFO, "TERRAIN: WAC loaded %dx%d", g_wacW, g_wacH);
+    return true;
+}
+
+// Native-resolution crop of a window square in km (lon widened by
+// 1/cos(lat)), denoised, then upsampled to res.
+static Field CropMacro(double latDeg, double lonDeg, double spanDeg, int res)
+{
+    double c = std::max(0.2, std::cos(latDeg * DEG2RAD));
+    double lonSpan = spanDeg / c;
+    double lat0 = latDeg - spanDeg / 2.0, lat1 = latDeg + spanDeg / 2.0;
+    double lon0 = lonDeg - lonSpan / 2.0, lon1 = lonDeg + lonSpan / 2.0;
+    int y0 = std::max(0, (int)((90.0 - lat1) / 180.0 * g_wacH));
+    int y1 = std::min(g_wacH, (int)((90.0 - lat0) / 180.0 * g_wacH) + 1);
+    int x0 = (int)((lon0 + 180.0) / 360.0 * g_wacW);
+    int x1 = (int)((lon1 + 180.0) / 360.0 * g_wacW) + 1;
+    int cw = std::max(2, x1 - x0);
+    int ch = std::max(2, y1 - y0);
+    Field crop((size_t)cw * ch);
+    for (int y = 0; y < ch; y++)
+    {
+        int wy = std::clamp(y0 + y, 0, g_wacH - 1);
+        for (int x = 0; x < cw; x++)
+        {
+            int wx = ((x0 + x) % g_wacW + g_wacW) % g_wacW;
+            crop[y * cw + x] = g_wac[(size_t)wy * g_wacW + wx];
+        }
+    }
+    GaussianBlur(crop, cw, ch, 0.7f);         // denoise JPEG artifacts
+    return ResizeBilinear(crop, cw, ch, res, res);
+}
+
+// Unsharp + adaptive contrast around the crop's own midpoint (capped
+// gain — maria must stay dark, calm plains).
+static void SharpenAdaptive(Field& macro, int res)
+{
+    float k = res / 300.0f;
+    Field blur = macro;
+    GaussianBlur(blur, res, res, 5.0f * k);
+    for (size_t i = 0; i < macro.size(); i++)
+        macro[i] = std::clamp(macro[i] + 0.40f * (macro[i] - blur[i]),
+                              0.0f, 1.0f);
+
+    Field sorted = macro;
+    std::sort(sorted.begin(), sorted.end());
+    float pLo = sorted[(size_t)(sorted.size() * 0.02)];
+    float pHi = sorted[(size_t)(sorted.size() * 0.98)];
+    float spread = std::max(pHi - pLo, 1e-4f);
+    float gain = std::min(2.2f, std::max(1.0f, 0.60f / spread));
+    float mid = 0.5f * (pHi + pLo);
+    for (float& v : macro)
+        v = std::clamp(mid + (v - mid) * gain, 0.0f, 1.0f);
+}
+
+// Small-crater field for zoom levels BELOW the real-data floor
+// (~1.3 km/px): sub-resolution craters exist everywhere on the real
+// moon but the source cannot resolve them, so here invention is
+// honest — it never contradicts data. Real lunar crater profile:
+// flat floor (d < 0.70), power-law wall, tiny gaussian rim.
+[[maybe_unused]] static void CarveSmallCraters(Field& height, int res, TerrainRng& rng,
+                              int count, float rMinPx, float rMaxPx,
+                              float depthScale)
+{
+    // Placed craters, for overlap rejection: an overlapping crater
+    // field reads as noise, separated bowls read as ground.
+    std::vector<float> px, py, pr;
+    px.reserve(count);
+    py.reserve(count);
+    pr.reserve(count);
+
+    for (int c = 0; c < count; c++)
+    {
+        // Power-law-ish size mix: most craters small, a few large.
+        float u = rng.Uniform();
+        float r = rMinPx * std::pow(rMaxPx / rMinPx,
+                                    std::pow(u, 2.2f));
+        // Rejection placement: keep a clear margin to every earlier
+        // crater (1.25x their summed radii); big first would claim
+        // space better, but a few attempts per crater is enough.
+        float cx = 0.0f, cy = 0.0f;
+        bool placed = false;
+        for (int attempt = 0; attempt < 8 && !placed; attempt++)
+        {
+            cx = rng.Uniform() * res;
+            cy = rng.Uniform() * res;
+            placed = true;
+            for (size_t i = 0; i < px.size(); i++)
+            {
+                float ddx = px[i] - cx;
+                float ddy = py[i] - cy;
+                float minD = (pr[i] + r) * 1.25f;
+                if (ddx * ddx + ddy * ddy < minD * minD)
+                {
+                    placed = false;
+                    break;
+                }
+            }
+        }
+        if (!placed) continue;
+        px.push_back(cx);
+        py.push_back(cy);
+        pr.push_back(r);
+        float age = rng.Uniform();            // 0 fresh .. 1 eroded
+        float sharp = 1.0f - 0.7f * age;
+        float depth = -depthScale * sharp * (0.5f + rng.Uniform());
+        // A fresh deep minority gives the field its punch — without
+        // them everything reads as uniform soft dimples.
+        if (rng.Uniform() < 0.12f) depth *= 1.9f;
+        float rimAmp = 0.05f * sharp * std::fabs(depth) / depthScale;
+        float wallP = 3.5f;
+
+        int x0 = std::max(0, (int)(cx - r * 1.1f));
+        int x1 = std::min(res - 1, (int)(cx + r * 1.1f) + 1);
+        int y0 = std::max(0, (int)(cy - r * 1.1f));
+        int y1 = std::min(res - 1, (int)(cy + r * 1.1f) + 1);
+        for (int y = y0; y <= y1; y++)
+        {
+            for (int x = x0; x <= x1; x++)
+            {
+                float dx = (x - cx) / r;
+                float dy = (y - cy) / r;
+                float d = std::sqrt(dx * dx + dy * dy);
+                float delta = 0.0f;
+                if (d < 0.70f)
+                {
+                    delta = depth;
+                }
+                else if (d < 0.95f)
+                {
+                    float wu = (d - 0.70f) / 0.25f;
+                    delta = depth * (1.0f - std::pow(wu, wallP));
+                }
+                else if (d < 1.05f)
+                {
+                    float g = (d - 1.00f) / 0.05f;
+                    delta = rimAmp * depthScale * std::exp(-g * g);
+                }
+                height[y * res + x] += delta;
+            }
+        }
+    }
+}
+
+// Boulder speckle: tiny sharp bumps; the shared relighting gives each
+// one its lit face and cast-shadow pixel automatically.
+static void SprinkleBoulders(Field& height, int res, TerrainRng& rng,
+                             int count, float amp)
+{
+    for (int b = 0; b < count; b++)
+    {
+        int x = 1 + (int)(rng.Uniform() * (res - 2));
+        int y = 1 + (int)(rng.Uniform() * (res - 2));
+        float a = amp * (0.4f + rng.Uniform());
+        height[y * res + x] += a;
+        if (rng.Uniform() < 0.5f) height[y * res + x + 1] += a * 0.6f;
+        if (rng.Uniform() < 0.3f) height[(y + 1) * res + x] += a * 0.5f;
+    }
+}
+
+// Smooth falloff of the site's influence: full effect through the
+// middle, fading to nothing at the site radius.
+static float SiteWeight(float x, float y, float cx, float cy,
+                        float workedR, float outerR)
+{
+    float d = std::hypot(x - cx, y - cy);
+    if (d <= workedR) return 1.0f;          // fully worked ground
+    if (d >= outerR) return 0.0f;           // untouched
+    float t = 1.0f - (d - workedR) / std::max(1e-3f, outerR - workedR);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Calm the imagery inside the site before any relief is derived from
+// it. The macro drives both the base albedo and the form relief, so
+// pulling its contrast toward the local mean levels off the deep
+// natural shadows the site would otherwise sit in.
+static void LevelSiteMacro(Field& macro, int res, float pxPerKm,
+                           const TerrainSiteDisturbance& site)
+{
+    const float cx = res * 0.5f, cy = res * 0.5f;
+    const float workedR = site.workedRadiusKm * pxPerKm;
+    const float outerR = (site.workedRadiusKm + site.fadeKm) * pxPerKm;
+    if (outerR < 2.0f || site.toneLevelAmount <= 0.0f) return;
+
+    double sum = 0.0, wsum = 0.0;
+    for (int y = 0; y < res; y++)
+        for (int x = 0; x < res; x++)
+        {
+            float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
+            if (w <= 0.0f) continue;
+            sum += macro[(size_t)y * res + x] * w;
+            wsum += w;
+        }
+    if (wsum < 1e-6) return;
+    float mean = (float)(sum / wsum);
+
+    for (int y = 0; y < res; y++)
+        for (int x = 0; x < res; x++)
+        {
+            float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
+            if (w <= 0.0f) continue;
+            size_t i = (size_t)y * res + x;
+            float k = site.toneLevelAmount * w;
+            macro[i] = macro[i] * (1.0f - k) + mean * k;
+        }
+}
+
+// Work the ground over a little where the colony operates.
+//
+// The natural terrain is kept — nothing is levelled. Around the core
+// and each unit dome the surface picks up a shallow mound or hollow, a
+// patch of extra roughness, and a gentle undulation across the site as
+// a whole. Everything goes into the HEIGHT field, so the shared sun
+// gives it the shading and small shadows for free.
+static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
+                                 TerrainRng& rng,
+                                 const TerrainSiteDisturbance& site)
+{
+    const float cx = res * 0.5f;
+    const float cy = res * 0.5f;
+    const float workedR = site.workedRadiusKm * pxPerKm;
+    const float outerR = (site.workedRadiusKm + site.fadeKm) * pxPerKm;
+    if (outerR < 2.0f) return;         // site smaller than a pixel here
+
+    // Worked spots: the central core plus the ring of unit domes.
+    struct Spot { float x, y, r, amp; };
+    std::vector<Spot> spots;
+    spots.push_back({cx, cy, site.coreRadiusKm * pxPerKm,
+                     site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
+    for (int i = 0; i < site.domeCount; i++)
+    {
+        // Same layout the sect view draws: 8 units, 45 deg apart,
+        // starting at the top and going clockwise.
+        float ang = (90.0f - i * (360.0f / site.domeCount)) * DEG2RAD;
+        float ring = site.ringRadiusKm * pxPerKm;
+        spots.push_back({cx + ring * std::cos(ang),
+                         cy - ring * std::sin(ang),
+                         site.domeWorkKm * pxPerKm,
+                         site.spotAmp * (rng.Uniform() - 0.5f) * 2.0f});
+    }
+
+    // Level the natural elevation swings down to a calmer baseline
+    // first, so the worked undulations laid on top actually read
+    // instead of being buried under the wild terrain.
+    if (site.levelAmount > 0.0f)
+    {
+        double hsum = 0.0, hw = 0.0;
+        for (int y = 0; y < res; y++)
+            for (int x = 0; x < res; x++)
+            {
+                float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
+                if (w <= 0.0f) continue;
+                hsum += height[(size_t)y * res + x] * w;
+                hw += w;
+            }
+        if (hw > 1e-6)
+        {
+            float mean = (float)(hsum / hw);
+            for (int y = 0; y < res; y++)
+                for (int x = 0; x < res; x++)
+                {
+                    float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
+                    if (w <= 0.0f) continue;
+                    size_t i = (size_t)y * res + x;
+                    float k = site.levelAmount * w;
+                    height[i] = height[i] * (1.0f - k) + mean * k;
+                }
+        }
+    }
+
+    // Two noise fields: soft lumps for undulation, fine grain for the
+    // random alterations. Sampled, not re-rolled per pixel, so the
+    // result stays deterministic for the location.
+    Field lumps = Fbm(res, 3, std::max(4, (int)(res / 12)), 0.55f, rng);
+    Field fine = GrainNoise(res, rng);
+
+    for (int y = 0; y < res; y++)
+    {
+        for (int x = 0; x < res; x++)
+        {
+            size_t i = (size_t)y * res + x;
+
+            float siteW = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
+
+            // Per-dome worked patches, strongest at each dome.
+            float domeW = 0.0f;
+            float spotH = 0.0f;
+            for (const Spot& sp : spots)
+            {
+                float d = std::hypot(x - sp.x, y - sp.y) / std::max(1.0f, sp.r);
+                if (d >= 1.0f) continue;
+                float t = 1.0f - d;
+                float w = t * t * (3.0f - 2.0f * t);
+                domeW = std::max(domeW, w);
+                spotH += sp.amp * w;      // shallow mound or hollow
+            }
+
+            if (siteW <= 0.0f && domeW <= 0.0f) continue;
+
+            // Gentle undulation over the whole site.
+            height[i] += site.undulationAmp * (lumps[i] - 0.5f) * 2.0f * siteW;
+            // Random alterations, concentrated around the domes.
+            height[i] += site.roughAmp * fine[i]
+                         * (0.35f * siteW + 0.65f * domeW);
+            height[i] += spotH;
+        }
+    }
+}
+
+// The anti-matte relight + grain stage (port of _texture_modulate).
+// boulderCount > 0 adds sub-resolution boulder speckle — only used on
+// zoom levels below the real-data floor.
+static void TextureModulate(Field& macro, int res, TerrainRng& rng, float amp,
+                            const TerrainTuning& tune,
+                            int boulderCount = 0,
+                            const TerrainSiteDisturbance* site = nullptr,
+                            float pxPerKm = 0.0f)
+{
+    // Pixel-based sizes below are tuned at 300 px; k rescales them so
+    // physical feature sizes stay fixed at other resolutions.
+    float k = res / 300.0f;
+    if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
+        LevelSiteMacro(macro, res, pxPerKm, *site);
+
+    Field density((size_t)res * res);
+    for (size_t i = 0; i < density.size(); i++)
+        density[i] = std::clamp((macro[i] - 0.22f) / 0.45f, 0.15f, 1.0f);
+
+    // Height field: smoothed macro as relief proxy + grain + undulation
+    Field height = macro;
+    GaussianBlur(height, res, res, 2.5f * k);
+    for (float& v : height) v = (v - 0.5f) * 0.13f * tune.formRelief;
+
+    Field grain = GrainNoise(res, rng);
+    Field undul = Fbm(res, 3, (int)(64 * k), 0.5f, rng);
+    for (size_t i = 0; i < height.size(); i++)
+    {
+        float rough = 0.45f + 0.55f * density[i];
+        height[i] += 0.004f * amp * tune.grain * grain[i] * rough;
+        height[i] += 0.02f * amp * tune.undulation * (undul[i] - 0.5f) * rough;
+    }
+
+    if (boulderCount > 0)
+        SprinkleBoulders(height, res, rng,
+                         (int)(boulderCount * tune.boulders),
+                         0.010f * tune.boulderAmp);
+
+    if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
+        ApplySiteDisturbance(height, res, pxPerKm, rng, *site);
+
+    const float z = 110.0f;
+    Field hs = Hillshade(height, res, z, 0.6f);
+    float flatRef = std::sin(35.0f * DEG2RAD);
+    Field light = CastShadows(height, res, z, 22.0f * k, 1.5f);
+
+    TerrainRng rng2(rng.Next());
+    Field speckle = Fbm(res, 2, 4, 0.5f, rng2);
+    for (size_t i = 0; i < macro.size(); i++)
+    {
+        float rel = std::clamp(hs[i] / flatRef, 0.0f, 1.6f);
+        float rough = 0.45f + 0.55f * density[i];
+        float lum = macro[i] * (0.62f + 0.38f * rel)
+                    * (0.45f + 0.55f * light[i]);
+        lum *= 1.0f + 0.04f * std::min(amp, 1.6f)
+                    * (speckle[i] - 0.5f) * rough;
+        lum = std::clamp(lum, 0.0f, 1.0f);
+        // Gentle S-curve: deepen shadows, keep highlights
+        float s = lum * lum * (3.0f - 2.0f * lum);
+        macro[i] = std::clamp(s * 0.20f + lum * 0.80f, 0.0f, 1.0f);
+    }
+}
+
+// Lunar tone ramp: cool shadow -> regolith grey -> warm sunlit.
+static Color RampColor(float t)
+{
+    const float lo[3] = {16, 17, 24};
+    const float mid[3] = {108, 105, 102};
+    const float hi[3] = {236, 232, 220};
+    float rgb[3];
+    if (t < 0.5f)
+    {
+        float u = t / 0.5f;
+        for (int k = 0; k < 3; k++) rgb[k] = lo[k] + (mid[k] - lo[k]) * u;
+    }
+    else
+    {
+        float u = (t - 0.5f) / 0.5f;
+        for (int k = 0; k < 3; k++) rgb[k] = mid[k] + (hi[k] - mid[k]) * u;
+    }
+    return Color{(unsigned char)rgb[0], (unsigned char)rgb[1],
+                 (unsigned char)rgb[2], 255};
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+static double g_anchorLat = TERRAIN_ANCHOR_LAT;
+static double g_anchorLon = TERRAIN_ANCHOR_LON;
+static unsigned int g_anchorVersion = 1;
+
+void SetTerrainAnchor(double latDeg, double lonDeg)
+{
+    // Keep the playfield off the poles, where the 1/cos(lat) longitude
+    // stretch blows up and the grid would smear.
+    g_anchorLat = std::clamp(latDeg, -78.0, 78.0);
+    g_anchorLon = lonDeg;
+    g_anchorVersion++;
+    TraceLog(LOG_INFO, "TERRAIN: anchor -> %.3f, %.3f (v%u)",
+             g_anchorLat, g_anchorLon, g_anchorVersion);
+}
+
+void GetTerrainAnchor(double* latDeg, double* lonDeg)
+{
+    if (latDeg) *latDeg = g_anchorLat;
+    if (lonDeg) *lonDeg = g_anchorLon;
+}
+
+unsigned int GetTerrainAnchorVersion() { return g_anchorVersion; }
+
+// The orbital disc as baked by prototypes/planet_visuals/asset_bake.py:
+// 1200 px square, 12 px margin, near side (camera lon 0), centred on
+// screen by DrawOrbitalView.
+static const double ORBITAL_DISC_PX = 1200.0;
+static const double ORBITAL_MARGIN_PX = 12.0;
+
+bool OrbitalPickToLatLon(float screenX, float screenY,
+                         int screenWidth, int screenHeight,
+                         double* latDeg, double* lonDeg)
+{
+    double cx = screenWidth / 2.0;
+    double cy = screenHeight / 2.0;
+    double r = ORBITAL_DISC_PX / 2.0 - ORBITAL_MARGIN_PX;
+
+    double xn = (screenX - cx) / r;
+    double yn = -(screenY - cy) / r;          // screen y grows downward
+    double d2 = xn * xn + yn * yn;
+    if (d2 > 0.985 * 0.985) return false;     // outside, or on the limb
+
+    double z = std::sqrt(std::max(0.0, 1.0 - d2));
+    double lat = std::asin(std::clamp(yn, -1.0, 1.0)) / DEG2RAD;
+    double lon = std::atan2(xn, z) / DEG2RAD;  // camera lon 0 = near side
+    if (latDeg) *latDeg = lat;
+    if (lonDeg) *lonDeg = lon;
+    return true;
+}
+
+bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
+                           int screenWidth, int screenHeight,
+                           float* screenX, float* screenY)
+{
+    double lat = latDeg * DEG2RAD;
+    double lon = lonDeg * DEG2RAD;
+    while (lon > PI) lon -= 2.0 * PI;
+    while (lon < -PI) lon += 2.0 * PI;
+
+    double x = std::cos(lat) * std::sin(lon);
+    double y = std::sin(lat);
+    double z = std::cos(lat) * std::cos(lon);
+    if (z <= 0.0) return false;               // far side
+
+    double r = ORBITAL_DISC_PX / 2.0 - ORBITAL_MARGIN_PX;
+    if (screenX) *screenX = (float)(screenWidth / 2.0 + x * r);
+    if (screenY) *screenY = (float)(screenHeight / 2.0 - y * r);
+    return true;
+}
+
+void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg)
+{
+    double cellDeg = TERRAIN_CELL_KM / MOON_KM_PER_DEG;   // 0.16489 deg
+    // Grid centre is between cells 9 and 10; gy grows south.
+    double offX = (gx - 9.5);
+    double offY = (gy - 9.5);
+    double lat = g_anchorLat - offY * cellDeg;
+    double c = std::max(0.2, std::cos(g_anchorLat * DEG2RAD));
+    double lon = g_anchorLon + offX * cellDeg / c;
+    *latDeg = lat;
+    *lonDeg = lon;
+}
+
+// Shared engine: walk the 100 -> 25 -> 5 km ladder, writing an Image
+// for every level requested. Level i+1 is the centre crop of level i's
+// OUTPUT, so real forms flow down and the levels are registered to each
+// other by construction — that is what makes zooming continuous.
+static void GenerateChainInternal(double latDeg, double lonDeg, int res,
+                                  const TerrainTuning& tune,
+                                  Image* outLevels, int wantLevels,
+                                  const TerrainSiteDisturbance* site = nullptr)
+{
+    // Levels cover 100 / 25 / 5 km, so a kilometre is a different
+    // number of pixels in each.
+    const float levelSpanKm[3] = {100.0f, 25.0f, 5.0f};
+
+    // The sect view draws the settlement at 0.63x the physical size the
+    // colony view draws it (both use fixed screen fractions). The site
+    // geometry is calibrated for the colony view, so shrink it to match
+    // for the sect level — otherwise the worked patches sit outside the
+    // 5 km window entirely and the effect cannot be seen there.
+    const float SECT_SITE_SCALE = 0.63f;
+    TerrainSiteDisturbance sectSite;
+    const TerrainSiteDisturbance* siteForLevel[3] = {site, site, site};
+    if (site)
+    {
+        sectSite = *site;
+        sectSite.ringRadiusKm *= SECT_SITE_SCALE;
+        sectSite.coreRadiusKm *= SECT_SITE_SCALE;
+        sectSite.domeWorkKm *= SECT_SITE_SCALE;
+        sectSite.workedRadiusKm *= SECT_SITE_SCALE;
+        sectSite.fadeKm *= SECT_SITE_SCALE;
+        siteForLevel[2] = &sectSite;
+    }
+    if (!EnsureWacLoaded())
+    {
+        for (int i = 0; i < wantLevels; i++)
+            outLevels[i] = GenImageColor(res, res, Color{40, 40, 48, 255});
+        return;
+    }
+
+    double t0 = GetTime();
+
+    const double spans[3] = {100.0 / MOON_KM_PER_DEG,
+                             25.0 / MOON_KM_PER_DEG,
+                             5.0 / MOON_KM_PER_DEG};
+
+    uint32_t seed = LocationSeed(latDeg, lonDeg);
+    TerrainRng rng0(seed);
+    Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
+    SharpenAdaptive(lum, res);
+    TextureModulate(lum, res, rng0, 1.0f, tune, 0, siteForLevel[0],
+                    (float)res / levelSpanKm[0]);
+
+    auto emit = [&](int level)
+    {
+        if (level >= wantLevels) return;
+        Image img = GenImageColor(res, res, BLACK);
+        ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+        Color* px = (Color*)img.data;
+        for (int i = 0; i < res * res; i++) px[i] = RampColor(lum[i]);
+        outLevels[level] = img;
+    };
+
+    emit(0);
+
+    for (int lvl = 1; lvl < 3; lvl++)
+    {
+        float k = res / 300.0f;
+        float frac = (float)(spans[lvl] / spans[lvl - 1]);
+        float half = frac * res / 2.0f;
+        int lo = (int)std::lround(res / 2.0f - half);
+        int hi = std::max(lo + 2, (int)std::lround(res / 2.0f + half));
+        int cw = hi - lo;
+        Field crop((size_t)cw * cw);
+        for (int y = 0; y < cw; y++)
+            for (int x = 0; x < cw; x++)
+                crop[y * cw + x] = lum[(size_t)(lo + y) * res + (lo + x)];
+        lum = ResizeBilinear(crop, cw, cw, res, res);
+        GaussianBlur(lum, res, res, 0.6f * k);
+        Field blur = lum;
+        GaussianBlur(blur, res, res, 5.0f * k);
+        for (size_t i = 0; i < lum.size(); i++)
+            lum[i] = std::clamp(lum[i] + 0.40f * (lum[i] - blur[i]),
+                                0.0f, 1.0f);
+        TerrainRng rng(seed ^ (0x9E3779B9u * (uint32_t)lvl));
+        int boulderBase = (lvl == 2) ? (int)(120 * k * k) : 0;
+        TextureModulate(lum, res, rng, 1.0f + 0.7f * lvl, tune, boulderBase,
+                        siteForLevel[lvl], (float)res / levelSpanKm[lvl]);
+        emit(lvl);
+    }
+
+    TraceLog(LOG_INFO,
+             "TERRAIN: %d level(s) at (%.3f, %.3f) in %.0f ms",
+             wantLevels, latDeg, lonDeg, (GetTime() - t0) * 1000.0);
+}
+
+void GenerateTerrainChain(double latDeg, double lonDeg, int res,
+                          Image outLevels[3],
+                          const TerrainSiteDisturbance* site)
+{
+    TerrainTuning defaults;
+    GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3, site);
+}
+
+Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
+                          const TerrainTuning* tuning)
+{
+    TerrainTuning defaults;
+    const TerrainTuning& tune = tuning ? *tuning : defaults;
+    Image levels[3] = {};
+    GenerateChainInternal(latDeg, lonDeg, res, tune, levels, 3);
+    UnloadImage(levels[0]);
+    UnloadImage(levels[1]);
+    return levels[2];
+}

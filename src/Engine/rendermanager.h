@@ -33,6 +33,7 @@ public:
     void EndDraw();
 
     void DrawMenuView();
+    void DrawOrbitalView();
     void DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
                        InputManager& inputManager, TimeManager& timeManager);
     void DrawColonyView(Camera2D camera, Colony* colony, Planet* planet, std::vector<Colony *> &colonies,
@@ -81,23 +82,62 @@ private:
     const Texture2D* GetCrystalTexture(const CrystalVisual& visual);
     void DrawCrystalSprite(const CrystalVisual& visual, Rectangle dest);
 
+    // Orbital view textures (baked by prototypes/planet_visuals/asset_bake.py)
+    Texture2D orbitalNearTexture;
+    Texture2D orbitalFarTexture;
+    bool orbitalAssetsLoaded;
+    void LoadOrbitalAssets();
+    void UnloadOrbitalAssets();
+
+    // Generated terrain (real-imagery amplification).
+    //
+    // One chain per location gives all three geographic views their
+    // ground: level 0 = PLANET (100 km), 1 = COLONY (25 km), 2 = SECT
+    // (5 km). Because each level is the centre of the one above, the
+    // views are registered to each other and zooming is continuous.
+    Texture2D terrainLevels[3];
+    bool terrainLoaded;
+    int terrainCellX;
+    int terrainCellY;
+    unsigned int terrainAnchorVersion;
+    void EnsureTerrainForCell(int gx, int gy);
+    void UnloadTerrainLevels();
+
+    // Full-planet 2D map (the whole moon, equirectangular) that the
+    // planet view zooms out to. Aligned with the playfield grid where
+    // the two meet, so zooming out is continuous.
+    Texture2D planetMapTexture;
+    bool planetMapLoaded;
+    void LoadPlanetMap();
+    void DrawPlanetMapLayer(Camera2D camera);
+
+    void DrawSectTerrainBackground(Sect* sect);
+    // World-space ground for the panned views. spanCells is how many
+    // 5 km grid cells the level covers (20 for PLANET, 5 for COLONY);
+    // centre is the world point the level is registered on.
+    void DrawWorldTerrainLayer(int level, Vector2 centre, float spanCells);
+
     void DrawDebugActiveArea();
 
-    // Extraction unit UI methods
-    void DrawExtractionUnitView(Unit* unit, TimeManager& timeManager);
-    void DrawExtractionTopBar(Unit* unit, TimeManager& timeManager);
-    void DrawExtractionBottomBar(Unit* unit);
-    void DrawExtractionModuleList(Unit* unit);
-    void DrawExtractionModuleCenter(Unit* unit);
-    void DrawExtractionControlPanel(Unit* unit);
+    // Shared modular unit UI: chrome used by every unit type
+    void DrawModularUnitView(Unit* unit, TimeManager& timeManager);
+    void DrawUnitTopBar(Unit* unit, TimeManager& timeManager);
+    void DrawUnitBottomBar(Unit* unit);
+    void DrawUnitModuleList(Unit* unit);
+    void DrawUnitModuleCenter(Unit* unit);
+    void DrawUnitControlPanel(Unit* unit);
 
-    // Module-specific center panels
+    // Module-specific center panels (Extraction)
     void DrawProspectingPanel(Unit* unit, int x, int y, int w, int h);
     void DrawExcavationPanel(Unit* unit, int x, int y, int w, int h);
     void DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int h);
     void DrawOperationsPanel(Unit* unit, int x, int y, int w, int h);
     void DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h);
-    void DrawExtractionResourceOverview(Unit* unit, int x, int y, int w, int h);
+
+    // Fallback center panel for modules without a bespoke layout yet
+    void DrawGenericModulePanel(Unit* unit, int x, int y, int w, int h);
+
+    void DrawUnitResourceOverview(Unit* unit, int x, int y, int w, int h);
 
     // Styled drawing helpers
     void DrawStyledBar(float x, float y, float w, float h, float value, Color fillColor);

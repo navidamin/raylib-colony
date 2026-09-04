@@ -86,3 +86,6 @@ notes
 
 # Test build tree (cmake -B build-tests -DBUILD_TESTS=ON)
 build-tests/
+# CMake build directories
+build/
+build_*/

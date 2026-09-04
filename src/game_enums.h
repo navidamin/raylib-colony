@@ -10,7 +10,8 @@ enum class UnitType {
     Transport,
     Manufacture,
     Research,
-    Commerce
+    Core,
+    Communication
 };
 
 
@@ -20,7 +21,8 @@ enum class View {
     SITE_SELECTION,
     Colony,
     Sect,
-    Unit
+    Unit,
+    Orbital   // Moon-from-orbit view, sits above Planet in the zoom hierarchy
 };
 
 

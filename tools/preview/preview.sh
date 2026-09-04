@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #
-# Render a unit module panel to a PNG without a display.
+# Render a unit module panel or a whole game view to a PNG without a display.
 #
 # Wraps the colony_preview binary in a virtual X server with software OpenGL,
 # so it works over SSH, in CI, and inside containers. Builds the tool if it is
 # missing or out of date, then writes the PNG.
 #
 #   tools/preview/preview.sh --module prospecting --tab lab --tier 3
+#   tools/preview/preview.sh --view orbital
 #   tools/preview/preview.sh --all
 #
 # All other flags are forwarded to colony_preview (see --help).
@@ -60,7 +61,32 @@ if [ "${1:-}" = "--all" ]; then
                --out "$OUT_DIR/$module-t3.png"
     done
 
+    # One panel per module for the units that still use the generic panel, so a
+    # chrome or icon regression shows up on any of the 20 stub modules.
+    RenderUnit()
+    {
+        unit="$1"
+        shift
+        for module in "$@"; do
+            Render --unit "$unit" --module "$module" --tier 2 \
+                   --out "$OUT_DIR/${unit,,}-$module-t2.png"
+        done
+    }
+
+    RenderUnit Farming       irrigation greenhouse hydroponics harvest storage
+    RenderUnit Energy        solar battery nuclear grid emergency
+    RenderUnit Manufacture   fabrication assembly quality logistics automation
+    RenderUnit Research      laboratory analysis simulation archive publication
+    RenderUnit Construction  siteprep foundation structures fitout maintenance
+    RenderUnit Transport     fleet routing depot servicing dispatch
+    RenderUnit Communication antenna relay telemetry encryption network
+    RenderUnit Core          lifesupport roster command monitoring safety
+
     Render --module sprites --out "$OUT_DIR/crystal-sheet.png"
+
+    for view in orbital planet; do
+        Render --view "$view" --out "$OUT_DIR/view-$view.png"
+    done
 
     echo "Done:"
     ls -1 "$OUT_DIR"

@@ -209,7 +209,7 @@ Units have a modular upgrade system where each unit type has specialized named m
 4. **Operations** - Efficiency modifier (tier 0=0.85 penalty, tier 3=1.2 bonus)
 5. **Directives** - Autonomous control (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, EMERGENCY_HARVEST, THERMAL_SYNC)
 
-**Other unit types** have 5 stub-named modules each (Farming, Energy, Manufacture, Research) using generic production logic.
+**Other unit types** have 5 stub-named modules each, using generic production logic. There are **eight** unit types in total — `Sect::CreateInitialUnits` (`src/Sect/sect.cpp`) is the authoritative list, not the `UnitType` enum, since units are constructed from strings: Extraction, Farming, Energy, Manufacture, Research, Construction, Transport, Communication. All 40 modules are reachable through the module menu; only Extraction's five have bespoke panels.
 
 **Extraction pipeline** (`ProcessExtraction()`):
 1. Survey-gated efficiency: `scanMultiplier = 0.35 + 0.65 × surveyProgress` (+ 0.15 if marked, × objective bonus). Each scan adds progress via diminishing returns formula.
@@ -219,6 +219,47 @@ Units have a modular upgrade system where each unit type has specialized named m
 
 **Tier upgrades** (`UpgradeModuleTier()`): Check `UnlockRegistry` for required techs, deduct resource costs, increment tier.
 
+### Terrain Generation (src/TerrainGen/)
+
+The planet's surface is **generated from real lunar imagery**, not from
+tile art. `terrain_synthesis.{h,cpp}` amplifies the shipped LROC WAC
+mosaic (`src/assets/planet/wac_global.jpg`): the real imagery supplies
+every landform, and below its ~1.3 km/px resolution floor the synthesizer
+re-sharpens, relights and adds regolith grain. Deterministic per
+location — the same coordinates always regenerate the same ground, so
+nothing is stored.
+
+**Scale system** (anchored on the sect being 5 km across):
+
+| | |
+|---|---|
+| 1 world unit | 50 m |
+| grid cell (sect + units) | 5 km = 100 world units |
+| PLANET view | 20x20 cells = 100 km |
+| COLONY view | 5x5 cells = 25 km |
+| SECT view | 1 cell = 5 km |
+
+**One chain feeds three views.** `GenerateTerrainChain` walks
+100 → 25 → 5 km, each level the centre crop of the one above, and emits
+all three: level 0 is the Planet backdrop, 1 the Colony, 2 the Sect.
+Because they are registered to each other by construction, zooming
+approaches the same ground instead of cutting to a different scene.
+`RenderManager` caches one chain per grid cell.
+
+**Real coordinates.** The 20x20 grid is anchored on a real lat/lon
+(`SetTerrainAnchor`, settable — clicking the orbital disc re-anchors the
+playfield there via `OrbitalPickToLatLon`). `TerrainGridCellToLatLon`
+gives any cell its true coordinates. Elevation/slope ground truth from
+NASA's LOLA model lives in `prototypes/planet_visuals/elevation.py`.
+
+**Occupied sites** get `TerrainSiteDisturbance`: the natural ground is
+levelled off (relief and imagery contrast damped toward local means,
+partially — not a platform) and then worked with undulations plus
+alterations around each dome. A graded construction platform was tried
+and rejected; see SITE_SYNTHESIS.md before re-proposing one.
+
+Design record: `prototypes/planet_visuals/SITE_SYNTHESIS.md`.
+
 ### Unlock Registry
 
 `UnlockRegistry` (src/UnlockRegistry/unlock_registry.h) is a header-only singleton that stubs the tech dependency system until Research units are fully implemented. Contains 14 available techs (Spectroscopy, Geophysics, SwarmAI, etc.). Debug key F5 cycles through unlocks.
@@ -226,6 +267,22 @@ Units have a modular upgrade system where each unit type has specialized named m
 ### Extraction UI Font Scaling
 
 The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture size with bilinear filtering. All `DrawTextEx`/`MeasureTextEx` size parameters in extraction view methods are wrapped with `FS()` — a simple multiplier returning `baseSize * 1.30f` (XL preset). This keeps text comfortably readable at the dark-themed panel layout. `FS()` is defined in `RenderManager` and only applies to extraction view methods, not site selection or other views.
+
+## Visual Testing Instruments
+
+Never claim a visual result without rendering it. Two headless tools
+drive the real `RenderManager`, so what they export is what the game
+draws:
+
+| Tool | Use |
+|------|-----|
+| `tools/preview/preview.sh` | one view in isolation (`--view orbital\|planet\|sect`, `--cell X,Y`) |
+| `tools/viewtest/viewtest.sh` | the whole Orbital → Planet → Colony → Sect descent, with per-view issue notes; `--pick LAT,LON` lands it anywhere on the moon |
+
+Both need software GL: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+xvfb-run -a ...` (the scripts apply it). `colony_viewtest` also deploys
+to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
+`tools/viewtest/README.md`.
 
 ## Coding Conventions
 
@@ -259,9 +316,12 @@ The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture si
 6. Render every state (`--tier`, `--state`, `--energy`) and **look at the PNGs**
 7. Check against [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md)
 
-*Non-extraction units currently draw via the legacy `unit->DrawInUnitView()`
-path (`unit_ui.cpp`). Route a real panel through `RenderManager` instead — that
-is what provides the shared chrome, theme, and preview-tool support.*
+*Every unit type now draws through the shared modular chrome
+(`DrawModularUnitView`). Modules without a bespoke centre panel fall back to
+`DrawGenericModulePanel`, which renders the module's real data (tier arc,
+throughput, energy, tech deps) and marks itself PRELIMINARY. Replacing that
+fallback with a real panel is step 2 above — the legacy `unit->DrawInUnitView()`
+path in `unit_ui.cpp` is no longer reached.*
 
 **Building a new gameplay module:** (see [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md))
 1. `src/<Module>/` with constants / types / pure-logic engines / facade
@@ -296,6 +356,7 @@ is what provides the shared chrome, theme, and preview-tool support.*
 - `src/Colony/`, `src/Sect/`, `src/Unit/`, `src/Planet/` - Game entities
 - `src/ResourceManager/` - Resource generation, tracking, and orbital survey data
 - `src/TimeManager/` - Game time and production scheduling
+- `src/TerrainGen/` - Real-imagery terrain synthesis (see Terrain Generation above)
 - `src/UnlockRegistry/` - Stub tech dependency system (header-only singleton)
 - `src/Unit/separation_node.h` - Beneficiation separation node types and processing
 - `src/InquiryManager/` - (Purpose unclear from headers, investigate if modifying)
@@ -336,6 +397,7 @@ without a display:
 |------|-----------|
 | `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so the ground is reproducible. The **pixels are not** — animation eases on frame time, so two runs differ; judge by looking, not by diffing (see `docs/dev-workflow.md`). |
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
+| `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
 | `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
 
@@ -365,6 +427,8 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | Excavation | `docs/design/excavation/README.md` | Working on excavator handling or `ProcessExtraction()` Stage 1 in `unit.cpp`, the excavation panel in `rendermanager.cpp`, or excavation input handling |
 | Graphics (Dark Plating) | `docs/design/graphics/README.md` | Drawing or restyling **any code-drawn graphic** — hero visuals, canvas prototypes, animated rigs, icons, particles. The style guide is a living document: adding a new graphical component includes extending it (see its Rule) |
 | **Graveyard** | `docs/design/graveyard/README.md` | **Removing** anything that was once reachable in the game. Read its Rule before deleting |
+| Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
+| Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
 
 See `docs/design/README.md` for the full planning method explanation.
 

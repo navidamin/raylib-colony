@@ -46,6 +46,9 @@ CLAUDE.md contains instructions to read a module's README.md when working on tha
 | **Graveyard** | `graveyard/` | **Not a module — one record per retired part: what it was, why it went, what survived. Removing anything once-reachable owes a record here in the same commit** |
 | Prospecting | `prospecting/` | Built (v1); **v2 block model designed, not built** |
 | Excavation | `excavation/` | Built (phases 1-6) against v1 prospecting; v2 sketched, blocked on prospecting v2 |
+| Prospecting | `prospecting/` | Active design |
+| Sect View | `sect-view/` | Active design — visuals implemented, HUD/hover drafted |
+| Core (habitat/command) | `core/` | Draft — designed, not built |
 | Research | `research/` | Stub — interface requirements from prospecting AI |
 | AI Automation | `ai-automation/` | Stub — cross-cutting pattern for all unit AI trees |
 | Beneficiation | — | Future |

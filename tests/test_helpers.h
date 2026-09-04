@@ -53,3 +53,19 @@ inline ResourceManager MakeTestResourceManager()
     rm.GenerateOrbitalSurveyData();
     return rm;
 }
+
+// The lattice is a fixed 8x8; a tier only widens a centred reach window, so
+// sweeps and samples outside that window are rejected. These helpers give
+// tests coordinates that are valid for the tier under test.
+inline std::pair<int, int> InReachCoord(int tier, int index = 0)
+{
+    int reach = GetReachForTier(tier);
+    int offset = (PROSPECTING_GRID_SIZE - reach) / 2;
+    return { offset + (index % reach), offset + ((index / reach) % reach) };
+}
+
+inline int InReachCellCount(int tier)
+{
+    int reach = GetReachForTier(tier);
+    return reach * reach;
+}
