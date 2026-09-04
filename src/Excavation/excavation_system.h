@@ -68,6 +68,13 @@ public:
     void UpdatePlateLight(int hoveredLayer, int activeLayer, float dt);
     float plateLight[4] = { PLATE_REST_LIGHT[0], PLATE_REST_LIGHT[1],
                             PLATE_REST_LIGHT[2], PLATE_REST_LIGHT[3] };
+    // How hot the bit is, 0..1, eased toward what the work demands. State that
+    // outlives a frame belongs here and not in the renderer -- and heat is a
+    // consequence of DIGGING, so it is integrated on the dig tick rather than
+    // the draw. Integrating it in the renderer meant a headless preview, which
+    // draws two frames, could never show a hot bit however hard it was working.
+    float bitHeat = 0.0f;
+
     // Headless has no pointer, so hover states could not be screenshotted at
     // all. -1 is off; otherwise the renderer treats this layer as hovered.
     // Only the preview tool sets it.

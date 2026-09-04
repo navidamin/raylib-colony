@@ -3050,10 +3050,17 @@ static Color ProsSteel(float sh, float heat = 0.0f)
              static_cast<unsigned char>(b), 255 };
 }
 // One slice of a turned cylinder: five flat bands, specular off-centre left.
+//
+// Heat is a PARAMETER, not a lookup. It used to call ProsHeatAt, which reads
+// the borehole dock's own globals -- so every banded part of excavation's rig
+// (rod, joints, lower works, neck) was shaded by the auger's heat field, at
+// the auger's sigma, centred on the auger's bit depth. Two machines cannot
+// share one hotspot; a helper that reaches for module state is not shared, it
+// is borrowed.
 static void ProsBandedSlice(float cx, float y, float hw, float hh,
-                            const float tones[5][2])
+                            const float tones[5][2], float heat)
 {
-    float x = cx - hw, wTot = hw * 2.0f, t = 0.0f, heat = ProsHeatAt(y);
+    float x = cx - hw, wTot = hw * 2.0f, t = 0.0f;
     for (int k = 0; k < 5; k++)
     {
         DrawRectangleRec({x + wTot * t, y, wTot * tones[k][0] + 0.7f, hh},
@@ -3189,7 +3196,7 @@ static void ProsDrawJoint(float cx, float y, float rr, bool big)
 {
     float hh = big ? 5.6f : 4.6f, w = rr + (big ? 3.6f : 2.7f);
     DrawRectangleRec({cx - w - 1.8f, y - hh - 1.8f, (w + 1.8f) * 2.0f, hh * 2.0f + 3.6f}, PROS_OUT);
-    ProsBandedSlice(cx, y - hh, w, hh * 2.0f, PROS_JOINT_TONES);
+    ProsBandedSlice(cx, y - hh, w, hh * 2.0f, PROS_JOINT_TONES, ProsHeatAt(y));
     DrawRectangleRec({cx - w, y - hh, w * 2.0f, 1.4f}, Fade(WHITE, 0.34f));
     DrawRectangleRec({cx - w, y + hh - 1.8f, w * 2.0f, 1.8f}, Fade(BLACK, 0.45f));
 }
@@ -3207,13 +3214,14 @@ static void ProsDrawString(const ProsRig& r, float topY)
     {
         float w = ProsRodHalf(r, y);
         if (w < 0.7f) continue;
-        ProsBandedSlice(r.cx, y, w, 1.8f, PROS_ROD_TONES);
+        ProsBandedSlice(r.cx, y, w, 1.8f, PROS_ROD_TONES, ProsHeatAt(y));
     }
     // chuck under the head, then joints where sections step
     float chuckTop = r.surfY - 46.0f;
     DrawRectangleRec({r.cx - PROS_ROD_TOP - 5.2f, chuckTop - 1.8f,
                       (PROS_ROD_TOP + 5.2f) * 2.0f, 15.6f}, PROS_OUT);
-    ProsBandedSlice(r.cx, chuckTop, PROS_ROD_TOP + 3.6f, 12.0f, PROS_CHUCK_TONES);
+    ProsBandedSlice(r.cx, chuckTop, PROS_ROD_TOP + 3.6f, 12.0f, PROS_CHUCK_TONES,
+                    ProsHeatAt(chuckTop));
     DrawRectangleRec({r.cx - PROS_ROD_TOP - 3.6f, chuckTop, (PROS_ROD_TOP + 3.6f) * 2.0f, 2.0f}, Fade(WHITE, 0.22f));
 
     float run = r.threadTop - (r.surfY - 30.0f);
@@ -4715,7 +4723,7 @@ static void ExcDrawStackSeg(const ExcRig& r, int kind, float y0, float y1, float
     {
         DrawRectangleRec({r.cx - rad - 2.0f, y0 - 1.5f, (rad + 2.0f) * 2.0f, hh + 3.0f}, PROS_OUT);
         for (float y = y0; y < y1; y += 1.4f)
-            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES);
+            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES, ExcHeatAt(y));
         DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 1.6f}, Fade(WHITE, 0.34f));
         DrawRectangleRec({r.cx - rad, y1 - 2.0f, rad * 2.0f, 2.0f}, Fade(BLACK, 0.45f));
         if (kind == 4)                                // side facets say hexagonal
@@ -4730,7 +4738,7 @@ static void ExcDrawStackSeg(const ExcRig& r, int kind, float y0, float y1, float
     {
         DrawRectangleRec({r.cx - rad - 2.0f, y0 - 1.5f, (rad + 2.0f) * 2.0f, hh + 3.0f}, PROS_OUT);
         for (float y = y0; y < y1; y += 1.4f)
-            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_CHUCK_TONES);
+            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_CHUCK_TONES, ExcHeatAt(y));
         DrawRectangleRec({r.cx - rad + 3.0f, y0 + 3.0f, 1.8f, hh - 6.0f}, Fade(BLACK, 0.30f));
         DrawRectangleRec({r.cx + rad - 5.0f, y0 + 3.0f, 1.8f, hh - 6.0f}, Fade(BLACK, 0.30f));
         DrawRectangleRec({r.cx - rad, (y0 + y1) * 0.5f - 0.8f, rad * 2.0f, 1.6f}, Fade(BLACK, 0.38f));
@@ -4765,11 +4773,12 @@ static void ExcDrawStackSeg(const ExcRig& r, int kind, float y0, float y1, float
         float cw = rad * 0.30f;
         for (int k = -1; k <= 1; k++)
             for (float y = y0 + 4.0f; y < y1 - 4.0f; y += 1.4f)
-                ProsBandedSlice(r.cx + k * rad * 0.60f, y, cw, 1.8f, PROS_ROD_TONES);
+                ProsBandedSlice(r.cx + k * rad * 0.60f, y, cw, 1.8f, PROS_ROD_TONES,
+                                ExcHeatAt(y));
         for (float y = y0; y < y0 + 4.0f; y += 1.4f)
-            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES);
+            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES, ExcHeatAt(y));
         for (float y = y1 - 4.0f; y < y1; y += 1.4f)
-            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES);
+            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES, ExcHeatAt(y));
         DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 1.3f}, Fade(WHITE, 0.30f));
         DrawRectangleRec({r.cx - rad, y1 - 1.6f, rad * 2.0f, 1.6f}, Fade(BLACK, 0.40f));
     }
@@ -4799,7 +4808,7 @@ static void ExcDrawString(const ExcRig& r, float topY)
         {
             float w = ExcRadAt(r, std::max(y, r.surfY + 0.1f));
             if (w < 0.7f) continue;
-            ProsBandedSlice(r.cx, y, w, 1.8f, PROS_ROD_TONES);
+            ProsBandedSlice(r.cx, y, w, 1.8f, PROS_ROD_TONES, ExcHeatAt(y));
         }
         for (int k = 1; k <= 3; k++)
         {
@@ -4901,7 +4910,7 @@ static void ExcDrawHead(float cx, float surfY, float clipTop,
     DrawRectangleRec({cx - EXC_NECK_R - 2.5f, neckY - 2.5f,
                       (EXC_NECK_R + 2.5f) * 2.0f, EXC_NECK_H + 5.0f}, PROS_OUT);
     for (float y = neckY; y < neckY + EXC_NECK_H; y += 1.4f)
-        ProsBandedSlice(cx, y, EXC_NECK_R, 1.8f, PROS_CHUCK_TONES);
+        ProsBandedSlice(cx, y, EXC_NECK_R, 1.8f, PROS_CHUCK_TONES, ExcHeatAt(y));
     DrawRectangleRec({cx - EXC_NECK_R, neckY, EXC_NECK_R * 2.0f, 2.2f}, Fade(WHITE, 0.24f));
     DrawRectangleRec({cx - EXC_NECK_R, neckY + EXC_NECK_H - 2.6f,
                       EXC_NECK_R * 2.0f, 2.6f}, Fade(BLACK, 0.40f));
@@ -5006,13 +5015,12 @@ static void ExcDrawShaftDock(ExcavationSystem* es, const DockGeom& dg,
     float pace = std::max(0.0f, lr.effectivePace);
     bool working = pace > 0.001f;
     bool throttled = lr.throttledByPower;
-    float hard = LAYER_HARDNESS[dIdx];
     float dt = GetFrameTime();
 
     excSpin -= (working ? (2.0f + 7.0f * pace) : 0.0f) * dt;
-    float heatTarget = working
-        ? std::clamp(pace * (0.20f + hard * 0.55f) * 0.62f, 0.0f, 1.0f) : 0.0f;
-    excHeatAmt += (heatTarget - excHeatAmt) * std::clamp(dt / 0.55f, 0.0f, 1.0f);
+    // Heat is integrated on the dig tick, not here: it is a consequence of
+    // work, and the renderer only gets two frames in a headless preview.
+    excHeatAmt = es->bitHeat;
     excHeatBitY = faceY;
 
     BeginScissorMode(static_cast<int>(dg.x * gPixelScale),

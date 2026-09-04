@@ -294,6 +294,17 @@ DigResult ExcavationSystem::Dig(ProspectingSystem& prospecting,
                                                lastResult.depletionFraction);
     }
 
+    // The bit runs hot in proportion to the work: pace against the rock's
+    // hardness. Same easing law as the plate light, on the tick's own clock.
+    {
+        int dIdx = std::clamp(static_cast<int>(selectedDepth), 0, 3);
+        float target = std::clamp(std::max(0.0f, lastResult.effectivePace) *
+                                  (0.20f + LAYER_HARDNESS[dIdx] * 0.55f) * 0.62f,
+                                  0.0f, 1.0f);
+        bitHeat += (target - bitHeat) *
+                   std::clamp(std::max(0.0f, deltaTime) / 0.55f, 0.0f, 1.0f);
+    }
+
     // When a spot runs dry, move on rather than stalling. The player can always
     // override; this only stops an unattended unit producing nothing forever.
     if (worked.IsExhausted(selectedSpotX, selectedSpotY, selectedDepth))

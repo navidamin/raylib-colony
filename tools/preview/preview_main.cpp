@@ -680,6 +680,21 @@ int main(int argc, char** argv)
             unit.GetExcavationSystem()->selectedDepth =
                 static_cast<DepthLayer>(std::clamp(options.depth, 0, 3));
         }
+
+        // Run the module for a few ticks so the panel shows a rig that is
+        // WORKING rather than one that has never been asked to. lastResult is
+        // what drives the bit's spin, its heat and the readout, and it is empty
+        // until something digs -- so an excavation preview was previously a
+        // still life of an idle machine, which is not the state worth judging.
+        if (moduleType == "EXCAVATION" && unit.HasExcavationSystem() &&
+            unit.HasProspectingSystem())
+        {
+            ExcavationSystem* exc = unit.GetExcavationSystem();
+            for (int t = 0; t < 6; t++)
+            {
+                exc->Dig(*unit.GetProspectingSystem(), 1, 1.0f, 0.5f);
+            }
+        }
         }
     }
 
