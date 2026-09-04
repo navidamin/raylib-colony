@@ -43,7 +43,9 @@ int main()
         // picked by hovering named regions, and the ladder renderer
         // skips it entirely (it belongs to the game's render path). Its
         // 100 km footprint is only "what the next window will be".
-        if (i > 0)
+        // ...and only where a cell is being chosen. The site rung's
+        // cursor is a placement, so the band does not govern it.
+        if (i > 0 && ladder[i].snapToGrid)
         {
             Check(ratio >= SURVEY_CURSOR_MIN_RATIO - 0.01 &&
                   ratio <= SURVEY_CURSOR_MAX_RATIO + 0.001, "ratio in band");
@@ -94,13 +96,17 @@ int main()
     Check(std::fabs(dx - 2.5) < 1e-6 && std::fabs(dy - 1.0) < 1e-6,
           "km offsets use the smaller viewport dimension");
 
-    // 4. Snapping: the SITE level (index 2 of three: 25 km window,
-    //    5 km cursor) has an
-    //    odd cell count, so a cell sits on the centre.
+    // 4. Snapping: ORBITAL (index 0: a 3000 km window, 200 km cursor)
+    //    has an odd cell count -- 15 across -- so a cell sits on the
+    //    centre. This was the SITE level's case until 2026-09-04, when
+    //    that rung stopped snapping; orbital is the odd count left.
     SurveyViewport square = { 0.0f, 0.0f, 1000.0f, 1000.0f };
-    SurveyCursor local = MakeSurveyCursor(2, 0.0, 0.0);
-    SurveyCursorTrack(&local, square, 500.0f + 40.0f * 5.6f, 500.0f);
-    Check(std::fabs(local.offsetXKm - 5.0) < 1e-9, "snap to 5 km grid (odd)");
+    SurveyCursor local = MakeSurveyCursor(0, 0.0, 0.0);
+    // 1000 px over 3000 km is 1/3 px per km, so 74.7 px east is 224 km:
+    // inside the cell centred on 200.
+    SurveyCursorTrack(&local, square, 500.0f + 224.0f / 3.0f, 500.0f);
+    Check(std::fabs(local.offsetXKm - 200.0) < 1e-9,
+          "snap to the cell grid (odd count)");
 
     // 5. Snapping: DISTRICT (index 1: 200 km / 25 km) has an even cell count, so
     //    cells straddle the centre at +-12.5 km.
@@ -172,24 +178,18 @@ int main()
         Check(inside && onScreen, "cursor clamped inside the window");
     }
 
-    // 7. The site level carries both halves of the old LOCALITY/SITE
-    //    split. Untouched it snaps to the 5 km sect grid -- still
-    //    choosing which cell. Once the zoom has refined its footprint
-    //    toward the build size the snap is released, because the choice
-    //    has become where within that cell the base sits.
-    //    1000 px over the 25 km window is 40 px/km, so 37 px is 0.925 km:
-    //    inside the centre cell when snapped, and its own offset when not.
+    // 7. The site rung places the base. Its cursor is the build
+    //    footprint from the moment it is made and it moves freely,
+    //    because "which 5 km cell" is not the question there.
+    //    1000 px over the 25 km window is 40 px/km, so 37 px is 0.925 km
+    //    -- an offset the old snapping cursor swallowed whole.
     SurveyCursor site = MakeSurveyCursor(SURVEY_LEVEL_COUNT - 1, 0.0, 0.0);
-    Check(site.snapToGrid && std::fabs(site.footprintKm - 5.0) < 1e-9,
-          "site level starts as a snapped 5 km cell");
-    SurveyCursorTrack(&site, square, 500.0f + 37.0f, 500.0f);
-    Check(std::fabs(site.offsetXKm) < 1e-9, "site level snaps while navigating");
-
-    site.footprintKm = SURVEY_BUILD_FOOTPRINT_KM;
-    site.snapToGrid = false;                    // what the zoom does
+    Check(!site.snapToGrid &&
+          std::fabs(site.footprintKm - SURVEY_BUILD_FOOTPRINT_KM) < 1e-9,
+          "site cursor is the free build footprint");
     SurveyCursorTrack(&site, square, 500.0f + 37.0f, 500.0f);
     Check(std::fabs(site.offsetXKm - 37.0 / 40.0) < 1e-6,
-          "site level is free once refined to the build footprint");
+          "site cursor moves freely");
 
     // 8. Cursor centre -> lat/lon, and back through the child window.
     SurveyCursor c3 = MakeSurveyCursor(SURVEY_LEVEL_COUNT - 1, 32.8, -15.6);
@@ -246,21 +246,6 @@ int main()
     for (int i = 0; i + 1 < SURVEY_LEVEL_COUNT; i++) SurveyDescend(&d);
     Check(SurveyCurrent(&d)->level == SURVEY_LEVEL_COUNT - 1 &&
           !SurveyDescend(&d), "cannot descend past the site level");
-
-    // 14. Free-zoom footprint sizing stays in the band.
-    for (double span = 2.0; span < 4000.0; span *= 1.17)
-    {
-        double fp = SurveyFootprintForSpan(span);
-        double ratio = fp / span;
-        if (ratio < SURVEY_CURSOR_MIN_RATIO - 1e-9 ||
-            ratio > SURVEY_CURSOR_MAX_RATIO + 1e-9)
-        {
-            printf("   span %.1f -> footprint %.2f (ratio %.3f)\n", span, fp, ratio);
-            Check(false, "free-zoom footprint in band");
-            break;
-        }
-    }
-    Check(true, "free-zoom footprint in band across 2..4000 km");
 
     printf("\n%s (%d failures)\n", failures ? "FAILED" : "ALL PASS", failures);
     return failures ? 1 : 0;

@@ -72,11 +72,6 @@ const SurveyLevelDef* GetSurveyLadder();
 const double SURVEY_CURSOR_MIN_RATIO = 0.12;
 const double SURVEY_CURSOR_MAX_RATIO = 0.30;
 
-// Footprint for an arbitrary window span, honouring the band. Prefers
-// the ladder's own footprints so free zooming still snaps to familiar
-// sizes; falls back to a clamped fraction of the span.
-double SurveyFootprintForSpan(double spanKm);
-
 // How far a level may zoom in, as a multiple of its own window.
 //
 // Zooming reads the ground; it does not change rung. The ceiling is the

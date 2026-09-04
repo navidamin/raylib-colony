@@ -36,11 +36,13 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
     // view you land in.
     { "ORBITAL",     SURVEY_ORBITAL_USABLE_KM,    200.0,     true  },
     { "DISTRICT",    200.0,                        25.0,     true  },
-    // Snapped to the 5 km sect grid as it stands -- the game's own cell
-    // size. Zooming refines the footprint below that and releases the
-    // snap, because the last choice is "where within this cell", not
-    // "which cell".
-    { "SITE",         25.0,                         5.0,     true  },
+    // The base's own footprint, and free-moving. This rung does not
+    // choose between cells, it places the base, so the rectangle is the
+    // answer's real size. At 6% of the window that is under the band
+    // deliberately: the band keeps a cursor you are choosing BETWEEN
+    // cells with legible, and drawing a placement bigger than it is
+    // would misreport the ground the verdict is measured over.
+    { "SITE",         25.0,  SURVEY_BUILD_FOOTPRINT_KM,      false },
 };
 
 double SnapOffset(double offsetKm, double spanKm, double footprintKm)
@@ -106,30 +108,6 @@ double SurveyZoomMax(int level)
         z = SURVEY_CURSOR_MAX_RATIO * d.windowSpanKm / d.footprintKm;
     }
     return (z < 1.0) ? 1.0 : z;
-}
-
-double SurveyFootprintForSpan(double spanKm)
-{
-    if (spanKm <= 0.0) return 0.0;
-
-    // Prefer a footprint the ladder already uses, so free zooming still
-    // lands on sizes the player has learned to read. Largest that fits
-    // the band wins: a bigger cursor carries a more legible readout.
-    double best = 0.0;
-    for (int i = 0; i < SURVEY_LEVEL_COUNT; i++)
-    {
-        double ratio = LADDER[i].footprintKm / spanKm;
-        if (ratio >= SURVEY_CURSOR_MIN_RATIO &&
-            ratio <= SURVEY_CURSOR_MAX_RATIO &&
-            LADDER[i].footprintKm > best)
-        {
-            best = LADDER[i].footprintKm;
-        }
-    }
-    if (best > 0.0) return best;
-
-    // Nothing on the ladder fits this span: sit in the middle of the band.
-    return spanKm * 0.20;
 }
 
 SurveyCursor MakeSurveyCursor(int level, double windowLatDeg,

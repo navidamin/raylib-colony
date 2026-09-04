@@ -2411,7 +2411,7 @@ static const int BUILTIN_FEATURE_COUNT =
     (int)(sizeof(BUILTIN_FEATURES) / sizeof(BUILTIN_FEATURES[0]));
 
 // The live table: zones.json supplies the names, positions and sizes --
-// all 59 regions of them, far side included -- and the table above
+// all 105 regions of them, far side included -- and the table above
 // supplies composition for the entries the dataset leaves null. Those
 // numbers were hand-entered here before anything read the asset, and
 // dropping them would lose real figures for most of the near side. Where
@@ -3316,9 +3316,9 @@ static void UpdateSiteSelect(AppState& app)
 
     // ---------- zoom within the rung ----------
     const SurveyLevelDef* ladder = GetSurveyLadder();
-    // The last rung has nowhere below it: it refines its cursor in place
-    // rather than descending or zooming, which is the whole of what used
-    // to be two levels.
+    // The last rung has nowhere below it and nothing left to refine: it
+    // places the base in the window it arrived in, which is the whole of
+    // what used to be two levels.
     bool siteRung = (app.siteLevel == SITE_LEVELS - 1);
     // How far this rung may zoom, in or out.
     //
@@ -3334,9 +3334,10 @@ static void UpdateSiteSelect(AppState& app)
     //        lands far short of the next rung's window either way.
     //
     // District: 0.30 * 200 / 25 = 2.4x, so the view bottoms out at 83 km
-    // against the site rung's 25 km window. Site: its cursor refines as
-    // the zoom deepens, so the same band rule puts it at 25 / 5 = 5x,
-    // where the 1.5 km build footprint fills 30% of a 5 km view.
+    // against the site rung's 25 km window. Site: 1x -- it already holds
+    // the base's footprint over the ground being chosen within, and
+    // zooming there could only take the surroundings away from the
+    // decision.
     float zoomMax = 1.0f;
     if (app.siteLevel > 0)
     {
@@ -3498,26 +3499,6 @@ static void UpdateSiteSelect(AppState& app)
         SurveyCursorTrack(c, viewport, m.x, m.y);
         SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
         onGround = true;
-
-        // The site rung neither zooms nor refines: the window holds at
-        // its own span and the cursor is the base's own footprint from
-        // the moment you arrive. There is one question here -- where
-        // does the base go -- so the rectangle is the answer's real
-        // size, and it moves freely because "which 5 km cell" is not
-        // being asked.
-        //
-        // That footprint is ~6% of the window, under the design's 15-30%
-        // legibility band. The band is there so a cursor you are CHOOSING
-        // BETWEEN cells with stays readable; this one is a placement, and
-        // drawing it larger would misreport the ground the verdict is
-        // actually measured over.
-        if (siteRung)
-        {
-            c->footprintKm = SURVEY_BUILD_FOOTPRINT_KM;
-            c->snapToGrid = false;
-            SurveyCursorTrack(c, viewport, m.x, m.y);
-            SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
-        }
 
         // Fly the camera at the cursor as the zoom deepens, so the ground
         // being aimed at is the ground that fills the screen when the

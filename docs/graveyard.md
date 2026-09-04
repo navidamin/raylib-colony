@@ -173,9 +173,21 @@ arrives holding the 1.5 km footprint directly. One question, one answer.
   `app.zoomK = min(rungRatio, app.zoomK * 1.6f)`
 - Founding was gated on `footprintKm <= SURVEY_BUILD_FOOTPRINT_KM * 1.05`
 
-**`SurveyFootprintForSpan()` is still in the tree** (`survey_cursor.cpp`)
-and still tested across 2–4000 km, even though nothing in production
-calls it any more. It is the piece you would need first if this returns.
+`SurveyFootprintForSpan()` — "the largest ladder footprint that fits the
+band at this span, else 20% of it" — was the piece that did the refining.
+It outlived the feature by a day: nothing in production ever called it,
+only its own self-test, and both were removed on 2026-09-04. It is the
+first thing to write again if this returns.
+
+The ladder outlived the feature too, and that one was a live bug. The
+`LADDER` row for SITE stayed at `{ 25.0, 5.0, snap }` — the *start* of the
+old refinement — while `survey_cursor.h`, the master design and the
+instrument all said the cursor was the free 1.5 km footprint, and
+`lunar_map` compensated by overwriting `footprintKm` and `snapToGrid` on
+the cursor every frame. The self-test asserted the stale values and
+passed. Fixed 2026-09-04: the row is
+`{ 25.0, SURVEY_BUILD_FOOTPRINT_KM, no snap }`, the override is gone, and
+the band and tiling checks now apply only to the rungs that snap.
 
 **Might it come back?** Yes, if the 1.5 km rectangle at ~6% of the window
 turns out to be too small to aim with. The trade was made deliberately:
