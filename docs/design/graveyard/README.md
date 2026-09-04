@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [The pre-manager Engine monolith](engine-monolith.md) — `Engine_copy.cpp`, never compiled | Excavation branch polish | the four `src/Engine/` managers |
 | [`subcell_distribution_sim.py`](subcell-distribution-sim.md) — the Python model of the generator | Excavation rebuild phase 4 groundwork | `colony_measure_clusters`, measuring the real thing |
 | [The flat excavation lattice](excavation-flat-lattice.md) — and its four cell helpers | Excavation rebuild phase 2 | the four-plate block model |
 | [Excavator controls](excavator-controls.md) — `MoveExcavator`, `SetExcavatorDepth`, `SetExcavatorRate`, `GetExcavators` | Excavation rebuild phase 0 | `ExcavationSystem` public state |
