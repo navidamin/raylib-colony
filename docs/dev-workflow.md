@@ -48,8 +48,19 @@ runs on the CPU, so this is the number that predicts web-build lag (the
 16x16 O(N^4) estimate-field regression read 55 ms/frame here; the wasm
 build was unplayable). Bench any panel after touching per-cell logic.
 
-The world uses a **fixed seed** (`PREVIEW_MAP_SEED`), so screenshots are
+The world uses a **fixed seed** (`PREVIEW_MAP_SEED`), so the *ground* is
 reproducible and comparable between runs. Full docs: `tools/preview/README.md`.
+
+**The pixels are not.** Anything eased or pulsed on `GetFrameTime()` /
+`GetTime()` — the plate-light focus, the bit's spin phase, the rig shake, the
+active-plate rim — lands on a different phase every run, so two runs of the
+*same binary* give different PNGs. Measured, both panels. Judge previews by
+looking at them; **a hash or pixel diff between builds proves nothing.** To
+verify a change that should not have altered the drawing (a rename, a
+refactor), check the *diff* is identifier-only rather than the output.
+
+Making it bit-exact needs a fixed frame time driven through the preview
+harness, which nothing needs yet.
 
 ### 2. `tools/playtest/` — interactive sandbox + phone build
 

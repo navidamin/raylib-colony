@@ -217,13 +217,48 @@ had been silently widened to 120 and excavation's left at 104 — the exact
 opposite of what was intended and what the phase 1 commit message claimed.
 Prospecting is back to 104 and excavation is 120.
 
-### Phase 3 — the panel is recomposed, and the flat grid is buried
+### Phase 3 — the shared layer gets its name, and a heat leak falls out — **DONE**
 
-Block model + shaft bar + control rail, in the prospecting layout. The old flat
-N×N lattice drawing (`rendermanager.cpp:4712-4862`) goes to the graveyard; the
-control rail (`4863-5145`) is **kept and restyled**, not rewritten — it already
-carries target/pace/power/machines/automation/readout and those are all still
-the right controls.
+**The recompose was already done.** Phase 2 landed the three-part layout when it
+replaced the lattice, and the control rail turned out to need neither rewriting
+nor restyling — it is already built on the shared `EXT_*` chrome and carries the
+right controls. The flat grid was buried in phase 2 rather than here. So what
+phase 3 actually contained was the deferred rename, and what the rename found.
+
+**The rename.** 191 occurrences across 25 symbols, in two groups that had both
+become genuinely shared:
+
+- **Dark Plating's material layer** → `Dp*` / `DP_*`: `DpSteel`,
+  `DpBandedSlice`, `DpFillQuad`, `DpFillDiamond`, `DpDashed`, `DpRnd`,
+  `DP_OUT`, `DP_*_TONES`, `DP_ROCK_*`, `DP_ICE_FLECK`.
+- **The block model** → `Block*`: `MakeBlockGeom`, `DrawBlockLayer`,
+  `BlockCornerLift`, `BlockCellLift`, `BlockPlateLift`, `BlockPlateLineY`,
+  joining the `BlockCell` / `BlockModelGeom` / `BlockPickGeom` that were already
+  unprefixed.
+
+Genuinely prospecting-owned names were left alone: `ProsHeatAt`, the auger's
+geometry (`PROS_PITCH`, `PROS_TH_*`, `PROS_DRILL_*`), the core log, and the
+panel chrome (`PROS_BTN_*`, `PROS_HOVER_BORDER`).
+
+**What the rename found — a real bug.** `ProsBandedSlice` took no heat
+argument; it called `ProsHeatAt`, which reads globals set in exactly one place,
+the borehole dock. So every banded part of *excavation's* rig — rod, joints,
+lower works, neck — was shaded by the **auger's** heat field, at the auger's
+sigma, centred on the auger's bit depth. Heat is a parameter now. A drawing
+helper that reaches for a module's state is not shared, it is borrowed — which
+is precisely what the prefix was hiding.
+
+Heat also moved from the renderer to `ExcavationSystem::bitHeat`, integrated on
+the dig tick. It is a consequence of digging, and integrating it per-frame meant
+a two-frame headless preview could never show a hot bit however hard the machine
+was working.
+
+**A tooling claim corrected.** `dev-workflow.md` and CLAUDE.md said previews were
+"reproducible and comparable between runs". The ground is; **the pixels are
+not** — plate light, spin phase and rig shake all ease on frame time, so two
+runs of the same binary differ. Measured on both panels. A rename was verified
+instead by proving the *diff* was identifier-only: 164 lines each way, every one
+differing only by the map.
 
 ### Phase 4 — sinking becomes an action
 
