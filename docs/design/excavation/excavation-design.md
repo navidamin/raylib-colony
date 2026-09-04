@@ -1,6 +1,18 @@
 # Excavation — The Design
 
-> Status: DRAFT — the agreed frame, firmed up
+> ⚠ **Numbers measured on the 8×8 lattice are suspect.** The lattice grew
+> 8 → 16 → 32 and `colony_measure_clusters` was silently broken by that growth
+> (its field arrays stayed `float f[8][8]` while `G` followed the constant up to
+> 32), so anything it produced after the 8×8 era was garbage and anything from
+> before it describes a twelfth of the ground the same words mean today.
+>
+> The **access footprint** table has been re-measured and corrected. Still
+> **unverified**, and to be re-run before they are relied on: the survey-payoff
+> table (+33% at T0 to +130% at T3), the "best spot inside T0 reach only 7% of
+> the time" figure, and the shoot-count/normalisation claims. Each was measured
+> against the 8×8 lattice.
+
+Status: DRAFT — the agreed frame, firmed up
 > Last Updated: 2026-08-24 (added §2 access, and the three confidence classes in §3)
 > Parent: [README.md](README.md)
 >
@@ -33,8 +45,8 @@ excavation needs:
 
 | Already implemented | Where |
 |---------------------|-------|
-| A **fixed 8×8** sub-cell lattice per extraction unit — sub-cell size never changes | `prospecting_constants.h:14` |
-| Tier extends **reach**, as concentric rings: **T0 2×2 · T1 4×4 · T2 6×6 · T3 8×8** | `prospecting_constants.h:18` |
+| A **fixed 32×32** sub-cell lattice per extraction unit — sub-cell size never changes | `prospecting_constants.h:21` |
+| Tier extends **reach**, as concentric rings: **T0 8×8 · T1 16×16 · T2 24×24 · T3 32×32** | `prospecting_constants.h:18` |
 | Reach helpers: `GetReachForTier`, `IsSubCellInReach`, `TierRequiredForSubCell` | `prospecting_types.h:135-144` |
 | Real spatial variation — each sub-cell runs **0.3× to 2.0×** the cell average | `prospecting_constants.h:79-80` |
 | Per-sub-cell, per-depth truth: `GetGroundTruth(subX, subY, depth)` | `prospecting_grid.h:22` |
@@ -50,8 +62,8 @@ So excavation invents no geography. It reads prospecting's grid and digs in it.
 
 **A spot is one sub-cell at one depth.** That's the whole of place.
 
-- The lattice is a **fixed 8×8** — 64 spots per depth, each always the same size
-- **Reach grows with tier**, as rings out from the sect: 2×2 → 4×4 → 6×6 → 8×8
+- The lattice is a **fixed 32×32** — 1,024 spots per depth, each always the same size (3.125 m)
+- **Reach grows with tier**, as rings out from the sect: 8×8 → 16×16 → 24×24 → 32×32
 - Four depths, gated by what your machine can reach
 - You point at a spot; the excavator works it until it's exhausted or you move it
 - Spots deplete individually, so the worked-out area spreads across the grid over time
@@ -98,32 +110,57 @@ worked out — which is exactly the `worked` flag Rule 5 already requires. So th
 access costs nothing to implement; it reads state the module has to keep anyway.
 
 **A shaft opens a neighbourhood, not a column.** Sinking one at (x, y) down to depth `d`
-makes the **3×3 block centred on it** workable at every depth down to `d`.
+makes the **8×8 block centred on it** workable at every depth down to `d`.
 
-**3×3 is measured, not guessed.** `colony_measure_clusters` reads the real generator across
-all 400 planet cells × 4 depths × every resource — 8,948 fields, the full population at the
-standard seed:
+**The footprint is measured, not guessed — and the measurement moved.** The
+table below was re-run after the lattice grew **8 → 16 → 32**.
+`colony_measure_clusters` reads the real generator across all 400 planet cells ×
+4 depths × every resource — 8,948 fields, the full population at the standard
+seed:
 
-| Footprint | Share of the lattice | Share of a field's yield, best-placed | Concentration |
-|-----------|---------------------|--------------------------------------|--------------|
-| 2×2 | 6% | 14.3% | 2.3× |
-| **3×3** | **14%** | **30.8%** | **2.2×** |
-| 4×4 | 25% | 47.2% | 1.9× |
-| 5×5 | 39% | 61.3% | 1.6× |
+| Footprint | Across | Share of the lattice | Share of a field's yield, best-placed | Concentration |
+|-----------|--------|---------------------|--------------------------------------|--------------|
+| 3×3 | 9.4 m | 0.9% | 1.6% | 1.8× |
+| 4×4 | 12.5 m | 1.6% | 2.9% | 1.8× |
+| 6×6 | 18.8 m | 3.5% | 6.5% | 1.9× |
+| **8×8** | **25.0 m** | **6.2%** | **11.4%** | **1.8×** |
+| 12×12 | 37.5 m | 14.1% | 23.8% | 1.7× |
+| 16×16 | 50.0 m | 25.0% | 36.9% | 1.5× |
 
-A perfectly-sited 3×3 opens **under a third** of what is there, at more than double the
-average yield density. It is the last footprint on the good part of that curve — 4×4 starts
-to feel like it solves the ore body rather than opening a door into it.
+> **What this replaces.** The previous table said a **3×3** shaft opened
+> **30.8%** of a field at **2.2×** concentration, and every access decision below
+> was sized against it. That was measured on the **8×8** lattice, where one
+> sub-cell was 12.5 m and "3×3" meant **37.5 m across**. On today's 32×32
+> lattice a sub-cell is 3.125 m, so the same words mean **9.4 m** — a twelfth of
+> the ground, opening **1.6%** of a field. A shaft built to the old number would
+> have been worthless.
+>
+> The tool that produced the old table had also been broken by the same growth:
+> `G` followed `PROSPECTING_GRID_SIZE` up to 32 while its field arrays stayed
+> `float f[8][8]`, so every run since had been writing 32 rows into 8. Nothing it
+> printed after the 8×8 era could be trusted, which is why nobody noticed the
+> table had gone stale. Fixed in the same commit as this correction.
 
-**A shaft cannot swallow a body — and that is the good news.** Rich ground (sub-cells at
-≥ 1.5× the field's mean) averages **15 of 64 sub-cells in a 4.8 × 4.8 bounding box**, and
-fits inside a 3×3 only **7%** of the time. So one shaft is a way *in*, never a way to take
-the whole thing: working a body out means a second shaft, or a shaft plus stripping, or
-accepting the third you can reach. **Shafts compose rather than solve**, which keeps siting a
+**8×8 is the new answer, and it is the same argument.** The design's rule was
+"the last footprint on the good part of the concentration curve". That curve now
+peaks flat at about **1.8×** from 3×3 to 8×8 and falls away after — 12×12 is
+already down to 1.7× and reads as solving the ore body rather than opening a
+door into it. So 8×8 it is: **11.4%** of a well-sited field, at nearly double the
+average density.
+
+**The shaft is a bore; the block is what you can work from it.** 25 m is not a
+shaft — real ones are 5–8 m — and that is not a contradiction. What is sunk is
+the bore the panel draws; what it *opens* is the ground reachable from it by
+lateral drives, which is how underground mining actually works. The number sizes
+the workable neighbourhood, not the hole.
+
+**A shaft cannot swallow a body — and that is now even more true.** Rich ground
+(sub-cells at ≥ 1.5× the field's mean) averages **121 of 1,024 sub-cells in a
+15.5 × 15.4 bounding box** — 48 m across — and fits inside an 8×8 block almost
+never. One shaft is a way *in*, never a way to take the whole thing: working a
+body out means a second shaft, or a shaft plus stripping, or accepting the
+tenth you can reach. **Shafts compose rather than solve**, which keeps siting a
 recurring decision instead of a single puzzle solved once per body.
-
-> An earlier draft of this section claimed *"one well-sited shaft serves a whole blob."*
-> The measurement says otherwise and the text above is the corrected version.
 
 Siting still matters: a *randomly* placed 3×3 gets its 14% area share, a well-sited one gets
 30.8%, so choosing well is worth **~2.2×**. Enough to reward surveying at depth, not so much
@@ -131,9 +168,9 @@ that a mediocre site is unrecoverable.
 
 | Shaft depth | Opens | Roughly |
 |-------------|-------|---------|
-| To layer 2 | 9 spots × 2 depths | Cheap, quick, usually strip is better |
-| To layer 3 | 9 spots × 3 depths | The normal mid-game shaft |
-| To layer 4 | 9 spots × 4 depths | Expensive, slow, and the deepest ground is also the least surveyed |
+| To layer 2 | 64 spots × 2 depths | Cheap, quick, usually strip is better |
+| To layer 3 | 64 spots × 3 depths | The normal mid-game shaft |
+| To layer 4 | 64 spots × 4 depths | Expensive, slow, and the deepest ground is also the least surveyed |
 
 Depth re-rolls the clusters (§3), so the 3×3 that is rich at layer 2 is **not** the 3×3 that
 is rich at layer 4. A shaft sunk to layer 4 opens four independently-placed ore bodies' worth

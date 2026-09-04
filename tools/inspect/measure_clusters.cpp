@@ -35,6 +35,12 @@
 static const unsigned int MEASURE_MAP_SEED = 20260813u;
 
 static const int G = PROSPECTING_GRID_SIZE;
+// Footprints worth asking about on this lattice, in sub-cells. At
+// SUBCELL_SIZE_M each, 3 is a real shaft (9.4 m) and 12 is what the old
+// 8x8 design meant by "3x3" (37.5 m) -- both are on the table so the
+// choice is made against numbers rather than against a stale name.
+static const int WIN[] = { 2, 3, 4, 6, 8, 12, 16 };
+static const int NWIN = static_cast<int>(sizeof(WIN) / sizeof(WIN[0]));
 
 struct Accum
 {
@@ -63,7 +69,7 @@ struct Accum
 // Best-placed NxN window: the largest share of the lattice's total yield that
 // any NxN block of sub-cells can capture. This is exactly what a shaft of that
 // footprint, sited perfectly, would open.
-static double BestWindowShare(const float f[8][8], int N, double total)
+static double BestWindowShare(const float f[][G], int N, double total)
 {
     if (total <= 0.0) return 0.0;
     double best = 0.0;
@@ -96,7 +102,7 @@ static void DumpOneField(ResourceManager& rm, int gx, int gy)
     printf("\n--- raw dump: parent cell (%d,%d), SURFACE, resource %s ---\n",
            gx, gy, ResourceTypeToString(t));
 
-    float f[8][8];
+    float f[G][G];
     double total = 0.0, hi = 0.0, lo = 1e30;
     for (int y = 0; y < G; y++)
     {
@@ -152,7 +158,7 @@ int main(int argc, char** argv)
     rm.GenerateResourceMap(MEASURE_MAP_SEED);
 
     // per-window-size capture share
-    Accum share[6];              // index = N (2..5 used)
+    Accum share[NWIN];           // index into WIN[]
     Accum richCount;             // sub-cells at >= 1.5x the lattice mean
     Accum richBoxW, richBoxH;    // bounding box of that rich ground
     Accum peakShare;             // share held by the single best sub-cell
@@ -194,7 +200,7 @@ int main(int argc, char** argv)
                 {
                     ResourceType t = kv.first;
 
-                    float f[8][8];
+                    float f[G][G];
                     double total = 0.0;
                     for (int y = 0; y < G; y++)
                     {
@@ -231,8 +237,8 @@ int main(int argc, char** argv)
                         if (whi >= SUBCELL_VARIATION_MAX - 1e-4) maxClampBound++;
                     }
 
-                    for (int N = 2; N <= 5; N++)
-                        share[N].Add(BestWindowShare(f, N, total));
+                    for (int wi = 0; wi < NWIN; wi++)
+                        share[wi].Add(BestWindowShare(f, WIN[wi], total));
 
                     // rich ground: >= 1.5x mean
                     int cnt = 0, minx = G, maxx = -1, miny = G, maxy = -1;
@@ -267,7 +273,8 @@ int main(int argc, char** argv)
 
     printf("\n");
     printf("=====================================================================\n");
-    printf(" ORE BODY FOOTPRINT ON THE 8x8 LATTICE\n");
+    printf(" ORE BODY FOOTPRINT ON THE %dx%d LATTICE  (sub-cell %.3f m)\n",
+           G, G, SUBCELL_SIZE_M);
     printf(" seed %u   parent cells %d   (resource x depth) fields measured %ld\n",
            MEASURE_MAP_SEED, side*side, bodies);
     printf(" field = GetQuantity * GetGroundTruth[resource]  (targeted yield)\n");
@@ -275,13 +282,14 @@ int main(int argc, char** argv)
 
     printf(" Share of a field's total yield captured by the BEST-PLACED window\n");
     printf(" (this is what a shaft of that footprint, sited perfectly, opens)\n\n");
-    printf("   window   of 64 cells   mean capture   sd      min      max\n");
-    for (int N = 2; N <= 5; N++)
+    printf("   window    metres   share of lattice   mean capture   sd      min      max\n");
+    for (int wi = 0; wi < NWIN; wi++)
     {
-        printf("    %dx%d        %2d%%          %5.1f%%      %4.1f   %5.1f%%   %5.1f%%\n",
-               N, N, (N*N*100)/64,
-               100.0*share[N].Mean(), 100.0*share[N].Sd(),
-               100.0*share[N].lo, 100.0*share[N].hi);
+        int N = WIN[wi];
+        printf("    %2dx%-2d   %6.1f m       %5.1f%%          %5.1f%%      %4.1f   %5.1f%%   %5.1f%%\n",
+               N, N, N * SUBCELL_SIZE_M, (100.0*N*N)/(G*G),
+               100.0*share[wi].Mean(), 100.0*share[wi].Sd(),
+               100.0*share[wi].lo, 100.0*share[wi].hi);
     }
 
     printf("\n Rich ground (sub-cells at >= 1.5x the field's mean)\n\n");
@@ -295,8 +303,8 @@ int main(int argc, char** argv)
            100.0 * richContiguousFits4 / (double)std::max(1L, bodies));
 
     printf("\n Single best sub-cell\n\n");
-    printf("   holds %.1f%% of the field's yield   (1/64 = 1.6%% if flat)\n",
-           100.0*peakShare.Mean());
+    printf("   holds %.1f%% of the field's yield   (1/%d = %.2f%% if flat)\n",
+           100.0*peakShare.Mean(), G*G, 100.0/(G*G));
     printf("   best / mean = %.2fx   (SUBCELL_VARIATION_MAX clamp is %.1f)\n",
            bestOverMean.Mean(), SUBCELL_VARIATION_MAX);
 

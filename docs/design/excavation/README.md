@@ -32,7 +32,7 @@ Prospecting tells you which spot is worth it — if you paid for prospecting. Fu
 | Pillar | What it is |
 |--------|-----------|
 | **The panel** | Target material, pace, power cap. Purity is what you read, not what you set |
-| **Place** | Which spot in the 8×8 lattice, and how deep. Reach is a tier ring, not a dial |
+| **Place** | Which spot in the 32×32 lattice, and how deep. Reach is a tier ring, not a dial |
 | **The gamble** | Digging without having paid to survey first — not random noise, a choice to skip a cost |
 | **Machinery** | Six machines with different depth, precision, pace and wear. Optional; AUTO by default |
 | **Access** | Deep ground must connect to the surface — strip the column, or sink a shaft that opens a 3×3 block. Tier buys lateral reach; access buys depth |
@@ -41,12 +41,12 @@ The first four lock together through one machine stat: **precision**. A sloppy m
 wider than you aimed and averages your chosen spot with its neighbours — throwing away the
 survey you paid for. So *"should I survey?"* and *"which machine?"* become the same question.
 
-Excavation invents no geography. Prospecting builds a **fixed 8×8** sub-cell lattice per
+Excavation invents no geography. Prospecting builds a **fixed 32×32** sub-cell lattice per
 unit, with 0.3×–2.0× variation between spots, per-spot per-depth confidence, and per-spot
 per-depth ground truth. Excavation reads that lattice and digs in it.
 
 **Tier extends reach, not resolution** — concentric rings out from the sect,
-2×2 → 4×4 → 6×6 → 8×8. Excavation reads that reach with its **own** tier, which is where the
+8×8 → 16×16 → 24×24 → 32×32. Excavation reads that reach with its **own** tier, which is where the
 gamble becomes structural: dig further than you can survey and you're working ground you have
 no way to learn about first. At tier 0 the grid's best spot is inside reach only **7%** of
 the time, so early game isn't about surveying — it's about being pinned to whatever lies
