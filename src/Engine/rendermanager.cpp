@@ -2647,7 +2647,7 @@ static const Color PROS_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,
 static constexpr float PROS_ROCK_TEX_PX = static_cast<float>(RockTexture::SIZE);
 static constexpr float PROS_PLATE_TEX_REPEAT = 2.0f;
 // How far a plate's DRAWN surface hangs below its stratum's top boundary,
-// as a fraction of the plate diamond's half-height (see ProsDockFrom).
+// as a fraction of the plate diamond's half-height (see DockFromBlock).
 static constexpr float PROS_PLATE_TUCK = 0.50f;
 
 // The y of a stratum's top boundary -- the line the plate hangs under, the
@@ -3062,9 +3062,10 @@ static float ProsRnd()
     return static_cast<float>(prosGrain) / 2147483647.0f;
 }
 
-// The strip's depth axis, derived from the block stack so the two agree by
-// construction: band L is centred on plate L's slot.
-struct ProsDockGeom
+// The strip's depth axis, shared by both vertical instruments -- prospecting's
+// borehole strip and excavation's shaft. Pure geometry: bands in, depth<->y
+// out, and nothing in it knows which module is drawing.
+struct DockGeom
 {
     float x = 0.0f, w = 0.0f, cx = 0.0f;
     float bandTop[5] = {0, 0, 0, 0, 0};
@@ -3091,9 +3092,9 @@ struct ProsDockGeom
     }
 };
 
-static ProsDockGeom ProsDockFrom(const BlockModelGeom& g, float stripX, float stripW)
+static DockGeom DockFromBlock(const BlockModelGeom& g, float stripX, float stripW)
 {
-    ProsDockGeom d;
+    DockGeom d;
     d.x = stripX; d.w = stripW; d.cx = stripX + stripW * 0.5f;
     float slot[4];
     for (int L = 0; L < 4; L++)
@@ -3436,7 +3437,7 @@ static float ProsShownDepthM(const LineHole& hole)
 }
 
 static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
-                                 const ProsDockGeom& dg, float clipTop, float clipBot,
+                                 const DockGeom& dg, float clipTop, float clipBot,
                                  float hoverM, float hoverU, float hoverAlpha,
                                  const Font& bodyFont, float sp, float fsSmall,
                                  const Texture2D* strata)
@@ -3854,7 +3855,7 @@ static Vector2 ProsLinePoint(ProspectingSystem* ps, const BlockModelGeom& g,
     return g.Iso(fx + 0.5f, fy + 0.5f, L, pl.At(g, L, ci, cj));
 }
 static Vector2 ProsTraceAt(ProspectingSystem* ps, const BlockModelGeom& g,
-                           const ProsDockGeom& dg, const ProsPlateLift& pl, float m)
+                           const DockGeom& dg, const ProsPlateLift& pl, float m)
 {
     const LineHole& hole = ps->lineHole;
     Vector2 P0 = ProsLinePoint(ps, g, pl, 0.0f);
@@ -3866,7 +3867,7 @@ static Vector2 ProsTraceAt(ProspectingSystem* ps, const BlockModelGeom& g,
 // The prescribed line over the stack: shadow, string, advance, twin cursor,
 // crossing rings, flip flash, active-plate rim (Dark Plating section 9).
 static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
-                               const ProsDockGeom& dg, const ProsPlateLift& pl)
+                               const DockGeom& dg, const ProsPlateLift& pl)
 {
     const LineHole& hole = ps->lineHole;
     // The line over the plates is the LIVE OPERATION, not a record: a hole
@@ -3993,7 +3994,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // surface, or drill a spot. See docs/design/prospecting/block-model-design.md
     // =======================================================================
 
-    float dockW = 104.0f;
+    float dockW = 120.0f;
     float modelW = pw * 0.60f - dockW;
     float modelH = contentH - 30.0f;
     float gridX = px;
@@ -4014,7 +4015,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     }
 
     BlockModelGeom geom = ProsBlockGeom(gridSize, gridX, gridY, modelW, modelH);
-    ProsDockGeom dock = ProsDockFrom(geom, gridX + modelW + 6.0f, dockW);
+    DockGeom dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
 
     // The powerhead needs sky. If the stack starts too close to the panel
     // top (it did on the playtest layout, and the head was scissored away),
@@ -4026,7 +4027,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         {
             float push = 64.0f - sky;
             geom = ProsBlockGeom(gridSize, gridX, gridY + push, modelW, modelH - push);
-            dock = ProsDockFrom(geom, gridX + modelW + 6.0f, dockW);
+            dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
         }
     }
 
@@ -4607,6 +4608,615 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
 // Yield heat for the excavation grid. Green = rich, slate = poor. Deliberately
 // a different ramp from the sweep heat map: that one shows what the radar
+
+// ===========================================================================
+// THE SHAFT DOCK -- excavation's vertical instrument
+// ===========================================================================
+// Excavation's answer to the borehole strip, and deliberately not a copy of
+// it. A drill hole is a NEEDLE: prospecting aims a slanted line anywhere it
+// likes and records what it crossed. A working face is a VOLUME, and it has
+// to connect to the surface -- which is the access rule this module has and
+// prospecting does not (docs/design/excavation/excavation-design.md, Access).
+//
+// So this strip draws a SHAFT: wide, square-shouldered, timbered, with the
+// ground it has opened standing empty above the face and the diamond rotary
+// rig working at the bottom of it. Beside prospecting's ragged 30 px bore,
+// it should read as a thing you could lower a machine down.
+//
+// Phase 1 of docs/design/excavation/rebuild-plan.md: drawing only. The face
+// follows the depth the player has selected; sinking becomes an action that
+// costs energy and time in phase 4.
+//
+// NOTE ON NAMES: ProsSteel / ProsBandedSlice / PROS_OUT / PROS_*_TONES are
+// Dark Plating's SHARED material layer (style guide sections 4 and 5), not
+// prospecting's property -- the prefix is historical. They are called here
+// rather than duplicated. Renaming them out of the Pros namespace is phase 3
+// work, when the panel is recomposed and the diff is already in this file.
+
+// Excavation's own heat field. Same Gaussian law as the drill (style guide
+// 4.5), its own hotspot: heat belongs to the machine that made it, and two
+// modules can be on screen in the same frame.
+static float excHeatAmt = 0.0f, excHeatBitY = 0.0f;
+static float ExcHeatAt(float y)
+{
+    float d = y - excHeatBitY;
+    return excHeatAmt * expf(-(d * d) / (2.0f * 30.0f * 30.0f));
+}
+
+// Where the machine is. Excavation needs three numbers where the auger needed
+// six -- there is no thread and no cone to anchor.
+struct ExcRig
+{
+    float cx, surfY, bitY;
+};
+static float excSpin = 0.0f;          // the bit's rotation accumulator
+
+// ---- drill string geometry (diamond rotary, px) ---------------------------
+// The rig is the concept sheet's diamond rotary drill: bevelled-lid motor box,
+// amber collar, slotted neck, rod, the variant's lower works, and a cone of
+// diamond-tipped cutters. Dark Plating section 6.5.
+//
+// EXC_DRILL_R is the widest thing on the string, so it still sizes the hole.
+static const float EXC_DRILL_R = 15.0f;      // the bit, and so the bore
+static const float EXC_ROD_TOP = 10.4f, EXC_ROD_BOT = 8.8f;
+static const float EXC_NECK_R  = 12.6f, EXC_NECK_H = 17.0f;
+static const float EXC_BIT_LEN = 22.0f;
+// A rotary bit does not screw itself in the way an auger does, so its spin is
+// not geometrically locked to advance. What replaces the auger's pitch is the
+// bit's DEPTH OF CUT PER REVOLUTION: how far one turn of the teeth takes it
+// down. Keeping the coupling means the teeth still visibly turn faster in soft
+// ground and grind in hard, which is the read the pitch used to buy.
+static const float EXC_BITE_PX = 6.5f;
+
+// One tooth ring: an elliptical annulus at its own height and radius, with n
+// teeth marching around it. SQ is how far above the rings the eye sits.
+static const float EXC_SQ = 0.36f;
+struct ExcRing { float r, y, len, w, pull; int n; };
+
+// The two variants of the sheet. Tier buys the heavier rig: below T2 the
+// module is running the compact, at T2 and up the heavy duty -- so an upgrade
+// is a thing you SEE in the bar, not only a number in the panel.
+struct ExcVariant
+{
+    const char* name;
+    float boxW, boxH, lidH, collarW, collarH;
+    bool  litVents;                 // heavy wears three lit vents, compact a slot
+    ExcRing ring[2];
+    float tipY, tipLen, tipW;
+    int   nStack;
+    struct { int kind; float h, r; } stack[5];   // 0 collar 1 twotone 2 ventbox
+};                                               // 3 amber   4 hex     5 fluted
+static const ExcVariant EXC_VARIANTS[2] =
+{
+    { "COMPACT",
+      42.0f, 21.0f, 6.0f, 50.0f, 10.0f, false,
+      { {13.4f, 0.0f, 8.6f, 4.2f, 0.20f, 8}, {8.6f, 7.2f, 7.2f, 3.8f, 0.36f, 6} },
+      13.0f, 7.8f, 4.6f,
+      2, { {0, 6.0f, 11.2f}, {1, 15.0f, 9.6f} } },
+    { "HEAVY DUTY",
+      50.0f, 27.0f, 7.0f, 58.0f, 11.0f, true,
+      { {15.0f, 0.0f, 9.4f, 4.7f, 0.20f, 10}, {9.8f, 8.5f, 8.1f, 4.1f, 0.36f, 7} },
+      15.2f, 8.8f, 5.0f,
+      4, { {0, 7.0f, 12.0f}, {2, 16.0f, 13.4f}, {3, 13.0f, 15.2f},
+           {4, 7.0f, 12.2f} } },
+};
+static int excVariantIdx = 1;
+static const ExcVariant& ExcVar() { return EXC_VARIANTS[excVariantIdx]; }
+
+static float ExcStackH()
+{
+    const ExcVariant& v = ExcVar();
+    float h = 0.0f;
+    for (int i = 0; i < v.nStack; i++) h += v.stack[i].h;
+    return h;
+}
+// The outer envelope, so chips ride the machine and never a constant.
+static float ExcRadAt(const ExcRig& r, float y)
+{
+    const ExcVariant& v = ExcVar();
+    float bitTop = r.bitY - EXC_BIT_LEN;
+    if (y >= bitTop) return EXC_DRILL_R;
+    float y1 = bitTop;
+    for (int i = 0; i < v.nStack; i++)
+    {
+        float y0 = y1 - v.stack[i].h;
+        if (y >= y0) return v.stack[i].r;
+        y1 = y0;
+    }
+    float t = std::clamp((y - r.surfY) / std::max(1.0f, y1 - r.surfY), 0.0f, 1.0f);
+    return EXC_ROD_TOP + (EXC_ROD_BOT - EXC_ROD_TOP) * t;
+}
+
+// One cutter: a stubby cone, base at (bx,by), tip pulled toward the axis by
+
+// inx. Four points, so the tip reads as a chisel rather than a needle.
+static void ExcTooth(float bx, float by, float w, float len, float inx, Color fill)
+{
+    Vector2 a = {bx - w * 0.5f, by}, b = {bx + w * 0.5f, by};
+    Vector2 c = {bx + inx + w * 0.16f, by + len * 0.86f};
+    Vector2 d = {bx + inx - w * 0.10f, by + len};
+    DrawTriangle(a, d, c, fill);
+    DrawTriangle(a, c, b, fill);
+}
+static void ExcToothOutline(float bx, float by, float w, float len, float inx)
+{
+    Vector2 a = {bx - w * 0.5f, by}, b = {bx + w * 0.5f, by};
+    Vector2 c = {bx + inx + w * 0.16f, by + len * 0.86f};
+    Vector2 d = {bx + inx - w * 0.10f, by + len};
+    DrawLineEx(a, d, 2.4f, PROS_OUT); DrawLineEx(d, c, 2.4f, PROS_OUT);
+    DrawLineEx(c, b, 2.4f, PROS_OUT); DrawLineEx(a, b, 2.4f, PROS_OUT);
+}
+
+// The bit (Dark Plating section 6.5). Two rings of diamond-tipped cutters and
+// a centre point. Each ring is an elliptical annulus; every tooth owns an
+// angle on it, and rotation is the teeth marching around -- the same
+// projection the auger's helicoid used, with segments instead of a sweep.
+// The cone is a CONSEQUENCE: the outer ring splays (tips pull only 0.20 of
+// the ring radius toward the axis), the inner converges at 0.36, the centre
+// point sits on the axis. All rings share ONE painter sort -- sorting per
+// ring lets a front tooth of the outer ring vanish under a back tooth of the
+// inner one.
+static void ExcDrawBit(const ExcRig& r)
+{
+    const ExcVariant& v = ExcVar();
+    float bT = r.bitY - EXC_BIT_LEN;
+    float heat = ExcHeatAt(r.bitY);
+
+    // the dark body the teeth are set in, so they read against something
+    Vector2 o0 = {r.cx - EXC_DRILL_R - 1.6f, bT - 1.6f};
+    Vector2 o1 = {r.cx + EXC_DRILL_R + 1.6f, bT - 1.6f};
+    Vector2 o2 = {r.cx + EXC_DRILL_R * 0.22f, r.bitY + 1.2f};
+    Vector2 o3 = {r.cx - EXC_DRILL_R * 0.22f, r.bitY + 1.2f};
+    DrawTriangle(o0, o3, o2, PROS_OUT); DrawTriangle(o0, o2, o1, PROS_OUT);
+    Color body = ProsSteel(0.16f, heat);
+    Vector2 b0 = {r.cx - EXC_DRILL_R + 1.2f, bT};
+    Vector2 b1 = {r.cx + EXC_DRILL_R - 1.2f, bT};
+    Vector2 b2 = {r.cx + EXC_DRILL_R * 0.18f, r.bitY - 1.6f};
+    Vector2 b3 = {r.cx - EXC_DRILL_R * 0.18f, r.bitY - 1.6f};
+    DrawTriangle(b0, b3, b2, body); DrawTriangle(b0, b2, b1, body);
+
+    struct Tooth { float a, f; int ring, idx; };
+    std::vector<Tooth> teeth;
+    for (int k = 0; k < 2; k++)
+    {
+        const ExcRing& rg = v.ring[k];
+        float step = 2.0f * PI / static_cast<float>(rg.n);
+        for (int i = 0; i < rg.n; i++)
+        {
+            float a = excSpin + k * step * 0.5f + i * step;
+            teeth.push_back({a, -cosf(a), k, i});
+        }
+    }
+    std::sort(teeth.begin(), teeth.end(),
+              [](const Tooth& p, const Tooth& q) { return p.f < q.f; });
+
+    for (const Tooth& t : teeth)
+    {
+        const ExcRing& rg = v.ring[t.ring];
+        bool front = t.f > 0.0f;
+        float bx = r.cx + rg.r * sinf(t.a);
+        float by = (bT + rg.y) - EXC_SQ * rg.r * cosf(t.a);
+        float sc = front ? 1.0f : 0.78f;
+        float inx = -sinf(t.a) * rg.r * rg.pull * sc;
+        float lt = 0.5f - 0.5f * sinf(t.a);              // light from upper-left
+        // Back teeth are REMAPPED brighter, not merely darkened: a plain dim
+        // sinks them into the body they stand on.
+        float shade = front ? 0.50f + 0.32f * lt + 0.12f * t.f
+                            : 0.15f + (0.48f + 0.30f * lt) * 0.44f;
+        if (front) ExcToothOutline(bx, by, rg.w * sc, rg.len * sc, inx);
+        ExcTooth(bx, by, rg.w * sc, rg.len * sc, inx,
+                  ProsSteel(shade, front ? heat : heat * 0.6f));
+        if (front)
+        {
+            DrawLineEx({bx - rg.w * 0.30f, by + 1.0f},
+                       {bx + inx - rg.w * 0.06f, by + rg.len * 0.82f},
+                       1.0f, ProsSteel(0.82f + 0.18f * lt, heat * 0.4f));
+            // one diamond speck per tooth, seeded so the grit rides its tooth
+            unsigned gs = (2654435761u * static_cast<unsigned>(t.ring * 31 + t.idx)) % 97u;
+            DrawRectangleRec({bx - 1.4f + (gs % 3u), by + 2.0f + (gs % 4u), 1.7f, 1.7f},
+                             ProsSteel(0.94f, heat * 0.3f));
+        }
+    }
+    // the centre point: angle-free, always front, painted last
+    ExcToothOutline(r.cx, bT + v.tipY, v.tipW, v.tipLen, 0.0f);
+    ExcTooth(r.cx, bT + v.tipY, v.tipW, v.tipLen, 0.0f, ProsSteel(0.56f, heat));
+    DrawLineEx({r.cx - v.tipW * 0.22f, bT + v.tipY + 1.4f},
+               {r.cx - v.tipW * 0.06f, bT + v.tipY + v.tipLen * 0.8f},
+               1.0f, ProsSteel(0.92f, heat * 0.4f));
+}
+
+
+
+// variant is a list and never a branch.
+static void ExcDrawStackSeg(const ExcRig& r, int kind, float y0, float y1, float rad)
+{
+    float h = ExcHeatAt((y0 + y1) * 0.5f), hh = (y1 - y0);
+    if (kind == 0 || kind == 4)                       // step collar / hex joint
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 1.5f, (rad + 2.0f) * 2.0f, hh + 3.0f}, PROS_OUT);
+        for (float y = y0; y < y1; y += 1.4f)
+            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES);
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 1.6f}, Fade(WHITE, 0.34f));
+        DrawRectangleRec({r.cx - rad, y1 - 2.0f, rad * 2.0f, 2.0f}, Fade(BLACK, 0.45f));
+        if (kind == 4)                                // side facets say hexagonal
+        {
+            DrawTriangle({r.cx - rad, y0}, {r.cx - rad, y1}, {r.cx - rad + 4.0f, (y0 + y1) * 0.5f},
+                         Fade(BLACK, 0.35f));
+            DrawTriangle({r.cx + rad, y0}, {r.cx + rad - 4.0f, (y0 + y1) * 0.5f}, {r.cx + rad, y1},
+                         Fade(BLACK, 0.35f));
+        }
+    }
+    else if (kind == 1)                               // the compact's lower barrel
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 1.5f, (rad + 2.0f) * 2.0f, hh + 3.0f}, PROS_OUT);
+        for (float y = y0; y < y1; y += 1.4f)
+            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_CHUCK_TONES);
+        DrawRectangleRec({r.cx - rad + 3.0f, y0 + 3.0f, 1.8f, hh - 6.0f}, Fade(BLACK, 0.30f));
+        DrawRectangleRec({r.cx + rad - 5.0f, y0 + 3.0f, 1.8f, hh - 6.0f}, Fade(BLACK, 0.30f));
+        DrawRectangleRec({r.cx - rad, (y0 + y1) * 0.5f - 0.8f, rad * 2.0f, 1.6f}, Fade(BLACK, 0.38f));
+    }
+    else if (kind == 2)                               // the vented grey housing
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 2.0f, (rad + 2.0f) * 2.0f, hh + 4.0f}, PROS_OUT);
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, hh}, ProsSteel(0.34f, h * 0.5f));
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 2.6f}, Fade(WHITE, 0.30f));
+        DrawRectangleRec({r.cx - rad, y1 - 2.6f, rad * 2.0f, 2.6f}, Fade(BLACK, 0.30f));
+        DrawRectangleRec({r.cx - rad * 0.52f - 1.6f, y0 + 4.0f, 3.2f, 6.0f}, Fade(BLACK, 0.5f));
+        DrawRectangleRec({r.cx + rad * 0.52f - 1.6f, y0 + 4.0f, 3.2f, 6.0f}, Fade(BLACK, 0.5f));
+    }
+    else if (kind == 3)                               // the amber stabiliser
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 2.0f, (rad + 2.0f) * 2.0f, hh + 4.0f}, PROS_OUT);
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, hh}, {217, 150, 47, 255});
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 2.6f}, Fade(WHITE, 0.30f));
+        DrawRectangleRec({r.cx - rad, y1 - 2.6f, rad * 2.0f, 2.6f}, Fade(BLACK, 0.30f));
+        DrawRectangleRec({r.cx - rad * 0.42f - 1.8f, y0 + 3.0f, 3.6f, hh - 6.0f}, Fade(BLACK, 0.46f));
+        DrawRectangleRec({r.cx + rad * 0.42f - 1.8f, y0 + 3.0f, 3.6f, hh - 6.0f}, Fade(BLACK, 0.46f));
+        DrawRectangleRec({r.cx - rad + 2.5f, y0 + 2.0f, 2.4f, 2.4f}, {244, 198, 106, 255});
+        DrawRectangleRec({r.cx + rad - 4.9f, y0 + 2.0f, 2.4f, 2.4f}, {244, 198, 106, 255});
+        if (h > 0.02f)
+            DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, hh},
+                             Fade(Color{255, 110, 30, 255}, std::min(0.5f, h * 0.5f)));
+    }
+    else                                              // the bundled-column section
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 1.5f, (rad + 2.0f) * 2.0f, hh + 3.0f}, PROS_OUT);
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, hh}, ProsSteel(0.10f, h * 0.4f));
+        float cw = rad * 0.30f;
+        for (int k = -1; k <= 1; k++)
+            for (float y = y0 + 4.0f; y < y1 - 4.0f; y += 1.4f)
+                ProsBandedSlice(r.cx + k * rad * 0.60f, y, cw, 1.8f, PROS_ROD_TONES);
+        for (float y = y0; y < y0 + 4.0f; y += 1.4f)
+            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES);
+        for (float y = y1 - 4.0f; y < y1; y += 1.4f)
+            ProsBandedSlice(r.cx, y, rad, 1.8f, PROS_JOINT_TONES);
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 1.3f}, Fade(WHITE, 0.30f));
+        DrawRectangleRec({r.cx - rad, y1 - 1.6f, rad * 2.0f, 1.6f}, Fade(BLACK, 0.40f));
+    }
+}
+
+// The rig below the collar: slotted neck, rod with its joints, the variant's
+
+// fixed offsets above the lower works -- what is bolted together stays
+// bolted together as the hole deepens.
+static void ExcDrawString(const ExcRig& r, float topY)
+{
+    const ExcVariant& v = ExcVar();
+    float bitTop = r.bitY - EXC_BIT_LEN;
+    float stackTop = bitTop - ExcStackH();
+
+    // rod: silhouette then banded body, in thin slices so the taper stays
+    // banded. It runs from under the collar to the lower works.
+    float rodTopY = std::max(topY, r.surfY - 6.0f);
+    if (stackTop > rodTopY)
+    {
+        for (float y = rodTopY; y < stackTop; y += 1.4f)
+        {
+            float w = ExcRadAt(r, std::max(y, r.surfY + 0.1f)) + 1.8f;
+            DrawRectangleRec({r.cx - w, y, w * 2.0f, 2.1f}, PROS_OUT);
+        }
+        for (float y = rodTopY; y < stackTop - 1.0f; y += 1.4f)
+        {
+            float w = ExcRadAt(r, std::max(y, r.surfY + 0.1f));
+            if (w < 0.7f) continue;
+            ProsBandedSlice(r.cx, y, w, 1.8f, PROS_ROD_TONES);
+        }
+        for (int k = 1; k <= 3; k++)
+        {
+            float jy = stackTop - k * 78.0f;
+            if (jy < r.surfY + 10.0f) break;
+            ProsDrawJoint(r.cx, jy, ExcRadAt(r, jy) + 0.8f, false);
+        }
+    }
+
+    // the lower works, bottom-up from the bit
+    float y1 = bitTop;
+    for (int i = 0; i < v.nStack; i++)
+    {
+        float y0 = y1 - v.stack[i].h;
+        if (y1 > r.surfY + 2.0f) ExcDrawStackSeg(r, v.stack[i].kind, y0, y1, v.stack[i].r);
+        y1 = y0;
+    }
+    ExcDrawBit(r);
+}
+
+// The top works, following the concept sheet: a bevelled-lid motor box on the
+// sled, its mouth slot and state lamp, then the amber collar -- one dark mouth
+// slot on the compact, three lit vents on the heavy. Anchored just above the
+// surface and clamped to the clip, so it can NEVER be scissored away by a
+
+static void ExcDrawHead(float cx, float surfY, float clipTop,
+                         bool turning, bool cooling)
+{
+    const ExcVariant& v = ExcVar();
+    auto box = [](float x, float y, float w, float h, Color fill, bool bev)
+    {
+        DrawRectangleRec({x - 2.0f, y - 2.0f, w + 4.0f, h + 4.0f}, PROS_OUT);
+        DrawRectangleRec({x, y, w, h}, fill);
+        if (bev)
+        {
+            DrawRectangleRec({x, y, w, 2.6f}, Fade(WHITE, 0.30f));
+            DrawRectangleRec({x, y, 2.6f, h}, Fade(WHITE, 0.14f));
+            DrawRectangleRec({x, y + h - 2.6f, w, 2.6f}, Fade(BLACK, 0.30f));
+            DrawRectangleRec({x + w - 2.6f, y, 2.6f, h}, Fade(BLACK, 0.22f));
+        }
+    };
+    float neckY = std::max(clipTop + v.boxH + v.lidH + v.collarH + 8.0f,
+                           surfY - 9.0f - EXC_NECK_H);
+    float collarY = neckY - v.collarH;
+    float boxY = collarY - v.boxH, lidY = boxY - v.lidH;
+
+    // base sled: the rig stands ON the ground rather than hovering over it
+    DrawRectangleRec({cx - v.boxW * 0.5f - 12.0f, surfY - 11.0f, v.boxW + 24.0f, 11.0f}, PROS_OUT);
+    DrawRectangleRec({cx - v.boxW * 0.5f - 10.0f, surfY - 10.0f, v.boxW + 20.0f, 9.0f}, {28, 37, 48, 255});
+    DrawRectangleRec({cx - v.boxW * 0.5f - 10.0f, surfY - 10.0f, v.boxW + 20.0f, 2.2f}, Fade(WHITE, 0.18f));
+
+    // the bevelled lid: a trapezoid, so the box reads as a cast housing
+    Vector2 l0 = {cx - v.boxW * 0.34f - 2.0f, lidY - 2.0f};
+    Vector2 l1 = {cx + v.boxW * 0.34f + 2.0f, lidY - 2.0f};
+    Vector2 l2 = {cx + v.boxW * 0.5f + 4.0f, boxY + 1.0f};
+    Vector2 l3 = {cx - v.boxW * 0.5f - 4.0f, boxY + 1.0f};
+    DrawTriangle(l0, l3, l2, PROS_OUT); DrawTriangle(l0, l2, l1, PROS_OUT);
+    Vector2 m0 = {cx - v.boxW * 0.34f, lidY}, m1 = {cx + v.boxW * 0.34f, lidY};
+    Vector2 m2 = {cx + v.boxW * 0.5f + 2.0f, boxY}, m3 = {cx - v.boxW * 0.5f - 2.0f, boxY};
+    Color lid = ProsSteel(0.62f);
+    DrawTriangle(m0, m3, m2, lid); DrawTriangle(m0, m2, m1, lid);
+    DrawRectangleRec({cx - v.boxW * 0.34f, lidY, v.boxW * 0.68f, 2.2f}, Fade(WHITE, 0.30f));
+
+    box(cx - v.boxW * 0.5f, boxY, v.boxW, v.boxH, {57, 66, 78, 255}, true);
+    DrawRectangleRec({cx - v.boxW * 0.5f + 6.0f, boxY + 5.0f, v.boxW - 12.0f, 1.4f}, Fade(BLACK, 0.35f));
+    DrawRectangleRec({cx - 0.7f, boxY + 5.0f, 1.4f, v.boxH - 10.0f}, Fade(BLACK, 0.35f));
+    DrawRectangleRec({cx - 7.0f, boxY + v.boxH - 8.0f, 14.0f, 4.6f}, {20, 26, 33, 255});
+    DrawRectangleRec({cx - 7.0f, boxY + v.boxH - 8.0f, 14.0f, 1.2f}, Fade(WHITE, 0.14f));
+    // the state lamp keeps its semantics: hot cooling, amber turning, cyan idle
+    DrawRectangleRec({cx + v.boxW * 0.5f - 10.2f, boxY + v.boxH - 9.2f, 7.4f, 7.4f}, PROS_OUT);
+    DrawRectangleRec({cx + v.boxW * 0.5f - 9.0f, boxY + v.boxH - 8.0f, 5.0f, 5.0f},
+                     cooling ? Color{255, 90, 40, 255}
+                             : turning ? Color{255, 200, 77, 255}
+                                       : Color{80, 225, 255, 255});
+
+    // the amber collar -- the machine's signature colour (section 1.2)
+    box(cx - v.collarW * 0.5f, collarY, v.collarW, v.collarH, {217, 150, 47, 255}, true);
+    if (v.litVents)
+    {
+        for (int k = -1; k <= 1; k++)
+        {
+            DrawRectangleRec({cx + k * v.collarW * 0.16f - 2.4f, collarY + 2.5f, 4.8f, v.collarH - 5.0f},
+                             {122, 81, 21, 255});
+            DrawRectangleRec({cx + k * v.collarW * 0.16f - 1.2f, collarY + 3.5f, 2.4f, v.collarH - 7.0f},
+                             {244, 198, 106, 255});
+        }
+    }
+    else
+    {
+        DrawRectangleRec({cx - v.collarW * 0.30f, collarY + v.collarH * 0.5f - 1.8f,
+                          v.collarW * 0.60f, 3.6f}, {122, 81, 21, 255});
+        DrawRectangleRec({cx - v.collarW * 0.30f, collarY + v.collarH * 0.5f + 0.8f,
+                          v.collarW * 0.60f, 1.0f}, Fade(BLACK, 0.4f));
+    }
+    DrawRectangleRec({cx - v.collarW * 0.5f - 2.5f, collarY + 2.0f, 2.6f, 2.6f}, {244, 198, 106, 255});
+    DrawRectangleRec({cx + v.collarW * 0.5f - 0.1f, collarY + 2.0f, 2.6f, 2.6f}, {244, 198, 106, 255});
+
+    // the slotted box the string runs down through, standing on the sled
+    DrawRectangleRec({cx - EXC_NECK_R - 2.5f, neckY - 2.5f,
+                      (EXC_NECK_R + 2.5f) * 2.0f, EXC_NECK_H + 5.0f}, PROS_OUT);
+    for (float y = neckY; y < neckY + EXC_NECK_H; y += 1.4f)
+        ProsBandedSlice(cx, y, EXC_NECK_R, 1.8f, PROS_CHUCK_TONES);
+    DrawRectangleRec({cx - EXC_NECK_R, neckY, EXC_NECK_R * 2.0f, 2.2f}, Fade(WHITE, 0.24f));
+    DrawRectangleRec({cx - EXC_NECK_R, neckY + EXC_NECK_H - 2.6f,
+                      EXC_NECK_R * 2.0f, 2.6f}, Fade(BLACK, 0.40f));
+    int ns = v.litVents ? 3 : 4;
+    for (int i = 0; i < ns; i++)
+    {
+        float t = (i + 0.5f) / ns;
+        float sx = cx - EXC_NECK_R + t * EXC_NECK_R * 2.0f - 1.3f;
+        DrawRectangleRec({sx, neckY + 3.0f, 2.6f, EXC_NECK_H - 7.0f}, Fade(BLACK, 0.5f));
+        if (v.litVents)
+            DrawRectangleRec({sx + 0.4f, neckY + 4.0f, 1.8f, EXC_NECK_H - 9.0f},
+                             {244, 198, 106, 255});
+    }
+}
+
+// ---- the shaft itself ------------------------------------------------------
+// Sized so it reads as a volume rather than a bore: the rig is 30 px across
+// and the shaft is 64, in a strip 16 px wider than prospecting's -- a hole you
+// sink a machine down, not one you push a needle through. The extra width is
+// spent on ROCK, because the strata either side are what make a depth legible.
+static const float EXC_SHAFT_HALF = 32.0f;
+static const float EXC_SET_SPACING = 36.0f;   // timber sets down the walls
+
+static void ExcDrawShaft(const DockGeom& dg, float surfY, float faceY)
+{
+    float x0 = dg.cx - EXC_SHAFT_HALF, x1 = dg.cx + EXC_SHAFT_HALF;
+    float h = faceY - surfY;
+    if (h < 1.0f) return;
+
+    // the void
+    DrawRectangleRec({x0, surfY, x1 - x0, h}, {11, 9, 7, 255});
+
+    // Dressed walls, not ragged ones. A borehole's wall is broken rock and is
+    // drawn as jitter; a shaft's is cut to a line and held there, so it gets a
+    // straight face with a lit inner edge. That difference is most of what
+    // makes this read as built rather than drilled.
+    for (int s = -1; s <= 1; s += 2)
+    {
+        float wx = (s < 0) ? x0 : x1 - 7.0f;
+        DrawRectangleRec({wx, surfY, 7.0f, h}, {31, 27, 22, 255});
+        DrawRectangleRec({(s < 0) ? x0 + 6.0f : x1 - 7.0f, surfY, 1.4f, h},
+                         Fade(Color{198, 214, 232, 255}, 0.13f));
+    }
+    // the far wall darkens with depth, which is what gives the void a floor
+    for (int i = 0; i < 5; i++)
+    {
+        float t0 = i / 5.0f;
+        DrawRectangleRec({x0 + 7.0f, surfY + h * t0, (x1 - x0) - 14.0f, h / 5.0f + 1.0f},
+                         Fade(BLACK, 0.10f + 0.14f * t0));
+    }
+
+    // Sets: the timbering that holds a shaft open. Spaced by a fixed pixel
+    // pitch rather than by depth, because they are structure, not scale.
+    for (float y = surfY + EXC_SET_SPACING; y < faceY - 6.0f; y += EXC_SET_SPACING)
+    {
+        DrawRectangleRec({x0 + 5.0f, y, (x1 - x0) - 10.0f, 4.6f}, {24, 31, 40, 255});
+        DrawRectangleRec({x0 + 5.0f, y, (x1 - x0) - 10.0f, 1.3f}, Fade(WHITE, 0.16f));
+        DrawRectangleRec({x0 + 5.0f, y + 3.6f, (x1 - x0) - 10.0f, 1.0f}, Fade(BLACK, 0.45f));
+    }
+
+    // the face: the floor the rig is standing on and cutting into
+    DrawRectangleRec({x0 + 7.0f, faceY - 3.0f, (x1 - x0) - 14.0f, 3.0f}, {46, 40, 32, 255});
+    DrawRectangleRec({x0 + 7.0f, faceY - 3.0f, (x1 - x0) - 14.0f, 1.2f}, Fade(WHITE, 0.10f));
+}
+
+// ---- the dock's depth axis -------------------------------------------------
+// Phase 1 builds it standalone; phase 3 swaps this for DockFromBlock once the
+// block model arrives. The bands are spaced EVENLY on purpose -- that is what
+// the plate stack will hand over, so the swap changes no pixels. YOf then
+// interpolates within a band by true metre fraction, exactly as it does for
+// prospecting, which is what keeps a depth in one panel level with the same
+// depth in the other.
+static DockGeom ExcDockEven(float x, float w, float top, float bottom)
+{
+    DockGeom d;
+    d.x = x; d.w = w; d.cx = x + w * 0.5f;
+    float span = (bottom - top) / 4.0f;
+    for (int L = 0; L < 5; L++) d.bandTop[L] = top + span * L;
+    return d;
+}
+
+// ---- the whole strip -------------------------------------------------------
+static void ExcDrawShaftDock(ExcavationSystem* es, const DockGeom& dg,
+                             float clipTop, float clipBot,
+                             const Font& bodyFont, float sp, float fsSmall,
+                             const Texture2D* strata)
+{
+    float surfY = dg.bandTop[0];
+    int dIdx = std::clamp(static_cast<int>(es->selectedDepth), 0, 3);
+
+    // The face sits at the CENTRE of the worked layer, matching prospecting's
+    // PlateTargetM: aiming at a layer means working inside it, never on the
+    // boundary, where the depth would belong to the layer above.
+    float faceM = LAYER_CENTRE_M[dIdx];
+    float faceY = dg.YOf(faceM);
+
+    // Tier buys the heavier rig, so an upgrade is a thing you SEE in the bar.
+    excVariantIdx = es->GetTier() >= 2 ? 1 : 0;
+
+    // Drive the machine from the work it actually did last tick.
+    const DigResult& lr = es->GetLastResult();
+    float pace = std::max(0.0f, lr.effectivePace);
+    bool working = pace > 0.001f;
+    bool throttled = lr.throttledByPower;
+    float hard = LAYER_HARDNESS[dIdx];
+    float dt = GetFrameTime();
+
+    excSpin -= (working ? (2.0f + 7.0f * pace) : 0.0f) * dt;
+    float heatTarget = working
+        ? std::clamp(pace * (0.20f + hard * 0.55f) * 0.62f, 0.0f, 1.0f) : 0.0f;
+    excHeatAmt += (heatTarget - excHeatAmt) * std::clamp(dt / 0.55f, 0.0f, 1.0f);
+    excHeatBitY = faceY;
+
+    BeginScissorMode(static_cast<int>(dg.x * gPixelScale),
+                     static_cast<int>(clipTop * gPixelScale),
+                     static_cast<int>(dg.w * gPixelScale),
+                     static_cast<int>((clipBot - clipTop) * gPixelScale));
+
+    // sky
+    DrawRectangleRec({dg.x, clipTop, dg.w, surfY - clipTop}, {10, 16, 24, 255});
+    prosGrain = 3;
+    for (int i = 0; i < 8; i++)
+        DrawRectangleRec({dg.x + ProsRnd() * dg.w,
+                          clipTop + ProsRnd() * std::max(1.0f, surfY - clipTop - 8.0f),
+                          1.4f, 1.4f}, Fade(Color{200, 220, 240, 255}, 0.5f));
+
+    // The rock: the same four generated textures the plates wear, so the band
+    // here and the plate beside it are one rock rather than two palettes.
+    for (int L = 0; L < 4; L++)
+    {
+        float y0 = dg.bandTop[L], y1 = dg.bandTop[L + 1];
+        if (strata != nullptr && strata[L].id != 0)
+        {
+            Color tint = { static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].r * 2)),
+                           static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].g * 2)),
+                           static_cast<unsigned char>(std::min(255, PROS_ROCK_COL[L].b * 2)),
+                           255 };
+            float k = static_cast<float>(RockTexture::SIZE) / PROS_ROCK_TEX_PX;
+            float off = static_cast<float>(L) * 41.0f;
+            DrawTexturePro(strata[L], {0.0f, off, dg.w * k, (y1 - y0) * k},
+                           {dg.x, y0, dg.w, y1 - y0}, {0.0f, 0.0f}, 0.0f, tint);
+        }
+        else
+        {
+            DrawRectangleRec({dg.x, y0, dg.w, y1 - y0}, PROS_ROCK_COL[L]);
+        }
+        DrawRectangleRec({dg.x, y0, dg.w, 2.0f}, PROS_ROCK_EDGE[L]);
+    }
+    DrawRectangleRec({dg.x, surfY - 1.8f, dg.w, 2.0f}, {74, 85, 96, 255});
+
+    // depth figures down the right edge, as the borehole strip has them
+    for (int L = 0; L < 4; L++)
+    {
+        const char* t = TextFormat("%d", static_cast<int>(LayerTopM(L)));
+        float tw = MeasureTextEx(bodyFont, t, fsSmall, sp).x;
+        DrawTextEx(bodyFont, t, {dg.x + dg.w - tw - 4.0f, dg.bandTop[L] + 3.0f},
+                   fsSmall, sp, Fade(Color{198, 214, 232, 255}, 0.40f));
+    }
+
+    ExcDrawShaft(dg, surfY, faceY);
+
+    // spoil at the collar: what the shaft took out has to be somewhere
+    DrawEllipse(static_cast<int>(dg.cx - EXC_SHAFT_HALF - 12.0f),
+                static_cast<int>(surfY - 1.0f), 15.0f, 6.0f, {70, 62, 49, 255});
+    DrawEllipse(static_cast<int>(dg.cx + EXC_SHAFT_HALF + 12.0f),
+                static_cast<int>(surfY - 1.0f), 15.0f, 6.0f, {70, 62, 49, 255});
+
+    ExcRig rig;
+    rig.cx = dg.cx; rig.surfY = surfY; rig.bitY = faceY;
+    ExcDrawString(rig, clipTop + 4.0f);
+    ExcDrawHead(dg.cx, surfY, clipTop, working, throttled);
+
+    // the glow at the face -- the one overlay this style allows (3.3)
+    if (excHeatAmt > 0.02f)
+    {
+        DrawCircleGradient({dg.cx, faceY}, 46.0f,
+                           Fade(Color{255, 110, 30, 255}, 0.34f * excHeatAmt),
+                           Fade(Color{255, 110, 30, 255}, 0.0f));
+    }
+
+    EndScissorMode();
+
+    // The border: solid on three sides, DASHED on the edge that faces the
+    // model, which is the cut mark the rock passes under (style guide 9.1).
+    DrawLineEx({dg.x, clipTop}, {dg.x, clipBot}, 1.0f, PROS_OUT);
+    DrawLineEx({dg.x + dg.w, clipTop}, {dg.x + dg.w, clipBot}, 1.0f, PROS_OUT);
+    DrawLineEx({dg.x, clipBot}, {dg.x + dg.w, clipBot}, 1.0f, PROS_OUT);
+    ProsDashed({dg.x, clipTop}, {dg.x + dg.w, clipTop}, 5.0f, 4.0f, 0.0f, 1.0f,
+               Fade(Color{140, 165, 190, 255}, 0.45f));
+
+    DrawTextEx(bodyFont, "SHAFT", {dg.x + 5.0f, clipBot - 13.0f}, fsSmall, sp,
+               Fade(Color{198, 214, 232, 255}, 0.45f));
+}
+
+
 // heard, this one shows how much of the TARGETED resource a spot holds.
 static Color ExcYieldHeatColor(float normalized)
 {
@@ -4712,7 +5322,11 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     // =======================================================================
     // Left: the ground
     // =======================================================================
-    float gridAreaW = std::min(pw * 0.56f, contentH - 30.0f);
+    // The shaft dock takes its width out of the lattice, which is on its way
+    // out anyway -- phase 2 replaces the flat grid with the block model, and
+    // the dock's depth axis moves from ExcDockEven to DockFromBlock then.
+    float dockW = 104.0f;
+    float gridAreaW = std::min(pw * 0.56f - dockW - 12.0f, contentH - 30.0f);
     float cellSize = gridAreaW / gridSize;
     float gridX = px;
     float gridY = contentY;
@@ -4861,9 +5475,22 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
                Fade(EXT_DIM_TEXT, 0.85f));
 
     // =======================================================================
+    // Centre: the shaft
+    // =======================================================================
+    // The same four generated rocks the borehole strip wears -- lazily loaded
+    // by whichever panel asks first, so excavation does not depend on the
+    // player having opened prospecting.
+    if (!strataLoaded) LoadStrataTextures();
+    float dockTop = contentY + 64.0f;                 // sky enough for the head
+    float dockBot = contentY + contentH - 6.0f;
+    DockGeom dock = ExcDockEven(gridX + gridAreaW + 12.0f, dockW, dockTop, dockBot);
+    ExcDrawShaftDock(es, dock, contentY, dockBot, bodyFont, sp, FS(7.5f),
+                     strataLoaded ? strataTex : nullptr);
+
+    // =======================================================================
     // Right: the controls
     // =======================================================================
-    float ctrlX = gridX + gridAreaW + 18.0f;
+    float ctrlX = dock.x + dock.w + 15.0f;
     float ctrlW = px + pw - ctrlX;
     float cy = contentY;
 

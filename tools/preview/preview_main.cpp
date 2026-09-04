@@ -31,6 +31,7 @@ static const unsigned int PREVIEW_MAP_SEED = 20260813u;
 struct PreviewOptions
 {
     std::string module = "prospecting";
+    int depth = -1;              // excavation: which layer the shaft works
     std::string tab = "sweep";
     std::string state = "analyzed";
     int tier = 2;
@@ -60,6 +61,7 @@ static void PrintUsage()
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
         << "  --energy <n>      override stored energy (tests cost gating)\n"
         << "  --hover <0-3>     light a plate as if hovered (headless: no pointer)\n"
+        << "  --depth <0-3>     excavation: the depth layer the shaft works\n"
         << "  --mouse <X,Y>     park the real pointer here -- exercises the true\n"
         << "                    hover path (pick, cursors, ground readout)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
@@ -120,6 +122,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--hover" && hasNext)
         {
             options.hover = TextToInteger(argv[++i]);
+        }
+        else if (arg == "--depth" && hasNext)
+        {
+            options.depth = TextToInteger(argv[++i]);
         }
         else if (arg == "--bench" && hasNext)
         {
@@ -664,6 +670,15 @@ int main(int argc, char** argv)
             system->selectedCellX = centre;
             system->selectedCellY = centre;
             if (system->GetTray().GetCount() > 0) system->selectedSampleIndex = 0;
+        }
+
+        // Excavation's own state. Depth is what the shaft dock draws against,
+        // so it needs a headless setter for the same reason the block model
+        // needed previewHoverLayer: there is no pointer to click a depth with.
+        if (unit.HasExcavationSystem() && options.depth >= 0)
+        {
+            unit.GetExcavationSystem()->selectedDepth =
+                static_cast<DepthLayer>(std::clamp(options.depth, 0, 3));
         }
         }
     }

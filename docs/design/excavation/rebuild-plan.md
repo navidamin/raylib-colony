@@ -113,7 +113,7 @@ prospecting panel and the reason its two halves read as one instrument.
 Each phase leaves the game building, tested, and playable. No phase is allowed
 to end with excavation unreachable.
 
-### Phase 0 — the graveyard opens, and the corpse goes in
+### Phase 0 — the graveyard opens, and the corpse goes in — **DONE** (`f2a0911`)
 
 Retire what the survey proved is already dead. **No behaviour change**, so it is
 provable by build + tests alone.
@@ -134,7 +134,7 @@ excavation system owns its own machine count.
 Exit test: full build clean, `colony_tests` green, one excavation preview PNG
 identical to before.
 
-### Phase 1 — the shaft bar exists and can be looked at
+### Phase 1 — the shaft bar exists and can be looked at — **DONE**
 
 New drawing only. The bar renders against the *current* panel so it can be
 judged before anything is torn out.
@@ -149,6 +149,29 @@ judged before anything is torn out.
 - Deterministic preview hooks so `preview.sh --module excavation` can shoot it.
 
 Exit test: preview PNGs at four shaft depths, looked at, in the commit message.
+
+**What phase 1 actually settled**, beyond the list above:
+
+- `ProsDockGeom` → **`DockGeom`**, `ProsDockFrom` → `DockFromBlock`. The depth
+  axis is pure geometry with nothing prospecting-specific in it, and
+  excavation is now its second caller, so the name stopped claiming an owner.
+- `ExcDockEven` builds the bands **evenly spaced**, which is what the plate
+  stack hands over — so phase 3's swap to `DockFromBlock` changes no pixels.
+- Excavation's strip is **120 px against prospecting's 104**, and the extra
+  width is spent on rock. A shaft has to leave strata either side of it or the
+  depth context is lost.
+- The rig's `ExcDrawJoint` came out byte-identical to `ProsDrawJoint`, so the
+  copy was dropped and the original is called.
+- `--depth 0..3` added to the preview tool, for the same reason prospecting
+  needed `previewHoverLayer`: headless has no pointer to click a depth with.
+
+**Deferred, deliberately:** `ProsSteel` / `ProsBandedSlice` / `PROS_OUT` /
+`PROS_*_TONES` / `ProsRnd` are Dark Plating's **shared material layer** (style
+guide §4–§5), not prospecting's property — the prefix is historical. Excavation
+calls them rather than duplicating six functions. Renaming them out of the
+`Pros` namespace belongs in **phase 3**, when the panel is recomposed and the
+diff is already in this file; doing it in phase 1 would have widened an
+additive change into a 60-site rename in a file other sessions are editing.
 
 ### Phase 2 — the block model comes to excavation
 
