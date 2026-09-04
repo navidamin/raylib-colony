@@ -294,6 +294,34 @@ DigResult ExcavationSystem::Dig(ProspectingSystem& prospecting,
                                                lastResult.depletionFraction);
     }
 
+    // The reported rate. Mass is a quantity over dtSeconds, so the division
+    // is exact -- and it is done HERE, next to the dig that produced it,
+    // rather than at draw time where the interval could only be assumed.
+    {
+        float dt = std::max(0.0f, lastResult.dtSeconds);
+        if (dt > 0.0f)
+        {
+            float instTarget = lastResult.targetMass / dt;
+            float instTotal = lastResult.totalMass / dt;
+
+            if (!rateSeeded)
+            {
+                // First sample lands whole. A preview renders one dig and two
+                // frames; easing in from zero would show a figure that is
+                // merely young, and be read as a figure that is wrong.
+                massPerSecTarget = instTarget;
+                massPerSecTotal = instTotal;
+                rateSeeded = true;
+            }
+            else
+            {
+                float k = std::clamp(dt / EXC_RATE_SMOOTH_TAU_S, 0.0f, 1.0f);
+                massPerSecTarget += (instTarget - massPerSecTarget) * k;
+                massPerSecTotal += (instTotal - massPerSecTotal) * k;
+            }
+        }
+    }
+
     // The bit runs hot in proportion to the work: pace against the rock's
     // hardness. Same easing law as the plate light, on the tick's own clock.
     {

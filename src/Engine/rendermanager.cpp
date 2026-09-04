@@ -7429,15 +7429,30 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
 
     // Right side: what actually came up last tick, and the share of it that
     // was the thing being aimed at.
-    if (last.totalMass > 0.0f)
+    // Gated on the EASED rate, not on the last tick's mass: a single tick that
+    // moved nothing -- the pace dial passing through zero, a spot handing over
+    // to the next -- would otherwise flip the whole line to IDLE and back,
+    // which is the flicker the easing exists to remove.
+    if (es->massPerSecTotal > 0.0f)
     {
-        float share = last.targetMass / last.totalMass;
+        // Both halves of the line come from the same pair of numbers, so the
+        // percentage always divides the tonnage printed beside it. Taking the
+        // share from the raw tick and the mass from the eased rate would let
+        // the two disagree on screen.
+        float share = es->massPerSecTarget / es->massPerSecTotal;
 
         // Per-DAY rate, not the per-frame mass. A frame moves a fraction of a
         // unit, so the raw figure rounded to 0.0 and the panel looked broken
         // while the module was working perfectly well.
-        float frame = GetFrameTime();
-        float perDay = frame > 0.0f ? (TICKS_PER_DAY / frame) : 0.0f;
+        //
+        // The rate comes from the module already measured and eased, in mass
+        // per second; all that is left here is the day. It used to be
+        // reconstructed as mass / GetFrameTime(), which assumed the draw
+        // frame's length WAS the interval the dig ran over -- it is not (the
+        // caller scales dt by the efficiency multiplier, and the preview
+        // harness steps a fixed half-second), and the same panel rendered
+        // twice reported 323 and 178 C/day for identical work.
+        const float perDay = static_cast<float>(TICKS_PER_DAY);
 
         Color gotColor = share > 0.6f ? EXT_ACCENT_GREEN
                                       : (share > 0.3f ? EXT_TEXT : EXT_ACCENT_GOLD);
@@ -7445,10 +7460,10 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
         // the percentage against the tonnage it divides beats "(75% useful)"
         // floating at the end of the sentence.
         auto parts = {
-            std::make_pair(TextFormat("%.0f %s/day", last.targetMass * perDay, targetName),
-                           gotColor),
+            std::make_pair(TextFormat("%.0f %s/day", es->massPerSecTarget * perDay,
+                                      targetName), gotColor),
             std::make_pair(TextFormat("   %.0f%% of %.0f moved", share * 100.0f,
-                                      last.totalMass * perDay),
+                                      es->massPerSecTotal * perDay),
                            Fade(EXT_DIM_TEXT, 0.9f)),
         };
         Segments(px + pw - SegmentsWidth(parts), parts);

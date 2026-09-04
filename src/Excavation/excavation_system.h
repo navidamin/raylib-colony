@@ -75,6 +75,23 @@ public:
     // draws two frames, could never show a hot bit however hard it was working.
     float bitHeat = 0.0f;
 
+    // ---- What the module reports ----------------------------------------
+    // Output as a RATE -- mass per second of game time -- eased with
+    // EXC_RATE_SMOOTH_TAU_S, one for the target and one for everything moved.
+    //
+    // A rate, not a mass, because DigResult carries quantities that scale with
+    // the tick length; whoever displays them would otherwise have to guess the
+    // interval, and guessing it wrong was exactly the old bug. Per SECOND and
+    // not per day, because a day is a game-wide idea and this module has no
+    // business knowing it -- the panel multiplies by TICKS_PER_DAY itself.
+    //
+    // Integrated on the dig tick for the same reason bit heat is: a headless
+    // preview draws two frames, and a value eased in the renderer could never
+    // arrive. The first sample seeds both directly, so a single-dig preview
+    // screenshot shows the true rate rather than one still climbing from zero.
+    float massPerSecTarget = 0.0f;
+    float massPerSecTotal = 0.0f;
+
     // Headless has no pointer, so hover states could not be screenshotted at
     // all. -1 is off; otherwise the renderer treats this layer as hovered.
     // Only the preview tool sets it.
@@ -141,4 +158,9 @@ private:
     AutoPilot autoPilot;
     DigSite worked;
     DigResult lastResult;
+
+    // Whether the reported rate has ever had a sample. Distinguishes "nothing
+    // has been dug yet" from "the last dig produced zero", which ease
+    // identically from a standing start but should not.
+    bool rateSeeded = false;
 };

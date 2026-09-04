@@ -69,6 +69,7 @@ add_executable(colony_tests
     test_line_hole.cpp
     test_block_pick.cpp
     test_dig_site.cpp
+    test_dig_rate.cpp
     test_rock_texture.cpp
     test_plate_light.cpp
     test_lab_pipeline.cpp

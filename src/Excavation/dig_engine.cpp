@@ -97,6 +97,11 @@ DigResult DigEngine::Dig(const ProspectingGrid& grid, const SiteView& site,
 {
     DigResult result;
 
+    // Stamped before every early return: a tick that dug nothing still dug
+    // nothing OVER AN INTERVAL, and a reader averaging rates needs that zero
+    // to weigh the same as a productive tick of the same length.
+    result.dtSeconds = std::max(0.0f, deltaTime);
+
     const Machine& machine = GetMachine(machineId);
 
     // --- Can this dig happen at all? ---

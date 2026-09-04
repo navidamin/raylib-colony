@@ -288,6 +288,31 @@ sum to 1 everywhere and would flatten the heat map); richness uses
 This recurs in every unit — crop yield vs nutrient mix, charge vs capacity,
 part mass vs material ratio.
 
+### The third unit: a rate is not a quantity
+
+`DigResult.totalMass` is a **quantity**, and it scales with the length of the
+tick that produced it. The excavation readout wanted a **rate**, so it divided
+by `GetFrameTime()` at draw time — reconstructing the interval instead of being
+told it.
+
+That was only ever right by accident, and the accident did not hold:
+`Unit::ProcessModuleEffects` passes `deltaTime * efficiencyMultiplier`, and the
+preview harness steps a fixed half-second that has nothing to do with a frame
+at all. The same panel rendered twice reported **323** and **178** C/day for
+identical work.
+
+> A consumer that has to guess the interval a quantity was accumulated over
+> will guess wrong. Carry the interval, or hand over a rate.
+
+Excavation does both: `DigResult` carries `dtSeconds` (stamped before every
+early return, so a tick that dug nothing still weighs correctly), and the
+facade divides on the dig tick and exposes `massPerSecTarget` /
+`massPerSecTotal`.
+
+Per **second**, not per day: a day is a game-wide idea (`TICKS_PER_DAY`) and
+the module has no business knowing it. The panel multiplies. That is the same
+narrow-contract rule as §4, applied to the unit rather than the value.
+
 Normalization constants must be calibrated against **dumped real data**, and
 should say so:
 

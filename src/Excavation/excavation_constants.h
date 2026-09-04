@@ -145,6 +145,19 @@ constexpr float EXC_PACE_SELECTIVITY_PENALTY = 0.7f;
 // Power drawn per unit of pace, on top of the machine's floor.
 constexpr float EXC_POWER_PER_PACE = 1.2f;
 
+// ---------------------------------------------------------------------------
+// The reported rate
+// ---------------------------------------------------------------------------
+// The output rate is SMOOTHED before it is shown. The instantaneous figure is
+// honest but unreadable: taper, depletion and the power cap all move it every
+// tick, and a number that changes faster than it can be read carries no
+// information. This is the easing time constant, in seconds of game time --
+// the same law the bit heat and the plate light use.
+//
+// Two thirds of a second: long enough that the digits settle, short enough
+// that raising the pace reads as immediate.
+constexpr float EXC_RATE_SMOOTH_TAU_S = 0.66f;
+
 // Hardness by depth: deeper ground is denser and more cohesive, so the same
 // machine moves less of it. From the geotechnics in excavation-mechanics.md
 // Part 1 section 8 -- bulk density climbs 1.30 to 1.92 g/cm3 over the first

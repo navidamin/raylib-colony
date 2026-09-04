@@ -136,6 +136,15 @@ struct DigResult
     float powerDraw = 0.0f;
     float wearDelta = 0.0f;
 
+    // The interval those masses were dug over, in SECONDS. The masses are
+    // QUANTITIES, not rates -- they scale with the tick length -- so nothing
+    // downstream can turn one into a rate without this. It used to be inferred
+    // from the frame time at draw time, which was only ever right by accident:
+    // the caller passes deltaTime * efficiencyMultiplier, and the preview
+    // harness passes a fixed step that has nothing to do with a frame at all.
+    // Carrying it makes the division exact instead of assumed.
+    float dtSeconds = 0.0f;
+
     // Fraction of the spot this tick used up. The ENGINE does not apply it --
     // the caller does, so the engine stays pure and can be run speculatively
     // (which is what the AI needs to compare spots without digging them).

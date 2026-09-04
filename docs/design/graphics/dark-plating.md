@@ -563,6 +563,38 @@ they said.
 The rule: in a readout, colour and weight ARE the grammar. If every token is
 the same weight, the reader parses a sentence to find a number.
 
+**A number nobody can read is not a readout.** The same line then failed the
+other way: it moved every frame. Two causes, and only one of them was noise.
+
+The first was arithmetic. The rate was reconstructed at draw time as
+`mass / GetFrameTime()`, which assumed the draw frame's length was the
+interval the work ran over. It was not, so the panel rendered twice reported
+323 and 178 C/day for identical work. **A rate is measured, not
+reconstructed** — see `docs/guides/module-architecture.md` §2.
+
+The second was real: taper, depletion and the power cap genuinely move the
+output every tick. So the rate is eased before it is shown
+(`EXC_RATE_SMOOTH_TAU_S`, two thirds of a second), and eased **on the dig
+tick, not the draw** — which is the distinction §9.46's easing rule leaves
+open. The plate light is pointer-driven, so it eases on the draw clock; heat
+and output are consequences of *work*, so they ease on the work's clock.
+Easing them in the renderer meant a headless preview, which draws two frames,
+could never show a hot bit or a settled rate however hard the unit was
+digging.
+
+Two corollaries, both learned by getting them wrong first:
+
+- **Seed the first sample whole.** A one-dig preview screenshot must show the
+  true figure, not one still climbing from zero — a young number is read as a
+  wrong number.
+- **Gate the line on the eased value, not the raw tick.** Otherwise a single
+  tick that moved nothing flips the whole readout to IDLE and back, which is
+  precisely the flicker the easing exists to remove.
+
+And derive both halves from the same pair: taking the percentage from the raw
+tick and the tonnage from the eased rate lets "74% of 111 moved" stop being
+true on screen.
+
 ### 7b. One type scale, reachable from everywhere that draws
 
 A view with a font scale has to apply it to *all* of its text, and the way
