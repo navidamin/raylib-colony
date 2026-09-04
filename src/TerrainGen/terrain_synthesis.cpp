@@ -546,16 +546,39 @@ static bool EnsureWacLoaded()
 
 // Native-resolution crop of a window square in km (lon widened by
 // 1/cos(lat)), denoised, then upsampled to res.
+// Where a window's pixels land in a texel-aligned WAC block. One
+// definition, used by the CPU resample and handed to the GPU, so the two
+// cannot disagree about which ground a pixel shows.
+static double TexelOriginX(double lon0, int blockX0)
+{
+    return (lon0 + 180.0) / 360.0 * g_wacW - 0.5 - blockX0;
+}
+static double TexelOriginY(double lat1, int blockY0)
+{
+    return (90.0 - lat1) / 180.0 * g_wacH - 0.5 - blockY0;
+}
+static double TexelStepX(double lonSpan, int res)
+{
+    return (lonSpan / res) / 360.0 * g_wacW;
+}
+static double TexelStepY(double spanDeg, int res)
+{
+    return (spanDeg / res) / 180.0 * g_wacH;
+}
+
 static Field CropMacro(double latDeg, double lonDeg, double spanDeg, int res)
 {
     double c = std::max(0.2, std::cos(latDeg * DEG2RAD));
     double lonSpan = spanDeg / c;
     double lat0 = latDeg - spanDeg / 2.0, lat1 = latDeg + spanDeg / 2.0;
     double lon0 = lonDeg - lonSpan / 2.0, lon1 = lonDeg + lonSpan / 2.0;
-    int y0 = std::max(0, (int)((90.0 - lat1) / 180.0 * g_wacH));
-    int y1 = std::min(g_wacH, (int)((90.0 - lat0) / 180.0 * g_wacH) + 1);
-    int x0 = (int)((lon0 + 180.0) / 360.0 * g_wacW);
-    int x1 = (int)((lon1 + 180.0) / 360.0 * g_wacW) + 1;
+    // Two texels of margin: the block is a buffer to sample from, not
+    // the window itself, and bilinear needs a neighbour past each edge.
+    const int MARGIN = 2;
+    int y0 = (int)std::floor((90.0 - lat1) / 180.0 * g_wacH) - MARGIN;
+    int y1 = (int)std::floor((90.0 - lat0) / 180.0 * g_wacH) + 1 + MARGIN;
+    int x0 = (int)std::floor((lon0 + 180.0) / 360.0 * g_wacW) - MARGIN;
+    int x1 = (int)std::floor((lon1 + 180.0) / 360.0 * g_wacW) + 1 + MARGIN;
     int cw = std::max(2, x1 - x0);
     int ch = std::max(2, y1 - y0);
     Field crop((size_t)cw * ch);
@@ -565,11 +588,40 @@ static Field CropMacro(double latDeg, double lonDeg, double spanDeg, int res)
         for (int x = 0; x < cw; x++)
         {
             int wx = ((x0 + x) % g_wacW + g_wacW) % g_wacW;
-            crop[y * cw + x] = g_wac[(size_t)wy * g_wacW + wx];
+            crop[(size_t)y * cw + x] = g_wac[(size_t)wy * g_wacW + wx];
         }
     }
     GaussianBlur(crop, cw, ch, 0.7f);         // denoise JPEG artifacts
-    return ResizeBilinear(crop, cw, ch, res, res);
+
+    // Sample the block at each output pixel's OWN latitude and longitude
+    // instead of stretching it edge to edge. The block's bounds are whole
+    // texels and the window's are not, so stretching made the mapping
+    // from pixel to ground depend on where those texels happened to
+    // fall: two windows over the same ground disagreed by up to half a
+    // texel, 0.67 km here and about 75 px at the 5 km level. Sampling
+    // geographically makes the imagery a pure function of position --
+    // the property the noise lattice already has.
+    Field out((size_t)res * res);
+    double tx0 = TexelOriginX(lon0, x0), dtx = TexelStepX(lonSpan, res);
+    double ty0 = TexelOriginY(lat1, y0), dty = TexelStepY(spanDeg, res);
+    for (int y = 0; y < res; y++)
+    {
+        double fy = ty0 + (y + 0.5) * dty;
+        int iy = std::clamp((int)std::floor(fy), 0, ch - 2);
+        float wy = (float)std::clamp(fy - iy, 0.0, 1.0);
+        for (int x = 0; x < res; x++)
+        {
+            double fx = tx0 + (x + 0.5) * dtx;
+            int ix = std::clamp((int)std::floor(fx), 0, cw - 2);
+            float wx = (float)std::clamp(fx - ix, 0.0, 1.0);
+            const float* r0 = &crop[(size_t)iy * cw + ix];
+            const float* r1 = &crop[(size_t)(iy + 1) * cw + ix];
+            float a = r0[0] + (r0[1] - r0[0]) * wx;
+            float b = r1[0] + (r1[1] - r1[0]) * wx;
+            out[(size_t)y * res + x] = a + (b - a) * wy;
+        }
+    }
+    return out;
 }
 
 // Unsharp + adaptive contrast around the crop's own midpoint (capped
@@ -1233,16 +1285,35 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     for (int lvl = 1; lvl < levelCount; lvl++)
     {
         float k = res / 300.0f;
-        float frac = (float)(spans[lvl] / spans[lvl - 1]);
-        float half = frac * res / 2.0f;
-        int lo = (int)std::lround(res / 2.0f - half);
-        int hi = std::max(lo + 2, (int)std::lround(res / 2.0f + half));
-        int cw = hi - lo;
-        Field crop((size_t)cw * cw);
-        for (int y = 0; y < cw; y++)
-            for (int x = 0; x < cw; x++)
-                crop[y * cw + x] = lum[(size_t)(lo + y) * res + (lo + x)];
-        lum = ResizeBilinear(crop, cw, cw, res, res);
+        // Crop to the level's exact span, not to whole pixels of the
+        // level above. Rounding the bounds made a level cover 102 of
+        // 102.4 pixels -- 4.98 km where it claimed 5 -- so the imagery
+        // ran at a scale the noise lattice, which knows the real span,
+        // did not share. Sub-pixel, constant, and enough to stop the
+        // sect level registering once everything above it did.
+        double frac = spans[lvl] / spans[lvl - 1];
+        double half = frac * res / 2.0;
+        double lo = res / 2.0 - half;
+        double step = 2.0 * half / res;
+        Field next((size_t)res * res);
+        for (int y = 0; y < res; y++)
+        {
+            double sy = lo + (y + 0.5) * step - 0.5;
+            int iy = std::clamp((int)std::floor(sy), 0, res - 2);
+            float ty = (float)std::clamp(sy - iy, 0.0, 1.0);
+            for (int x = 0; x < res; x++)
+            {
+                double sx = lo + (x + 0.5) * step - 0.5;
+                int ix = std::clamp((int)std::floor(sx), 0, res - 2);
+                float tx = (float)std::clamp(sx - ix, 0.0, 1.0);
+                const float* r0 = &lum[(size_t)iy * res + ix];
+                const float* r1 = &lum[(size_t)(iy + 1) * res + ix];
+                float a = r0[0] + (r0[1] - r0[0]) * tx;
+                float b = r1[0] + (r1[1] - r1[0]) * tx;
+                next[(size_t)y * res + x] = a + (b - a) * ty;
+            }
+        }
+        lum = std::move(next);
         GaussianBlur(lum, res, res, 0.6f * k);
         Field blur = lum;
         GaussianBlur(blur, res, res, 5.0f * k);
@@ -1278,10 +1349,11 @@ bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
     double lonSpan = spanDeg / c;
     double lat0 = latDeg - spanDeg / 2.0, lat1 = latDeg + spanDeg / 2.0;
     double lon0 = lonDeg - lonSpan / 2.0, lon1 = lonDeg + lonSpan / 2.0;
-    int y0 = std::max(0, (int)((90.0 - lat1) / 180.0 * g_wacH));
-    int y1 = std::min(g_wacH, (int)((90.0 - lat0) / 180.0 * g_wacH) + 1);
-    int x0 = (int)((lon0 + 180.0) / 360.0 * g_wacW);
-    int x1 = (int)((lon1 + 180.0) / 360.0 * g_wacW) + 1;
+    const int MARGIN = 2;
+    int y0 = (int)std::floor((90.0 - lat1) / 180.0 * g_wacH) - MARGIN;
+    int y1 = (int)std::floor((90.0 - lat0) / 180.0 * g_wacH) + 1 + MARGIN;
+    int x0 = (int)std::floor((lon0 + 180.0) / 360.0 * g_wacW) - MARGIN;
+    int x1 = (int)std::floor((lon1 + 180.0) / 360.0 * g_wacW) + 1 + MARGIN;
     int cw = std::max(2, x1 - x0);
     int ch = std::max(2, y1 - y0);
     Field crop((size_t)cw * ch);
@@ -1298,13 +1370,23 @@ bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
 
     Field sharp = crop;
     Field blur = crop;
-    GaussianBlur(blur, cw, ch, std::max(0.3f, cw / 60.0f));
+    int innerW = std::max(1, cw - 2 * MARGIN);
+    int innerH = std::max(1, ch - 2 * MARGIN);
+    GaussianBlur(blur, cw, ch, std::max(0.3f, innerW / 60.0f));
     for (size_t i = 0; i < sharp.size(); i++)
         sharp[i] = std::clamp(sharp[i] + 0.40f * (sharp[i] - blur[i]),
                               0.0f, 1.0f);
-    std::sort(sharp.begin(), sharp.end());
-    float pLo = sharp[(size_t)(sharp.size() * 0.02)];
-    float pHi = sharp[(size_t)(sharp.size() * 0.98)];
+    // Percentiles over the WINDOW, not the sampling margin, so the gain
+    // and midpoint do not drift with a buffer the player never sees.
+    std::vector<float> inner;
+    inner.reserve((size_t)innerW * innerH);
+    for (int y = MARGIN; y < ch - MARGIN; y++)
+        for (int x = MARGIN; x < cw - MARGIN; x++)
+            inner.push_back(sharp[(size_t)y * cw + x]);
+    if (inner.empty()) inner = sharp;
+    std::sort(inner.begin(), inner.end());
+    float pLo = inner[(size_t)(inner.size() * 0.02)];
+    float pHi = inner[(size_t)(inner.size() * 0.98)];
     float spread = std::max(pHi - pLo, 1e-4f);
     out->gain = std::min(2.2f, std::max(1.0f, 0.60f / spread));
     out->mid = 0.5f * (pHi + pLo);
@@ -1320,6 +1402,10 @@ bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
         px[i * 3 + 2] = 0;
     }
     out->image = img;
+    out->originX = (float)TexelOriginX(lon0, x0);
+    out->originY = (float)TexelOriginY(lat1, y0);
+    out->spanX = (float)(lonSpan / 360.0 * g_wacW);
+    out->spanY = (float)(spanDeg / 180.0 * g_wacH);
     return true;
 }
 

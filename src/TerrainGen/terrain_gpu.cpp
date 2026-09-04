@@ -150,6 +150,10 @@ float grain(vec2 p, vec2 seed)
 const char* FS_MACRO = R"GLSL(
 uniform sampler2D uCrop;
 uniform vec2 uCropSize;
+// The window inside the block: top-left texel and texel span. Sampling
+// by position rather than stretching the block is what keeps the
+// imagery a pure function of ground -- see TerrainMacroCrop.
+uniform vec4 uCropWin;
 float texel(vec2 t)
 {
     vec4 c = TEX(uCrop, (t + 0.5) / uCropSize);
@@ -158,7 +162,7 @@ float texel(vec2 t)
 void main()
 {
     vec2 pix = fragTexCoord * uRes;
-    vec2 f = pix * uCropSize / uRes - 0.5;
+    vec2 f = uCropWin.xy + pix * uCropWin.zw / uRes;
     vec2 i0 = clamp(floor(f), vec2(0.0), uCropSize - 1.0);
     vec2 i1 = min(i0 + 1.0, uCropSize - 1.0);
     vec2 t = clamp(f - i0, 0.0, 1.0);
@@ -1067,6 +1071,8 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
     SetTextureFilter(G.cropTex, TEXTURE_FILTER_POINT);
     SetTextureWrap(G.cropTex, TEXTURE_WRAP_CLAMP);
     int cropW = crop.image.width, cropH = crop.image.height;
+    const float cropWin[4] = {crop.originX, crop.originY,
+                              crop.spanX, crop.spanY};
     UnloadImage(crop.image);
 
     // Level geometry, as GenerateChainInternal has it.
@@ -1105,18 +1111,21 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
             Pass(G.macroSh, G.A, [&]() {
                 SetTex(G.macroSh, "uCrop", G.cropTex);
                 SetV2(G.macroSh, "uCropSize", (float)cropW, (float)cropH);
+                float w[4] = {cropWin[0], cropWin[1], cropWin[2], cropWin[3]};
+                SetV4(G.macroSh, "uCropWin", w);
             });
         }
         else
         {
-            float frac = (float)(spanDeg[lvl] / spanDeg[lvl - 1]);
-            float half = frac * res / 2.0f;
-            int lo = (int)std::lround(res / 2.0f - half);
-            int hi = std::max(lo + 2, (int)std::lround(res / 2.0f + half));
-            int cw = hi - lo;
+            // Exact bounds, as GenerateChainInternal has them: rounding
+            // to whole pixels of the level above made a level cover
+            // 4.98 km where it claimed 5.
+            double frac = spanDeg[lvl] / spanDeg[lvl - 1];
+            double half = frac * res / 2.0;
             Pass(G.cropSh, G.A, [&]() {
                 SetTex(G.cropSh, "uSrc", lumPrev->texture);
-                SetV2(G.cropSh, "uLoFrac", (float)lo, (float)cw / (float)res);
+                SetV2(G.cropSh, "uLoFrac", (float)(res / 2.0 - half),
+                      (float)(2.0 * half / res));
             });
             Blur(G.A, G.A, G.B, 0.6f * k);
         }

@@ -191,6 +191,14 @@ struct TerrainMacroCrop
     Image image = {};        // R8G8B8, width x height texels, 16-bit in R:G
     float gain = 1.0f;       // adaptive contrast gain (1..2.2)
     float mid = 0.5f;        // ...about this midpoint
+    // Where the window sits inside the block, in texels: its top-left
+    // corner and how many texels it spans. The block's bounds are whole
+    // texels and the window's are not, so the consumer must sample by
+    // position -- stretching the block edge to edge would make the
+    // mapping from pixel to ground depend on the texel alignment, which
+    // slips the imagery up to half a texel between neighbouring windows.
+    float originX = 0.0f, originY = 0.0f;
+    float spanX = 1.0f, spanY = 1.0f;
 };
 bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
                          double spanKm = 100.0);
