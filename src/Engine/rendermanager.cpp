@@ -5987,7 +5987,13 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             DrawTextEx(bodyFont, nm, {swX + 10.0f, swY - 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
             swX += 10.0f + MeasureTextEx(bodyFont, nm, FS(8.0f), sp).x + 10.0f;
         }
-        DrawTextEx(bodyFont, TextFormat("REACH %dx%d", grid.GetReach(), grid.GetReach()),
+        // LATTICE, not REACH. Prospecting's reach ring was deleted -- the
+        // whole lattice is open at every tier -- so this figure is the size
+        // of the ground, not a limit on it. Excavation still HAS a reach that
+        // grows with tier, and labels it REACH in amber; one word meaning two
+        // things across twin panels is how a real constraint gets read as
+        // decoration, and a fixed fact gets read as a wall.
+        DrawTextEx(bodyFont, TextFormat("LATTICE %dx%d", grid.GetReach(), grid.GetReach()),
                    {swX + 4.0f, swY - 1.0f}, FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.7f));
     }
 
@@ -6820,13 +6826,17 @@ static void ExcDrawShaftDock(ExcavationSystem* es, const DockGeom& dg,
     }
     DrawRectangleRec({dg.x, surfY - 1.8f, dg.w, 2.0f}, {74, 85, 96, 255});
 
-    // depth figures down the right edge, as the borehole strip has them
-    for (int L = 0; L < 4; L++)
+    // Depth figures down the right edge, as the borehole strip has them --
+    // now actually as it has them: five figures, so the strip states the
+    // depth of its own floor instead of trailing off at the last boundary,
+    // and in the shared dim-text token rather than a local RGB.
+    for (int L = 0; L <= 4; L++)
     {
-        const char* t = TextFormat("%d", static_cast<int>(LayerTopM(L)));
+        const char* t = TextFormat("%d", static_cast<int>(L == 4 ? FULL_COLUMN_M
+                                                                : LayerTopM(L)));
         float tw = MeasureTextEx(bodyFont, t, fsSmall, sp).x;
         DrawTextEx(bodyFont, t, {dg.x + dg.w - tw - 4.0f, dg.bandTop[L] + 3.0f},
-                   fsSmall, sp, Fade(Color{198, 214, 232, 255}, 0.40f));
+                   fsSmall, sp, Fade(EXT_DIM_TEXT, 0.9f));
     }
 
     ExcDrawShaft(dg, surfY, faceY);
@@ -6852,16 +6862,20 @@ static void ExcDrawShaftDock(ExcavationSystem* es, const DockGeom& dg,
 
     EndScissorMode();
 
-    // The border: solid on three sides, DASHED on the edge that faces the
-    // model, which is the cut mark the rock passes under (style guide 9.1).
-    DrawLineEx({dg.x, clipTop}, {dg.x, clipBot}, 1.0f, DP_OUT);
-    DrawLineEx({dg.x + dg.w, clipTop}, {dg.x + dg.w, clipBot}, 1.0f, DP_OUT);
-    DrawLineEx({dg.x, clipBot}, {dg.x + dg.w, clipBot}, 1.0f, DP_OUT);
-    DpDashed({dg.x, clipTop}, {dg.x + dg.w, clipTop}, 5.0f, 4.0f, 0.0f, 1.0f,
-               Fade(Color{140, 165, 190, 255}, 0.45f));
+    // The border: solid on three sides, DASHED on the edge that FACES THE
+    // MODEL -- the cut mark the rock passes under (style guide 9.1). That is
+    // the LEFT edge here, as it is in the borehole strip: the model sits to
+    // the left of both. This dashed the TOP, which marks nothing, and framed
+    // itself in DP_OUT -- a near-black outline colour, so on a near-black
+    // panel the strip had no visible frame at all while its twin did.
+    DrawLineEx({dg.x, clipTop}, {dg.x + dg.w, clipTop}, 1.0f, EXT_PANEL_BORDER);
+    DrawLineEx({dg.x, clipBot}, {dg.x + dg.w, clipBot}, 1.0f, EXT_PANEL_BORDER);
+    DrawLineEx({dg.x + dg.w, clipTop}, {dg.x + dg.w, clipBot}, 1.0f, EXT_PANEL_BORDER);
+    DpDashed({dg.x, clipTop}, {dg.x, clipBot}, 4.0f, 5.0f, 0.0f, 1.0f,
+             Fade(EXT_PANEL_BORDER, 0.9f));
 
     DrawTextEx(bodyFont, "SHAFT", {dg.x + 5.0f, clipBot - 13.0f}, fsSmall, sp,
-               Fade(Color{198, 214, 232, 255}, 0.45f));
+               EXT_DIM_TEXT);
 }
 
 

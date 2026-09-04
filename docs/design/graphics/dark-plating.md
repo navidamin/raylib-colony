@@ -520,6 +520,31 @@ segment shape changed when the concept sheet's toothed cone replaced it.)
   cropped view kept off-screen are now all visible at once, so any
   screen-space falloff (§4.5 heat) has to be retuned, not inherited.
 
+### 7a. Twin panels drift; check them against each other, not against taste
+
+Two panels built from the same parts diverge quietly, and every drift reads
+as a decision to whoever looks. Found by putting prospecting's borehole strip
+and excavation's shaft strip side by side — the shaft's own comment said
+"as the borehole strip has them", so matching had been the intent:
+
+- it framed itself in the near-black **outline** token instead of the visible
+  hairline, so one twin had a frame and the other appeared to have none;
+- it dashed the **top** edge, where the rule (§9.1) is that the dash marks
+  the edge FACING THE MODEL — the left, for both panels;
+- its depth figures stopped at the last boundary instead of naming the floor,
+  so the strip never stated its own depth;
+- figures and footer used local RGB literals rather than the shared dim-text
+  token, at their own alphas.
+
+But **do not homogenise a difference that carries meaning.** The same pass
+looked at the two REACH captions — dim grey in one, amber in the other — and
+left them alone: excavation's reach really does grow with tier and really
+does stop it digging, so amber (a constraint) is right, while prospecting's
+ring was deleted and its figure is merely the size of the ground. What
+changed there was the *word*: prospecting now says LATTICE, because one term
+meaning two things across twin panels is how a real limit gets read as
+decoration and a fixed fact gets read as a wall.
+
 ### 7b. One type scale, reachable from everywhere that draws
 
 A view with a font scale has to apply it to *all* of its text, and the way
