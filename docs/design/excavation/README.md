@@ -12,7 +12,8 @@
 | 4 | [design-options-v2.md](design-options-v2.md) | Round 2 exploration: three variants of the panel direction | SUPERSEDED |
 | 5 | [excavation-mechanics.md](excavation-mechanics.md) | Science review of real excavation technologies (Part 1 is the reference; Part 3's A/B/C alternatives are superseded) | REFERENCE |
 | 6 | [block-mining-design.md](block-mining-design.md) | **Mining the block model.** What changes once prospecting v2 gives the ground a 3D shape: access, selectivity, the empty-out. Deltas only — #1 still holds | SKETCH — blocked on prospecting v2 |
-| 7 | [prototypes/diamond-drill.html](prototypes/diamond-drill.html) | **The shaft-sinker, playable.** Two variants of a diamond rotary rig on one depth scale, taking the same two commands. Argues the weight band, whirl-at-depth, and core-on-the-way-down | PROTOTYPE |
+| 7 | [rebuild-plan.md](rebuild-plan.md) | **The full workflow.** What excavation becomes (prospecting's anatomy, none of its subject), the three things that make it not-prospecting, seven phases each leaving the game playable, and the traps collected up front | PLAN |
+| 8 | [prototypes/diamond-drill.html](prototypes/diamond-drill.html) | **The shaft-sinker, playable.** Two variants of a diamond rotary rig on one depth scale, taking the same two commands. Argues the weight band, whirl-at-depth, and core-on-the-way-down | PROTOTYPE |
 
 ## Design Summary
 

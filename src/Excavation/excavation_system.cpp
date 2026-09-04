@@ -52,12 +52,6 @@ SpotEstimate ExcavationSystem::EstimateSelected(const ProspectingSystem& prospec
                               selectedDepth, targetResource);
 }
 
-SpotView ExcavationSystem::DescribeSelected(const ProspectingSystem& prospecting) const
-{
-    return site.Describe(prospecting.GetGrid(), prospecting.GetTray(),
-                         selectedSpotX, selectedSpotY,
-                         selectedDepth, targetResource);
-}
 
 void ExcavationSystem::SelectBestReachableSpot(const ProspectingSystem& prospecting)
 {

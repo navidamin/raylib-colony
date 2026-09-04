@@ -364,5 +364,19 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Excavation | `docs/design/excavation/README.md` | Working on excavator handling or `ProcessExtraction()` Stage 1 in `unit.cpp`, the excavation panel in `rendermanager.cpp`, or excavation input handling |
 | Graphics (Dark Plating) | `docs/design/graphics/README.md` | Drawing or restyling **any code-drawn graphic** — hero visuals, canvas prototypes, animated rigs, icons, particles. The style guide is a living document: adding a new graphical component includes extending it (see its Rule) |
+| **Graveyard** | `docs/design/graveyard/README.md` | **Removing** anything that was once reachable in the game. Read its Rule before deleting |
 
 See `docs/design/README.md` for the full planning method explanation.
+
+### Removing code: the graveyard rule
+
+Deleting a part of this game is a **two-file change — the deletion and its
+record in `docs/design/graveyard/`, in the same commit.** Git keeps the bytes;
+the graveyard keeps the reasoning, which is the only thing that stops a future
+session rebuilding a thing that was removed on purpose. A record answers five
+questions: what it was, when it died, why it went, what idea survived into the
+replacement, and what would justify bringing it back. Full template and the
+scope of what owes a record are in
+[`docs/design/graveyard/README.md`](docs/design/graveyard/README.md).
+
+Renames, typo fixes, and code that never worked owe nothing.

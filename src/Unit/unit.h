@@ -123,11 +123,6 @@ public:
     const ExcavationSystem* GetExcavationSystem() const { return excavationSystem.get(); }
     bool HasExcavationSystem() const { return excavationSystem != nullptr; }
 
-    // Excavation getters
-    const std::vector<Excavator>& GetExcavators() const { return excavators; }
-    void MoveExcavator(int excavatorId, int gridX, int gridY);
-    void SetExcavatorDepth(int excavatorId, float depth);
-    void SetExcavatorRate(int excavatorId, float rate);
     const std::vector<UnitModule>& GetModules() const { return modules; }
 
     // Grid position getter (derived from parentSectPosition)

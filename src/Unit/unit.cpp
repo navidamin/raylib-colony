@@ -239,7 +239,6 @@ void Unit::SetInitialParameters() {
         parameters["SiExtractionRate"] = DEFAULT_SiExtractionRate;
         parameters["ResourceFocus"] = DEFAULT_ResourceFocus;
         parameters["EnergyConsumption"] = DEFAULT_EnergyConsumption;
-        parameters["WearAndTear"] = DEFAULT_WearAndTear;
         parameters["Efficiency"] = DEFAULT_Efficiency;
         parameters["StorageCapacity"] = DEFAULT_StorageCapacity;
         parameters["BreakdownChance"] = DEFAULT_BreakdownChance;
@@ -1262,19 +1261,6 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     int gridX = static_cast<int>(gridPos.x);
     int gridY = static_cast<int>(gridPos.y);
 
-    // --- Determine depth layer from first excavator ---
-    DepthLayer activeLayer = DepthLayer::SURFACE;
-    if (!excavators.empty())
-    {
-        float depth = excavators[0].depth;
-        if (depth >= 100.0f) activeLayer = DepthLayer::DEEP;
-        else if (depth >= 30.0f) activeLayer = DepthLayer::MID;
-        else if (depth >= 10.0f) activeLayer = DepthLayer::SHALLOW;
-    }
-
-    // Get available resources at this location and depth layer
-    auto availableResources = resourceManager.GetResourcesAtGridLayer(gridX, gridY, activeLayer);
-
     // --- Survey-gated extraction efficiency ---
     float scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY;
     if (prospectingSystem)
@@ -1343,15 +1329,6 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     static const float tierMults[] = {1.0f, 1.4f, 1.9f, 2.5f};
     float tierMultiplier = tierMults[std::min(excavationMod->tier, 3)];
 
-    // Map for base extraction rates
-    std::map<ResourceType, float> extractionRates = {
-        {ResourceType::H2, parameters["H2ExtractionRate"]},
-        {ResourceType::O2, parameters["O2ExtractionRate"]},
-        {ResourceType::C,  parameters["CExtractionRate"]},
-        {ResourceType::Fe, parameters["FeExtractionRate"]},
-        {ResourceType::Si, parameters["SiExtractionRate"]}
-    };
-
     // --- Stage 1: Excavation (raw regolith) ---
     //
     // The excavation module works ONE spot on prospecting's 8x8 lattice with a
@@ -1372,6 +1349,10 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     }
     activeExcavators = std::max(1, activeExcavators);
 
+    // Both systems are constructed together for every Extraction unit
+    // (see the constructor), so this is not a branch -- it is an assertion
+    // that the unit is one. The flat per-cell skim that used to sit in the
+    // else arm is in docs/design/graveyard/extraction-fallback-skim.md.
     if (excavationSystem && prospectingSystem)
     {
         // The prioritise directive steers what excavation aims at, which is
@@ -1397,31 +1378,6 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
         for (auto& exc : excavators)
         {
             if (exc.wear < 1.0f) exc.wear += dig.wearDelta;
-        }
-    }
-    else
-    {
-        // No excavation or prospecting system (older saves, harnesses): fall
-        // back to the flat per-cell skim so the unit still produces.
-        for (const auto& [resourceType, abundance] : availableResources)
-        {
-            float baseRate = extractionRates.count(resourceType) ?
-                extractionRates[resourceType] : 0.01f;
-
-            float priorityBoost = 1.0f;
-            if (activeDirective.type == DirectiveType::PRIORITIZE &&
-                resourceType == prioritizedResource)
-            {
-                priorityBoost = 1.4f;
-            }
-
-            float extractionAmount = baseRate * efficiency * tierMultiplier *
-                                      abundance * opsModifier * directiveModifier *
-                                      scanMultiplier * priorityBoost * deltaTime *
-                                      activeExcavators;
-
-            resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, extractionAmount);
-            rawRegolith[resourceType] = extractionAmount;
         }
     }
 
@@ -1775,53 +1731,6 @@ bool Unit::DeactivateModule(int moduleIndex) {
 
     std::cout << "Deactivated module: " << module.name << " (index " << moduleIndex << ")" << std::endl;
     return true;
-}
-
-// --- Excavation Methods ---
-
-void Unit::MoveExcavator(int excavatorId, int gridX, int gridY) {
-    for (auto& exc : excavators)
-    {
-        if (exc.id == excavatorId)
-        {
-            exc.gridPos = {static_cast<float>(gridX), static_cast<float>(gridY)};
-            std::cout << "[EXCAVATION] Excavator " << excavatorId
-                      << " moved to (" << gridX << "," << gridY << ")" << std::endl;
-            return;
-        }
-    }
-}
-
-void Unit::SetExcavatorDepth(int excavatorId, float depth) {
-    for (auto& exc : excavators)
-    {
-        if (exc.id == excavatorId)
-        {
-            float maxDepth = 10.0f;
-            for (const auto& mod : modules)
-            {
-                if (mod.moduleType == "EXCAVATION")
-                {
-                    float tierMaxDepths[] = {10.0f, 30.0f, 100.0f, 300.0f};
-                    maxDepth = tierMaxDepths[std::min(mod.tier, 3)];
-                    break;
-                }
-            }
-            exc.depth = std::clamp(depth, 0.0f, maxDepth);
-            return;
-        }
-    }
-}
-
-void Unit::SetExcavatorRate(int excavatorId, float rate) {
-    for (auto& exc : excavators)
-    {
-        if (exc.id == excavatorId)
-        {
-            exc.rate = std::clamp(rate, 0.0f, 500.0f);
-            return;
-        }
-    }
 }
 
 // --- Beneficiation Methods ---

@@ -31,7 +31,6 @@ public:
     const EstimateEngine& GetEstimator() const;
 
     // Convenience for the currently selected spot.
-    SpotView DescribeSelected(const ProspectingSystem& prospecting) const;
 
     // What the player is TOLD is in the selected spot, as opposed to what is
     // actually there. The panel reads this; the dig engine reads the truth.
