@@ -266,14 +266,39 @@ uniform vec2 uSeedG;
 uniform vec2 uSeedL;
 uniform vec2 uSeedF;
 uniform vec2 uSeedB;
-// Where this target's pixel (0,0) sits on the moon, in pixels of this
-// level. Noise reads world(pix), never pix, so the lattice is pinned to
-// the ground and the same site invents the same detail from any window
-// that frames it. Bounded by half the moon's circumference over
-// kmPerPx -- about 560k at the sect level, well inside the range where
-// a float still counts integers exactly.
-uniform vec2 uWorldPx;
-vec2 world(vec2 pix) { return pix + uWorldPx; }
+// Where a pixel sits on the moon. Noise reads world(pix), never pix, so
+// the lattice is pinned to the ground and the same site invents the same
+// detail from any window that frames it.
+//
+// This is lola_dem's frame and terrain_synthesis.cpp's FrameWorldKm: u
+// is the east-west arc from the prime meridian at the pixel's OWN
+// latitude, v the north-south arc from the equator, both divided by the
+// level's km/px so a lattice of s still means s pixels. The cos belongs
+// to the pixel: taking it once per window makes the east-west scale
+// depend on where the window is, which slid the lattice 7 px at the
+// sect level. Bounded by half the moon's circumference over kmPerPx --
+// about 560k at 5 km, well inside exact integer range for a float.
+uniform vec4 uFrame;      // lat0, dLat/px, lon0, dLon/px  (degrees)
+uniform float uKmPerPx;
+const float MOON_KM_DEG = 30.32268;
+vec2 world(vec2 pix)
+{
+    float lat = uFrame.x + (pix.y + 0.5) * uFrame.y;
+    float lon = uFrame.z + (pix.x + 0.5) * uFrame.w;
+    return vec2(lon * MOON_KM_DEG * cos(radians(lat)),
+                lat * MOON_KM_DEG) / uKmPerPx;
+}
+// The exact inverse: v gives the latitude, and the latitude gives the
+// cosine that u needs. Only the boulders need it, to put a cell's rock
+// back on the pixel it belongs to.
+vec2 worldToPix(vec2 w)
+{
+    float lat = w.y * uKmPerPx / MOON_KM_DEG;
+    float c = cos(radians(lat));
+    float lon = (w.x * uKmPerPx) / (MOON_KM_DEG * (abs(c) < 1e-6 ? 1e-6 : c));
+    return vec2((lon - uFrame.z) / uFrame.w - 0.5,
+                (lat - uFrame.x) / uFrame.y - 0.5);
+}
 
 float siteW(vec2 p)
 {
@@ -318,9 +343,8 @@ float boulderAt(vec2 pix)
         vec2 wtarget = world(target);
         vec2 cell = floor(wtarget / uBoulder.x);
         vec2 sd = mod(cell, 4096.0) * 7.13 + uSeedB;
-        vec2 bp = floor(cell * uBoulder.x
-                        + vec2(hash21(sd), hash21(sd + 11.7)) * uBoulder.x)
-                  - uWorldPx;
+        vec2 bw = (cell + vec2(hash21(sd), hash21(sd + 11.7))) * uBoulder.x;
+        vec2 bp = floor(worldToPix(bw) + 0.5);
         if (all(equal(bp, target)))
         {
             float a = uBoulder.y * (0.4 + hash21(sd + 23.1));
@@ -874,7 +898,7 @@ SiteUniforms BuildSite(const TerrainSiteDisturbance* site, int res,
 void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
                 float amp, float k, const SiteUniforms& su, float boulderCell,
                 float boulderAmp, unsigned int salt,
-                float worldPxX, float worldPxY)
+                const float frame[4], float kmPerPx)
 {
     SetTex(sh, "uMacro", macro.texture);
     SetTex(sh, "uRelief", relief.texture);
@@ -888,7 +912,8 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
     SetV4Array(sh, "uSpots", su.spots, 9);
     SetI(sh, "uSpotCount", su.spotCount);
     SetV2(sh, "uBoulder", boulderCell, boulderAmp);
-    SetV2(sh, "uWorldPx", worldPxX, worldPxY);
+    SetV4(sh, "uFrame", frame);
+    SetF(sh, "uKmPerPx", kmPerPx);
     // The salt separates LAYERS and levels, nothing else. Where the
     // ground is no longer enters here: it enters through uWorldPx, which
     // is the whole point -- a seed keyed to the window would put
@@ -1112,19 +1137,21 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
         float pxPerKm = (float)res / levelSpanKm[lvl];
         unsigned int lvlSalt = 0x9E3779B9u * (unsigned int)(lvl + 1);
 
-        // This level's pixel (0,0) on the moon, in its own pixels --
-        // the same tangent-plane frame MakeNoiseFrame builds for the CPU
-        // path: x east, y south, longitude scaled by cos(lat) at the
-        // window centre.
+        // This level's geographic extent, the same one MakeNoiseFrame
+        // builds for the CPU path and the same CropMacro cuts: spanKm
+        // north-south, widened by 1/cos so the window is square on the
+        // ground. The shader turns it into a per-pixel world position.
         const double D2R = 3.14159265358979323846 / 180.0;
-        double cosLat = std::max(0.2, std::cos(latDeg * D2R));
-        double kmPerPx = levelSpanKm[lvl] / (double)res;
-        double originKmX = lonDeg * MOON_KM_PER_DEG * cosLat
-                         - levelSpanKm[lvl] * 0.5;
-        double originKmY = -latDeg * MOON_KM_PER_DEG
-                         - levelSpanKm[lvl] * 0.5;
-        float worldPxX = (float)(originKmX / kmPerPx);
-        float worldPxY = (float)(originKmY / kmPerPx);
+        double latSpanDeg = levelSpanKm[lvl] / MOON_KM_PER_DEG;
+        double lonSpanDeg = latSpanDeg
+                          / std::max(0.2, std::cos(latDeg * D2R));
+        float frame[4] = {
+            (float)(latDeg + latSpanDeg * 0.5),
+            (float)(-latSpanDeg / (double)res),
+            (float)(lonDeg - lonSpanDeg * 0.5),
+            (float)(lonSpanDeg / (double)res)
+        };
+        float kmPerPx = (float)(levelSpanKm[lvl] / (double)res);
 
         SiteUniforms su = BuildSite(siteFor[lvl], res, pxPerKm, lvlSalt, lvl);
         float boulderCell = 0.0f, boulderAmp = 0.0f;
@@ -1144,7 +1171,7 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
                 SetF(G.meansSh, "uRes", (float)res);   // the grid spans the macro, not the 1x1 target
                 BindHeight(G.meansSh, G.C, relief, amp, k, su,
                            boulderCell, boulderAmp, lvlSalt,
-                           worldPxX, worldPxY);
+                           frame, kmPerPx);
             });
         }
 
@@ -1152,7 +1179,7 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
         Pass(G.fusedSh, *lumCur, [&]() {
             BindHeight(G.fusedSh, G.C, relief, amp, k, su,
                        boulderCell, boulderAmp, lvlSalt,
-                       worldPxX, worldPxY);
+                       frame, kmPerPx);
             SetTex(G.fusedSh, "uMeans", G.means.texture);
             SetF(G.fusedSh, "uShadowSteps", (float)(int)(22.0f * k / 1.5f));
             float v[2];

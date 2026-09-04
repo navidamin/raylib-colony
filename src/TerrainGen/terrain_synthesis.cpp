@@ -66,11 +66,36 @@ struct TerrainRng
 // Two windows near each other differ only to second order in it.
 struct NoiseFrame
 {
-    double originKmX = 0.0;    // world km at the window's pixel (0,0)
-    double originKmY = 0.0;
-    double kmPerPx = 1.0;
+    // The window's geographic extent, so any pixel can be turned into
+    // the ground it covers. Latitude decreases with y: north is up.
+    double lat0Deg = 0.0;      // at y = 0
+    double dLatPerPx = 0.0;    // negative
+    double lon0Deg = 0.0;      // at x = 0
+    double dLonPerPx = 0.0;
+    double kmPerPx = 1.0;      // this level's scale, for cell sizes
     uint32_t salt = 0;         // which layer this is
 };
+
+// lola_dem's frame, exactly (see SynthesizeDetail): u is the east-west
+// arc from the prime meridian AT THIS PIXEL'S OWN LATITUDE, v the
+// north-south arc from the equator. Sharing it means the two
+// synthesizers quantise the same ground into the same cells.
+//
+// The cos belongs to the pixel and not to the window. Taking it once at
+// the window centre looks equivalent and is not: it makes the east-west
+// scale a function of where the window sits, so a window moved in
+// latitude slides the whole lattice sideways. Measured before this was
+// fixed, a 0.064 degree shift at longitude 5 moved it 72 m -- a third of
+// a pixel at the 100 km level, and 7.4 pixels at 5 km, where the sect
+// level stopped anchoring at all.
+static void FrameWorldKm(const NoiseFrame& f, double x, double y,
+                         double* u, double* v)
+{
+    double lat = f.lat0Deg + y * f.dLatPerPx;
+    double lon = f.lon0Deg + x * f.dLonPerPx;
+    *v = lat * MOON_KM_PER_DEG;
+    *u = lon * MOON_KM_PER_DEG * std::cos(lat * DEG2RAD);
+}
 
 // Layers used to be decorrelated by the order they drew from one stream.
 // A hash has to be told instead.
@@ -88,13 +113,17 @@ enum : uint32_t
 static NoiseFrame MakeNoiseFrame(double latDeg, double lonDeg,
                                  double spanKm, int res, uint32_t salt)
 {
+    // The same extent CropMacro cuts: spanKm north-south, widened by
+    // 1/cos so the window is square on the ground.
     NoiseFrame f;
-    f.kmPerPx = spanKm / (double)res;
+    double latSpanDeg = spanKm / MOON_KM_PER_DEG;
     double c = std::max(0.2, std::cos(latDeg * DEG2RAD));
-    double centreX = lonDeg * MOON_KM_PER_DEG * c;
-    double centreY = -latDeg * MOON_KM_PER_DEG;
-    f.originKmX = centreX - spanKm * 0.5;
-    f.originKmY = centreY - spanKm * 0.5;
+    double lonSpanDeg = latSpanDeg / c;
+    f.lat0Deg = latDeg + latSpanDeg * 0.5;
+    f.dLatPerPx = -latSpanDeg / (double)res;
+    f.lon0Deg = lonDeg - lonSpanDeg * 0.5;
+    f.dLonPerPx = lonSpanDeg / (double)res;
+    f.kmPerPx = spanKm / (double)res;
     f.salt = salt;
     return f;
 }
@@ -288,34 +317,60 @@ static Field ValueNoise(int res, int scale, const NoiseFrame& frame,
 {
     scale = std::max(2, scale);
     double cellKm = std::max(1e-12, scale * frame.kmPerPx);
-    double u0 = frame.originKmX / cellKm;
-    double v0 = frame.originKmY / cellKm;
-    int64_t i0 = (int64_t)std::floor(u0);
-    int64_t j0 = (int64_t)std::floor(v0);
 
-    int g = res / scale + 3;
-    Field grid((size_t)g * g);
+    // The frame warps with latitude, so the lattice covering the window
+    // is a bounding box rather than a corner plus a stride. Four corners
+    // bound it; a cell of margin each way covers the interpolation.
+    double uc[4], vc[4];
+    FrameWorldKm(frame, 0.0,        0.0,        &uc[0], &vc[0]);
+    FrameWorldKm(frame, (double)res, 0.0,       &uc[1], &vc[1]);
+    FrameWorldKm(frame, 0.0,        (double)res, &uc[2], &vc[2]);
+    FrameWorldKm(frame, (double)res, (double)res, &uc[3], &vc[3]);
+    double uMin = uc[0], uMax = uc[0], vMin = vc[0], vMax = vc[0];
+    for (int i = 1; i < 4; i++)
+    {
+        uMin = std::min(uMin, uc[i]); uMax = std::max(uMax, uc[i]);
+        vMin = std::min(vMin, vc[i]); vMax = std::max(vMax, vc[i]);
+    }
+    int64_t i0 = (int64_t)std::floor(uMin / cellKm);
+    int64_t j0 = (int64_t)std::floor(vMin / cellKm);
+    int gw = (int)((int64_t)std::floor(uMax / cellKm) - i0) + 3;
+    int gh = (int)((int64_t)std::floor(vMax / cellKm) - j0) + 3;
+    gw = std::max(2, gw); gh = std::max(2, gh);
+
+    Field grid((size_t)gh * gw);
     uint32_t salt = frame.salt ^ octaveSalt;
-    for (int j = 0; j < g; j++)
-        for (int i = 0; i < g; i++)
-            grid[(size_t)j * g + i] = HashCell(i0 + i, j0 + j, salt);
+    for (int j = 0; j < gh; j++)
+        for (int i = 0; i < gw; i++)
+            grid[(size_t)j * gw + i] = HashCell(i0 + i, j0 + j, salt);
 
-    Field out((size_t)res * res);
-    double fx0 = u0 - (double)i0;
-    double fy0 = v0 - (double)j0;
-    double step = 1.0 / (double)scale;      // cells per pixel
+    // Per row: the latitude and its cosine. Per column: the longitude
+    // already in km. u is then one multiply per pixel.
+    std::vector<double> rowV(res), rowCos(res), colLonKm(res);
     for (int y = 0; y < res; y++)
     {
-        double gy = fy0 + y * step;
-        int jy = std::clamp((int)gy, 0, g - 2);
+        double lat = frame.lat0Deg + (y + 0.5) * frame.dLatPerPx;
+        rowV[y] = lat * MOON_KM_PER_DEG / cellKm - (double)j0;
+        rowCos[y] = std::cos(lat * DEG2RAD);
+    }
+    for (int x = 0; x < res; x++)
+        colLonKm[x] = (frame.lon0Deg + (x + 0.5) * frame.dLonPerPx)
+                      * MOON_KM_PER_DEG / cellKm;
+
+    Field out((size_t)res * res);
+    for (int y = 0; y < res; y++)
+    {
+        double gy = rowV[y];
+        int jy = std::clamp((int)std::floor(gy), 0, gh - 2);
         float ty = (float)(gy - jy);
+        double cosLat = rowCos[y];
         for (int x = 0; x < res; x++)
         {
-            double gx = fx0 + x * step;
-            int ix = std::clamp((int)gx, 0, g - 2);
+            double gx = colLonKm[x] * cosLat - (double)i0;
+            int ix = std::clamp((int)std::floor(gx), 0, gw - 2);
             float tx = (float)(gx - ix);
-            const float* row0 = &grid[(size_t)jy * g + ix];
-            const float* row1 = &grid[(size_t)(jy + 1) * g + ix];
+            const float* row0 = &grid[(size_t)jy * gw + ix];
+            const float* row1 = &grid[(size_t)(jy + 1) * gw + ix];
             float a = row0[0] + (row0[1] - row0[0]) * tx;
             float b = row1[0] + (row1[1] - row1[0]) * tx;
             out[(size_t)y * res + x] = a + (b - a) * ty;
@@ -372,13 +427,18 @@ static Field GrainNoise(int res, const NoiseFrame& frame)
     Field fine((size_t)res * res);
     {
         double cellKm = std::max(1e-12, frame.kmPerPx);
-        int64_t i0 = (int64_t)std::floor(frame.originKmX / cellKm);
-        int64_t j0 = (int64_t)std::floor(frame.originKmY / cellKm);
         for (int y = 0; y < res; y++)
+        {
             for (int x = 0; x < res; x++)
+            {
+                double u, v;
+                FrameWorldKm(frame, x + 0.5, y + 0.5, &u, &v);
                 fine[(size_t)y * res + x] =
-                    HashCell(i0 + x, j0 + y,
+                    HashCell((int64_t)std::floor(u / cellKm),
+                             (int64_t)std::floor(v / cellKm),
                              frame.salt ^ NOISE_GRAIN_FINE) - 0.5f;
+            }
+        }
     }
     GaussianBlur(fine, res, res, 0.5f);
     NormalizeField(fine);
@@ -636,28 +696,50 @@ static void SprinkleBoulders(Field& height, int res, const NoiseFrame& frame,
     if (count <= 0) return;
     int cellPx = std::max(2, (int)std::lround(res / std::sqrt((double)count)));
     double cellKm = std::max(1e-12, cellPx * frame.kmPerPx);
-    int64_t i0 = (int64_t)std::floor(frame.originKmX / cellKm);
-    int64_t j0 = (int64_t)std::floor(frame.originKmY / cellKm);
-    double fx0 = frame.originKmX / cellKm - (double)i0;
-    double fy0 = frame.originKmY / cellKm - (double)j0;
-    int cells = res / cellPx + 2;
-    uint32_t salt = frame.salt ^ NOISE_BOULDER;
-    for (int j = 0; j < cells; j++)
+
+    // Bound the world cells the window can see, then put each one's
+    // boulder back on a pixel. The frame inverts exactly: v gives the
+    // latitude, and the latitude gives the cosine that u needs.
+    double uc[4], vc[4];
+    FrameWorldKm(frame, 0.0,         0.0,         &uc[0], &vc[0]);
+    FrameWorldKm(frame, (double)res, 0.0,         &uc[1], &vc[1]);
+    FrameWorldKm(frame, 0.0,         (double)res, &uc[2], &vc[2]);
+    FrameWorldKm(frame, (double)res, (double)res, &uc[3], &vc[3]);
+    double uMin = uc[0], uMax = uc[0], vMin = vc[0], vMax = vc[0];
+    for (int i = 1; i < 4; i++)
     {
-        for (int i = 0; i < cells; i++)
+        uMin = std::min(uMin, uc[i]); uMax = std::max(uMax, uc[i]);
+        vMin = std::min(vMin, vc[i]); vMax = std::max(vMax, vc[i]);
+    }
+    int64_t i0 = (int64_t)std::floor(uMin / cellKm);
+    int64_t j0 = (int64_t)std::floor(vMin / cellKm);
+    int64_t i1 = (int64_t)std::floor(uMax / cellKm) + 1;
+    int64_t j1 = (int64_t)std::floor(vMax / cellKm) + 1;
+
+    uint32_t salt = frame.salt ^ NOISE_BOULDER;
+    for (int64_t cj = j0; cj <= j1; cj++)
+    {
+        for (int64_t ci = i0; ci <= i1; ci++)
         {
-            float jx = HashCell(i0 + i, j0 + j, salt);
-            float jy = HashCell(i0 + i, j0 + j, salt ^ 0x5BD1E995u);
-            double px = ((double)i - fx0 + jx) * cellPx;
-            double py = ((double)j - fy0 + jy) * cellPx;
-            int x = (int)px, y = (int)py;
+            float jx = HashCell(ci, cj, salt);
+            float jy = HashCell(ci, cj, salt ^ 0x5BD1E995u);
+            double u = ((double)ci + jx) * cellKm;
+            double v = ((double)cj + jy) * cellKm;
+
+            double lat = v / MOON_KM_PER_DEG;
+            double cosLat = std::cos(lat * DEG2RAD);
+            if (std::fabs(cosLat) < 1e-6) continue;
+            double lon = u / (MOON_KM_PER_DEG * cosLat);
+            double py = (lat - frame.lat0Deg) / frame.dLatPerPx - 0.5;
+            double px = (lon - frame.lon0Deg) / frame.dLonPerPx - 0.5;
+
+            int x = (int)std::lround(px), y = (int)std::lround(py);
             if (x < 1 || y < 1 || x >= res - 1 || y >= res - 1) continue;
-            float a = amp * (0.4f + HashCell(i0 + i, j0 + j,
-                                             salt ^ 0x27220A95u));
+            float a = amp * (0.4f + HashCell(ci, cj, salt ^ 0x27220A95u));
             height[(size_t)y * res + x] += a;
-            if (HashCell(i0 + i, j0 + j, salt ^ 0x165667B1u) < 0.5f)
+            if (HashCell(ci, cj, salt ^ 0x165667B1u) < 0.5f)
                 height[(size_t)y * res + x + 1] += a * 0.6f;
-            if (HashCell(i0 + i, j0 + j, salt ^ 0x9E3779B1u) < 0.3f)
+            if (HashCell(ci, cj, salt ^ 0x9E3779B1u) < 0.3f)
                 height[(size_t)(y + 1) * res + x] += a * 0.5f;
         }
     }
