@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [The flat excavation lattice](excavation-flat-lattice.md) — and its four cell helpers | Excavation rebuild phase 2 | the four-plate block model |
 | [Excavator controls](excavator-controls.md) — `MoveExcavator`, `SetExcavatorDepth`, `SetExcavatorRate`, `GetExcavators` | Excavation rebuild phase 0 | `ExcavationSystem` public state |
 | [Depth from the first excavator](extraction-depth-from-excavator.md) | Excavation rebuild phase 0 | `ExcavationSystem::selectedDepth` |
 | [The flat per-cell fallback skim](extraction-fallback-skim.md) | Excavation rebuild phase 0 | nothing — `Dig` is unconditional |

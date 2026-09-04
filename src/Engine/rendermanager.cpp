@@ -2431,7 +2431,6 @@ void RenderManager::DrawExtractionResourceOverview(Unit* unit, int x, int y, int
 static const Color PROS_CELL_BG         = {26, 26, 46, 255};
 static const Color PROS_CELL_BORDER     = {51, 51, 85, 255};
 static const Color PROS_HOVER_BORDER    = {102, 255, 255, 255};
-static const Color PROS_SELECT_BORDER   = {102, 255, 255, 255};
 static const Color PROS_TAB_ACTIVE      = {102, 255, 255, 60};
 static const Color PROS_TAB_BORDER      = {51, 102, 119, 255};
 static const Color PROS_TAB_ACTIVE_BDR  = {102, 255, 255, 255};
@@ -2901,139 +2900,6 @@ static void ProsDrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockC
                Fade(EXT_DIM_TEXT, labelA));
 }
 
-static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
-{
-    DrawRectangleRounded(r, 0.22f, 4, {12, 15, 28, 255});
-    if (fill.a > 0)
-    {
-        DrawRectangleRounded(r, 0.22f, 4, fill);
-    }
-
-    if (selected)
-    {
-        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 2.0f, PROS_SELECT_BORDER);
-        DrawRectangleRoundedLinesEx({r.x - 2, r.y - 2, r.width + 4, r.height + 4}, 0.22f, 4,
-                                    1.0f, Fade(PROS_SELECT_BORDER, 0.35f));
-    }
-    else if (hover)
-    {
-        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 1.0f, Fade(PROS_HOVER_BORDER, 0.8f));
-    }
-    else
-    {
-        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 1.0f, {32, 38, 60, 255});
-    }
-}
-
-// Out-of-reach cell: dimmed, dashed border, small lock glyph. The cell is
-// visible from tier 0 so the player can see the ground they will eventually
-// reach, and how much of it is still out of range.
-static void ProsDrawLockedCell(Rectangle r, bool hover)
-{
-    // Deliberately quiet: the reachable area must stay the focus, while the
-    // surrounding ground is still visible as "yours, later". A lock glyph on
-    // every cell would drown the panel, so it only appears on hover.
-    DrawRectangleRounded(r, 0.22f, 4, {8, 10, 18, 255});
-
-    Color edge = hover ? Color{70, 92, 120, 255} : Color{20, 25, 40, 255};
-    const float dash = 4.0f;
-    for (float x = r.x + 3; x < r.x + r.width - 3; x += dash * 2)
-    {
-        float w = std::min(dash, r.x + r.width - 3 - x);
-        DrawRectangleRec({x, r.y, w, 1.0f}, edge);
-        DrawRectangleRec({x, r.y + r.height - 1, w, 1.0f}, edge);
-    }
-    for (float y = r.y + 3; y < r.y + r.height - 3; y += dash * 2)
-    {
-        float h = std::min(dash, r.y + r.height - 3 - y);
-        DrawRectangleRec({r.x, y, 1.0f, h}, edge);
-        DrawRectangleRec({r.x + r.width - 1, y, 1.0f, h}, edge);
-    }
-
-    if (hover)
-    {
-        float cx = r.x + r.width / 2.0f;
-        float cy = r.y + r.height / 2.0f;
-        float s = std::min(r.width, r.height) * 0.16f;
-        Color glyph = {120, 150, 190, 255};
-        DrawRectangleRec({cx - s, cy - s * 0.1f, s * 2.0f, s * 1.5f}, glyph);
-        DrawRing({cx, cy - s * 0.1f}, s * 0.62f, s * 0.92f, 180.0f, 360.0f, 16, glyph);
-    }
-}
-
-// A spot excavation has dug. Known for certain, but known DIFFERENTLY from a
-// surveyed one: a surveyed spot says what is there, a dug spot says what was
-// there and how much has been taken out. Drawn as a hatched corner whose fill
-// tracks how worked out the column is, so "certain and emptied" never reads as
-// "certain and full".
-static void ProsDrawWorkedMark(Rectangle r, const SubCell& cell)
-{
-    float worked = 0.0f;
-    int dugLayers = 0;
-    for (int d = 0; d < 4; d++)
-    {
-        worked += cell.workedFraction[d];
-        if (cell.HasBeenDug(d)) dugLayers++;
-    }
-    if (dugLayers == 0) return;
-
-    worked /= 4.0f;   // 0-1 across the whole depth column
-
-    // Amber, deliberately unlike the cool survey palette -- this is ground you
-    // have taken from, not ground you have measured.
-    Color mark = {228, 164, 74, 255};
-
-    float size = r.width * 0.30f;
-    Vector2 corner = {r.x + r.width - 2.0f, r.y + 2.0f};
-
-    // Filled wedge in the top-right, growing as the column is worked out.
-    DrawTriangle(corner,
-                 {corner.x - size, corner.y},
-                 {corner.x, corner.y + size},
-                 Fade(mark, 0.25f + 0.55f * worked));
-
-    // One tick per layer dug, so depth progress is legible at a glance.
-    for (int i = 0; i < dugLayers; i++)
-    {
-        float t = 2.0f + i * 3.0f;
-        DrawLineEx({corner.x - t, corner.y + 1.0f},
-                   {corner.x - 1.0f, corner.y + t},
-                   1.0f, Fade(mark, 0.9f));
-    }
-}
-
-// Sample/sweep marker in the cell center. Confidence drives the glyph:
-// hollow ring (low) -> ring with core (moderate) -> solid bright dot (high).
-static void ProsDrawCellMarker(Rectangle r, const SubCell& cell)
-{
-    Vector2 c = {r.x + r.width / 2.0f, r.y + r.height / 2.0f};
-    float base = r.width * 0.18f;
-
-    ProsDrawWorkedMark(r, cell);
-
-    if (!cell.sampleIds.empty())
-    {
-        float conf = cell.aggregateConfidence;
-        if (conf > 0.7f)
-        {
-            DrawCircleV(c, base * 0.85f, {120, 240, 255, 255});
-            DrawCircleV(c, base * 1.6f, {120, 240, 255, 35});
-        }
-        else if (conf > 0.4f)
-        {
-            DrawRing(c, base * 0.8f, base * 1.05f, 0.0f, 360.0f, 28, {238, 234, 252, 210});
-            DrawCircleV(c, base * 0.4f, {238, 234, 252, 130});
-        }
-        else
-        {
-            DrawRing(c, base * 0.8f, base * 1.05f, 0.0f, 360.0f, 28, {238, 234, 252, 180});
-        }
-    }
-    else if (cell.hasBeenSwept)
-    {
-        DrawCircleV(c, 1.5f, {225, 218, 255, 130});
-    }
-}
 
 // ===========================================================================
 // THE BOREHOLE DOCK -- the drill-dock port (variant b: seam-aligned).
@@ -3994,7 +3860,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // surface, or drill a spot. See docs/design/prospecting/block-model-design.md
     // =======================================================================
 
-    float dockW = 120.0f;
+    float dockW = 104.0f;
     float modelW = pw * 0.60f - dockW;
     float modelH = contentH - 30.0f;
     float gridX = px;
@@ -4086,7 +3952,21 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
             for (int gx = 0; gx < gridSize; gx++)
             {
                 BlockCell& c = layers[L][gy * gridSize + gx];
-                c.grade = field.GradeAt(gx, gy, L);
+                // Drained by what has already been taken out, so the relief
+                // reads as what is LEFT rather than what was once there. That
+                // is the whole difference from prospecting's stack, which
+                // asks what is in the ground; this one asks what is still
+                // worth sending a machine to.
+                //
+                // Ground that has been dug does not read as ground that was
+                // always poor, and it does not need a marker to say so:
+                // digging sets confidence to 1.0 at that spot and depth, so a
+                // worked-out cell is a MEASURED cell with no relief, while
+                // barren unsurveyed ground is UNCLASSIFIED with no relief.
+                // The class colour already carries it.
+                float left = 1.0f - std::clamp(
+                    grid.GetSubCell(gx, gy).workedFraction[L], 0.0f, 1.0f);
+                c.grade = field.GradeAt(gx, gy, L) * left;
                 c.cls = GetResourceClass(field.ConfidenceAt(gx, gy, L));
                 maxGrade = std::max(maxGrade, c.grade);
             }
@@ -5217,21 +5097,6 @@ static void ExcDrawShaftDock(ExcavationSystem* es, const DockGeom& dg,
 }
 
 
-// heard, this one shows how much of the TARGETED resource a spot holds.
-static Color ExcYieldHeatColor(float normalized)
-{
-    normalized = normalized < 0.0f ? 0.0f : (normalized > 1.0f ? 1.0f : normalized);
-
-    Color poor = {58, 66, 92, 255};
-    Color rich = EXT_ACCENT_GREEN;
-
-    return {
-        static_cast<unsigned char>(poor.r + (rich.r - poor.r) * normalized),
-        static_cast<unsigned char>(poor.g + (rich.g - poor.g) * normalized),
-        static_cast<unsigned char>(poor.b + (rich.b - poor.b) * normalized),
-        255
-    };
-}
 
 // A horizontal slider. Returns true while being dragged, and writes through
 // `value`. IMGUI-style: drawn and hit-tested in one pass.
@@ -5320,172 +5185,216 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     int gridSize = grid.GetGridSize();
 
     // =======================================================================
-    // Left: the ground
+    // Left: the ground, as the block model
     // =======================================================================
-    // The shaft dock takes its width out of the lattice, which is on its way
-    // out anyway -- phase 2 replaces the flat grid with the block model, and
-    // the dock's depth axis moves from ExcDockEven to DockFromBlock then.
-    float dockW = 104.0f;
-    float gridAreaW = std::min(pw * 0.56f - dockW - 12.0f, contentH - 30.0f);
-    float cellSize = gridAreaW / gridSize;
+    // The same instrument prospecting reads its survey off, asked a different
+    // question: the plates are shaded by the estimated yield of the resource
+    // being TARGETED, not the cell's richest element. Same stack, same lift
+    // law, same four rocks -- so a depth here is the same depth there.
+    //
+    // Two overlays prospecting has no reason to draw: excavation's OWN reach
+    // ring (its tier, never prospecting's -- hauling distance is not
+    // instrument range, and that asymmetry is where the module's gamble
+    // lives), and the ground already worked out.
+    if (!strataLoaded) LoadStrataTextures();
+
+    float dockW = 120.0f;                 // wider than the borehole strip: a shaft
+    float modelW = pw * 0.60f - dockW;
+    float modelH = contentH - 30.0f;
     float gridX = px;
     float gridY = contentY;
-    float cellGap = 5.0f;
 
-    // The grid is shaded by what the player has been TOLD is in each spot, not
-    // by the truth -- otherwise the map would quietly hand over the survey the
-    // player has not paid for. Normalise across reachable spots so the ramp
-    // uses its full range whatever the cell's absolute richness.
-    // Bulk the per-spot inputs once per frame: estimator.Estimate redoes a
-    // full-grid cell mean and a full-grid confidence scan for EVERY spot,
-    // which at 16x16 is the same O(N^4) frame-eater the block model had.
-    // Same numbers -- EstimateAt is the engine's own caller-supplied form.
-    float exCellMean = site.GetCellMeanYield(grid, es->selectedDepth,
-                                             es->targetResource);
-    EstimateField exField = BuildEstimateField(grid, es->targetResource);
-    int exDepth = static_cast<int>(es->selectedDepth);
-    auto EstimateSpot = [&](int gx, int gy)
+    BlockModelGeom geom = ProsBlockGeom(gridSize, gridX, gridY, modelW, modelH);
+    DockGeom dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
     {
-        return estimator.EstimateAt(
-            site.GetTargetYield(grid, gx, gy, es->selectedDepth,
-                                es->targetResource),
-            exCellMean, exField.ConfidenceAt(gx, gy, exDepth),
-            grid.GetParentGridX(), grid.GetParentGridY(),
-            gx, gy, es->selectedDepth, es->targetResource);
+        // The rig's head needs sky, for the same reason the auger's does.
+        float sky = dock.bandTop[0] - contentY;
+        if (sky < 64.0f)
+        {
+            float push = 64.0f - sky;
+            geom = ProsBlockGeom(gridSize, gridX, gridY + push, modelW, modelH - push);
+            dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
+        }
+    }
+
+    // ONE estimate field for the whole stack. The per-cell scalar path is
+    // O(N^4) and cost 55 ms/frame at 16x16 -- at 32 it would be 16x worse.
+    // One grade scale across all four plates, so a barren layer stays visibly
+    // flatter than the ore instead of being normalised up to match it.
+    std::vector<std::vector<BlockCell>> layers(4);
+    float maxGrade = 0.0001f;
+    EstimateField field = BuildEstimateField(grid, es->targetResource);
+    for (int L = 0; L < 4; L++)
+    {
+        layers[L].resize(gridSize * gridSize);
+        for (int gy = 0; gy < gridSize; gy++)
+        {
+            for (int gx = 0; gx < gridSize; gx++)
+            {
+                BlockCell& c = layers[L][gy * gridSize + gx];
+                c.grade = field.GradeAt(gx, gy, L);
+                c.cls = GetResourceClass(field.ConfidenceAt(gx, gy, L));
+                maxGrade = std::max(maxGrade, c.grade);
+            }
+        }
+    }
+    for (int L = 0; L < 4; L++)
+    {
+        float top = 0.0f;
+        for (int j = 0; j <= gridSize; j++)
+            for (int i = 0; i <= gridSize; i++)
+                top = std::max(top, ProsCornerLift(layers[L], gridSize, maxGrade,
+                                                   geom.relief, i, j));
+        geom.plateDrop[L] = top;
+    }
+
+    auto LiftAt = [&](int L, int i, int j)
+    {
+        return ProsCellLift(layers[L], gridSize, maxGrade, geom.relief, i, j);
     };
 
-    float bestShown = 0.0f;
-    for (int gy = 0; gy < gridSize; gy++)
+    // Pick BEFORE drawing: plate brightness depends on the hover, and reading
+    // it afterwards lights the wrong layer for a frame.
+    BlockPickGeom pick;
+    pick.originX = geom.originX; pick.originY = geom.originY;
+    pick.tileX = geom.tileX;     pick.tileY = geom.tileY;
+    pick.gap = geom.gap;         pick.size = gridSize;
+    int hovL = -1, hovX = -1, hovY = -1;
+    for (int L = 0; L < 4 && hovL < 0; L++)
     {
-        for (int gx = 0; gx < gridSize; gx++)
+        int pi = 0, pj = 0;
+        if (!BlockPickCell(pick, L, mouse.x, mouse.y - geom.plateDrop[L],
+                           [&](int i, int j) { return LiftAt(L, i, j); }, pi, pj)) continue;
+        hovL = L; hovX = pi; hovY = pj;
+    }
+    if (hovL < 0 && es->previewHoverLayer >= 0)
+    {
+        hovL = std::clamp(es->previewHoverLayer, 0, 3);
+        hovX = gridSize / 2; hovY = gridSize / 2;
+    }
+
+    int workedDepth = std::clamp(static_cast<int>(es->selectedDepth), 0, 3);
+    es->UpdatePlateLight(hovL, workedDepth, GetFrameTime());
+
+    static const char* excDepthLabels[4] = {"0 m", "12 m", "34 m", "68 m"};
+    static const char* excLevelLabels[4] = {"SURFACE", "SHALLOW", "MID", "DEEP"};
+
+    // The plate being worked rim-lights, on the same 12.6 rad/s clock the
+    // other instruments pulse on -- an unsynced phase reads as two panels.
+    float rimPulse = 0.45f + 0.25f * sinf(static_cast<float>(GetTime()) * 12.6f);
+    for (int L = 0; L < 4; L++)
+    {
+        const Texture2D* tile = (strataLoaded && strataTex[L].id != 0)
+                              ? &strataTex[L] : nullptr;
+        bool canWork = site.CanWorkDepth(static_cast<DepthLayer>(L));
+        // A depth this tier cannot work is still DRAWN, just held back: the
+        // player should see the ground waiting for them, not a gap.
+        float light = es->plateLight[L] * (canWork ? 1.0f : 0.42f);
+        ProsDrawBlockLayer(geom, layers[L], L, maxGrade, light, bodyFont, sp,
+                           excDepthLabels[L],
+                           canWork ? excLevelLabels[L]
+                                   : TextFormat("%s  LOCKED", excLevelLabels[L]),
+                           nullptr, nullptr, tile,
+                           L == workedDepth ? rimPulse : 0.0f);
+    }
+
+    // ---- excavation's reach ---------------------------------------------
+    // A centred square that excavation's OWN tier sizes. Drawn as a polyline
+    // along the boundary so it rides the lifted surface instead of cutting
+    // through it, the same way the active-plate rim does.
+    //
+    // DASHED, because the active-plate rim is already a solid amber square on
+    // the worked plate and two solid amber squares on one plate read as one
+    // shape with a mistake in it. A dash says "limit" where a solid line says
+    // "this one" -- same colour, different grammar.
+    {
+        int reach = GetReachForTier(es->GetTier());
+        int r0 = (gridSize - reach) / 2, r1 = r0 + reach;
+        for (int L = 0; L < 4; L++)
         {
-            if (!site.IsInReach(gx, gy)) continue;
-            SpotEstimate e = EstimateSpot(gx, gy);
-            if (e.shown > bestShown) bestShown = e.shown;
+            Color ring = Fade(Color{228, 164, 74, 255},
+                              L == workedDepth ? 0.55f : 0.16f);
+            auto Edge = [&](int ax, int ay, int bx, int by)
+            {
+                int steps = std::max(std::abs(bx - ax), std::abs(by - ay));
+                Vector2 prev = {0.0f, 0.0f};
+                for (int k = 0; k <= steps; k++)
+                {
+                    float t = static_cast<float>(k) / std::max(1, steps);
+                    float fx = ax + (bx - ax) * t, fy = ay + (by - ay) * t;
+                    float lift = ProsCornerLift(layers[L], gridSize, maxGrade, geom.relief,
+                                                static_cast<int>(fx), static_cast<int>(fy));
+                    Vector2 q = geom.Iso(fx, fy, L, lift);
+                    if (k > 0 && (k % 2) == 1) DrawLineEx(prev, q, 1.2f, ring);
+                    prev = q;
+                }
+            };
+            Edge(r0, r0, r1, r0); Edge(r1, r0, r1, r1);
+            Edge(r1, r1, r0, r1); Edge(r0, r1, r0, r0);
         }
     }
 
-    int lockedHoverX = -1;
-    int lockedHoverY = -1;
-
-    for (int gy = 0; gy < gridSize; gy++)
+    // ---- the spot being worked, and the one under the pointer -------------
+    auto CellOutline = [&](int L, int i, int j, Color col, float th)
     {
-        for (int gx = 0; gx < gridSize; gx++)
+        float lift = LiftAt(L, i, j);
+        Vector2 a = geom.Iso(static_cast<float>(i),     static_cast<float>(j),     L, lift);
+        Vector2 b = geom.Iso(static_cast<float>(i + 1), static_cast<float>(j),     L, lift);
+        Vector2 c = geom.Iso(static_cast<float>(i + 1), static_cast<float>(j + 1), L, lift);
+        Vector2 d = geom.Iso(static_cast<float>(i),     static_cast<float>(j + 1), L, lift);
+        DrawLineEx(a, b, th, col); DrawLineEx(b, c, th, col);
+        DrawLineEx(c, d, th, col); DrawLineEx(d, a, th, col);
+    };
+    {
+        int sx = std::clamp(es->selectedSpotX, 0, gridSize - 1);
+        int sy = std::clamp(es->selectedSpotY, 0, gridSize - 1);
+        CellOutline(workedDepth, sx, sy, EXT_ACCENT_CYAN, 1.8f);
+        Vector2 dot = geom.Iso(sx + 0.5f, sy + 0.5f, workedDepth,
+                               LiftAt(workedDepth, sx, sy));
+        DrawCircleV(dot, 3.6f, Fade(PROS_OUT, 0.85f));
+        DrawCircleV(dot, 2.2f, EXT_ACCENT_CYAN);
+    }
+    int lockedHoverX = -1, lockedHoverY = -1;
+    if (hovL >= 0)
+    {
+        bool inReach = site.IsInReach(hovX, hovY);
+        bool ok = inReach && site.CanWorkDepth(static_cast<DepthLayer>(hovL));
+        // The tooltip at the foot of the panel names the tier that would
+        // reach here, so out-of-range ground explains itself rather than
+        // just refusing the click.
+        if (!inReach) { lockedHoverX = hovX; lockedHoverY = hovY; }
+        CellOutline(hovL, hovX, hovY, Fade(ok ? PROS_HOVER_BORDER
+                                              : Color{255, 90, 40, 255}, 0.9f), 1.2f);
+        // Clicking a plate picks BOTH the spot and the depth. The plate is the
+        // depth -- which is what let the separate depth row go.
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && ok)
         {
-            Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
-                                  cellSize - cellGap, cellSize - cellGap};
-            bool hover = CheckCollisionPointRec(mouse, cellRect);
-
-            if (!site.IsInReach(gx, gy))
-            {
-                ProsDrawLockedCell(cellRect, hover);
-                if (hover) { lockedHoverX = gx; lockedHoverY = gy; }
-                continue;
-            }
-
-            SpotEstimate e = EstimateSpot(gx, gy);
-            float normalized = bestShown > 0.0f ? e.shown / bestShown : 0.0f;
-
-            Color fill = ExcYieldHeatColor(normalized);
-
-            // Poorly known ground is drawn faint. The player can see there is
-            // something there without being told how much -- which is the
-            // difference between a map and a survey.
-            fill.a = static_cast<unsigned char>(70.0f + 120.0f * e.confidence);
-
-            // Worked-out ground drains back toward the base colour.
-            float left = worked.Remaining(gx, gy, es->selectedDepth);
-            if (left < 1.0f)
-            {
-                fill.a = static_cast<unsigned char>(fill.a * (0.35f + 0.65f * left));
-            }
-
-            bool selected = (es->selectedSpotX == gx && es->selectedSpotY == gy);
-            ProsDrawCellBase(cellRect, fill, selected, hover);
-            ProsDrawCellMarker(cellRect, grid.GetSubCell(gx, gy));
-
-            if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                es->selectedSpotX = gx;
-                es->selectedSpotY = gy;
-            }
+            es->selectedSpotX = hovX;
+            es->selectedSpotY = hovY;
+            es->selectedDepth = static_cast<DepthLayer>(hovL);
         }
     }
 
-    // --- Depth row, under the grid ---
-    float depthY = gridY + gridSize * cellSize + 4.0f;
-    DrawTextEx(bodyFont, "DEPTH", {gridX, depthY + 4.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
-
-    const char* depthNames[] = {"SURF", "SHLW", "MID", "DEEP"};
-    float dbX = gridX + 42.0f;
-    for (int d = 0; d < 4; d++)
+    // ---- legend ----------------------------------------------------------
     {
-        DepthLayer layer = static_cast<DepthLayer>(d);
-        Rectangle db = {dbX + d * 46.0f, depthY, 42.0f, 20.0f};
-
-        bool reachable = site.CanWorkDepth(layer) &&
-                         DigEngine::CanMachineWorkDepth(es->activeMachine, layer);
-        bool isSelected = (es->selectedDepth == layer);
-        bool hover = CheckCollisionPointRec(mouse, db);
-
-        // Radio treatment: this is "choose one", not "press me". Only the
-        // digging itself acts.
-        Color fill = isSelected ? Fade(EXT_ACCENT_CYAN, 0.16f) : EXT_PANEL_BG2;
-        if (!reachable) fill = Fade(EXT_PANEL_BG2, 0.5f);
-        DrawRectangleRounded(db, 0.3f, 4, fill);
-        if (isSelected)
-        {
-            DrawRectangleRoundedLinesEx(db, 0.3f, 4, 1.0f, Fade(EXT_ACCENT_CYAN, 0.8f));
-        }
-
-        Color textColor = !reachable ? Fade(EXT_DIM_TEXT, 0.45f)
-                                     : (isSelected ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
-        float tw = MeasureTextEx(bodyFont, depthNames[d], FS(8.5f), sp).x;
-        DrawTextEx(bodyFont, depthNames[d],
-                   {db.x + (db.width - tw) * 0.5f, db.y + 5.0f}, FS(8.5f), sp, textColor);
-
-        if (reachable && hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            es->selectedDepth = layer;
-        }
+        const char* targetLabel = ResourceTypeToString(es->targetResource);
+        float legendY = gridY + modelH + 2.0f;
+        // Right group first, then the left text is given whatever is left --
+        // at this width a fixed split collided the two.
+        const char* reachTxt = TextFormat("REACH %d", site.GetReach());
+        float reachW = MeasureTextEx(bodyFont, reachTxt, FS(8.0f), sp).x;
+        float rx = gridX + modelW - reachW;
+        DrawTextEx(bodyFont, reachTxt, {rx, legendY}, FS(8.0f), sp,
+                   Fade(Color{228, 164, 74, 255}, 0.85f));
+        DrawTextEx(bodyFont, TextFormat("relief = est. %s left", targetLabel),
+                   {gridX, legendY}, FS(8.5f), sp, EXT_DIM_TEXT);
     }
-
-    // A green gradient at variable opacity is not self-explanatory: brightness
-    // and faintness are carrying two different meanings at once, so say which
-    // is which rather than leaving the player to infer it.
-    float legendY = depthY + 26.0f;
-    const char* targetLabel = ResourceTypeToString(es->targetResource);
-
-    DrawRectangleRounded({gridX, legendY + 2.0f, 9.0f, 9.0f}, 0.3f, 4,
-                         Fade(EXT_ACCENT_GREEN, 0.85f));
-    DrawTextEx(bodyFont, TextFormat("more %s", targetLabel), {gridX + 14.0f, legendY},
-               FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.85f));
-
-    float legX = gridX + 14.0f + MeasureTextEx(bodyFont, TextFormat("more %s", targetLabel),
-                                               FS(8.0f), sp).x + 14.0f;
-    DrawRectangleRounded({legX, legendY + 2.0f, 9.0f, 9.0f}, 0.3f, 4,
-                         Fade(EXT_ACCENT_GREEN, 0.22f));
-    DrawTextEx(bodyFont, "faint = unsurveyed", {legX + 14.0f, legendY},
-               FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.85f));
-
-    legX += 14.0f + MeasureTextEx(bodyFont, "faint = unsurveyed", FS(8.0f), sp).x + 14.0f;
-    DrawTriangle({legX + 9.0f, legendY + 2.0f}, {legX, legendY + 2.0f},
-                 {legX + 9.0f, legendY + 11.0f}, Fade(Color{228, 164, 74, 255}, 0.8f));
-    DrawTextEx(bodyFont, "dug", {legX + 14.0f, legendY}, FS(8.0f), sp,
-               Fade(EXT_DIM_TEXT, 0.85f));
 
     // =======================================================================
     // Centre: the shaft
     // =======================================================================
-    // The same four generated rocks the borehole strip wears -- lazily loaded
-    // by whichever panel asks first, so excavation does not depend on the
-    // player having opened prospecting.
-    if (!strataLoaded) LoadStrataTextures();
-    float dockTop = contentY + 64.0f;                 // sky enough for the head
-    float dockBot = contentY + contentH - 6.0f;
-    DockGeom dock = ExcDockEven(gridX + gridAreaW + 12.0f, dockW, dockTop, dockBot);
-    ExcDrawShaftDock(es, dock, contentY, dockBot, bodyFont, sp, FS(7.5f),
-                     strataLoaded ? strataTex : nullptr);
+    ExcDrawShaftDock(es, dock, contentY, dock.bandTop[4] + 18.0f,
+                     bodyFont, sp, FS(7.5f), strataLoaded ? strataTex : nullptr);
 
     // =======================================================================
     // Right: the controls

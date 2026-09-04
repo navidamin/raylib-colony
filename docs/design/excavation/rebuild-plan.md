@@ -173,7 +173,7 @@ calls them rather than duplicating six functions. Renaming them out of the
 diff is already in this file; doing it in phase 1 would have widened an
 additive change into a 60-site rename in a file other sessions are editing.
 
-### Phase 2 — the block model comes to excavation
+### Phase 2 — the block model comes to excavation — **DONE**
 
 - Build the four `BlockCell` layers from **one** `BuildEstimateField(grid,
   target)`. The scalar `GetEstimatedYield` path is O(N⁴) and was measured at
@@ -182,10 +182,40 @@ additive change into a 60-site rename in a file other sessions are editing.
   parameter and holds no member state.
 - Overlay excavation's own reach ring (`IsSubCellInReach` with the *excavation*
   tier) and worked-out drain (`SubCell::workedFraction`).
-- Rename the four cell-marker helpers that already serve only excavation
-  (`ProsDrawCellBase` / `LockedCell` / `WorkedMark` / `CellMarker`,
-  `rendermanager.cpp:2904-3036`) out of the `Pros` prefix. Misleading names are
-  a real cost in a file this size.
+- ~~Rename the four cell-marker helpers out of the `Pros` prefix.~~ They did
+  not need renaming, they needed **burying** — every one was called only by the
+  flat lattice, so they died with it. See
+  [`../graveyard/excavation-flat-lattice.md`](../graveyard/excavation-flat-lattice.md).
+
+**What phase 2 actually settled:**
+
+- **The relief reads what is LEFT**, not what was there: grade is drained by
+  `workedFraction` before the plates are built. This is §3.2's idea arriving
+  early — the depletion *lane* is not needed, because depletion is already the
+  shape of the ground.
+- **Worked-out ground needs no marker.** Digging sets confidence to 1.0 at that
+  spot and depth, so a worked cell is MEASURED with no relief while barren
+  unsurveyed ground is UNCLASSIFIED with no relief. The class colour carries it.
+  The first attempt drew an amber diamond per dug cell and it swamped the
+  plates — at 32×32 a tile is ~3 px and **no per-cell overlay can read**.
+- **The depth row is gone: the plate is the depth.** One click sets spot and
+  layer together, which removes a two-control sync hazard rather than just
+  saving space.
+- **The reach ring is dashed**, because the active-plate rim is already a solid
+  amber square and two solid amber squares on one plate read as one shape with
+  a mistake in it.
+- A **locked depth is a whole plate** held at 0.42 light with `LOCKED` on its
+  label, not a per-cell glyph. A depth is locked; a cell is not.
+- `ExcavationSystem` gained `plateLight[4]` / `UpdatePlateLight` /
+  `previewHoverLayer`, mirroring prospecting — persistent presentation state on
+  the facade, per CLAUDE.md, because the renderer is rebuilt each frame and
+  could only ever snap.
+
+**Fixed here, introduced in phase 1:** the dock-width change hit the *first*
+`dockW = 104.0f` in the file, which was **prospecting's**. Prospecting's strip
+had been silently widened to 120 and excavation's left at 104 — the exact
+opposite of what was intended and what the phase 1 commit message claimed.
+Prospecting is back to 104 and excavation is 120.
 
 ### Phase 3 — the panel is recomposed, and the flat grid is buried
 

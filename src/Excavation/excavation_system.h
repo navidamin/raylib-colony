@@ -5,6 +5,9 @@
 #include "dig_engine.h"
 #include "auto_pilot.h"
 #include "resource_types.h"
+// PLATE_REST_LIGHT / PLATE_LIGHT_FULL / PLATE_LIGHT_TAU_S: the plate focus
+// table is shared, so both block models ease on one law.
+#include "prospecting_constants.h"
 
 class ProspectingSystem;
 
@@ -54,6 +57,21 @@ public:
 
     const DigSite& GetWorked() const;
     const DigEngine& GetDigger() const;
+
+    // ---- Block model focus ----------------------------------------------
+    // How lit each plate is, 0..1, eased toward its target every frame. This
+    // is persistent presentation state, so it lives on the facade rather than
+    // in the renderer, which is rebuilt from nothing each frame and could only
+    // ever snap. Same law and the same table as prospecting's stack: the two
+    // block models are one instrument seen twice, and a different easing would
+    // read as a different world.
+    void UpdatePlateLight(int hoveredLayer, int activeLayer, float dt);
+    float plateLight[4] = { PLATE_REST_LIGHT[0], PLATE_REST_LIGHT[1],
+                            PLATE_REST_LIGHT[2], PLATE_REST_LIGHT[3] };
+    // Headless has no pointer, so hover states could not be screenshotted at
+    // all. -1 is off; otherwise the renderer treats this layer as hovered.
+    // Only the preview tool sets it.
+    int previewHoverLayer = -1;
 
     // Machines available to this tier, in table order.
     bool IsMachineAvailable(MachineId id) const;

@@ -1,3 +1,4 @@
+#include <cmath>
 #include "excavation_system.h"
 #include "excavation_constants.h"
 #include "prospecting_system.h"
@@ -13,6 +14,21 @@ ExcavationSystem::ExcavationSystem(int tier)
     int centre = PROSPECTING_GRID_SIZE / 2;
     selectedSpotX = centre;
     selectedSpotY = centre;
+}
+
+void ExcavationSystem::UpdatePlateLight(int hoveredLayer, int activeLayer, float dt)
+{
+    // Exponential approach, framerate-independent: the same wall-clock rise
+    // whether the panel runs at 30 or 144. Lit: the plate under the pointer,
+    // and the plate being worked -- the depth you are digging is live whether
+    // or not you are pointing at it. Either may be -1.
+    float k = 1.0f - std::exp(-std::max(dt, 0.0f) / PLATE_LIGHT_TAU_S);
+    for (int L = 0; L < 4; L++)
+    {
+        float target = (L == hoveredLayer || L == activeLayer)
+                     ? PLATE_LIGHT_FULL : PLATE_REST_LIGHT[L];
+        plateLight[L] += (target - plateLight[L]) * k;
+    }
 }
 
 void ExcavationSystem::SetTier(int newTier)
