@@ -153,6 +153,8 @@ void ViewManager::ClampCameraColonyView() {
 void ViewManager::ResetCameraForCurrentView(View view, std::vector<Colony*>& colonies, Colony* currentColony, Planet* planet) {
     switch (view) {
         case View::Planet: {
+            // Site selection shifts the offset to clear its panel; put it back.
+            camera.offset = {screenWidth / 2.0f, screenHeight / 2.0f};
             camera.target = {PLANET_WIDTH / 2, PLANET_HEIGHT / 2};  // Center of planet, not colony
 
             if (!colonies.empty()) {
@@ -184,6 +186,7 @@ void ViewManager::ResetCameraForCurrentView(View view, std::vector<Colony*>& col
             break;
         }
         case View::Colony: {
+            camera.offset = {screenWidth / 2.0f, screenHeight / 2.0f};
             if (currentColony) {
                 camera.target = currentColony->GetCentroid();
                 float desiredView = 8 * SECT_CORE_RADIUS;
@@ -196,11 +199,19 @@ void ViewManager::ResetCameraForCurrentView(View view, std::vector<Colony*>& col
             break;
         }
         case View::SITE_SELECTION: {
-            // Center on planet and zoom to fit entire grid
-            float zoomX = static_cast<float>(screenWidth) / PLANET_WIDTH;
-            float zoomY = static_cast<float>(screenHeight) / PLANET_HEIGHT;
+            // Fit the grid into the space the player can actually SEE. The
+            // survey panel covers the right ~344 px and the title/status bars
+            // the top and bottom; centring on the raw screen put the last
+            // columns underneath the panel, where they could be neither read
+            // nor hovered, and left dead space on the left.
+            const float panelSpace = 344.0f;
+            const float barSpace = 42.0f + 40.0f;
+            float freeW = static_cast<float>(screenWidth) - panelSpace;
+            float freeH = static_cast<float>(screenHeight) - barSpace;
+
             camera.target = {PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f};
-            camera.zoom = std::min(zoomX, zoomY) * 0.9f;
+            camera.offset = {freeW / 2.0f, barSpace / 2.0f + freeH / 2.0f};
+            camera.zoom = std::min(freeW / PLANET_WIDTH, freeH / PLANET_HEIGHT) * 0.94f;
             break;
         }
         default:

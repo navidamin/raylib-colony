@@ -104,7 +104,7 @@ static void PrintUsage()
         << "\n"
         << "View mode (renders a whole game view instead of a module panel):\n"
         << "\n"
-        << "  --view <name>     orbital | planet | sect\n"
+        << "  --view <name>     orbital | planet | sect | site\n"
         << "  --cell <X,Y>      planet grid cell for sect view (default: 10,10)\n"
         << "  --tune <name>     terrain preset: baseline|silky|rough|rolling|\n"
         << "                    boulders|dramatic              (sect view)\n";
@@ -706,6 +706,13 @@ static int RenderGameView(const PreviewOptions& options)
         Planet planet;
         std::vector<Colony*> colonies;
 
+        // The site-selection panel reads planet->GetResourceManager(), which
+        // is the Planet's OWN manager -- not the one built below for the
+        // sect. Ungenerated, its orbital survey is all zeroes and every bar
+        // screenshots at 0%: a picture of the harness, not of the game. Same
+        // fixed seed as the module path, so the shot stays reproducible.
+        planet.GetResourceManager().GenerateResourceMap(PREVIEW_MAP_SEED);
+
         // Sect standing on its real grid cell (sect view only)
         ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
         Sect* sect = nullptr;
@@ -767,7 +774,7 @@ static int RenderGameView(const PreviewOptions& options)
         // question about itself. ViewManager owns the framing, so ask it.
         ViewManager previewView(options.width, options.height);
         previewView.ResetCameraForCurrentView(
-            options.view == "planet" ? View::Planet : View::Planet,
+            options.view == "site" ? View::SITE_SELECTION : View::Planet,
             colonies, colonies.empty() ? nullptr : colonies[0], &planet);
         Camera2D camera = previewView.GetCamera();
 
@@ -791,6 +798,22 @@ static int RenderGameView(const PreviewOptions& options)
             else if (options.view == "sect")
             {
                 renderManager.DrawSectView(sect, timeManager);
+            }
+            else if (options.view == "site")
+            {
+                // Site selection is hover-driven: without a hovered cell the
+                // whole instrument panel is absent, so the harness has to
+                // supply one. --mouse picks it; otherwise a fixed cell keeps
+                // the shot reproducible.
+                Vector2 hovered = {6.0f, 11.0f};
+                if (options.mouseX >= 0)
+                {
+                    Vector2 w = GetScreenToWorld2D(
+                        Vector2{(float)options.mouseX, (float)options.mouseY}, camera);
+                    hovered = {(float)(int)(w.x / (SECT_CORE_RADIUS * 2.0f)),
+                               (float)(int)(w.y / (SECT_CORE_RADIUS * 2.0f))};
+                }
+                renderManager.DrawSiteSelectionView(camera, &planet, hovered, timeManager);
             }
             else
             {

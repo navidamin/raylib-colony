@@ -608,6 +608,41 @@ Put the multiplier at file scope and have the member call *it*, so a helper
 that cannot reach the class can still reach the scale. Then a size that
 bypasses it is visible as an anomaly rather than hiding among the others.
 
+### 7c. Restyling a view a generation behind
+
+Site selection was written 2026-02-05 and had **one commit in its entire
+history**. The language it was written in predates this guide. Bringing such a
+view forward is mostly mechanical, and the checklist is the same every time:
+
+1. **Inline colours become tokens.** Every colour in it was a literal
+   (`{20,20,40,220}`, `{100,100,200,200}`) or a raylib primary (`GREEN`,
+   `YELLOW`, `RED`). Raw `RED` is the loudest thing that can appear on a dark
+   panel; `EXT_ACCENT_RED` is the same signal without the shout.
+2. **Solid bars become `ExtDrawSegBar`.** Five GRS bars were most of that
+   panel's surface area, so this alone changed its character more than
+   anything else.
+3. **Outlined rectangles become `ExtDrawPanelFrame`.** Corner brackets are
+   what make a rectangle read as an instrument.
+4. **Uniform text becomes dim label / bright value** (§7a2), and the sizes
+   collapse into one named scale (§7b).
+
+Two things that are NOT mechanical, and both were found only by rendering:
+
+- **Check what range your data actually occupies.** The cell tint used
+  composition fractions as if they spanned 0–1. Dumped over the grid they
+  span **0.000–0.193**, so every cell crushed to within a few levels of black
+  and the map stopped distinguishing anything. Normalise against the measured
+  span and say where the number came from. (Same rule as
+  `module-architecture.md` §2 — calibrate against dumped real data.)
+- **A side panel steals width from the map.** Centring the grid on the raw
+  screen put its last columns *underneath* the panel, where they could be
+  neither read nor hovered, with dead space on the other side. Frame world
+  views against the space the player can actually see, not the window.
+
+And the structural one: the view sat **above** the tokens and widgets in the
+file, so it could not call them. Seven months of drift was partly just
+declaration order. If a view cannot reach the kit, move the view.
+
 ## 8. Console Chrome
 
 The instrument-panel language around a stage (in-game panels: defer to

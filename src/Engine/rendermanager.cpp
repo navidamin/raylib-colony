@@ -1409,231 +1409,6 @@ void RenderManager::DrawRoadInfoPanel(Road* selectedRoad, Colony* colony) {
 // SITE SELECTION VIEW
 // ============================================================================
 
-void RenderManager::DrawSiteSelectionView(Camera2D camera, Planet* planet, Vector2 hoveredGridPos,
-                                          TimeManager& timeManager) {
-    if (!planet) return;
-
-    ResourceManager& rm = planet->GetResourceManager();
-    float cellSize = SECT_CORE_RADIUS * 2.0f;
-
-    // --- Draw world-space elements (orbital map with colored grid) ---
-    BeginMode2D(camera);
-
-    // Draw tiled moon surface background
-    if (tilesLoaded)
-    {
-        RenderMoonSurface();
-    }
-
-    // Draw colored overlay for each grid cell
-    for (int y = 0; y < PLANET_SIZE; y++)
-    {
-        for (int x = 0; x < PLANET_SIZE; x++)
-        {
-            auto survey = rm.GetOrbitalSurveyAt(x, y);
-
-            // Color based on composition: dark = mare (Fe/Ti), light = highland (Si/Al)
-            float mareIntensity = (survey.fePercent + survey.tiPercent) * 0.5f;
-            float highlandIntensity = (survey.siPercent + survey.alPercent) * 0.5f;
-            float hydrogenTint = survey.hydrogenSignal;
-
-            // Blend: dark grey for mare, light grey for highland, blue tint for hydrogen
-            unsigned char r = static_cast<unsigned char>(60.0f + highlandIntensity * 140.0f);
-            unsigned char g = static_cast<unsigned char>(50.0f + highlandIntensity * 130.0f);
-            unsigned char b = static_cast<unsigned char>(60.0f + highlandIntensity * 120.0f + hydrogenTint * 80.0f);
-
-            // Darken for mare regions
-            r = static_cast<unsigned char>(r * (1.0f - mareIntensity * 0.5f));
-            g = static_cast<unsigned char>(g * (1.0f - mareIntensity * 0.5f));
-
-            Color cellColor = {r, g, b, 140};
-
-            float worldX = x * cellSize;
-            float worldY = y * cellSize;
-            DrawRectangle(static_cast<int>(worldX), static_cast<int>(worldY),
-                         static_cast<int>(cellSize), static_cast<int>(cellSize), cellColor);
-
-            // Draw thin grid lines
-            DrawRectangleLines(static_cast<int>(worldX), static_cast<int>(worldY),
-                              static_cast<int>(cellSize), static_cast<int>(cellSize),
-                              {100, 100, 100, 80});
-        }
-    }
-
-    // Highlight hovered cell
-    int hx = static_cast<int>(hoveredGridPos.x);
-    int hy = static_cast<int>(hoveredGridPos.y);
-    if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE)
-    {
-        float worldX = hx * cellSize;
-        float worldY = hy * cellSize;
-        DrawRectangleLines(static_cast<int>(worldX), static_cast<int>(worldY),
-                          static_cast<int>(cellSize), static_cast<int>(cellSize),
-                          {255, 255, 0, 255});
-        DrawRectangleLinesEx(
-            {worldX + 1, worldY + 1, cellSize - 2, cellSize - 2},
-            2.0f, {255, 255, 0, 200});
-    }
-
-    EndMode2D();
-
-    // --- Draw screen-space UI panels ---
-
-    // Choose fonts (fall back to default if loading failed)
-    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
-    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
-    float sp = 1.0f;  // Letter spacing
-
-    // Title bar
-    DrawRectangle(0, 0, screenWidth, 40, {20, 20, 40, 230});
-    DrawTextEx(headerFont, "COLONY SITE SELECTION", {20.0f, 8.0f}, 22.0f, sp, WHITE);
-    DrawTextEx(bodyFont, "[ENTER] Confirm  [ESC] Cancel",
-               {(float)(screenWidth - 320), 12.0f}, 16.0f, sp, LIGHTGRAY);
-
-    // Get survey data for hovered cell
-    if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE)
-    {
-        auto survey = rm.GetOrbitalSurveyAt(hx, hy);
-        SiteArchetype archetype = rm.GetSiteArchetype(hx, hy);
-
-        const char* archetypeNames[] = {
-            "MARE INDUSTRIAL", "HIGHLAND CONSTRUCTION", "POLAR VOLATILE",
-            "KREEP SCIENTIFIC", "LAVA TUBE", "MIXED"
-        };
-
-        int panelX = screenWidth - 340;
-        int panelY = 50;
-        int panelW = 330;
-        int panelH = 530;
-
-        // Panel background
-        DrawRectangle(panelX, panelY, panelW, panelH, {20, 20, 40, 220});
-        DrawRectangleLines(panelX, panelY, panelW, panelH, {100, 100, 200, 200});
-
-        int padding = 10;
-        float yPos = static_cast<float>(panelY + padding);
-        float lineH = 20.0f;
-        float px = static_cast<float>(panelX + padding);
-
-        // Cell coordinates
-        DrawTextEx(headerFont, TextFormat("Grid Position: (%d, %d)", hx, hy),
-                   {px, yPos}, 16.0f, sp, WHITE);
-        yPos += lineH + 5.0f;
-
-        // --- Gamma-Ray Spectrometer ---
-        DrawTextEx(headerFont, "GAMMA-RAY SPECTROMETER", {px, yPos}, 14.0f, sp, {150, 150, 255, 255});
-        yPos += lineH;
-
-        // Bar charts for elemental composition
-        auto DrawBar = [&](const char* label, float value, Color color) {
-            DrawTextEx(bodyFont, TextFormat("%-4s", label), {px, yPos}, 13.0f, sp, LIGHTGRAY);
-            float barX = px + 40.0f;
-            int barW = 180;
-            int barH = 13;
-            DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 1.0f), barW, barH, {40, 40, 40, 200});
-            DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 1.0f), static_cast<int>(barW * value), barH, color);
-            DrawTextEx(bodyFont, TextFormat("%.0f%%", value * 100.0f),
-                       {barX + barW + 5.0f, yPos}, 13.0f, sp, LIGHTGRAY);
-            yPos += lineH;
-        };
-
-        DrawBar("Fe", survey.fePercent, {139, 69, 19, 255});
-        DrawBar("Ti", survey.tiPercent, {180, 160, 200, 255});
-        DrawBar("Si", survey.siPercent, {144, 180, 148, 255});
-        DrawBar("Al", survey.alPercent, {200, 200, 220, 255});
-        DrawBar("Ca", survey.caPercent, {220, 210, 190, 255});
-
-        DrawTextEx(bodyFont, TextFormat("Th: %.1f ppm", survey.thPpm), {px, yPos}, 13.0f, sp, LIGHTGRAY);
-        yPos += lineH;
-        DrawTextEx(bodyFont, TextFormat("K:  %.0f ppm", survey.kPpm), {px, yPos}, 13.0f, sp, LIGHTGRAY);
-        yPos += lineH + 8.0f;
-
-        // --- Neutron Spectrometer ---
-        DrawTextEx(headerFont, "NEUTRON SPECTROMETER", {px, yPos}, 14.0f, sp, {100, 200, 255, 255});
-        yPos += lineH;
-
-        DrawBar("H", survey.hydrogenSignal, {100, 200, 255, 255});
-
-        const char* iceLikelihood = survey.hydrogenSignal > 0.6f ? "HIGH" :
-                                    survey.hydrogenSignal > 0.3f ? "MODERATE" : "LOW";
-        Color iceColor = survey.hydrogenSignal > 0.6f ? GREEN :
-                         survey.hydrogenSignal > 0.3f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Ice likelihood: %s", iceLikelihood), {px, yPos}, 13.0f, sp, iceColor);
-        yPos += lineH + 8.0f;
-
-        // --- Thermal Mapper ---
-        DrawTextEx(headerFont, "THERMAL MAPPER", {px, yPos}, 14.0f, sp, {255, 200, 100, 255});
-        yPos += lineH;
-
-        DrawBar("Solar", survey.solarIllumination, {255, 255, 100, 255});
-
-        float dayTemp = -173.0f + survey.solarIllumination * 300.0f;
-        float nightTemp = -173.0f + survey.solarIllumination * 20.0f;
-        DrawTextEx(bodyFont, TextFormat("Day: %+.0f C  Night: %+.0f C", dayTemp, nightTemp),
-                   {px, yPos}, 13.0f, sp, LIGHTGRAY);
-        yPos += lineH + 8.0f;
-
-        // --- Site Assessment ---
-        DrawTextEx(headerFont, "SITE ASSESSMENT", {px, yPos}, 14.0f, sp, {200, 255, 200, 255});
-        yPos += lineH;
-
-        // Terrain slope
-        const char* terrainDesc = survey.terrainSlope < 5.0f ? "Flat" :
-                                  survey.terrainSlope < 15.0f ? "Moderate" : "Steep";
-        Color terrainColor = survey.terrainSlope < 5.0f ? GREEN :
-                             survey.terrainSlope < 15.0f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Terrain: %.0f deg (%s)", survey.terrainSlope, terrainDesc),
-                   {px, yPos}, 13.0f, sp, terrainColor);
-        yPos += lineH;
-
-        // Solar access
-        const char* solarDesc = survey.solarIllumination > 0.7f ? "Excellent" :
-                                survey.solarIllumination > 0.4f ? "Good" : "Poor";
-        Color solarColor = survey.solarIllumination > 0.7f ? GREEN :
-                           survey.solarIllumination > 0.4f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Solar Access: %.0f%% (%s)", survey.solarIllumination * 100.0f, solarDesc),
-                   {px, yPos}, 13.0f, sp, solarColor);
-        yPos += lineH;
-
-        // Earth visibility
-        const char* earthDesc = survey.earthVisibility > 0.7f ? "Reliable" :
-                                survey.earthVisibility > 0.4f ? "Intermittent" : "Poor";
-        Color earthColor = survey.earthVisibility > 0.7f ? GREEN :
-                           survey.earthVisibility > 0.4f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Earth Comms: %.0f%% (%s)", survey.earthVisibility * 100.0f, earthDesc),
-                   {px, yPos}, 13.0f, sp, earthColor);
-        yPos += lineH + 8.0f;
-
-        // Archetype recommendation
-        DrawRectangle(static_cast<int>(px) - 2, static_cast<int>(yPos) - 2,
-                      panelW - padding * 2 + 4, static_cast<int>(lineH) + 6, {40, 40, 80, 200});
-        DrawTextEx(headerFont, TextFormat("ARCHETYPE: %s", archetypeNames[static_cast<int>(archetype)]),
-                   {px, yPos}, 16.0f, sp, {255, 220, 100, 255});
-        yPos += lineH + 4.0f;
-
-        // Archetype bonus description
-        const char* bonusDesc[] = {
-            "+20% Fe/Ti extraction",
-            "+20% Si/Al extraction",
-            "+50% water extraction",
-            "+30% Science generation",
-            "+15% all production",
-            "No special bonus"
-        };
-        DrawTextEx(bodyFont, TextFormat("Bonus: %s", bonusDesc[static_cast<int>(archetype)]),
-                   {px, yPos}, 13.0f, sp, {180, 180, 255, 255});
-    }
-
-    // Bottom bar
-    int bottomY = screenHeight - 40;
-    DrawRectangle(0, bottomY, screenWidth, 40, {20, 20, 40, 230});
-    DrawTextEx(bodyFont, "Ctrl+Click to enter  |  Mouse: hover cells  |  Enter: confirm  |  Esc: cancel",
-               {20.0f, static_cast<float>(bottomY + 10)}, 14.0f, sp, LIGHTGRAY);
-
-    // Time display
-    DrawTextEx(bodyFont, TextFormat("Day %d", timeManager.GetCurrentDay()),
-               {static_cast<float>(screenWidth - 100), static_cast<float>(bottomY + 10)}, 14.0f, sp, WHITE);
-}
 
 // ============================================================================
 // EXTRACTION UNIT UI
@@ -2717,6 +2492,276 @@ static void ExtDrawHazardStripes(Rectangle r, Color c)
 }
 
 // Double chevron ">>" (action buttons in the kit).
+// ---------------------------------------------------------------------------
+// Site selection
+// ---------------------------------------------------------------------------
+// Lives here, below the design tokens and the widget helpers, because it uses
+// them. It sat above them for seven months and could reach neither, which is
+// most of why it kept the look of the day it was written.
+
+void RenderManager::DrawSiteSelectionView(Camera2D camera, Planet* planet, Vector2 hoveredGridPos,
+                                          TimeManager& timeManager) {
+    if (!planet) return;
+
+    ResourceManager& rm = planet->GetResourceManager();
+    float cellSize = SECT_CORE_RADIUS * 2.0f;
+
+    // One local type scale. The rest of the game reaches its scale through
+    // FS()/ExtFS(); that multiplier is tuned for the extraction view's much
+    // wider panels and would overflow this 330 px column, so this view keeps
+    // its own -- but keeps it in ONE place rather than as fourteen literals.
+    const float SS_TITLE = 22.0f;
+    const float SS_HEAD  = 13.0f;
+    const float SS_BODY  = 12.5f;
+
+    // The ground outside the playfield: the console's own backdrop rather
+    // than raw black, so the view reads as one instrument.
+    DrawRectangle(0, 0, screenWidth, screenHeight, EXT_SCREEN_BG);
+
+    // --- World-space: the survey map -------------------------------------
+    BeginMode2D(camera);
+
+    if (tilesLoaded)
+    {
+        RenderMoonSurface();
+    }
+
+    // World-space line widths must be divided by zoom or they vanish: at the
+    // ~0.28 this view sits at, a 1.0f hairline is a third of a pixel and the
+    // cell edges disappeared entirely. Same law as the planet view's lattice.
+    float px1 = 1.0f / std::max(camera.zoom, 0.0001f);
+
+    for (int y = 0; y < PLANET_SIZE; y++)
+    {
+        for (int x = 0; x < PLANET_SIZE; x++)
+        {
+            auto survey = rm.GetOrbitalSurveyAt(x, y);
+
+            // Composition drives LUMINANCE, hydrogen drives a cool tint --
+            // the same reading as before, in the game's palette instead of
+            // the lavender it used to mix. Mare (Fe/Ti) is dark and iron
+            // warm; highland (Si/Al) is pale; ice-bearing ground goes cyan.
+            // These arrive as ABSOLUTE fractions, and they are small: dumped
+            // over the whole 20x20 grid, (Si+Al)/2 spans 0.000-0.193 and
+            // (Fe+Ti)/2 spans 0.000-0.187. Treating them as 0-1 -- which the
+            // first cut of this restyle did -- crushes every cell to within a
+            // few levels of black and the map stops distinguishing anything.
+            // Normalise against the measured span so the ramp uses its range.
+            const float SS_COMPOSITION_SPAN = 0.19f;
+            float mare = std::clamp((survey.fePercent + survey.tiPercent) * 0.5f
+                                    / SS_COMPOSITION_SPAN, 0.0f, 1.0f);
+            float highland = std::clamp((survey.siPercent + survey.alPercent) * 0.5f
+                                        / SS_COMPOSITION_SPAN, 0.0f, 1.0f);
+            float wet = survey.hydrogenSignal;
+
+            float lum = 0.22f + highland * 0.78f;
+            lum *= (1.0f - mare * 0.50f);
+
+            unsigned char r = (unsigned char)std::clamp((lum * 185.0f + mare * 34.0f), 0.0f, 255.0f);
+            unsigned char g = (unsigned char)std::clamp((lum * 200.0f + wet * 26.0f), 0.0f, 255.0f);
+            unsigned char b = (unsigned char)std::clamp((lum * 220.0f + wet * 75.0f), 0.0f, 255.0f);
+
+            float worldX = x * cellSize;
+            float worldY = y * cellSize;
+            DrawRectangleRec({worldX, worldY, cellSize, cellSize}, Color{r, g, b, 165});
+            DrawRectangleLinesEx({worldX, worldY, cellSize, cellSize}, px1,
+                                 Fade(EXT_PANEL_BORDER, 0.7f));
+        }
+    }
+
+    // The hovered cell. Same cyan as the planet view's hover cell, because it
+    // is the same gesture on the same grid one view up -- a different colour
+    // here would read as a different kind of thing.
+    int hx = static_cast<int>(hoveredGridPos.x);
+    int hy = static_cast<int>(hoveredGridPos.y);
+    if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE)
+    {
+        float wx = hx * cellSize;
+        float wy = hy * cellSize;
+        DrawRectangleRec({wx, wy, cellSize, cellSize}, Color{120, 200, 255, 30});
+        DrawRectangleLinesEx({wx, wy, cellSize, cellSize}, px1 * 2.0f,
+                             Color{140, 215, 255, 230});
+
+        // Corner ticks: this is the cell about to be COMMITTED to, so it gets
+        // the aiming decoration the plain outline never had.
+        float tick = cellSize * 0.30f;
+        float tw = px1 * 2.0f;
+        Color acc = EXT_ACCENT_GOLD;
+        DrawRectangleRec({wx, wy, tick, tw}, acc);
+        DrawRectangleRec({wx, wy, tw, tick}, acc);
+        DrawRectangleRec({wx + cellSize - tick, wy, tick, tw}, acc);
+        DrawRectangleRec({wx + cellSize - tw, wy, tw, tick}, acc);
+        DrawRectangleRec({wx, wy + cellSize - tw, tick, tw}, acc);
+        DrawRectangleRec({wx, wy + cellSize - tick, tw, tick}, acc);
+        DrawRectangleRec({wx + cellSize - tick, wy + cellSize - tw, tick, tw}, acc);
+        DrawRectangleRec({wx + cellSize - tw, wy + cellSize - tick, tw, tick}, acc);
+    }
+
+    EndMode2D();
+
+    // --- Screen-space chrome ---------------------------------------------
+
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    float sp = 1.0f;
+
+    // Title bar: a panel with a hairline under it, not a flat navy slab.
+    DrawRectangle(0, 0, screenWidth, 42, EXT_PANEL_BG);
+    DrawRectangle(0, 41, screenWidth, 1, EXT_PANEL_BORDER);
+    DrawTextEx(headerFont, "COLONY SITE SELECTION", {20.0f, 10.0f}, SS_TITLE, sp, EXT_TEXT);
+
+    // Key hints: the KEY is the bright token, the verb is the quiet one.
+    {
+        float kx = (float)(screenWidth - 300);
+        auto Key = [&](const char* key, const char* verb) {
+            DrawTextEx(bodyFont, key, {kx, 15.0f}, SS_BODY, sp, EXT_ACCENT_CYAN);
+            kx += MeasureTextEx(bodyFont, key, SS_BODY, sp).x + 5.0f;
+            DrawTextEx(bodyFont, verb, {kx, 15.0f}, SS_BODY, sp, EXT_DIM_TEXT);
+            kx += MeasureTextEx(bodyFont, verb, SS_BODY, sp).x + 16.0f;
+        };
+        Key("ENTER", "confirm");
+        Key("ESC", "cancel");
+    }
+
+    if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE)
+    {
+        auto survey = rm.GetOrbitalSurveyAt(hx, hy);
+        SiteArchetype archetype = rm.GetSiteArchetype(hx, hy);
+
+        const char* archetypeNames[] = {
+            "MARE INDUSTRIAL", "HIGHLAND CONSTRUCTION", "POLAR VOLATILE",
+            "KREEP SCIENTIFIC", "LAVA TUBE", "MIXED"
+        };
+
+        float panelX = (float)(screenWidth - 344);
+        float panelY = 56.0f;
+        float panelW = 332.0f;
+        float panelH = 520.0f;
+
+        ExtDrawPanelFrame({panelX, panelY, panelW, panelH});
+
+        float padding = 14.0f;
+        float px = panelX + padding;
+        float innerW = panelW - padding * 2.0f;
+        float yPos = panelY + padding;
+        float lineH = 19.0f;
+
+        // A section header and the rule under it -- the structure the rest of
+        // the game's panels use to separate instruments.
+        auto Section = [&](const char* label) {
+            DrawTextEx(headerFont, label, {px, yPos}, SS_HEAD, sp, EXT_HEADER_COLOR);
+            yPos += lineH - 3.0f;
+            DrawRectangleRec({px, yPos, innerW, 1.0f}, Fade(EXT_PANEL_BORDER, 0.8f));
+            yPos += 7.0f;
+        };
+
+        // Dim label, bright value: colour and weight carry the grammar, so
+        // the eye finds the figure without reading the words. (dark-plating 7a2)
+        auto Row = [&](const char* label, const char* value, Color valueColor) {
+            DrawTextEx(bodyFont, label, {px, yPos}, SS_BODY, sp, EXT_DIM_TEXT);
+            float vw = MeasureTextEx(bodyFont, value, SS_BODY, sp).x;
+            DrawTextEx(bodyFont, value, {px + innerW - vw, yPos}, SS_BODY, sp, valueColor);
+            yPos += lineH;
+        };
+
+        // Segmented gauge, the same widget the extraction panel reads through.
+        auto Bar = [&](const char* label, float value, Color color) {
+            DrawTextEx(bodyFont, label, {px, yPos + 1.0f}, SS_BODY, sp, EXT_DIM_TEXT);
+            const char* pct = TextFormat("%.0f%%", value * 100.0f);
+            float pw = MeasureTextEx(bodyFont, pct, SS_BODY, sp).x;
+            float barX = px + 34.0f;
+            float barW = innerW - 34.0f - pw - 8.0f;
+            ExtDrawSegBar(barX, yPos, barW, 12.0f, std::clamp(value, 0.0f, 1.0f), color);
+            DrawTextEx(bodyFont, pct, {px + innerW - pw, yPos + 1.0f}, SS_BODY, sp, EXT_TEXT);
+            yPos += lineH;
+        };
+
+        DrawTextEx(headerFont, TextFormat("CELL %d, %d", hx, hy),
+                   {px, yPos}, 15.0f, sp, EXT_TEXT);
+        yPos += lineH + 6.0f;
+
+        Section("GAMMA-RAY SPECTROMETER");
+        Bar("Fe", survey.fePercent, EXT_ACCENT_GOLD);
+        Bar("Ti", survey.tiPercent, EXT_ACCENT_VIOLET);
+        Bar("Si", survey.siPercent, EXT_ACCENT_GREEN);
+        Bar("Al", survey.alPercent, EXT_ACCENT_CYAN);
+        Bar("Ca", survey.caPercent, Color{210, 205, 190, 255});
+        Row("Thorium", TextFormat("%.1f ppm", survey.thPpm), EXT_TEXT);
+        Row("Potassium", TextFormat("%.0f ppm", survey.kPpm), EXT_TEXT);
+        yPos += 6.0f;
+
+        Section("NEUTRON SPECTROMETER");
+        Bar("H", survey.hydrogenSignal, EXT_ACCENT_CYAN);
+        const char* ice = survey.hydrogenSignal > 0.6f ? "HIGH" :
+                          survey.hydrogenSignal > 0.3f ? "MODERATE" : "LOW";
+        Color iceColor = survey.hydrogenSignal > 0.6f ? EXT_ACCENT_GREEN :
+                         survey.hydrogenSignal > 0.3f ? EXT_ACCENT_GOLD : EXT_ACCENT_RED;
+        Row("Ice likelihood", ice, iceColor);
+        yPos += 6.0f;
+
+        Section("THERMAL MAPPER");
+        Bar("Solar", survey.solarIllumination, EXT_ACCENT_GOLD);
+        float dayTemp = -173.0f + survey.solarIllumination * 300.0f;
+        float nightTemp = -173.0f + survey.solarIllumination * 20.0f;
+        Row("Day / night", TextFormat("%+.0f / %+.0f C", dayTemp, nightTemp), EXT_TEXT);
+        yPos += 6.0f;
+
+        Section("SITE ASSESSMENT");
+        const char* terrainDesc = survey.terrainSlope < 5.0f ? "Flat" :
+                                  survey.terrainSlope < 15.0f ? "Moderate" : "Steep";
+        Color terrainColor = survey.terrainSlope < 5.0f ? EXT_ACCENT_GREEN :
+                             survey.terrainSlope < 15.0f ? EXT_ACCENT_GOLD : EXT_ACCENT_RED;
+        Row("Terrain", TextFormat("%.0f deg  %s", survey.terrainSlope, terrainDesc), terrainColor);
+
+        const char* solarDesc = survey.solarIllumination > 0.7f ? "Excellent" :
+                                survey.solarIllumination > 0.4f ? "Good" : "Poor";
+        Color solarColor = survey.solarIllumination > 0.7f ? EXT_ACCENT_GREEN :
+                           survey.solarIllumination > 0.4f ? EXT_ACCENT_GOLD : EXT_ACCENT_RED;
+        Row("Solar access", TextFormat("%.0f%%  %s", survey.solarIllumination * 100.0f, solarDesc),
+            solarColor);
+
+        const char* earthDesc = survey.earthVisibility > 0.7f ? "Reliable" :
+                                survey.earthVisibility > 0.4f ? "Intermittent" : "Poor";
+        Color earthColor = survey.earthVisibility > 0.7f ? EXT_ACCENT_GREEN :
+                           survey.earthVisibility > 0.4f ? EXT_ACCENT_GOLD : EXT_ACCENT_RED;
+        Row("Earth comms", TextFormat("%.0f%%  %s", survey.earthVisibility * 100.0f, earthDesc),
+            earthColor);
+        yPos += 8.0f;
+
+        // The verdict. A raised chip rather than a flat blue slab: this is the
+        // one line the whole panel exists to produce.
+        {
+            Rectangle chip = {px, yPos, innerW, 42.0f};
+            DrawRectangleRounded(chip, 0.18f, 4, EXT_PANEL_BG2);
+            DrawRectangleRoundedLinesEx(chip, 0.18f, 4, 1.0f, Fade(EXT_ACCENT_GOLD, 0.55f));
+            DrawRectangleRec({chip.x, chip.y + 6.0f, 2.0f, chip.height - 12.0f}, EXT_ACCENT_GOLD);
+
+            DrawTextEx(headerFont, archetypeNames[static_cast<int>(archetype)],
+                       {px + 10.0f, yPos + 6.0f}, SS_HEAD, sp, EXT_ACCENT_GOLD);
+            const char* bonusDesc[] = {
+                "+20% Fe/Ti extraction",
+                "+20% Si/Al extraction",
+                "+50% water extraction",
+                "+30% Science generation",
+                "+15% all production",
+                "No special bonus"
+            };
+            DrawTextEx(bodyFont, bonusDesc[static_cast<int>(archetype)],
+                       {px + 10.0f, yPos + 23.0f}, SS_BODY, sp, EXT_DIM_TEXT);
+        }
+    }
+
+    // Bottom bar, matching the title.
+    float bottomY = (float)(screenHeight - 40);
+    DrawRectangle(0, (int)bottomY, screenWidth, 40, EXT_PANEL_BG);
+    DrawRectangle(0, (int)bottomY, screenWidth, 1, EXT_PANEL_BORDER);
+    DrawTextEx(bodyFont, "hover a cell to survey it    ENTER confirms    ESC cancels",
+               {20.0f, bottomY + 13.0f}, SS_BODY, sp, EXT_DIM_TEXT);
+    DrawTextEx(bodyFont, TextFormat("Day %d", timeManager.GetCurrentDay()),
+               {(float)(screenWidth - 90), bottomY + 13.0f}, SS_BODY, sp, EXT_TEXT);
+}
+
+
 static void ExtDrawChevrons(float x, float y, float s, Color c)
 {
     for (int i = 0; i < 2; i++)
