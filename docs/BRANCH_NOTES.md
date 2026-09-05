@@ -34,9 +34,11 @@ only makes sense if you were here, and that costs an hour to rediscover.
   - `git merge-base --is-ancestor origin/main HEAD` → yes; 0 commits in main
     not here. `git merge origin/main` does nothing. Verify before re-merging.
 - **108 commits ahead of main**, 120 files, +23,404 / −2,574.
-- **PR #12 is open and unmerged** — https://github.com/navidamin/raylib-colony/pull/12
-  - The user's instruction was *pull main in*, not *push to main*. Do not
-    push to `main`. Landing is the user's call.
+- **Nothing is proposed to main.** PR #12 was opened and then **closed
+  unmerged** at the user's request — https://github.com/navidamin/raylib-colony/pull/12
+  - The instruction was *pull main in*, not *push to main*, and the PR was
+    not wanted. **Do not push `main`, and do not open a PR** unless asked in
+    so many words. How this branch lands is the user's call, not a default.
 - **From the merge:** 4 shared test cases resolved to our versions, 15 of
   main's dropped as superseded design — each checked for a renamed equivalent
   here first. If a "missing" test from main turns up, that is why.
@@ -124,7 +126,7 @@ only makes sense if you were here, and that costs an hour to rediscover.
 
 ## 6. Open / deferred
 
-- **PR #12 awaiting the user's merge decision.** Do not push `main`.
+- **How this branch lands is undecided.** No PR is open; see §2.
 - **`GetOrbitalSurveyAt` is never read by `src/Prospecting`** — a real but
   unhooked seam between orbital survey data and the prospecting grid. Found,
   raised, **left alone by the user's decision.** It is not an oversight.
