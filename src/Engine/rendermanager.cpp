@@ -145,6 +145,9 @@ void RenderManager::DrawCrystalSprite(const CrystalVisual& visual, Rectangle des
 }
 
 void RenderManager::BeginDraw() {
+    // Any terrain a view asked for last frame is built here, before the
+    // frame draws -- see RequestTerrainForCell.
+    ServicePendingTerrain();
     BeginDrawing();
     ClearBackground(RAYWHITE);
 }
@@ -171,6 +174,13 @@ void RenderManager::DrawMenuView() {
 
 void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
                                   InputManager& inputManager, TimeManager& timeManager) {
+    // Build anything asked for on the previous frame. Doing this here as well
+    // as in BeginDraw keeps the mechanism working for callers that drive the
+    // view directly -- the preview and viewtest harnesses open their own
+    // frames, so a request serviced only in BeginDraw would never be built
+    // and they would screenshot the loading notice forever.
+    ServicePendingTerrain();
+
     BeginMode2D(camera);
 
     if (planet) {  // Guard against null planet
@@ -184,7 +194,14 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
         // 20x20 grid, registered on the playfield anchor. This is the
         // same generated ground the sect stands on, seen from 100 km —
         // so zooming in approaches it instead of cutting to tiles.
-        EnsureTerrainForCell(PLANET_SIZE / 2, PLANET_SIZE / 2);
+        bool terrainReady = RequestTerrainForCell(PLANET_SIZE / 2, PLANET_SIZE / 2);
+        if (!terrainReady) {
+            // The ground for this location is not built yet. Say so, and
+            // let the next frame do the building.
+            EndMode2D();
+            DrawTerrainLoadingNotice();
+            return;
+        }
         if (terrainLoaded && terrainLevels[0].id != 0) {
             DrawWorldTerrainLayer(0,
                 Vector2{PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f},
@@ -286,6 +303,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
                                    std::vector<Colony*>& colonies, InputManager& inputManager,
                                    TimeManager& timeManager, Road* selectedRoad,
                                    bool buildRoadMode, Sect* roadBuildStartSect) {
+    ServicePendingTerrain();
     // Start drawing with camera transformation
     BeginMode2D(camera);
 
@@ -300,7 +318,14 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
                              0, PLANET_SIZE - 1);
         int cgy = std::clamp((int)(colonyCentre.y / (SECT_CORE_RADIUS * 2.0f)),
                              0, PLANET_SIZE - 1);
-        EnsureTerrainForCell(cgx, cgy);
+        // Same stall as the planet view: a colony on a cell whose chain is
+        // not built yet blocks the frame for seconds. Ask, and let the next
+        // frame build it.
+        if (!RequestTerrainForCell(cgx, cgy)) {
+            EndMode2D();
+            DrawTerrainLoadingNotice();
+            return;
+        }
         if (terrainLoaded && terrainLevels[1].id != 0) {
             // The level is registered on its cell centre, not the sect's
             // arbitrary position, so it lines up with the grid.
@@ -708,6 +733,48 @@ void RenderManager::UnloadTerrainLevels()
 // Generate (and cache) the whole 100 / 25 / 5 km chain registered on a
 // grid cell. Regenerates when the cell changes or the playfield anchor
 // moves (the player picking a new region from orbit).
+bool RenderManager::TerrainReadyFor(int gx, int gy) const
+{
+    return terrainLoaded && gx == terrainCellX && gy == terrainCellY
+        && GetTerrainAnchorVersion() == terrainAnchorVersion;
+}
+
+// Ask for a cell's ground. Returns true if it is already there to draw.
+// Otherwise the request is queued and serviced at the top of the next
+// frame, so the caller gets one frame in which to say what is happening.
+bool RenderManager::RequestTerrainForCell(int gx, int gy)
+{
+    if (TerrainReadyFor(gx, gy)) return true;
+    terrainRequestPending = true;
+    terrainRequestX = gx;
+    terrainRequestY = gy;
+    return false;
+}
+
+// Runs from BeginDraw, before anything draws: the notice that prompted this
+// request was presented at the end of the previous frame, so the stall now
+// happens with an explanation already on screen.
+void RenderManager::ServicePendingTerrain()
+{
+    if (!terrainRequestPending) return;
+    terrainRequestPending = false;
+    EnsureTerrainForCell(terrainRequestX, terrainRequestY);
+}
+
+void RenderManager::DrawTerrainLoadingNotice()
+{
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
+    DrawRectangle(0, 0, w, h, Color{8, 10, 14, 255});
+
+    const char* title = "GENERATING TERRAIN";
+    const char* sub = "amplifying the LROC mosaic for this location";
+    int tw = MeasureText(title, 28);
+    int sw = MeasureText(sub, 16);
+    DrawText(title, w / 2 - tw / 2, h / 2 - 26, 28, Color{150, 200, 240, 255});
+    DrawText(sub, w / 2 - sw / 2, h / 2 + 12, 16, Color{120, 140, 165, 255});
+}
+
 void RenderManager::EnsureTerrainForCell(int gx, int gy)
 {
     unsigned int anchorVersion = GetTerrainAnchorVersion();
@@ -765,7 +832,9 @@ void RenderManager::DrawSectTerrainBackground(Sect* sect)
                         PLANET_SIZE - 1);
     int gy = std::clamp((int)(pos.y / (SECT_CORE_RADIUS * 2.0f)), 0,
                         PLANET_SIZE - 1);
-    EnsureTerrainForCell(gx, gy);
+    // This one already tolerates having no ground -- the sect draws over it
+    // either way -- so it just asks and skips this frame.
+    if (!RequestTerrainForCell(gx, gy)) return;
     if (!terrainLoaded || terrainLevels[2].id == 0) return;
 
     // Sect view is screen-space: the 5 km cell fills the screen.

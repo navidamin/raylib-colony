@@ -58,6 +58,10 @@
         canvas.emscripten {
           border: 0px none;
           background-color: black;
+          /* Making the canvas focusable earns it the browser's focus ring --
+             a bright blue rectangle around the whole game, reported from the
+             deployed build. The game needs the focus, not the decoration. */
+          outline: none;
           padding-left: 0;
           padding-right: 0;
           margin-left: auto;

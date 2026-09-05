@@ -103,6 +103,23 @@ private:
     void EnsureTerrainForCell(int gx, int gy);
     void UnloadTerrainLevels();
 
+    // Generating a chain decodes a 15 MB mosaic and synthesizes three
+    // levels: ~4.6 s measured natively, and far worse on wasm, where it
+    // blocks the tab. Called straight from the draw, it froze the first
+    // Planet frame before anything was presented -- and WebGL composites
+    // the cleared drawing buffer, so the web build showed a black canvas
+    // that ignored input. It read as a crash; it was a stall.
+    //
+    // So: ask, paint a notice, and do the work at the top of the NEXT
+    // frame, once the notice is on screen.
+    bool TerrainReadyFor(int gx, int gy) const;
+    bool RequestTerrainForCell(int gx, int gy);
+    void ServicePendingTerrain();
+    void DrawTerrainLoadingNotice();
+    bool terrainRequestPending = false;
+    int terrainRequestX = 0;
+    int terrainRequestY = 0;
+
     // Full-planet 2D map (the whole moon, equirectangular) that the
     // planet view zooms out to. Aligned with the playfield grid where
     // the two meet, so zooming out is continuous.
