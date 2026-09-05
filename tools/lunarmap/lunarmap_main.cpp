@@ -4810,6 +4810,25 @@ int main(int argc, char** argv)
         // (SyncWebCanvasToViewport), so tell the shell to stand down
         // before the first frame or it wins every poll.
         EM_ASM({ window.COLONY_CANVAS_FREE = true; });
+
+        // The web build is the playtest, so it gets the chain layer --
+        // and the tier probe decides whether this browser can actually
+        // afford it, which is the whole reason that probe exists. A
+        // browser on SwiftShader turns it off by itself and says so.
+        //
+        // ?chain=0 turns it off and ?strength=N moves it, because the
+        // one thing a playtest needs and a measurement cannot give is
+        // somebody flipping between the two on the same ground.
+        app.options.chain = true;
+        if (EM_ASM_INT({ return /[?&]chain=0/.test(window.location.search) ? 1 : 0; }))
+            app.options.chain = false;
+        {
+            double s = EM_ASM_DOUBLE({
+                var m = /[?&]strength=([0-9.]+)/.exec(window.location.search);
+                return m ? parseFloat(m[1]) : -1.0;
+            });
+            if (s > 0.0 && s <= 8.0) app.options.chainStrength = (float)s;
+        }
     }
     app.options.siteMode = true;
     app.options.nearside = true;
