@@ -51,10 +51,12 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 static const char* DEFAULT_DEM_PATH =
@@ -1153,8 +1155,11 @@ static void ResampleField(const std::vector<float>& src, int sw,
     }
 }
 
+// allowGpu is false on a worker: the shader passes need the main thread
+// and a live context, so off it there is only the CPU chain.
 static bool BuildChainLayer(double lat, double lon, double spanKm,
-                            double nativeKm, float strength, ChainLayer* out)
+                            double nativeKm, float strength, ChainLayer* out,
+                            bool allowGpu = true)
 {
     double t0 = GetTime();
     const int R = ChainLayerRes();
@@ -1163,7 +1168,7 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
     // site level does, and until now a machine with a GPU still paid the
     // CPU for it.
     TerrainChainFields fields;
-    bool onGpu = (GetTerrainPath() == TERRAIN_PATH_GPU)
+    bool onGpu = allowGpu && (GetTerrainPath() == TERRAIN_PATH_GPU)
               && GenerateTerrainFieldsGPU(lat, lon, R, spanKm, &fields);
     if (!onGpu && !GenerateTerrainFields(lat, lon, R, spanKm, &fields))
         return false;
@@ -1262,6 +1267,86 @@ static const ChainLayer* ChainLayerFor(double lat, double lon, double spanKm,
     g_chainCache.push_back(std::move(e));
     return &g_chainCache.back().layer;
 }
+
+// Put a layer built elsewhere into the cache, so the build that wanted it
+// finds it already made.
+static void ChainLayerInsert(double lat, double lon, double spanKm,
+                             float strength, ChainLayer&& layer)
+{
+    if (layer.res <= 0) return;
+    ChainCacheEntry e;
+    e.latDeg = lat; e.lonDeg = lon; e.spanKm = spanKm; e.strength = strength;
+    e.layer = std::move(layer);
+    if (g_chainCache.size() >= 4) g_chainCache.erase(g_chainCache.begin());
+    g_chainCache.push_back(std::move(e));
+}
+
+// ---------------------------------------------------------------------------
+// Speculative build of the wider window's expensive half.
+//
+// Once the site rung has settled the main thread has nothing to do until
+// the player acts, and the one thing they are likely to do that costs
+// anything is scroll outward. So build the wide window's chain layer now
+// and have it waiting.
+//
+// Only the layer goes on the thread. It is the expensive half -- 200 ms
+// against the DEM window's tens -- and it is the half already proven safe
+// off the main thread, since rendermanager's TerrainPool has run the CPU
+// chain on workers since the terrain landed. The DEM window and every
+// byte of GL stay exactly where they are.
+//
+// The generation stamp is the whole safety story. A job carries the
+// generation it was asked for and a result whose generation has moved on
+// is dropped, because otherwise a late answer for a site you have left
+// gets applied to the site you are on -- the worst bug this class has.
+//
+// Not on the GPU path: shader passes cannot leave the main thread, and
+// there they do not need to. Not in a browser at all: std::thread has
+// nothing behind it without -pthread and Pages cannot send the headers
+// SharedArrayBuffer needs (see rendermanager.cpp, which learned this
+// first).
+// ---------------------------------------------------------------------------
+namespace
+{
+struct WideSpeculation
+{
+    std::thread worker;
+    std::atomic<bool> done{false};
+    bool running = false;
+    unsigned int gen = 0;
+    ChainLayer layer;
+    LolaWindow window;             // the expensive half, see below
+    int res = 0;
+    float detail = 0.0f;
+    double lat = 0.0, lon = 0.0, spanKm = 0.0;
+    float strength = 1.0f;
+};
+WideSpeculation g_spec;
+unsigned int g_specGen = 0;      // bumped whenever the site moves
+// Warming the caches does not build the wide SCENE, so wideSpanKm stays
+// zero and the start condition would qualify again the moment the job
+// landed -- a worker rebuilding the same layer for as long as the player
+// stands still. This is what says "already done for this site".
+bool g_specSatisfied = false;
+
+void SpeculationCancel()
+{
+    g_specGen++;                 // any result in flight is now stale
+    g_specSatisfied = false;
+    if (g_spec.running && g_spec.done.load())
+    {
+        g_spec.worker.join();
+        g_spec.running = false;
+        g_spec.done.store(false);
+        g_spec.layer = ChainLayer{};
+    }
+}
+
+void SpeculationJoinAtExit()
+{
+    if (g_spec.running) { g_spec.worker.join(); g_spec.running = false; }
+}
+} // namespace
 
 static bool BuildScene(const MapOptions& options, const LolaDem& dem,
                        TerrainScene& scene, bool keepAlbedo = false)
@@ -3342,6 +3427,18 @@ static const char* RegionCardHintAt(Vector2 m, int px, int py, int pw)
 // centre, same texture budget, more ground -- so coarser synthesis, which
 // is the whole price of zooming out and is only paid by the view that
 // uses it.
+// The wide window is an overview, so it does not carry the sharp
+// window's texture budget: half the resolution over twice the span, which
+// is four times less pixel work in the mesh, the shading texture and the
+// uploads -- and those are the parts that cannot leave the main thread.
+// One definition, used by the speculation and the build alike, or they
+// warm a cache key nobody looks up.
+static int WideDemRes(const MapOptions& options)
+{
+    int base = (options.demRes > 0) ? options.demRes : 2048;
+    return std::clamp(base / 2, 512, 4096);
+}
+
 static bool BuildWideWindow(AppState& app)
 {
     double zmin = SurveyZoomMin(app.siteLevel);
@@ -3349,10 +3446,16 @@ static bool BuildWideWindow(AppState& app)
 
     MapOptions wide = app.options;
     wide.spanKm = app.options.spanKm / zmin;
+    wide.demRes = WideDemRes(app.options);   // match what was built ahead
+    double t0 = GetTime();
     if (!BuildScene(wide, app.dem, app.spare)) return false;
     app.wideSpanKm = wide.spanKm;
-    std::fprintf(stderr, "ZOOMOUT: wide window %.1f km ready (from %.1f)\n",
-                 wide.spanKm, app.options.spanKm);
+    // The number that matters: what the player waits for at the moment
+    // they scroll. With the layer built ahead this is the DEM window and
+    // the GL upload only.
+    std::fprintf(stderr, "ZOOMOUT: wide window %.1f km ready in %.0f ms "
+                 "(from %.1f)\n", wide.spanKm,
+                 (GetTime() - t0) * 1000.0, app.options.spanKm);
     return true;
 }
 
@@ -3368,6 +3471,99 @@ static void DropWideWindow(AppState& app)
     UnloadSceneGpu(app.spare);
     app.wideSpanKm = 0.0;
     if (app.zoomK < 1.0f) app.zoomK = 1.0f;
+    SpeculationCancel();           // anything in flight is for the old site
+}
+
+// Kick the speculative layer off once the rung has settled and the
+// player is just looking. Conditions, in the order they can disqualify:
+// no second job, CPU path only, the site rung, nothing built yet, and
+// nothing still in motion.
+static void SpeculationStart(AppState& app)
+{
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+    (void)app;                     // no threads in a browser at all
+#else
+    if (g_spec.running || g_specSatisfied) return;
+    if (app.siteLevel != SITE_LEVELS - 1) return;
+    if (app.wideSpanKm > 0.0) return;
+    if (app.sceneDirty || app.sceneDraft || app.transActive || app.founded)
+        return;
+    double zmin = SurveyZoomMin(app.siteLevel);
+    if (zmin >= 1.0) return;
+
+    // The GPU path cannot use the worker -- shader passes need the main
+    // thread and a live context -- so it takes the other half of the
+    // bargain: build the whole wide window here and now, in the frame
+    // after the ladder settled, rather than in the one where the player
+    // scrolls. It is a hitch either way; this is the one they did not
+    // ask for anything in.
+    if (GetTerrainPath() != TERRAIN_PATH_CPU)
+    {
+        g_specSatisfied = true;
+        BuildWideWindow(app);
+        return;
+    }
+
+    g_spec.lat = app.options.pickLat;
+    g_spec.lon = app.options.pickLon;
+    g_spec.spanKm = app.options.spanKm / zmin;
+    g_spec.strength = app.options.chainStrength;
+    // The same resolution BuildScene will ask for, or the cache it is
+    // meant to warm gets a key nobody looks up. Site mode sets demRes
+    // explicitly per sharpening rung, so this is not a guess.
+    g_spec.res = WideDemRes(app.options);
+    g_spec.detail = app.options.detail;
+    g_spec.gen = g_specGen;
+    g_spec.layer = ChainLayer{};
+    g_spec.window = LolaWindow{};
+    g_spec.done.store(false);
+    g_spec.running = true;
+    double nativeKm = app.scene.nativeKm;
+    const LolaDem* dem = &app.dem;
+    g_spec.worker = std::thread([nativeKm, dem]() {
+        // The DEM window first: it is the expensive half by an order of
+        // magnitude. A cold one at this resolution measured 4.6 s against
+        // the chain layer's 210 ms -- the sharp window only ever looked
+        // cheap because the sharpening ladder leaves it in the cache.
+        // Window() is const, LolaDem loads once, and lola_dem's globals
+        // are startup settings, so concurrent reads are safe on the same
+        // basis the game's TerrainPool already relies on.
+        g_spec.window = dem->Window(g_spec.lat, g_spec.lon, g_spec.spanKm,
+                                    g_spec.res, g_spec.detail);
+        BuildChainLayer(g_spec.lat, g_spec.lon, g_spec.spanKm, nativeKm,
+                        g_spec.strength, &g_spec.layer, false);
+        g_spec.done.store(true);
+    });
+#endif
+}
+
+// Collect it, if it is still for the site we are on.
+static void SpeculationPoll(AppState& app)
+{
+    if (!g_spec.running || !g_spec.done.load()) return;
+    g_spec.worker.join();
+    g_spec.running = false;
+    g_spec.done.store(false);
+    if (g_spec.gen == g_specGen)
+    {
+        if (!g_spec.window.elevationM.empty())
+            WindowCacheStore(g_spec.lat, g_spec.lon, g_spec.spanKm,
+                             g_spec.res, g_spec.detail, g_spec.window);
+        if (g_spec.layer.res > 0)
+            ChainLayerInsert(g_spec.lat, g_spec.lon, g_spec.spanKm,
+                             g_spec.strength, std::move(g_spec.layer));
+        g_specSatisfied = true;
+        std::fprintf(stderr,
+                     "ZOOMOUT: %.1f km window and layer built ahead\n",
+                     g_spec.spanKm);
+        // Assemble the scene from the warm caches now, in a frame the
+        // player is only looking at, rather than in the one where they
+        // scroll. What is left is mesh and uploads -- GL, main thread,
+        // nowhere else it can go.
+        BuildWideWindow(app);
+    }
+    g_spec.layer = ChainLayer{};
+    g_spec.window = LolaWindow{};
 }
 
 static void BuildSiteScene(AppState& app)
@@ -3672,6 +3868,9 @@ static void UpdateSiteSelect(AppState& app)
     int screenW = GetScreenWidth(), screenH = GetScreenHeight();
     Vector2 m = SitePointer();
     SurveyViewport viewport = LadderViewport(screenW, screenH);
+
+    SpeculationPoll(app);          // yesterday's answer, if it is still ours
+    SpeculationStart(app);         // and tomorrow's, if the rung has settled
 
     // ---------- zoom within the rung ----------
     const SurveyLevelDef* ladder = GetSurveyLadder();
@@ -4979,7 +5178,8 @@ int main(int argc, char** argv)
 
     if (!app.dem.Load(app.options.demPath))
     {
-        CloseWindow();
+        SpeculationJoinAtExit();   // never outlive the process
+    CloseWindow();
         return 1;
     }
     // High-resolution SLDEM2015 crops (fetched by the fetch-dem
@@ -5066,7 +5266,8 @@ int main(int argc, char** argv)
         g_fake.active = false;
         g_fake.fly = false;
         UnloadSceneGpu(app.scene);
-        CloseWindow();
+        SpeculationJoinAtExit();   // never outlive the process
+    CloseWindow();
         return 0;
     }
 
@@ -5075,8 +5276,12 @@ int main(int argc, char** argv)
         // Scripted walk through the real interactive state machine: a
         // pointer position and an optional click per step, each rendered
         // to its own PNG. Verifies the flow a player will actually use.
+        // dwell: extra frames spent doing nothing, which is what hovering
+        // is. Without it the walk advances the instant a step renders, so
+        // anything built speculatively in the background is cancelled
+        // before it can land and the harness reports it never works.
         struct Step { float x, y; bool click; const char* tag; bool esc;
-                      float wheel; };
+                      float wheel; int dwell; };
         // Fractions of the screen, not pixels: the same walk has to run
         // at --size 390x844 (the phone layout, where a card spans the
         // full width) as well as at the default square. Every point sits
@@ -5106,7 +5311,10 @@ int main(int argc, char** argv)
             // and SITE merged there is one descent fewer, so the click it
             // carries founds, which makes "7_found" a no-op that has been
             // passing quietly ever since.
-            { 0.46f, 0.68f, false, "5a_zoomout1", false, -1.0f },
+            // Sit still first: the speculative wide layer needs about
+            // 200 ms, and a player looking at the ground gives it that.
+            { 0.46f, 0.68f, false, "5_settle",    false,  0.0f, 400 },
+            { 0.46f, 0.68f, false, "5a_zoomout1", false, -1.0f, 0 },
             { 0.46f, 0.68f, false, "5b_zoomout2", false, -1.0f },
             { 0.46f, 0.68f, false, "5c_zoomin",   false,  2.0f },
             { 0.42f, 0.70f, true,  "6_found",     false, 0.0f },
@@ -5128,6 +5336,17 @@ int main(int argc, char** argv)
             g_fake.click = false;
             g_fake.escape = false;
             g_fake.wheel = steps[i].wheel;
+
+            // Hover: run frames without advancing, so background work has
+            // the time a player would give it.
+            for (int d = 0; d < steps[i].dwell; d++)
+            {
+                RenderTexture2D idle = LoadRenderTexture(64, 64);
+                BeginTextureMode(idle);
+                UpdateSiteSelect(app);
+                EndTextureMode();
+                UnloadRenderTexture(idle);
+            }
 
             // Settle the two-pass build first. Interactively the 512
             // draft is on screen for one frame and the full build lands
@@ -5184,7 +5403,8 @@ int main(int argc, char** argv)
         }
         g_fake.active = false;
         UnloadSceneGpu(app.scene);
-        CloseWindow();
+        SpeculationJoinAtExit();   // never outlive the process
+    CloseWindow();
         return 0;
     }
 
@@ -5209,7 +5429,8 @@ int main(int argc, char** argv)
                     b.earthVisibility * 100.0f);
         std::printf("  open sky       %8.1f %%\n", b.skyFraction * 100.0f);
         std::printf("  BUILD SCORE    %8.2f\n", b.buildScore);
-        CloseWindow();
+        SpeculationJoinAtExit();   // never outlive the process
+    CloseWindow();
         return 0;
     }
 
@@ -5218,13 +5439,15 @@ int main(int argc, char** argv)
         if (app.options.outPath.empty())
         {
             std::cerr << "--ladder needs --out PATH (one PNG per level)\n";
-            CloseWindow();
+            SpeculationJoinAtExit();   // never outlive the process
+    CloseWindow();
             return 1;
         }
         app.styleMode = (app.options.style == "color") ? 1 : 0;
         int rc = RenderLadder(app);
         UnloadSceneGpu(app.scene);
-        CloseWindow();
+        SpeculationJoinAtExit();   // never outlive the process
+    CloseWindow();
         return rc;
     }
 
@@ -5234,7 +5457,8 @@ int main(int argc, char** argv)
     // draws a scene immediately and cannot start without one.
     if (!app.options.siteMode && !BuildScene(app.options, app.dem, app.scene))
     {
-        CloseWindow();
+        SpeculationJoinAtExit();   // never outlive the process
+    CloseWindow();
         return 1;
     }
     app.styleMode = (app.options.style == "color") ? 1 : 0;
@@ -5366,6 +5590,7 @@ int main(int argc, char** argv)
     }
 
     UnloadSceneGpu(app.scene);
+    SpeculationJoinAtExit();   // never outlive the process
     CloseWindow();
     return 0;
 }
