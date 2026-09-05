@@ -942,6 +942,107 @@ dot travels **sideways only** — the guide line it rides is level, because the
 whole plane is one depth. A cursor that walked up and down as the pointer
 crossed a plane was the misreading itself, drawn.
 
+### 9.47 The solid body, and peeling it
+
+The exploded stack (§9.46) is one way to show four planes of ground. The
+other is to stop exploding them: draw the column as **one body**, cut into
+its four strata, and take layers off when the player asks. Reference:
+`../prospecting/prototypes/layer-block.html`.
+
+Reach for the body over the stack when **the ground itself is the subject**
+— its structure, its thicknesses, where one rock gives way to the next. Keep
+the stack when **four planes of data must be readable at once**, because
+that is the one thing the body cannot do: solid, only its surface shows, and
+everything below is rock until you peel it. That is a real loss and the peel
+is what pays it back. What the body buys is worth the trade in a panel about
+ground: one object instead of four sheets floating in nothing, thicknesses
+to scale, and a depth axis with no gaps in it.
+
+**The axis goes straight, and that is the point.** An exploded stack has to
+give every plate an equal slot and interpolate depth across the gaps, buying
+alignment with true thickness (§9.1). A body has no gaps, so `yOf` collapses
+to `surfY + m · pxPerM` and the trade simply goes away: the bands beside it
+are their real thickness *and* still perfectly aligned. Prospecting's column
+went from four equal slots to 12 / 22 / 34 / 52 m drawn as 40 / 73 / 112 /
+172 px.
+
+**Hang the body from its waist.** Put `i + j = N` — the line through the
+left and right corners — exactly on `yOf(m)`:
+
+```
+x = cx + (i − j)·tileX
+y = yOf(m) + (i + j − N)·tileY
+```
+
+Then the left corner lands on the depth label's ruling and the right corner
+lands on the instrument's band boundary, at every depth, for free. Both
+joins are construction, not tuning, which is what §9.1 asks of a join.
+
+**The flattening rule lapses here.** §9.46 draws plates at `tileY = 0.22 ·
+tileX` so the receding axis cannot be misread as depth. In a body depth is
+unmistakably the vertical extent of the cut faces, so the misreading has
+nowhere to happen and the tilt can come back up — 0.42 reads as a solid
+thing without the top ceasing to read as a plane. Note the shape of that
+argument: the rule was kept until the reason for it was gone, not because
+the new picture looked nicer.
+
+**Two faces, and they are not slivers.** The viewer sees the `j = N` face
+(falling away to the lower left) and the `i = N` face (turned toward the key
+light). The cell-prism convention of §9.46 puts these at 0.42 and 0.60 of
+the top; on a face the size of a whole block that crushes the rock into a
+smudge, so they are remapped rather than multiplied down (§3.2) — **0.64 and
+0.84**, which keeps the ratio and keeps the grain. The rock is laid on them
+the way the instrument lays it, 1:1 and entering the tile at row `L·41`, so
+a face and the band beside it are visibly one image.
+
+**A dark seam on dark rock is not a line.** Every stratum boundary gets the
+seam *and* a lit lip: `ROCK_EDGE[L]` at 2.2 px with the layer above's rock
+at ×1.9 on a 1.1 px line 1.7 px higher — the newly exposed bedding plane
+catching the key light. Drawn as the seam alone, four layers of near-black
+rock read as one gradient.
+
+**Peeling.** Everything above the chosen layer goes; the layer is left
+translucent; what is under it stays solid.
+
+- **Composite the slab once, not fill by fill.** Fading each quad and each
+  texture multiply separately is the obvious way and it is a different
+  picture: a half-strength multiply barely darkens, so the rock washes out
+  to milk, and where the slab's top crosses its own side faces the two
+  translucent passes stack into a brighter patch than either. Draw the whole
+  body opaque on a scratch canvas, then composite it at `ALPHA_SLAB` once.
+- **One job per exposed surface.** Peeling exposes two planes at 22 m apart
+  and ~70 px apart on screen. If both speak class they superimpose into an
+  unreadable double image. So the slab's own top carries **shape** — rock,
+  relief, class only whispered at ×0.10 — and the floor beneath it carries
+  the **class map**, which is what the floor was exposed for.
+- **Never brighten a class key to beat the glass.** Lighting the floor past
+  full to buy back what the transparency takes clips the largest channel
+  first: MEASURED green went to `(111,255,204)` and read as cyan, a key
+  lying about which class it is. Thin the glass instead — that costs no hue
+  at all. Lay the grain on the floor lightly too (×0.6); megaregolith's
+  seams will eat a class colour whole.
+- **UNCLASSIFIED is not promoted.** It is the absence of a class, so on the
+  floor it stays its stratum while the three named classes go to 0.92.
+  Promoted with them it becomes a pale field louder than the ore.
+- **A translucent body has no silhouette**, so the line is what says where it
+  starts and stops: `--text` at 0.88 on the top, 0.75 and 0.50 on the two
+  boundaries, 0.62 on the corner verticals.
+
+**Cache the body; it is not what is moving.** Measured before any caching:
+45 ms a frame stacked, 74 ms peeled — 13 fps, and wasm would have been worse
+(dev-workflow's 55 ms estimate-field regression was unplayable). Profiling
+put it in two places, neither of them the one to guess: the per-cell surface
+fills, and the **drill bar's per-row steel gradients** — `drawShaft` walks
+the string in 1.4 px rows and was asking for a fresh `createLinearGradient`
+on every one, some 400 objects a frame. Both are static, so both are cached
+rather than made clever: the body redraws only when a layer is peeled or the
+focus eases (light quantised into the cache key, or an ease defeats the
+cache exactly when the panel is busiest), the bar's rock is drawn once, and
+gradients are memoised on half-width. 45 → 3.5 ms stacked, and the ~6.5 ms
+that remains is the rig actually turning. Colour strings are quantised to 3
+levels a channel and memoised too — invisible under texture, and it collapses
+thousands of `rgb(...)` allocations a frame to a few hundred.
+
 ### 9.5 The animation recipes
 
 Approved in the drill-dock prototype; reuse verbatim:
