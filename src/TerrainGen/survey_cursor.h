@@ -98,6 +98,13 @@ struct SurveyCursor
 {
     int level = 0;                  // 0-based index into the ladder
     double windowSpanKm = 0.0;
+    // How much ground the window actually holds, when that is more than
+    // the rung's nominal span. A wide screen shows spanKm top to bottom
+    // and spanKm * aspect across, and the instrument builds the wider
+    // window to fill it -- so the cursor must be allowed to reach the
+    // sides. Left at 0 it means "square, same as windowSpanKm", which is
+    // what every non-widened caller wants.
+    double groundSpanKm = 0.0;
     double windowLatDeg = 0.0;      // window centre on the moon
     double windowLonDeg = 0.0;
     double footprintKm = 0.0;

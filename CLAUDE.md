@@ -250,11 +250,14 @@ plus its eight neighbours, built before they are asked for.
 **Two synthesizers, one chosen at startup.** `terrain_gpu.{h,cpp}` runs
 the same chain as fragment-shader passes (both GLSL 330 and ES 100, so
 it is the path the browser and phone take). `GetTerrainPath()` decides
-once: `COLONY_TERRAIN=cpu|gpu` overrides; the web build is always GPU
-(no worker threads there); a desktop times one 512 px chain and picks
+once: `COLONY_TERRAIN=cpu|gpu` overrides; every platform — the browser
+included, since WebGL there may be a software rasterizer — times one
+512 px chain and picks
 GPU at 1024 (≤ 12 ms), GPU at 512 (≤ 40 ms) or the threaded CPU path
 (a software rasterizer such as WSL's llvmpipe). `COLONY_TERRAIN_RES`
-forces the GPU resolution. The GPU chain is *fused* — no float
+forces the GPU resolution. `TerrainLayerAffordable()` reads the same
+probe for a different question — whether this machine should build the
+site-level chain layer at all. The GPU chain is *fused* — no float
 textures, the height field is never stored — and its noise is hashed
 rather than drawn from the CPU's xorshift stream, so it has the same
 texture statistics without the same pixels. `terrain_probe` builds a

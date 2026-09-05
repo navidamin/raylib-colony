@@ -1,5 +1,6 @@
 #include "survey_cursor.h"
 
+#include <algorithm>
 #include <cmath>
 
 // Pure geometry — no raylib drawing, no game state. See the header for
@@ -45,7 +46,13 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
     { "SITE",         25.0,  SURVEY_BUILD_FOOTPRINT_KM,      false },
 };
 
-double SnapOffset(double offsetKm, double spanKm, double footprintKm)
+// The grid's identity comes from spanKm -- cell size and whether a cell
+// sits on the centre -- while limitKm says how far out the player can
+// actually reach on this axis. They are the same number on a square
+// window and different on a wide one, and conflating them is what kept
+// the cursor in the middle of the screen.
+double SnapOffset(double offsetKm, double spanKm, double footprintKm,
+                  double limitKm)
 {
     // The level's grid is the set of footprints of the level below, laid
     // out so they tile the window: an odd count puts a cell on the
@@ -59,10 +66,10 @@ double SnapOffset(double offsetKm, double spanKm, double footprintKm)
     // -87.5 ... -12.5, +12.5 ... +87.5, i.e. indices -4..+3. Clamping to
     // a symmetric +-3 would refuse the westmost/southmost cell and snap
     // the cursor a whole cell away from where the player is pointing.
-    double limitKm = (spanKm - footprintKm) * 0.5;
-    if (limitKm <= 0.0) return 0.0;
-    double maxIndex = std::floor(limitKm / footprintKm - phase + 1e-9);
-    double minIndex = std::ceil(-limitKm / footprintKm - phase - 1e-9);
+    double limit = (limitKm - footprintKm) * 0.5;
+    if (limit <= 0.0) return 0.0;
+    double maxIndex = std::floor(limit / footprintKm - phase + 1e-9);
+    double minIndex = std::ceil(-limit / footprintKm - phase - 1e-9);
     if (maxIndex < minIndex) return 0.0;
 
     double index = std::floor(offsetKm / footprintKm - phase + 0.5);
@@ -71,6 +78,10 @@ double SnapOffset(double offsetKm, double spanKm, double footprintKm)
     return (index + phase) * footprintKm;
 }
 
+// spanKm here is the REACHABLE extent on this axis, not the rung's
+// nominal window: on a wide screen they differ, and clamping both axes to
+// the nominal one is what confined the cursor to a square in the middle
+// of the screen.
 double ClampOffset(double offsetKm, double spanKm, double footprintKm)
 {
     double limit = (spanKm - footprintKm) * 0.5;
@@ -232,19 +243,29 @@ void SurveyCursorTrack(SurveyCursor* cursor, const SurveyViewport& viewport,
     SurveyScreenToOffsetKm(viewport, cursor->windowSpanKm,
                            screenX, screenY, &dx, &dy);
 
+    // How far the cursor may go on each axis: what the viewport shows,
+    // but never past the ground the window actually holds.
+    float pxPerKm = SurveyPixelsPerKm(viewport, cursor->windowSpanKm);
+    double ground = (cursor->groundSpanKm > 0.0) ? cursor->groundSpanKm
+                                                 : cursor->windowSpanKm;
+    double reachX = cursor->windowSpanKm, reachY = cursor->windowSpanKm;
+    if (pxPerKm > 0.0f)
+    {
+        reachX = std::min((double)(viewport.width / pxPerKm), ground);
+        reachY = std::min((double)(viewport.height / pxPerKm), ground);
+    }
+
     if (cursor->snapToGrid)
     {
         cursor->offsetXKm = SnapOffset(dx, cursor->windowSpanKm,
-                                       cursor->footprintKm);
+                                       cursor->footprintKm, reachX);
         cursor->offsetYKm = SnapOffset(dy, cursor->windowSpanKm,
-                                       cursor->footprintKm);
+                                       cursor->footprintKm, reachY);
     }
     else
     {
-        cursor->offsetXKm = ClampOffset(dx, cursor->windowSpanKm,
-                                        cursor->footprintKm);
-        cursor->offsetYKm = ClampOffset(dy, cursor->windowSpanKm,
-                                        cursor->footprintKm);
+        cursor->offsetXKm = ClampOffset(dx, reachX, cursor->footprintKm);
+        cursor->offsetYKm = ClampOffset(dy, reachY, cursor->footprintKm);
     }
 }
 

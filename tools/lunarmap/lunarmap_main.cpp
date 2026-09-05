@@ -3341,12 +3341,16 @@ static void BuildSiteScene(AppState& app)
     }
     else
     {
-        const SurveyCursor* c = SurveyCurrent(&app.descent);
+        SurveyCursor* c = SurveyCurrent(&app.descent);
         app.options.nearside = false;
         app.options.pickLat = c->windowLatDeg;
         app.options.pickLon = c->windowLonDeg;
         app.options.spanKm = c->windowSpanKm * app.sceneAspect;
         app.options.spanAspect = app.sceneAspect;
+        // The window built here is wider than the rung's nominal span, so
+        // tell the cursor: otherwise it clamps to a square and the left
+        // and right thirds of a wide screen show ground you cannot pick.
+        c->groundSpanKm = app.options.spanKm;
     }
     // Sharpen in steps rather than one jump. Window cost is quadratic in
     // texture resolution, so 384 is 1/28th of the full build and lands

@@ -191,6 +191,24 @@ int main()
     Check(std::fabs(site.offsetXKm - 37.0 / 40.0) < 1e-6,
           "site cursor moves freely");
 
+    // 7b. A wide screen shows more ground across than down, and the
+    //     cursor has to reach it. 1600x900 over a 25 km rung is 36 px/km,
+    //     so the view is 44.4 km wide; the far right is 22.2 km out,
+    //     which the old square clamp cut back to 12.5.
+    SurveyViewport wide = { 0.0f, 0.0f, 1600.0f, 900.0f };
+    SurveyCursor w = MakeSurveyCursor(SURVEY_LEVEL_COUNT - 1, 0.0, 0.0);
+    w.groundSpanKm = 25.0 * (1600.0 / 900.0);
+    SurveyCursorTrack(&w, wide, 1599.0f, 450.0f);
+    double reachKm = (25.0 * 1600.0 / 900.0 - SURVEY_BUILD_FOOTPRINT_KM) * 0.5;
+    printf("   wide screen: cursor reaches %.1f km east of centre "
+           "(square clamp allowed %.1f)\n", w.offsetXKm,
+           (25.0 - SURVEY_BUILD_FOOTPRINT_KM) * 0.5);
+    Check(w.offsetXKm > 20.0 && w.offsetXKm <= reachKm + 1e-6,
+          "cursor reaches the wide screen's right edge");
+    SurveyCursorTrack(&w, wide, 800.0f, 1.0f);
+    Check(std::fabs(w.offsetYKm - (25.0 - SURVEY_BUILD_FOOTPRINT_KM) * 0.5)
+          < 0.5, "but is still held to the window top to bottom");
+
     // 8. Cursor centre -> lat/lon, and back through the child window.
     SurveyCursor c3 = MakeSurveyCursor(SURVEY_LEVEL_COUNT - 1, 32.8, -15.6);
     c3.offsetXKm = 5.0;
