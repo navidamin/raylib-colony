@@ -3637,23 +3637,30 @@ static void UpdateSiteSelect(AppState& app)
     // the base's footprint over the ground being chosen within, and
     // zooming there could only take the surroundings away from the
     // decision.
-    float zoomMax = 1.0f;
+    float zoomMax = 1.0f, zoomMin = 1.0f;
     if (app.siteLevel > 0)
     {
         zoomMax = (float)SurveyZoomMax(app.siteLevel);
+        // Zooming out is free as far as the ground already built: the
+        // window is spanKm * aspect square and only spanKm of it is
+        // shown, so the rest is generated and simply out of frame.
+        zoomMin = (float)SurveyZoomMin(app.siteLevel, app.options.spanKm);
     }
-    bool zoomable = (app.siteLevel > 0) && (zoomMax > 1.0f)
+    bool zoomable = (app.siteLevel > 0) && (zoomMax > zoomMin)
                     && !app.transActive && !app.founded;
     float wheel = zoomable ? GetMouseWheelMove() : 0.0f;
     if (wheel != 0.0f)
     {
         app.zoomK = std::clamp(app.zoomK * std::pow(1.25f, wheel),
-                               1.0f, zoomMax);
+                               zoomMin, zoomMax);
     }
     // The viewport for THIS frame uses last frame's camera, which breaks
     // the circle between "where the cursor is" and "where the camera is
     // looking". One frame of lag, invisible at 60 Hz.
-    if (app.siteLevel > 0 && app.zoomK > 1.0f)
+    // Any zoom that is not 1, in either direction: zooming OUT has to
+    // move the cursor's frame too, or the rectangle stops following the
+    // mouse the moment the ground gets wider than the window.
+    if (app.siteLevel > 0 && std::fabs(app.zoomK - 1.0f) > 1e-4f)
     {
         viewport = LadderViewportZoomed(screenW, screenH, app.zoomK,
                                         app.camXKm, app.camYKm,

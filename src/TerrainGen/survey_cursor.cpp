@@ -117,8 +117,33 @@ double SurveyZoomMax(int level)
     {
         // A fixed cursor: the limit is where it fills the band's ceiling.
         z = SURVEY_CURSOR_MAX_RATIO * d.windowSpanKm / d.footprintKm;
+
+        // The band says how far zooming in MAY go. Playtest 2026-09-06
+        // said how far it is worth going: not far. The district's 2.4x
+        // revealed ground that is the site rung's job to show, and the
+        // way to see it is to click down, not to scroll. One notch.
+        if (z > SURVEY_ZOOM_NOTCH) z = SURVEY_ZOOM_NOTCH;
     }
     return (z < 1.0) ? 1.0 : z;
+}
+
+double SurveyZoomMin(int level, double groundSpanKm)
+{
+    if (level < 0 || level >= SURVEY_LEVEL_COUNT) return 1.0;
+    const SurveyLevelDef& d = LADDER[level];
+    if (groundSpanKm <= d.windowSpanKm) return 1.0;   // nothing spare
+
+    double z = d.windowSpanKm / groundSpanKm;
+
+    // Never as wide as the rung above's own window, with a margin, so
+    // backing out is always a click and never a scroll.
+    if (level > 0)
+    {
+        double above = LADDER[level - 1].windowSpanKm * 0.75;
+        double floorZ = d.windowSpanKm / above;
+        if (z < floorZ) z = floorZ;
+    }
+    return (z > 1.0) ? 1.0 : z;
 }
 
 SurveyCursor MakeSurveyCursor(int level, double windowLatDeg,

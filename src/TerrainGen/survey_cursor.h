@@ -87,6 +87,24 @@ const double SURVEY_CURSOR_MAX_RATIO = 0.30;
 // is a click. survey_cursor_test checks that this holds for every rung.
 double SurveyZoomMax(int level);
 
+// One wheel notch.
+const double SURVEY_ZOOM_NOTCH = 1.25;
+
+// How far a level may zoom OUT, as a multiple of its own window, so a
+// value below 1.
+//
+// Zooming out costs nothing up to a point, because the ground is already
+// there: the instrument builds a SQUARE window of spanKm * aspect so the
+// terrain fills a wide screen, and only spanKm of it is ever shown.
+// groundSpanKm says how much was built; past that there is no ground and
+// the answer is 1.
+//
+// Bounded so the widest view stays narrower than the window of the level
+// ABOVE -- the mirror of SurveyZoomMax's rule. Together they mean no
+// amount of scrolling reaches a neighbouring rung's picture from either
+// direction, which is what keeps a rung a place rather than a range.
+double SurveyZoomMin(int level, double groundSpanKm);
+
 // ---------------------------------------------------------------------------
 // Cursor state
 // ---------------------------------------------------------------------------
