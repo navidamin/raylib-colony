@@ -21,6 +21,36 @@ ConfidenceLevel GetConfidenceLevel(float confidence)
     return ConfidenceLevel::CERTAIN;
 }
 
+ResourceClass GetResourceClass(float confidence)
+{
+    // Grouping, not re-thresholding. If the CONFIDENCE_THRESHOLD_* constants
+    // ever move, both readings move together and neither has to be found.
+    switch (GetConfidenceLevel(confidence))
+    {
+        case ConfidenceLevel::CERTAIN:   return ResourceClass::MEASURED;
+        case ConfidenceLevel::HIGH:
+        case ConfidenceLevel::MODERATE:  return ResourceClass::INDICATED;
+        case ConfidenceLevel::LOW:       return ResourceClass::INFERRED;
+        default:                         return ResourceClass::UNCLASSIFIED;
+    }
+}
+
+const char* ResourceClassName(ResourceClass cls)
+{
+    switch (cls)
+    {
+        case ResourceClass::MEASURED:  return "MEASURED";
+        case ResourceClass::INDICATED: return "INDICATED";
+        case ResourceClass::INFERRED:  return "INFERRED";
+        default:                       return "UNCLASSIFIED";
+    }
+}
+
+bool IsCommittable(ResourceClass cls)
+{
+    return cls == ResourceClass::MEASURED || cls == ResourceClass::INDICATED;
+}
+
 int GetGlowLevel(float confidence)
 {
     return static_cast<int>(GetConfidenceLevel(confidence));

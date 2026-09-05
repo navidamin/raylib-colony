@@ -94,7 +94,6 @@ const float DEFAULT_FeExtractionRate= 0.03;
 const float DEFAULT_SiExtractionRate= 0.03;
 const float DEFAULT_ResourceFocus= 1;
 const float DEFAULT_EnergyConsumption= 1;
-const float DEFAULT_WearAndTear= 0.2;
 const float DEFAULT_Efficiency= 0.75;
 const float DEFAULT_StorageCapacity= 100;
 const float DEFAULT_BreakdownChance= 0.02;

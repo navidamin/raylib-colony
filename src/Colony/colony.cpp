@@ -1,4 +1,5 @@
 #include "colony.h"
+#include "web_mouse.h"
 #include <iostream>
 
 Colony::Colony() : jurisdiction_radius(SECT_CORE_RADIUS*4),
@@ -132,7 +133,7 @@ void Colony::Draw(Camera2D& camera) {
     }
 
     // Draw jurisdiction circle when mouse is hovering over it
-    Vector2 mouseScreenPos = GetMousePosition();
+    Vector2 mouseScreenPos = ColonyGetMousePosition();
     Vector2 mouseWorldPos = GetScreenToWorld2D(mouseScreenPos, camera);
 
     if (CheckCollisionPointCircle(mouseWorldPos, centroid, jurisdiction_radius)) {

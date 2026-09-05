@@ -1,4 +1,5 @@
 #include "viewmanager.h"
+#include "web_mouse.h"
 #include "terrain_synthesis.h"
 
 ViewManager::ViewManager(int screenWidth, int screenHeight)
@@ -208,7 +209,7 @@ void ViewManager::ResetCameraForCurrentView(View view, std::vector<Colony*>& col
 }
 
 Vector2 ViewManager::GetWorldMousePosition() {
-    return GetScreenToWorld2D(::GetMousePosition(), camera);
+    return GetScreenToWorld2D(::ColonyGetMousePosition(), camera);
 }
 
 void ViewManager::SwitchToColonyView(Colony* currentColony) {

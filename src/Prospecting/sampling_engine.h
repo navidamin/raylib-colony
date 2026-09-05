@@ -16,6 +16,12 @@ public:
     bool CollectSample(ProspectingGrid& grid, SampleTray& tray,
                        int subX, int subY, DepthLayer depth);
 
+    // Tray half of a hole on its own -- for line holes, which core their
+    // crossings themselves. Best-effort: a full shelf returns false and
+    // costs nothing.
+    bool AddSpecimen(ProspectingGrid& grid, SampleTray& tray,
+                     int subX, int subY, DepthLayer depth);
+
     void SetTier(int tier);
     int GetTier() const;
 

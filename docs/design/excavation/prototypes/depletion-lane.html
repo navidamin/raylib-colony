@@ -1,0 +1,387 @@
+<title>Column or Block</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+/* Dark Plating is single-theme by choice (docs/design/graphics/dark-plating.md
+   §1.1): the instruments are lit from a near-black ground and a light surround
+   would read as a bug, not a theme. Every colour is painted explicitly. */
+:root{
+  --ground:#070b11; --panel:#0d151e; --panel2:#111c27; --rule:#1c2a39;
+  --text:#c9d8e8; --dim:#61768a; --dimmer:#3d4e5e;
+  --am:#d9962f; --am-lit:#f4c66a;
+  --hot:#ff5a28; --cy:#50e1ff; --good:#5fd39a;
+  --ui:"Chakra Petch",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:860px;margin:0 auto;padding:22px 16px 46px}
+header{margin-bottom:18px}
+.eyebrow{font:700 10.5px/1 var(--mono);letter-spacing:.2em;color:var(--am);
+  text-transform:uppercase;margin-bottom:8px}
+h1{font:700 38px/1 var(--ui);margin:0 0 8px;letter-spacing:.01em;text-wrap:balance}
+.sub{color:var(--dim);max-width:66ch;margin:0;font-size:14.5px}
+.sub b{color:var(--text);font-weight:600}
+
+.stage{border:1px solid var(--rule);border-radius:6px;background:var(--panel);
+  overflow:hidden}
+canvas{display:block;width:100%;height:auto;background:#070b11}
+
+.console{display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  padding:11px 12px;border-top:1px solid var(--rule);background:var(--panel2)}
+button{font:700 10.5px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase;
+  padding:10px 13px;border-radius:4px;border:1px solid var(--rule);
+  background:var(--panel);color:var(--dim);cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--am);color:var(--am-lit)}
+button:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+button.on{border-color:var(--am);color:var(--am-lit);background:rgba(217,150,47,.14)}
+.depths{display:flex;gap:5px;margin-left:auto}
+.depths button{padding:9px 10px;letter-spacing:.08em}
+.hint{font:400 10px/1.4 var(--mono);color:var(--dimmer);flex-basis:100%}
+
+.reads{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
+.read{border:1px solid var(--rule);border-radius:6px;background:var(--panel);
+  padding:12px 13px;display:flex;flex-direction:column;gap:7px}
+.read.pick{border-color:#3f5d33;background:#0c1710}
+.read h2{font:700 10px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+  color:var(--cy);margin:0}
+.read.pick h2{color:var(--good)}
+.read .q{font:600 13.5px/1.35 var(--ui);color:var(--text);margin:0}
+.read p{margin:0;font:400 11.5px/1.6 var(--mono);color:var(--dim)}
+.read .no{color:var(--hot)}
+.read .tag{font:700 9px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;
+  color:var(--dimmer);border-top:1px solid var(--rule);padding-top:7px;margin-top:auto}
+
+.foot{margin-top:18px;font:400 11.5px/1.7 var(--mono);color:var(--dim);max-width:80ch}
+.foot b{color:var(--text);font-weight:700}
+.foot p{margin:0 0 9px}
+.foot p:last-child{margin:0}
+
+@media (max-width:720px){
+  .reads{grid-template-columns:1fr}
+  h1{font-size:30px}
+  .depths{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Excavation &middot; phase 4 &middot; the shaft bar's second lane</div>
+  <h1>Column or Block</h1>
+  <p class="sub">A shaft opens an <b>8&times;8 block</b> &mdash; 64 spots, four depths
+  each. The lane beside the strata has room for one reading of that. Show the
+  <b>column</b> you are standing in and it answers <i>move the machine?</i>;
+  show the <b>block</b> and it answers <i>sink another shaft?</i>. Work a spot
+  and watch which one moves.</p>
+</header>
+
+<div class="stage">
+  <canvas id="cv" width="1680" height="880"></canvas>
+  <div class="console">
+    <button id="run" class="on" type="button">Working</button>
+    <button id="reset" type="button">Fresh block</button>
+    <div class="depths" id="depths"></div>
+    <div class="hint">Click a spot on the block to move the machine. The lanes read the same ground three ways.</div>
+  </div>
+</div>
+
+<div class="reads">
+  <div class="read">
+    <h2>A &mdash; the column</h2>
+    <p class="q">How much is left under the machine?</p>
+    <p>Four bars, one spot. Empties in a minute of work and <b style="color:var(--text)">redraws
+    completely</b> the moment you click elsewhere.</p>
+    <p class="no">Cannot tell you the shaft is spent &mdash; you would have to
+    visit all 64 spots to find out.</p>
+    <span class="tag">Answers: move the machine</span>
+  </div>
+  <div class="read">
+    <h2>B &mdash; the block</h2>
+    <p class="q">How much is left in this shaft's ground?</p>
+    <p>Four bars, 64 spots averaged. Barely twitches while you work one spot,
+    and <b style="color:var(--text)">falls over hours</b>.</p>
+    <p class="no">Cannot tell you to move &mdash; a spot you have emptied and its
+    untouched neighbour read as one number.</p>
+    <span class="tag">Answers: sink another shaft</span>
+  </div>
+  <div class="read pick">
+    <h2>C &mdash; both</h2>
+    <p class="q">Both, on one axis.</p>
+    <p>The block is the fill; the column is the bright tick riding on it. Two
+    time-scales, one lane, and the <b style="color:var(--text)">gap between them</b>
+    is itself the reading.</p>
+    <p>Wide gap = this spot is spent but the block is not. No gap = the shaft
+    is done.</p>
+    <span class="tag">Answers: both &mdash; recommended</span>
+  </div>
+</div>
+
+<div class="foot">
+<p><b>Why this is not a free choice.</b> The two readings move on different
+clocks. A spot is worked out in a minute; a block of 64 takes hours. A lane
+showing only the column is a needle that never settles, and one showing only the
+block is a dial that never moves &mdash; each is useless for the decision the
+other serves.</p>
+<p><b>What C costs.</b> One more channel in a 120&nbsp;px strip, and a rule that
+the tick must never be mistaken for the fill: the block is rock-coloured because
+it is ground, the column tick is amber because it is where the machine is
+(Dark&nbsp;Plating &sect;1.2 &mdash; amber is always machinery).</p>
+<p><b>The ground here is real in shape, not in numbers.</b> Spot richness is a
+Gaussian shoot on an 8&times;8 block, the same form
+<span style="color:var(--text)">ProspectingGrid</span> generates &mdash; so the
+block has a rich middle and poor corners, and the lanes disagree the way they
+would in the game. The rates are picked for a readable demo, not balanced.</p>
+</div>
+</div>
+
+<script>
+"use strict";
+(function(){
+const CV = document.getElementById("cv"), C = CV.getContext("2d");
+
+/* ---------------- world ----------------
+   Left: the block a shaft opens, in plan. Right: the strata, and the same
+   depletion read three ways against one depth axis. */
+const W = 840, H = 440;
+const N = 8;                       // the block a shaft opens, per the measurement
+const CELL = 30, BX = 16, BY = 74; // block grid origin
+
+const STRATA = [
+  {name:"REGOLITH",      top:0,  bot:12,  col:"#3a342b", grain:"#6b6152"},
+  {name:"MEGAREGOLITH",  top:12, bot:34,  col:"#453e34", grain:"#7b6f58"},
+  {name:"FRACTURED",     top:34, bot:68,  col:"#39424d", grain:"#68788a"},
+  {name:"INTACT BASALT", top:68, bot:120, col:"#272a30", grain:"#4b5059"},
+];
+const SX = 300, SW = 62;           // strata column
+const LANE_W = 46, LANE_GAP = 34;
+const LX = [SX + SW + 26, 0, 0];
+LX[1] = LX[0] + LANE_W + LANE_GAP;
+LX[2] = LX[1] + LANE_W + LANE_GAP;
+const TOP = 74, BOT = H - 34;
+const bandY = d => TOP + (BOT - TOP) * (d / 4);
+const bandH = (BOT - TOP) / 4;
+
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const OUT = "#0a0e14";
+
+/* ---------------- the ground ----------------
+   A Gaussian shoot, the same SHAPE ProspectingGrid makes: a rich middle and
+   poor corners, so the block is not a flat field and the two lanes have
+   something to disagree about. */
+let spot, sel, running, worked;
+function reset(){
+  spot = [];
+  for (let d = 0; d < 4; d++){
+    const cx = 3.1 + Math.sin(d * 1.7) * 1.6, cy = 3.4 + Math.cos(d * 2.3) * 1.5;
+    const s = 2.0 + d * 0.35;
+    spot.push([]);
+    for (let y = 0; y < N; y++){
+      spot[d].push([]);
+      for (let x = 0; x < N; x++){
+        const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+        const rich = clamp(0.30 + 1.35 * Math.exp(-(dx*dx + dy*dy) / (2*s*s)), 0.3, 1.0);
+        spot[d][y].push({ rich, left: 1.0 });
+      }
+    }
+  }
+  sel = { x: 3, y: 3 };
+  worked = 0;
+  syncDepths();
+}
+let depth = 1;
+
+/* mean remaining over the whole block at one depth -- what lane B reads */
+function blockLeft(d){
+  let s = 0;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) s += spot[d][y][x].left;
+  return s / (N * N);
+}
+const colLeft = d => spot[d][sel.y][sel.x].left;
+
+/* ---------------- drawing ---------------- */
+function rockAt(d, t){
+  // t: 1 = untouched, 0 = emptied. Ground that is gone goes to the hole's black,
+  // which is what "taken out" looks like everywhere else in this game.
+  const g = STRATA[d].grain, c = STRATA[d].col;
+  const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+  const A = hex(g), B = hex(c), K = [14, 11, 8];
+  const mix = (p, q, k) => Math.round(p + (q - p) * k);
+  const lit = [mix(B[0],A[0],0.75), mix(B[1],A[1],0.75), mix(B[2],A[2],0.75)];
+  return `rgb(${mix(K[0],lit[0],t)},${mix(K[1],lit[1],t)},${mix(K[2],lit[2],t)})`;
+}
+
+function drawBlock(){
+  C.font = "700 10px 'JetBrains Mono', monospace";
+  C.fillStyle = "#61768a";
+  C.fillText("THE BLOCK ONE SHAFT OPENS", BX, BY - 30);
+  C.font = "400 9px 'JetBrains Mono', monospace";
+  C.fillStyle = "#3d4e5e";
+  C.fillText("8 x 8 spots = 25 m across, at " + STRATA[depth].name.toLowerCase(), BX, BY - 16);
+
+  for (let y = 0; y < N; y++){
+    for (let x = 0; x < N; x++){
+      const s = spot[depth][y][x];
+      const px = BX + x * CELL, py = BY + y * CELL;
+      C.fillStyle = OUT; C.fillRect(px, py, CELL - 2, CELL - 2);
+      C.fillStyle = rockAt(depth, s.left * (0.45 + 0.55 * s.rich));
+      C.fillRect(px + 1.5, py + 1.5, CELL - 5, CELL - 5);
+      // the machine's own spot, in the colour machinery always takes
+      if (x === sel.x && y === sel.y){
+        C.strokeStyle = "#f4c66a"; C.lineWidth = 2;
+        C.strokeRect(px + 0.5, py + 0.5, CELL - 3, CELL - 3);
+        C.fillStyle = "#d9962f";
+        C.fillRect(px + CELL/2 - 3.5, py + CELL/2 - 3.5, 7, 7);
+      }
+    }
+  }
+  C.font = "400 9px 'JetBrains Mono', monospace";
+  C.fillStyle = "#3d4e5e";
+  C.fillText("darker = worked out", BX, BY + N * CELL + 15);
+}
+
+function drawStrata(){
+  for (let d = 0; d < 4; d++){
+    const y0 = bandY(d);
+    C.fillStyle = STRATA[d].col; C.fillRect(SX, y0, SW, bandH - 1);
+    // grain, seeded per band so it never shimmers
+    let seed = 7 + d * 131;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    C.fillStyle = STRATA[d].grain;
+    for (let i = 0; i < 26; i++)
+      C.globalAlpha = 0.30, C.fillRect(SX + rnd() * (SW - 4), y0 + rnd() * (bandH - 6), 3, 2);
+    C.globalAlpha = 1;
+    C.fillStyle = "#191510"; C.fillRect(SX, y0, SW, 2);
+
+    C.font = "700 8.5px 'JetBrains Mono', monospace";
+    C.fillStyle = d === depth ? "#f4c66a" : "rgba(205,225,245,.42)";
+    C.fillText(STRATA[d].name, SX + 5, y0 + 14);
+    C.font = "400 8.5px 'JetBrains Mono', monospace";
+    C.fillStyle = "rgba(205,225,245,.28)";
+    C.fillText(STRATA[d].top + " m", SX + 5, y0 + 26);
+  }
+  C.strokeStyle = "#1c2a39"; C.lineWidth = 1;
+  C.strokeRect(SX + 0.5, TOP + 0.5, SW - 1, BOT - TOP - 1);
+}
+
+// One lane. `fill` is the band's own reading; `tick`, when given, rides on it.
+function drawLane(x, title, sub, fillOf, tickOf, accent){
+  C.font = "700 9.5px 'JetBrains Mono', monospace";
+  C.fillStyle = accent;
+  C.fillText(title, x, TOP - 26);
+  C.font = "400 8.5px 'JetBrains Mono', monospace";
+  C.fillStyle = "#3d4e5e";
+  C.fillText(sub, x, TOP - 14);
+
+  for (let d = 0; d < 4; d++){
+    const y0 = bandY(d), h = bandH - 1;
+    C.fillStyle = "#0f1821"; C.fillRect(x, y0, LANE_W, h);
+    const f = clamp(fillOf(d), 0, 1);
+    // the bar grows DOWN from the band's top, so a full band is a full stratum
+    C.fillStyle = rockAt(d, 0.35 + 0.65 * f);
+    C.fillRect(x, y0, LANE_W, h * f);
+    C.fillStyle = "rgba(0,0,0,.45)";
+    C.fillRect(x, y0 + h * f - 1.4, LANE_W, 1.4);
+
+    if (tickOf){
+      // held a hair inside the band: on the seam it read as a rule, not a tick
+      const t = clamp(tickOf(d), 0.012, 0.988);
+      const ty = y0 + h * t;
+      C.fillStyle = OUT;   C.fillRect(x - 3, ty - 3.4, LANE_W + 6, 6.8);
+      C.fillStyle = "#d9962f"; C.fillRect(x - 2, ty - 2, LANE_W + 4, 4);
+      C.fillStyle = "#f4c66a"; C.fillRect(x - 2, ty - 2, LANE_W + 4, 1.3);
+    }
+    C.font = "700 9px 'JetBrains Mono', monospace";
+    C.fillStyle = f > 0.42 ? "rgba(10,14,20,.85)" : "rgba(205,225,245,.55)";
+    C.fillText(Math.round(f * 100) + "%", x + LANE_W - 24, y0 + (f > 0.42 ? 13 : h - 6));
+
+    C.strokeStyle = "#1c2a39"; C.lineWidth = 1;
+    C.strokeRect(x + 0.5, y0 + 0.5, LANE_W - 1, h - 1);
+  }
+}
+
+function frame(){
+  C.setTransform(2, 0, 0, 2, 0, 0);
+  C.clearRect(0, 0, W, H);
+  C.fillStyle = "#0d151e"; C.fillRect(0, 0, W, H);
+
+  drawBlock();
+  drawStrata();
+  drawLane(LX[0], "A COLUMN", "one spot", colLeft, null, "#50e1ff");
+  drawLane(LX[1], "B BLOCK", "64 spots", blockLeft, null, "#50e1ff");
+  drawLane(LX[2], "C BOTH", "block + tick", blockLeft, colLeft, "#5fd39a");
+
+  // the gap C is really showing, called out on the lane the machine is in
+  const gy = bandY(depth) + (bandH - 1) * clamp(blockLeft(depth), 0, 1);
+  const cy2 = bandY(depth) + (bandH - 1) * clamp(colLeft(depth), 0, 1);
+  if (Math.abs(cy2 - gy) > 5){
+    C.strokeStyle = "rgba(244,198,106,.55)"; C.lineWidth = 1;
+    C.setLineDash([3, 3]);
+    C.beginPath();
+    C.moveTo(LX[2] + LANE_W + 8, gy); C.lineTo(LX[2] + LANE_W + 8, cy2);
+    C.stroke(); C.setLineDash([]);
+    C.font = "700 8.5px 'JetBrains Mono', monospace";
+    C.fillStyle = "#f4c66a";
+    C.fillText("gap", LX[2] + LANE_W + 13, (gy + cy2) / 2 + 3);
+  }
+
+  C.font = "400 9px 'JetBrains Mono', monospace";
+  C.fillStyle = "#3d4e5e";
+  C.fillText("spot-seconds worked  " + Math.round(worked), LX[0], BOT + 20);
+}
+
+/* ---------------- the work ----------------
+   A spot empties in about a minute of attention; the block of 64 takes hours.
+   That ratio IS the argument, so it is the one number not tuned for comfort. */
+let last = performance.now();
+function tick(now){
+  const dt = clamp((now - last) / 1000, 0, 0.05); last = now;
+  if (running){
+    const s = spot[depth][sel.y][sel.x];
+    if (s.left > 0){
+      s.left = clamp(s.left - dt * 0.34, 0, 1);
+      worked += dt;
+    }
+  }
+  frame();
+  requestAnimationFrame(tick);
+}
+
+/* ---------------- input ---------------- */
+CV.addEventListener("pointerdown", e => {
+  const r = CV.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * (W / r.width);
+  const my = (e.clientY - r.top) * (H / r.height);
+  const gx = Math.floor((mx - BX) / CELL), gy = Math.floor((my - BY) / CELL);
+  if (gx >= 0 && gx < N && gy >= 0 && gy < N){ sel.x = gx; sel.y = gy; }
+});
+
+const DEPTHS = document.getElementById("depths");
+function syncDepths(){
+  DEPTHS.innerHTML = "";
+  ["SURF","SHLW","MID","DEEP"].forEach((n, d) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = n;
+    if (d === depth) b.className = "on";
+    b.addEventListener("click", () => { depth = d; syncDepths(); });
+    DEPTHS.appendChild(b);
+  });
+}
+
+const RUN = document.getElementById("run");
+RUN.addEventListener("click", () => {
+  running = !running;
+  RUN.textContent = running ? "Working" : "Stopped";
+  RUN.className = running ? "on" : "";
+});
+document.getElementById("reset").addEventListener("click", () => {
+  reset(); running = true; RUN.textContent = "Working"; RUN.className = "on";
+});
+
+reset();
+running = true;
+requestAnimationFrame(tick);
+})();
+</script>

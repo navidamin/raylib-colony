@@ -1,0 +1,1020 @@
+<title>Kerf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+/* Dark Plating is single-theme by choice (docs/design/graphics/dark-plating.md
+   S1.1): the stage art is lit from a near-black ground, so a light surround
+   would read as a bug rather than a theme. Every colour is painted here. */
+:root{
+  --ground:#070b11; --panel:#0d151e; --panel2:#111c27; --rule:#1c2a39;
+  --text:#c9d8e8; --dim:#61768a; --dimmer:#3d4e5e;
+  --am:#d9962f; --am-lit:#f4c66a;
+  --hot:#ff5a28; --cy:#50e1ff; --good:#5fd39a; --ice:#7fd8ee;
+  --ui:"Chakra Petch",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
+  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:820px;margin:0 auto;padding:22px 16px 46px}
+header{margin-bottom:16px}
+.eyebrow{font:700 10.5px/1 var(--mono);letter-spacing:.2em;color:var(--am);
+  text-transform:uppercase;margin-bottom:8px}
+h1{font:700 40px/1 var(--ui);margin:0 0 6px;letter-spacing:.01em;text-wrap:balance}
+.sub{color:var(--dim);max-width:64ch;margin:0;font-size:14.5px}
+.sub b{color:var(--text);font-weight:600}
+
+/* ---- console ---- */
+.console{border:1px solid var(--rule);border-radius:6px;background:var(--panel);
+  padding:12px 13px;margin-bottom:14px;
+  display:grid;grid-template-columns:1fr 1fr auto;gap:13px;align-items:end}
+.knob{display:flex;flex-direction:column;gap:6px;min-width:0}
+.knob .lab{display:flex;justify-content:space-between;gap:8px;
+  font:700 9.5px/1 var(--mono);letter-spacing:.15em;text-transform:uppercase;color:var(--dim)}
+.knob .lab i{font-style:normal;color:var(--text);font-variant-numeric:tabular-nums}
+.knob input{width:100%;accent-color:var(--am);margin:0}
+.knob input:focus-visible{outline:2px solid var(--cy);outline-offset:3px;border-radius:2px}
+.knob .hint{font:400 9.5px/1.35 var(--mono);color:var(--dimmer)}
+.btns{display:flex;gap:7px}
+button{font:700 10.5px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase;
+  padding:10px 13px;border-radius:4px;border:1px solid var(--rule);
+  background:var(--panel2);color:var(--dim);cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--am);color:var(--am-lit)}
+button:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+button.on{border-color:var(--am);color:var(--am-lit);background:rgba(217,150,47,.14)}
+
+/* ---- the two variants ---- */
+.sheet{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.variant{border:1px solid var(--rule);border-radius:6px;background:var(--panel);
+  overflow:hidden;display:flex;flex-direction:column}
+.vhead{padding:9px 11px;display:flex;justify-content:space-between;
+  align-items:baseline;gap:8px;border-bottom:1px solid var(--rule)}
+.vname{font:700 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--cy)}
+.vtag{font:400 9.5px/1 var(--mono);color:var(--dimmer);text-align:right}
+canvas{display:block;width:100%;height:auto;background:#070b11}
+.card{padding:10px 11px 11px;border-top:1px solid var(--rule)}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;
+  font:700 9.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);margin-bottom:8px}
+.row:last-child{margin-bottom:0}
+.row b{color:var(--text);font-weight:700;letter-spacing:.02em;
+  font-variant-numeric:tabular-nums}
+.state{font:700 9.5px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;
+  padding:4px 7px;border-radius:3px;border:1px solid var(--rule);color:var(--dim)}
+.state.cut{color:var(--good);border-color:#1f4030}
+.state.polish{color:var(--am-lit);border-color:#463317}
+.state.over{color:var(--hot);border-color:#45211a}
+.state.spent{color:var(--dimmer)}
+.pips{display:flex;gap:3px}
+.pips i{width:16px;height:10px;border-radius:1px;background:#101a24;display:block;
+  transition:background .1s linear}
+.pips.eff i.on{background:var(--am)}
+.pips.stab i.on{background:var(--good)}
+.pips.wear i.on{background:var(--hot)}
+.pips.core i.on{background:var(--cy)}
+/* weight on bit: a segmented gauge carrying the rock's band, so the target is
+   visible before the needle reaches it (dark-plating S8) */
+.bar{display:flex;gap:2px;height:11px;margin-bottom:8px}
+.bar span{flex:1;background:#101a24;border-radius:1px;transition:background .1s linear}
+.bar span.band{background:#17303a}
+.bar span.on{background:var(--am)}
+.bar span.on.under{background:#4c5f72}
+.bar span.on.over{background:var(--hot)}
+
+.foot{margin-top:18px;font:400 11.5px/1.7 var(--mono);color:var(--dim);max-width:78ch}
+.foot b{color:var(--text);font-weight:700}
+.foot p{margin:0 0 9px}
+.foot p:last-child{margin:0}
+
+@media (max-width:700px){
+  .sheet{grid-template-columns:1fr}
+  .console{grid-template-columns:1fr 1fr;gap:11px}
+  .btns{grid-column:1/-1}
+  .btns button{flex:1}
+  h1{font-size:32px}
+}
+@media (prefers-reduced-motion:reduce){ .pips i,.bar span{transition:none} }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Excavation &middot; access &middot; shaft-sinking rig</div>
+  <h1>Kerf</h1>
+  <p class="sub">A diamond bit does not chip rock loose, it <b>grinds it away</b>,
+  tooth by tooth, and only inside a band of weight it can actually deliver.
+  Both rigs below take the <b>same two commands</b>
+  and answer differently: the compact runs out of weight before basalt does, and
+  the heavy runs out of steadiness before depth does. Drive them and watch which
+  one is wrong for the ground.</p>
+</header>
+
+<div class="console">
+  <div class="knob">
+    <div class="lab"><span>Weight on bit</span><i id="wobv">80</i></div>
+    <input id="wob" type="range" min="0" max="100" value="80" aria-label="Weight on bit">
+    <div class="hint" id="wobhint">each rig delivers what its mass allows</div>
+  </div>
+  <div class="knob">
+    <div class="lab"><span>Rotation</span><i id="rpmv">70</i></div>
+    <input id="rpm" type="range" min="0" max="100" value="70" aria-label="Rotation speed">
+    <div class="hint">speed cuts; speed also whirls a long string</div>
+  </div>
+  <div class="btns">
+    <button id="run" class="on" type="button">Hold</button>
+    <button id="reset" type="button">Reset</button>
+  </div>
+</div>
+
+<div class="sheet" id="sheet"></div>
+
+<div class="foot">
+<p><b>Why two rigs and not one upgrade.</b> A diamond bit cuts only inside a
+band of weight: too little and it <b>polishes</b> &mdash; the diamond glazes over,
+the rock heats and nothing advances; too much and it <b>overloads</b>, jamming
+the string and breaking what it lifts. The band moves up with hardness, so the
+compact's whole range sits neatly inside soft ground and <b>misses basalt's band
+entirely</b>, while the heavy covers basalt and <b>overshoots regolith</b>.
+Neither is a strict upgrade &mdash; the machine table's rule
+(<span style="color:var(--text)">excavation_constants.h</span>) holds here too.</p>
+<p><b>What depth costs the heavy.</b> Rotation is what a long string turns into
+wobble, and wobble is what kills a bit. The mid-body stabiliser buys back a
+fixed amount of it; past that the only remedy is to <b>ease the rotation as the
+hole deepens</b>, which is slower, which is the decision.</p>
+<p><b>The open question this raises.</b> Access in
+<span style="color:var(--text)">excavation-design.md</span> is a shaft you pay
+for and sink blind &mdash; and the deepest ground is the least surveyed. But run
+with a core barrel in the string, this rig comes back up holding the column it
+cut. If the shaft <b>is</b> the
+survey, then driving it gently buys knowledge and driving it hard buys only the
+hole, and siting a deep shaft stops being a pure gamble. The core strip beside
+each stratigraphy column is that proposal, drawn.</p>
+</div>
+</div>
+
+<script>
+"use strict";
+(function(){
+
+/* =====================================================================
+   KERF -- the diamond rotary shaft-sinker, two variants.
+
+   Art follows docs/design/graphics/dark-plating.md: steel()/steelBands()
+   verbatim (S4.1), the flood-outline-then-faces rule (S2), stepped tone
+   (S3), seeded rock speckle (S5). The crown is a NEW member of the drill
+   family (S6): where the auger's teeth fall out of a helicoid projection,
+   the crown's segments fall out of an ELLIPTICAL ANNULUS projection.
+   ===================================================================== */
+
+/* ---------------- world ----------------
+   No camera here: the whole 0-120 m column is on screen at once, because the
+   sheet's job is comparison, not immersion. Both variants share one depth
+   scale so the compact's shorter reach is a thing you SEE, not a figure. */
+const W = 348, H = 720, SURF_Y = 72, BOT_Y = H - 26;
+const M2PX  = (BOT_Y - SURF_Y) / 120;
+const RIG_X0 = 8,   RIG_X1 = 144, RIG_CX = 76;
+const COL_X0 = 156, COL_X1 = 276;
+const RIB_X0 = 278, RIB_X1 = 296;
+const RUL_X  = 300;
+
+const STRATA = [
+  {name:"REGOLITH",      top:0,  bot:12,  col:"#3a342b", edge:"#191510", grain:"#4c4437", hard:0.25},
+  {name:"MEGAREGOLITH",  top:12, bot:34,  col:"#453e34", edge:"#1c1712", grain:"#5b5140", hard:0.55},
+  {name:"FRACTURED",     top:34, bot:68,  col:"#39424d", edge:"#161c23", grain:"#4d5a67", hard:0.45, icy:true},
+  {name:"INTACT BASALT", top:68, bot:120, col:"#272a30", edge:"#101216", grain:"#343841", hard:0.95},
+];
+const TARGET = 120;
+const yOf   = m => SURF_Y + m * M2PX;
+const strAt = m => STRATA.find(s => m >= s.top && m < s.bot) || STRATA[3];
+
+/* ---------------- the two rigs ----------------
+   Geometry and physics in one table, so a variant is data and never a branch
+   -- the same discipline as EXC_MACHINES in excavation_constants.h.
+
+   The drawn machine follows the concept sheet ("8. Diamond rotary drill --
+   two variants") segment for segment: bevelled-lid motor box, amber collar,
+   slotted neck, rod, then the variant's own lower works, then a toothed
+   cone bit. `stack` lists the lower works from the bit UP; `rings` and
+   `tip` are the bit's teeth.
+
+   wobMax   what the rig's own mass can put on the bit. THE stat.
+   cutK     bit size: a bigger cone moves more rock per turn.
+   whirlK   how readily this string turns rotation into wobble.
+   stabFloor how much wobble the stabiliser eats before any is felt.
+   wearPerM abrasion, per metre of rock actually cut.
+   glazeK   diamond burned per second while polishing -- progress-free wear. */
+const SPECS = [
+  { key:"compact", name:"Compact", tag:"BR-2 &middot; pilot shaft &middot; T1",
+    boxW:50, boxH:23, lidH:7, amberW:58, amberH:11, amberStyle:"hslot",
+    neckR:13.0, neckH:14, neckSlots:4,
+    rodTop:8.8, rodBot:7.8,
+    bitR:15.0, bitLen:23,
+    rings:[ {r:15.0, y:0,   len:9.5, w:4.6, n:8},
+            {r:9.6,  y:8,   len:8.0, w:4.2, n:6} ],
+    tip:{y:14.5, len:8.6, w:5.0},
+    stack:[ {kind:"collar",  h:7,  r:12.4},
+            {kind:"twotone", h:15, r:10.6} ],
+    wobMax:0.70, cutK:1.00, whirlK:0.55, stabFloor:0.10,
+    wearPerM:0.0062, glazeK:0.022 },
+  { key:"heavy", name:"Heavy Duty", tag:"BR-6 &middot; deep shaft &middot; T3",
+    boxW:62, boxH:31, lidH:8, amberW:70, amberH:12, amberStyle:"vslots",
+    neckR:16.6, neckH:16, neckSlots:3,
+    rodTop:11.6, rodBot:10.2,
+    bitR:18.6, bitLen:27,
+    rings:[ {r:18.6, y:0,   len:10.5, w:5.2, n:10},
+            {r:12.2, y:9.5, len:9.0,  w:4.6, n:7} ],
+    tip:{y:17, len:9.8, w:5.6},
+    stack:[ {kind:"collar",  h:8,  r:14.0},
+            {kind:"ventbox", h:17, r:15.6},
+            {kind:"amber",   h:15, r:18.8},
+            {kind:"hex",     h:9,  r:14.4},
+            {kind:"fluted",  h:34, r:15.8} ],
+    wobMax:1.00, cutK:1.26, whirlK:1.05, stabFloor:0.30,
+    wearPerM:0.0085, glazeK:0.028 },
+];
+for (const sp of SPECS) sp.stackH = sp.stack.reduce((a, sg) => a + sg.h, 0);
+
+/* ---------------- rules ---------------- */
+const RATE_K   = 2.6;          // metres per second at full bite in soft ground
+const BAND_LO  = h => 0.18 + 0.62*h;   // weight a crown needs to cut, by hardness
+const BAND_W   = 0.35;                 // ...and how much more it tolerates
+const HEAT_TAU = 0.55;        // how fast the steel chases the work's heat
+const INTERVAL_M  = 2, N_IV = TARGET / INTERVAL_M;
+const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const lerp  = (a,b,t) => a + (b-a)*t;
+const OUT = "#0a0e14", OUTB = "#101820";
+
+/* ---------------- material: steel (dark-plating S4.1, verbatim) ---------- */
+let C = null;                                   // context of the rig being drawn
+function steel(shade, heat){
+  const base = [lerp(96,238,shade), lerp(104,244,shade), lerp(118,252,shade)];
+  const glow = [255, lerp(55,165,shade), 25], t = clamp(heat*1.15, 0, 1);
+  return `rgb(${lerp(base[0],glow[0],t)|0},${lerp(base[1],glow[1],t)|0},${lerp(base[2],glow[2],t)|0})`;
+}
+function steelBands(x0, x1, heat, tones){
+  const g = C.createLinearGradient(x0, 0, x1, 0); let t = 0;
+  for (const [span, shade] of tones){ const c = steel(shade, heat);
+    g.addColorStop(t, c); t = Math.min(1, t + span); g.addColorStop(t, c); }
+  return g;
+}
+const band = v => Math.round(clamp(v,0,1)*7)/7;          // surfaces: 7 steps
+const dimf = v => 0.15 + v*0.44;                         // back-facing remap
+
+const P_ROD    = [[0.15,0.11],[0.17,0.98],[0.21,0.58],[0.27,0.30],[0.20,0.07]];
+const P_JOINT  = [[0.15,0.16],[0.18,0.94],[0.22,0.56],[0.26,0.28],[0.19,0.10]];
+const P_CHUCK  = [[0.17,0.06],[0.16,0.62],[0.22,0.34],[0.26,0.18],[0.19,0.04]];
+/* the barrel is a heavier, duller tube than a rod: same five-band structure,
+   lower ceiling (S4.4 -- vary the tint, never the structure) */
+const P_BARREL = [[0.16,0.09],[0.16,0.86],[0.22,0.52],[0.26,0.26],[0.20,0.07]];
+
+/* ---------------- state ---------------- */
+let wobCmd = 0.80, rpmCmd = 0.70, running = true, manual = false;
+const rigs = SPECS.map(spec => ({ spec }));
+
+function resetRig(r){
+  r.depthM = 0; r.phase = 0; r.heat = 0; r.wear = 1;
+  r.rate = 0; r.eff = 0; r.whirl = 0; r.mode = "IDLE"; r.spent = false;
+  r.chips = [];
+  r.iv = Array.from({length:N_IV}, () => ({q:0, w:0, cut:false}));
+}
+function resetAll(){ rigs.forEach(resetRig); }
+
+/* ---------------- simulation ----------------
+   One step per rig per frame. The two rigs never interact; they only ever see
+   the same two commands, which is the whole point of the sheet. */
+function stepRig(r, dt){
+  const sp = r.spec, g = strAt(r.depthM);
+  r.phase -= rpmCmd*9*dt;
+
+  if (r.spent || r.depthM >= TARGET || !running){
+    r.rate = 0;
+    r.heat += (0 - r.heat) * clamp(dt/HEAT_TAU, 0, 1);
+    if (r.spent) r.mode = "BIT SPENT";
+    else if (r.depthM >= TARGET) r.mode = "AT DEPTH";
+    else r.mode = "HELD";
+    r.eff = 0;
+    return;
+  }
+
+  /* Wobble: rotation squared, growing with how much string is hanging, less
+     whatever the stabiliser eats. A rig with no stabiliser has a floor of
+     almost nothing -- it simply never gets deep enough for it to matter. */
+  r.whirl = clamp(rpmCmd*rpmCmd * (0.25 + 0.75*r.depthM/TARGET) * sp.whirlK
+                  - sp.stabFloor, 0, 1);
+
+  /* The band is the rock's, the reach is the rig's. This is the whole design:
+     a rig cannot choose to be heavier than it is. */
+  const lo = BAND_LO(g.hard), hi = lo + BAND_W;
+  const wobEff = wobCmd * sp.wobMax;
+  r.wob = wobEff; r.lo = lo; r.hi = hi;
+
+  let bite, wearMul, recov, glazing = false;
+  if (wobEff < lo){                                   // polishing
+    r.mode = "POLISHING";
+    bite = 0.05 + 0.20*(wobEff/lo);
+    wearMul = 1.0; recov = 0.25; glazing = true;
+  } else if (wobEff > hi){                            // overloaded
+    r.mode = "OVERLOAD";
+    bite = 1.0; wearMul = 2.4; recov = 0.30;
+  } else {                                            // in the band
+    r.mode = "CUTTING";
+    bite = 0.55 + 0.45*((wobEff - lo)/BAND_W);
+    wearMul = 1.0; recov = 1.0;
+  }
+
+  r.eff  = bite * (1 - 0.35*r.whirl);
+  r.rate = r.eff * rpmCmd * sp.cutK * (1.35 - g.hard*0.95) * RATE_K;
+  const adv = Math.min(r.rate*dt, TARGET - r.depthM);
+
+  /* Recovery is a property of METRES CUT, not seconds elapsed -- a rig held
+     off the face contributes neither core nor damage. (Redline, same rule.) */
+  const iv = r.iv[Math.min(N_IV-1, Math.floor(r.depthM/INTERVAL_M))];
+  const q = clamp(recov * (1 - 0.75*r.whirl), 0, 1);
+  iv.q += q*adv; iv.w += adv; if (adv > 0) iv.cut = true;
+
+  r.depthM = clamp(r.depthM + adv, 0, TARGET);
+
+  /* Two wear terms, because a crown dies two ways. Abrasion is paid per metre
+     of rock removed; glazing is paid per SECOND of rubbing, and buys nothing.
+     Without the second term a polishing rig would be free, which is backwards:
+     rubbing is exactly how you burn a crown with nothing to show for it. */
+  r.wear -= adv * g.hard * sp.wearPerM * wearMul * (1 + 1.8*r.whirl);
+  if (glazing) r.wear -= dt * g.hard * rpmCmd * sp.glazeK;
+  r.wear = clamp(r.wear, 0, 1);
+  if (r.wear <= 0){ r.spent = true; r.mode = "BIT SPENT"; }
+
+  /* Heat chases a target set by the work rather than accumulating, so it
+     settles instead of running away. Polishing is the HOT failure -- friction
+     with no cutting -- which is why the compact glows in basalt while its
+     depth figure sits still. That contrast is the whole visual argument. */
+  const target = clamp(rpmCmd * (0.20 + g.hard*0.55) * (glazing ? 1.9 : 0.34), 0, 1);
+  r.heat += (target - r.heat) * clamp(dt/HEAT_TAU, 0, 1);
+  if (r.depthM >= TARGET) r.mode = "AT DEPTH";
+}
+
+/* ---------------- geometry of one rig, top to bottom ----------------
+   motor box -> amber collar -> slotted neck -> rod (grows with depth, joints
+   riding the string) -> the variant's lower works (spec.stack, bottom-up) ->
+   the toothed cone bit, apex on the current depth. */
+function bitTopOf(r){ return yOf(r.depthM) - r.spec.bitLen; }
+function stackSegs(r){
+  let y1 = bitTopOf(r); const out = [];
+  for (const sg of r.spec.stack){ out.push({y0:y1 - sg.h, y1, r:sg.r, kind:sg.kind}); y1 -= sg.h; }
+  return out;
+}
+function neckBotOf(r){ return SURF_Y + r.spec.neckH; }
+/* the outer envelope, so particles ride the machine and never a constant */
+function radAt(r, y){
+  const sp = r.spec;
+  if (y >= bitTopOf(r)) return sp.bitR;
+  for (const sg of stackSegs(r)) if (y >= sg.y0 && y < sg.y1) return sg.r;
+  const nb = neckBotOf(r), st = bitTopOf(r) - sp.stackH;
+  if (y <= nb) return sp.neckR;
+  return lerp(sp.rodTop, sp.rodBot, clamp((y - nb)/Math.max(1, st - nb), 0, 1));
+}
+function heatAt(r, y){
+  const d = Math.abs(y - yOf(r.depthM));
+  return r.heat * Math.exp(-(d*d)/(2*34*34));
+}
+
+/* ---------------- rock & ground (dark-plating S5) ---------------- */
+let seed = 1;
+const rnd = () => (seed = (seed*16807) % 2147483647) / 2147483647;
+
+function strataSlabs(x0, x1, alpha, labels){
+  seed = 7;
+  for (const s of STRATA){
+    const y0 = yOf(s.top), y1 = yOf(s.bot);
+    C.globalAlpha = alpha;
+    C.fillStyle = s.col; C.fillRect(x0, y0, x1-x0, y1-y0);
+    C.fillStyle = s.grain;
+    for (let i = 0; i < (y1-y0)/9; i++)
+      C.fillRect(x0 + rnd()*(x1-x0), y0 + rnd()*(y1-y0), 3 + rnd()*3, 2.5);
+    if (s.icy){
+      for (let i = 0; i < 22; i++){
+        C.fillStyle = `rgba(160,225,245,${0.35 + rnd()*0.45})`;
+        C.fillRect(x0 + rnd()*(x1-x0), y0 + rnd()*(y1-y0), 4, 2);
+      }
+      C.strokeStyle = "rgba(16,20,26,.65)"; C.lineWidth = 1.2;
+      for (let i = 0; i < 6; i++){
+        let fx = x0 + rnd()*(x1-x0), fy = y0 + rnd()*(y1-y0);
+        C.beginPath(); C.moveTo(fx, fy);
+        for (let k = 0; k < 4; k++){ fx += 10 + rnd()*18; fy += (rnd()-0.5)*12; C.lineTo(fx, fy); }
+        C.stroke();
+      }
+    }
+    C.fillStyle = s.edge; C.fillRect(x0, y0, x1-x0, 2.5);
+    C.globalAlpha = 1;
+    if (labels){
+      C.font = "700 9px 'JetBrains Mono', monospace";
+      C.fillStyle = "rgba(205,225,245,.62)";
+      C.fillText(s.name, x0 + 7, y0 + 15);
+      C.textAlign = "right";
+      C.fillStyle = "rgba(205,225,245,.34)";
+      C.fillText(s.top + " m", x1 - 7, y0 + 15);
+      C.textAlign = "left";
+    }
+  }
+}
+
+function drawGroundPanel(r){
+  const sp = r.spec;
+  C.fillStyle = "#0a1018"; C.fillRect(RIG_X0, SURF_Y - 1, RIG_X1-RIG_X0, 1);
+  strataSlabs(RIG_X0, RIG_X1, 1, false);
+
+  /* the hole: only as deep as this rig has cut, ragged walls, then a
+     horizontal darkening so it reads as a hole and not a stripe (S5) */
+  const hw = sp.bitR + 2.4, hy = yOf(r.depthM);
+  C.fillStyle = "#0e0b08"; C.fillRect(RIG_CX - hw, SURF_Y, hw*2, hy - SURF_Y);
+  seed = 29; C.fillStyle = "rgba(0,0,0,.8)";
+  for (let y = SURF_Y; y < hy; y += 7){
+    C.fillRect(RIG_CX - hw - 2 - rnd()*3, y, 4 + rnd()*3, 6);
+    C.fillRect(RIG_CX + hw - 2 + rnd()*3, y, 4 + rnd()*3, 6);
+  }
+  const wall = C.createLinearGradient(RIG_CX - hw, 0, RIG_CX + hw, 0);
+  wall.addColorStop(0, "rgba(0,0,0,.7)");   wall.addColorStop(0.22, "rgba(0,0,0,0)");
+  wall.addColorStop(0.78, "rgba(0,0,0,0)"); wall.addColorStop(1, "rgba(0,0,0,.7)");
+  C.fillStyle = wall; C.fillRect(RIG_CX - hw, SURF_Y, hw*2, hy - SURF_Y);
+
+  C.strokeStyle = "#1c2a39"; C.lineWidth = 1;
+  C.strokeRect(RIG_X0+0.5, SURF_Y+0.5, RIG_X1-RIG_X0-1, BOT_Y-SURF_Y-1);
+  C.fillStyle = "#4a5560"; C.fillRect(RIG_X0, SURF_Y - 2, RIG_X1-RIG_X0, 2);
+}
+
+/* ---------------- the bit (dark-plating S6.5) ----------------
+   The concept sheet's bit is a CONE OF TEETH: two rings of diamond-tipped
+   conical cutters and one centre point, converging on the apex. Underneath it
+   is the same projection as the crown pads -- each ring is an elliptical
+   annulus, every tooth owns an angle on it, and rotation is the teeth
+   marching around it:
+
+     x = CX + r*sin(a)      y = ringY - SQ*r*cos(a)      front = cos(a) < 0
+
+   Back teeth ride higher on the ellipse, shrink, and dim through dimf();
+   front teeth carry the outline, the light and the grit. The cone shape
+   comes from tips pulled toward the axis -- it is never drawn as a cone. */
+const SQ = 0.36;                            // how far above the rings the eye sits
+const px = (cx, r, a) => cx + r*Math.sin(a);
+const py = (cy, r, a) => cy - SQ*r*Math.cos(a);
+
+function toothPath(bx, by, w, len, inx){
+  C.beginPath();
+  C.moveTo(bx - w/2, by);
+  C.lineTo(bx + w/2, by);
+  C.lineTo(bx + inx + w*0.16, by + len*0.86);
+  C.lineTo(bx + inx - w*0.10, by + len);
+  C.closePath();
+}
+function drawBit(r){
+  const sp = r.spec, bT = bitTopOf(r), h = heatAt(r, yOf(r.depthM));
+
+  /* the cone body the teeth are set in -- dark, so the teeth read against it */
+  C.fillStyle = OUT;
+  C.beginPath();
+  C.moveTo(RIG_CX - sp.bitR - 1.6, bT - 1.6);
+  C.lineTo(RIG_CX + sp.bitR + 1.6, bT - 1.6);
+  C.lineTo(RIG_CX + sp.bitR*0.22, bT + sp.bitLen + 1.2);
+  C.lineTo(RIG_CX - sp.bitR*0.22, bT + sp.bitLen + 1.2);
+  C.closePath(); C.fill();
+  C.fillStyle = steel(0.16, h);
+  C.beginPath();
+  C.moveTo(RIG_CX - sp.bitR + 1.2, bT);
+  C.lineTo(RIG_CX + sp.bitR - 1.2, bT);
+  C.lineTo(RIG_CX + sp.bitR*0.18, bT + sp.bitLen - 1.6);
+  C.lineTo(RIG_CX - sp.bitR*0.18, bT + sp.bitLen - 1.6);
+  C.closePath(); C.fill();
+
+  /* gather every ring's teeth, then painter-sort the lot: back first */
+  const teeth = [];
+  for (let k = 0; k < sp.rings.length; k++){
+    const rg = sp.rings[k], step = 2*Math.PI/rg.n, off = k*step*0.5;
+    for (let i = 0; i < rg.n; i++){
+      const a = r.phase + off + i*step;
+      teeth.push({ a, rg, f: -Math.cos(a), seed: k*31 + i, pull: k === 0 ? 0.20 : 0.36 });
+    }
+  }
+  teeth.sort((p, q) => p.f - q.f);
+  C.lineJoin = "round";
+  for (const t of teeth){
+    const front = t.f > 0, rg = t.rg;
+    const bx = px(RIG_CX, rg.r, t.a), by = py(bT + rg.y, rg.r, t.a);
+    const sc = front ? 1 : 0.78;
+    const inx = -Math.sin(t.a) * rg.r * t.pull * sc;  // outer splays, inner converges
+    const lt = 0.5 - 0.5*Math.sin(t.a);               // light from upper-left
+    const shade = front ? band(0.50 + 0.32*lt + 0.12*t.f)
+                        : dimf(band(0.48 + 0.30*lt));
+    if (front){
+      toothPath(bx, by, rg.w*sc, rg.len*sc, inx);
+      C.strokeStyle = OUT; C.lineWidth = 2.2; C.stroke();
+    }
+    toothPath(bx, by, rg.w*sc, rg.len*sc, inx);
+    C.fillStyle = steel(shade, front ? h : h*0.6); C.fill();
+    if (front){
+      /* bright worn edge on the lit side, and one diamond speck per tooth,
+         seeded so the grit rides its own tooth (S5 determinism) */
+      C.strokeStyle = steel(band(0.82 + 0.18*lt), h*0.4); C.lineWidth = 1;
+      C.beginPath(); C.moveTo(bx - rg.w*0.30, by + 1);
+      C.lineTo(bx + inx - rg.w*0.06, by + rg.len*0.82); C.stroke();
+      const gs = ((t.seed*2654435761) % 97 + 97) % 97;
+      C.fillStyle = steel(0.94, h*0.3);
+      C.fillRect(bx - 1.4 + (gs % 3), by + 2 + (gs % 4), 1.6, 1.6);
+    }
+  }
+  /* the centre point: on the axis, always front, always painted last */
+  const tp = sp.tip, tby = bT + tp.y;
+  toothPath(RIG_CX, tby, tp.w, tp.len, 0);
+  C.strokeStyle = OUT; C.lineWidth = 2.8; C.stroke();
+  toothPath(RIG_CX, tby, tp.w, tp.len, 0);
+  C.fillStyle = steel(band(0.56), h); C.fill();
+  C.strokeStyle = steel(0.92, h*0.4); C.lineWidth = 1;
+  C.beginPath(); C.moveTo(RIG_CX - tp.w*0.22, tby + 1.4);
+  C.lineTo(RIG_CX - tp.w*0.06, tby + tp.len*0.8); C.stroke();
+  C.lineJoin = "miter";
+}
+
+/* ---------------- the string ---------------- */
+function drawTube(y0, y1, rad, heat, prof){
+  C.fillStyle = OUT; C.fillRect(RIG_CX - rad - 2, y0 - 1.5, (rad + 2)*2, y1 - y0 + 3);
+  C.fillStyle = steelBands(RIG_CX - rad, RIG_CX + rad, heat, prof);
+  C.fillRect(RIG_CX - rad, y0, rad*2, y1 - y0);
+}
+function drawJoint(y, rad, big){
+  const hh = big ? 5.6 : 4.4, w = rad + (big ? 3.6 : 2.6), h = heatAt(RIGCUR, y);
+  C.fillStyle = OUT; C.fillRect(RIG_CX - w - 2, y - hh - 2, (w + 2)*2, hh*2 + 4);
+  C.fillStyle = steelBands(RIG_CX - w, RIG_CX + w, h, P_JOINT);
+  C.fillRect(RIG_CX - w, y - hh, w*2, hh*2);
+  C.fillStyle = "rgba(255,255,255,.34)"; C.fillRect(RIG_CX - w, y - hh, w*2, 1.6);
+  C.fillStyle = "rgba(0,0,0,.45)";       C.fillRect(RIG_CX - w, y + hh - 2, w*2, 2);
+}
+let RIGCUR = null;                       // the rig currently being drawn
+
+function drawChuck(y0, y1, rad, heat){
+  C.fillStyle = OUT; C.fillRect(RIG_CX - rad - 2.5, y0 - 2.5, (rad + 2.5)*2, y1 - y0 + 5);
+  C.fillStyle = steelBands(RIG_CX - rad, RIG_CX + rad, heat*0.6, P_CHUCK);
+  C.fillRect(RIG_CX - rad, y0, rad*2, y1 - y0);
+  C.fillStyle = "rgba(255,255,255,.24)"; C.fillRect(RIG_CX - rad, y0, rad*2, 2.4);
+  C.fillStyle = "rgba(0,0,0,.40)";       C.fillRect(RIG_CX - rad, y1 - 2.8, rad*2, 2.8);
+  C.fillStyle = "rgba(0,0,0,.35)";
+  C.fillRect(RIG_CX - rad + 3, y0 + 4, 2.2, y1 - y0 - 9);
+  C.fillRect(RIG_CX + rad - 5.2, y0 + 4, 2.2, y1 - y0 - 9);
+  C.fillStyle = "#8e9aa6";
+  C.fillRect(RIG_CX - rad + 6, y1 - 8, 2.6, 2.6);
+  C.fillRect(RIG_CX + rad - 8.6, y1 - 8, 2.6, 2.6);
+}
+function boxPlate(x, y, w, h, fill, bevel){
+  C.fillStyle = OUT; C.fillRect(x - 2.5, y - 2.5, w + 5, h + 5);
+  C.fillStyle = fill; C.fillRect(x, y, w, h);
+  if (bevel){
+    C.fillStyle = "rgba(255,255,255,.30)"; C.fillRect(x, y, w, 3);
+    C.fillStyle = "rgba(255,255,255,.14)"; C.fillRect(x, y, 3, h);
+    C.fillStyle = "rgba(0,0,0,.30)";       C.fillRect(x, y + h - 3, w, 3);
+    C.fillStyle = "rgba(0,0,0,.22)";       C.fillRect(x + w - 3, y, 3, h);
+  }
+}
+/* ---------------- the lower works ----------------
+   Each variant's business end is a stack of segments declared in spec.stack
+   and painted by one function -- a variant is a list, never a branch. */
+function drawStackSeg(r, sg){
+  const h = heatAt(r, (sg.y0 + sg.y1)/2), rr = sg.r, y0 = sg.y0, y1 = sg.y1;
+  if (sg.kind === "collar" || sg.kind === "hex"){
+    C.fillStyle = OUT; C.fillRect(RIG_CX - rr - 2, y0 - 1.5, (rr + 2)*2, y1 - y0 + 3);
+    C.fillStyle = steelBands(RIG_CX - rr, RIG_CX + rr, h, P_JOINT);
+    C.fillRect(RIG_CX - rr, y0, rr*2, y1 - y0);
+    C.fillStyle = "rgba(255,255,255,.34)"; C.fillRect(RIG_CX - rr, y0, rr*2, 1.6);
+    C.fillStyle = "rgba(0,0,0,.45)";       C.fillRect(RIG_CX - rr, y1 - 2, rr*2, 2);
+    if (sg.kind === "hex"){                    // side facets say hexagonal
+      C.fillStyle = "rgba(0,0,0,.35)";
+      C.beginPath(); C.moveTo(RIG_CX - rr, y0); C.lineTo(RIG_CX - rr + 4, (y0+y1)/2);
+      C.lineTo(RIG_CX - rr, y1); C.closePath(); C.fill();
+      C.beginPath(); C.moveTo(RIG_CX + rr, y0); C.lineTo(RIG_CX + rr - 4, (y0+y1)/2);
+      C.lineTo(RIG_CX + rr, y1); C.closePath(); C.fill();
+    }
+  }
+  else if (sg.kind === "twotone"){            // the compact's plain lower barrel
+    drawTube(y0, y1, rr, h, P_BARREL);
+    C.fillStyle = "rgba(0,0,0,.30)";
+    C.fillRect(RIG_CX - rr + 3, y0 + 3, 1.8, y1 - y0 - 6);
+    C.fillRect(RIG_CX + rr - 5, y0 + 3, 1.8, y1 - y0 - 6);
+    C.fillStyle = "rgba(0,0,0,.38)";
+    C.fillRect(RIG_CX - rr, (y0 + y1)/2 - 0.8, rr*2, 1.6);
+  }
+  else if (sg.kind === "ventbox"){            // the grey vented housing
+    boxPlate(RIG_CX - rr, y0, rr*2, y1 - y0, steel(0.34, h*0.5), true);
+    C.fillStyle = "rgba(0,0,0,.5)";
+    C.fillRect(RIG_CX - rr*0.52 - 1.6, y0 + 4, 3.2, 6);
+    C.fillRect(RIG_CX + rr*0.52 - 1.6, y0 + 4, 3.2, 6);
+    C.fillRect(RIG_CX - rr*0.62, y1 - 7, rr*1.24, 3);
+  }
+  else if (sg.kind === "amber"){
+    /* the stabiliser: blades that ride the hole wall and eat the string's
+       wobble. Amber, because it is machinery you bought on purpose (S1.2). */
+    boxPlate(RIG_CX - rr, y0, rr*2, y1 - y0, "#d9962f", true);
+    C.fillStyle = "rgba(0,0,0,.46)";
+    C.fillRect(RIG_CX - rr*0.42 - 1.8, y0 + 3.5, 3.6, y1 - y0 - 7);
+    C.fillRect(RIG_CX + rr*0.42 - 1.8, y0 + 3.5, 3.6, y1 - y0 - 7);
+    C.fillStyle = "#f4c66a";
+    C.fillRect(RIG_CX - rr + 2.5, y0 + 2, 2.4, 2.4);
+    C.fillRect(RIG_CX + rr - 4.9, y0 + 2, 2.4, 2.4);
+    if (h > 0.02){ C.fillStyle = `rgba(255,110,30,${clamp(h*0.5, 0, 0.5)})`;
+                   C.fillRect(RIG_CX - rr, y0, rr*2, y1 - y0); }
+  }
+  else if (sg.kind === "fluted"){
+    /* the bundled-column section: three rods side by side, capped both ends */
+    C.fillStyle = OUT; C.fillRect(RIG_CX - rr - 2, y0 - 1.5, (rr + 2)*2, y1 - y0 + 3);
+    C.fillStyle = steel(0.10, h*0.4); C.fillRect(RIG_CX - rr, y0, rr*2, y1 - y0);
+    const cw = rr*0.30;
+    for (const k of [-1, 0, 1]){
+      const cx0 = RIG_CX + k*rr*0.60;
+      C.fillStyle = steelBands(cx0 - cw, cx0 + cw, h, P_ROD);
+      C.fillRect(cx0 - cw, y0 + 4, cw*2, y1 - y0 - 8);
+    }
+    C.fillStyle = steelBands(RIG_CX - rr, RIG_CX + rr, h, P_JOINT);
+    C.fillRect(RIG_CX - rr, y0, rr*2, 4);
+    C.fillRect(RIG_CX - rr, y1 - 4, rr*2, 4);
+    C.fillStyle = "rgba(255,255,255,.3)"; C.fillRect(RIG_CX - rr, y0, rr*2, 1.3);
+    C.fillStyle = "rgba(0,0,0,.4)";       C.fillRect(RIG_CX - rr, y1 - 1.6, rr*2, 1.6);
+  }
+}
+
+/* The top works follow the concept sheet: a bevelled-lid motor box on a base
+   sled, the amber collar under it, and the slotted neck the string runs
+   through. Both variants share the grammar and differ in bulk and in how the
+   amber collar is dressed (S4.4: vary the tint and the bulk, never the
+   structure). */
+function drawPowerhead(r){
+  const sp = r.spec;
+  const deckY = SURF_Y - 13 - sp.amberH;
+  const boxY = deckY - sp.boxH, lidY = boxY - sp.lidH;
+
+  /* base sled: the rig stands ON the ground, it does not hover over it */
+  C.fillStyle = OUT;
+  C.fillRect(RIG_CX - sp.boxW/2 - 12, SURF_Y - 13, sp.boxW + 24, 13);
+  C.fillStyle = "#1c2530";
+  C.fillRect(RIG_CX - sp.boxW/2 - 10, SURF_Y - 12, sp.boxW + 20, 11);
+  C.fillStyle = "rgba(255,255,255,.16)";
+  C.fillRect(RIG_CX - sp.boxW/2 - 10, SURF_Y - 12, sp.boxW + 20, 2.4);
+
+  /* the slotted neck, straddling the hole mouth */
+  drawChuck(SURF_Y - 4, SURF_Y + sp.neckH, sp.neckR, heatAt(r, SURF_Y));
+  for (let i = 0; i < sp.neckSlots; i++){
+    const t = (i + 0.5)/sp.neckSlots;
+    const sx = RIG_CX - sp.neckR + t*sp.neckR*2 - 1.3;
+    C.fillStyle = "rgba(0,0,0,.5)"; C.fillRect(sx, SURF_Y + 1, 2.6, 6);
+    if (sp.amberStyle === "vslots"){ C.fillStyle = "#f4c66a"; C.fillRect(sx + 0.4, SURF_Y + 1.6, 1.8, 1.8); }
+  }
+
+  /* motor box with its bevelled lid */
+  C.fillStyle = OUT;
+  C.beginPath();
+  C.moveTo(RIG_CX - sp.boxW*0.34 - 2, lidY - 2);
+  C.lineTo(RIG_CX + sp.boxW*0.34 + 2, lidY - 2);
+  C.lineTo(RIG_CX + sp.boxW/2 + 4, boxY + 1);
+  C.lineTo(RIG_CX - sp.boxW/2 - 4, boxY + 1);
+  C.closePath(); C.fill();
+  C.beginPath();
+  C.moveTo(RIG_CX - sp.boxW*0.34, lidY);
+  C.lineTo(RIG_CX + sp.boxW*0.34, lidY);
+  C.lineTo(RIG_CX + sp.boxW/2 + 2, boxY);
+  C.lineTo(RIG_CX - sp.boxW/2 - 2, boxY);
+  C.closePath();
+  C.fillStyle = steel(0.62, 0); C.fill();
+  C.fillStyle = "rgba(255,255,255,.30)";
+  C.fillRect(RIG_CX - sp.boxW*0.34, lidY, sp.boxW*0.68, 2.2);
+
+  boxPlate(RIG_CX - sp.boxW/2, boxY, sp.boxW, sp.boxH, "#39424e", true);
+  C.fillStyle = "rgba(0,0,0,.35)";                       // panel seams
+  C.fillRect(RIG_CX - sp.boxW/2 + 6, boxY + 5, sp.boxW - 12, 1.4);
+  C.fillRect(RIG_CX - 0.7, boxY + 5, 1.4, sp.boxH - 10);
+  /* the mouth slot, and the state lamp beside it: green cutting, amber
+     polishing, hot overloaded, dim when there is nothing to say */
+  C.fillStyle = "#141a21";
+  C.fillRect(RIG_CX - 7, boxY + sp.boxH - 8, 14, 4.6);
+  C.fillStyle = "rgba(255,255,255,.14)";
+  C.fillRect(RIG_CX - 7, boxY + sp.boxH - 8, 14, 1.2);
+  C.fillStyle = OUT; C.fillRect(RIG_CX + sp.boxW/2 - 10.2, boxY + sp.boxH - 9.2, 7.4, 7.4);
+  C.fillStyle = r.mode === "OVERLOAD"  ? "#ff5a28"
+              : r.mode === "POLISHING" ? "#f4c66a"
+              : r.mode === "CUTTING"   ? "#5fd39a" : "#3d4e5e";
+  C.fillRect(RIG_CX + sp.boxW/2 - 9, boxY + sp.boxH - 8, 5, 5);
+
+  /* amber collar: the machine's signature colour (S1.2 -- amber is always
+     machinery). The compact wears one dark mouth slot; the heavy, lit vents. */
+  boxPlate(RIG_CX - sp.amberW/2, deckY, sp.amberW, sp.amberH, "#d9962f", true);
+  if (sp.amberStyle === "hslot"){
+    C.fillStyle = "#7a5115";
+    C.fillRect(RIG_CX - sp.amberW*0.30, deckY + sp.amberH/2 - 1.8, sp.amberW*0.60, 3.6);
+    C.fillStyle = "rgba(0,0,0,.4)";
+    C.fillRect(RIG_CX - sp.amberW*0.30, deckY + sp.amberH/2 + 0.8, sp.amberW*0.60, 1);
+  } else {
+    for (const k of [-1, 0, 1]){
+      C.fillStyle = "#7a5115";
+      C.fillRect(RIG_CX + k*sp.amberW*0.16 - 2.4, deckY + 2.5, 4.8, sp.amberH - 5);
+      C.fillStyle = "#f4c66a";
+      C.fillRect(RIG_CX + k*sp.amberW*0.16 - 1.2, deckY + 3.5, 2.4, sp.amberH - 7);
+    }
+  }
+}
+
+function drawString(r){
+  const sp = r.spec, bT = bitTopOf(r), nb = neckBotOf(r);
+  const st = bT - sp.stackH;              // top of the lower works
+  /* rod fill: neck down to the lower works, tapered in thin slices */
+  if (st > nb - 6){
+    C.fillStyle = OUT;
+    for (let y = nb - 6; y < st; y += 1.4){
+      const w = radAt(r, Math.max(y, nb + 0.1)) + 1.8; C.fillRect(RIG_CX - w, y, w*2, 2.2);
+    }
+    for (let y = nb - 6; y < st - 1; y += 1.4){
+      const w = radAt(r, Math.max(y, nb + 0.1));
+      C.fillStyle = steelBands(RIG_CX - w, RIG_CX + w, heatAt(r, y + 1), P_ROD);
+      C.fillRect(RIG_CX - w, y, w*2, 1.9);
+    }
+    /* joints ride the string, fixed offsets above the lower works: rods are
+       added at the top, so what is bolted together stays bolted together */
+    for (let k = 1; ; k++){
+      const jy = st - k*95;
+      if (jy < nb + 12) break;
+      drawJoint(jy, radAt(r, jy) + 0.8, false);
+    }
+  }
+  for (const sg of stackSegs(r)) if (sg.y1 > SURF_Y + 2) drawStackSeg(r, sg);
+}
+
+/* The wear ladder, dark-plating S4.5: cracks past 0.55 consumed, one more per
+   ~0.09 after, capped at 6, each on a FIXED seed so it is a stable feature of
+   the part rather than per-frame noise. Derived from wear, so no state. */
+function crackList(r){
+  const consumed = 1 - r.wear;
+  if (consumed <= 0.55) return [];
+  const n = Math.min(6, 1 + Math.floor((consumed - 0.55)/0.09));
+  const out = [];
+  for (let i = 0; i < n; i++){
+    const sd = Math.abs(Math.sin((i + 1)*77.7)*43758.5) % 1;
+    out.push({ off: 8 + sd*(r.spec.stackH + 46), seed: sd });
+  }
+  return out;
+}
+function drawCracks(r){
+  for (const c of crackList(r)){
+    const y = bitTopOf(r) - c.off; if (y < SURF_Y + 4) continue;
+    const h = heatAt(r, y), rad = radAt(r, y);
+    let x = RIG_CX - rad + 2 + (c.seed*13) % 7, yy = y - 5, sd = c.seed;
+    const pts = [[x, yy]];
+    C.beginPath(); C.moveTo(x, yy);
+    for (let i = 0; i < 6; i++){
+      sd = (sd*16807.17) % 1; x += (sd - 0.48)*10; yy += 2 + sd*3.5;
+      pts.push([x, yy]); C.lineTo(x, yy);
+    }
+    C.strokeStyle = "#0d0805"; C.lineWidth = 3; C.stroke();
+    C.strokeStyle = `rgba(255,130,35,${clamp(0.25 + h, 0, 1)})`; C.lineWidth = 1.2; C.stroke();
+    C.strokeStyle = "rgba(255,255,255,.28)"; C.lineWidth = 1;
+    C.beginPath(); C.moveTo(pts[0][0] + 1.6, pts[0][1]);
+    for (const [ax, ay] of pts) C.lineTo(ax + 1.6, ay);
+    C.stroke();
+  }
+}
+
+/* ---------------- particles ---------------- */
+function drawChips(r, dt){
+  const sp = r.spec, cT = bitTopOf(r);
+  if (running && !r.spent && rpmCmd > 0.05 && r.chips.length < 46 && !REDUCED){
+    const g = strAt(r.depthM);
+    r.chips.push({ y: cT - 3, a: Math.random()*6.28,
+                   up: 20 + Math.random()*20, col: g.grain,
+                   sz: Math.random() < 0.3 ? 4.4 : 2.8 });   // the odd chunky spall
+  }
+  for (let i = r.chips.length - 1; i >= 0; i--){
+    const c = r.chips[i];
+    c.y -= c.up*dt*rpmCmd*1.5; c.a -= rpmCmd*8*dt;
+    /* world rule: debris only ever tumbles in the cut annulus above the bit --
+       there is no hole down there yet (S6.4) */
+    if (c.y < SURF_Y || c.y > cT){ r.chips.splice(i, 1); continue; }
+    C.globalAlpha = Math.cos(c.a) > 0 ? 0.92 : 0.42;
+    C.fillStyle = c.col;
+    const cs = c.sz || 3;
+    C.fillRect(RIG_CX + (radAt(r, c.y) + 2.2)*Math.sin(c.a), c.y, cs, cs*0.8);
+    C.globalAlpha = 1;
+  }
+  /* sparks only where the work is genuinely hard (S4.5) */
+  const g = strAt(r.depthM);
+  if (running && !r.spent && rpmCmd > 0.1 && g.hard > 0.5 && !REDUCED){
+    const bitY = yOf(r.depthM);
+    for (let i = 0; i < 7*g.hard*rpmCmd; i++){
+      const a = Math.random()*Math.PI, rr = 4 + Math.random()*16;
+      C.fillStyle = `rgba(255,${170 + Math.random()*70|0},60,${0.35 + Math.random()*0.45})`;
+      C.fillRect(RIG_CX + Math.cos(a)*rr, bitY - Math.random()*5 + Math.sin(a)*5, 2, 2);
+    }
+  }
+}
+
+/* ---------------- the column, the core strip, the ruler ---------------- */
+function drawColumn(r){
+  strataSlabs(COL_X0, COL_X1, 1, true);
+  C.strokeStyle = "#1c2a39"; C.lineWidth = 1;
+  C.strokeRect(COL_X0 + 0.5, SURF_Y + 0.5, COL_X1 - COL_X0 - 1, BOT_Y - SURF_Y - 1);
+
+  /* ---- the core strip: what came back up, interval by interval ----
+     The lane palette is NOT invented here -- it is dark-plating S9.45 and
+     redline's core log, verbatim: uncut #0f1821, intact #93a7b8, partial
+     #5c6675, lost #241a17 behind a #3a2620 rim, icy intervals ticked in
+     --ice. One language for one variable across every prototype. */
+  C.fillStyle = "#0f1821"; C.fillRect(RIB_X0, SURF_Y, RIB_X1 - RIB_X0, BOT_Y - SURF_Y);
+  for (let i = 0; i < N_IV; i++){
+    const iv = r.iv[i]; if (!iv.cut) continue;
+    const m0 = i*INTERVAL_M, s = strAt(m0 + INTERVAL_M/2);
+    const y0 = yOf(m0), y1 = yOf(Math.min(m0 + INTERVAL_M, r.depthM));
+    if (y1 <= y0) continue;
+    const q = iv.w > 1e-9 ? iv.q/iv.w : 0;
+    if (q >= 0.72){
+      C.fillStyle = "#93a7b8"; C.fillRect(RIB_X0, y0, RIB_X1 - RIB_X0, y1 - y0);
+    } else if (q >= 0.34){
+      C.fillStyle = "#5c6675"; C.fillRect(RIB_X0, y0, RIB_X1 - RIB_X0, y1 - y0);
+    } else {
+      C.fillStyle = "#241a17"; C.fillRect(RIB_X0, y0, RIB_X1 - RIB_X0, y1 - y0);
+      C.strokeStyle = "#3a2620"; C.lineWidth = 1;
+      C.strokeRect(RIB_X0 + 0.5, y0 + 0.5, RIB_X1 - RIB_X0 - 1, y1 - y0 - 1);
+    }
+    if (s.icy && q >= 0.34){
+      C.fillStyle = "#7fd8ee";
+      C.fillRect(RIB_X0, y0, 2, Math.max(1, y1 - y0));
+    }
+  }
+  C.strokeStyle = "#1c2a39"; C.lineWidth = 1;
+  C.strokeRect(RIB_X0 + 0.5, SURF_Y + 0.5, RIB_X1 - RIB_X0 - 1, BOT_Y - SURF_Y - 1);
+
+  /* ---- what the two strips are ---- */
+  C.font = "700 7.5px 'JetBrains Mono', monospace";
+  C.fillStyle = "#3d4e5e";
+  C.fillText("STRATIGRAPHY", COL_X0, SURF_Y - 6);
+  C.textAlign = "right"; C.fillText("CORE", RIB_X1, SURF_Y - 6); C.textAlign = "left";
+
+  /* ---- depth ruler ---- */
+  C.font = "400 8.5px 'JetBrains Mono', monospace";
+  for (let m = 0; m <= 120; m += 20){
+    const y = yOf(m);
+    C.fillStyle = "#2b3947"; C.fillRect(RUL_X, y, 7, 1);
+    C.fillStyle = "#61768a"; C.fillText(m + " m", RUL_X + 11, y + 3.2);
+  }
+
+  /* ---- the bit marker: one line, three panels, same y (S9.2) ---- */
+  const y = yOf(r.depthM);
+  C.strokeStyle = "rgba(217,150,47,.42)"; C.lineWidth = 1; C.setLineDash([4, 4]);
+  C.beginPath(); C.moveTo(RIG_CX + r.spec.bitR + 4, y); C.lineTo(COL_X0, y); C.stroke();
+  C.setLineDash([]);
+  C.fillStyle = "#d9962f"; C.fillRect(COL_X0, y - 1, RIB_X1 - COL_X0, 2);
+  C.beginPath();                                    // the shared amber diamond
+  C.moveTo(RUL_X - 4, y); C.lineTo(RUL_X - 8, y - 4);
+  C.lineTo(RUL_X - 12, y); C.lineTo(RUL_X - 8, y + 4);
+  C.closePath(); C.fill();
+}
+
+/* ---------------- one rig, one frame ---------------- */
+function drawRig(r, dt){
+  RIGCUR = r;
+  C.setTransform(2, 0, 0, 2, 0, 0);
+  C.clearRect(0, 0, W, H);
+  C.fillStyle = "#0d151e"; C.fillRect(0, 0, W, H);
+
+  drawGroundPanel(r);
+  drawColumn(r);
+  C.save();
+  C.beginPath(); C.rect(RIG_X0, SURF_Y + 1, RIG_X1 - RIG_X0, BOT_Y - SURF_Y - 1); C.clip();
+  drawString(r);
+  drawCracks(r);          // cracks belong to the steel, so they ride the part
+  drawBit(r);
+  drawChips(r, dt);
+  C.restore();
+  drawPowerhead(r);
+
+  /* atmospherics: the ONE overlay this style allows -- a radial glow at the
+     hotspot, nothing painted over finished art (S3.3) */
+  if (r.heat > 0.02){
+    const bitY = yOf(r.depthM);
+    const g = C.createRadialGradient(RIG_CX, bitY, 3, RIG_CX, bitY, 64);
+    g.addColorStop(0, `rgba(255,110,30,${0.34*r.heat})`);
+    g.addColorStop(1, "rgba(255,110,30,0)");
+    C.save();
+    C.beginPath(); C.rect(RIG_X0, SURF_Y, RIG_X1-RIG_X0, BOT_Y-SURF_Y); C.clip();
+    C.fillStyle = g; C.fillRect(RIG_CX - 68, bitY - 68, 136, 136);
+    C.restore();
+  }
+}
+
+/* ---------------- chrome ---------------- */
+const $ = id => document.getElementById(id);
+const SHEET = $("sheet");
+const els = [];
+
+for (const spec of SPECS){
+  const el = document.createElement("div");
+  el.className = "variant";
+  el.innerHTML =
+    `<div class="vhead"><span class="vname">${spec.name}</span>` +
+    `<span class="vtag">${spec.tag}</span></div>` +
+    `<canvas width="${W*2}" height="${H*2}"></canvas>` +
+    `<div class="card">` +
+      `<div class="row"><span>Depth</span><b class="d">0.0 m</b></div>` +
+      `<div class="row"><span>Stratum</span><b class="s">REGOLITH</b></div>` +
+      `<div class="row"><span>Bit</span><span class="state st">Idle</span></div>` +
+      `<div class="row" style="margin-bottom:5px"><span>Weight on bit</span>` +
+        `<b class="w">0.00</b></div>` +
+      `<div class="bar wb"></div>` +
+      `<div class="row"><span>Efficiency</span><span class="pips eff"></span></div>` +
+      `<div class="row"><span>Stability</span><span class="pips stab"></span></div>` +
+      `<div class="row"><span>Wear</span><span class="pips wear"></span></div>` +
+      `<div class="row"><span>Core</span><span class="pips core"></span></div>` +
+    `</div>`;
+  SHEET.appendChild(el);
+  const q = s => el.querySelector(s);
+  const pips = n => { const e = q(n); e.innerHTML = "";
+    for (let i = 0; i < 4; i++) e.appendChild(document.createElement("i")); return e; };
+  const wb = q(".wb");
+  for (let i = 0; i < 14; i++) wb.appendChild(document.createElement("span"));
+  els.push({ cv:q("canvas"), ctx:q("canvas").getContext("2d"),
+             d:q(".d"), s:q(".s"), st:q(".st"), w:q(".w"), wb,
+             eff:pips(".eff"), stab:pips(".stab"), wear:pips(".wear"), core:pips(".core") });
+}
+
+function setPips(e, frac){
+  const lit = Math.round(clamp(frac, 0, 1)*4);
+  for (let i = 0; i < 4; i++) e.children[i].className = i < lit ? "on" : "";
+}
+const MODE_CLS = { CUTTING:"cut", POLISHING:"polish", OVERLOAD:"over",
+                   "BIT SPENT":"spent", "AT DEPTH":"cut" };
+const WOB_MAX_SHOWN = 1.15;
+
+function syncCard(r, e){
+  const g = strAt(r.depthM);
+  let rec = 0, n = 0;
+  for (const iv of r.iv) if (iv.cut && iv.w > 1e-9){ rec += iv.q/iv.w; n++; }
+  e.d.textContent  = r.depthM.toFixed(1) + " m";
+  e.s.textContent  = g.name;
+  e.st.textContent = r.mode;
+  e.st.className   = "state st " + (MODE_CLS[r.mode] || "");
+  e.w.textContent  = (r.wob || 0).toFixed(2);
+  /* the gauge carries the rock's band as an underlay, so you can see the
+     compact's whole range fall short of basalt before it fails to cut it */
+  const k = e.wb.children, N = k.length;
+  const lit = Math.round(clamp((r.wob || 0)/WOB_MAX_SHOWN, 0, 1)*N);
+  for (let i = 0; i < N; i++){
+    const a = i/N*WOB_MAX_SHOWN, b = (i+1)/N*WOB_MAX_SHOWN;
+    let c = (b > r.lo && a < r.hi) ? "band" : "";
+    if (i < lit) c += (a >= r.hi ? " on over" : (b <= r.lo ? " on under" : " on"));
+    k[i].className = c.trim();
+  }
+  setPips(e.eff,  r.eff);
+  setPips(e.stab, 1 - r.whirl);
+  setPips(e.wear, 1 - r.wear);
+  setPips(e.core, n ? rec/n : 0);
+}
+
+/* ---------------- input ---------------- */
+$("wob").addEventListener("input", e => {
+  wobCmd = e.target.value/100; $("wobv").textContent = e.target.value;
+});
+$("rpm").addEventListener("input", e => {
+  rpmCmd = e.target.value/100; $("rpmv").textContent = e.target.value;
+});
+$("run").addEventListener("click", () => {
+  running = !running;
+  $("run").textContent = running ? "Hold" : "Run";
+  $("run").className = running ? "on" : "";
+});
+$("reset").addEventListener("click", () => { resetAll(); });
+
+/* ---------------- capture hooks (dark-plating S10) ---------------- */
+window.__rigs     = rigs;
+window.__manual   = on => { manual = !!on; };
+window.__step     = dt => { rigs.forEach(r => stepRig(r, dt)); render(dt); };
+window.__setState = (i, o) => { Object.assign(rigs[i], o); if (o.chips === undefined) rigs[i].chips = []; };
+window.__cmd      = (w, p, run) => {
+  if (w   !== undefined){ wobCmd = w; $("wob").value = w*100; $("wobv").textContent = Math.round(w*100); }
+  if (p   !== undefined){ rpmCmd = p; $("rpm").value = p*100; $("rpmv").textContent = Math.round(p*100); }
+  if (run !== undefined){ running = run;
+    $("run").textContent = running ? "Hold" : "Run";
+    $("run").className = running ? "on" : ""; }
+};
+
+/* ---------------- loop ---------------- */
+function render(dt){
+  for (let i = 0; i < rigs.length; i++){
+    C = els[i].ctx; drawRig(rigs[i], dt); syncCard(rigs[i], els[i]);
+  }
+}
+resetAll();
+$("wobv").textContent = Math.round(wobCmd*100);
+$("rpmv").textContent = Math.round(rpmCmd*100);
+let last = performance.now();
+function tick(now){
+  /* clamp dt at BOTH ends: the first rAF timestamp can precede the
+     performance.now() captured before it, and a negative dt runs depth
+     backwards into a negative array index */
+  const dt = clamp((now - last)/1000, 0, 0.05); last = now;
+  if (!manual){ rigs.forEach(r => stepRig(r, dt)); render(dt); }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+})();
+</script>

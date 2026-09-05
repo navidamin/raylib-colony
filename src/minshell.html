@@ -45,6 +45,15 @@
           display: flex;
           align-items: center;
           justify-content: center;
+          /* Pinned to the visual viewport rather than sized by the document.
+             A body taller than the screen combined with overflow:hidden clips
+             the bottom of the game with nothing to indicate it, and leaves the
+             canvas rect disagreeing with what is on screen. */
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
         }
         canvas.emscripten {
           border: 0px none;
@@ -94,7 +103,7 @@
         <div id="shellDebug" style="display:none;position:fixed;top:4px;left:4px;z-index:9999;
              font:10px monospace;color:rgba(255,255,255,0.65);
              background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
-             pointer-events:none;">SHELL v4 loading...</div>
+             pointer-events:none;">SHELL v6 loading...</div>
         <script type='text/javascript'>
             // Fit the fixed-size framebuffer canvas to the device viewport,
             // preserving aspect ratio. Emscripten/raylib write their own
@@ -116,7 +125,7 @@
                     var d = debugEl;
                     if (!d || !c) return;
                     var r = c.getBoundingClientRect();
-                    d.textContent = 'SHELL v4'
+                    d.textContent = 'SHELL v6'
                         + ' cnv=' + c.width + 'x' + c.height
                         + ' style=' + c.style.getPropertyValue('width') + '/'
                                     + c.style.getPropertyPriority('width')
@@ -128,7 +137,35 @@
                                       + Math.round(window.visualViewport.height)
                                       + '@' + Math.round(window.visualViewport.offsetTop)
                                     : 'none')
-                        + ' dpr=' + window.devicePixelRatio;
+                        + ' dpr=' + window.devicePixelRatio
+                        + (pointerLine ? '\n' + pointerLine : '');
+                }
+
+                // Live pointer mapping. The game is reported to receive
+                // (page - rect.topLeft) * framebuffer/rect -- which is the
+                // arithmetic emscripten does before handing coordinates to
+                // raylib. Showing all three lets a screenshot say whether the
+                // game's idea of the cursor matches the real one, and if not,
+                // by exactly what factor.
+                var pointerLine = '';
+                function trackPointer(e)
+                {
+                    var c = document.getElementById('canvas');
+                    if (!c) return;
+                    var r = c.getBoundingClientRect();
+                    var relX = e.pageX - (window.scrollX + r.left);
+                    var relY = e.pageY - (window.scrollY + r.top);
+                    // ratio is the whole ballgame: it must be framebuffer/CSS.
+                    // A ratio of 1.00 with a rect that is not 1280 wide means
+                    // the framebuffer has drifted onto the CSS size and the
+                    // game is being handed raw CSS pixels.
+                    var ratio = c.width / r.width;
+                    pointerLine = 'page=' + Math.round(e.pageX) + ',' + Math.round(e.pageY)
+                        + ' rel=' + Math.round(relX) + ',' + Math.round(relY)
+                        + ' ratio=' + ratio.toFixed(3)
+                        + ' expect=' + Math.round(relX * ratio) + ','
+                                     + Math.round(relY * (c.height / r.height));
+                    updateDebug(c);
                 }
 
                 // The game renders a fixed-size framebuffer; resize plumbing
@@ -139,24 +176,115 @@
                 var GAME_W = 1280;
                 var GAME_H = 720;
 
+                // Stylesheet rule carrying the fitted size; see fitCanvas.
+                var fitRule = null;
+
+                // The fitted CSS size, remembered rather than re-measured.
+                // publishPointer converts with these, so the conversion does
+                // not depend on a getBoundingClientRect that may have
+                // collapsed. Seeded with the natural size for the first event.
+                var fittedW = GAME_W;
+                var fittedH = GAME_H;
+
                 function fitCanvas()
                 {
                     var c = document.getElementById('canvas');
                     if (!c) return;
 
+                    // The game may render SUPERSAMPLED: it publishes its real
+                    // buffer size (window.__colonyBufW/H) and its logical
+                    // layout size (window.__colonyLogicalW/H -- the space
+                    // pointer coordinates must arrive in). Absent globals
+                    // mean an older build: fall back to the fixed 1280x720.
+                    var bufW = (window.__colonyBufW | 0) || GAME_W;
+                    var bufH = (window.__colonyBufH | 0) || GAME_H;
+
                     // Restore the framebuffer if something shrank it. The
                     // game loop repaints every frame, so the buffer clear
                     // this causes is invisible.
-                    if (c.width !== GAME_W) c.width = GAME_W;
-                    if (c.height !== GAME_H) c.height = GAME_H;
+                    if (c.width !== bufW) c.width = bufW;
+                    if (c.height !== bufH) c.height = bufH;
 
                     updateDebug(c);
 
-                    var vw = (window.visualViewport ? window.visualViewport.width : window.innerWidth);
-                    var vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight);
-                    var scale = Math.min(vw / c.width, vh / c.height);
-                    var w = Math.floor(c.width * scale) + 'px';
-                    var h = Math.floor(c.height * scale) + 'px';
+                    // Take the SMALLEST height any source reports, not the
+                    // first one that exists. innerHeight and visualViewport
+                    // can both exceed what is actually on screen (browser
+                    // chrome, a shorter layout viewport), and fitting to a
+                    // too-tall figure scales the canvas past the visible
+                    // area -- which, with overflow:hidden, silently clips the
+                    // bottom of the game rather than showing a scrollbar.
+                    var heights = [window.innerHeight];
+                    var widths = [window.innerWidth];
+                    if (window.visualViewport)
+                    {
+                        heights.push(window.visualViewport.height);
+                        widths.push(window.visualViewport.width);
+                    }
+                    if (document.documentElement)
+                    {
+                        if (document.documentElement.clientHeight > 0)
+                        {
+                            heights.push(document.documentElement.clientHeight);
+                        }
+                        if (document.documentElement.clientWidth > 0)
+                        {
+                            widths.push(document.documentElement.clientWidth);
+                        }
+                    }
+
+                    var vw = Math.min.apply(null, widths);
+                    var vh = Math.min.apply(null, heights);
+                    // Fit in DEVICE pixels, not CSS pixels: on a display
+                    // scaled to 125% (dpr 1.25 -- common on Windows) a
+                    // CSS-fit canvas is still resampled fractionally by the
+                    // browser and every small glyph smears. Snap so
+                    // buffer -> device is 1:1 or a whole step; downscales
+                    // (phones, supersampled buffers) stay continuous --
+                    // shrinking is safe, stretching is not.
+                    var dpr = window.devicePixelRatio || 1;
+                    var scale = Math.min(vw * dpr / bufW, vh * dpr / bufH);
+                    if (scale > 1.0)
+                    {
+                        // ...but only when the snap is cheap. On a dpr-3
+                        // phone the device fit is ~1.7x and snapping to 1
+                        // would shrink the game to a corner; there, size
+                        // beats device-exactness. A build that wants sharp
+                        // at any size supersamples its buffer instead.
+                        var snapped = Math.max(1.0, Math.floor(scale));
+                        if (snapped / scale >= 0.70) scale = snapped;
+                    }
+                    fittedW = bufW * scale / dpr;
+                    fittedH = bufH * scale / dpr;
+                    var w = fittedW.toFixed(2) + 'px';
+                    var h = fittedH.toFixed(2) + 'px';
+
+                    // The fitted size also goes in a real stylesheet rule, and
+                    // this is what makes the fit safe rather than merely
+                    // likely. Emscripten's updateCanvasDimensions calls
+                    // canvas.style.removeProperty('width'), which strips even
+                    // an important INLINE style -- but it cannot touch a rule
+                    // in a stylesheet. So when the inline size is stripped, the
+                    // rule underneath still holds the canvas at the fitted size
+                    // instead of letting it collapse to width:auto.
+                    //
+                    // This matters because raylib divides by the canvas's
+                    // measured CSS width to convert a pointer position (see the
+                    // capture-phase note below). A momentary collapse to the
+                    // natural 1280 makes that division cancel out, and the game
+                    // silently receives unscaled coordinates.
+                    //
+                    // Later in document order than the <style> in <head>, so it
+                    // wins the cascade against width/height:auto !important.
+                    var rule = 'canvas.emscripten{width:' + w + '!important;'
+                             + 'height:' + h + '!important;}';
+                    if (!fitRule)
+                    {
+                        fitRule = document.createElement('style');
+                        fitRule.id = 'canvasFitRule';
+                        document.head.appendChild(fitRule);
+                    }
+                    if (fitRule.textContent !== rule) fitRule.textContent = rule;
 
                     // Guard: only touch style when wrong, so the observer
                     // below does not loop on our own writes.
@@ -170,6 +298,80 @@
                     {
                         c.style.setProperty('height', h, 'important');
                     }
+                }
+
+                // raylib turns a pointer event into a game coordinate like this
+                // (rcore_web_emscripten.c, EmscriptenMouseMoveCallback):
+                //
+                //   emscripten_get_element_css_size(canvasId, &cssW, &cssH);
+                //   position.x = (targetX / cssW) * screen.width;
+                //
+                // targetX is in CSS pixels relative to the canvas, so the whole
+                // thing hinges on cssW -- which emscripten answers with
+                // getBoundingClientRect().width, read SYNCHRONOUSLY inside the
+                // handler.
+                //
+                // Emscripten's own updateCanvasDimensions calls
+                // style.removeProperty('width'), which strips even an important
+                // inline style. With no inline width the stylesheet's
+                // width:auto applies and the rect collapses to the canvas's
+                // natural size -- 1280 -- so the division cancels out and the
+                // game receives raw CSS pixels: an error that grows with
+                // distance from the origin and flips sign as the displayed
+                // canvas crosses 1280 wide.
+                //
+                // The MutationObserver repairs it a moment later, which is why
+                // every after-the-fact reading looks healthy. But the style only
+                // has to be missing at the instant the handler reads it, so
+                // re-assert in the CAPTURE phase, which runs before any handler
+                // on the canvas itself. fitCanvas restores both the framebuffer
+                // and the inline size, and is guarded so a correct state costs
+                // nothing; it also reads no layout, so this adds no reflow.
+                var pointerEvents = ['mousemove', 'mousedown', 'mouseup', 'click',
+                                     'wheel', 'touchstart', 'touchmove', 'touchend'];
+                for (var i = 0; i < pointerEvents.length; i++)
+                {
+                    window.addEventListener(pointerEvents[i], fitCanvas, true);
+                }
+
+                // Publish the game-space pointer position for the game to read
+                // directly, so it never has to trust raylib's measurement of
+                // the canvas. The scale comes from fittedW/fittedH -- the size
+                // this code just chose -- rather than from a measured rect, so
+                // a collapsed rect cannot corrupt it. Only the origin is
+                // measured, and the origin was never the part that broke.
+                //
+                // The game prefers this when present and falls back to raylib
+                // otherwise (see src/web_mouse.cpp), so an older cached shell
+                // is no worse than before.
+                function publishPointer(e)
+                {
+                    var el = document.getElementById('canvas');
+                    if (!el || !fittedW || !fittedH) return;
+
+                    var r = el.getBoundingClientRect();
+                    var point = e;
+                    if (e.touches && e.touches.length > 0) point = e.touches[0];
+                    else if (e.changedTouches && e.changedTouches.length > 0) point = e.changedTouches[0];
+                    if (point.clientX === undefined) return;
+
+                    window.__colonyMouse = {
+                        x: (point.clientX - r.left)
+                           * (((window.__colonyLogicalW | 0) || GAME_W) / fittedW),
+                        y: (point.clientY - r.top)
+                           * (((window.__colonyLogicalH | 0) || GAME_H) / fittedH)
+                    };
+                }
+
+                for (var j = 0; j < pointerEvents.length; j++)
+                {
+                    window.addEventListener(pointerEvents[j], publishPointer, true);
+                }
+
+                if (debugEnabled)
+                {
+                    window.addEventListener('mousemove', trackPointer);
+                    if (debugEl) debugEl.style.whiteSpace = 'pre';
                 }
 
                 window.addEventListener('resize', fitCanvas);
@@ -210,7 +412,24 @@
                 canvas: (function() {
                     var canvas = document.getElementById('canvas');
                     return canvas;
-                })()
+                })(),
+                // CACHE BUSTING. The asset filenames never change between
+                // deploys -- every build ships colony_<target>.wasm -- so a
+                // browser that has one cached will happily reuse it forever
+                // and the page looks untouched however green the deploy was.
+                // This cost a playtest round to diagnose: the site was
+                // current and the screen was not.
+                //
+                // The deploy step rewrites the stamp below to the commit SHA
+                // (and versions the .js tag the same way), so every publish
+                // asks for URLs no browser has seen. Left as the literal
+                // placeholder by a local build, where it correctly does
+                // nothing -- a file:// page has no stale copy to fight.
+                locateFile: function(path, prefix) {
+                    var v = "COLONY_BUILD_STAMP";
+                    if (v.lastIndexOf("COLONY_", 0) === 0) return prefix + path;
+                    return prefix + path + "?v=" + v;
+                }
             };
         </script>
         {{{ SCRIPT }}}

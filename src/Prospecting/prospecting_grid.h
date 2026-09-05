@@ -6,6 +6,8 @@
 #include "prospecting_types.h"
 #include "resource_manager.h"
 
+class SampleTray;
+
 class ProspectingGrid
 {
 public:
@@ -24,11 +26,30 @@ public:
     // normalized here so the whole prospecting chain speaks in fractions.
     std::map<ResourceType, float> GetGroundTruth(int subX, int subY, DepthLayer depth) const;
 
+    // One fraction, by reference lookup. GetGroundTruth copies the whole map
+    // per call (a heap allocation); this is the innermost read of the
+    // estimate field and must not allocate.
+    float GetGroundTruthFraction(int subX, int subY, DepthLayer depth,
+                                 ResourceType type) const;
+
     // Absolute deposit quantity for a sub-cell layer -- how *much* is there.
     // Drives sweep signal strength and sample richness.
     float GetQuantity(int subX, int subY, DepthLayer depth) const;
 
     float GetTotalRichness(int subX, int subY) const;
+
+    // Excavation reports what it has dug. This is the ONLY way the worked
+    // state is written, and it is called by excavation -- prospecting never
+    // reaches into excavation.
+    // A drill core cut this spot at this depth. The permanent assay record --
+    // knowledge lives on the grid; the tray caps physical specimens only.
+    void RecordCore(int subX, int subY, DepthLayer depth);
+
+    void RecordExcavation(int subX, int subY, DepthLayer depth, float fraction);
+
+    // Fraction of a sub-cell's depth column that has been dug out. Digging is
+    // direct observation, so this counts toward how well the cell is known.
+    float GetExcavatedKnowledge(int subX, int subY) const;
 
     void RecordSweep(int frequencyBand, float energyCost, float timestamp);
     const std::vector<SweepRecord>& GetSweepHistory() const;
@@ -67,3 +88,75 @@ private:
     static uint32_t HashSeed(int px, int py, int depth, int resourceIdx);
     static uint32_t LCG(uint32_t seed);
 };
+
+// What is known about one spot at ONE depth.
+//
+// The grid keeps a single aggregateConfidence per sub-cell, so this
+// reconstructs the per-depth view from sweep evidence (attenuated by depth,
+// and only for layers the swept band penetrated) combined with sample
+// evidence (samples taken at this exact spot and depth). A dug layer is
+// direct observation and returns 1.0 -- per depth, so digging the surface
+// says nothing about what lies under it.
+//
+// This lives in prospecting because every input is prospecting state.
+// Excavation's SiteView::GetConfidence delegates here rather than keeping its
+// own copy; if confidence is ever stored per depth directly, this is still
+// the only function to change.
+float GetDepthConfidence(const ProspectingGrid& grid, const SampleTray& tray,
+                         int x, int y, DepthLayer depth);
+
+// Yield of one resource at a spot: absolute quantity x composition fraction.
+// The product is the number worth choosing between spots on -- quantity alone
+// is much flatter, because each resource clusters separately. Naming it here
+// keeps the units trap (module-architecture.md Part II) in one place.
+float GetSubCellYield(const ProspectingGrid& grid, int x, int y,
+                      DepthLayer depth, ResourceType type);
+
+// What the player BELIEVES is there: IDW from every core, pulled toward an
+// honest prior (layer mean; LIBS pattern at the surface) by nearest-core
+// support. The block model's height channel draws THIS, never ground truth
+// -- relief is what you know, not what is there.
+float GetEstimatedYield(const ProspectingGrid& grid, int x, int y,
+                        DepthLayer depth, ResourceType type);
+
+// The estimate field in bulk: the same grade and confidence numbers as the
+// scalar calls above, for EVERY cell of every layer, from one lattice pass
+// plus a short evidence list. The scalar functions rescan the whole grid per
+// call; per-cell per-frame use at 16x16 made the panel O(N^4) -- measured
+// 55 ms/frame in the preview bench. Anything reading the whole field (the
+// block model, the class split) must build one of these instead.
+struct EstimateField
+{
+    int size = 0;
+    std::vector<float> grade;        // [depth][y][x], flattened
+    std::vector<float> confidence;   // same layout
+
+    float GradeAt(int x, int y, int d) const
+    {
+        return grade[(static_cast<size_t>(d) * size + y) * size + x];
+    }
+    float ConfidenceAt(int x, int y, int d) const
+    {
+        return confidence[(static_cast<size_t>(d) * size + y) * size + x];
+    }
+};
+
+EstimateField BuildEstimateField(const ProspectingGrid& grid, ResourceType type);
+
+// Tonnage of one resource split by how well it is known. Summed over every
+// sub-cell within reach at `tier`, across every depth that tier can see.
+struct ClassSplit
+{
+    float measured = 0.0f;
+    float indicated = 0.0f;
+    float inferred = 0.0f;
+    float unclassified = 0.0f;
+
+    float Total() const;
+    float Committable() const;      // measured + indicated
+    float Get(ResourceClass cls) const;
+};
+
+ClassSplit GetClassSplit(const ProspectingGrid& grid, const SampleTray& tray,
+                         ResourceType type, int tier);
+

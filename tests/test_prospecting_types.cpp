@@ -67,21 +67,6 @@ TEST_CASE("GetDepthLayerInfo returns valid names", "[types]")
     REQUIRE(std::string(deep.name) == "Intact Bedrock");
 }
 
-TEST_CASE("IsLayerAccessible respects tier gating", "[types]")
-{
-    REQUIRE(IsLayerAccessible(0, DepthLayer::SURFACE) == true);
-    REQUIRE(IsLayerAccessible(0, DepthLayer::SHALLOW) == false);
-    REQUIRE(IsLayerAccessible(0, DepthLayer::MID) == false);
-    REQUIRE(IsLayerAccessible(0, DepthLayer::DEEP) == false);
-
-    REQUIRE(IsLayerAccessible(1, DepthLayer::SHALLOW) == true);
-    REQUIRE(IsLayerAccessible(1, DepthLayer::MID) == false);
-
-    REQUIRE(IsLayerAccessible(2, DepthLayer::MID) == true);
-    REQUIRE(IsLayerAccessible(2, DepthLayer::DEEP) == false);
-
-    REQUIRE(IsLayerAccessible(3, DepthLayer::DEEP) == true);
-}
 
 TEST_CASE("GetGridSizeForTier is tier-independent", "[types]")
 {
@@ -91,43 +76,6 @@ TEST_CASE("GetGridSizeForTier is tier-independent", "[types]")
     }
 }
 
-TEST_CASE("GetReachForTier returns correct reach", "[types]")
-{
-    REQUIRE(GetReachForTier(0) == 2);
-    REQUIRE(GetReachForTier(1) == 4);
-    REQUIRE(GetReachForTier(2) == 6);
-    REQUIRE(GetReachForTier(3) == 8);
-
-    // Out-of-range tiers clamp rather than read past the table
-    REQUIRE(GetReachForTier(-1) == 2);
-    REQUIRE(GetReachForTier(9) == 8);
-}
-
-TEST_CASE("IsSubCellInReach describes a centred window", "[types]")
-{
-    // Tier 0 reaches only the middle 2x2 block
-    REQUIRE(IsSubCellInReach(3, 3, 0));
-    REQUIRE(IsSubCellInReach(4, 4, 0));
-    REQUIRE_FALSE(IsSubCellInReach(2, 3, 0));
-    REQUIRE_FALSE(IsSubCellInReach(0, 0, 0));
-
-    // Tier 3 reaches the whole lattice
-    for (int y = 0; y < PROSPECTING_GRID_SIZE; y++)
-    {
-        for (int x = 0; x < PROSPECTING_GRID_SIZE; x++)
-        {
-            REQUIRE(IsSubCellInReach(x, y, 3));
-        }
-    }
-}
-
-TEST_CASE("TierRequiredForSubCell matches the reach window", "[types]")
-{
-    REQUIRE(TierRequiredForSubCell(3, 3) == 0);
-    REQUIRE(TierRequiredForSubCell(2, 2) == 1);
-    REQUIRE(TierRequiredForSubCell(1, 1) == 2);
-    REQUIRE(TierRequiredForSubCell(0, 0) == 3);
-}
 
 TEST_CASE("GetTrayCapacityForTier returns correct capacities", "[types]")
 {
@@ -166,4 +114,54 @@ TEST_CASE("Sample::GetAggregateConfidence is abundance-weighted", "[sample]")
     float expected = (0.80f * 0.40f + 0.50f * 0.25f) / (0.40f + 0.25f + 0.10f);
     REQUIRE_THAT(s.GetAggregateConfidence(),
                  Catch::Matchers::WithinAbs(expected, 0.001f));
+}
+
+// ---------------------------------------------------------------
+// Carried across the main merge: cases this branch added while main
+// reworked the same files. Main's versions of the shared cases won
+// -- they derive coordinates from PROSPECTING_GRID_SIZE and so hold
+// at any lattice size, which hard-coded cells did not.
+// ---------------------------------------------------------------
+
+TEST_CASE("every layer is accessible at every tier", "[types]")
+{
+    // Depth is ungated -- MAX_DEPTH_PER_TIER is all fours, kept as a table
+    // only so its call sites need no churn.
+    for (int tier = 0; tier <= 3; tier++)
+        for (int d = 0; d < 4; d++)
+            REQUIRE(IsLayerAccessible(tier, static_cast<DepthLayer>(d)));
+}
+
+TEST_CASE("the lattice is fixed; tier changes reach, not size", "[types]")
+{
+    // The grid is never reallocated, which is what lets survey data and
+    // collected samples survive a tier upgrade.
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        REQUIRE(GetGridSizeForTier(tier) == PROSPECTING_GRID_SIZE);
+    }
+
+    // What tier actually buys is a wider ring out from the sect at the centre.
+    // The rings scale with the lattice (16x16 now), keeping the same physical
+    // metres and the same fraction of ground per tier.
+    REQUIRE(GetReachForTier(0) == PROSPECTING_GRID_SIZE / 4);
+    REQUIRE(GetReachForTier(1) == PROSPECTING_GRID_SIZE / 2);
+    REQUIRE(GetReachForTier(2) == PROSPECTING_GRID_SIZE * 3 / 4);
+    REQUIRE(GetReachForTier(3) == PROSPECTING_GRID_SIZE);
+
+    // Even sizes nest, so every tier-up lights a complete ring around what
+    // the previous tier could already see.
+    for (int tier = 0; tier < 3; tier++)
+    {
+        for (int y = 0; y < PROSPECTING_GRID_SIZE; y++)
+        {
+            for (int x = 0; x < PROSPECTING_GRID_SIZE; x++)
+            {
+                if (IsSubCellInReach(x, y, tier))
+                {
+                    REQUIRE(IsSubCellInReach(x, y, tier + 1));
+                }
+            }
+        }
+    }
 }

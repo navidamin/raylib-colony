@@ -1,8 +1,13 @@
 #include "rendermanager.h"
+#include "rlgl.h"
+#include "web_mouse.h"
 #include "resource_manager.h"
 #include "terrain_synthesis.h"
 #include "resource_types.h"
 #include "survey_progress_engine.h"
+#include "excavation_constants.h"
+#include "block_pick.h"
+#include "rock_texture.h"
 #include <algorithm>
 #include <iostream>
 #include <cmath>
@@ -52,6 +57,7 @@ RenderManager::~RenderManager() {
 
     // Unload moon surface tiles when done
     UnloadMoonTiles();
+    UnloadStrataTextures();
 
     // Unload cached crystal sample sprites
     for (auto& [path, texture] : crystalTextures)
@@ -549,7 +555,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
 
             if (canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                Vector2 mouse = GetMousePosition();
+                Vector2 mouse = ColonyGetMousePosition();
                 if (CheckCollisionPointRec(mouse, btnRect))
                 {
                     colony->UpgradeReserves();
@@ -825,7 +831,7 @@ void RenderManager::DrawSectView(Sect* sect, TimeManager& timeManager) {
             // Check click
             if (canUpgrade && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
-                Vector2 mouse = GetMousePosition();
+                Vector2 mouse = ColonyGetMousePosition();
                 if (CheckCollisionPointRec(mouse, btnRect))
                 {
                     sect->UpgradeStorage();
@@ -1007,6 +1013,33 @@ void RenderManager::LoadMoonTiles() {
             std::cout << "Loaded tile texture: " << tileFiles[i] << std::endl;
         }
     }
+}
+
+// The strata textures: four procedural rocks, built once. Power-of-two and
+// REPEAT-wrapped, because the strip tiles them down a band of any height and
+// WebGL only repeats POT textures (a clamped tile shows its edges at once).
+void RenderManager::LoadStrataTextures() {
+    for (int L = 0; L < 4; L++) {
+        std::vector<unsigned char> px = RockTexture::Generate(L, RockTexture::SIZE);
+        Image img = { px.data(), RockTexture::SIZE, RockTexture::SIZE, 1,
+                      PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+        strataTex[L] = LoadTextureFromImage(img);
+        if (strataTex[L].id != 0) {
+            SetTextureFilter(strataTex[L], TEXTURE_FILTER_BILINEAR);
+            SetTextureWrap(strataTex[L], TEXTURE_WRAP_REPEAT);
+        }
+    }
+    strataLoaded = true;
+}
+
+void RenderManager::UnloadStrataTextures() {
+    for (int L = 0; L < 4; L++) {
+        if (strataTex[L].id != 0) {
+            UnloadTexture(strataTex[L]);
+            strataTex[L].id = 0;
+        }
+    }
+    strataLoaded = false;
 }
 
 // Function to generate random tile pattern for the planet surface
@@ -1508,6 +1541,26 @@ static const Color EXT_ACCENT_GOLD   = {255, 200, 80, 255};
 static const Color EXT_ACCENT_RED    = {235, 70, 70, 255};
 static const Color EXT_ACCENT_VIOLET = {170, 110, 255, 255};
 static const Color EXT_DIM_TEXT      = {120, 138, 165, 255};
+
+// Inferred needs its own token. EXT_ACCENT_VIOLET {170,110,255} cannot be
+// reused -- it is within a few units of EXT_HEADER_COLOR {168,130,255}, so
+// section headings and Inferred ground would read as the same thing. The
+// muted violet is deliberate: Inferred is the class the eye should settle
+// on least.
+static const Color EXT_CLASS_INFERRED = {124, 143, 214, 255};
+
+// One colour key for the three named classes, used identically by the grid,
+// the readout and the resource ring. Green is minable now, violet is not.
+static Color ExtClassColor(ResourceClass cls)
+{
+    switch (cls)
+    {
+        case ResourceClass::MEASURED:  return EXT_ACCENT_GREEN;
+        case ResourceClass::INDICATED: return EXT_ACCENT_GOLD;
+        case ResourceClass::INFERRED:  return EXT_CLASS_INFERRED;
+        default:                       return EXT_DIM_TEXT;
+    }
+}
 static const Color EXT_TEXT          = {225, 235, 245, 255};
 
 // Layout constants
@@ -1517,9 +1570,17 @@ static const int EXT_LEFT_PANEL_W  = 280;
 static const int EXT_RIGHT_PANEL_W = 300;
 static const int EXT_GAP           = 8;    // margin around floating cards
 
+// The extraction view's type scale. It lived only inside RenderManager::FS,
+// which the free-standing block-model helpers cannot call -- so their labels
+// were the one text in the panel drawn at its raw base size, and the level
+// name came out at 8 px against everything else's 10-18. Same number, one
+// home, reachable from both.
+static constexpr float EXT_FONT_SCALE = 1.30f;
+static float ExtFS(float baseSize) { return baseSize * EXT_FONT_SCALE; }
+
 float RenderManager::FS(float baseSize)
 {
-    return baseSize * 1.30f;
+    return ExtFS(baseSize);
 }
 
 // --- Procedural UI-kit widgets -------------------------------------------
@@ -2521,12 +2582,22 @@ static void ExtDrawSegBar(float x, float y, float w, float h, float value, Color
     }
 }
 
+// Scissor rects are framebuffer-pixel, not matrix-transformed: under a
+// supersampled web build every BeginScissorMode multiplies by this.
+static float gPixelScale = 1.0f;
+void RenderManager::SetPixelScale(float scale)
+{
+    gPixelScale = scale > 0.0f ? scale : 1.0f;
+}
+
 // Diagonal hazard stripes clipped to a rectangle (danger button edges).
 static void ExtDrawHazardStripes(Rectangle r, Color c)
 {
     const float stride = 14.0f;
-    BeginScissorMode(static_cast<int>(r.x), static_cast<int>(r.y),
-                     static_cast<int>(r.width), static_cast<int>(r.height));
+    BeginScissorMode(static_cast<int>(r.x * gPixelScale),
+                     static_cast<int>(r.y * gPixelScale),
+                     static_cast<int>(r.width * gPixelScale),
+                     static_cast<int>(r.height * gPixelScale));
     for (float sx = r.x - r.height; sx < r.x + r.width; sx += stride)
     {
         DrawLineEx({sx, r.y + r.height}, {sx + r.height, r.y}, 4.0f, c);
@@ -3171,12 +3242,14 @@ void RenderManager::DrawUnitBottomBar(Unit* unit)
                             TextFormat("%.0f%%", sr.sweepConfidence * 100.0f),
                             marked ? "MARKED SITE" : "UNMARKED",
                             marked ? EXT_ACCENT_GREEN : EXT_DIM_TEXT});
-        segments.push_back({ExtIcon::FLASK, "SAMPLES",
+        segments.push_back({ExtIcon::FLASK, "CORES",
                             TextFormat("%.0f%%", sr.sampleConfidence * 100.0f),
                             TextFormat("CAL: %.0f%%", calQ * 100.0f),
                             calQ >= 0.8f ? EXT_ACCENT_GREEN : EXT_ACCENT_GOLD});
-        segments.push_back({ExtIcon::SLIDERS, "TESTING",
-                            TextFormat("%.0f%%", sr.testingConfidence * 100.0f),
+        // TESTING is gone with the lab. The slot shows the survey total
+        // instead, which is the number the extraction pipeline multiplies by.
+        segments.push_back({ExtIcon::SLIDERS, "SURVEY",
+                            TextFormat("%.0f%%", sr.surveyProgress * 100.0f),
                             TextFormat("TIER %d", ps->GetTier()),
                             EXT_DIM_TEXT});
     }
@@ -3362,7 +3435,7 @@ void RenderManager::DrawUnitModuleList(Unit* unit)
 
     // "UNIT OVERVIEW" button: icon + label + chevron
     Rectangle overviewBtn = {innerX, yPos, innerW, 44.0f};
-    bool overviewHovered = CheckCollisionPointRec(GetMousePosition(), overviewBtn);
+    bool overviewHovered = CheckCollisionPointRec(ColonyGetMousePosition(), overviewBtn);
     bool overviewSelected = !unit->IsInModuleView();
 
     DrawRectangleRounded(overviewBtn, 0.2f, 4,
@@ -3400,7 +3473,7 @@ void RenderManager::DrawUnitModuleList(Unit* unit)
         const auto& mod = modules[i];
 
         Rectangle btn = {innerX, yPos, innerW, 62.0f};
-        bool isHovered = CheckCollisionPointRec(GetMousePosition(), btn);
+        bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), btn);
         bool isSelected = unit->IsInModuleView() && selectedIdx == static_cast<int>(i);
 
         Color btnBg;
@@ -3770,7 +3843,7 @@ void RenderManager::DrawUnitControlPanel(Unit* unit)
     {
         Rectangle buildBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
         bool canBuild = unit->PublicCanBuildModule(idx);
-        bool isHovered = CheckCollisionPointRec(GetMousePosition(), buildBtn);
+        bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), buildBtn);
 
         Color btnColor = canBuild ? Color{14, 40, 70, 255} : Color{16, 22, 38, 255};
         if (isHovered && canBuild) btnColor = Color{20, 56, 96, 255};
@@ -3822,7 +3895,7 @@ void RenderManager::DrawUnitControlPanel(Unit* unit)
     {
         Rectangle upgradeBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
         bool canUpgrade = unit->PublicCanUpgradeModule(idx);
-        bool isHovered = CheckCollisionPointRec(GetMousePosition(), upgradeBtn);
+        bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), upgradeBtn);
 
         Color btnColor = canUpgrade ? Color{14, 40, 70, 255} : Color{16, 22, 38, 255};
         if (isHovered && canUpgrade) btnColor = Color{20, 56, 96, 255};
@@ -3881,7 +3954,7 @@ void RenderManager::DrawUnitControlPanel(Unit* unit)
 
     // Activate/Deactivate toggle: hazard-striped danger/confirm button
     Rectangle toggleBtn = {static_cast<float>(panelX + padding), yPos, btnW, btnH};
-    bool isHovered = CheckCollisionPointRec(GetMousePosition(), toggleBtn);
+    bool isHovered = CheckCollisionPointRec(ColonyGetMousePosition(), toggleBtn);
 
     bool danger = mod.isActive;
     Color fillCol = danger ? Color{52, 12, 16, 255} : Color{12, 44, 26, 255};
@@ -4116,7 +4189,6 @@ void RenderManager::DrawUnitResourceOverview(Unit* unit, int x, int y, int w, in
 static const Color PROS_CELL_BG         = {26, 26, 46, 255};
 static const Color PROS_CELL_BORDER     = {51, 51, 85, 255};
 static const Color PROS_HOVER_BORDER    = {102, 255, 255, 255};
-static const Color PROS_SELECT_BORDER   = {102, 255, 255, 255};
 static const Color PROS_TAB_ACTIVE      = {102, 255, 255, 60};
 static const Color PROS_TAB_BORDER      = {51, 102, 119, 255};
 static const Color PROS_TAB_ACTIVE_BDR  = {102, 255, 255, 255};
@@ -4128,15 +4200,24 @@ static const Color PROS_BTN_DISABLED    = {64, 84, 106, 255};
 static const Color PROS_MSG_STATUS      = {85, 85, 85, 255};
 static const Color PROS_MSG_ALERT       = {204, 170, 68, 255};
 
+// Sweep signal, as a single-hue luminance ramp.
+//
+// It used to run navy -> cyan -> green -> magenta, which collided head-on
+// with the class ring drawn over it: green meant both "strong signal" and
+// "Measured", and cyan is already the selection accent. Two variables on the
+// same cell need two different channels, so signal is now INTENSITY along one
+// plum family and class is HUE on the ring. Per the implementation plan, when
+// shade and class clash, class wins -- the signal number is on the readout
+// anyway, and confidence has no other home.
 static Color ProsSweepHeatColor(float signal)
 {
-    if (signal < 0.05f) return {13, 13, 59, 102};
-    if (signal < 0.15f) return {27, 27, 107, 102};
-    if (signal < 0.30f) return {34, 68, 170, 102};
-    if (signal < 0.50f) return {0, 204, 221, 102};
-    if (signal < 0.70f) return {0, 255, 170, 102};
-    if (signal < 0.85f) return {255, 0, 170, 102};
-    return {255, 102, 221, 102};
+    if (signal < 0.05f) return {16,  14,  42, 102};
+    if (signal < 0.15f) return {38,  22,  72, 102};
+    if (signal < 0.30f) return {68,  30, 104, 102};
+    if (signal < 0.50f) return {108, 38, 132, 102};
+    if (signal < 0.70f) return {154, 46, 152, 102};
+    if (signal < 0.85f) return {200, 58, 168, 102};
+    return {242, 86, 190, 102};
 }
 
 static Color ProsElementColor(ResourceType type)
@@ -4155,17 +4236,6 @@ static Color ProsElementColor(ResourceType type)
     }
 }
 
-static const char* ProsDepthName(DepthLayer d)
-{
-    switch (d)
-    {
-        case DepthLayer::SURFACE: return "Regolith";
-        case DepthLayer::SHALLOW: return "Megaregolith";
-        case DepthLayer::MID: return "Fract. Bedrock";
-        case DepthLayer::DEEP: return "Intact Bedrock";
-        default: return "Unknown";
-    }
-}
 
 static const char* ProsConfLabel(float conf)
 {
@@ -4202,96 +4272,1295 @@ static bool ProsChargeEnergy(Unit* unit, float cost, const char* action)
 }
 
 // Rounded grid cell base: state-driven fill, hover/selection borders.
-static void ProsDrawCellBase(Rectangle r, Color fill, bool selected, bool hover)
+// The class ring.
+//
+// The cell's FILL already carries sweep signal, so class goes on the border
+// instead of competing for the same pixels: how much is there is the shade,
+// how well you know it is the ring. Unclassified ground draws no ring at all,
+// which is what makes surveyed ground stand out from blind ground at a
+// glance across the whole lattice.
+static void ProsDrawClassRing(Rectangle r, ResourceClass cls)
 {
-    DrawRectangleRounded(r, 0.22f, 4, {12, 15, 28, 255});
-    if (fill.a > 0)
-    {
-        DrawRectangleRounded(r, 0.22f, 4, fill);
-    }
+    if (cls == ResourceClass::UNCLASSIFIED) return;
 
-    if (selected)
-    {
-        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 2.0f, PROS_SELECT_BORDER);
-        DrawRectangleRoundedLinesEx({r.x - 2, r.y - 2, r.width + 4, r.height + 4}, 0.22f, 4,
-                                    1.0f, Fade(PROS_SELECT_BORDER, 0.35f));
-    }
-    else if (hover)
-    {
-        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 1.0f, Fade(PROS_HOVER_BORDER, 0.8f));
-    }
-    else
-    {
-        DrawRectangleRoundedLinesEx(r, 0.22f, 4, 1.0f, {32, 38, 60, 255});
-    }
+    Color c = ExtClassColor(cls);
+    float thickness = (cls == ResourceClass::MEASURED) ? 2.2f : 1.6f;
+    DrawRectangleRoundedLinesEx({r.x + 1.0f, r.y + 1.0f, r.width - 2.0f, r.height - 2.0f},
+                                0.22f, 4, thickness, c);
 }
 
-// Out-of-reach cell: dimmed, dashed border, small lock glyph. The cell is
-// visible from tier 0 so the player can see the ground they will eventually
-// reach, and how much of it is still out of range.
-static void ProsDrawLockedCell(Rectangle r, bool hover)
+// ---------------------------------------------------------------------------
+// The block model: four depth layers as exploded isometric plates.
+//
+// Replaces the flat one-depth-at-a-time grid. Three channels carry three
+// variables and none of them fight:
+//
+//     height of the surface  = grade      how good
+//     colour of the surface  = class      how sure
+//     position in the stack  = depth      how hard to reach
+//
+// Height for grade is what makes it legible at a glance: an ore body becomes
+// a hill, and a hill has an obvious peak, shape and extent. Sixty-four shaded
+// squares do not. See docs/design/prospecting/block-model-design.md.
+// ---------------------------------------------------------------------------
+
+struct BlockCell
 {
-    // Deliberately quiet: the reachable area must stay the focus, while the
-    // surrounding ground is still visible as "yours, later". A lock glyph on
-    // every cell would drown the panel, so it only appears on hover.
-    DrawRectangleRounded(r, 0.22f, 4, {8, 10, 18, 255});
+    float grade = 0.0f;          // targeted-resource yield, normalised 0-1
+    ResourceClass cls = ResourceClass::UNCLASSIFIED;
+};
 
-    Color edge = hover ? Color{70, 92, 120, 255} : Color{20, 25, 40, 255};
-    const float dash = 4.0f;
-    for (float x = r.x + 3; x < r.x + r.width - 3; x += dash * 2)
-    {
-        float w = std::min(dash, r.x + r.width - 3 - x);
-        DrawRectangleRec({x, r.y, w, 1.0f}, edge);
-        DrawRectangleRec({x, r.y + r.height - 1, w, 1.0f}, edge);
-    }
-    for (float y = r.y + 3; y < r.y + r.height - 3; y += dash * 2)
-    {
-        float h = std::min(dash, r.y + r.height - 3 - y);
-        DrawRectangleRec({r.x, y, 1.0f, h}, edge);
-        DrawRectangleRec({r.x + r.width - 1, y, 1.0f, h}, edge);
-    }
+// Screen geometry for the stack. GAP is DERIVED, never hand-tuned: an
+// isometric diamond of an NxN lattice is 2*N*tileY tall, and relief lifts its
+// surface up to reliefMax above its own base plane, so the next plate can only
+// begin below both plus a visible clearance. Hand-tuning this is exactly how
+// plates end up silently overlapping.
+struct BlockModelGeom
+{
+    float tileX = 0.0f, tileY = 0.0f, relief = 0.0f, gap = 0.0f;
+    float originX = 0.0f, originY = 0.0f;
+    int   size = PROSPECTING_GRID_SIZE;
+    // How far this plate is pushed down so that its HIGHEST point lands on
+    // its own slot, whatever its data. Filled in once the layers are built.
+    //
+    // Without it a plate's position depends on how rich it is relative to the
+    // rest of the stack: lift is normalised against the max grade across ALL
+    // four layers, so on an unsurveyed field -- every cell holding its own
+    // layer mean -- the richest layer floats to the full relief and the
+    // poorer ones sit lower, by more the poorer they are. Measured on the
+    // playtest: plate-to-line gaps of 24 / 27 / 35 / 40 px going down, read
+    // as the stack drifting away from its own borders.
+    //
+    // Amplitude still comes from the shared scale, so a barren layer is still
+    // visibly flatter than the ore -- it is only the plate's PLACEMENT that
+    // is now its own business.
+    float plateDrop[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-    if (hover)
+    Vector2 Iso(float gx, float gy, int layer, float lift) const
     {
-        float cx = r.x + r.width / 2.0f;
-        float cy = r.y + r.height / 2.0f;
-        float s = std::min(r.width, r.height) * 0.16f;
-        Color glyph = {120, 150, 190, 255};
-        DrawRectangleRec({cx - s, cy - s * 0.1f, s * 2.0f, s * 1.5f}, glyph);
-        DrawRing({cx, cy - s * 0.1f}, s * 0.62f, s * 0.92f, 180.0f, 360.0f, 16, glyph);
+        int L = layer < 0 ? 0 : (layer > 3 ? 3 : layer);
+        return { originX + (gx - gy) * tileX,
+                 originY + (gx + gy) * tileY + layer * gap + plateDrop[L] - lift };
     }
+};
+
+static BlockModelGeom MakeBlockGeom(int gridSize, float x, float y, float w, float h)
+{
+    BlockModelGeom g;
+    g.size = gridSize;
+
+    // Fit the whole stack inside the area given, then derive the gap from it.
+    g.tileX = (w - 84.0f) / (2.0f * gridSize);
+    // Flatter than a 2:1 isometric on purpose, for two reasons. Four exploded
+    // plates plus their relief have to fit one panel, and every degree of
+    // extra tilt costs vertical budget that then gets scaled back out of the
+    // width -- at 0.46 the stack shrank 42% and the model used less than half
+    // the space it had. And the flatter the plate, the more plainly it reads
+    // as a HORIZONTAL PLANE at one depth: tilt invites the axis running away
+    // from the viewer to be read as depth, which is exactly the misreading
+    // PlateDepthM exists to kill. 0.28 -> 0.22 on that second count.
+    g.tileY = g.tileX * 0.22f;
+    float diamondH = 2.0f * gridSize * g.tileY;
+    // Relief 0.30 -> 0.45 -> 0.60 across two playtest rounds ("the curvature
+    // is not enough to be clearly visible"). Height alone never reads well
+    // from a flat-lit iso plate, so DrawBlockLayer also hill-shades the
+    // surface by slope -- which is what finally makes the shape legible --
+    // and the gap below is derived from this, so plates never overlap.
+    g.relief = std::max(24.0f, diamondH * 0.60f);
+    const float clearance = 7.0f;
+    g.gap = diamondH + g.relief + clearance;
+
+    float stackH = 3.0f * g.gap + diamondH + g.relief;
+    float scale = std::min(1.0f, (h - 14.0f) / stackH);
+    g.tileX *= scale; g.tileY *= scale; g.relief *= scale; g.gap *= scale;
+
+    g.originX = x + 74.0f + gridSize * g.tileX;
+    g.originY = y + g.relief * scale + 6.0f;
+    return g;
 }
 
-// Sample/sweep marker in the cell center. Confidence drives the glyph:
-// hollow ring (low) -> ring with core (moderate) -> solid bright dot (high).
-static void ProsDrawCellMarker(Rectangle r, const SubCell& cell)
-{
-    Vector2 c = {r.x + r.width / 2.0f, r.y + r.height / 2.0f};
-    float base = r.width * 0.18f;
+// One plate. Painter's algorithm front-to-back within the plate; corner
+// heights are averaged from the blocks that touch them, so the surface reads
+// as ground rather than as data resolution.
+// The strata palette, shared by the borehole strip (full strength) and the
+// plates' resting tone (dimmed) -- declared ahead of both users.
+// Basalt was {39,42,48}: so dark that everything drawn on it -- vesicles,
+// joints, the whole texture -- was multiplied down into a flat smudge, and
+// the band read as dim rather than as dense. Lifted enough to carry detail,
+// and NEUTRAL rather than blue: the first lift went to {52,56,64} and put it
+// in the fractured layer's cool grey, so the two deepest bands stopped
+// telling apart. Blue is now layer 2's alone, and basalt is still plainly
+// the darkest rock in the column.
+static const Color DP_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{53,52,55,255}};
+// How the one texture per stratum is laid into each projection. In the strip
+// it is EXACTLY 1:1 -- one texel per screen pixel. This was 118, a 0.92
+// minification, and that alone was enough to average the finest grain into a
+// wash: anything a pixel or two across arrived blurred, so regolith read as
+// mush next to basalt's chunkier vesicles. A texture whose smallest feature
+// is a pixel has to be sampled at the size it was drawn.
+// On a plate, which is far wider, one stretched tile would magnify the grain
+// past recognition, so it repeats: at x2 a clast on the plate is about the
+// size of the same clast in the band.
+static constexpr float DP_ROCK_TEX_PX = static_cast<float>(RockTexture::SIZE);
+static constexpr float BLOCK_TEX_REPEAT = 2.0f;
+// How far a plate's DRAWN surface hangs below its stratum's top boundary,
+// as a fraction of the plate diamond's half-height (see DockFromBlock).
+static constexpr float BLOCK_PLATE_TUCK = 0.50f;
 
-    if (!cell.sampleIds.empty())
-    {
-        float conf = cell.aggregateConfidence;
-        if (conf > 0.7f)
+// The y of a stratum's top boundary -- the line the plate hangs under, the
+// line the strip's band starts at, and the line the depth label names.
+// Derived in ONE place so those three cannot drift apart; they did, the first
+// time the plates moved and the labels stayed anchored to the plate instead.
+static float BlockPlateLineY(const BlockModelGeom& g, int layer)
+{
+    // The plate's own ceiling sits at its slot (see plateDrop), so the line is
+    // simply a little above that -- no relief term, and the same offset for
+    // every plate however rich or poor its layer is.
+    float slot = g.originY + layer * g.gap + g.size * g.tileY;
+    return slot - g.size * g.tileY * BLOCK_PLATE_TUCK;
+}
+
+
+// The one lift law. Everything that has to sit ON a plate's surface -- the
+// plate itself, the hover outline, the pick, the ends of the prescribed line
+// -- goes through these, so none of them can drift from the drawn ground
+// when the relief or the law changes (the x1.5 relief pass put the rim a
+// plate-height under its plate; the x2 lattice would have done it again).
+// Corner heights average the blocks that touch them, so the surface reads
+// as ground rather than as data resolution; the 0.8 power lifts the middle
+// grades, which is where most of a mound's flank lives.
+static float BlockCornerLift(const std::vector<BlockCell>& cells, int N, float maxGrade,
+                            float relief, int i, int j)
+{
+    float sum = 0.0f; int n = 0;
+    for (int dj = -1; dj <= 0; dj++)
+        for (int di = -1; di <= 0; di++)
         {
-            DrawCircleV(c, base * 0.85f, {120, 240, 255, 255});
-            DrawCircleV(c, base * 1.6f, {120, 240, 255, 35});
+            int a = i + di, b = j + dj;
+            if (a < 0 || b < 0 || a >= N || b >= N) continue;
+            sum += cells[b * N + a].grade; n++;
         }
-        else if (conf > 0.4f)
+    if (n == 0) return 0.0f;
+    float t = std::min((sum / n) / std::max(maxGrade, 0.0001f), 1.0f);
+    return powf(t, 0.8f) * relief;
+}
+// The surface at a cell's centre: the mean of its four drawn corners.
+static float BlockCellLift(const std::vector<BlockCell>& cells, int N, float maxGrade,
+                          float relief, int i, int j)
+{
+    i = std::clamp(i, 0, N - 1); j = std::clamp(j, 0, N - 1);
+    return 0.25f * (BlockCornerLift(cells, N, maxGrade, relief, i,     j)
+                  + BlockCornerLift(cells, N, maxGrade, relief, i + 1, j)
+                  + BlockCornerLift(cells, N, maxGrade, relief, i + 1, j + 1)
+                  + BlockCornerLift(cells, N, maxGrade, relief, i,     j + 1));
+}
+// What the plates were drawn with this frame, handed to whatever draws on them.
+struct BlockPlateLift
+{
+    const std::vector<std::vector<BlockCell>>* layers = nullptr;
+    float maxGrade = 0.0001f;
+    float At(const BlockModelGeom& g, int L, int i, int j) const
+    {
+        if (!layers || L < 0 || L >= static_cast<int>(layers->size())) return 0.0f;
+        return BlockCellLift((*layers)[L], g.size, maxGrade, g.relief, i, j);
+    }
+};
+
+static void DrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockCell>& cells,
+                               int layer, float maxGrade, float plateLight,
+                               Font labelFont, float sp,
+                               const char* depthLabel, const char* levelLabel,
+                               std::vector<Rectangle>* hitBoxes, std::vector<int>* hitIndex,
+                               const Texture2D* tex = nullptr, float rimPulse = 0.0f)
+{
+    const int N = g.size;
+    // How lit this plate is, decided by the focus law on the facade and
+    // eased there. It used to be powf(0.84, layer) -- depth alone, so all
+    // four competed for attention at once and the deep ones were never fully
+    // readable however long you looked at them.
+    const float fade = plateLight;
+    // The stratum's generated rock (rock_texture.h), laid over the plate so
+    // a clast spans about a cell -- the same ground the borehole strip shows
+    // in section, read here as a surface instead of as data. Modulated by the
+    // cell's fill, so class colour and stratum tone survive underneath it.
+    // The gain is exactly 2 against the texture's mean of exactly 128: a
+    // textured plate averages the tone the flat fill would have had, which is
+    // why texture could be added without re-tuning a single palette entry.
+    const bool textured = tex != nullptr && tex->id != 0;
+    const float texGain = 2.0f;
+
+    auto cornerLift = [&](int i, int j) -> float
+    {
+        return BlockCornerLift(cells, N, maxGrade, g.relief, i, j);
+    };
+    auto clamp255 = [](float v) {
+        return static_cast<unsigned char>(std::clamp(v, 0.0f, 255.0f));
+    };
+    if (textured) rlSetTexture(tex->id);
+
+    for (int j = 0; j < N; j++)
+    {
+        for (int i = 0; i < N; i++)
         {
-            DrawRing(c, base * 0.8f, base * 1.05f, 0.0f, 360.0f, 28, {238, 234, 252, 210});
-            DrawCircleV(c, base * 0.4f, {238, 234, 252, 130});
+            const BlockCell& c = cells[j * N + i];
+            float l00 = cornerLift(i, j),     l10 = cornerLift(i + 1, j);
+            float l11 = cornerLift(i + 1, j + 1), l01 = cornerLift(i, j + 1);
+            Vector2 q[4] = {
+                g.Iso(static_cast<float>(i),     static_cast<float>(j),     layer, l00),
+                g.Iso(static_cast<float>(i + 1), static_cast<float>(j),     layer, l10),
+                g.Iso(static_cast<float>(i + 1), static_cast<float>(j + 1), layer, l11),
+                g.Iso(static_cast<float>(i),     static_cast<float>(j + 1), layer, l01)
+            };
+
+            // A plate's resting tone IS its stratum: the same DP_ROCK_COL
+            // the borehole strip paints full-strength, dimmed to a quieter
+            // twin. Colour = class still holds, but the class fades toward
+            // the rock as certainty falls -- MEASURED speaks in full class
+            // colour, INFERRED is mostly a guess so it is mostly rock, and
+            // UNCLASSIFIED ground simply looks like its stratum. Relief
+            // lightness keeps tracking believed grade.
+            Color rock = DP_ROCK_COL[layer];
+            Color ground = {
+                static_cast<unsigned char>(EXT_PANEL_BG.r + (rock.r - EXT_PANEL_BG.r) * 0.80f),
+                static_cast<unsigned char>(EXT_PANEL_BG.g + (rock.g - EXT_PANEL_BG.g) * 0.80f),
+                static_cast<unsigned char>(EXT_PANEL_BG.b + (rock.b - EXT_PANEL_BG.b) * 0.80f),
+                255 };
+            Color base = ExtClassColor(c.cls);
+            float classW = c.cls == ResourceClass::MEASURED   ? 0.90f
+                         : c.cls == ResourceClass::INDICATED  ? 0.75f
+                         : c.cls == ResourceClass::INFERRED   ? 0.40f : 0.12f;
+            Color tone = {
+                static_cast<unsigned char>(ground.r + (base.r - ground.r) * classW),
+                static_cast<unsigned char>(ground.g + (base.g - ground.g) * classW),
+                static_cast<unsigned char>(ground.b + (base.b - ground.b) * classW),
+                255 };
+            float lit = (0.65f + 0.35f * std::min(c.grade / std::max(maxGrade, 0.0001f), 1.0f)) * fade;
+            Color fill = {
+                static_cast<unsigned char>(EXT_PANEL_BG.r + (tone.r - EXT_PANEL_BG.r) * lit),
+                static_cast<unsigned char>(EXT_PANEL_BG.g + (tone.g - EXT_PANEL_BG.g) * lit),
+                static_cast<unsigned char>(EXT_PANEL_BG.b + (tone.b - EXT_PANEL_BG.b) * lit),
+                255 };
+
+            // Hill-shading (Dark Plating: light implied from the upper-left).
+            // A face tilting toward the viewer (front corner above the back)
+            // and toward the left catches light; one falling away loses it.
+            // Slope, not height, is what the eye reads as shape -- this is
+            // what makes the curvature legible at any relief. Slope is
+            // measured in relief-per-plate-width, so a mound keeps the same
+            // shading whether the lattice is 8 or 32 cells across (a denser
+            // lattice halves the per-cell rise; it must not halve the light).
+            // tanh keeps the gradation: steep flanks saturate gently instead
+            // of clipping to a flat two-tone.
+            float perCell = static_cast<float>(N) / std::max(g.relief, 1.0f);
+            float toward  = (l11 - l00) * perCell;
+            float left    = (l01 - l10) * perCell;
+            // The lit side swings further than the shadowed side: a face in
+            // shadow still has to show its craters and its class colour.
+            float slope   = tanhf(0.45f * toward + 0.25f * left);
+            float shade   = 1.0f + (slope >= 0.0f ? 0.70f : 0.50f) * slope;
+            Color lit3 = { clamp255(fill.r * shade), clamp255(fill.g * shade),
+                           clamp255(fill.b * shade), 255 };
+
+            if (textured)
+            {
+                // One quad per cell, all on the one texture, so the whole
+                // plate is a single batch. Same winding as the triangles.
+                Color m = { clamp255(lit3.r * texGain), clamp255(lit3.g * texGain),
+                            clamp255(lit3.b * texGain), 255 };
+                const float tr = BLOCK_TEX_REPEAT;
+                float u0 = static_cast<float>(i) * tr / N,     v0 = static_cast<float>(j) * tr / N;
+                float u1 = static_cast<float>(i + 1) * tr / N, v1 = static_cast<float>(j + 1) * tr / N;
+                rlCheckRenderBatchLimit(4);
+                rlBegin(RL_QUADS);
+                rlColor4ub(m.r, m.g, m.b, m.a);
+                rlNormal3f(0.0f, 0.0f, 1.0f);
+                rlTexCoord2f(u0, v0); rlVertex2f(q[0].x, q[0].y);
+                rlTexCoord2f(u0, v1); rlVertex2f(q[3].x, q[3].y);
+                rlTexCoord2f(u1, v1); rlVertex2f(q[2].x, q[2].y);
+                rlTexCoord2f(u1, v0); rlVertex2f(q[1].x, q[1].y);
+                rlEnd();
+            }
+            else
+            {
+                // Two triangles rather than a quad -- raylib fills triangles
+                // only, and the winding has to be consistent or faces drop out.
+                //
+                // This is the FALLBACK, and it is brutally slow: measured at
+                // 216 ms/frame against 27 for the textured path above, because
+                // each DrawTriangle goes through the generic batch while the
+                // textured path binds once and pushes 4096 quads into a single
+                // batch. Do not "simplify" the textured path into this one --
+                // it is 8x faster, not a decoration.
+                DrawTriangle(q[0], q[3], q[2], lit3);
+                DrawTriangle(q[0], q[2], q[1], lit3);
+                DrawLineEx(q[0], q[1], 0.6f, lit3);
+                DrawLineEx(q[1], q[2], 0.6f, lit3);
+            }
+
+            if (hitBoxes && hitIndex)
+            {
+                float minX = std::min(std::min(q[0].x, q[1].x), std::min(q[2].x, q[3].x));
+                float maxX = std::max(std::max(q[0].x, q[1].x), std::max(q[2].x, q[3].x));
+                float minY = std::min(std::min(q[0].y, q[1].y), std::min(q[2].y, q[3].y));
+                float maxY = std::max(std::max(q[0].y, q[1].y), std::max(q[2].y, q[3].y));
+                hitBoxes->push_back({minX, minY, maxX - minX, maxY - minY});
+                hitIndex->push_back(j * N + i);
+            }
+        }
+    }
+
+    if (textured) rlSetTexture(0);
+
+    // The active-plate rim (section 9.4: the stratum being cut rim-lights its
+    // plate). Drawn HERE, not with the trace, because only this function knows
+    // cornerLift -- the plate's surface floats up to g.relief above its base
+    // plane, so a rim computed at lift 0 sat below the plate it was meant to
+    // hug, and the x1.5 relief pass made that gap plain. Tracing the boundary
+    // through the same cornerLift the surface uses cannot drift by
+    // construction, whatever the relief.
+    if (rimPulse > 0.0f)
+    {
+        Color rim = Fade({244, 198, 106, 255}, rimPulse);
+        auto edge = [&](int i0, int j0, int i1, int j1)
+        {
+            int steps = std::max(std::abs(i1 - i0), std::abs(j1 - j0));
+            Vector2 prev = g.Iso(static_cast<float>(i0), static_cast<float>(j0),
+                                 layer, cornerLift(i0, j0));
+            for (int t = 1; t <= steps; t++)
+            {
+                int i = i0 + (i1 - i0) * t / steps;
+                int j = j0 + (j1 - j0) * t / steps;
+                Vector2 cur = g.Iso(static_cast<float>(i), static_cast<float>(j),
+                                    layer, cornerLift(i, j));
+                DrawLineEx(prev, cur, 2.0f, rim);
+                prev = cur;
+            }
+        };
+        edge(0, 0, N, 0);   edge(N, 0, N, N);
+        edge(N, N, 0, N);   edge(0, N, 0, 0);
+    }
+
+    // Depth ruling out to the left edge of this plate. Anchored to the
+    // stratum's BOUNDARY, which is the depth the label names -- not to the
+    // plate, which hangs below it by design (BlockPlateLineY).
+    Vector2 leftCorner = g.Iso(0.0f, static_cast<float>(N), layer, 0.0f);
+    leftCorner.y = BlockPlateLineY(g, layer);
+    float labelX = g.originX - N * g.tileX - 68.0f;
+    for (float dx = labelX + 44.0f; dx < leftCorner.x - 5.0f; dx += 6.0f)
+        DrawLineEx({dx, leftCorner.y}, {dx + 2.5f, leftCorner.y}, 1.0f,
+                   Fade(EXT_ACCENT_CYAN, 0.12f + 0.20f * std::clamp(fade, 0.0f, 1.0f)));
+    // The label belongs to the plate, so it recedes with it -- never all the
+    // way out, since it is also the depth scale of the whole stack.
+    float labelA = 0.40f + 0.60f * std::clamp(fade, 0.0f, 1.0f);
+    // Scaled like every other label in this view (ExtFS). The level name also
+    // gains a point of base size: it is the word that says WHICH layer you are
+    // looking at, and it was the smallest thing on screen.
+    DrawTextEx(labelFont, depthLabel, {labelX, leftCorner.y - 12.0f}, ExtFS(11.0f), sp,
+               Fade(EXT_ACCENT_CYAN, labelA));
+    DrawTextEx(labelFont, levelLabel, {labelX, leftCorner.y + 2.0f}, ExtFS(9.0f), sp,
+               Fade(EXT_DIM_TEXT, labelA));
+}
+
+
+// ===========================================================================
+// THE BOREHOLE DOCK -- the drill-dock port (variant b: seam-aligned).
+// One ground across the dock strip and the block model; the plate slots sit
+// at the strip's band centres so both share one depth mapping, which is what
+// lets the prescribed line render dead straight and keeps its cursor level
+// with the mud panel's. Recipes per docs/design/graphics/dark-plating.md
+// (sections 4-6, 9); reference docs/design/prospecting/prototypes/drill-dock.html.
+// ===========================================================================
+
+static const Color DP_OUT          = {10, 14, 20, 255};
+// DP_ROCK_COL lives above DrawBlockLayer, which shares it.
+static const Color DP_ROCK_EDGE[4] = {{25,21,16,255},{28,23,18,255},{22,28,35,255},{16,18,22,255}};
+static const Color DP_ROCK_GRAIN[4]= {{76,68,55,255},{91,81,64,255},{77,90,103,255},{52,56,65,255}};
+static const Color DP_ICE_FLECK    = {160, 225, 245, 255};
+static const Color PROS_STRING_MID   = {119, 135, 154, 255};
+static const Color PROS_STRING_LIT   = {232, 240, 248, 255};
+static const Color PROS_SHADOW_HAIR  = {160, 190, 215, 255};
+
+// Deterministic speckle: fixed seed per drawing pass, so the ground never
+// shimmers between frames (Dark Plating section 5).
+static unsigned dpGrain = 1;
+static float DpRnd()
+{
+    dpGrain = (dpGrain * 16807u) % 2147483647u;
+    return static_cast<float>(dpGrain) / 2147483647.0f;
+}
+
+// The strip's depth axis, shared by both vertical instruments -- prospecting's
+// borehole strip and excavation's shaft. Pure geometry: bands in, depth<->y
+// out, and nothing in it knows which module is drawing.
+struct DockGeom
+{
+    float x = 0.0f, w = 0.0f, cx = 0.0f;
+    float bandTop[5] = {0, 0, 0, 0, 0};
+
+    float YOf(float m) const
+    {
+        int d = LayerOfDepthM(std::min(m, FULL_COLUMN_M - 0.01f));
+        float t = (m - LayerTopM(d)) / LAYER_THICKNESS_M[d];
+        return bandTop[d] + (bandTop[d + 1] - bandTop[d]) * t;
+    }
+    // ...and back again. The strata bands run the full width of the panel, so
+    // any height in it IS a depth -- which is what lets the pointer read a
+    // depth off the empty ground between the plates.
+    float DepthAtY(float y) const
+    {
+        if (y <= bandTop[0]) return 0.0f;
+        for (int d = 0; d < 4; d++)
+        {
+            if (y >= bandTop[d + 1]) continue;
+            float span = std::max(1.0f, bandTop[d + 1] - bandTop[d]);
+            return LayerTopM(d) + LAYER_THICKNESS_M[d] * (y - bandTop[d]) / span;
+        }
+        return FULL_COLUMN_M;
+    }
+};
+
+static DockGeom DockFromBlock(const BlockModelGeom& g, float stripX, float stripW)
+{
+    DockGeom d;
+    d.x = stripX; d.w = stripW; d.cx = stripX + stripW * 0.5f;
+    float slot[4];
+    for (int L = 0; L < 4; L++)
+        slot[L] = g.originY + L * g.gap + g.size * g.tileY;
+    // Each band STARTS at its own plate: a plate is the top face of its rock,
+    // so the rock hangs below it. That makes YOf(PlatePlaneM(L)) land on
+    // plate L by construction, at any layout -- the plate and the line that
+    // names it cannot drift apart. (The bands used to be CENTRED on the
+    // plates, which put a plate in the middle of rock that was half above it.)
+    //
+    // The boundary sits above the plate so the plate hangs UNDER its own
+    // ceiling. Two terms, and the first one is the whole lesson:
+    //
+    //   g.relief -- because a plate is drawn LIFTED, not at its base plane.
+    //     cornerLift raises each corner by (grade/maxGrade)^0.8 * relief, so
+    //     a field with nothing surveyed yet -- every cell holding the same
+    //     layer mean -- lifts EVERY corner the full relief. Positioning
+    //     against the base plane therefore put the visible plate 22 px above
+    //     a line that was, on paper, 5 px above its base. The eye sees the
+    //     lifted surface; the layout has to be told about it.
+    //   the fraction -- the "a bit below" itself, applied to the drawn
+    //     surface: a fully lifted plate rests half a half-height under its
+    //     line.
+    //
+    // Referenced to the FULL lift on purpose. The layout must not move as
+    // survey data arrives (the bands are the depth scale), so it is pinned to
+    // the plate's ceiling: the richest cells rise toward the boundary and
+    // poorer ground hangs further below it, which is the right reading.
+    (void)slot;
+    for (int L = 0; L < 4; L++) d.bandTop[L] = BlockPlateLineY(g, L);
+    d.bandTop[4] = d.bandTop[3] + g.gap;
+    return d;
+}
+
+// Winding per the block-layer convention: quads defined clockwise, filled as
+// (0,3,2)+(0,2,1) or faces drop out.
+static void DpFillQuad(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Color col)
+{
+    DrawTriangle(a, d, c, col);
+    DrawTriangle(a, c, b, col);
+}
+static void DpFillDiamond(float cx, float cy, float s, Color col)
+{
+    Vector2 t = {cx, cy - s}, r = {cx + s, cy}, b = {cx, cy + s}, l = {cx - s, cy};
+    DpFillQuad(t, r, b, l, col);
+}
+
+// Dashed line with a phase, so a dash train can march (the advance) or spin
+// (the string). raylib has no line dash; this is the whole of it.
+static void DpDashed(Vector2 a, Vector2 b, float dash, float gap,
+                       float phase, float th, Color c)
+{
+    float dx = b.x - a.x, dy = b.y - a.y;
+    float len = sqrtf(dx * dx + dy * dy);
+    if (len < 1.0f) return;
+    dx /= len; dy /= len;
+    float period = dash + gap;
+    float s = fmodf(phase, period);
+    if (s > 0.0f) s -= period;
+    for (; s < len; s += period)
+    {
+        float s0 = std::max(0.0f, s), s1 = std::min(len, s + dash);
+        if (s1 <= s0) continue;
+        DrawLineEx({a.x + dx * s0, a.y + dy * s0},
+                   {a.x + dx * s1, a.y + dy * s1}, th, c);
+    }
+}
+
+// ---- metal (Dark Plating section 4) ---------------------------------------
+// Heat context for the frame being drawn: a Gaussian around the bit, fed to
+// every steel call so the glow spreads up the machine from the working point.
+static float prosHeatAmt = 0.0f, prosHeatBitY = 0.0f;
+static float ProsHeatAt(float y)
+{
+    float d = y - prosHeatBitY;
+    return prosHeatAmt * expf(-(d * d) / (2.0f * 70.0f * 70.0f));
+}
+static Color DpSteel(float sh, float heat = 0.0f)
+{
+    sh = std::clamp(sh, 0.0f, 1.0f);
+    float r = 96.0f + 142.0f * sh, g = 104.0f + 140.0f * sh, b = 118.0f + 134.0f * sh;
+    float t = std::clamp(heat * 1.15f, 0.0f, 1.0f);
+    r += (255.0f - r) * t;
+    g += ((55.0f + 110.0f * sh) - g) * t;
+    b += (25.0f - b) * t;
+    return { static_cast<unsigned char>(r), static_cast<unsigned char>(g),
+             static_cast<unsigned char>(b), 255 };
+}
+// One slice of a turned cylinder: five flat bands, specular off-centre left.
+//
+// Heat is a PARAMETER, not a lookup. It used to call ProsHeatAt, which reads
+// the borehole dock's own globals -- so every banded part of excavation's rig
+// (rod, joints, lower works, neck) was shaded by the auger's heat field, at
+// the auger's sigma, centred on the auger's bit depth. Two machines cannot
+// share one hotspot; a helper that reaches for module state is not shared, it
+// is borrowed.
+static void DpBandedSlice(float cx, float y, float hw, float hh,
+                            const float tones[5][2], float heat)
+{
+    float x = cx - hw, wTot = hw * 2.0f, t = 0.0f;
+    for (int k = 0; k < 5; k++)
+    {
+        DrawRectangleRec({x + wTot * t, y, wTot * tones[k][0] + 0.7f, hh},
+                         DpSteel(tones[k][1], heat));
+        t += tones[k][0];
+    }
+}
+static const float DP_ROD_TONES[5][2]   = {{0.15f,0.11f},{0.17f,0.98f},{0.21f,0.58f},{0.27f,0.30f},{0.20f,0.07f}};
+static const float DP_JOINT_TONES[5][2] = {{0.15f,0.16f},{0.18f,0.94f},{0.22f,0.56f},{0.26f,0.28f},{0.19f,0.10f}};
+static const float DP_CHUCK_TONES[5][2] = {{0.17f,0.06f},{0.16f,0.62f},{0.22f,0.34f},{0.26f,0.18f},{0.19f,0.04f}};
+
+// ---- drill string geometry (pass 6 constants, px) -------------------------
+static const float PROS_DRILL_R = 15.0f, PROS_DRILL_RS = 8.6f, PROS_DRILL_RSB = 7.2f;
+static const float PROS_ROD_TOP = 11.5f, PROS_PITCH = 19.0f;
+static const float PROS_TILT = 1.7f, PROS_TH_T = 5.0f, PROS_TH_C = 1.9f;
+static const float PROS_TAPER = PROS_PITCH * 1.5f, PROS_CONE = 18.0f;
+static const float PROS_THREAD_LEN = PROS_PITCH * 6.2f;
+
+static float prosSpin = 0.0f;          // the string's spin accumulator
+struct ProsChip { float y, a, up; int layer; };
+static std::vector<ProsChip> prosChips;
+
+struct ProsRig
+{
+    float cx, surfY, bitY, coneApex, coneTop, threadTop;
+};
+static float ProsRodHalf(const ProsRig& r, float y)
+{
+    if (y >= r.coneTop)
+        return std::max(0.5f, PROS_DRILL_RSB * (1.0f - (y - r.coneTop) / (r.coneApex - r.coneTop)));
+    if (y >= r.threadTop)
+        return PROS_DRILL_RS + (PROS_DRILL_RSB - PROS_DRILL_RS)
+               * (y - r.threadTop) / std::max(1.0f, r.coneTop - r.threadTop);
+    // above the thread: stepped sections handled by the shaft drawing; the
+    // envelope just widens toward the chuck
+    float t = std::clamp((r.threadTop - y) / 150.0f, 0.0f, 1.0f);
+    return PROS_DRILL_RS + 0.5f + (PROS_ROD_TOP - PROS_DRILL_RS - 0.5f) * t;
+}
+static float ProsCrest(const ProsRig& r, float y)
+{
+    float start = r.coneTop - PROS_TAPER;
+    if (y <= start) return PROS_DRILL_R;
+    if (y >= r.coneTop) return ProsRodHalf(r, y);
+    float t = std::clamp((y - start) / PROS_TAPER, 0.0f, 1.0f);
+    return PROS_DRILL_R + (ProsRodHalf(r, y) - PROS_DRILL_R) * t;
+}
+static float ProsRadAt(const ProsRig& r, float y)
+{
+    return (y >= r.threadTop && y <= r.coneTop) ? ProsCrest(r, y) : ProsRodHalf(r, y);
+}
+
+// The helicoid, front or back sweep (Dark Plating section 6.1): each theta
+// step owns a radial quad from root to crest; the sawtooth is the projection.
+static void ProsDrawThread(const ProsRig& r, bool front)
+{
+    float span = r.coneTop - r.threadTop;
+    if (span <= 6.0f) return;
+    float thMax = (span / PROS_PITCH) * 2.0f * PI;
+    const float step = 0.11f;
+
+    struct Seg { Vector2 r0, c0, r1, c1; float e0x, e1x, c, s; };
+    std::vector<Seg> segs;
+    segs.reserve(static_cast<size_t>(thMax / step) + 4);
+    for (float th = 0.0f; th < thMax; th += step)
+    {
+        float a0 = th + prosSpin, a1 = th + step + prosSpin;
+        float c0 = cosf(a0), c1 = cosf(a1), cm = (c0 + c1) * 0.5f;
+        if (front != (cm > 0.0f)) continue;
+        float yb0 = r.threadTop + PROS_PITCH * th / (2.0f * PI);
+        float yb1 = r.threadTop + PROS_PITCH * (th + step) / (2.0f * PI);
+        float rc0 = ProsCrest(r, yb0), rc1 = ProsCrest(r, yb1);
+        float rr0 = ProsRodHalf(r, yb0), rr1 = ProsRodHalf(r, yb1);
+        if (rc0 - rr0 < 1.2f) continue;
+        float s0 = -sinf(a0), s1 = -sinf(a1);        // left-hand helix
+        Seg sg;
+        sg.r0 = {r.cx + rr0 * s0, yb0 + PROS_TILT * c0 * (rr0 / PROS_DRILL_R)};
+        sg.c0 = {r.cx + rc0 * s0, yb0 + PROS_TILT * c0 * (rc0 / PROS_DRILL_R)};
+        sg.r1 = {r.cx + rr1 * s1, yb1 + PROS_TILT * c1 * (rr1 / PROS_DRILL_R)};
+        sg.c1 = {r.cx + rc1 * s1, yb1 + PROS_TILT * c1 * (rc1 / PROS_DRILL_R)};
+        sg.e0x = r.cx + (rc0 + 1.7f) * s0;
+        sg.e1x = r.cx + (rc1 + 1.7f) * s1;
+        sg.c = cm; sg.s = (s0 + s1) * 0.5f;
+        segs.push_back(sg);
+    }
+    std::sort(segs.begin(), segs.end(), [](const Seg& p, const Seg& q){ return p.c < q.c; });
+
+    // one flood outline pass under the whole sweep, then the faces --
+    // per-segment strokes rib the surface (Dark Plating section 2)
+    const float M = 1.4f;
+    Color outCol = front ? DP_OUT : Color{16, 24, 32, 255};
+    for (const Seg& s : segs)
+    {
+        DpFillQuad({s.r0.x, s.r0.y - M}, {s.e0x, s.c0.y - M},
+                     {s.e1x, s.c1.y - M}, {s.r1.x, s.r1.y - M}, outCol);
+        DpFillQuad({s.r0.x, s.r0.y - M}, {s.r1.x, s.r1.y - M},
+                     {s.r1.x, s.r1.y + PROS_TH_T + M}, {s.r0.x, s.r0.y + PROS_TH_T + M}, outCol);
+        DpFillQuad({s.e0x, s.c0.y - M}, {s.e1x, s.c1.y - M},
+                     {s.e1x, s.c1.y + PROS_TH_C + M}, {s.e0x, s.c0.y + PROS_TH_C + M}, outCol);
+    }
+    auto band = [](float v){ return roundf(std::clamp(v, 0.0f, 1.0f) * 7.0f) / 7.0f; };
+    auto dim  = [&](float v){ return front ? v : 0.15f + v * 0.44f; };
+    for (const Seg& s : segs)
+    {
+        float c = std::max(0.0f, s.c), lt = (1.0f - s.s) * 0.5f;
+        float heat = ProsHeatAt(s.r0.y);
+        float shB = dim(band(0.40f + 0.30f * c + 0.18f * lt));
+        float shU = dim(band(0.10f + 0.16f * c));
+        float shR = dim(band(0.38f + 0.34f * c + 0.22f * lt));
+        float shF = dim(band(0.33f + 0.46f * c + 0.14f * lt));
+        // body slab (root thickness tapering to crest = the V that sharpens teeth)
+        DpFillQuad(s.r0, s.c0, {s.c0.x, s.c0.y + PROS_TH_C}, {s.r0.x, s.r0.y + PROS_TH_T}, DpSteel(shB, heat));
+        DpFillQuad(s.r0, s.r1, {s.r1.x, s.r1.y + PROS_TH_T}, {s.r0.x, s.r0.y + PROS_TH_T}, DpSteel(shB, heat));
+        // underside in shadow
+        DpFillQuad({s.r0.x, s.r0.y + PROS_TH_T * 0.55f}, {s.c0.x, s.c0.y + PROS_TH_C * 0.55f},
+                     {s.c1.x, s.c1.y + PROS_TH_C}, {s.r1.x, s.r1.y + PROS_TH_T}, DpSteel(shU, heat));
+        // crest rim
+        DpFillQuad(s.c0, s.c1, {s.c1.x, s.c1.y + PROS_TH_C}, {s.c0.x, s.c0.y + PROS_TH_C}, DpSteel(shR, heat));
+        // the ramp face itself
+        DpFillQuad(s.r0, s.c0, s.c1, s.r1, DpSteel(shF, heat));
+    }
+    if (front)
+    {
+        for (const Seg& s : segs)
+        {
+            float g = roundf(std::clamp(0.54f + 0.30f * std::max(0.0f, s.c) + 0.06f, 0.0f, 1.0f) * 3.0f) / 3.0f;
+            DrawLineEx({s.c0.x, s.c0.y + 0.8f}, {s.c1.x, s.c1.y + 0.8f}, 1.1f,
+                       DpSteel(g, ProsHeatAt(s.c0.y)));
+        }
+    }
+}
+
+static void ProsDrawJoint(float cx, float y, float rr, bool big)
+{
+    float hh = big ? 5.6f : 4.6f, w = rr + (big ? 3.6f : 2.7f);
+    DrawRectangleRec({cx - w - 1.8f, y - hh - 1.8f, (w + 1.8f) * 2.0f, hh * 2.0f + 3.6f}, DP_OUT);
+    DpBandedSlice(cx, y - hh, w, hh * 2.0f, DP_JOINT_TONES, ProsHeatAt(y));
+    DrawRectangleRec({cx - w, y - hh, w * 2.0f, 1.4f}, Fade(WHITE, 0.34f));
+    DrawRectangleRec({cx - w, y + hh - 1.8f, w * 2.0f, 1.8f}, Fade(BLACK, 0.45f));
+}
+
+// The rig: powerhead, chuck, jointed rod, threaded stem, carbide cone.
+static void ProsDrawString(const ProsRig& r, float topY)
+{
+    // rod silhouette + banded body, in thin slices so the taper stays banded
+    for (float y = topY; y < r.coneApex; y += 1.4f)
+    {
+        float w = ProsRodHalf(r, y) + 1.8f;
+        DrawRectangleRec({r.cx - w, y, w * 2.0f, 2.1f}, DP_OUT);
+    }
+    for (float y = topY; y < r.coneApex - 1.0f; y += 1.4f)
+    {
+        float w = ProsRodHalf(r, y);
+        if (w < 0.7f) continue;
+        DpBandedSlice(r.cx, y, w, 1.8f, DP_ROD_TONES, ProsHeatAt(y));
+    }
+    // chuck under the head, then joints where sections step
+    float chuckTop = r.surfY - 46.0f;
+    DrawRectangleRec({r.cx - PROS_ROD_TOP - 5.2f, chuckTop - 1.8f,
+                      (PROS_ROD_TOP + 5.2f) * 2.0f, 15.6f}, DP_OUT);
+    DpBandedSlice(r.cx, chuckTop, PROS_ROD_TOP + 3.6f, 12.0f, DP_CHUCK_TONES,
+                    ProsHeatAt(chuckTop));
+    DrawRectangleRec({r.cx - PROS_ROD_TOP - 3.6f, chuckTop, (PROS_ROD_TOP + 3.6f) * 2.0f, 2.0f}, Fade(WHITE, 0.22f));
+
+    float run = r.threadTop - (r.surfY - 30.0f);
+    int nj = run > 190.0f ? 2 : (run > 70.0f ? 1 : 0);
+    for (int k = 1; k <= nj; k++)
+        ProsDrawJoint(r.cx, (r.surfY - 30.0f) + run * k / (nj + 1),
+                      ProsRodHalf(r, (r.surfY - 30.0f) + run * k / (nj + 1)), false);
+    ProsDrawJoint(r.cx, r.threadTop, PROS_DRILL_RS + 0.8f, true);   // threads begin
+
+    // carbide point: flat facets, brightest left
+    float sh = r.coneApex - PROS_CONE + 1.4f, cw = PROS_DRILL_RSB * 0.9f;
+    const float fac[3][3] = {{-1.0f, -0.34f, 0.90f}, {-0.34f, 0.28f, 0.52f}, {0.28f, 1.0f, 0.22f}};
+    for (int k = 0; k < 3; k++)
+    {
+        Vector2 a = {r.cx + cw * fac[k][0], sh}, b = {r.cx + cw * fac[k][1], sh};
+        DrawTriangle(a, {r.cx, r.coneApex - 1.2f}, b,
+                     DpSteel(fac[k][2], std::min(1.0f, ProsHeatAt(sh) * 1.3f)));
+    }
+    DrawRectangleRec({r.cx - cw - 1.0f, sh - 1.3f, (cw + 1.0f) * 2.0f, 1.5f}, Fade(BLACK, 0.45f));
+}
+
+// The powerhead -- amber housing, vents, side pod with the state lamp,
+// bolts, collar clamps. Anchored just above the surface and clamped to the
+// clip, so it can NEVER be scissored away by a tight layout again.
+static void ProsDrawHead(float cx, float surfY, float clipTop,
+                         bool turning, bool cooling)
+{
+    float top = std::max(clipTop + 10.0f, surfY - 55.0f);
+    auto box = [](float x, float y, float w, float h, Color fill, bool bev)
+    {
+        DrawRectangleRec({x - 2.0f, y - 2.0f, w + 4.0f, h + 4.0f}, DP_OUT);
+        DrawRectangleRec({x, y, w, h}, fill);
+        if (bev)
+        {
+            DrawRectangleRec({x, y, w, 2.6f}, Fade(WHITE, 0.30f));
+            DrawRectangleRec({x, y, 2.6f, h}, Fade(WHITE, 0.14f));
+            DrawRectangleRec({x, y + h - 2.6f, w, 2.6f}, Fade(BLACK, 0.30f));
+            DrawRectangleRec({x + w - 2.6f, y, 2.6f, h}, Fade(BLACK, 0.22f));
+        }
+    };
+    box(cx - 4.5f, top - 8.0f, 9.0f, 8.0f, {57, 66, 78, 255}, false);   // mast strap
+    box(cx - 25.0f, top, 50.0f, 27.0f, {217, 150, 47, 255}, true);      // amber housing
+    for (int i = 0; i < 3; i++)
+    {
+        DrawRectangleRec({cx - 15.0f, top + 6.0f + i * 7.0f, 30.0f, 3.4f}, {122, 81, 21, 255});
+        DrawRectangleRec({cx - 15.0f, top + 6.0f + i * 7.0f + 2.3f, 30.0f, 1.1f}, Fade(BLACK, 0.5f));
+    }
+    DrawRectangleRec({cx - 22.0f, top + 2.5f, 3.0f, 3.0f}, {244, 198, 106, 255});  // bolts
+    DrawRectangleRec({cx + 19.0f, top + 2.5f, 3.0f, 3.0f}, {244, 198, 106, 255});
+    DrawRectangleRec({cx - 22.0f, top + 21.5f, 3.0f, 3.0f}, {244, 198, 106, 255});
+    DrawRectangleRec({cx + 19.0f, top + 21.5f, 3.0f, 3.0f}, {244, 198, 106, 255});
+    box(cx + 25.0f, top + 6.0f, 16.0f, 13.0f, {57, 66, 78, 255}, true); // motor pod
+    DrawRectangleRec({cx + 29.5f, top + 9.5f, 4.0f, 4.0f},
+                     cooling ? Color{255, 90, 40, 255}
+                             : turning ? Color{255, 200, 77, 255}
+                                       : Color{80, 225, 255, 255});
+    box(cx - 10.0f, top + 27.0f, 20.0f, 9.0f, {74, 84, 95, 255}, true); // collar clamp
+    box(cx - 7.0f, top + 36.0f, 14.0f, 8.0f, {57, 66, 78, 255}, true);
+}
+
+// The whole strip. Returns nothing; draws rock, hole, string, mud trace.
+// During a trip the string is OUT of the hole: the drawn depth runs the true
+// depth out and back on a half-sine (redline's lift) while the sim depth
+// holds. Everything visual that follows the bit reads this, never depthM.
+// Where the bit rests with no hole under it: just below the collar, so the
+// rig reads as parked rather than as drilling nothing. The end-of-hole hoist
+// lands EXACTLY here, which is why the handover from RETRACTING to DONE does
+// not jump.
+static constexpr float PROS_IDLE_DEPTH_M = 1.5f;
+
+static float ProsShownDepthM(const LineHole& hole)
+{
+    // The hoist at the end of a hole: monotonic, back to the idle pose, on a
+    // smoothstep -- a winch takes up, runs, and eases the last rods in. (The
+    // trip below is the other motion: out AND BACK on a half-sine, because a
+    // trip resumes the same hole.)
+    if (hole.state == LineHoleState::RETRACTING)
+    {
+        float f = hole.pullDur > 0.0f
+                ? std::clamp(hole.pullT / hole.pullDur, 0.0f, 1.0f) : 1.0f;
+        float s = f * f * (3.0f - 2.0f * f);
+        return PROS_IDLE_DEPTH_M + (hole.depthM - PROS_IDLE_DEPTH_M) * (1.0f - s);
+    }
+    if (!hole.tripping || hole.tripDur <= 0.0f) return hole.depthM;
+    float f = std::clamp(hole.tripT / hole.tripDur, 0.0f, 1.0f);
+    return hole.depthM * (1.0f - sinf(f * PI));
+}
+
+static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
+                                 const DockGeom& dg, float clipTop, float clipBot,
+                                 float hoverM, float hoverU, float hoverAlpha,
+                                 const Font& bodyFont, float sp, float fsSmall,
+                                 const Texture2D* strata)
+{
+    (void)unit;
+    const LineHole& hole = ps->lineHole;
+    bool turning = hole.state == LineHoleState::DRILLING && !hole.tripping;
+    bool cooling = turning && hole.dwelling;
+    float surfY = dg.bandTop[0];
+    float botY = dg.bandTop[4];
+
+    // The spin is SCREW-TRUE in ground soft enough to bite: rotation rate is
+    // derived so one turn descends one thread pitch on screen, which is what
+    // locks the auger illusion to the actual advance (campaign: the old fixed
+    // rate was HALF screw-true in regolith -- the drill looked pushed, not
+    // screwed). Hard rock floors at a grind rate: turning faster than it
+    // bites, which is honest. A dwell winds the spin down to a creep; a trip
+    // backs the rods off in slow reverse.
+    float dt = GetFrameTime();
+    if (turning)
+    {
+        int L = LayerOfDepthM(hole.depthM);
+        float pxPerM = (dg.bandTop[L + 1] - dg.bandTop[L]) / LAYER_THICKNESS_M[L];
+        float screwTrue = DrillAdvanceAtM(hole.depthM) * pxPerM * 2.0f * PI / PROS_PITCH;
+        prosSpin -= (cooling ? 1.1f : std::max(screwTrue, 6.0f) * hole.rpm) * dt;
+    }
+    else if (hole.tripping)
+    {
+        prosSpin += 2.4f * dt;
+    }
+
+    BeginScissorMode(static_cast<int>(dg.x * gPixelScale),
+                     static_cast<int>(clipTop * gPixelScale),
+                     static_cast<int>(dg.w * gPixelScale),
+                     static_cast<int>((clipBot - clipTop) * gPixelScale));
+
+    // The stage shakes with the work (redline): a rumble scaling with the
+    // spindle, a jolt when the bit lets go. The whole dock translates as one
+    // rigid console -- rock, string and cursors together -- inside the fixed
+    // scissor and frame, so the console rattles in its mount.
+    {
+        float rpmN0 = hole.rpm / DRILL_RPM_MAX;
+        float burst = std::max(0.0f, 1.0f - (ps->gameTime - hole.fracturedTime) / 0.6f);
+        // The rumble scales with the GROUND: soft regolith hums, basalt
+        // rattles the mount. Base is a whisper -- an idle crawl is near
+        // still, and only drive x hardness earns real shake.
+        float hardSh = DrillHardnessAtM(hole.depthM);
+        float amp = (turning ? rpmN0 * rpmN0 * (0.25f + 1.2f * hardSh) : 0.0f)
+                  + burst * 5.0f;
+        float sx = amp > 0.01f ? (static_cast<float>(GetRandomValue(-100, 100)) / 100.0f) * amp : 0.0f;
+        float sy = amp > 0.01f ? (static_cast<float>(GetRandomValue(-100, 100)) / 100.0f) * amp : 0.0f;
+        rlPushMatrix();
+        rlTranslatef(sx, sy, 0.0f);
+    }
+
+    // sky
+    DrawRectangleRec({dg.x, clipTop, dg.w, surfY - clipTop}, {10, 16, 24, 255});
+    dpGrain = 3;
+    for (int i = 0; i < 8; i++)
+        DrawRectangleRec({dg.x + DpRnd() * dg.w, clipTop + DpRnd() * (surfY - clipTop - 8.0f),
+                          1.4f, 1.4f}, Fade({200, 220, 240, 255}, 0.5f));
+
+    // The rock, full strength: this is the SAME ground the plates float on --
+    // and now literally the same image. One generated texture per stratum,
+    // tiled down the band here (a section) and stretched over the plate there
+    // (a plan view), so the band and the plate beside it are one rock. The
+    // hand-scattered speckle this replaces could not be: it was drawn from a
+    // seeded LCG that only this strip ran.
+    for (int L = 0; L < 4; L++)
+    {
+        float y0 = dg.bandTop[L], y1 = dg.bandTop[L + 1];
+        if (strata != nullptr && strata[L].id != 0)
+        {
+            // x2 against the texture's mean of exactly 128 (rock_texture.h):
+            // a textured band holds the mean tone the flat fill had, so the
+            // stratum palette did not have to be re-tuned for texture.
+            Color tint = { static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].r * 2)),
+                           static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].g * 2)),
+                           static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].b * 2)),
+                           255 };
+            float k = static_cast<float>(RockTexture::SIZE) / DP_ROCK_TEX_PX;
+            // Each band enters the tile at a different row, so four bands of
+            // similar height cannot line up into a visible repeat.
+            float off = static_cast<float>(L) * 41.0f;
+            DrawTexturePro(strata[L], {0.0f, off, dg.w * k, (y1 - y0) * k},
+                           {dg.x, y0, dg.w, y1 - y0}, {0.0f, 0.0f}, 0.0f, tint);
         }
         else
         {
-            DrawRing(c, base * 0.8f, base * 1.05f, 0.0f, 360.0f, 28, {238, 234, 252, 180});
+            DrawRectangleRec({dg.x, y0, dg.w, y1 - y0}, DP_ROCK_COL[L]);
+        }
+        DrawRectangleRec({dg.x, y0, dg.w, 2.0f}, DP_ROCK_EDGE[L]);
+    }
+    DrawRectangleRec({dg.x, surfY - 1.8f, dg.w, 2.0f}, {74, 85, 96, 255});
+
+    // depth figures down the right edge
+    for (int L = 0; L <= 4; L++)
+    {
+        const char* t = TextFormat("%d", static_cast<int>(L == 4 ? FULL_COLUMN_M : LayerTopM(L)));
+        float tw = MeasureTextEx(bodyFont, t, fsSmall, sp).x;
+        DrawTextEx(bodyFont, t, {dg.x + dg.w - tw - 4.0f, dg.bandTop[L] + 3.0f},
+                   fsSmall, sp, Fade(EXT_DIM_TEXT, 0.9f));
+    }
+
+    ProsRig rig;
+    rig.cx = dg.cx; rig.surfY = surfY;
+    prosHeatAmt = hole.heat;
+    // The string is only in the ground while it is cutting or coming out; a
+    // DONE hole is a hole with the rig parked over it.
+    bool stringInGround = hole.state == LineHoleState::DRILLING ||
+                          hole.state == LineHoleState::RETRACTING;
+    float depthShown = stringInGround ? ProsShownDepthM(hole) : PROS_IDLE_DEPTH_M;
+    rig.bitY = dg.YOf(depthShown);
+    rig.coneApex = rig.bitY;                    // the tip IS the depth
+    rig.coneTop = rig.coneApex - PROS_CONE;
+    rig.threadTop = std::max(std::min(rig.bitY - PROS_THREAD_LEN,
+                                      rig.coneTop - 3.0f * PROS_PITCH), surfY + 10.0f);
+    prosHeatBitY = rig.bitY;
+
+    // borehole with ragged walls, cut to the DEEPEST point the bit reached
+    // -- the hole stays a hole while a trip lifts the string out of it
+    // The HOLE outlives the string in it: once cut, it stays cut to the
+    // deepest point the bit reached, through the hoist and after it.
+    float cutY = dg.YOf(hole.state == LineHoleState::NONE ||
+                        hole.state == LineHoleState::AIMING
+                        ? PROS_IDLE_DEPTH_M : hole.depthM);
+    float bw = PROS_DRILL_R * 2.0f + 9.0f;
+    DrawRectangleRec({rig.cx - bw / 2.0f, surfY, bw, cutY - surfY + 4.0f}, {14, 11, 8, 255});
+    dpGrain = 29;
+    for (float y = surfY; y < cutY + 2.0f; y += 7.0f)
+    {
+        DrawRectangleRec({rig.cx - bw / 2.0f - 2.0f - DpRnd() * 2.6f, y, 3.4f + DpRnd() * 2.6f, 6.0f}, Fade(BLACK, 0.8f));
+        DrawRectangleRec({rig.cx + bw / 2.0f - 1.4f + DpRnd() * 2.6f, y, 3.4f + DpRnd() * 2.6f, 6.0f}, Fade(BLACK, 0.8f));
+    }
+    DrawRectangleRec({rig.cx - bw / 2.0f, surfY, 5.0f, cutY - surfY + 4.0f}, Fade(BLACK, 0.45f));
+    DrawRectangleRec({rig.cx + bw / 2.0f - 5.0f, surfY, 5.0f, cutY - surfY + 4.0f}, Fade(BLACK, 0.45f));
+
+    // casing at the collar, spoil mounds either side
+    DrawEllipse(static_cast<int>(rig.cx - 34.0f), static_cast<int>(surfY - 1.0f),
+                16.0f, 6.0f, {70, 62, 49, 255});
+    DrawEllipse(static_cast<int>(rig.cx + 34.0f), static_cast<int>(surfY - 1.0f),
+                16.0f, 6.0f, {70, 62, 49, 255});
+    DrawEllipse(static_cast<int>(rig.cx - 38.0f), static_cast<int>(surfY - 3.0f),
+                6.0f, 2.2f, Fade(WHITE, 0.08f));
+    DrawEllipse(static_cast<int>(rig.cx + 30.0f), static_cast<int>(surfY - 3.0f),
+                6.0f, 2.2f, Fade(WHITE, 0.08f));
+    DrawRectangleRec({rig.cx - 24.0f, surfY - 10.0f, 48.0f, 12.0f}, DP_OUT);
+    DrawRectangleRec({rig.cx - 22.0f, surfY - 8.5f, 44.0f, 9.0f}, {28, 37, 48, 255});
+    DrawRectangleRec({rig.cx - 22.0f, surfY - 8.5f, 44.0f, 1.8f}, Fade(WHITE, 0.18f));
+
+    // the string
+    ProsDrawThread(rig, false);
+    ProsDrawString(rig, clipTop + 4.0f);
+    ProsDrawThread(rig, true);
+
+    // Cracks climb the string as the bit wears (redline's recipe, Dark
+    // Plating hairline over OUT): a 3px near-black jag, a heat-orange glow
+    // pass, a white catch-light offset right. They appear past 0.55 wear and
+    // multiply toward the fracture; fixed per-crack seeds keep each one a
+    // stable feature rather than per-frame noise.
+    if (hole.state == LineHoleState::DRILLING && !hole.tripping && hole.wear > 0.55f)
+    {
+        int n = 1 + static_cast<int>((hole.wear - 0.55f) / 0.45f * 5.0f);
+        for (int i = 0; i < n; i++)
+        {
+            unsigned sd = 48271u * static_cast<unsigned>(i + 3);
+            auto crnd = [&sd]() {
+                sd = sd * 48271u % 2147483647u;
+                return static_cast<float>(sd % 1000u) / 1000.0f;
+            };
+            float y = rig.bitY - 14.0f - crnd() * 110.0f;
+            if (y < surfY + 12.0f) continue;
+            Vector2 p = {rig.cx - PROS_DRILL_R + 1.5f + crnd() * 9.0f, y};
+            for (int s = 0; s < 6; s++)
+            {
+                Vector2 q = {p.x + (crnd() - 0.48f) * 11.0f, p.y + 2.5f + crnd() * 4.5f};
+                DrawLineEx(p, q, 3.0f, {13, 8, 5, 255});
+                DrawLineEx(p, q, 1.2f,
+                           Fade({255, 130, 35, 255},
+                                std::clamp(0.25f + hole.heat, 0.0f, 1.0f)));
+                DrawLineEx({p.x + 1.6f, p.y}, {q.x + 1.6f, q.y}, 1.0f,
+                           Fade(WHITE, 0.28f));
+                p = q;
+            }
         }
     }
-    else if (cell.hasBeenSwept)
+
+    // heat glow pooling at the working point
+    if (hole.heat > 0.04f)
     {
-        DrawCircleV(c, 1.5f, {225, 218, 255, 130});
+        DrawCircleGradient({rig.cx, rig.bitY}, 58.0f,
+                           Fade({255, 110, 30, 255}, 0.42f * hole.heat), BLANK);
     }
+
+    // cuttings ride the flights while the string actually cuts -- more of
+    // them the harder it is driven
+    float rpmN = hole.rpm / DRILL_RPM_MAX;
+    if (turning && !cooling &&
+        prosChips.size() < static_cast<size_t>(20.0f + 60.0f * rpmN))
+        for (int i = 0; i < (rpmN > 0.6f ? 3 : 2); i++)
+            prosChips.push_back({rig.bitY - 6.0f, DpRnd() * 6.28f,
+                                 22.0f + DpRnd() * 22.0f, LayerOfDepthM(hole.depthM)});
+    for (int i = static_cast<int>(prosChips.size()) - 1; i >= 0; i--)
+    {
+        ProsChip& c = prosChips[i];
+        c.y -= c.up * dt * (turning ? (0.4f + 1.2f * rpmN) : 0.2f);
+        c.a -= (2.0f + 8.0f * rpmN) * dt;
+        if (c.y < surfY - 2.0f) { prosChips.erase(prosChips.begin() + i); continue; }
+        Color cc = DP_ROCK_GRAIN[c.layer];
+        DrawRectangleRec({rig.cx + (ProsRadAt(rig, c.y) + 2.2f) * sinf(c.a), c.y, 2.8f, 2.1f},
+                         Fade(cc, cosf(c.a) > 0.0f ? 0.95f : 0.45f));
+    }
+    // debris tumbling in the annulus just above the bit -- never below it
+    if (turning)
+        for (int i = 0; i < 6; i++)
+        {
+            float a = fmodf(ps->gameTime * 0.7f + i * 1.7f, 6.28f);
+            float dy = rig.bitY - 9.0f - fmodf(i * 15.0f + ps->gameTime * 11.0f, 40.0f);
+            if (dy < surfY + 4.0f) continue;
+            DrawRectangleRec({rig.cx + sinf(a) * (ProsRadAt(rig, dy) + 2.0f), dy, 2.6f, 2.6f},
+                             Fade({120, 104, 84, 255}, 0.7f));
+        }
+    // sparks where hard rock is being cut
+    float hardNow = DrillHardnessAtM(hole.depthM);
+    if (turning && !cooling && hardNow > 0.5f)
+        for (int i = 0; i < static_cast<int>(8.0f * hardNow * (0.3f + rpmN)); i++)
+        {
+            float a = static_cast<float>(GetRandomValue(0, 314)) / 100.0f;
+            float r2 = 6.0f + static_cast<float>(GetRandomValue(0, 220)) / 10.0f;
+            DrawRectangleRec({rig.cx + cosf(a) * r2,
+                              rig.bitY + 6.0f - static_cast<float>(GetRandomValue(0, 60)) / 10.0f
+                              + sinf(a) * 5.0f, 2.2f, 2.2f},
+                             Fade({255, static_cast<unsigned char>(170 + GetRandomValue(0, 70)), 60, 255},
+                                  0.4f + static_cast<float>(GetRandomValue(0, 50)) / 100.0f));
+        }
+
+    // the prescribed line, mud projection: shadow + advance below the bit
+    if (hole.state != LineHoleState::NONE)
+    {
+        float endY = dg.YOf(hole.endM);
+        Vector2 tip = {rig.cx, dg.YOf(std::min(ProsShownDepthM(hole), hole.endM)) + 3.0f};
+        if (hole.depthM < hole.endM - 0.5f)
+        {
+            DrawLineEx(tip, {rig.cx, endY}, 6.0f, Fade(EXT_ACCENT_CYAN, 0.10f));
+            DrawLineEx(tip, {rig.cx, endY}, 1.0f, Fade(PROS_SHADOW_HAIR, 0.30f));
+            DpDashed(tip, {rig.cx, endY}, 4.0f, 8.0f, -ps->gameTime * 26.0f,
+                       1.3f, Fade(EXT_ACCENT_CYAN, 0.55f));
+            DrawRectangleRec({rig.cx - 5.0f, endY, 10.0f, 1.6f}, EXT_ACCENT_CYAN);
+        }
+        // assay ticks accrue down the drilled wall, Measured green
+        for (float m = 6.0f; m < hole.depthM; m += 6.0f)
+            DrawRectangleRec({rig.cx + PROS_DRILL_R + 6.0f, dg.YOf(m), 3.4f, 1.5f}, EXT_ACCENT_GREEN);
+        // Twin cursor -- one dot per projection, so it exists only while
+        // there is a bit for it to mark (Dark Plating section 9.3).
+        if (stringInGround)
+        {
+            float pulse = 3.9f + 1.1f * sinf(ps->gameTime * 12.6f);
+            DpFillDiamond(tip.x, tip.y, pulse + 1.4f, DP_OUT);
+            DpFillDiamond(tip.x, tip.y, pulse, {244, 198, 106, 255});
+        }
+    }
+
+    // past the redline the whole face warms -- felt before the gauge is read
+    if (hole.heat > 0.78f)
+        DrawRectangleRec({dg.x, clipTop, dg.w, clipBot - clipTop},
+                         Fade({255, 60, 20, 255}, 0.10f * (hole.heat - 0.78f) / 0.22f));
+
+    ProsDrawHead(rig.cx, surfY, clipTop, turning, cooling);
+
+    // The core log (redline's third panel, folded into the dock): one lane
+    // down the left edge, each stick graded by the thermal dose it was cut
+    // under, in redline's own log legend. Sticks are counted PER STRATUM,
+    // so they come out equal height on screen AND level with the string --
+    // a fixed metre length could not be both, because the strip gives every
+    // stratum an equal band while they hold 12/22/34/52 m.
+    if (hole.state != LineHoleState::NONE)
+    {
+        float lx = dg.x + 4.0f, lw = 7.0f;
+        float laneH = botY - surfY;
+        // One ground joins the panels (Dark Plating section 9.1): the lane
+        // reads depth through the SAME mapping as the strip and the string.
+        DrawRectangleRec({lx - 1.5f, surfY - 1.5f, lw + 3.0f, laneH + 3.0f},
+                         DP_OUT);
+        for (int iv = 0; iv < PROS_LOG_INTERVALS; iv++)
+        {
+            float m0 = ProsLogTopM(iv);
+            float m1 = ProsLogBottomM(iv);
+            // Drawn through the STRIP's mapping, so the record stands level
+            // with the string beside it. Equal sticks per stratum keep every
+            // bar the same height even though the mapping is per-band.
+            // Pixel-snapped: fractional stick edges rasterised to uneven
+            // 0/1/2 px gaps, which read as random breaks in the record.
+            float y0 = floorf(dg.YOf(m0)) + 1.0f;
+            float y1 = floorf(dg.YOf(m1));
+            if (y1 <= y0) continue;
+            Color fill = {15, 24, 33, 255};                      // uncut
+            switch (hole.logQ[iv])
+            {
+                case 3: fill = {147, 167, 184, 255}; break;      // intact
+                case 2: fill = {92, 102, 117, 255};  break;      // partial
+                case 1: fill = {58, 30, 22, 255};    break;      // lost: hot, not a hole
+                default: break;
+            }
+            DrawRectangleRec({lx, y0, lw, y1 - y0}, fill);
+            if (hole.logQ[iv] == 1)
+                DrawRectangleLinesEx({lx, y0, lw, y1 - y0}, 1.0f, {150, 62, 34, 255});
+            // volatiles tick on cut sticks of the icy stratum. Sticks are
+            // per-stratum now, so this is a layer test, not a straddle test.
+            if (hole.logQ[iv] != 0 && iv / PROS_LOG_PER_LAYER == 2)
+                DrawRectangleRec({lx, y0, 2.0f, y1 - y0}, Fade(DP_ICE_FLECK, 0.85f));
+        }
+        // stratum seams, so the lane's linear scale stays tied to the rock
+        for (int L = 1; L < 4; L++)
+            DrawRectangleRec({lx - 1.5f, dg.YOf(LayerTopM(L)) - 0.5f,
+                              lw + 3.0f, 1.2f}, Fade(DP_ROCK_EDGE[L], 0.9f));
+        // the core-landing flash still pings the whole stratum it came from
+        for (int L = 0; L < 4; L++)
+        {
+            if (!hole.cored[L]) continue;
+            float flash = 1.0f - (ps->gameTime - hole.coredTime[L]) / 0.5f;
+            if (flash > 0.0f)
+                DrawRectangleRec({lx, dg.YOf(LayerTopM(L)), lw,
+                                  dg.YOf(LayerBottomM(L)) - dg.YOf(LayerTopM(L))},
+                                 Fade(WHITE, 0.6f * flash));
+        }
+        // The bit's own tick rides the lane as a third cursor, centred on the
+        // SAME point as the strip's amber diamond (which sits +3 px, on the
+        // cone tip) -- twin cursors share one ground, so they must be level to
+        // the pixel, not merely close.
+        DrawRectangleRec({lx - 1.5f, dg.YOf(std::min(depthShown, hole.endM)) + 2.0f,
+                          lw + 3.0f, 2.0f}, {244, 198, 106, 255});
+
+        // The lane's legend, redline's own chip, bottom-right of the box:
+        // a small backed console plate so it reads on any rock behind it.
+        {
+            float gw = 42.0f, gh = 42.0f;
+            float gx = dg.x + dg.w - gw - 5.0f;
+            float gy = botY - gh - 5.0f;
+            DrawRectangleRec({gx - 1.5f, gy - 1.5f, gw + 3.0f, gh + 3.0f}, DP_OUT);
+            DrawRectangleRec({gx, gy, gw, gh}, {13, 21, 30, 235});
+            struct { Color c; const char* n; } items[4] = {
+                {{147, 167, 184, 255}, "INTCT"},
+                {{92, 102, 117, 255},  "PART"},
+                {{58, 30, 22, 255},    "LOST"},
+                {DP_ICE_FLECK,       "ICE"},
+            };
+            for (int k = 0; k < 4; k++)
+            {
+                float ry = gy + 3.0f + k * 10.0f;
+                DrawRectangleRec({gx + 4.0f, ry + 1.0f, 6.0f, 6.0f}, items[k].c);
+                if (k == 2)
+                    DrawRectangleLinesEx({gx + 4.0f, ry + 1.0f, 6.0f, 6.0f},
+                                         1.0f, {150, 62, 34, 255});
+                DrawTextEx(bodyFont, items[k].n, {gx + 14.0f, ry},
+                           fsSmall, sp, EXT_DIM_TEXT);
+            }
+        }
+    }
+
+    // The other half of the hover twin cursor. The plane's depth is ONE
+    // number, so the guide sits level and only the dot travels -- sideways,
+    // tracking where across the section the pointer is. A cursor that walked
+    // up and down as the pointer crossed a plane was the whole misreading:
+    // it made the screen axis running away from the viewer look like depth.
+    if (hoverM >= 0.0f)
+    {
+        float hy = dg.YOf(hoverM);
+        DrawLineEx({dg.x + 14.0f, hy}, {dg.x + dg.w - 24.0f, hy}, 1.0f,
+                   Fade(EXT_ACCENT_CYAN, 0.30f * hoverAlpha));
+        const char* dm = TextFormat("%.0f", hoverM);
+        DrawTextEx(bodyFont, dm, {dg.x + dg.w - 21.0f, hy - 4.0f},
+                   fsSmall, sp, Fade(EXT_ACCENT_CYAN, 0.85f * hoverAlpha));
+        if (hoverU >= 0.0f)
+        {
+            float hx = dg.x + 8.0f + std::clamp(hoverU, 0.0f, 1.0f) * (dg.w - 34.0f);
+            DrawCircleV({hx, hy}, 3.4f, Fade(DP_OUT, 0.85f * hoverAlpha));
+            DrawCircleV({hx, hy}, 2.0f, Fade(EXT_ACCENT_CYAN, hoverAlpha));
+        }
+    }
+
+    // tag, bottom-right
+    {
+        const char* tag = "BOREHOLE";
+        float tw = MeasureTextEx(bodyFont, tag, fsSmall, sp).x;
+        (void)tw;
+        DrawTextEx(bodyFont, tag, {dg.x + 5.0f, botY + 5.0f},
+                   fsSmall, sp, EXT_DIM_TEXT);
+    }
+    rlPopMatrix();
+    EndScissorMode();
+
+    // border: solid except the model-facing edge, which is a dashed cut mark
+    DrawLineEx({dg.x, clipTop}, {dg.x + dg.w, clipTop}, 1.0f, EXT_PANEL_BORDER);
+    DrawLineEx({dg.x, clipBot}, {dg.x + dg.w, clipBot}, 1.0f, EXT_PANEL_BORDER);
+    DrawLineEx({dg.x + dg.w, clipTop}, {dg.x + dg.w, clipBot}, 1.0f, EXT_PANEL_BORDER);
+    DpDashed({dg.x, clipTop}, {dg.x, clipBot}, 4.0f, 5.0f, 0.0f, 1.0f,
+               Fade(EXT_PANEL_BORDER, 0.9f));
 }
+
+// One point of the prescribed line in BLOCK space: the point sits ON ITS
+// PLATE, at the drawn position of the cell the line passes through there --
+// on the plate's SURFACE, at the height the cell was drawn with, which is
+// also what the pick hit when the player clicked it. (Lift 0 put the collar
+// up to a full relief under the mound it was clicked on.)
+// The earlier band-space form (dg.YOf(m) + iso row offset) double-counted
+// the row -- the row IS the depth under the plate-slab mapping -- so both
+// ends drifted off the clicked cells, worst at the plate corners.
+static Vector2 ProsLinePoint(ProspectingSystem* ps, const BlockModelGeom& g,
+                             const BlockPlateLift& pl, float m)
+{
+    float fx = 0.0f, fy = 0.0f;
+    ps->GetLineCell(m, fx, fy);
+    int L = LayerOfDepthM(std::min(m, ps->lineHole.endM));
+    int ci = static_cast<int>(floorf(fx)), cj = static_cast<int>(floorf(fy));
+    return g.Iso(fx + 0.5f, fy + 0.5f, L, pl.At(g, L, ci, cj));
+}
+static Vector2 ProsTraceAt(ProspectingSystem* ps, const BlockModelGeom& g,
+                           const DockGeom& dg, const BlockPlateLift& pl, float m)
+{
+    const LineHole& hole = ps->lineHole;
+    Vector2 P0 = ProsLinePoint(ps, g, pl, 0.0f);
+    Vector2 P1 = ProsLinePoint(ps, g, pl, hole.endM);
+    float u = (dg.YOf(m) - dg.YOf(0.0f)) / std::max(1.0f, dg.YOf(hole.endM) - dg.YOf(0.0f));
+    return {P0.x + (P1.x - P0.x) * u, P0.y + (P1.y - P0.y) * u};
+}
+
+// The prescribed line over the stack: shadow, string, advance, twin cursor,
+// crossing rings, flip flash, active-plate rim (Dark Plating section 9).
+static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
+                               const DockGeom& dg, const BlockPlateLift& pl)
+{
+    const LineHole& hole = ps->lineHole;
+    // The line over the plates is the LIVE OPERATION, not a record: a hole
+    // being aimed, cut, or hoisted out of. When the string clears the collar
+    // the line goes with it, leaving the plates showing only what the hole
+    // taught them (cored cells, flipped classes). The record of the hole
+    // itself lives in the dock -- the borehole and the core log lane.
+    if (hole.state == LineHoleState::NONE ||
+        hole.state == LineHoleState::DONE) return;
+
+    Vector2 P0 = ProsTraceAt(ps, g, dg, pl, 0.0f);
+    Vector2 P1 = ProsTraceAt(ps, g, dg, pl, hole.endM);
+    Vector2 Pn = ProsTraceAt(ps, g, dg, pl, std::min(ProsShownDepthM(hole), hole.endM));
+
+    // shadow of the full prescribed path -- always there, quiet
+    DrawLineEx(P0, P1, 6.0f, Fade(EXT_ACCENT_CYAN, 0.10f));
+    DrawLineEx(P0, P1, 1.0f, Fade(PROS_SHADOW_HAIR, 0.30f));
+    // the advance, progressing along the shadow
+    if (hole.depthM < hole.endM - 0.5f)
+        DpDashed(Pn, P1, 4.0f, 8.0f, -ps->gameTime * 26.0f, 1.3f,
+                   Fade(EXT_ACCENT_CYAN, 0.55f));
+    // the string: barber-pole banding on the drill's own spin
+    if (hole.depthM > 0.5f)
+    {
+        DrawLineEx(P0, Pn, 5.0f, DP_OUT);
+        DrawLineEx(P0, Pn, 3.0f, PROS_STRING_MID);
+        DpDashed(P0, Pn, 6.0f, 10.0f, prosSpin * 6.0f, 3.0f, PROS_STRING_LIT);
+    }
+
+    // crossing rings + flip flash on the cells the line cored
+    for (int L = 0; L <= hole.targetLayer; L++)
+    {
+        if (!hole.cored[L]) continue;
+        int cx = 0, cy = 0;
+        ps->GetCrossingCell(L, cx, cy);
+        Vector2 c = g.Iso(cx + 0.5f, cy + 0.5f, L, 0.0f);
+        DrawCircleV(c, 2.6f, DP_OUT);
+        DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 2.6f, EXT_TEXT);
+        float pop = 1.0f - (ps->gameTime - hole.coredTime[L]) / 0.5f;
+        if (pop > 0.0f)
+        {
+            Vector2 q[4] = { g.Iso(static_cast<float>(cx),     static_cast<float>(cy),     L, 0.0f),
+                             g.Iso(static_cast<float>(cx + 1), static_cast<float>(cy),     L, 0.0f),
+                             g.Iso(static_cast<float>(cx + 1), static_cast<float>(cy + 1), L, 0.0f),
+                             g.Iso(static_cast<float>(cx),     static_cast<float>(cy + 1), L, 0.0f) };
+            DpFillQuad(q[0], q[1], q[2], q[3], Fade(WHITE, 0.55f * pop));
+        }
+    }
+
+    // The active-plate rim lives in DrawBlockLayer, which knows the
+    // per-corner lifts it has to hug. Its pulse rides this same clock.
+
+    // twin cursor, same clock as the mud panel's
+    float pulse = 3.9f + 1.1f * sinf(ps->gameTime * 12.6f);
+    DpFillDiamond(Pn.x, Pn.y, pulse + 1.4f, DP_OUT);
+    DpFillDiamond(Pn.x, Pn.y, pulse, {244, 198, 106, 255});
+}
+
 
 void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 {
@@ -4311,7 +5580,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     auto* ps = unit->GetProspectingSystem();
     ps->gameTime += GetFrameTime();
-    Vector2 mouse = GetMousePosition();
+    if (ps->UpdateLineHole(GetFrameTime()))
+    {
+        unit->PublicShowMessage("Line complete - every layer it crossed is cored");
+    }
+    Vector2 mouse = ColonyGetMousePosition();
 
     // --- Header: icon + title, calibration gauge on the right ---
     float yPos = static_cast<float>(y + padding);
@@ -4333,43 +5606,6 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                FS(12.0f), sp, EXT_TEXT);
     yPos += 32.0f;
 
-    // --- Stage tabs ---
-    float tabGap = 6.0f;
-    float tabW = (pw - tabGap * 2.0f) / 3.0f;
-    float tabH = 30.0f;
-    const char* tabNames[] = {"SWEEP", "SAMPLES", "LAB"};
-    ProspectingTab tabs[] = {ProspectingTab::SWEEP, ProspectingTab::SAMPLES, ProspectingTab::LAB};
-
-    for (int i = 0; i < 3; i++)
-    {
-        Rectangle tabRect = {px + i * (tabW + tabGap), yPos, tabW, tabH};
-        bool isActive = (ps->activeTab == tabs[i]);
-        bool isHover = CheckCollisionPointRec(mouse, tabRect);
-
-        if (isActive)
-        {
-            DrawRectangleRounded(tabRect, 0.3f, 4, {16, 48, 58, 255});
-            DrawRectangleRoundedLinesEx(tabRect, 0.3f, 4, 1.5f, PROS_TAB_ACTIVE_BDR);
-        }
-        else
-        {
-            DrawRectangleRounded(tabRect, 0.3f, 4, isHover ? Color{16, 26, 44, 255} : EXT_PANEL_BG2);
-            DrawRectangleRoundedLinesEx(tabRect, 0.3f, 4, 1.0f, PROS_TAB_BORDER);
-        }
-
-        Color textColor = isActive ? PROS_TAB_ACTIVE_BDR : (isHover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT);
-        Vector2 textSize = MeasureTextEx(headerFont, tabNames[i], FS(11.0f), sp);
-        DrawTextEx(headerFont, tabNames[i],
-                   {tabRect.x + (tabW - textSize.x) / 2, tabRect.y + (tabH - textSize.y) / 2},
-                   FS(11.0f), sp, textColor);
-
-        if (isHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            ps->activeTab = tabs[i];
-        }
-    }
-    yPos += tabH + 12.0f;
-
     // --- Content area ---
     float contentY = yPos;
     float contentH = static_cast<float>(y + h - padding) - yPos;
@@ -4377,952 +5613,1309 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     auto& grid = ps->GetGrid();
     int gridSize = grid.GetGridSize();
 
-    if (ps->activeTab == ProspectingTab::SWEEP)
+    // =======================================================================
+    // ONE SCREEN. No tabs.
+    //
+    // The tabs were SWEEP / SAMPLES / LAB. All three are gone:
+    //
+    //   SWEEP   was one action with one parameter, and never needed a screen.
+    //   SAMPLES held the real decision -- where and how deep -- parked next to
+    //           a tray of crystals, which is what made it feel like inventory.
+    //   LAB     asked you to assay a core you had already paid to drill. That
+    //           is not a choice, it is a delay with a UI: a recovered core is
+    //           rock you are holding, so what it cuts is known.
+    //
+    // What is left is the model, and two things you can do to it: sweep the
+    // surface, or drill a spot. See docs/design/prospecting/block-model-design.md
+    // =======================================================================
+
+    float dockW = 104.0f;
+    float modelW = pw * 0.60f - dockW;
+    float modelH = contentH - 30.0f;
+    float gridX = px;
+    float gridY = contentY;
+
+    // Which element the relief is showing. Confidence -- and so the class
+    // envelopes -- are the same for every element, because one core is assayed
+    // for all of them; only the height field and the tonnage change. Until the
+    // switcher exists, show the cell's richest.
+    ResourceType shown = ResourceType::Fe;
     {
-        // === SWEEP TAB ===
-        float gridAreaW = std::min(pw * 0.58f, contentH - 10.0f);
-        float cellSize = gridAreaW / gridSize;
-        float gridX = px;
-        float gridY = contentY;
-
-        // Tracked while drawing so the out-of-range tooltip can be drawn last
-        int lockedHoverX = -1;
-        int lockedHoverY = -1;
-
-        float cellGap = 5.0f;
-        for (int gy = 0; gy < gridSize; gy++)
+        float best = -1.0f;
+        for (const auto& kv : grid.GetGroundTruth(gridSize / 2, gridSize / 2,
+                                                  DepthLayer::SURFACE))
         {
-            for (int gx = 0; gx < gridSize; gx++)
-            {
-                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
-                                      cellSize - cellGap, cellSize - cellGap};
-
-                bool hover = CheckCollisionPointRec(mouse, cellRect);
-
-                if (!grid.IsInReach(gx, gy))
-                {
-                    ProsDrawLockedCell(cellRect, hover);
-                    if (hover)
-                    {
-                        lockedHoverX = gx;
-                        lockedHoverY = gy;
-                    }
-                    continue;
-                }
-
-                const SubCell& cell = grid.GetSubCell(gx, gy);
-                Color fill = {0, 0, 0, 0};
-                if (cell.hasBeenSwept)
-                {
-                    fill = ProsSweepHeatColor(cell.sweepSignal);
-                    fill.a = 115;   // muted plum over the dark base, per the mock
-                }
-
-                bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
-                ProsDrawCellBase(cellRect, fill, selected, hover);
-                ProsDrawCellMarker(cellRect, cell);
-
-                if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    ps->selectedCellX = gx;
-                    ps->selectedCellY = gy;
-                }
-            }
-        }
-
-        // Reach legend under the grid
-        float legendY = gridY + gridSize * cellSize + 2.0f;
-        DrawTextEx(bodyFont,
-                   TextFormat("SURVEY RANGE  %dx%d of %dx%d",
-                              grid.GetReach(), grid.GetReach(), gridSize, gridSize),
-                   {gridX, legendY}, FS(9.0f), sp, EXT_DIM_TEXT);
-        if (grid.GetReach() < gridSize)
-        {
-            const char* rangeHint = "Higher tiers extend range";
-            float hintW = MeasureTextEx(bodyFont, rangeHint, FS(9.0f), sp).x;
-            DrawTextEx(bodyFont, rangeHint,
-                       {gridX + gridAreaW - cellGap - hintW, legendY}, FS(9.0f), sp,
-                       Fade(EXT_DIM_TEXT, 0.7f));
-        }
-
-        // Out-of-range tooltip, drawn last so it sits above the grid
-        if (lockedHoverX >= 0)
-        {
-            int needTier = TierRequiredForSubCell(lockedHoverX, lockedHoverY);
-            const char* line1 = "OUT OF RANGE";
-            const char* line2 = needTier >= 0
-                ? TextFormat("Tier %d extends survey range here", needTier)
-                : "Unreachable";
-
-            float w = std::max(MeasureTextEx(headerFont, line1, FS(10.0f), sp).x,
-                               MeasureTextEx(bodyFont, line2, FS(9.0f), sp).x) + 20.0f;
-            float h = 38.0f;
-            float tx = std::min(mouse.x + 14.0f, px + pw - w);
-            float ty = std::min(mouse.y + 14.0f, static_cast<float>(y + h) - 48.0f);
-
-            DrawRectangleRounded({tx, ty, w, h}, 0.2f, 4, {12, 18, 32, 245});
-            DrawRectangleRoundedLinesEx({tx, ty, w, h}, 0.2f, 4, 1.0f, EXT_PANEL_BORDER);
-            DrawTextEx(headerFont, line1, {tx + 10.0f, ty + 7.0f}, FS(10.0f), sp, EXT_ACCENT_GOLD);
-            DrawTextEx(bodyFont, line2, {tx + 10.0f, ty + 21.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
-        }
-
-        // Sweep controls (right of grid)
-        float ctrlX = gridX + gridAreaW + 15.0f;
-        float ctrlY = contentY;
-        float ctrlW = pw - gridAreaW - 15.0f;
-
-        DrawTextEx(headerFont, "FREQUENCY BAND", {ctrlX, ctrlY}, FS(12.0f), sp, EXT_HEADER_COLOR);
-        ctrlY += 22.0f;
-
-        for (int band = 0; band < SWEEP_FREQUENCY_BANDS; band++)
-        {
-            bool affordable = ProsCanAfford(unit, SWEEP_ENERGY_COST[band]);
-            bool canSweep = ps->GetSweep().CanSweep(grid, band) && affordable;
-            bool alreadySwept = grid.HasSweptFrequency(band);
-            Rectangle bandBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 26.0f};
-            bool hover = CheckCollisionPointRec(mouse, bandBtn);
-            bool selectedBand = (ps->selectedFrequencyBand == band);
-
-            Color fillCol = selectedBand ? Color{14, 44, 56, 255}
-                                         : (hover && canSweep ? Color{16, 26, 44, 255} : EXT_PANEL_BG2);
-            DrawRectangleRounded(bandBtn, 0.35f, 4, fillCol);
-            if (alreadySwept && !selectedBand)
-                DrawRectangleRounded(bandBtn, 0.35f, 4, {0, 204, 221, 16});
-            DrawRectangleRoundedLinesEx(bandBtn, 0.35f, 4, selectedBand ? 1.5f : 1.0f,
-                                        selectedBand ? PROS_TAB_ACTIVE_BDR
-                                                     : (canSweep ? PROS_BTN_BORDER : PROS_BTN_DISABLED));
-
-            Color textCol = selectedBand ? EXT_TEXT
-                                         : (!canSweep ? PROS_BTN_DISABLED
-                                                      : (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT));
-            DrawTextEx(headerFont, TextFormat("BAND %d", band),
-                       {ctrlX + 10.0f, ctrlY + 6.0f}, FS(10.0f), sp, textCol);
-            const char* costLabel = TextFormat("%.0f E", SWEEP_ENERGY_COST[band]);
-            float costW = MeasureTextEx(bodyFont, costLabel, FS(10.0f), sp).x;
-            DrawTextEx(bodyFont, costLabel,
-                       {ctrlX + ctrlW - 20.0f - costW, ctrlY + 6.0f}, FS(10.0f), sp, textCol);
-
-            if (hover && canSweep && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                ps->selectedFrequencyBand = band;
-            }
-            ctrlY += 32.0f;
-        }
-
-        ctrlY += 10.0f;
-        Rectangle sweepBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 34.0f};
-        float sweepCost = SWEEP_ENERGY_COST[ps->selectedFrequencyBand];
-        bool canSweepNow = ps->GetSweep().CanSweep(grid, ps->selectedFrequencyBand) &&
-                           ProsCanAfford(unit, sweepCost);
-        bool sweepHover = CheckCollisionPointRec(mouse, sweepBtn);
-
-        Color runFill = !canSweepNow ? Color{16, 22, 38, 255}
-                                     : (sweepHover ? Color{20, 56, 96, 255} : Color{14, 40, 70, 255});
-        DrawRectangleRounded(sweepBtn, 0.3f, 4, runFill);
-        DrawRectangleRoundedLinesEx(sweepBtn, 0.3f, 4, 1.5f,
-                                    canSweepNow ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
-
-        const char* runLabel = "RUN SWEEP";
-        float runW = MeasureTextEx(headerFont, runLabel, FS(12.0f), sp).x;
-        Color runText = canSweepNow ? (sweepHover ? WHITE : EXT_ACCENT_CYAN) : PROS_BTN_DISABLED;
-        DrawTextEx(headerFont, runLabel,
-                   {sweepBtn.x + (sweepBtn.width - runW) / 2.0f - 10.0f, ctrlY + 9.0f},
-                   FS(12.0f), sp, runText);
-        ExtDrawChevrons(sweepBtn.x + (sweepBtn.width + runW) / 2.0f + 4.0f, ctrlY + 17.0f,
-                        5.0f, runText);
-
-        if (sweepHover && canSweepNow && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            if (ProsChargeEnergy(unit, sweepCost, "sweep"))
-            {
-                ps->GetSweep().ExecuteSweep(ps->GetGrid(), ps->selectedFrequencyBand, ps->gameTime);
-            }
-        }
-
-        ctrlY += 46.0f;
-
-        // Sweep history
-        const auto& sweepHist = grid.GetSweepHistory();
-        if (!sweepHist.empty())
-        {
-            DrawTextEx(bodyFont, TextFormat("Sweeps: %d", static_cast<int>(sweepHist.size())),
-                       {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
-            ctrlY += 16.0f;
-        }
-
-        float calQ = ps->GetSweep().GetCalibrationQuality();
-        bool calibrating = ps->GetSweep().IsCalibrating();
-
-        DrawTextEx(bodyFont, TextFormat("Calibration: %.0f%%", calQ * 100.0f),
-                   {ctrlX, ctrlY}, FS(10.0f), sp, calQ >= 0.8f ? EXT_ACCENT_GREEN : PROS_MSG_ALERT);
-        ctrlY += 18.0f;
-
-        // CALIBRATE: restores quality to 100%, blocks sweeping while it runs
-        Rectangle calBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 26.0f};
-        bool calHover = CheckCollisionPointRec(mouse, calBtn);
-        bool calNeeded = calQ < 0.999f;
-        bool calEnabled = calNeeded && !calibrating;
-
-        Color calFill = calibrating ? Color{16, 40, 48, 255}
-                                    : (!calEnabled ? Color{14, 20, 34, 255}
-                                                   : (calHover ? Color{20, 50, 66, 255}
-                                                               : EXT_PANEL_BG2));
-        DrawRectangleRounded(calBtn, 0.3f, 4, calFill);
-
-        if (calibrating)
-        {
-            // Progress fill
-            float prog = ps->GetSweep().GetCalibrationProgress();
-            if (prog > 0.01f)
-            {
-                DrawRectangleRounded({calBtn.x + 2.0f, calBtn.y + 2.0f,
-                                      (calBtn.width - 4.0f) * prog, calBtn.height - 4.0f},
-                                     0.3f, 4, Fade(EXT_ACCENT_CYAN, 0.25f));
-            }
-        }
-
-        DrawRectangleRoundedLinesEx(calBtn, 0.3f, 4, calibrating ? 1.5f : 1.0f,
-                                    calibrating ? EXT_ACCENT_CYAN
-                                                : (calEnabled ? PROS_BTN_BORDER : PROS_BTN_DISABLED));
-
-        const char* calLabel = calibrating
-            ? TextFormat("CALIBRATING %.0f%%", ps->GetSweep().GetCalibrationProgress() * 100.0f)
-            : (calNeeded ? "CALIBRATE" : "CALIBRATED");
-        Color calText = calibrating ? EXT_ACCENT_CYAN
-                                    : (calEnabled ? (calHover ? WHITE : PROS_BTN_TEXT_HOVER)
-                                                  : PROS_BTN_DISABLED);
-        float calLabelW = MeasureTextEx(headerFont, calLabel, FS(10.0f), sp).x;
-        DrawTextEx(headerFont, calLabel,
-                   {calBtn.x + (calBtn.width - calLabelW) / 2.0f, calBtn.y + 7.0f},
-                   FS(10.0f), sp, calText);
-
-        if (calHover && calEnabled && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            ps->GetSweep().StartCalibration();
-            unit->PublicShowMessage("Calibrating sweep instrument...");
-        }
-        ctrlY += 32.0f;
-
-        // Cell info tooltip
-        if (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
-            ps->selectedCellY >= 0 && ps->selectedCellY < gridSize)
-        {
-            ctrlY += 8.0f;
-            DrawTextEx(headerFont, TextFormat("CELL (%d,%d)", ps->selectedCellX, ps->selectedCellY),
-                       {ctrlX, ctrlY}, FS(11.0f), sp, EXT_ACCENT_CYAN);
-            ctrlY += 18.0f;
-
-            const SubCell& selCell = grid.GetSubCell(ps->selectedCellX, ps->selectedCellY);
-            DrawTextEx(bodyFont, TextFormat("Signal: %.2f", selCell.sweepSignal),
-                       {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
-            ctrlY += 14.0f;
-            DrawTextEx(bodyFont, TextFormat("Confidence: %s", ProsConfLabel(selCell.aggregateConfidence)),
-                       {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
-            ctrlY += 14.0f;
-            DrawTextEx(bodyFont, TextFormat("Samples: %d", static_cast<int>(selCell.sampleIds.size())),
-                       {ctrlX, ctrlY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            if (kv.second > best) { best = kv.second; shown = kv.first; }
         }
     }
-    else if (ps->activeTab == ProspectingTab::SAMPLES)
+
+    BlockModelGeom geom = MakeBlockGeom(gridSize, gridX, gridY, modelW, modelH);
+    DockGeom dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
+
+    // The powerhead needs sky. If the stack starts too close to the panel
+    // top (it did on the playtest layout, and the head was scissored away),
+    // push it down and rebuild -- the strip's bands are derived from the
+    // plate slots, so both move together and stay aligned.
     {
-        // === SAMPLES TAB ===
-        float gridAreaW = std::min(pw * 0.55f, contentH - 40.0f);
-        float cellSize = gridAreaW / gridSize;
-        float gridX = px;
-        float gridY = contentY;
-
-        // Draw grid with element tints for sampled cells
-        for (int gy = 0; gy < gridSize; gy++)
+        float sky = dock.bandTop[0] - contentY;
+        if (sky < 64.0f)
         {
-            for (int gx = 0; gx < gridSize; gx++)
-            {
-                Rectangle cellRect = {gridX + gx * cellSize, gridY + gy * cellSize,
-                                      cellSize - 5.0f, cellSize - 5.0f};
-
-                if (!grid.IsInReach(gx, gy))
-                {
-                    ProsDrawLockedCell(cellRect, CheckCollisionPointRec(mouse, cellRect));
-                    continue;
-                }
-
-                const SubCell& cell = grid.GetSubCell(gx, gy);
-                Color fill = {0, 0, 0, 0};
-                if (cell.hasBeenSwept)
-                {
-                    fill = ProsSweepHeatColor(cell.sweepSignal);
-                    fill.a = 55;
-                }
-
-                bool hover = CheckCollisionPointRec(mouse, cellRect);
-                bool selected = (ps->selectedCellX == gx && ps->selectedCellY == gy);
-                ProsDrawCellBase(cellRect, fill, selected, hover);
-
-                if (!cell.sampleIds.empty())
-                {
-                    auto gt = grid.GetGroundTruth(gx, gy, DepthLayer::SURFACE);
-                    ResourceType dominant = ResourceType::Fe;
-                    float maxVal = 0.0f;
-                    for (const auto& [t, v] : gt)
-                    {
-                        if (v > maxVal) { maxVal = v; dominant = t; }
-                    }
-                    Color elemColor = ProsElementColor(dominant);
-                    elemColor.a = 60;
-                    DrawRectangleRounded({cellRect.x + 2, cellRect.y + 2,
-                                          cellRect.width - 4, cellRect.height - 4}, 0.22f, 4, elemColor);
-
-                    float dotR = cellRect.width * 0.16f;
-                    DrawCircle(static_cast<int>(cellRect.x + cellRect.width / 2),
-                               static_cast<int>(cellRect.y + cellRect.height / 2),
-                               dotR, ProsElementColor(dominant));
-                }
-
-                if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-                {
-                    ps->selectedCellX = gx;
-                    ps->selectedCellY = gy;
-                }
-            }
-        }
-
-        // Right side: depth selector + collect button + tray
-        float ctrlX = gridX + gridAreaW + 15.0f;
-        float ctrlY = contentY;
-        float ctrlW = pw - gridAreaW - 15.0f;
-
-        DrawTextEx(headerFont, "DEPTH LAYER", {ctrlX, ctrlY}, FS(12.0f), sp, EXT_HEADER_COLOR);
-        ctrlY += 22.0f;
-
-        DepthLayer depths[] = {DepthLayer::SURFACE, DepthLayer::SHALLOW, DepthLayer::MID, DepthLayer::DEEP};
-        for (int d = 0; d < 4; d++)
-        {
-            bool tierAllows = ps->GetSampler().CanDrill(depths[d]);
-            bool canDrill = tierAllows;   // selection stays legal; COLLECT gates on energy
-            Rectangle depthBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 22.0f};
-            bool hover = CheckCollisionPointRec(mouse, depthBtn);
-            bool selected = (ps->selectedDepth == depths[d]);
-
-            // Radio-style rows: this is a selection list, not an action
-            // button -- COLLECT below is the action.
-            Color borderCol = canDrill ? (selected ? Fade(PROS_TAB_ACTIVE_BDR, 0.7f) : Fade(PROS_BTN_BORDER, 0.7f))
-                                       : Fade(PROS_BTN_DISABLED, 0.7f);
-            Color textCol = canDrill ? (selected ? EXT_TEXT
-                                                 : (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT))
-                                     : PROS_BTN_DISABLED;
-
-            Color depthFill = (selected && canDrill) ? Color{13, 30, 40, 255}
-                                                     : (hover && canDrill ? Color{14, 22, 38, 255}
-                                                                          : Color{11, 16, 30, 255});
-            DrawRectangleRounded(depthBtn, 0.35f, 4, depthFill);
-            DrawRectangleRoundedLinesEx(depthBtn, 0.35f, 4, 1.0f, borderCol);
-
-            // Radio indicator
-            float rx = ctrlX + 12.0f;
-            float ry = ctrlY + 11.0f;
-            DrawCircleLines(static_cast<int>(rx), static_cast<int>(ry), 5.0f,
-                            canDrill ? Fade(EXT_ACCENT_CYAN, selected ? 1.0f : 0.5f)
-                                     : PROS_BTN_DISABLED);
-            if (selected && canDrill)
-            {
-                DrawCircle(static_cast<int>(rx), static_cast<int>(ry), 2.5f, EXT_ACCENT_CYAN);
-            }
-
-            float cost = ps->GetSampler().GetDrillCost(depths[d]);
-            const char* label = canDrill
-                ? TextFormat("%s  %.0fE", ProsDepthName(depths[d]), cost)
-                : TextFormat("%s  [LOCKED]", ProsDepthName(depths[d]));
-            DrawTextEx(bodyFont, label, {ctrlX + 24, ctrlY + 3}, FS(9.0f), sp, textCol);
-
-            if (hover && canDrill && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                ps->selectedDepth = depths[d];
-            }
-            ctrlY += 26.0f;
-        }
-
-        ctrlY += 8.0f;
-        bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
-                              ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
-        bool trayFull = ps->GetTray().IsFull();
-        float drillCost = ps->GetSampler().GetDrillCost(ps->selectedDepth);
-        bool canAffordDrill = ProsCanAfford(unit, drillCost);
-        bool canCollect = hasSelection && !trayFull && canAffordDrill &&
-                          ps->GetSampler().CanDrill(ps->selectedDepth);
-
-        Rectangle collectBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 30.0f};
-        bool collectHover = CheckCollisionPointRec(mouse, collectBtn);
-
-        Color collectFill = !canCollect ? Color{16, 22, 38, 255}
-                                        : (collectHover ? Color{20, 56, 96, 255} : Color{14, 40, 70, 255});
-        DrawRectangleRounded(collectBtn, 0.3f, 4, collectFill);
-        DrawRectangleRoundedLinesEx(collectBtn, 0.3f, 4, 1.5f,
-                                    canCollect ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
-        const char* collectLabel = "COLLECT";
-        float collectW = MeasureTextEx(headerFont, collectLabel, FS(12.0f), sp).x;
-        Color collectText = canCollect ? (collectHover ? WHITE : EXT_ACCENT_CYAN) : PROS_BTN_DISABLED;
-        DrawTextEx(headerFont, collectLabel,
-                   {collectBtn.x + (collectBtn.width - collectW) / 2.0f - 8.0f, ctrlY + 7}, FS(12.0f), sp,
-                   collectText);
-        ExtDrawChevrons(collectBtn.x + (collectBtn.width + collectW) / 2.0f + 4.0f, ctrlY + 15.0f,
-                        5.0f, collectText);
-
-        if (collectHover && canCollect && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            if (ProsChargeEnergy(unit, drillCost, "drilling"))
-            {
-                if (!ps->GetSampler().CollectSample(ps->GetGrid(), ps->GetTray(),
-                                                    ps->selectedCellX, ps->selectedCellY,
-                                                    ps->selectedDepth))
-                {
-                    // Refund a drill that could not actually be taken
-                    unit->AddResource(ResourceType::ENERGY, drillCost);
-                }
-            }
-        }
-
-        // DISCARD: frees a tray slot, otherwise a full tray is a dead end
-        ctrlY += 34.0f;
-        const Sample* discardTarget = (ps->selectedSampleIndex >= 0)
-            ? ps->GetTray().GetSampleByIndex(ps->selectedSampleIndex) : nullptr;
-
-        Rectangle discardBtn = {ctrlX, ctrlY, ctrlW - 10.0f, 26.0f};
-        bool discardHover = CheckCollisionPointRec(mouse, discardBtn);
-        bool canDiscard = (discardTarget != nullptr);
-
-        DrawRectangleRounded(discardBtn, 0.3f, 4,
-                             canDiscard && discardHover ? Color{54, 16, 22, 255}
-                                                        : Color{14, 20, 34, 255});
-        DrawRectangleRoundedLinesEx(discardBtn, 0.3f, 4, 1.0f,
-                                    canDiscard ? Fade(EXT_ACCENT_RED, 0.8f) : PROS_BTN_DISABLED);
-
-        const char* discardLabel = trayFull && !canDiscard ? "TRAY FULL - SELECT A SAMPLE" : "DISCARD SAMPLE";
-        float discardW = MeasureTextEx(headerFont, discardLabel, FS(10.0f), sp).x;
-        DrawTextEx(headerFont, discardLabel,
-                   {discardBtn.x + (discardBtn.width - discardW) / 2.0f, discardBtn.y + 7.0f},
-                   FS(10.0f), sp,
-                   canDiscard ? (discardHover ? WHITE : Fade(EXT_ACCENT_RED, 0.9f)) : PROS_BTN_DISABLED);
-
-        if (discardHover && canDiscard && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            if (ps->GetTray().RemoveSample(discardTarget->id))
-            {
-                ps->selectedSampleIndex = -1;
-                unit->PublicShowMessage("Sample discarded.");
-            }
-        }
-
-        // Sample tray display
-        ctrlY += 32.0f;
-        DrawTextEx(headerFont, TextFormat("TRAY (%d/%d)", ps->GetTray().GetCount(), ps->GetTray().GetCapacity()),
-                   {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
-        ctrlY += 20.0f;
-
-        float slotSize = 28.0f;
-        float slotGap = 4.0f;
-        int slotsPerRow = static_cast<int>((ctrlW - 10.0f) / (slotSize + slotGap));
-        if (slotsPerRow < 1) slotsPerRow = 1;
-
-        for (int i = 0; i < ps->GetTray().GetCapacity(); i++)
-        {
-            int row = i / slotsPerRow;
-            int col = i % slotsPerRow;
-            Rectangle slot = {ctrlX + col * (slotSize + slotGap), ctrlY + row * (slotSize + slotGap),
-                              slotSize, slotSize};
-
-            const Sample* s = ps->GetTray().GetSampleByIndex(i);
-            bool slotHover = CheckCollisionPointRec(mouse, slot);
-            bool slotSelected = (ps->selectedSampleIndex == i && s != nullptr);
-
-            if (s)
-            {
-                DrawRectangleRounded(slot, 0.25f, 4,
-                                     slotSelected ? Color{16, 38, 54, 255} : EXT_PANEL_BG2);
-
-                // The sample's actual crystal sprite
-                DrawCrystalSprite(s->visual, {slot.x + 2, slot.y + 2,
-                                              slot.width - 4, slot.height - 4});
-
-                // Depth indicator badge
-                const char* depthChar =
-                    s->depthLayer == DepthLayer::SURFACE ? "S" :
-                    s->depthLayer == DepthLayer::SHALLOW ? "R" :
-                    s->depthLayer == DepthLayer::MID     ? "M" : "B";
-                DrawTextEx(bodyFont, depthChar,
-                           {slot.x + 2, slot.y + slot.height - 12}, FS(8.0f), sp,
-                           {255, 255, 255, 160});
-            }
-            else
-            {
-                DrawRectangleRounded(slot, 0.25f, 4, {12, 15, 28, 255});
-            }
-
-            Color slotBorder = PROS_CELL_BORDER;
-            float slotBorderThick = 1.0f;
-            if (slotSelected)
-            {
-                slotBorder = PROS_SELECT_BORDER;
-                slotBorderThick = 2.0f;
-            }
-            else if (slotHover)
-            {
-                slotBorder = PROS_HOVER_BORDER;
-            }
-            else if (s && s->state == SampleState::COMPLETED)
-            {
-                slotBorder = Fade(EXT_ACCENT_GREEN, 0.6f);
-            }
-            else if (s && s->state == SampleState::PROCESSING)
-            {
-                slotBorder = PROS_MSG_ALERT;
-            }
-            DrawRectangleRoundedLinesEx(slot, 0.25f, 4, slotBorderThick, slotBorder);
-
-            if (slotHover && s && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                ps->selectedSampleIndex = i;
-            }
-        }
-
-        // Selected sample details
-        const Sample* selSample = (ps->selectedSampleIndex >= 0)
-            ? ps->GetTray().GetSampleByIndex(ps->selectedSampleIndex) : nullptr;
-        if (selSample)
-        {
-            int trayRows = (ps->GetTray().GetCapacity() + slotsPerRow - 1) / slotsPerRow;
-            float detailY = ctrlY + trayRows * (slotSize + slotGap) + 8.0f;
-
-            DrawTextEx(bodyFont, TextFormat("Depth: %s", ProsDepthName(selSample->depthLayer)),
-                       {ctrlX, detailY}, FS(9.0f), sp, EXT_DIM_TEXT);
-            detailY += 14.0f;
-            DrawTextEx(bodyFont, TextFormat("Richness: %.0f%%", selSample->richness * 100.0f),
-                       {ctrlX, detailY}, FS(9.0f), sp, EXT_DIM_TEXT);
-            detailY += 14.0f;
-
-            const char* stateStr = selSample->state == SampleState::IN_TRAY ? "In Tray" :
-                                   selSample->state == SampleState::PROCESSING ? "Processing" : "Completed";
-            DrawTextEx(bodyFont, TextFormat("State: %s", stateStr),
-                       {ctrlX, detailY}, FS(9.0f), sp, EXT_DIM_TEXT);
-            detailY += 14.0f;
-
-            for (const auto& [type, conf] : selSample->elementConfidence)
-            {
-                if (conf > 0.0f)
-                {
-                    float abund = 0.0f;
-                    auto ait = selSample->trueComposition.find(type);
-                    if (ait != selSample->trueComposition.end()) abund = ait->second;
-
-                    const char* valText = conf < 0.3f ?
-                        TextFormat("~%.0f%%", abund * 100.0f) :
-                        TextFormat("%.1f%%", abund * 100.0f);
-
-                    DrawTextEx(bodyFont, TextFormat("  %s: %s  conf:%s",
-                        ResourceTypeToString(type), valText, ProsConfLabel(conf)),
-                        {ctrlX, detailY}, FS(8.0f), sp, ProsElementColor(type));
-                    detailY += 12.0f;
-                }
-            }
+            float push = 64.0f - sky;
+            geom = MakeBlockGeom(gridSize, gridX, gridY + push, modelW, modelH - push);
+            dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
         }
     }
-    else if (ps->activeTab == ProspectingTab::LAB)
+
+    // One ground, both panels (Dark Plating section 9.1): the strata bands run
+    // dim under the whole stack and full-strength inside the dock, and the
+    // boundary rules cross unbroken through the explosion gaps. Same rock as
+    // the dock wears, same tiling, just quieter -- these bands are the ground
+    // the plates float in, and the plates have to stay the loudest thing in
+    // their own half of the panel.
+    if (!strataLoaded) LoadStrataTextures();
+    for (int L = 0; L < 4; L++)
     {
-        // === LAB TAB ===
-        float leftW = pw * 0.45f;
-        float rightX = px + leftW + 10.0f;
-        float rightW = pw - leftW - 10.0f;
-
-        // Left: sample selection (mini tray) with crystal sprites
-        DrawTextEx(headerFont, "SELECT SAMPLE", {px, contentY}, FS(12.0f), sp, EXT_HEADER_COLOR);
-        float trayY = contentY + 20.0f;
-        float slotSize = 42.0f;
-        float slotGap = 5.0f;
-        int slotsPerRow = static_cast<int>(leftW / (slotSize + slotGap));
-        if (slotsPerRow < 1) slotsPerRow = 1;
-
-        for (int i = 0; i < ps->GetTray().GetCount(); i++)
+        Rectangle band = {gridX, dock.bandTop[L], dock.x - gridX,
+                          dock.bandTop[L + 1] - dock.bandTop[L]};
+        if (strataLoaded && strataTex[L].id != 0)
         {
-            int row = i / slotsPerRow;
-            int col = i % slotsPerRow;
-            Rectangle slot = {px + col * (slotSize + slotGap), trayY + row * (slotSize + slotGap),
-                              slotSize, slotSize};
-
-            const Sample* s = ps->GetTray().GetSampleByIndex(i);
-            if (!s) continue;
-
-            bool hover = CheckCollisionPointRec(mouse, slot);
-            bool selected = (ps->selectedSampleIndex == i);
-
-            DrawRectangleRounded(slot, 0.2f, 4, selected ? Color{16, 38, 54, 255} : EXT_PANEL_BG2);
-            DrawCrystalSprite(s->visual, {slot.x + 3, slot.y + 3, slot.width - 6, slot.height - 6});
-
-            Color borderCol = PROS_CELL_BORDER;
-            float borderThick = 1.0f;
-            if (selected)
-            {
-                borderCol = PROS_SELECT_BORDER;
-                borderThick = 2.0f;
-            }
-            else if (hover)
-            {
-                borderCol = PROS_HOVER_BORDER;
-            }
-            else if (s->state == SampleState::COMPLETED)
-            {
-                borderCol = Fade(EXT_ACCENT_GREEN, 0.6f);
-            }
-            else if (s->state == SampleState::PROCESSING)
-            {
-                borderCol = PROS_MSG_ALERT;
-            }
-            DrawRectangleRoundedLinesEx(slot, 0.2f, 4, borderThick, borderCol);
-
-            if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                ps->selectedSampleIndex = i;
-            }
-        }
-
-        // Tool buttons (below sample tray)
-        int trayRows = (ps->GetTray().GetCount() + slotsPerRow - 1) / slotsPerRow;
-        float toolY = trayY + trayRows * (slotSize + slotGap) + 12.0f;
-
-        Sample* selSample = (ps->selectedSampleIndex >= 0)
-            ? ps->GetTray().GetSampleByIndex(ps->selectedSampleIndex) : nullptr;
-
-        // --- Preset pipelines: one tap runs a separation + tool combo ---
-        DrawTextEx(headerFont, "PRESETS", {px, toolY}, FS(12.0f), sp, EXT_HEADER_COLOR);
-        toolY += 20.0f;
-
-        const std::vector<LabPreset>& presets = LabEngine::GetPresets();
-        float presetColW = (leftW - 11.0f) / 2.0f;
-        for (size_t p = 0; p < presets.size(); p++)
-        {
-            // A preset runs a separation plus its tools -- charge the sum
-            float presetCost = LabEngine::GetSeparationCost(presets[p].separation);
-            for (AnalysisTool tool : presets[p].tools)
-            {
-                presetCost += LabEngine::GetToolCost(tool);
-            }
-
-            bool canApply = selSample && ps->GetLab().CanApplyPreset(*selSample, static_cast<int>(p)) &&
-                            ProsCanAfford(unit, presetCost);
-            Rectangle presetBtn = {px + (p % 2) * (presetColW + 6.0f),
-                                   toolY + (p / 2) * 27.0f, presetColW, 23.0f};
-            bool hover = CheckCollisionPointRec(mouse, presetBtn);
-            bool flash = (ps->lastLabActionKind == 2 &&
-                          ps->lastLabActionIndex == static_cast<int>(p) &&
-                          ps->gameTime - ps->lastLabActionTime < 0.4f);
-
-            Color fill = flash ? Color{24, 70, 90, 255}
-                               : (hover && canApply ? Color{16, 32, 52, 255} : Color{13, 22, 40, 255});
-            DrawRectangleRounded(presetBtn, 0.3f, 4, fill);
-            DrawRectangleRoundedLinesEx(presetBtn, 0.3f, 4, flash ? 2.0f : 1.0f,
-                                        flash ? EXT_ACCENT_CYAN
-                                              : (canApply ? Fade(EXT_ACCENT_VIOLET, 0.8f)
-                                                          : PROS_BTN_DISABLED));
-
-            Color textCol = canApply ? (hover ? WHITE : Fade(EXT_ACCENT_VIOLET, 0.95f))
-                                     : PROS_BTN_DISABLED;
-            bool tierLocked = ps->GetTier() < presets[p].requiredTier;
-            const char* presetLabel = tierLocked
-                ? TextFormat("%s  T%d", presets[p].name.c_str(), presets[p].requiredTier)
-                : TextFormat("%s  %.0fE", presets[p].name.c_str(), presetCost);
-            DrawTextEx(bodyFont, presetLabel,
-                       {presetBtn.x + 8.0f, presetBtn.y + 5.0f}, FS(9.0f), sp, textCol);
-
-            if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                if (ProsChargeEnergy(unit, presetCost, presets[p].name.c_str()) &&
-                    ps->GetLab().ApplyPreset(*selSample, static_cast<int>(p), ps->gameTime))
-                {
-                    ps->lastLabActionKind = 2;
-                    ps->lastLabActionIndex = static_cast<int>(p);
-                    ps->lastLabActionTime = ps->gameTime;
-                    unit->PublicShowMessage(presets[p].name + " pipeline applied.");
-                }
-            }
-        }
-        toolY += ((presets.size() + 1) / 2) * 27.0f + 6.0f;
-
-        DrawTextEx(headerFont, "ANALYSIS TOOLS", {px, toolY}, FS(12.0f), sp, EXT_HEADER_COLOR);
-        toolY += 20.0f;
-
-        struct ToolEntry { AnalysisTool tool; const char* name; };
-        ToolEntry tools[] = {
-            {AnalysisTool::VISUAL_INSPECTION, "Visual"},
-            {AnalysisTool::XRF, "XRF"},
-            {AnalysisTool::OPTICAL_MICROSCOPY, "Optical"},
-            {AnalysisTool::MAGNETIC_SUSCEPTIBILITY, "Magnetic"},
-            {AnalysisTool::LIBS_PULSE, "LIBS"},
-            {AnalysisTool::FIRE_ASSAY, "Fire Assay"},
-        };
-
-        // Two-column grid keeps the tool list inside the card
-        float toolColW = (leftW - 11.0f) / 2.0f;
-        for (int t = 0; t < 6; t++)
-        {
-            auto& te = tools[t];
-            float cost = LabEngine::GetToolCost(te.tool);
-            bool canApply = selSample && ps->GetLab().CanApplyTool(*selSample, te.tool) &&
-                            ProsCanAfford(unit, cost);
-            Rectangle toolBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 27.0f,
-                                 toolColW, 23.0f};
-            bool hover = CheckCollisionPointRec(mouse, toolBtn);
-            bool pressed = hover && canApply && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-
-            // Already applied to the selected sample?
-            bool applied = false;
-            if (selSample)
-            {
-                for (const auto& step : selSample->analysisHistory)
-                {
-                    if (step.tool == te.tool) { applied = true; break; }
-                }
-            }
-
-            // Brief flash right after a successful tap (touch has no hover)
-            bool flash = (ps->lastLabActionKind == 0 && ps->lastLabActionIndex == t &&
-                          ps->gameTime - ps->lastLabActionTime < 0.4f);
-
-            Color fill = EXT_PANEL_BG2;
-            if (pressed || flash) fill = {24, 70, 90, 255};
-            else if (hover && canApply) fill = {16, 26, 44, 255};
-            else if (applied) fill = {13, 30, 34, 255};
-
-            DrawRectangleRounded(toolBtn, 0.3f, 4, fill);
-            DrawRectangleRoundedLinesEx(toolBtn, 0.3f, 4, flash ? 2.0f : 1.0f,
-                                        flash ? EXT_ACCENT_CYAN
-                                              : (applied ? Fade(EXT_ACCENT_GREEN, 0.7f)
-                                                         : (canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED)));
-
-            Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT)
-                                     : (applied ? Fade(EXT_ACCENT_GREEN, 0.8f) : PROS_BTN_DISABLED);
-            DrawTextEx(bodyFont, TextFormat("%s  %.0fE", te.name, cost),
-                       {toolBtn.x + 8.0f, toolBtn.y + 5.0f}, FS(9.0f), sp, textCol);
-
-            if (applied)
-            {
-                // Checkmark on the right edge
-                float cxm = toolBtn.x + toolBtn.width - 14.0f;
-                float cym = toolBtn.y + 12.0f;
-                DrawLineEx({cxm - 4.0f, cym}, {cxm - 1.0f, cym + 3.5f}, 2.0f, EXT_ACCENT_GREEN);
-                DrawLineEx({cxm - 1.0f, cym + 3.5f}, {cxm + 4.5f, cym - 3.5f}, 2.0f, EXT_ACCENT_GREEN);
-            }
-
-            if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                if (ProsChargeEnergy(unit, cost, te.name) &&
-                    ps->GetLab().ApplyTool(*selSample, te.tool, ps->gameTime))
-                {
-                    ps->lastLabActionKind = 0;
-                    ps->lastLabActionIndex = t;
-                    ps->lastLabActionTime = ps->gameTime;
-                }
-            }
-        }
-        toolY += 3 * 27.0f;
-
-        // Separation methods
-        toolY += 8.0f;
-        DrawTextEx(headerFont, "SEPARATION", {px, toolY}, FS(12.0f), sp, EXT_HEADER_COLOR);
-        toolY += 20.0f;
-
-        struct SepEntry { SeparationMethod method; const char* name; };
-        SepEntry seps[] = {
-            {SeparationMethod::MAGNETIC, "Magnetic"},
-            {SeparationMethod::HEAVY_MINERAL, "Heavy Liquid"},
-            {SeparationMethod::VOLATILE_EXTRACTION, "Volatile"},
-        };
-
-        for (int t = 0; t < 3; t++)
-        {
-            auto& se = seps[t];
-            float cost = LabEngine::GetSeparationCost(se.method);
-            bool canApply = selSample && ps->GetLab().CanApplySeparation(*selSample, se.method) &&
-                            ProsCanAfford(unit, cost);
-            Rectangle sepBtn = {px + (t % 2) * (toolColW + 6.0f), toolY + (t / 2) * 27.0f,
-                                toolColW, 23.0f};
-            bool hover = CheckCollisionPointRec(mouse, sepBtn);
-            bool pressed = hover && canApply && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-            bool applied = selSample && selSample->separationApplied == se.method;
-            bool flash = (ps->lastLabActionKind == 1 && ps->lastLabActionIndex == t &&
-                          ps->gameTime - ps->lastLabActionTime < 0.4f);
-
-            Color fill = EXT_PANEL_BG2;
-            if (pressed || flash) fill = {24, 70, 90, 255};
-            else if (hover && canApply) fill = {16, 26, 44, 255};
-            else if (applied) fill = {13, 30, 34, 255};
-
-            DrawRectangleRounded(sepBtn, 0.3f, 4, fill);
-            DrawRectangleRoundedLinesEx(sepBtn, 0.3f, 4, flash ? 2.0f : 1.0f,
-                                        flash ? EXT_ACCENT_CYAN
-                                              : (applied ? Fade(EXT_ACCENT_GREEN, 0.7f)
-                                                         : (canApply ? PROS_BTN_BORDER : PROS_BTN_DISABLED)));
-
-            Color textCol = canApply ? (hover ? PROS_BTN_TEXT_HOVER : PROS_BTN_TEXT)
-                                     : (applied ? Fade(EXT_ACCENT_GREEN, 0.8f) : PROS_BTN_DISABLED);
-            DrawTextEx(bodyFont, TextFormat("%s  %.0fE", se.name, cost),
-                       {sepBtn.x + 8.0f, sepBtn.y + 5.0f}, FS(9.0f), sp, textCol);
-
-            if (applied)
-            {
-                float cxm = sepBtn.x + sepBtn.width - 14.0f;
-                float cym = sepBtn.y + 12.0f;
-                DrawLineEx({cxm - 4.0f, cym}, {cxm - 1.0f, cym + 3.5f}, 2.0f, EXT_ACCENT_GREEN);
-                DrawLineEx({cxm - 1.0f, cym + 3.5f}, {cxm + 4.5f, cym - 3.5f}, 2.0f, EXT_ACCENT_GREEN);
-            }
-
-            if (hover && canApply && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-            {
-                if (ProsChargeEnergy(unit, cost, se.name) &&
-                    ps->GetLab().ApplySeparation(*selSample, se.method, ps->gameTime))
-                {
-                    ps->lastLabActionKind = 1;
-                    ps->lastLabActionIndex = t;
-                    ps->lastLabActionTime = ps->gameTime;
-                }
-            }
-        }
-
-        // Right side: selected sample detail + analysis results
-        DrawTextEx(headerFont, "RESULTS", {rightX, contentY}, FS(12.0f), sp, EXT_HEADER_COLOR);
-        float resY = contentY + 22.0f;
-
-        if (selSample)
-        {
-            // Large crystal preview on a glow disc, like the kit's orbs
-            float previewSize = 96.0f;
-            Rectangle preview = {rightX + rightW - previewSize - 12.0f, contentY + 6.0f,
-                                 previewSize, previewSize};
-            Vector2 previewCenter = {preview.x + previewSize / 2.0f, preview.y + previewSize / 2.0f};
-            DrawCircleV(previewCenter, previewSize * 0.52f,
-                        Fade(selSample->visual.elementColor, 0.10f));
-            DrawCircleLines(static_cast<int>(previewCenter.x), static_cast<int>(previewCenter.y),
-                            previewSize * 0.52f, Fade(selSample->visual.elementColor, 0.35f));
-            DrawCrystalSprite(selSample->visual, preview);
-
-            const char* stateStr = selSample->state == SampleState::IN_TRAY ? "In Tray" :
-                                   selSample->state == SampleState::PROCESSING ? "Processing" : "Completed";
-            DrawTextEx(bodyFont, TextFormat("State: %s", stateStr),
-                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
-            resY += 16.0f;
-            DrawTextEx(bodyFont, TextFormat("Depth: %s", ProsDepthName(selSample->depthLayer)),
-                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
-            resY += 16.0f;
-            DrawTextEx(bodyFont, TextFormat("Richness: %.0f%%", selSample->richness * 100.0f),
-                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
-            resY += 16.0f;
-            DrawTextEx(bodyFont, TextFormat("Analyses: %d", static_cast<int>(selSample->analysisHistory.size())),
-                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
-            resY += 20.0f;
-
-            // Element composition with confidence
-            DrawTextEx(headerFont, "COMPOSITION", {rightX, resY}, FS(11.0f), sp, EXT_HEADER_COLOR);
-            resY += 18.0f;
-
-            for (const auto& [type, abundance] : selSample->trueComposition)
-            {
-                if (abundance < 0.01f) continue;
-                float conf = 0.0f;
-                auto cit = selSample->elementConfidence.find(type);
-                if (cit != selSample->elementConfidence.end()) conf = cit->second;
-
-                Color elemCol = ProsElementColor(type);
-                if (conf < 0.01f)
-                {
-                    DrawTextEx(bodyFont, "  ???",
-                               {rightX, resY}, FS(9.0f), sp, {80, 80, 100, 255});
-                }
-                else
-                {
-                    float barW = rightW - 130.0f;
-                    float barH = 10.0f;
-                    float barX = rightX + 60.0f;
-
-                    DrawTextEx(bodyFont, ResourceTypeToString(type),
-                               {rightX, resY}, FS(9.0f), sp, elemCol);
-
-                    // Background bar
-                    DrawRectangle(static_cast<int>(barX), static_cast<int>(resY + 2),
-                                  static_cast<int>(barW), static_cast<int>(barH), {40, 40, 60, 255});
-
-                    // Fill bar shows true abundance, alpha scales with confidence
-                    Color fillCol = elemCol;
-                    fillCol.a = static_cast<unsigned char>(80 + 175 * conf);
-                    DrawRectangle(static_cast<int>(barX), static_cast<int>(resY + 2),
-                                  static_cast<int>(barW * abundance), static_cast<int>(barH), fillCol);
-
-                    // Show value with precision based on confidence. Low
-                    // confidence reads as a coarser number in dimmer text
-                    // rather than a "~" prefix: Exo 2 draws the tilde as a
-                    // flat mid-height stroke set off from the digits, which
-                    // at this size reads as a minus sign on a value that can
-                    // never be negative.
-                    const char* valText;
-                    Color valCol;
-                    if (conf < 0.3f)
-                    {
-                        // Nearest 5% -- the number itself carries the coarseness
-                        float coarse = roundf(abundance * 100.0f / 5.0f) * 5.0f;
-                        valText = TextFormat("%.0f%%", coarse);
-                        valCol = EXT_DIM_TEXT;
-                    }
-                    else if (conf < 0.7f)
-                    {
-                        valText = TextFormat("%.0f%%", abundance * 100.0f);
-                        valCol = {190, 195, 215, 255};
-                    }
-                    else
-                    {
-                        valText = TextFormat("%.1f%%", abundance * 100.0f);
-                        valCol = WHITE;
-                    }
-
-                    DrawTextEx(bodyFont, valText,
-                               {barX + barW + 4, resY}, FS(9.0f), sp, valCol);
-                    DrawTextEx(bodyFont, TextFormat("[%.0f%%]", conf * 100.0f),
-                               {barX + barW + 50.0f, resY}, FS(8.0f), sp, EXT_DIM_TEXT);
-                }
-                resY += 16.0f;
-            }
-
-            // Analysis history
-            if (!selSample->analysisHistory.empty())
-            {
-                resY += 8.0f;
-                DrawTextEx(headerFont, "HISTORY", {rightX, resY}, FS(10.0f), sp, EXT_HEADER_COLOR);
-                resY += 16.0f;
-
-                for (const auto& entry : selSample->analysisHistory)
-                {
-                    const char* toolName = "?";
-                    switch (entry.tool)
-                    {
-                        case AnalysisTool::VISUAL_INSPECTION: toolName = "Visual"; break;
-                        case AnalysisTool::XRF: toolName = "XRF"; break;
-                        case AnalysisTool::OPTICAL_MICROSCOPY: toolName = "Optical"; break;
-                        case AnalysisTool::MAGNETIC_SUSCEPTIBILITY: toolName = "Magnetic"; break;
-                        case AnalysisTool::LIBS_PULSE: toolName = "LIBS"; break;
-                        case AnalysisTool::FIRE_ASSAY: toolName = "Fire Assay"; break;
-                        default: break;
-                    }
-
-                    DrawTextEx(bodyFont, TextFormat("  %s", toolName),
-                               {rightX, resY}, FS(8.0f), sp, EXT_DIM_TEXT);
-                    resY += 12.0f;
-
-                    if (resY > static_cast<float>(y + h) - 90.0f) break;
-                }
-            }
+            float k = static_cast<float>(RockTexture::SIZE) / DP_ROCK_TEX_PX;
+            Color tint = { static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].r * 2)),
+                           static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].g * 2)),
+                           static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].b * 2)),
+                           255 };
+            // Far dimmer than a RESTING plate, not just dimmer than a lit
+            // one: at 0.34 this camouflaged the plates it was supposed to sit
+            // behind -- the dim plates rest at 0.38-0.50 of full, so the
+            // ground behind them has to be a fraction of THAT, or the panel
+            // reads as one texture with diamonds faintly in it.
+            DrawTexturePro(strataTex[L], {0.0f, L * 41.0f, band.width * k, band.height * k},
+                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.20f));
         }
         else
         {
-            DrawTextEx(bodyFont, "Select a sample to analyze.",
-                       {rightX, resY}, FS(10.0f), sp, EXT_DIM_TEXT);
+            DrawRectangleRec(band, Fade(DP_ROCK_COL[L], 0.18f));
+        }
+        DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX, 1.6f},
+                         Fade(DP_ROCK_EDGE[L], 0.85f));
+    }
+    DrawRectangleRec({gridX, dock.bandTop[4] - 1.0f, dock.x - gridX, 1.6f},
+                     Fade(DP_ROCK_EDGE[3], 0.85f));
+
+    // Build all four layers first so one grade scale covers the stack --
+    // per-layer normalisation would make a barren layer look as rich as the
+    // ore, which is the whole thing the relief exists to show.
+    std::vector<std::vector<BlockCell>> layers(4);
+    float maxGrade = 0.0001f;
+    // BELIEVED grade, never ground truth. An undrilled layer is a flat plate
+    // at the layer mean -- the relief is what you have learned, and it grows
+    // as cores go in. Drawing truth here was the review's first finding: the
+    // model was the answer key. Built as ONE field per frame: the per-cell
+    // scalar calls were O(N^4) at 16x16 and cost 55 ms/frame on their own.
+    EstimateField field = BuildEstimateField(grid, shown);
+    for (int L = 0; L < 4; L++)
+    {
+        layers[L].resize(gridSize * gridSize);
+        for (int gy = 0; gy < gridSize; gy++)
+        {
+            for (int gx = 0; gx < gridSize; gx++)
+            {
+                BlockCell& c = layers[L][gy * gridSize + gx];
+                // Drained by what has already been taken out, so the relief
+                // reads as what is LEFT rather than what was once there. That
+                // is the whole difference from prospecting's stack, which
+                // asks what is in the ground; this one asks what is still
+                // worth sending a machine to.
+                //
+                // Ground that has been dug does not read as ground that was
+                // always poor, and it does not need a marker to say so:
+                // digging sets confidence to 1.0 at that spot and depth, so a
+                // worked-out cell is a MEASURED cell with no relief, while
+                // barren unsurveyed ground is UNCLASSIFIED with no relief.
+                // The class colour already carries it.
+                float left = 1.0f - std::clamp(
+                    grid.GetSubCell(gx, gy).workedFraction[L], 0.0f, 1.0f);
+                c.grade = field.GradeAt(gx, gy, L) * left;
+                c.cls = GetResourceClass(field.ConfidenceAt(gx, gy, L));
+                maxGrade = std::max(maxGrade, c.grade);
+            }
         }
     }
 
+    // Hang every plate from its own ceiling: push it down by its tallest
+    // corner, so that corner lands on the plate's slot and the plate's top is
+    // in the same place whatever its layer holds. Taken over CORNERS, not
+    // cells, because a corner averages the four blocks that touch it and is
+    // what the surface is actually drawn through.
+    for (int L = 0; L < 4; L++)
+    {
+        float top = 0.0f;
+        for (int j = 0; j <= gridSize; j++)
+            for (int i = 0; i <= gridSize; i++)
+            {
+                float lift = BlockCornerLift(layers[L], gridSize, maxGrade,
+                                            geom.relief, i, j);
+                if (lift > top) top = lift;
+            }
+        geom.plateDrop[L] = top;
+    }
+
+    // DEPTH-LEVEL names (the DepthLayer enum), not geology names. The strata
+    // are named on the borehole strip, where the rock actually is; naming them
+    // here too put "INTACT" (intact basalt) one column from the core log's
+    // "INTCT" (intact core recovered), so a rock label read as a core grade.
+    // One vocabulary per instrument.
+    static const char* depthLabels[4] = {"0 m", "12 m", "34 m", "68 m"};
+    static const char* levelLabels[4] = {"SURFACE", "SHALLOW", "MID", "DEEP"};
+
+    int focusDepth = static_cast<int>(ps->selectedDepth);
+    // The stratum being cut rim-lights its plate, pulsing on the SAME clock as
+    // the twin cursors (Dark Plating section 9.3 -- an unsynced phase breaks
+    // the illusion that the two dots are one object).
+    int rimLayer = ps->lineHole.state == LineHoleState::DRILLING
+                 ? LayerOfDepthM(ps->lineHole.depthM) : -1;
+    float rimPulse = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
+    // ---- Which plate is under the pointer, decided BEFORE anything is
+    // drawn: the plates' brightness now depends on it (a hovered plate comes
+    // up to full), and a hover computed after the draw would light the plate
+    // one frame late -- which on a fast pointer is a visible smear of the
+    // wrong layer.
+    //
+    // Analytic pick: invert the iso transform per plate, so every pixel of a
+    // plate maps to its nearest cell -- at 16x16 per-cell hit rects would be
+    // smaller than any finger. Inverted against the LIFTED surface the player
+    // can see, not each plate's base plane: the lift reaches g.relief while a
+    // tile is only ~3.9 px tall, so a flat inversion picked several rows off
+    // the block under the cursor, and the x1.5 relief pass widened that.
+    // See src/Prospecting/block_pick.h; the round trip is under test.
+    BlockPickGeom pick;
+    pick.originX = geom.originX; pick.originY = geom.originY;
+    pick.tileX = geom.tileX;     pick.tileY = geom.tileY;
+    pick.gap = geom.gap;         pick.size = gridSize;
+
+    auto LiftAt = [&](int L, int i, int j) {
+        // The same height the surface is drawn at (the one lift law).
+        return BlockCellLift(layers[L], gridSize, maxGrade, geom.relief, i, j);
+    };
+    int hovL = -1, hovX = -1, hovY = -1;
+    for (int L = 0; L < 4 && hovL < 0; L++)
+    {
+        int pi = 0, pj = 0;
+        // The plate is drawn plateDrop lower than its slot, so the pointer has
+        // to be read in the plate's own frame -- otherwise picking answers for
+        // where the plate would have been.
+        if (!BlockPickCell(pick, L, mouse.x, mouse.y - geom.plateDrop[L],
+                           [&](int i, int j) { return LiftAt(L, i, j); }, pi, pj)) continue;
+        hovL = L; hovX = pi; hovY = pj;
+    }
+    if (hovL < 0 && ps->previewHoverLayer >= 0)
+    {
+        hovL = std::clamp(ps->previewHoverLayer, 0, 3);
+        hovX = gridSize / 2; hovY = gridSize / 2;
+    }
+    // Four plates of data is more than anyone reads at once: the surface
+    // stays lit, the three below rest dim and the one under the pointer comes
+    // up. Eased on the facade, which is where state that outlives a frame
+    // belongs (prospecting_constants.h has the table).
+    ps->UpdatePlateLight(hovL, rimLayer, GetFrameTime());
+
+    for (int L = 0; L < 4; L++)
+    {
+        // The stratum's own rock -- four textures for four layers, not one
+        // world tile reused; the strip's band at this depth wears the same.
+        const Texture2D* tile = (strataLoaded && strataTex[L].id != 0)
+                              ? &strataTex[L] : nullptr;
+        DrawBlockLayer(geom, layers[L], L, maxGrade, ps->plateLight[L],
+                           bodyFont, sp,
+                           depthLabels[L], levelLabels[L], nullptr, nullptr,
+                           tile, L == rimLayer ? rimPulse : 0.0f);
+    }
+
+    // The hovered cell's outline and its cursor DOT, drawn after the plates so
+    // they sit on top of the one they mark rather than under the plate below.
+    // The dot is half of a twin cursor (Dark Plating 9.3): its other half sits
+    // in the borehole strip at the same depth, and the two move together --
+    // which is what says "this point on this plane IS that point in the rock".
+    if (hovL >= 0)
+    {
+        float lift = LiftAt(hovL, hovX, hovY);
+        Vector2 dot = geom.Iso(hovX + 0.5f, hovY + 0.5f, hovL, lift);
+        Vector2 q0 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY), hovL, lift);
+        Vector2 q1 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY), hovL, lift);
+        Vector2 q2 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY + 1), hovL, lift);
+        Vector2 q3 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY + 1), hovL, lift);
+        DrawLineEx(q0, q1, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(q1, q2, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(q2, q3, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(q3, q0, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawCircleV(dot, 3.4f, Fade(DP_OUT, 0.85f));
+        DrawCircleV(dot, 2.0f, EXT_ACCENT_CYAN);
+
+    }
+
+    // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
+    // block to collar it, then click a block on the layer the hole should
+    // reach -- the string starts on that second click (and charges energy).
+    // While aiming, the dashed preview follows the pointer. Clicking the
+    // collar block again cancels; a click anywhere else just selects.
+    bool stringDown = ps->lineHole.state == LineHoleState::DRILLING;
+    bool aiming = ps->lineHole.state == LineHoleState::AIMING;
+
+    if (aiming && hovL > 0) ps->AimAt(hovL, hovX, hovY);   // preview tracks the pointer
+
+    if (hovL >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        if (aiming && hovL == 0 &&
+            hovX == ps->lineHole.collarX && hovY == ps->lineHole.collarY)
+        {
+            ps->CancelAim();
+        }
+        else if (hovL == 0 && !stringDown)
+        {
+            ps->StartAim(hovX, hovY);
+            ps->selectedCellX = hovX; ps->selectedCellY = hovY;
+            ps->selectedDepth = DepthLayer::SURFACE;
+        }
+        else if (aiming && hovL > 0)
+        {
+            ps->AimAt(hovL, hovX, hovY);
+            float lineCost = DrillEnergyToDepthMetres(ps->lineHole.endM);
+            if (unit->ConsumeResource(ResourceType::ENERGY, lineCost))
+            {
+                ps->CommitHole();
+                unit->PublicShowMessage(TextFormat(
+                    "String down - drilling the line (%.0f E)", lineCost));
+            }
+            else
+            {
+                unit->PublicShowMessage(TextFormat(
+                    "The line needs %.0f E - aim shallower or wait for energy", lineCost));
+            }
+            ps->selectedCellX = hovX; ps->selectedCellY = hovY;
+            ps->selectedDepth = static_cast<DepthLayer>(hovL);
+        }
+        else
+        {
+            ps->selectedCellX = hovX; ps->selectedCellY = hovY;
+            ps->selectedDepth = static_cast<DepthLayer>(hovL);
+        }
+    }
+
+    // Redline's clicking, in the game: while the string is down, clicking
+    // the borehole strip drives the spindle -- more advance, more heat.
+    if (stringDown && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+        CheckCollisionPointRec(mouse, {dock.x, contentY, dock.w,
+                                       dock.bandTop[4] + 18.0f - contentY}))
+    {
+        ps->KickString();
+    }
+
+    // the line over the stack, after the plates so it reads as through them
+    BlockPlateLift plateLift; plateLift.layers = &layers; plateLift.maxGrade = maxGrade;
+    ProsDrawTraceBlock(ps, geom, dock, plateLift);
+    // ONE depth for the whole plane. Moving across a plate slides the strip's
+    // cursor sideways, never up or down -- depth is the axis between plates.
+    float hoverM = (hovL >= 0) ? PlatePlaneM(hovL) : -1.0f;
+    // Off the plates, the pointer still has a height, and the strata bands run
+    // the full width of the panel -- so bare ground between the plates is a
+    // depth too. Reading it out is what ties the two panels together: sweep
+    // the pointer down the empty rock and the strip's cursor tracks it, which
+    // says "these two views are the same column" more directly than any
+    // static rule can. Paler than the cell cursor, because it marks a height
+    // and not a block you could drill.
+    bool groundHover = false;
+    if (hovL < 0 && mouse.x >= gridX && mouse.x < dock.x &&
+        mouse.y >= dock.bandTop[0] && mouse.y <= dock.bandTop[4])
+    {
+        groundHover = true;
+        hoverM = dock.DepthAtY(mouse.y);
+    }
+    // Where across the section that cell sits. The strip is a vertical slice,
+    // so its horizontal axis is the same left-right the plates are drawn with:
+    // iso screen x is (gx - gy), so this is that, normalised.
+    float hoverU = (hovL >= 0)
+        ? (static_cast<float>(hovX - hovY) + gridSize) / (2.0f * gridSize)
+        : groundHover
+        ? std::clamp((mouse.x - gridX) / std::max(1.0f, dock.x - gridX), 0.0f, 1.0f)
+        : -1.0f;
+    if (groundHover)
+    {
+        // the pointer's own mark, on the ground it is reading
+        DrawCircleV(mouse, 3.4f, Fade(DP_OUT, 0.30f));
+        DrawCircleV(mouse, 2.0f, Fade(Color{198, 232, 250, 255}, 0.60f));
+    }
+    ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f,
+                         hoverM, hoverU, groundHover ? 0.55f : 1.0f,
+                         bodyFont, sp, FS(7.5f),
+                         strataLoaded ? strataTex : nullptr);
+
+    // ONE marker, on the layer it was selected on. The line's own points are
+    // drawn by the trace: the collar ring while aiming, crossing rings as the
+    // bit cores them.
+    if (ps->selectedCellX >= 0 && ps->selectedCellY >= 0 &&
+        ps->lineHole.state == LineHoleState::NONE)
+    {
+        Vector2 c = geom.Iso(ps->selectedCellX + 0.5f, ps->selectedCellY + 0.5f,
+                             focusDepth, 0.0f);
+        DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 4.5f,
+                        EXT_ACCENT_CYAN);
+    }
+    if (ps->lineHole.state == LineHoleState::AIMING)
+    {
+        Vector2 c = geom.Iso(ps->lineHole.collarX + 0.5f,
+                             ps->lineHole.collarY + 0.5f, 0, 0.0f);
+        DrawCircleLines(static_cast<int>(c.x), static_cast<int>(c.y), 4.5f,
+                        Color{244, 198, 106, 255});
+    }
+
+    // --- Legend, two rows so the element line and the swatches cannot collide
+    float legendY = gridY + modelH + 2.0f;
+    DrawTextEx(bodyFont, TextFormat("%s   height = grade   colour = class",
+                                    ResourceTypeToString(shown)),
+               {gridX, legendY}, FS(8.5f), sp, EXT_DIM_TEXT);
+    {
+        float swX = gridX;
+        float swY = legendY + 12.0f;
+        const ResourceClass legendCls[3] = { ResourceClass::MEASURED,
+                                             ResourceClass::INDICATED,
+                                             ResourceClass::INFERRED };
+        for (int k = 0; k < 3; k++)
+        {
+            DrawRectangleRounded({swX, swY + 1.0f, 7.0f, 7.0f}, 0.3f, 4,
+                                 ExtClassColor(legendCls[k]));
+            const char* nm = ResourceClassName(legendCls[k]);
+            DrawTextEx(bodyFont, nm, {swX + 10.0f, swY - 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+            swX += 10.0f + MeasureTextEx(bodyFont, nm, FS(8.0f), sp).x + 10.0f;
+        }
+        // LATTICE, not REACH. Prospecting's reach ring was deleted -- the
+        // whole lattice is open at every tier -- so this figure is the size
+        // of the ground, not a limit on it. Excavation still HAS a reach that
+        // grows with tier, and labels it REACH in amber; one word meaning two
+        // things across twin panels is how a real constraint gets read as
+        // decoration, and a fixed fact gets read as a wall.
+        DrawTextEx(bodyFont, TextFormat("LATTICE %dx%d", grid.GetReach(), grid.GetReach()),
+                   {swX + 4.0f, swY - 1.0f}, FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.7f));
+    }
+
+    // =========================== the control rail ===========================
+    float ctrlX = dock.x + dock.w + 15.0f;
+    float ctrlY = contentY;
+    float ctrlW = px + pw - ctrlX;
+
+    bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
+                         ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
+
+    // --- Resource statement: the number the whole loop is trying to grow ---
+    DrawTextEx(headerFont, "RESOURCE", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
+    ctrlY += 18.0f;
+    {
+        ClassSplit split = GetClassSplit(grid, ps->GetTray(), shown, grid.GetTier());
+        const ResourceClass rows[3] = { ResourceClass::MEASURED,
+                                        ResourceClass::INDICATED,
+                                        ResourceClass::INFERRED };
+        for (int k = 0; k < 3; k++)
+        {
+            float v = split.Get(rows[k]);
+            Color c = ExtClassColor(rows[k]);
+            DrawRectangleRounded({ctrlX, ctrlY + 3.0f, 7.0f, 7.0f}, 0.3f, 4,
+                                 v > 0.0f ? c : Fade(c, 0.3f));
+            DrawTextEx(bodyFont, ResourceClassName(rows[k]), {ctrlX + 12.0f, ctrlY},
+                       FS(9.5f), sp, v > 0.0f ? EXT_TEXT : Fade(EXT_DIM_TEXT, 0.6f));
+            const char* amount = v > 0.0f ? TextFormat("%.0f", v) : "-";
+            float aw = MeasureTextEx(bodyFont, amount, FS(9.5f), sp).x;
+            DrawTextEx(bodyFont, amount, {ctrlX + ctrlW - 12.0f - aw, ctrlY},
+                       FS(9.5f), sp, v > 0.0f ? EXT_TEXT : Fade(EXT_DIM_TEXT, 0.6f));
+            ctrlY += 13.0f;
+        }
+        ctrlY += 3.0f;
+        DrawLineEx({ctrlX, ctrlY}, {ctrlX + ctrlW - 12.0f, ctrlY}, 1.0f, EXT_PANEL_BORDER);
+        ctrlY += 6.0f;
+        DrawTextEx(bodyFont, "Committable", {ctrlX, ctrlY}, FS(9.5f), sp, EXT_DIM_TEXT);
+        const char* cm = TextFormat("%.0f", split.Committable());
+        float cmw = MeasureTextEx(headerFont, cm, FS(13.0f), sp).x;
+        DrawTextEx(headerFont, cm, {ctrlX + ctrlW - 12.0f - cmw, ctrlY - 3.0f},
+                   FS(13.0f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 20.0f;
+    }
+
+    // --- Wide survey: one instrument, one button ---------------------------
+    // LIBS reads SURFACE chemistry -- element by element, fast and cheap, and
+    // blind to everything below the regolith. It shapes where you drill; it
+    // never classifies, because you cannot put tonnage in a statement on the
+    // strength of a surface reading.
+    DrawTextEx(headerFont, "SURFACE SWEEP", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
+    ctrlY += 17.0f;
+    {
+        bool sweptAlready = grid.HasSweptFrequency(0);
+        bool affordable = ProsCanAfford(unit, SWEEP_ENERGY_COST[0]);
+        bool canSweep = ps->GetSweep().CanSweep(grid, 0) && affordable;
+        Rectangle btn = {ctrlX, ctrlY, ctrlW - 12.0f, 26.0f};
+        bool hover = CheckCollisionPointRec(mouse, btn);
+
+        DrawRectangleRounded(btn, 0.3f, 4, canSweep && hover ? Color{16, 40, 60, 255}
+                                                             : EXT_PANEL_BG2);
+        DrawRectangleRoundedLinesEx(btn, 0.3f, 4, 1.0f,
+                                    canSweep ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
+        const char* label = sweptAlready ? "LIBS  -  SWEPT" : "LIBS ROVER SWEEP";
+        Vector2 ls = MeasureTextEx(headerFont, label, FS(10.5f), sp);
+        DrawTextEx(headerFont, label,
+                   {btn.x + (btn.width - ls.x) / 2.0f, btn.y + (26.0f - ls.y) / 2.0f},
+                   FS(10.5f), sp,
+                   sweptAlready ? EXT_ACCENT_GREEN
+                                : (canSweep ? EXT_ACCENT_CYAN : PROS_BTN_DISABLED));
+        // Caption BELOW the button. Inside it, the two lines collided.
+        DrawTextEx(bodyFont, TextFormat("%.0f E   surface chemistry only, never classifies",
+                                        SWEEP_ENERGY_COST[0]),
+                   {btn.x + 1.0f, btn.y + 28.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+
+        if (hover && canSweep && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            float cost = ps->GetSweep().GetSweepCost(0);
+            if (unit->ConsumeResource(ResourceType::ENERGY, cost))
+            {
+                ps->GetSweep().ExecuteSweep(grid, 0, ps->gameTime);
+                unit->PublicShowMessage("LIBS sweep complete - surface chemistry mapped");
+            }
+        }
+        ctrlY += 44.0f;
+    }
+
+    // --- Drill: the line, its cost, its progress ---------------------------
+    DrawTextEx(headerFont, "DRILL - AUGER", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
+    ctrlY += 17.0f;
+
+    const LineHole& lh = ps->lineHole;
+    if (lh.state == LineHoleState::AIMING && lh.targetLayer > 0)
+    {
+        float lineCost = DrillEnergyToDepthMetres(lh.endM);
+        bool affordable = ProsCanAfford(unit, lineCost);
+        static const char* layerNames[4] = {"REGOLITH", "MEGAREGOLITH", "FRACTURED", "BASALT"};
+        DrawTextEx(bodyFont, TextFormat("line to %.0f m (%s) - %.0f E",
+                                        lh.endM, layerNames[lh.targetLayer], lineCost),
+                   {ctrlX, ctrlY}, FS(9.5f), sp,
+                   affordable ? EXT_ACCENT_CYAN : EXT_ACCENT_GOLD);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "click to drill - the collar block cancels",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else if (lh.state == LineHoleState::DRILLING && lh.tripping)
+    {
+        DrawTextEx(bodyFont, TextFormat("bit fractured at %.0f m - tripping  %.0f / %.0f s",
+                                        lh.depthM, lh.tripT, lh.tripDur),
+                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_RED);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "out rod by rod, and back - depth is the price",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else if (lh.state == LineHoleState::DRILLING)
+    {
+        DrawTextEx(bodyFont, TextFormat("string down  %.0f / %.0f m%s",
+                                        lh.depthM, lh.endM,
+                                        lh.dwelling ? "  -  COOLING" : ""),
+                   {ctrlX, ctrlY}, FS(9.5f), sp,
+                   lh.dwelling ? EXT_ACCENT_GOLD : EXT_TEXT);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "click the borehole to drive the string",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 15.0f;
+        DrawTextEx(bodyFont, "SPINDLE", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f,
+                      lh.rpm / DRILL_RPM_MAX,
+                      lh.rpm > 0.9f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN);
+        ctrlY += 15.0f;
+    }
+    else if (lh.state == LineHoleState::RETRACTING)
+    {
+        DrawTextEx(bodyFont, TextFormat("line complete - hoisting  %.0f m",
+                                        ProsShownDepthM(lh)),
+                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "the string comes out; the hole and its log stay",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else if (lh.state == LineHoleState::DONE)
+    {
+        DrawTextEx(bodyFont, TextFormat("line complete - %.0f m cored", lh.endM),
+                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "string racked - click a block to line the next",
+                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else
+    {
+        DrawTextEx(bodyFont, "click a surface block, then a block on",
+                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 12.0f;
+        DrawTextEx(bodyFont, "the layer the hole should reach",
+                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+
+    // Bit temperature: the price hard rock charges in time (auto-peck at max)
+    if (lh.state == LineHoleState::DRILLING || lh.heat > 0.03f)
+    {
+        DrawTextEx(bodyFont, "BIT TEMP", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+        Color hc = lh.heat > 0.8f ? EXT_ACCENT_RED
+                 : lh.heat > 0.5f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.heat, hc);
+        ctrlY += 15.0f;
+    }
+    // Bit wear: time-at-temperature plus metres cut. At full it fractures,
+    // and a fracture buys a TRIP -- time scaled by depth, never the run.
+    if (lh.state == LineHoleState::DRILLING || lh.wear > 0.02f)
+    {
+        DrawTextEx(bodyFont, "BIT WEAR", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
+        Color wc = lh.wear > 0.8f ? EXT_ACCENT_RED
+                 : lh.wear > 0.55f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.wear, wc);
+        ctrlY += 17.0f;
+    }
+    ctrlY += 6.0f;
+
+    // --- What is known about the selected spot -----------------------------
+    if (hasSelection)
+    {
+        DrawLineEx({ctrlX, ctrlY - 6.0f}, {ctrlX + ctrlW - 12.0f, ctrlY - 6.0f},
+                   1.0f, EXT_PANEL_BORDER);
+
+        const SubCell& selCell = grid.GetSubCell(ps->selectedCellX, ps->selectedCellY);
+        float selConf = GetDepthConfidence(grid, ps->GetTray(),
+                                           ps->selectedCellX, ps->selectedCellY,
+                                           ps->selectedDepth);
+        ResourceClass selClass = GetResourceClass(selConf);
+
+        DrawTextEx(headerFont, ResourceClassName(selClass), {ctrlX, ctrlY},
+                   FS(11.0f), sp, ExtClassColor(selClass));
+        if (!IsCommittable(selClass))
+        {
+            float nw = MeasureTextEx(headerFont, ResourceClassName(selClass), FS(11.0f), sp).x;
+            DrawTextEx(bodyFont, "not minable", {ctrlX + nw + 8.0f, ctrlY + 1.0f},
+                       FS(8.5f), sp, Fade(EXT_DIM_TEXT, 0.85f));
+        }
+        ctrlY += 17.0f;
+
+        {
+            bool known = selCell.HasCore(static_cast<int>(ps->selectedDepth)) ||
+                         selCell.HasBeenDug(static_cast<int>(ps->selectedDepth));
+            DrawTextEx(bodyFont, TextFormat("%s %s  %.0f",
+                                            ResourceTypeToString(shown),
+                                            known ? "assay" : "estimate",
+                                            GetEstimatedYield(grid, ps->selectedCellX,
+                                                              ps->selectedCellY,
+                                                              ps->selectedDepth, shown)),
+                       {ctrlX, ctrlY}, FS(9.0f), sp,
+                       known ? EXT_TEXT : EXT_DIM_TEXT);
+        }
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, TextFormat("cores here  %d",
+                                        static_cast<int>(selCell.sampleIds.size())),
+                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 13.0f;
+
+        // Class per depth. Confidence is per depth, so a spot can be Measured
+        // at the surface and Unclassified below it -- which is exactly what
+        // decides whether a deep dig is a plan or a gamble.
+        DrawTextEx(bodyFont, "CLASS BY DEPTH", {ctrlX, ctrlY}, FS(8.0f), sp,
+                   Fade(EXT_DIM_TEXT, 0.8f));
+        ctrlY += 12.0f;
+        for (int d = 0; d < 4; d++)
+        {
+            Rectangle chip = {ctrlX + d * 26.0f, ctrlY, 22.0f, 14.0f};
+            if (false)
+            {
+                DrawRectangleRounded(chip, 0.3f, 4, Color{18, 22, 34, 255});
+                DrawRectangleRoundedLinesEx(chip, 0.3f, 4, 1.0f, Color{34, 40, 58, 255});
+                continue;
+            }
+            float c = GetDepthConfidence(grid, ps->GetTray(), ps->selectedCellX,
+                                         ps->selectedCellY, static_cast<DepthLayer>(d));
+            Color col = ExtClassColor(GetResourceClass(c));
+            DrawRectangleRounded(chip, 0.3f, 4, Fade(col, 0.22f));
+            DrawRectangleRoundedLinesEx(chip, 0.3f, 4, d == focusDepth ? 1.6f : 1.0f, col);
+            const char* initial = (d == 0) ? "S" : (d == 1) ? "H" : (d == 2) ? "M" : "D";
+            float iw = MeasureTextEx(bodyFont, initial, FS(8.5f), sp).x;
+            DrawTextEx(bodyFont, initial, {chip.x + (22.0f - iw) / 2.0f, chip.y + 2.5f},
+                       FS(8.5f), sp, col);
+        }
+        ctrlY += 20.0f;
+
+        int dugLayers = 0;
+        for (int d = 0; d < 4; d++) if (selCell.HasBeenDug(d)) dugLayers++;
+        if (dugLayers > 0)
+        {
+            DrawTextEx(bodyFont, TextFormat("Excavated: %d/4 layers", dugLayers),
+                       {ctrlX, ctrlY}, FS(9.0f), sp, Color{228, 164, 74, 255});
+        }
+    }
+
+
     // (Survey progress summary now lives in the shared bottom status bar.)
+}
+
+
+// ===========================================================================
+// Excavation panel helpers
+// ===========================================================================
+
+// Yield heat for the excavation grid. Green = rich, slate = poor. Deliberately
+// a different ramp from the sweep heat map: that one shows what the radar
+
+// ===========================================================================
+// THE SHAFT DOCK -- excavation's vertical instrument
+// ===========================================================================
+// Excavation's answer to the borehole strip, and deliberately not a copy of
+// it. A drill hole is a NEEDLE: prospecting aims a slanted line anywhere it
+// likes and records what it crossed. A working face is a VOLUME, and it has
+// to connect to the surface -- which is the access rule this module has and
+// prospecting does not (docs/design/excavation/excavation-design.md, Access).
+//
+// So this strip draws a SHAFT: wide, square-shouldered, timbered, with the
+// ground it has opened standing empty above the face and the diamond rotary
+// rig working at the bottom of it. Beside prospecting's ragged 30 px bore,
+// it should read as a thing you could lower a machine down.
+//
+// Phase 1 of docs/design/excavation/rebuild-plan.md: drawing only. The face
+// follows the depth the player has selected; sinking becomes an action that
+// costs energy and time in phase 4.
+//
+// The material this rig is drawn from -- DpSteel, DpBandedSlice, DP_OUT,
+// DP_*_TONES -- is Dark Plating's shared layer (style guide sections 2, 4 and
+// 5), and the plate stack beside it is the shared block model. Neither belongs
+// to prospecting; both are called here rather than duplicated.
+
+// Excavation's own heat field. Same Gaussian law as the drill (style guide
+// 4.5), its own hotspot: heat belongs to the machine that made it, and two
+// modules can be on screen in the same frame.
+static float excHeatAmt = 0.0f, excHeatBitY = 0.0f;
+static float ExcHeatAt(float y)
+{
+    float d = y - excHeatBitY;
+    return excHeatAmt * expf(-(d * d) / (2.0f * 30.0f * 30.0f));
+}
+
+// Where the machine is. Excavation needs three numbers where the auger needed
+// six -- there is no thread and no cone to anchor.
+struct ExcRig
+{
+    float cx, surfY, bitY;
+};
+static float excSpin = 0.0f;          // the bit's rotation accumulator
+
+// ---- drill string geometry (diamond rotary, px) ---------------------------
+// The rig is the concept sheet's diamond rotary drill: bevelled-lid motor box,
+// amber collar, slotted neck, rod, the variant's lower works, and a cone of
+// diamond-tipped cutters. Dark Plating section 6.5.
+//
+// EXC_DRILL_R is the widest thing on the string, so it still sizes the hole.
+static const float EXC_DRILL_R = 15.0f;      // the bit, and so the bore
+static const float EXC_ROD_TOP = 10.4f, EXC_ROD_BOT = 8.8f;
+static const float EXC_NECK_R  = 12.6f, EXC_NECK_H = 17.0f;
+static const float EXC_BIT_LEN = 22.0f;
+// A rotary bit does not screw itself in the way an auger does, so its spin is
+// not geometrically locked to advance. What replaces the auger's pitch is the
+// bit's DEPTH OF CUT PER REVOLUTION: how far one turn of the teeth takes it
+// down. Keeping the coupling means the teeth still visibly turn faster in soft
+// ground and grind in hard, which is the read the pitch used to buy.
+static const float EXC_BITE_PX = 6.5f;
+
+// One tooth ring: an elliptical annulus at its own height and radius, with n
+// teeth marching around it. SQ is how far above the rings the eye sits.
+static const float EXC_SQ = 0.36f;
+struct ExcRing { float r, y, len, w, pull; int n; };
+
+// The two variants of the sheet. Tier buys the heavier rig: below T2 the
+// module is running the compact, at T2 and up the heavy duty -- so an upgrade
+// is a thing you SEE in the bar, not only a number in the panel.
+struct ExcVariant
+{
+    const char* name;
+    float boxW, boxH, lidH, collarW, collarH;
+    bool  litVents;                 // heavy wears three lit vents, compact a slot
+    ExcRing ring[2];
+    float tipY, tipLen, tipW;
+    int   nStack;
+    struct { int kind; float h, r; } stack[5];   // 0 collar 1 twotone 2 ventbox
+};                                               // 3 amber   4 hex     5 fluted
+static const ExcVariant EXC_VARIANTS[2] =
+{
+    { "COMPACT",
+      42.0f, 21.0f, 6.0f, 50.0f, 10.0f, false,
+      { {13.4f, 0.0f, 8.6f, 4.2f, 0.20f, 8}, {8.6f, 7.2f, 7.2f, 3.8f, 0.36f, 6} },
+      13.0f, 7.8f, 4.6f,
+      2, { {0, 6.0f, 11.2f}, {1, 15.0f, 9.6f} } },
+    { "HEAVY DUTY",
+      50.0f, 27.0f, 7.0f, 58.0f, 11.0f, true,
+      { {15.0f, 0.0f, 9.4f, 4.7f, 0.20f, 10}, {9.8f, 8.5f, 8.1f, 4.1f, 0.36f, 7} },
+      15.2f, 8.8f, 5.0f,
+      4, { {0, 7.0f, 12.0f}, {2, 16.0f, 13.4f}, {3, 13.0f, 15.2f},
+           {4, 7.0f, 12.2f} } },
+};
+static int excVariantIdx = 1;
+static const ExcVariant& ExcVar() { return EXC_VARIANTS[excVariantIdx]; }
+
+static float ExcStackH()
+{
+    const ExcVariant& v = ExcVar();
+    float h = 0.0f;
+    for (int i = 0; i < v.nStack; i++) h += v.stack[i].h;
+    return h;
+}
+// The outer envelope, so chips ride the machine and never a constant.
+static float ExcRadAt(const ExcRig& r, float y)
+{
+    const ExcVariant& v = ExcVar();
+    float bitTop = r.bitY - EXC_BIT_LEN;
+    if (y >= bitTop) return EXC_DRILL_R;
+    float y1 = bitTop;
+    for (int i = 0; i < v.nStack; i++)
+    {
+        float y0 = y1 - v.stack[i].h;
+        if (y >= y0) return v.stack[i].r;
+        y1 = y0;
+    }
+    float t = std::clamp((y - r.surfY) / std::max(1.0f, y1 - r.surfY), 0.0f, 1.0f);
+    return EXC_ROD_TOP + (EXC_ROD_BOT - EXC_ROD_TOP) * t;
+}
+
+// One cutter: a stubby cone, base at (bx,by), tip pulled toward the axis by
+
+// inx. Four points, so the tip reads as a chisel rather than a needle.
+static void ExcTooth(float bx, float by, float w, float len, float inx, Color fill)
+{
+    Vector2 a = {bx - w * 0.5f, by}, b = {bx + w * 0.5f, by};
+    Vector2 c = {bx + inx + w * 0.16f, by + len * 0.86f};
+    Vector2 d = {bx + inx - w * 0.10f, by + len};
+    DrawTriangle(a, d, c, fill);
+    DrawTriangle(a, c, b, fill);
+}
+static void ExcToothOutline(float bx, float by, float w, float len, float inx)
+{
+    Vector2 a = {bx - w * 0.5f, by}, b = {bx + w * 0.5f, by};
+    Vector2 c = {bx + inx + w * 0.16f, by + len * 0.86f};
+    Vector2 d = {bx + inx - w * 0.10f, by + len};
+    DrawLineEx(a, d, 2.4f, DP_OUT); DrawLineEx(d, c, 2.4f, DP_OUT);
+    DrawLineEx(c, b, 2.4f, DP_OUT); DrawLineEx(a, b, 2.4f, DP_OUT);
+}
+
+// The bit (Dark Plating section 6.5). Two rings of diamond-tipped cutters and
+// a centre point. Each ring is an elliptical annulus; every tooth owns an
+// angle on it, and rotation is the teeth marching around -- the same
+// projection the auger's helicoid used, with segments instead of a sweep.
+// The cone is a CONSEQUENCE: the outer ring splays (tips pull only 0.20 of
+// the ring radius toward the axis), the inner converges at 0.36, the centre
+// point sits on the axis. All rings share ONE painter sort -- sorting per
+// ring lets a front tooth of the outer ring vanish under a back tooth of the
+// inner one.
+static void ExcDrawBit(const ExcRig& r)
+{
+    const ExcVariant& v = ExcVar();
+    float bT = r.bitY - EXC_BIT_LEN;
+    float heat = ExcHeatAt(r.bitY);
+
+    // the dark body the teeth are set in, so they read against something
+    Vector2 o0 = {r.cx - EXC_DRILL_R - 1.6f, bT - 1.6f};
+    Vector2 o1 = {r.cx + EXC_DRILL_R + 1.6f, bT - 1.6f};
+    Vector2 o2 = {r.cx + EXC_DRILL_R * 0.22f, r.bitY + 1.2f};
+    Vector2 o3 = {r.cx - EXC_DRILL_R * 0.22f, r.bitY + 1.2f};
+    DrawTriangle(o0, o3, o2, DP_OUT); DrawTriangle(o0, o2, o1, DP_OUT);
+    Color body = DpSteel(0.16f, heat);
+    Vector2 b0 = {r.cx - EXC_DRILL_R + 1.2f, bT};
+    Vector2 b1 = {r.cx + EXC_DRILL_R - 1.2f, bT};
+    Vector2 b2 = {r.cx + EXC_DRILL_R * 0.18f, r.bitY - 1.6f};
+    Vector2 b3 = {r.cx - EXC_DRILL_R * 0.18f, r.bitY - 1.6f};
+    DrawTriangle(b0, b3, b2, body); DrawTriangle(b0, b2, b1, body);
+
+    struct Tooth { float a, f; int ring, idx; };
+    std::vector<Tooth> teeth;
+    for (int k = 0; k < 2; k++)
+    {
+        const ExcRing& rg = v.ring[k];
+        float step = 2.0f * PI / static_cast<float>(rg.n);
+        for (int i = 0; i < rg.n; i++)
+        {
+            float a = excSpin + k * step * 0.5f + i * step;
+            teeth.push_back({a, -cosf(a), k, i});
+        }
+    }
+    std::sort(teeth.begin(), teeth.end(),
+              [](const Tooth& p, const Tooth& q) { return p.f < q.f; });
+
+    for (const Tooth& t : teeth)
+    {
+        const ExcRing& rg = v.ring[t.ring];
+        bool front = t.f > 0.0f;
+        float bx = r.cx + rg.r * sinf(t.a);
+        float by = (bT + rg.y) - EXC_SQ * rg.r * cosf(t.a);
+        float sc = front ? 1.0f : 0.78f;
+        float inx = -sinf(t.a) * rg.r * rg.pull * sc;
+        float lt = 0.5f - 0.5f * sinf(t.a);              // light from upper-left
+        // Back teeth are REMAPPED brighter, not merely darkened: a plain dim
+        // sinks them into the body they stand on.
+        float shade = front ? 0.50f + 0.32f * lt + 0.12f * t.f
+                            : 0.15f + (0.48f + 0.30f * lt) * 0.44f;
+        if (front) ExcToothOutline(bx, by, rg.w * sc, rg.len * sc, inx);
+        ExcTooth(bx, by, rg.w * sc, rg.len * sc, inx,
+                  DpSteel(shade, front ? heat : heat * 0.6f));
+        if (front)
+        {
+            DrawLineEx({bx - rg.w * 0.30f, by + 1.0f},
+                       {bx + inx - rg.w * 0.06f, by + rg.len * 0.82f},
+                       1.0f, DpSteel(0.82f + 0.18f * lt, heat * 0.4f));
+            // one diamond speck per tooth, seeded so the grit rides its tooth
+            unsigned gs = (2654435761u * static_cast<unsigned>(t.ring * 31 + t.idx)) % 97u;
+            DrawRectangleRec({bx - 1.4f + (gs % 3u), by + 2.0f + (gs % 4u), 1.7f, 1.7f},
+                             DpSteel(0.94f, heat * 0.3f));
+        }
+    }
+    // the centre point: angle-free, always front, painted last
+    ExcToothOutline(r.cx, bT + v.tipY, v.tipW, v.tipLen, 0.0f);
+    ExcTooth(r.cx, bT + v.tipY, v.tipW, v.tipLen, 0.0f, DpSteel(0.56f, heat));
+    DrawLineEx({r.cx - v.tipW * 0.22f, bT + v.tipY + 1.4f},
+               {r.cx - v.tipW * 0.06f, bT + v.tipY + v.tipLen * 0.8f},
+               1.0f, DpSteel(0.92f, heat * 0.4f));
+}
+
+
+
+// variant is a list and never a branch.
+static void ExcDrawStackSeg(const ExcRig& r, int kind, float y0, float y1, float rad)
+{
+    float h = ExcHeatAt((y0 + y1) * 0.5f), hh = (y1 - y0);
+    if (kind == 0 || kind == 4)                       // step collar / hex joint
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 1.5f, (rad + 2.0f) * 2.0f, hh + 3.0f}, DP_OUT);
+        for (float y = y0; y < y1; y += 1.4f)
+            DpBandedSlice(r.cx, y, rad, 1.8f, DP_JOINT_TONES, ExcHeatAt(y));
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 1.6f}, Fade(WHITE, 0.34f));
+        DrawRectangleRec({r.cx - rad, y1 - 2.0f, rad * 2.0f, 2.0f}, Fade(BLACK, 0.45f));
+        if (kind == 4)                                // side facets say hexagonal
+        {
+            DrawTriangle({r.cx - rad, y0}, {r.cx - rad, y1}, {r.cx - rad + 4.0f, (y0 + y1) * 0.5f},
+                         Fade(BLACK, 0.35f));
+            DrawTriangle({r.cx + rad, y0}, {r.cx + rad - 4.0f, (y0 + y1) * 0.5f}, {r.cx + rad, y1},
+                         Fade(BLACK, 0.35f));
+        }
+    }
+    else if (kind == 1)                               // the compact's lower barrel
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 1.5f, (rad + 2.0f) * 2.0f, hh + 3.0f}, DP_OUT);
+        for (float y = y0; y < y1; y += 1.4f)
+            DpBandedSlice(r.cx, y, rad, 1.8f, DP_CHUCK_TONES, ExcHeatAt(y));
+        DrawRectangleRec({r.cx - rad + 3.0f, y0 + 3.0f, 1.8f, hh - 6.0f}, Fade(BLACK, 0.30f));
+        DrawRectangleRec({r.cx + rad - 5.0f, y0 + 3.0f, 1.8f, hh - 6.0f}, Fade(BLACK, 0.30f));
+        DrawRectangleRec({r.cx - rad, (y0 + y1) * 0.5f - 0.8f, rad * 2.0f, 1.6f}, Fade(BLACK, 0.38f));
+    }
+    else if (kind == 2)                               // the vented grey housing
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 2.0f, (rad + 2.0f) * 2.0f, hh + 4.0f}, DP_OUT);
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, hh}, DpSteel(0.34f, h * 0.5f));
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 2.6f}, Fade(WHITE, 0.30f));
+        DrawRectangleRec({r.cx - rad, y1 - 2.6f, rad * 2.0f, 2.6f}, Fade(BLACK, 0.30f));
+        DrawRectangleRec({r.cx - rad * 0.52f - 1.6f, y0 + 4.0f, 3.2f, 6.0f}, Fade(BLACK, 0.5f));
+        DrawRectangleRec({r.cx + rad * 0.52f - 1.6f, y0 + 4.0f, 3.2f, 6.0f}, Fade(BLACK, 0.5f));
+    }
+    else if (kind == 3)                               // the amber stabiliser
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 2.0f, (rad + 2.0f) * 2.0f, hh + 4.0f}, DP_OUT);
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, hh}, {217, 150, 47, 255});
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 2.6f}, Fade(WHITE, 0.30f));
+        DrawRectangleRec({r.cx - rad, y1 - 2.6f, rad * 2.0f, 2.6f}, Fade(BLACK, 0.30f));
+        DrawRectangleRec({r.cx - rad * 0.42f - 1.8f, y0 + 3.0f, 3.6f, hh - 6.0f}, Fade(BLACK, 0.46f));
+        DrawRectangleRec({r.cx + rad * 0.42f - 1.8f, y0 + 3.0f, 3.6f, hh - 6.0f}, Fade(BLACK, 0.46f));
+        DrawRectangleRec({r.cx - rad + 2.5f, y0 + 2.0f, 2.4f, 2.4f}, {244, 198, 106, 255});
+        DrawRectangleRec({r.cx + rad - 4.9f, y0 + 2.0f, 2.4f, 2.4f}, {244, 198, 106, 255});
+        if (h > 0.02f)
+            DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, hh},
+                             Fade(Color{255, 110, 30, 255}, std::min(0.5f, h * 0.5f)));
+    }
+    else                                              // the bundled-column section
+    {
+        DrawRectangleRec({r.cx - rad - 2.0f, y0 - 1.5f, (rad + 2.0f) * 2.0f, hh + 3.0f}, DP_OUT);
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, hh}, DpSteel(0.10f, h * 0.4f));
+        float cw = rad * 0.30f;
+        for (int k = -1; k <= 1; k++)
+            for (float y = y0 + 4.0f; y < y1 - 4.0f; y += 1.4f)
+                DpBandedSlice(r.cx + k * rad * 0.60f, y, cw, 1.8f, DP_ROD_TONES,
+                                ExcHeatAt(y));
+        for (float y = y0; y < y0 + 4.0f; y += 1.4f)
+            DpBandedSlice(r.cx, y, rad, 1.8f, DP_JOINT_TONES, ExcHeatAt(y));
+        for (float y = y1 - 4.0f; y < y1; y += 1.4f)
+            DpBandedSlice(r.cx, y, rad, 1.8f, DP_JOINT_TONES, ExcHeatAt(y));
+        DrawRectangleRec({r.cx - rad, y0, rad * 2.0f, 1.3f}, Fade(WHITE, 0.30f));
+        DrawRectangleRec({r.cx - rad, y1 - 1.6f, rad * 2.0f, 1.6f}, Fade(BLACK, 0.40f));
+    }
+}
+
+// The rig below the collar: slotted neck, rod with its joints, the variant's
+
+// fixed offsets above the lower works -- what is bolted together stays
+// bolted together as the hole deepens.
+static void ExcDrawString(const ExcRig& r, float topY)
+{
+    const ExcVariant& v = ExcVar();
+    float bitTop = r.bitY - EXC_BIT_LEN;
+    float stackTop = bitTop - ExcStackH();
+
+    // rod: silhouette then banded body, in thin slices so the taper stays
+    // banded. It runs from under the collar to the lower works.
+    float rodTopY = std::max(topY, r.surfY - 6.0f);
+    if (stackTop > rodTopY)
+    {
+        for (float y = rodTopY; y < stackTop; y += 1.4f)
+        {
+            float w = ExcRadAt(r, std::max(y, r.surfY + 0.1f)) + 1.8f;
+            DrawRectangleRec({r.cx - w, y, w * 2.0f, 2.1f}, DP_OUT);
+        }
+        for (float y = rodTopY; y < stackTop - 1.0f; y += 1.4f)
+        {
+            float w = ExcRadAt(r, std::max(y, r.surfY + 0.1f));
+            if (w < 0.7f) continue;
+            DpBandedSlice(r.cx, y, w, 1.8f, DP_ROD_TONES, ExcHeatAt(y));
+        }
+        for (int k = 1; k <= 3; k++)
+        {
+            float jy = stackTop - k * 78.0f;
+            if (jy < r.surfY + 10.0f) break;
+            ProsDrawJoint(r.cx, jy, ExcRadAt(r, jy) + 0.8f, false);
+        }
+    }
+
+    // the lower works, bottom-up from the bit
+    float y1 = bitTop;
+    for (int i = 0; i < v.nStack; i++)
+    {
+        float y0 = y1 - v.stack[i].h;
+        if (y1 > r.surfY + 2.0f) ExcDrawStackSeg(r, v.stack[i].kind, y0, y1, v.stack[i].r);
+        y1 = y0;
+    }
+    ExcDrawBit(r);
+}
+
+// The top works, following the concept sheet: a bevelled-lid motor box on the
+// sled, its mouth slot and state lamp, then the amber collar -- one dark mouth
+// slot on the compact, three lit vents on the heavy. Anchored just above the
+// surface and clamped to the clip, so it can NEVER be scissored away by a
+
+static void ExcDrawHead(float cx, float surfY, float clipTop,
+                         bool turning, bool cooling)
+{
+    const ExcVariant& v = ExcVar();
+    auto box = [](float x, float y, float w, float h, Color fill, bool bev)
+    {
+        DrawRectangleRec({x - 2.0f, y - 2.0f, w + 4.0f, h + 4.0f}, DP_OUT);
+        DrawRectangleRec({x, y, w, h}, fill);
+        if (bev)
+        {
+            DrawRectangleRec({x, y, w, 2.6f}, Fade(WHITE, 0.30f));
+            DrawRectangleRec({x, y, 2.6f, h}, Fade(WHITE, 0.14f));
+            DrawRectangleRec({x, y + h - 2.6f, w, 2.6f}, Fade(BLACK, 0.30f));
+            DrawRectangleRec({x + w - 2.6f, y, 2.6f, h}, Fade(BLACK, 0.22f));
+        }
+    };
+    float neckY = std::max(clipTop + v.boxH + v.lidH + v.collarH + 8.0f,
+                           surfY - 9.0f - EXC_NECK_H);
+    float collarY = neckY - v.collarH;
+    float boxY = collarY - v.boxH, lidY = boxY - v.lidH;
+
+    // base sled: the rig stands ON the ground rather than hovering over it
+    DrawRectangleRec({cx - v.boxW * 0.5f - 12.0f, surfY - 11.0f, v.boxW + 24.0f, 11.0f}, DP_OUT);
+    DrawRectangleRec({cx - v.boxW * 0.5f - 10.0f, surfY - 10.0f, v.boxW + 20.0f, 9.0f}, {28, 37, 48, 255});
+    DrawRectangleRec({cx - v.boxW * 0.5f - 10.0f, surfY - 10.0f, v.boxW + 20.0f, 2.2f}, Fade(WHITE, 0.18f));
+
+    // the bevelled lid: a trapezoid, so the box reads as a cast housing
+    Vector2 l0 = {cx - v.boxW * 0.34f - 2.0f, lidY - 2.0f};
+    Vector2 l1 = {cx + v.boxW * 0.34f + 2.0f, lidY - 2.0f};
+    Vector2 l2 = {cx + v.boxW * 0.5f + 4.0f, boxY + 1.0f};
+    Vector2 l3 = {cx - v.boxW * 0.5f - 4.0f, boxY + 1.0f};
+    DrawTriangle(l0, l3, l2, DP_OUT); DrawTriangle(l0, l2, l1, DP_OUT);
+    Vector2 m0 = {cx - v.boxW * 0.34f, lidY}, m1 = {cx + v.boxW * 0.34f, lidY};
+    Vector2 m2 = {cx + v.boxW * 0.5f + 2.0f, boxY}, m3 = {cx - v.boxW * 0.5f - 2.0f, boxY};
+    Color lid = DpSteel(0.62f);
+    DrawTriangle(m0, m3, m2, lid); DrawTriangle(m0, m2, m1, lid);
+    DrawRectangleRec({cx - v.boxW * 0.34f, lidY, v.boxW * 0.68f, 2.2f}, Fade(WHITE, 0.30f));
+
+    box(cx - v.boxW * 0.5f, boxY, v.boxW, v.boxH, {57, 66, 78, 255}, true);
+    DrawRectangleRec({cx - v.boxW * 0.5f + 6.0f, boxY + 5.0f, v.boxW - 12.0f, 1.4f}, Fade(BLACK, 0.35f));
+    DrawRectangleRec({cx - 0.7f, boxY + 5.0f, 1.4f, v.boxH - 10.0f}, Fade(BLACK, 0.35f));
+    DrawRectangleRec({cx - 7.0f, boxY + v.boxH - 8.0f, 14.0f, 4.6f}, {20, 26, 33, 255});
+    DrawRectangleRec({cx - 7.0f, boxY + v.boxH - 8.0f, 14.0f, 1.2f}, Fade(WHITE, 0.14f));
+    // the state lamp keeps its semantics: hot cooling, amber turning, cyan idle
+    DrawRectangleRec({cx + v.boxW * 0.5f - 10.2f, boxY + v.boxH - 9.2f, 7.4f, 7.4f}, DP_OUT);
+    DrawRectangleRec({cx + v.boxW * 0.5f - 9.0f, boxY + v.boxH - 8.0f, 5.0f, 5.0f},
+                     cooling ? Color{255, 90, 40, 255}
+                             : turning ? Color{255, 200, 77, 255}
+                                       : Color{80, 225, 255, 255});
+
+    // the amber collar -- the machine's signature colour (section 1.2)
+    box(cx - v.collarW * 0.5f, collarY, v.collarW, v.collarH, {217, 150, 47, 255}, true);
+    if (v.litVents)
+    {
+        for (int k = -1; k <= 1; k++)
+        {
+            DrawRectangleRec({cx + k * v.collarW * 0.16f - 2.4f, collarY + 2.5f, 4.8f, v.collarH - 5.0f},
+                             {122, 81, 21, 255});
+            DrawRectangleRec({cx + k * v.collarW * 0.16f - 1.2f, collarY + 3.5f, 2.4f, v.collarH - 7.0f},
+                             {244, 198, 106, 255});
+        }
+    }
+    else
+    {
+        DrawRectangleRec({cx - v.collarW * 0.30f, collarY + v.collarH * 0.5f - 1.8f,
+                          v.collarW * 0.60f, 3.6f}, {122, 81, 21, 255});
+        DrawRectangleRec({cx - v.collarW * 0.30f, collarY + v.collarH * 0.5f + 0.8f,
+                          v.collarW * 0.60f, 1.0f}, Fade(BLACK, 0.4f));
+    }
+    DrawRectangleRec({cx - v.collarW * 0.5f - 2.5f, collarY + 2.0f, 2.6f, 2.6f}, {244, 198, 106, 255});
+    DrawRectangleRec({cx + v.collarW * 0.5f - 0.1f, collarY + 2.0f, 2.6f, 2.6f}, {244, 198, 106, 255});
+
+    // the slotted box the string runs down through, standing on the sled
+    DrawRectangleRec({cx - EXC_NECK_R - 2.5f, neckY - 2.5f,
+                      (EXC_NECK_R + 2.5f) * 2.0f, EXC_NECK_H + 5.0f}, DP_OUT);
+    for (float y = neckY; y < neckY + EXC_NECK_H; y += 1.4f)
+        DpBandedSlice(cx, y, EXC_NECK_R, 1.8f, DP_CHUCK_TONES, ExcHeatAt(y));
+    DrawRectangleRec({cx - EXC_NECK_R, neckY, EXC_NECK_R * 2.0f, 2.2f}, Fade(WHITE, 0.24f));
+    DrawRectangleRec({cx - EXC_NECK_R, neckY + EXC_NECK_H - 2.6f,
+                      EXC_NECK_R * 2.0f, 2.6f}, Fade(BLACK, 0.40f));
+    int ns = v.litVents ? 3 : 4;
+    for (int i = 0; i < ns; i++)
+    {
+        float t = (i + 0.5f) / ns;
+        float sx = cx - EXC_NECK_R + t * EXC_NECK_R * 2.0f - 1.3f;
+        DrawRectangleRec({sx, neckY + 3.0f, 2.6f, EXC_NECK_H - 7.0f}, Fade(BLACK, 0.5f));
+        if (v.litVents)
+            DrawRectangleRec({sx + 0.4f, neckY + 4.0f, 1.8f, EXC_NECK_H - 9.0f},
+                             {244, 198, 106, 255});
+    }
+}
+
+// ---- the shaft itself ------------------------------------------------------
+// Sized so it reads as a volume rather than a bore: the rig is 30 px across
+// and the shaft is 64, in a strip 16 px wider than prospecting's -- a hole you
+// sink a machine down, not one you push a needle through. The extra width is
+// spent on ROCK, because the strata either side are what make a depth legible.
+static const float EXC_SHAFT_HALF = 32.0f;
+static const float EXC_SET_SPACING = 36.0f;   // timber sets down the walls
+
+static void ExcDrawShaft(const DockGeom& dg, float surfY, float faceY)
+{
+    float x0 = dg.cx - EXC_SHAFT_HALF, x1 = dg.cx + EXC_SHAFT_HALF;
+    float h = faceY - surfY;
+    if (h < 1.0f) return;
+
+    // the void
+    DrawRectangleRec({x0, surfY, x1 - x0, h}, {11, 9, 7, 255});
+
+    // Dressed walls, not ragged ones. A borehole's wall is broken rock and is
+    // drawn as jitter; a shaft's is cut to a line and held there, so it gets a
+    // straight face with a lit inner edge. That difference is most of what
+    // makes this read as built rather than drilled.
+    for (int s = -1; s <= 1; s += 2)
+    {
+        float wx = (s < 0) ? x0 : x1 - 7.0f;
+        DrawRectangleRec({wx, surfY, 7.0f, h}, {31, 27, 22, 255});
+        DrawRectangleRec({(s < 0) ? x0 + 6.0f : x1 - 7.0f, surfY, 1.4f, h},
+                         Fade(Color{198, 214, 232, 255}, 0.13f));
+    }
+    // the far wall darkens with depth, which is what gives the void a floor
+    for (int i = 0; i < 5; i++)
+    {
+        float t0 = i / 5.0f;
+        DrawRectangleRec({x0 + 7.0f, surfY + h * t0, (x1 - x0) - 14.0f, h / 5.0f + 1.0f},
+                         Fade(BLACK, 0.10f + 0.14f * t0));
+    }
+
+    // Sets: the timbering that holds a shaft open. Spaced by a fixed pixel
+    // pitch rather than by depth, because they are structure, not scale.
+    for (float y = surfY + EXC_SET_SPACING; y < faceY - 6.0f; y += EXC_SET_SPACING)
+    {
+        DrawRectangleRec({x0 + 5.0f, y, (x1 - x0) - 10.0f, 4.6f}, {24, 31, 40, 255});
+        DrawRectangleRec({x0 + 5.0f, y, (x1 - x0) - 10.0f, 1.3f}, Fade(WHITE, 0.16f));
+        DrawRectangleRec({x0 + 5.0f, y + 3.6f, (x1 - x0) - 10.0f, 1.0f}, Fade(BLACK, 0.45f));
+    }
+
+    // the face: the floor the rig is standing on and cutting into
+    DrawRectangleRec({x0 + 7.0f, faceY - 3.0f, (x1 - x0) - 14.0f, 3.0f}, {46, 40, 32, 255});
+    DrawRectangleRec({x0 + 7.0f, faceY - 3.0f, (x1 - x0) - 14.0f, 1.2f}, Fade(WHITE, 0.10f));
+}
+
+// ---- the dock's depth axis -------------------------------------------------
+// Phase 1 builds it standalone; phase 3 swaps this for DockFromBlock once the
+// block model arrives. The bands are spaced EVENLY on purpose -- that is what
+// the plate stack will hand over, so the swap changes no pixels. YOf then
+// interpolates within a band by true metre fraction, exactly as it does for
+// prospecting, which is what keeps a depth in one panel level with the same
+// depth in the other.
+static DockGeom ExcDockEven(float x, float w, float top, float bottom)
+{
+    DockGeom d;
+    d.x = x; d.w = w; d.cx = x + w * 0.5f;
+    float span = (bottom - top) / 4.0f;
+    for (int L = 0; L < 5; L++) d.bandTop[L] = top + span * L;
+    return d;
+}
+
+// ---- the whole strip -------------------------------------------------------
+static void ExcDrawShaftDock(ExcavationSystem* es, const DockGeom& dg,
+                             float clipTop, float clipBot,
+                             const Font& bodyFont, float sp, float fsSmall,
+                             const Texture2D* strata)
+{
+    float surfY = dg.bandTop[0];
+    int dIdx = std::clamp(static_cast<int>(es->selectedDepth), 0, 3);
+
+    // The face sits at the CENTRE of the worked layer, matching prospecting's
+    // PlateTargetM: aiming at a layer means working inside it, never on the
+    // boundary, where the depth would belong to the layer above.
+    float faceM = LAYER_CENTRE_M[dIdx];
+    float faceY = dg.YOf(faceM);
+
+    // Tier buys the heavier rig, so an upgrade is a thing you SEE in the bar.
+    excVariantIdx = es->GetTier() >= 2 ? 1 : 0;
+
+    // Drive the machine from the work it actually did last tick.
+    const DigResult& lr = es->GetLastResult();
+    float pace = std::max(0.0f, lr.effectivePace);
+    bool working = pace > 0.001f;
+    bool throttled = lr.throttledByPower;
+    float dt = GetFrameTime();
+
+    excSpin -= (working ? (2.0f + 7.0f * pace) : 0.0f) * dt;
+    // Heat is integrated on the dig tick, not here: it is a consequence of
+    // work, and the renderer only gets two frames in a headless preview.
+    excHeatAmt = es->bitHeat;
+    excHeatBitY = faceY;
+
+    BeginScissorMode(static_cast<int>(dg.x * gPixelScale),
+                     static_cast<int>(clipTop * gPixelScale),
+                     static_cast<int>(dg.w * gPixelScale),
+                     static_cast<int>((clipBot - clipTop) * gPixelScale));
+
+    // sky
+    DrawRectangleRec({dg.x, clipTop, dg.w, surfY - clipTop}, {10, 16, 24, 255});
+    dpGrain = 3;
+    for (int i = 0; i < 8; i++)
+        DrawRectangleRec({dg.x + DpRnd() * dg.w,
+                          clipTop + DpRnd() * std::max(1.0f, surfY - clipTop - 8.0f),
+                          1.4f, 1.4f}, Fade(Color{200, 220, 240, 255}, 0.5f));
+
+    // The rock: the same four generated textures the plates wear, so the band
+    // here and the plate beside it are one rock rather than two palettes.
+    for (int L = 0; L < 4; L++)
+    {
+        float y0 = dg.bandTop[L], y1 = dg.bandTop[L + 1];
+        if (strata != nullptr && strata[L].id != 0)
+        {
+            Color tint = { static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].r * 2)),
+                           static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].g * 2)),
+                           static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].b * 2)),
+                           255 };
+            float k = static_cast<float>(RockTexture::SIZE) / DP_ROCK_TEX_PX;
+            float off = static_cast<float>(L) * 41.0f;
+            DrawTexturePro(strata[L], {0.0f, off, dg.w * k, (y1 - y0) * k},
+                           {dg.x, y0, dg.w, y1 - y0}, {0.0f, 0.0f}, 0.0f, tint);
+        }
+        else
+        {
+            DrawRectangleRec({dg.x, y0, dg.w, y1 - y0}, DP_ROCK_COL[L]);
+        }
+        DrawRectangleRec({dg.x, y0, dg.w, 2.0f}, DP_ROCK_EDGE[L]);
+    }
+    DrawRectangleRec({dg.x, surfY - 1.8f, dg.w, 2.0f}, {74, 85, 96, 255});
+
+    // Depth figures down the right edge, as the borehole strip has them --
+    // now actually as it has them: five figures, so the strip states the
+    // depth of its own floor instead of trailing off at the last boundary,
+    // and in the shared dim-text token rather than a local RGB.
+    for (int L = 0; L <= 4; L++)
+    {
+        const char* t = TextFormat("%d", static_cast<int>(L == 4 ? FULL_COLUMN_M
+                                                                : LayerTopM(L)));
+        float tw = MeasureTextEx(bodyFont, t, fsSmall, sp).x;
+        DrawTextEx(bodyFont, t, {dg.x + dg.w - tw - 4.0f, dg.bandTop[L] + 3.0f},
+                   fsSmall, sp, Fade(EXT_DIM_TEXT, 0.9f));
+    }
+
+    ExcDrawShaft(dg, surfY, faceY);
+
+    // spoil at the collar: what the shaft took out has to be somewhere
+    DrawEllipse(static_cast<int>(dg.cx - EXC_SHAFT_HALF - 12.0f),
+                static_cast<int>(surfY - 1.0f), 15.0f, 6.0f, {70, 62, 49, 255});
+    DrawEllipse(static_cast<int>(dg.cx + EXC_SHAFT_HALF + 12.0f),
+                static_cast<int>(surfY - 1.0f), 15.0f, 6.0f, {70, 62, 49, 255});
+
+    ExcRig rig;
+    rig.cx = dg.cx; rig.surfY = surfY; rig.bitY = faceY;
+    ExcDrawString(rig, clipTop + 4.0f);
+    ExcDrawHead(dg.cx, surfY, clipTop, working, throttled);
+
+    // the glow at the face -- the one overlay this style allows (3.3)
+    if (excHeatAmt > 0.02f)
+    {
+        DrawCircleGradient({dg.cx, faceY}, 46.0f,
+                           Fade(Color{255, 110, 30, 255}, 0.34f * excHeatAmt),
+                           Fade(Color{255, 110, 30, 255}, 0.0f));
+    }
+
+    EndScissorMode();
+
+    // The border: solid on three sides, DASHED on the edge that FACES THE
+    // MODEL -- the cut mark the rock passes under (style guide 9.1). That is
+    // the LEFT edge here, as it is in the borehole strip: the model sits to
+    // the left of both. This dashed the TOP, which marks nothing, and framed
+    // itself in DP_OUT -- a near-black outline colour, so on a near-black
+    // panel the strip had no visible frame at all while its twin did.
+    DrawLineEx({dg.x, clipTop}, {dg.x + dg.w, clipTop}, 1.0f, EXT_PANEL_BORDER);
+    DrawLineEx({dg.x, clipBot}, {dg.x + dg.w, clipBot}, 1.0f, EXT_PANEL_BORDER);
+    DrawLineEx({dg.x + dg.w, clipTop}, {dg.x + dg.w, clipBot}, 1.0f, EXT_PANEL_BORDER);
+    DpDashed({dg.x, clipTop}, {dg.x, clipBot}, 4.0f, 5.0f, 0.0f, 1.0f,
+             Fade(EXT_PANEL_BORDER, 0.9f));
+
+    DrawTextEx(bodyFont, "SHAFT", {dg.x + 5.0f, clipBot - 13.0f}, fsSmall, sp,
+               EXT_DIM_TEXT);
+}
+
+
+
+// A horizontal slider. Returns true while being dragged, and writes through
+// `value`. IMGUI-style: drawn and hit-tested in one pass.
+static bool ExcSlider(Rectangle track, float& value, float minValue, float maxValue,
+                      Vector2 mouse, Color accent, bool enabled)
+{
+    float span = maxValue - minValue;
+    if (span <= 0.0f) span = 1.0f;
+
+    float t = (value - minValue) / span;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+
+    bool hover = CheckCollisionPointRec(mouse, {track.x - 6.0f, track.y - 9.0f,
+                                                track.width + 12.0f, track.height + 18.0f});
+    bool dragging = enabled && hover && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+
+    if (dragging)
+    {
+        t = (mouse.x - track.x) / track.width;
+        t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+        value = minValue + t * span;
+    }
+
+    Color line = enabled ? Fade(accent, 0.30f) : Fade(EXT_DIM_TEXT, 0.25f);
+    Color fill = enabled ? accent : EXT_DIM_TEXT;
+
+    DrawRectangleRounded(track, 1.0f, 4, line);
+    DrawRectangleRounded({track.x, track.y, track.width * t, track.height}, 1.0f, 4,
+                         Fade(fill, 0.85f));
+
+    // Knob: bigger while held, so a touch press is visibly acknowledged.
+    float knobR = dragging ? 7.0f : (hover && enabled ? 6.0f : 5.0f);
+    Vector2 knob = {track.x + track.width * t, track.y + track.height * 0.5f};
+    DrawCircleV(knob, knobR, enabled ? fill : EXT_DIM_TEXT);
+    DrawCircleV(knob, knobR * 0.45f, EXT_PANEL_BG);
+
+    return dragging;
 }
 
 void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
@@ -5330,145 +6923,591 @@ void RenderManager::DrawExcavationPanel(Unit* unit, int x, int y, int w, int h)
     const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
     const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
     float sp = 1.0f;
-    int padding = 15;
-
-    float yPos = static_cast<float>(y + padding);
+    int padding = EXT_GAP + 14;
     float px = static_cast<float>(x + padding);
-    Vector2 mousePos = GetMousePosition();
+    float pw = static_cast<float>(w - padding * 2);
+    Vector2 mouse = ColonyGetMousePosition();
 
-    DrawTextEx(headerFont, "EXCAVATION FLEET", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
-    yPos += 28.0f;
-
-    // Total stats
-    DrawTextEx(bodyFont, TextFormat("Total Regolith Extracted: %.1f kg", unit->GetTotalRegolithExtracted()),
-               {px, yPos}, FS(14.0f), sp, EXT_ACCENT_CYAN);
-    yPos += 25.0f;
-
-    // Fleet table
-    const auto& excavators = unit->GetExcavators();
-    if (excavators.empty())
+    if (!unit->HasExcavationSystem() || !unit->HasProspectingSystem())
     {
-        DrawTextEx(bodyFont, "No excavators deployed", {px, yPos}, FS(13.0f), sp, EXT_DIM_TEXT);
+        DrawTextEx(headerFont, "No excavation system.", {px, static_cast<float>(y + padding)},
+                   FS(14.0f), sp, EXT_DIM_TEXT);
         return;
     }
 
-    // Get excavation tier for depth step and max depth
-    int excTier = 0;
-    float maxDepth = 10.0f;
-    for (const auto& mod : unit->GetModules())
+    ExcavationSystem* es = unit->GetExcavationSystem();
+    ProspectingSystem* ps = unit->GetProspectingSystem();
+
+    // Make the displayed state coherent before drawing any of it: a target this
+    // ground actually holds, and the machine AUTO would really pick. Without
+    // this the panel shows the constructor's defaults until the first dig tick.
+    es->SyncToGround(*ps);
+    const ProspectingGrid& grid = ps->GetGrid();
+    const SiteView& site = es->GetSite();
+    const EstimateEngine& estimator = es->GetEstimator();
+    const DigSite& worked = es->GetWorked();
+
+    // --- Header ---
+    float yPos = static_cast<float>(y + padding);
+    ExtDrawIcon(ExtIcon::EXCAVATOR, px + 10.0f, yPos + 10.0f, 10.0f, EXT_ACCENT_CYAN);
+    DrawTextEx(headerFont, "EXCAVATION", {px + 28.0f, yPos + 1.0f}, FS(15.0f), sp, EXT_TEXT);
+
+    // Machine name, right-aligned, so the active tool is readable at a glance
+    // even when the bay is scrolled out of the eye's path.
+    const Machine& active = es->GetActiveMachine();
+    const char* machineLabel = TextFormat("%s%s", es->autoMachine ? "AUTO  " : "", active.displayName);
+    float mlW = MeasureTextEx(bodyFont, machineLabel, FS(10.0f), sp).x;
+    DrawTextEx(bodyFont, machineLabel, {px + pw - mlW, yPos + 4.0f}, FS(10.0f), sp,
+               es->autoMachine ? EXT_DIM_TEXT : EXT_ACCENT_CYAN);
+
+    yPos += 30.0f;
+    float contentY = yPos;
+    float contentH = static_cast<float>(y + h - padding) - yPos - 34.0f;   // leave the readout strip
+
+    int gridSize = grid.GetGridSize();
+
+    // =======================================================================
+    // Left: the ground, as the block model
+    // =======================================================================
+    // The same instrument prospecting reads its survey off, asked a different
+    // question: the plates are shaded by the estimated yield of the resource
+    // being TARGETED, not the cell's richest element. Same stack, same lift
+    // law, same four rocks -- so a depth here is the same depth there.
+    //
+    // Two overlays prospecting has no reason to draw: excavation's OWN reach
+    // ring (its tier, never prospecting's -- hauling distance is not
+    // instrument range, and that asymmetry is where the module's gamble
+    // lives), and the ground already worked out.
+    if (!strataLoaded) LoadStrataTextures();
+
+    float dockW = 120.0f;                 // wider than the borehole strip: a shaft
+    float modelW = pw * 0.60f - dockW;
+    float modelH = contentH - 30.0f;
+    float gridX = px;
+    float gridY = contentY;
+
+    BlockModelGeom geom = MakeBlockGeom(gridSize, gridX, gridY, modelW, modelH);
+    DockGeom dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
     {
-        if (mod.moduleType == "EXCAVATION")
+        // The rig's head needs sky, for the same reason the auger's does.
+        float sky = dock.bandTop[0] - contentY;
+        if (sky < 64.0f)
         {
-            excTier = mod.tier;
-            float tierMaxDepths[] = {10.0f, 30.0f, 100.0f, 300.0f};
-            maxDepth = tierMaxDepths[std::min(excTier, 3)];
-            break;
+            float push = 64.0f - sky;
+            geom = MakeBlockGeom(gridSize, gridX, gridY + push, modelW, modelH - push);
+            dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
         }
     }
-    float depthSteps[] = {1.0f, 5.0f, 10.0f, 30.0f};
-    float depthStep = depthSteps[std::min(excTier, 3)];
-    float rateStep = 5.0f;
 
-    // Table header
-    DrawTextEx(bodyFont, "ID", {px, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Method", {px + 40.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Depth", {px + 140.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Rate", {px + 270.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    DrawTextEx(bodyFont, "Wear", {px + 380.0f, yPos}, FS(12.0f), sp, EXT_DIM_TEXT);
-    yPos += 18.0f;
-
-    DrawLine(static_cast<int>(px), static_cast<int>(yPos),
-             static_cast<int>(px + w - padding * 2), static_cast<int>(yPos), EXT_PANEL_BORDER);
-    yPos += 5.0f;
-
-    float totalRate = 0.0f;
-    float btnW = 20.0f;
-    float btnH = 18.0f;
-
-    for (const auto& exc : excavators)
+    // ONE estimate field for the whole stack. The per-cell scalar path is
+    // O(N^4) and cost 55 ms/frame at 16x16 -- at 32 it would be 16x worse.
+    // One grade scale across all four plates, so a barren layer stays visibly
+    // flatter than the ore instead of being normalised up to match it.
+    std::vector<std::vector<BlockCell>> layers(4);
+    float maxGrade = 0.0001f;
+    EstimateField field = BuildEstimateField(grid, es->targetResource);
+    for (int L = 0; L < 4; L++)
     {
-        DrawTextEx(bodyFont, TextFormat("#%d", exc.id), {px, yPos}, FS(12.0f), sp, LIGHTGRAY);
-        DrawTextEx(bodyFont, exc.method.c_str(), {px + 40.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
-
-        // --- Depth [-] value [+] ---
-        float depthX = px + 140.0f;
-        Rectangle depthMinus = {depthX, yPos - 1.0f, btnW, btnH};
-        Rectangle depthPlus = {depthX + 90.0f, yPos - 1.0f, btnW, btnH};
-
-        // [-] button
-        Color minusBg = CheckCollisionPointRec(mousePos, depthMinus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
-        DrawRectangleRec(depthMinus, minusBg);
-        DrawRectangleLinesEx(depthMinus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "-", {depthX + 6.0f, yPos}, FS(12.0f), sp, WHITE);
-
-        if (CheckCollisionPointRec(mousePos, depthMinus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        layers[L].resize(gridSize * gridSize);
+        for (int gy = 0; gy < gridSize; gy++)
         {
-            unit->SetExcavatorDepth(exc.id, exc.depth - depthStep);
+            for (int gx = 0; gx < gridSize; gx++)
+            {
+                BlockCell& c = layers[L][gy * gridSize + gx];
+                c.grade = field.GradeAt(gx, gy, L);
+                c.cls = GetResourceClass(field.ConfidenceAt(gx, gy, L));
+                maxGrade = std::max(maxGrade, c.grade);
+            }
         }
-
-        // Value
-        DrawTextEx(bodyFont, TextFormat("%.0f cm", exc.depth), {depthX + 24.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
-
-        // [+] button
-        Color plusBg = CheckCollisionPointRec(mousePos, depthPlus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
-        DrawRectangleRec(depthPlus, plusBg);
-        DrawRectangleLinesEx(depthPlus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "+", {depthX + 96.0f, yPos}, FS(12.0f), sp, WHITE);
-
-        if (CheckCollisionPointRec(mousePos, depthPlus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            unit->SetExcavatorDepth(exc.id, exc.depth + depthStep);
-        }
-
-        // Max depth label
-        DrawTextEx(bodyFont, TextFormat("/ %.0f", maxDepth), {depthX + 114.0f, yPos}, FS(10.0f), sp, EXT_DIM_TEXT);
-
-        // --- Rate [-] value [+] ---
-        float rateX = px + 270.0f;
-        Rectangle rateMinus = {rateX, yPos - 1.0f, btnW, btnH};
-        Rectangle ratePlus = {rateX + 85.0f, yPos - 1.0f, btnW, btnH};
-
-        // [-] button
-        Color rMinBg = CheckCollisionPointRec(mousePos, rateMinus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
-        DrawRectangleRec(rateMinus, rMinBg);
-        DrawRectangleLinesEx(rateMinus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "-", {rateX + 6.0f, yPos}, FS(12.0f), sp, WHITE);
-
-        if (CheckCollisionPointRec(mousePos, rateMinus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            unit->SetExcavatorRate(exc.id, exc.rate - rateStep);
-        }
-
-        // Value
-        DrawTextEx(bodyFont, TextFormat("%.0f", exc.rate), {rateX + 24.0f, yPos}, FS(12.0f), sp, LIGHTGRAY);
-
-        // [+] button
-        Color rPlsBg = CheckCollisionPointRec(mousePos, ratePlus) ? Color{24, 38, 60, 255} : Color{16, 24, 42, 255};
-        DrawRectangleRec(ratePlus, rPlsBg);
-        DrawRectangleLinesEx(ratePlus, 1.0f, EXT_PANEL_BORDER);
-        DrawTextEx(bodyFont, "+", {rateX + 91.0f, yPos}, FS(12.0f), sp, WHITE);
-
-        if (CheckCollisionPointRec(mousePos, ratePlus) && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            unit->SetExcavatorRate(exc.id, exc.rate + rateStep);
-        }
-
-        // Wear bar
-        DrawWearBar(px + 380.0f, yPos + 1.0f, 60.0f, 12.0f, exc.wear);
-
-        totalRate += exc.rate;
-        yPos += 24.0f;
+    }
+    for (int L = 0; L < 4; L++)
+    {
+        float top = 0.0f;
+        for (int j = 0; j <= gridSize; j++)
+            for (int i = 0; i <= gridSize; i++)
+                top = std::max(top, BlockCornerLift(layers[L], gridSize, maxGrade,
+                                                   geom.relief, i, j));
+        geom.plateDrop[L] = top;
     }
 
-    yPos += 10.0f;
-    DrawLine(static_cast<int>(px), static_cast<int>(yPos),
-             static_cast<int>(px + w - padding * 2), static_cast<int>(yPos), EXT_PANEL_BORDER);
-    yPos += 8.0f;
+    auto LiftAt = [&](int L, int i, int j)
+    {
+        return BlockCellLift(layers[L], gridSize, maxGrade, geom.relief, i, j);
+    };
 
-    DrawTextEx(headerFont, TextFormat("Total Rate: %.1f kg/hr", totalRate),
-               {px, yPos}, FS(14.0f), sp, EXT_ACCENT_GREEN);
-    DrawTextEx(bodyFont, TextFormat("Fleet Size: %d", static_cast<int>(excavators.size())),
-               {px + 250.0f, yPos}, FS(13.0f), sp, LIGHTGRAY);
+    // Pick BEFORE drawing: plate brightness depends on the hover, and reading
+    // it afterwards lights the wrong layer for a frame.
+    BlockPickGeom pick;
+    pick.originX = geom.originX; pick.originY = geom.originY;
+    pick.tileX = geom.tileX;     pick.tileY = geom.tileY;
+    pick.gap = geom.gap;         pick.size = gridSize;
+    int hovL = -1, hovX = -1, hovY = -1;
+    for (int L = 0; L < 4 && hovL < 0; L++)
+    {
+        int pi = 0, pj = 0;
+        if (!BlockPickCell(pick, L, mouse.x, mouse.y - geom.plateDrop[L],
+                           [&](int i, int j) { return LiftAt(L, i, j); }, pi, pj)) continue;
+        hovL = L; hovX = pi; hovY = pj;
+    }
+    if (hovL < 0 && es->previewHoverLayer >= 0)
+    {
+        hovL = std::clamp(es->previewHoverLayer, 0, 3);
+        hovX = gridSize / 2; hovY = gridSize / 2;
+    }
+
+    int workedDepth = std::clamp(static_cast<int>(es->selectedDepth), 0, 3);
+    es->UpdatePlateLight(hovL, workedDepth, GetFrameTime());
+
+    static const char* excDepthLabels[4] = {"0 m", "12 m", "34 m", "68 m"};
+    static const char* excLevelLabels[4] = {"SURFACE", "SHALLOW", "MID", "DEEP"};
+
+    // The plate being worked rim-lights, on the same 12.6 rad/s clock the
+    // other instruments pulse on -- an unsynced phase reads as two panels.
+    // The SAME clock prospecting pulses on. Wall-clock here meant the two
+    // block models drifted apart, and a headless preview could not be diffed
+    // between builds because every run drew a different phase.
+    float rimPulse = 0.45f + 0.25f * sinf(ps->gameTime * 12.6f);
+    for (int L = 0; L < 4; L++)
+    {
+        const Texture2D* tile = (strataLoaded && strataTex[L].id != 0)
+                              ? &strataTex[L] : nullptr;
+        bool canWork = site.CanWorkDepth(static_cast<DepthLayer>(L));
+        // A depth this tier cannot work is still DRAWN, just held back: the
+        // player should see the ground waiting for them, not a gap.
+        float light = es->plateLight[L] * (canWork ? 1.0f : 0.42f);
+        DrawBlockLayer(geom, layers[L], L, maxGrade, light, bodyFont, sp,
+                           excDepthLabels[L],
+                           canWork ? excLevelLabels[L]
+                                   : TextFormat("%s  LOCKED", excLevelLabels[L]),
+                           nullptr, nullptr, tile,
+                           L == workedDepth ? rimPulse : 0.0f);
+    }
+
+    // ---- excavation's reach ---------------------------------------------
+    // A centred square that excavation's OWN tier sizes. Drawn as a polyline
+    // along the boundary so it rides the lifted surface instead of cutting
+    // through it, the same way the active-plate rim does.
+    //
+    // DASHED, because the active-plate rim is already a solid amber square on
+    // the worked plate and two solid amber squares on one plate read as one
+    // shape with a mistake in it. A dash says "limit" where a solid line says
+    // "this one" -- same colour, different grammar.
+    {
+        int reach = GetReachForTier(es->GetTier());
+        int r0 = (gridSize - reach) / 2, r1 = r0 + reach;
+        for (int L = 0; L < 4; L++)
+        {
+            Color ring = Fade(Color{228, 164, 74, 255},
+                              L == workedDepth ? 0.55f : 0.16f);
+            auto Edge = [&](int ax, int ay, int bx, int by)
+            {
+                int steps = std::max(std::abs(bx - ax), std::abs(by - ay));
+                Vector2 prev = {0.0f, 0.0f};
+                for (int k = 0; k <= steps; k++)
+                {
+                    float t = static_cast<float>(k) / std::max(1, steps);
+                    float fx = ax + (bx - ax) * t, fy = ay + (by - ay) * t;
+                    float lift = BlockCornerLift(layers[L], gridSize, maxGrade, geom.relief,
+                                                static_cast<int>(fx), static_cast<int>(fy));
+                    Vector2 q = geom.Iso(fx, fy, L, lift);
+                    if (k > 0 && (k % 2) == 1) DrawLineEx(prev, q, 1.2f, ring);
+                    prev = q;
+                }
+            };
+            Edge(r0, r0, r1, r0); Edge(r1, r0, r1, r1);
+            Edge(r1, r1, r0, r1); Edge(r0, r1, r0, r0);
+        }
+    }
+
+    // ---- the spot being worked, and the one under the pointer -------------
+    auto CellOutline = [&](int L, int i, int j, Color col, float th)
+    {
+        float lift = LiftAt(L, i, j);
+        Vector2 a = geom.Iso(static_cast<float>(i),     static_cast<float>(j),     L, lift);
+        Vector2 b = geom.Iso(static_cast<float>(i + 1), static_cast<float>(j),     L, lift);
+        Vector2 c = geom.Iso(static_cast<float>(i + 1), static_cast<float>(j + 1), L, lift);
+        Vector2 d = geom.Iso(static_cast<float>(i),     static_cast<float>(j + 1), L, lift);
+        DrawLineEx(a, b, th, col); DrawLineEx(b, c, th, col);
+        DrawLineEx(c, d, th, col); DrawLineEx(d, a, th, col);
+    };
+    {
+        int sx = std::clamp(es->selectedSpotX, 0, gridSize - 1);
+        int sy = std::clamp(es->selectedSpotY, 0, gridSize - 1);
+        CellOutline(workedDepth, sx, sy, EXT_ACCENT_CYAN, 1.8f);
+        Vector2 dot = geom.Iso(sx + 0.5f, sy + 0.5f, workedDepth,
+                               LiftAt(workedDepth, sx, sy));
+        DrawCircleV(dot, 3.6f, Fade(DP_OUT, 0.85f));
+        DrawCircleV(dot, 2.2f, EXT_ACCENT_CYAN);
+    }
+    int lockedHoverX = -1, lockedHoverY = -1;
+    if (hovL >= 0)
+    {
+        bool inReach = site.IsInReach(hovX, hovY);
+        bool ok = inReach && site.CanWorkDepth(static_cast<DepthLayer>(hovL));
+        // The tooltip at the foot of the panel names the tier that would
+        // reach here, so out-of-range ground explains itself rather than
+        // just refusing the click.
+        if (!inReach) { lockedHoverX = hovX; lockedHoverY = hovY; }
+        CellOutline(hovL, hovX, hovY, Fade(ok ? PROS_HOVER_BORDER
+                                              : Color{255, 90, 40, 255}, 0.9f), 1.2f);
+        // Clicking a plate picks BOTH the spot and the depth. The plate is the
+        // depth -- which is what let the separate depth row go.
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && ok)
+        {
+            es->selectedSpotX = hovX;
+            es->selectedSpotY = hovY;
+            es->selectedDepth = static_cast<DepthLayer>(hovL);
+        }
+    }
+
+    // ---- legend ----------------------------------------------------------
+    {
+        const char* targetLabel = ResourceTypeToString(es->targetResource);
+        float legendY = gridY + modelH + 2.0f;
+        // Right group first, then the left text is given whatever is left --
+        // at this width a fixed split collided the two.
+        const char* reachTxt = TextFormat("REACH %d", site.GetReach());
+        float reachW = MeasureTextEx(bodyFont, reachTxt, FS(8.0f), sp).x;
+        float rx = gridX + modelW - reachW;
+        DrawTextEx(bodyFont, reachTxt, {rx, legendY}, FS(8.0f), sp,
+                   Fade(Color{228, 164, 74, 255}, 0.85f));
+        DrawTextEx(bodyFont, TextFormat("relief = est. %s left", targetLabel),
+                   {gridX, legendY}, FS(8.5f), sp, EXT_DIM_TEXT);
+    }
+
+    // =======================================================================
+    // Centre: the shaft
+    // =======================================================================
+    ExcDrawShaftDock(es, dock, contentY, dock.bandTop[4] + 18.0f,
+                     bodyFont, sp, FS(7.5f), strataLoaded ? strataTex : nullptr);
+
+    // =======================================================================
+    // Right: the controls
+    // =======================================================================
+    float ctrlX = dock.x + dock.w + 15.0f;
+    float ctrlW = px + pw - ctrlX;
+    float cy = contentY;
+
+    // --- Target ---
+    DrawTextEx(bodyFont, "TARGET", {ctrlX, cy}, FS(9.0f), sp, EXT_DIM_TEXT);
+    cy += 14.0f;
+
+    // The resources this ground actually holds, so the row is never a list of
+    // things that are not there.
+    std::vector<ResourceType> targets;
+    for (const auto& [type, fraction] : grid.GetGroundTruth(es->selectedSpotX,
+                                                            es->selectedSpotY,
+                                                            es->selectedDepth))
+    {
+        if (fraction > 0.02f) targets.push_back(type);
+    }
+    if (targets.empty()) targets.push_back(es->targetResource);
+
+    float tbW = std::min(58.0f, (ctrlW - 6.0f) / std::max<size_t>(1, targets.size()) - 4.0f);
+    for (size_t i = 0; i < targets.size(); i++)
+    {
+        Rectangle tb = {ctrlX + i * (tbW + 4.0f), cy, tbW, 20.0f};
+        bool isSelected = (targets[i] == es->targetResource);
+        bool hover = CheckCollisionPointRec(mouse, tb);
+
+        DrawRectangleRounded(tb, 0.3f, 4,
+                             isSelected ? Fade(EXT_ACCENT_CYAN, 0.16f) : EXT_PANEL_BG2);
+        if (isSelected)
+        {
+            DrawRectangleRoundedLinesEx(tb, 0.3f, 4, 1.0f, Fade(EXT_ACCENT_CYAN, 0.8f));
+        }
+
+        const char* name = ResourceTypeToString(targets[i]);
+        float nw = MeasureTextEx(bodyFont, name, FS(9.0f), sp).x;
+        DrawTextEx(bodyFont, name, {tb.x + (tb.width - nw) * 0.5f, tb.y + 5.0f},
+                   FS(9.0f), sp, isSelected ? EXT_ACCENT_CYAN : EXT_DIM_TEXT);
+
+        if (hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            es->targetResource = targets[i];
+        }
+    }
+    cy += 30.0f;
+
+    // --- Pace ---
+    DrawTextEx(bodyFont, "PACE", {ctrlX, cy}, FS(9.0f), sp, EXT_DIM_TEXT);
+    const char* paceValue = TextFormat("%.2f / %.2f", es->pace, active.paceCeiling);
+    float pvW = MeasureTextEx(bodyFont, paceValue, FS(9.0f), sp).x;
+    DrawTextEx(bodyFont, paceValue, {ctrlX + ctrlW - pvW, cy}, FS(9.0f), sp, EXT_TEXT);
+    cy += 14.0f;
+    ExcSlider({ctrlX, cy, ctrlW, 6.0f}, es->pace, 0.0f, active.paceCeiling,
+              mouse, EXT_ACCENT_CYAN, true);
+    cy += 12.0f;
+    DrawTextEx(bodyFont, "harder digs more, and dirtier", {ctrlX, cy}, FS(8.0f), sp,
+               Fade(EXT_DIM_TEXT, 0.7f));
+    cy += 20.0f;
+
+    // --- Power cap ---
+    DrawTextEx(bodyFont, "POWER CAP", {ctrlX, cy}, FS(9.0f), sp, EXT_DIM_TEXT);
+    const char* capValue = es->powerCap <= 0.0f ? "uncapped"
+                                                : TextFormat("%.1f kW", es->powerCap);
+    float cvW = MeasureTextEx(bodyFont, capValue, FS(9.0f), sp).x;
+    DrawTextEx(bodyFont, capValue, {ctrlX + ctrlW - cvW, cy}, FS(9.0f), sp,
+               es->powerCap > 0.0f ? EXT_ACCENT_GOLD : EXT_TEXT);
+    cy += 14.0f;
+    ExcSlider({ctrlX, cy, ctrlW, 6.0f}, es->powerCap, 0.0f, 40.0f,
+              mouse, EXT_ACCENT_GOLD, true);
+    cy += 22.0f;
+
+    // --- Automation ---
+    DrawTextEx(bodyFont, "AUTOMATION", {ctrlX, cy}, FS(9.0f), sp, EXT_HEADER_COLOR);
+    cy += 14.0f;
+
+    AiLevel maxLevel = es->MaxAiLevel();
+    float aiW = (ctrlW - 9.0f) / 4.0f;
+    for (int i = 0; i < 4; i++)
+    {
+        AiLevel level = static_cast<AiLevel>(i);
+        Rectangle ab = {ctrlX + i * (aiW + 3.0f), cy, aiW, 19.0f};
+
+        // OFF is always available -- taking control back is never gated.
+        bool available = (level == AiLevel::OFF) || (i <= static_cast<int>(maxLevel));
+        bool isSelected = (es->aiLevel == level);
+        bool hover = CheckCollisionPointRec(mouse, ab);
+
+        Color fill = isSelected ? Fade(EXT_ACCENT_GREEN, 0.16f) : EXT_PANEL_BG2;
+        if (!available) fill = Fade(EXT_PANEL_BG2, 0.4f);
+        DrawRectangleRounded(ab, 0.3f, 4, fill);
+        if (isSelected)
+        {
+            DrawRectangleRoundedLinesEx(ab, 0.3f, 4, 1.0f, Fade(EXT_ACCENT_GREEN, 0.85f));
+        }
+
+        const char* name = AutoPilot::LevelName(level);
+        float nw = MeasureTextEx(bodyFont, name, FS(7.5f), sp).x;
+        Color textColor = !available ? Fade(EXT_DIM_TEXT, 0.4f)
+                                     : (isSelected ? EXT_ACCENT_GREEN : EXT_DIM_TEXT);
+        DrawTextEx(bodyFont, name, {ab.x + (ab.width - nw) * 0.5f, ab.y + 5.0f},
+                   FS(7.5f), sp, textColor);
+
+        if (hover && available && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            es->aiLevel = level;
+        }
+    }
+    cy += 22.0f;
+
+    // What the current level does, and what handing over costs.
+    DrawTextEx(bodyFont, AutoPilot::LevelDescription(es->aiLevel), {ctrlX, cy},
+               FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.8f));
+    cy += 11.0f;
+
+    float aiEff = AutoPilot::EfficiencyFor(es->aiLevel);
+    if (aiEff < 1.0f)
+    {
+        DrawTextEx(bodyFont, TextFormat("costs %.0f%% output vs deciding yourself",
+                                        (1.0f - aiEff) * 100.0f),
+                   {ctrlX, cy}, FS(8.0f), sp, Fade(EXT_ACCENT_GOLD, 0.8f));
+    }
+    cy += 18.0f;
+
+    // --- Machine bay ---
+    DrawTextEx(bodyFont, "MACHINE BAY", {ctrlX, cy}, FS(9.0f), sp, EXT_HEADER_COLOR);
+
+    Rectangle autoChip = {ctrlX + ctrlW - 52.0f, cy - 4.0f, 52.0f, 17.0f};
+    bool autoHover = CheckCollisionPointRec(mouse, autoChip);
+    DrawRectangleRounded(autoChip, 0.4f, 4,
+                         es->autoMachine ? Fade(EXT_ACCENT_GREEN, 0.18f) : EXT_PANEL_BG2);
+    DrawRectangleRoundedLinesEx(autoChip, 0.4f, 4, 1.0f,
+                                es->autoMachine ? Fade(EXT_ACCENT_GREEN, 0.8f)
+                                                : Fade(EXT_DIM_TEXT, 0.5f));
+    const char* autoLabel = es->autoMachine ? "AUTO ON" : "AUTO OFF";
+    float alW = MeasureTextEx(bodyFont, autoLabel, FS(7.5f), sp).x;
+    DrawTextEx(bodyFont, autoLabel,
+               {autoChip.x + (autoChip.width - alW) * 0.5f, autoChip.y + 4.0f}, FS(7.5f), sp,
+               es->autoMachine ? EXT_ACCENT_GREEN : EXT_DIM_TEXT);
+    if (autoHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        es->autoMachine = !es->autoMachine;
+    }
+    cy += 20.0f;
+
+    // Two columns -- six machines in one column overflows the card.
+    float cardW = (ctrlW - 6.0f) * 0.5f;
+    for (int i = 0; i < EXC_MACHINE_TABLE_SIZE; i++)
+    {
+        MachineId id = static_cast<MachineId>(i);
+        const Machine& m = DigEngine::GetMachine(id);
+
+        int col = i % 2;
+        int row = i / 2;
+        Rectangle card = {ctrlX + col * (cardW + 6.0f), cy + row * 34.0f, cardW, 30.0f};
+
+        bool available = es->IsMachineAvailable(id);
+        bool isActive = (es->activeMachine == id);
+        bool hover = CheckCollisionPointRec(mouse, card);
+        bool pressed = hover && available && IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+
+        Color fill = EXT_PANEL_BG2;
+        if (!available) fill = Fade(EXT_PANEL_BG2, 0.4f);
+        else if (pressed) fill = Fade(EXT_ACCENT_CYAN, 0.28f);
+        else if (isActive) fill = Fade(EXT_ACCENT_CYAN, 0.16f);
+
+        DrawRectangleRounded(card, 0.25f, 4, fill);
+        if (isActive)
+        {
+            DrawRectangleRoundedLinesEx(card, 0.25f, 4, 1.0f, Fade(EXT_ACCENT_CYAN, 0.85f));
+        }
+
+        Color nameColor = !available ? Fade(EXT_DIM_TEXT, 0.4f)
+                                     : (isActive ? EXT_ACCENT_CYAN : EXT_TEXT);
+        DrawTextEx(bodyFont, m.displayName, {card.x + 6.0f, card.y + 3.0f},
+                   FS(8.5f), sp, nameColor);
+
+        // The two stats that decide the choice: how tightly it digs, and how
+        // hard it can be pushed.
+        DrawTextEx(bodyFont, TextFormat("aim %.0f%%   pace %.1f", m.precision * 100.0f, m.paceCeiling),
+                   {card.x + 6.0f, card.y + 16.0f}, FS(7.0f), sp,
+                   available ? Fade(EXT_DIM_TEXT, 0.85f) : Fade(EXT_DIM_TEXT, 0.35f));
+
+        if (!available)
+        {
+            // Name the tier that unlocks it, not a bare number -- "T2" alone
+            // reads as a rating rather than a requirement.
+            const char* lock = TextFormat("TIER %d", m.requiredTier);
+            float lw = MeasureTextEx(bodyFont, lock, FS(7.0f), sp).x;
+            DrawTextEx(bodyFont, lock, {card.x + card.width - lw - 5.0f, card.y + 4.0f},
+                       FS(7.0f), sp, Fade(EXT_ACCENT_GOLD, 0.65f));
+        }
+
+        if (hover && available && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            es->activeMachine = id;
+            es->autoMachine = false;   // picking a machine means taking control
+        }
+    }
+
+    // =======================================================================
+    // The readout -- what you thought was there, against what is arriving.
+    // This one line is the module.
+    // =======================================================================
+    float readY = static_cast<float>(y + h - padding) - 26.0f;
+    DrawLineEx({px, readY - 8.0f}, {px + pw, readY - 8.0f}, 1.0f, Fade(EXT_PANEL_BORDER, 0.6f));
+
+    SpotEstimate sel = es->EstimateSelected(*ps);
+    const DigResult& last = es->GetLastResult();
+    const char* targetName = ResourceTypeToString(es->targetResource);
+
+    // Drawn as SEGMENTS, dim label against bright value, the way the control
+    // rail states everything else. It was one prose run in one colour -- five
+    // numbers and two parenthesised asides with nothing to tell the figure
+    // that matters from the words carrying it, and it is the line the whole
+    // module reports through.
+    auto Segments = [&](float startX, std::initializer_list<std::pair<const char*, Color>> parts)
+    {
+        float sx = startX;
+        for (const auto& part : parts)
+        {
+            DrawTextEx(bodyFont, part.first, {sx, readY}, FS(10.0f), sp, part.second);
+            sx += MeasureTextEx(bodyFont, part.first, FS(10.0f), sp).x;
+        }
+        return sx - startX;
+    };
+    auto SegmentsWidth = [&](std::initializer_list<std::pair<const char*, Color>> parts)
+    {
+        float w = 0.0f;
+        for (const auto& part : parts)
+            w += MeasureTextEx(bodyFont, part.first, FS(10.0f), sp).x;
+        return w;
+    };
+
+    // Left: what you believe is in the selected spot.
+    Segments(px, {
+        {TextFormat("SPOT %d,%d   ", es->selectedSpotX, es->selectedSpotY), EXT_DIM_TEXT},
+        {TextFormat("%s %.0f", targetName, sel.shown),
+         sel.isCertain ? EXT_TEXT : EXT_DIM_TEXT},
+        {sel.isCertain ? "   known"
+                       : TextFormat("   %.0f-%.0f  %s", sel.low, sel.high,
+                                    ProsConfLabel(sel.confidence)),
+         Fade(EXT_DIM_TEXT, 0.85f)},
+    });
+
+    // Right side: what actually came up last tick, and the share of it that
+    // was the thing being aimed at.
+    // Gated on the EASED rate, not on the last tick's mass: a single tick that
+    // moved nothing -- the pace dial passing through zero, a spot handing over
+    // to the next -- would otherwise flip the whole line to IDLE and back,
+    // which is the flicker the easing exists to remove.
+    if (es->massPerSecTotal > 0.0f)
+    {
+        // Both halves of the line come from the same pair of numbers, so the
+        // percentage always divides the tonnage printed beside it. Taking the
+        // share from the raw tick and the mass from the eased rate would let
+        // the two disagree on screen.
+        float share = es->massPerSecTarget / es->massPerSecTotal;
+
+        // Per-DAY rate, not the per-frame mass. A frame moves a fraction of a
+        // unit, so the raw figure rounded to 0.0 and the panel looked broken
+        // while the module was working perfectly well.
+        //
+        // The rate comes from the module already measured and eased, in mass
+        // per second; all that is left here is the day. It used to be
+        // reconstructed as mass / GetFrameTime(), which assumed the draw
+        // frame's length WAS the interval the dig ran over -- it is not (the
+        // caller scales dt by the efficiency multiplier, and the preview
+        // harness steps a fixed half-second), and the same panel rendered
+        // twice reported 323 and 178 C/day for identical work.
+        const float perDay = static_cast<float>(TICKS_PER_DAY);
+
+        Color gotColor = share > 0.6f ? EXT_ACCENT_GREEN
+                                      : (share > 0.3f ? EXT_TEXT : EXT_ACCENT_GOLD);
+        // The rate is the figure; the rest is what it is a share OF. Putting
+        // the percentage against the tonnage it divides beats "(75% useful)"
+        // floating at the end of the sentence.
+        auto parts = {
+            std::make_pair(TextFormat("%.0f %s/day", es->massPerSecTarget * perDay,
+                                      targetName), gotColor),
+            std::make_pair(TextFormat("   %.0f%% of %.0f moved", share * 100.0f,
+                                      es->massPerSecTotal * perDay),
+                           Fade(EXT_DIM_TEXT, 0.9f)),
+        };
+        Segments(px + pw - SegmentsWidth(parts), parts);
+    }
+    else
+    {
+        const char* idle = last.throttledByPower ? "THROTTLED BY POWER CAP" : "IDLE";
+        float iw = MeasureTextEx(bodyFont, idle, FS(10.0f), sp).x;
+        DrawTextEx(bodyFont, idle, {px + pw - iw, readY}, FS(10.0f), sp,
+                   last.throttledByPower ? EXT_ACCENT_GOLD : EXT_DIM_TEXT);
+    }
+
+    // Expert's survey hint, under the readout. This is the level's entire
+    // contribution: it cannot survey, but it can say where looking would pay.
+    const AutoDecision& decision = es->lastDecision;
+    if (decision.surveyHintX >= 0)
+    {
+        const char* hint = TextFormat("SURVEY %d,%d  -  could be %.0f more %s than it reads",
+                                      decision.surveyHintX, decision.surveyHintY,
+                                      decision.surveyGain, targetName);
+        DrawTextEx(bodyFont, hint, {px, readY + 12.0f}, FS(8.5f), sp,
+                   Fade(EXT_ACCENT_VIOLET, 0.9f));
+    }
+
+    // Out-of-range tooltip last, so it sits above the grid.
+    if (lockedHoverX >= 0)
+    {
+        int needTier = TierRequiredForSubCell(lockedHoverX, lockedHoverY);
+        const char* line1 = "OUT OF REACH";
+        const char* line2 = needTier >= 0
+            ? TextFormat("Excavation tier %d reaches here", needTier)
+            : "Unreachable";
+
+        float tw = std::max(MeasureTextEx(headerFont, line1, FS(10.0f), sp).x,
+                            MeasureTextEx(bodyFont, line2, FS(9.0f), sp).x) + 20.0f;
+        float th = 38.0f;
+        Rectangle tip = {mouse.x + 12.0f, mouse.y - th - 6.0f, tw, th};
+        if (tip.x + tip.width > px + pw) tip.x = px + pw - tip.width;
+
+        DrawRectangleRounded(tip, 0.2f, 4, {8, 12, 24, 240});
+        DrawRectangleRoundedLinesEx(tip, 0.2f, 4, 1.0f, Fade(EXT_ACCENT_GOLD, 0.7f));
+        DrawTextEx(headerFont, line1, {tip.x + 10.0f, tip.y + 7.0f}, FS(10.0f), sp, EXT_ACCENT_GOLD);
+        DrawTextEx(bodyFont, line2, {tip.x + 10.0f, tip.y + 21.0f}, FS(9.0f), sp, EXT_DIM_TEXT);
+    }
 }
 
 void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int h)
@@ -5480,7 +7519,7 @@ void RenderManager::DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int 
 
     float yPos = static_cast<float>(y + padding);
     float px = static_cast<float>(x + padding);
-    Vector2 mousePos = GetMousePosition();
+    Vector2 mousePos = ColonyGetMousePosition();
 
     DrawTextEx(headerFont, "SEPARATION CHAIN", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 28.0f;
@@ -5693,7 +7732,7 @@ void RenderManager::DrawDirectivesPanel(Unit* unit, int x, int y, int w, int h)
 
     float yPos = static_cast<float>(y + padding);
     float px = static_cast<float>(x + padding);
-    Vector2 mousePos = GetMousePosition();
+    Vector2 mousePos = ColonyGetMousePosition();
 
     DrawTextEx(headerFont, "ACTIVE DIRECTIVES", {px, yPos}, FS(18.0f), sp, EXT_HEADER_COLOR);
     yPos += 28.0f;

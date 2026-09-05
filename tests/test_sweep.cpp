@@ -283,3 +283,32 @@ TEST_CASE("SweepEngine max signal is kept across sweeps", "[sweep]")
         for (int x = 0; x < size; x++)
             REQUIRE(grid.GetSubCell(x, y).sweepSignal >= signalsAfterFirst[y][x]);
 }
+
+// ---------------------------------------------------------------
+// Carried across the main merge: cases this branch added while main
+// reworked the same files. Main's versions of the shared cases won
+// -- they derive coordinates from PROSPECTING_GRID_SIZE and so hold
+// at any lattice size, which hard-coded cells did not.
+// ---------------------------------------------------------------
+
+TEST_CASE("SweepEngine ExecuteSweep marks all cells as swept", "[sweep]")
+{
+    auto rm = MakeTestResourceManager();
+    ProspectingGrid grid(2, 8, 8, rm);
+    SweepEngine engine(2);
+
+    engine.ExecuteSweep(grid, 0, 100.0f);
+
+    // Prospecting's reach is ungated, so a sweep covers the whole lattice.
+    // (IsSubCellInReach survives for excavation's own tier only.)
+    int size = grid.GetGridSize();
+    for (int y = 0; y < size; y++)
+    {
+        for (int x = 0; x < size; x++)
+        {
+            const auto& cell = grid.GetSubCell(x, y);
+            REQUIRE(cell.hasBeenSwept);
+            REQUIRE(cell.sweepFrequencyBand == 0);
+        }
+    }
+}

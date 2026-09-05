@@ -3,7 +3,24 @@ name: Deploy to GitHub Pages
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    # TEMPORARY: the excavation branch deploys so the extraction sandbox can be
+    # played on a phone before it merges. Remove this branch when it lands, or
+    # every push to it replaces the live site.
+    #
+    # One repo has one Pages site and every deploy replaces ALL of it. The
+    # lunar-elevation branch is actively deploying its own site (/, /viewtest/,
+    # /lunarmap/ -- no /playtest/, no /extraction/), so each branch's push was
+    # 404ing the other branch's sandboxes within minutes.
+    #
+    # The truce: the "Overlay other branches' sandboxes" step below downloads
+    # the latest successful Pages artifact from the OTHER active branch and
+    # copies in any top-level directory this deploy does not itself provide.
+    # A deploy from THIS branch therefore serves the union. Pushes from the
+    # other branch still clobber /playtest/ and /extraction/ until it adopts
+    # the same step -- copy it verbatim into its own deploy-web.yml. MAIN
+    # replaces the site too on every merge; the only real end to the
+    # ping-pong is merging the branches.
+    branches: [main, master, claude/excavation-module-design-jhp3v1]
     paths:
       - 'src/**'
       - 'tools/**'
@@ -15,10 +32,14 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read       # to download the other branch's Pages artifact
 
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  # Queue, do not cancel: two branches deploy to the one Pages site, and
+  # with cancel-in-progress they killed each other's runs instead of
+  # taking turns. Mirrors the lunar-elevation branch's setting.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -42,6 +63,14 @@ jobs:
 
     - name: Prepare deployment directory
       run: |
+        SHA=$(git rev-parse --short HEAD)
+        # Version every asset URL in a deployed page, so a new publish can
+        # never be served from a browser cache under an old name. See the
+        # locateFile note in src/minshell.html.
+        Bust() {
+          sed -i "s/COLONY_BUILD_STAMP/${SHA}/g" "$1"
+          sed -i "s|src=\"\(colony_[a-z_]*\.js\)\"|src=\"\1?v=${SHA}\"|g" "$1"
+        }
         mkdir -p deploy
         cp build/src/colony_game.html deploy/index.html
         cp build/src/colony_game.js deploy/colony_game.js
@@ -59,6 +88,8 @@ jobs:
           cp build/src/colony_viewtest.data deploy/viewtest/colony_viewtest.data
         fi
 
+        Bust deploy/index.html
+
         # Prospecting playtest sandbox at /playtest/
         mkdir -p deploy/playtest
         cp build/src/colony_playtest.html deploy/playtest/index.html
@@ -68,6 +99,52 @@ jobs:
           cp build/src/colony_playtest.data deploy/playtest/colony_playtest.data
         fi
 
+        Bust deploy/playtest/index.html
+
+        # Whole extraction unit sandbox at /extraction/
+        mkdir -p deploy/extraction
+        cp build/src/colony_extraction.html deploy/extraction/index.html
+        cp build/src/colony_extraction.js deploy/extraction/colony_extraction.js
+        cp build/src/colony_extraction.wasm deploy/extraction/colony_extraction.wasm
+        if [ -f build/src/colony_extraction.data ]; then
+          cp build/src/colony_extraction.data deploy/extraction/colony_extraction.data
+        fi
+        Bust deploy/extraction/index.html
+
+        echo "--- asset URLs versioned to $SHA ---"
+        grep -o 'src="colony_[a-z_]*\.js?v=[0-9a-f]*"' deploy/playtest/index.html || true
+        grep -c "$SHA" deploy/playtest/index.html || true
+
+    # See the note at the top: pull the other active branch's latest site and
+    # keep any sandbox it has that this deploy does not. Never fails the build
+    # -- a missing or expired artifact just means this deploy ships alone.
+    - name: Overlay other branches' sandboxes
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set +e
+        for BR in claude/lunar-elevation-lola-dem-1dcdtj; do
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-web.yml \
+                   --branch "$BR" --status success --limit 1 \
+                   --json databaseId --jq '.[0].databaseId')
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "no successful run on $BR -- skipping"; continue
+          fi
+          rm -rf _other _other_x && mkdir -p _other _other_x
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+             -n github-pages -D _other || { echo "artifact gone on $BR"; continue; }
+          tar -xf _other/artifact.tar -C _other_x || continue
+          for d in _other_x/*/; do
+            name=$(basename "$d")
+            if [ ! -e "deploy/$name" ]; then
+              echo "carrying /$name/ from $BR"
+              cp -r "$d" "deploy/$name"
+            fi
+          done
+        done
+        rm -rf _other _other_x
+        true
+
     - name: Setup Pages
       uses: actions/configure-pages@v4
 
@@ -75,6 +152,10 @@ jobs:
       uses: actions/upload-pages-artifact@v3
       with:
         path: deploy
+        # Long enough for the other branch's overlay to still find this
+        # artifact after a quiet spell; the default 1 day made the union
+        # decay whenever one branch stopped pushing.
+        retention-days: 30
 
   deploy:
     needs: build

@@ -13,7 +13,6 @@ set(COLONY_CORE_SOURCES
     ResourceManager/resource_manager.cpp
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
-    TerrainGen/terrain_synthesis.cpp
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
@@ -22,7 +21,15 @@ set(COLONY_CORE_SOURCES
     Prospecting/lab_engine.cpp
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
+    Prospecting/rock_texture.cpp
+    TerrainGen/terrain_synthesis.cpp
+    Excavation/site_view.cpp
+    Excavation/estimate_engine.cpp
+    Excavation/dig_engine.cpp
+    Excavation/auto_pilot.cpp
+    Excavation/excavation_system.cpp
     transport_types.cpp
+    web_mouse.cpp
 )
 
 set(COLONY_INCLUDE_DIRS
@@ -35,9 +42,10 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
-    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Excavation"
 )
 
 add_executable(colony_game)
@@ -65,6 +73,23 @@ target_link_libraries(colony_game raylib tomlplusplus::tomlplusplus)
 if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
     target_link_libraries(colony_game m)
 endif()
+
+# Build stamp: the short SHA the binary was configured from, drawn in the
+# playtest corner. "Did my change deploy?" was costing a round trip every
+# time -- a browser can serve a stale wasm while every CI step is green,
+# and nothing on screen said which build you were looking at. Configure
+# time, not build time: CI configures fresh every run, which is the case
+# that matters. A dirty local tree reads as the SHA it was configured at.
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE COLONY_BUILD_SHA
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT COLONY_BUILD_SHA)
+    set(COLONY_BUILD_SHA "nogit")
+endif()
+message(STATUS "Colony build stamp: ${COLONY_BUILD_SHA}")
 
 # Web Configurations
 if ("${PLATFORM}" STREQUAL "Web")
@@ -101,12 +126,11 @@ set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 # ---------------------------------------------------------------------------
-# colony_preview: offscreen preview tool
+# colony_preview: offscreen UI preview tool
 #
-# Renders a single module panel (--module) or a whole game view (--view) to a
-# PNG without running the game loop, so UI and terrain work can be reviewed
-# headlessly (see tools/preview/README.md). Not built for the Web platform,
-# which has no filesystem to export screenshots to.
+# Renders a single module panel to a PNG without running the game loop, so UI
+# work can be reviewed headlessly (see tools/preview/README.md). Not built for
+# the Web platform, which has no filesystem to export screenshots to.
 # ---------------------------------------------------------------------------
 if(NOT "${PLATFORM}" STREQUAL "Web")
     add_executable(colony_preview)
@@ -175,12 +199,233 @@ if ("${PLATFORM}" STREQUAL "Web")
     set_target_properties(colony_playtest PROPERTIES LINK_FLAGS "${web_link_flags}")
 endif()
 
+target_compile_definitions(colony_playtest PRIVATE COLONY_BUILD_ID="${COLONY_BUILD_SHA}")
+
 if(APPLE)
     target_link_libraries(colony_playtest
         "-framework IOKit"
         "-framework Cocoa"
         "-framework OpenGL"
     )
+endif()
+
+# ---------------------------------------------------------------------------
+# colony_extraction: interactive sandbox for the WHOLE extraction unit
+#
+# The prospecting playtest boots into one module; this boots into the unit with
+# prospecting, excavation and beneficiation all running, so the chain a player
+# experiences -- survey, choose where to dig, watch what arrives -- is testable
+# end to end. Adds time acceleration, because a face takes game days to work
+# out and a survey needs a day to repay itself. Builds for Web like the others.
+# ---------------------------------------------------------------------------
+add_executable(colony_extraction)
+
+target_sources(colony_extraction PRIVATE
+    "${CMAKE_SOURCE_DIR}/tools/playtest/extraction_playtest_main.cpp"
+    ${COLONY_CORE_SOURCES}
+)
+
+set_target_properties(colony_extraction PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
+target_include_directories(colony_extraction PRIVATE ${COLONY_INCLUDE_DIRS})
+target_link_libraries(colony_extraction raylib tomlplusplus::tomlplusplus)
+
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(colony_extraction m)
+endif()
+
+if ("${PLATFORM}" STREQUAL "Web")
+    # Same shell, preloaded assets, and link flags as the game and playtest
+    set_target_properties(colony_extraction PROPERTIES SUFFIX ".html")
+    set_target_properties(colony_extraction PROPERTIES LINK_FLAGS "${web_link_flags}")
+endif()
+
+if(APPLE)
+    target_link_libraries(colony_extraction
+        "-framework IOKit"
+        "-framework Cocoa"
+        "-framework OpenGL"
+    )
+endif()
+
+# ---------------------------------------------------------------------------
+# colony_test: invariant checks for the excavation module
+#
+# No test framework in this repo -- a plain executable with a Check() helper
+# that exits non-zero on failure. Covers the design rules that are easy to
+# break silently: stable estimates, confidence closing the range, and yield
+# being quantity x composition rather than either alone.
+# Not built for Web.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_test)
+
+    target_sources(colony_test PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/test/excavation_test.cpp"
+        ResourceManager/resource_manager.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+        Excavation/site_view.cpp
+        Excavation/estimate_engine.cpp
+        Excavation/dig_engine.cpp
+        Excavation/auto_pilot.cpp
+        Prospecting/survey_progress_engine.cpp
+    )
+
+    set_target_properties(colony_test PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+
+    target_include_directories(colony_test PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_test raylib tomlplusplus::tomlplusplus)
+
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(colony_test m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# colony_playthrough: the whole extraction unit, day by day
+#
+# colony_sim drives the excavation engines directly and skips everything
+# downstream. This drives a real Unit through its real Update(), so sweep ->
+# sample -> lab -> survey -> excavation -> beneficiation -> storage all run.
+# Prints a session log rather than pass/fail. Not built for Web.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_playthrough)
+
+    target_sources(colony_playthrough PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/sim/extraction_playthrough.cpp"
+        ${COLONY_CORE_SOURCES}
+    )
+
+    set_target_properties(colony_playthrough PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+
+    target_include_directories(colony_playthrough PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_playthrough raylib tomlplusplus::tomlplusplus)
+
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(colony_playthrough m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# colony_sim: a playtest that runs in CI
+#
+# Runs the real excavation and prospecting engines for a fixed number of game
+# days under several different players, prints what each one got, and asserts
+# the ORDERINGS the design claims -- surveying beats digging blind, attention
+# beats automation, tier is worth buying, nobody stalls. Absolute numbers move
+# with every balance pass; the orderings are the design. Not built for Web.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_sim)
+
+    target_sources(colony_sim PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/sim/excavation_sim.cpp"
+        ResourceManager/resource_manager.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/sample_tray.cpp
+        Prospecting/sweep_engine.cpp
+        Prospecting/sampling_engine.cpp
+        Prospecting/lab_engine.cpp
+        Prospecting/survey_progress_engine.cpp
+        Prospecting/prospecting_system.cpp
+        Excavation/site_view.cpp
+        Excavation/estimate_engine.cpp
+        Excavation/dig_engine.cpp
+        Excavation/auto_pilot.cpp
+        Excavation/excavation_system.cpp
+    )
+
+    set_target_properties(colony_sim PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+    )
+
+    target_include_directories(colony_sim PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_sim raylib tomlplusplus::tomlplusplus)
+
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(colony_sim m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# colony_inspect: terminal dump of generated game data
+#
+# Prints real ResourceManager / ProspectingGrid numbers so value bugs can be
+# diagnosed from data instead of from reading generation code. Not built for
+# Web. See tools/inspect/README.md.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_inspect)
+
+    target_sources(colony_inspect PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/inspect/inspect_resources.cpp"
+        ResourceManager/resource_manager.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+        Excavation/site_view.cpp
+        Excavation/estimate_engine.cpp
+        Excavation/dig_engine.cpp
+    )
+
+    set_target_properties(colony_inspect PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(colony_inspect PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_inspect raylib tomlplusplus::tomlplusplus)
+
+    if(NOT WIN32)
+        target_link_libraries(colony_inspect m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# colony_measure_clusters: how big is an ore body on the 8x8 lattice?
+#
+# Answers excavation-design.md Phase 9b's footprint question from the real
+# generator rather than a model of it. Not built for Web.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(colony_measure_clusters)
+
+    target_sources(colony_measure_clusters PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/inspect/measure_clusters.cpp"
+        ResourceManager/resource_manager.cpp
+        Prospecting/prospecting_grid.cpp
+        Prospecting/prospecting_types.cpp
+        Prospecting/sample_tray.cpp
+    )
+
+    set_target_properties(colony_measure_clusters PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(colony_measure_clusters PRIVATE ${COLONY_INCLUDE_DIRS})
+    target_link_libraries(colony_measure_clusters raylib tomlplusplus::tomlplusplus)
+
+    if(NOT WIN32)
+        target_link_libraries(colony_measure_clusters m)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -225,37 +470,6 @@ if(APPLE)
 endif()
 
 # ---------------------------------------------------------------------------
-# colony_inspect: terminal dump of generated game data
-#
-# Prints real ResourceManager / ProspectingGrid numbers so value bugs can be
-# diagnosed from data instead of from reading generation code. Not built for
-# Web. See tools/inspect/README.md.
-# ---------------------------------------------------------------------------
-if(NOT "${PLATFORM}" STREQUAL "Web")
-    add_executable(colony_inspect)
-
-    target_sources(colony_inspect PRIVATE
-        "${CMAKE_SOURCE_DIR}/tools/inspect/inspect_resources.cpp"
-        ResourceManager/resource_manager.cpp
-        Prospecting/prospecting_grid.cpp
-        Prospecting/prospecting_types.cpp
-    )
-
-    set_target_properties(colony_inspect PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-    )
-
-    target_include_directories(colony_inspect PRIVATE ${COLONY_INCLUDE_DIRS})
-    target_link_libraries(colony_inspect raylib tomlplusplus::tomlplusplus)
-
-    if(NOT WIN32)
-        target_link_libraries(colony_inspect m)
-    endif()
-endif()
-
-# ---------------------------------------------------------------------------
 # colony_viewtest: view-ladder playtest (Orbital -> Planet -> Colony -> Sect)
 #
 # Playable build that walks the geographic views and overlays the known
@@ -265,28 +479,7 @@ add_executable(colony_viewtest)
 
 target_sources(colony_viewtest PRIVATE
     "${CMAKE_SOURCE_DIR}/tools/viewtest/viewtest_main.cpp"
-    Colony/colony.cpp
-    Engine/inputmanager.cpp
-    Engine/viewmanager.cpp
-    Engine/gamemanager.cpp
-    Engine/rendermanager.cpp
-    Planet/planet.cpp
-    Sect/sect.cpp
-    Unit/unit.cpp
-    Unit/unit_ui.cpp
-    ResourceManager/resource_manager.cpp
-    TimeManager/time_manager.cpp
-    GameTypes/game_types_loader.cpp
-    TerrainGen/terrain_synthesis.cpp
-    Prospecting/prospecting_types.cpp
-    Prospecting/sample_tray.cpp
-    Prospecting/prospecting_grid.cpp
-    Prospecting/sweep_engine.cpp
-    Prospecting/sampling_engine.cpp
-    Prospecting/lab_engine.cpp
-    Prospecting/survey_progress_engine.cpp
-    Prospecting/prospecting_system.cpp
-    transport_types.cpp
+    ${COLONY_CORE_SOURCES}
 )
 
 set_target_properties(colony_viewtest PROPERTIES
@@ -295,20 +488,7 @@ set_target_properties(colony_viewtest PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
-target_include_directories(colony_viewtest PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Colony"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Engine"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Planet"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Sect"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Unit"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ResourceManager"
-    "${CMAKE_CURRENT_SOURCE_DIR}/TimeManager"
-    "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
-    "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
-    "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
-    "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
-)
+target_include_directories(colony_viewtest PRIVATE ${COLONY_INCLUDE_DIRS})
 
 target_link_libraries(colony_viewtest raylib tomlplusplus::tomlplusplus)
 if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")

@@ -1,5 +1,8 @@
 #include "prospecting_system.h"
 
+#include <algorithm>
+#include <cmath>
+
 ProspectingSystem::ProspectingSystem(int tier, int parentGridX, int parentGridY,
                                      ResourceManager& resourceManager)
     : tier(tier)
@@ -111,4 +114,252 @@ void ProspectingSystem::EnsureCache() const
         cachedResult = SurveyProgressEngine::Calculate(grid, tray);
         cacheValid = true;
     }
+}
+
+// ---------------------------------------------------------------------------
+// The prescribed line
+// ---------------------------------------------------------------------------
+
+void ProspectingSystem::StartAim(int collarX, int collarY)
+{
+    // The string is in motion -- down the hole, or on its way back out of
+    // one. Either way there is nothing to aim with until it is racked.
+    if (lineHole.state == LineHoleState::DRILLING ||
+        lineHole.state == LineHoleState::RETRACTING) return;
+    lineHole = LineHole{};
+    lineHole.state = LineHoleState::AIMING;
+    lineHole.collarX = collarX;
+    lineHole.collarY = collarY;
+    lineHole.targetLayer = 0;
+    lineHole.endM = LayerBottomM(0);
+}
+
+void ProspectingSystem::AimAt(int layer, int cellX, int cellY)
+{
+    if (lineHole.state != LineHoleState::AIMING) return;
+    layer = std::clamp(layer, 0, 3);
+    lineHole.targetLayer = layer;
+    if (layer == 0)
+    {
+        // A surface target is the vertical degenerate case
+        lineHole.endM = PlateTargetM(0);
+        lineHole.dirX = 0.0f;
+        lineHole.dirY = 0.0f;
+        return;
+    }
+    // The clicked PLATE is the depth; the clicked CELL is only where on that
+    // plane the line comes out. One plate, one z.
+    float endDepth = PlateTargetM(layer);
+    lineHole.endM = endDepth;
+    lineHole.dirX = (static_cast<float>(cellX) - lineHole.collarX) / endDepth;
+    lineHole.dirY = (static_cast<float>(cellY) - lineHole.collarY) / endDepth;
+}
+
+void ProspectingSystem::CancelAim()
+{
+    if (lineHole.state == LineHoleState::AIMING)
+        lineHole.state = LineHoleState::NONE;
+}
+
+bool ProspectingSystem::CommitHole()
+{
+    if (lineHole.state != LineHoleState::AIMING) return false;
+    lineHole.state = LineHoleState::DRILLING;
+    lineHole.depthM = 0.0f;
+    lineHole.rpm = DRILL_RPM_IDLE;
+    return true;
+}
+
+void ProspectingSystem::KickString()
+{
+    if (lineHole.state != LineHoleState::DRILLING) return;
+    if (lineHole.tripping) return;   // the string is out of the hole
+    lineHole.rpm = std::min(DRILL_RPM_MAX, lineHole.rpm + DRILL_RPM_KICK);
+}
+
+void ProspectingSystem::UpdatePlateLight(int hoveredLayer, int activeLayer, float dt)
+{
+    // Exponential approach, framerate-independent: the same wall-clock rise
+    // whether the panel is running at 30 or 144. The surface's rest value IS
+    // full, so "the surface is always lit" needs no special case here -- it
+    // is a fact about the table, stated once, in the table.
+    float k = 1.0f - std::exp(-std::max(dt, 0.0f) / PLATE_LIGHT_TAU_S);
+    for (int L = 0; L < 4; L++)
+    {
+        float target = (L == hoveredLayer || L == activeLayer)
+                     ? PLATE_LIGHT_FULL : PLATE_REST_LIGHT[L];
+        plateLight[L] += (target - plateLight[L]) * k;
+    }
+}
+
+void ProspectingSystem::GetLineCell(float m, float& gx, float& gy) const
+{
+    gx = lineHole.collarX + lineHole.dirX * m;
+    gy = lineHole.collarY + lineHole.dirY * m;
+}
+
+void ProspectingSystem::GetCrossingCell(int layer, int& gx, int& gy) const
+{
+    layer = std::clamp(layer, 0, 3);
+    int size = grid.GetGridSize();
+    float fx = 0.0f, fy = 0.0f;
+    GetLineCell(std::min(PlateTargetM(layer), lineHole.endM), fx, fy);
+    gx = std::clamp(static_cast<int>(std::lround(fx)), 0, size - 1);
+    gy = std::clamp(static_cast<int>(std::lround(fy)), 0, size - 1);
+    // one refinement: the cell's own row depth is where the line truly meets
+    // this plate, so re-read the line there and re-snap
+    (void)size;
+}
+
+bool ProspectingSystem::UpdateLineHole(float dt)
+{
+    // The end-of-hole hoist. Nothing advances and nothing can be driven; the
+    // bit cools fast in the open, as it does on a trip. When the last rod
+    // clears the collar the hole is DONE and the line stops being drawn over
+    // the block model -- see the state enum.
+    if (lineHole.state == LineHoleState::RETRACTING)
+    {
+        lineHole.pullT += dt;
+        lineHole.rpm = 0.0f;
+        lineHole.heat = std::max(0.0f, lineHole.heat - DRILL_HEAT_COOL * 1.6f * dt);
+        if (lineHole.pullT >= lineHole.pullDur)
+        {
+            lineHole.state = LineHoleState::DONE;
+        }
+        return false;
+    }
+
+    if (lineHole.state != LineHoleState::DRILLING)
+    {
+        lineHole.heat = std::max(0.0f, lineHole.heat - DRILL_HEAT_COOL * dt);
+        return false;
+    }
+
+    // The spindle sags back to its idle crawl; clicks are the only drive.
+    lineHole.rpm = DRILL_RPM_IDLE +
+        (lineHole.rpm - DRILL_RPM_IDLE) * std::exp(-dt / DRILL_RPM_TAU);
+
+    // A fractured bit trips: the string comes out rod by rod and goes back,
+    // nothing advances, and the bit cools fast in the open. Time is the
+    // WHOLE price (drilling-procedure.md Rule 1), and it scales with depth.
+    if (lineHole.tripping)
+    {
+        lineHole.tripT += dt;
+        lineHole.heat = std::max(0.0f, lineHole.heat - DRILL_HEAT_COOL * 1.6f * dt);
+        if (lineHole.tripT >= lineHole.tripDur)
+        {
+            lineHole.tripping = false;
+            lineHole.wear = 0.0f;        // a fresh bit
+            lineHole.dwelling = false;
+        }
+        return false;
+    }
+
+    // Thermal fatigue: time at temperature, quadratic above the onset.
+    // Cracks grow while the bit is hot whether or not it is advancing, so
+    // this accrues through auto-peck dwells too -- hot is hot.
+    if (lineHole.heat > BIT_FATIGUE_ONSET)
+    {
+        float x = (lineHole.heat - BIT_FATIGUE_ONSET) / (1.0f - BIT_FATIGUE_ONSET);
+        lineHole.wear += x * x * BIT_FATIGUE_RATE * dt;
+    }
+    if (lineHole.wear >= 1.0f)
+    {
+        lineHole.tripping = true;
+        lineHole.tripT = 0.0f;
+        lineHole.tripDur = BIT_TRIP_BASE_S + lineHole.depthM * BIT_TRIP_S_PER_M;
+        lineHole.fracturedTime = gameTime;
+        lineHole.trips++;
+        // The stick the bit let go in is rubble: LOST, whatever its dose.
+        int ivF = ProsLogIndexOfDepth(lineHole.depthM);
+        lineHole.logQ[ivF] = 1;
+        return false;
+    }
+
+    // Heat: climbs with rpm x the hardness being cut, bleeds at a flat rate.
+    // Past the ceiling the string auto-pecks -- dwells off the face, no
+    // advance -- until it has cooled enough to bite again. Driving hard
+    // through hard rock is exactly what cooks it.
+    float hard = DrillHardnessAtM(lineHole.depthM);
+    if (lineHole.dwelling)
+    {
+        lineHole.heat -= DRILL_HEAT_COOL * dt;
+        if (lineHole.heat <= DRILL_HEAT_RESUME) lineHole.dwelling = false;
+        return false;
+    }
+    lineHole.heat += (lineHole.rpm * (0.35f + hard * 0.75f) * DRILL_HEAT_GAIN
+                      - DRILL_HEAT_BLEED) * dt;
+    lineHole.heat = std::clamp(lineHole.heat, 0.0f, DRILL_HEAT_MAX);
+    if (lineHole.heat >= DRILL_HEAT_MAX)
+    {
+        lineHole.dwelling = true;
+        return false;
+    }
+
+    float beforeM = lineHole.depthM;
+    lineHole.depthM = std::min(lineHole.endM,
+        lineHole.depthM + DrillAdvanceAtM(lineHole.depthM)
+                        * lineHole.rpm * dt);
+
+    // Abrasion: metres cut, harder rock cuts the bit back.
+    lineHole.wear += (lineHole.depthM - beforeM) * hard * BIT_WEAR_PER_M;
+
+    // The fine core log: the metres just cut are dosed with the heat they
+    // were cut at (squared excess above the fatigue onset), stick by stick.
+    // Grade follows the dose per metre -- a sustained level, not an instant
+    // -- so the auto-peck sawtooth reads as one smoked run, not a flicker.
+    if (lineHole.depthM > beforeM)
+    {
+        float x = std::max(0.0f, (lineHole.heat - BIT_FATIGUE_ONSET)
+                                 / (1.0f - BIT_FATIGUE_ONSET));
+        int iv0 = ProsLogIndexOfDepth(beforeM);
+        int iv1 = ProsLogIndexOfDepth(lineHole.depthM);
+        for (int iv = iv0; iv <= iv1; iv++)
+        {
+            float s0 = std::max(beforeM, ProsLogTopM(iv));
+            float s1 = std::min(lineHole.depthM, ProsLogBottomM(iv));
+            float len = s1 - s0;
+            if (len <= 0.0f) continue;
+            lineHole.logDose[iv] += x * x * len;
+            lineHole.logLen[iv]  += len;
+            if (lineHole.logQ[iv] == 1) continue;          // lost stays lost
+            float dose = lineHole.logDose[iv] / lineHole.logLen[iv];
+            lineHole.logQ[iv] = dose >= PROS_LOG_SMOKE_DOSE ? 2 : 3;
+        }
+    }
+
+    // Core each crossing as the bit passes the crossed cell's own row depth
+    // -- knowledge lands DURING the hole, where the line actually is.
+    for (int L = 0; L <= lineHole.targetLayer; L++)
+    {
+        if (lineHole.cored[L]) continue;
+        int cx = 0, cy = 0;
+        GetCrossingCell(L, cx, cy);
+        float rowM = std::min(PlateTargetM(L), lineHole.endM);
+        if (lineHole.depthM < rowM) continue;
+        grid.RecordCore(cx, cy, static_cast<DepthLayer>(L));
+        lineHole.cored[L] = true;
+        lineHole.coredTime[L] = gameTime;
+        InvalidateCache();
+    }
+
+    if (lineHole.depthM >= lineHole.endM)
+    {
+        // Bottom reached. The KNOWLEDGE lands now -- the specimen is shelved
+        // and the cores are already recorded -- while the machine spends the
+        // next few seconds hoisting its string. Delaying the payout behind
+        // the animation would make the hoist a cost, and it is only a beat.
+        lineHole.state = LineHoleState::RETRACTING;
+        lineHole.pullT = 0.0f;
+        lineHole.pullDur = DrillPullSeconds(lineHole.depthM);
+        lineHole.doneTime = gameTime;
+        // One specimen per hole -- the deepest interval, the interesting one
+        int cx = 0, cy = 0;
+        GetCrossingCell(lineHole.targetLayer, cx, cy);
+        sampler.AddSpecimen(grid, tray, cx, cy,
+                            static_cast<DepthLayer>(lineHole.targetLayer));
+        InvalidateCache();
+        return true;
+    }
+    return false;
 }

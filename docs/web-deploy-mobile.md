@@ -1,4 +1,18 @@
-# Web Deploy & Mobile Canvas — Reference
+# Web Deploy & Mobile
+
+> **Hover-driven UI on a phone.** There is no hover on touch, so any state
+> keyed to "the thing under the pointer" needs an answer before it ships to
+> the device build. This one needs no code: the shell publishes
+> `__colonyMouse` on `touchstart`/`touchmove`/`touchend` (from
+> `changedTouches` on the last), and never clears it — so the position
+> persists after the finger lifts and **a tap behaves exactly like a hover
+> that stays**. raylib's own web backend does the same
+> (`rcore_web.c`: mouse position follows touch when `pointCount == 1`, and
+> TOUCHEND only clears the button state). The block model's plate focus
+> (dark-plating §9.46) rides on this: tap a layer, it lights and stays lit
+> until you tap elsewhere. Verify a hover feature on the phone build before
+> calling it done, and say so on screen — the playtest hint line names it,
+> because a feature nobody can discover is not reachable. Canvas — Reference
 
 How the playable web builds work, and the hard-won fixes that make them
 work on phones. Written after debugging the prospecting playtest on
@@ -7,13 +21,62 @@ Pages deploy.
 
 ## Pipeline
 
-- Targets `colony_game` and `colony_playtest` both build for
-  `PLATFORM=Web` (emscripten). `src/CMakeLists.txt` shares
+- Targets `colony_game`, `colony_playtest` and `colony_extraction` all
+  build for `PLATFORM=Web` (emscripten). `src/CMakeLists.txt` shares
   `web_link_flags` between them: `--shell-file src/minshell.html`,
   `--preload-file src/assets@src/assets`.
-- `.github/workflows/deploy-web.yml` builds both and publishes to GitHub
-  Pages: game at `/`, playtest at `/playtest/`. Each Pages deploy
-  replaces the whole site.
+- `.github/workflows/deploy-web.yml` builds all three and publishes to
+  GitHub Pages: game at `/`, prospecting sandbox at `/playtest/`, whole
+  extraction unit at `/extraction/`. Each Pages deploy replaces the
+  whole site.
+
+### Two active branches, one site: the overlay truce
+
+One repo has one Pages site and every deploy replaces **all** of it. With
+two branches deploying (excavation and lunar-elevation), each push 404'd
+the other branch's sandboxes within minutes -- "none of the pages load" is
+what this looks like from a phone.
+
+The mitigation, in `deploy-web.yml` ("Overlay other branches' sandboxes"):
+after building its own site, the job downloads the latest **successful**
+`github-pages` artifact from the other active branch (`gh run download`,
+needs `actions: read` in the workflow permissions), untars it, and copies in
+any **top-level directory** the current deploy does not itself provide.
+Root files are never taken -- whoever deploys owns `/`. A deploy from a
+branch carrying this step therefore serves the union; a branch without it
+still clobbers the others until it copies the same step. Failures are
+swallowed deliberately: a missing or expired artifact means the deploy
+ships alone, never that it fails.
+
+Two rules learned from real regressions:
+
+- **Ownership is by directory, and a branch must not build the other's.**
+  The excavation branch owns `/playtest/` and `/extraction/`; the lunar
+  branch owns `/lunarmap/` and `/viewtest/`. The overlay only fills
+  directories *missing* from the local build -- a stray copy block on the
+  lunar branch that rebuilt its own `/playtest/` (from its stale checkout
+  of the prospecting code) silently served the old module for a day, with
+  every run green.
+- **Artifacts must outlive quiet spells**: `retention-days: 30` on the
+  Pages artifact upload. The action's default 1 day meant a branch that
+  paused pushing vanished from the union as soon as its artifact expired.
+
+This is a truce, not a fix. The fix is merging the branches so everything
+ships from main.
+
+### Adding another web sandbox
+
+Four steps, all small:
+
+1. `add_executable(<name>)` in `src/CMakeLists.txt` with
+   `${COLONY_CORE_SOURCES}`, then inside `if ("${PLATFORM}" STREQUAL "Web")`
+   set `SUFFIX ".html"` and `LINK_FLAGS "${web_link_flags}"`.
+2. Drive the frame with `emscripten_set_main_loop_arg` under
+   `#ifdef __EMSCRIPTEN__` — a `while` loop hangs the browser.
+3. Copy the four artefacts (`.html` → `index.html`, `.js`, `.wasm`, and
+   `.data` if present) into `deploy/<path>/` in the workflow.
+4. Make sure the source path matches the workflow's `paths` filter, or a
+   push touching only your file will not trigger a deploy.
 - The `github-pages` **environment** restricts which branches may
   deploy. A branch deploy failing in ~2s with no steps run = branch not
   in the environment's allowlist (Settings → Environments →
@@ -65,6 +128,86 @@ A persistent enforcer, not a one-shot:
 **If the game's base resolution ever changes, update `GAME_W/GAME_H` in
 minshell.html.**
 
+### SHELL v6: device-pixel fit and supersampled buffers
+
+Two additions over v5, both driven by desktop text quality:
+
+- **The fit is computed in DEVICE pixels** (`dpr = devicePixelRatio`),
+  and an upscale snaps to a whole device step — but only when the snap
+  keeps >= 70% of the size. Snapping makes buffer -> device exact (crisp);
+  past the cap, size beats exactness (a dpr-3 phone would otherwise
+  shrink to a corner). CSS sizes may be fractional; that is the point.
+- **The buffer is no longer hardwired**: a build may publish
+  `window.__colonyBufW/H` (real framebuffer) and `__colonyLogicalW/H`
+  (the space pointer coordinates arrive in) before the shell runs.
+  The playtest uses this to SUPERSAMPLE on big screens: it renders the
+  1280x720 layout through a 2x matrix into a 2560x1440 buffer, so the
+  browser only ever downscales — sharp at any fraction, full viewport.
+  Scissor rects do not ride the matrix; `RenderManager::SetPixelScale`
+  covers them. Absent globals mean an older build: everything falls back
+  to the fixed `GAME_W/GAME_H`.
+
+## The pointer-coordinate bug (Firefox, Aug 2026)
+
+A fourth way the three sizes bite, found after the fit was already correct.
+Symptom: clicks and hovers land away from the real cursor, the error grows
+with x and y, and it flips sign as the displayed canvas crosses 1280 wide.
+
+raylib converts a pointer event like this
+(`rcore_web_emscripten.c`, `EmscriptenMouseMoveCallback` -- note this file,
+not the older `rcore_web.c`):
+
+```c
+float mouseCssX = (float)mouseEvent->targetX;      // CSS px, canvas-relative
+emscripten_get_element_css_size(platform.canvasId, &cssWidth, &cssHeight);
+CORE.Input.Mouse.currentPosition.x = (mouseCssX/(float)cssWidth)*CORE.Window.screen.width;
+```
+
+`emscripten_get_element_css_size` is `getBoundingClientRect().width`
+(`library_html5.js`), read **synchronously inside the handler**. Emscripten's
+own `updateCanvasDimensions` calls `canvas.style.removeProperty('width')`,
+which strips even an `!important` **inline** style -- and with no inline width
+the stylesheet's `width: auto` applies, so the rect collapses to the canvas's
+natural 1280. The division cancels and the game receives raw CSS pixels.
+
+Two things made this hard to see:
+
+- The `MutationObserver` repairs the style immediately after, so every
+  after-the-fact reading -- badge included -- shows the healthy value. The
+  badge's own listener is bubble-phase and runs *after* raylib's, which is on
+  the canvas in the capture phase.
+- Chromium never reproduces it: its microtask checkpoint runs the observer
+  *between* event listeners, healing the style before raylib can measure.
+
+**The fix**: put the fitted size in a real **stylesheet rule**, not only an
+inline style. `removeProperty` cannot touch a stylesheet, so when the inline
+size is stripped the rule underneath still holds the canvas at the fitted
+size. This removes the race rather than trying to win it. The shell also
+re-asserts `fitCanvas` in the capture phase of pointer events as a second
+line of defence.
+
+`tools/shell-test` covers it: it strips the inline style and measures the rect
+in one synchronous block, the way raylib does, and asserts the fitted width
+survives. That check fails on the pre-fix shell and passes on the current one.
+
+**The fix that actually holds**: stop depending on raylib's measurement. The
+shell publishes `window.__colonyMouse` in the capture phase of every pointer
+event, converting with the fitted size *it just chose* rather than a measured
+rect, and the game reads that through `ColonyGetMousePosition()`
+(`src/web_mouse.h`). Use that helper, never raylib's `GetMousePosition()`
+directly -- it falls back to raylib when the global is absent, so an older
+cached shell is never worse than before. `InputManager::GetMousePosition()`
+already delegates to it, so anything going through the input manager is
+covered.
+
+The stylesheet rule stays as defence in depth, but it is not what the game
+relies on.
+
+**Diagnosing it again**: `?debug=1` plus the sandbox's F9 crosshair. If
+`game sees` matches `rel` rather than `expect`, the CSS size collapsed. Check
+the badge's version first -- it reads `SHELL v6`; anything older is a cached
+page, not a live bug.
+
 ## The diagnostic badge
 
 `#shellDebug` overlays live geometry:
@@ -105,3 +248,23 @@ the exact harness shape.
 - The deploy-from-branch trigger in `deploy-web.yml` is temporary for
   playtesting — remove it when the branch merges, or every branch push
   replaces the live site.
+
+## Which build am I looking at? (the stamp)
+
+The playtest draws `BUILD <sha>  <WxH>` in its bottom-right corner: the
+git short SHA the binary was **configured** from (`src/CMakeLists.txt`
+runs `git rev-parse --short HEAD` at configure time; CI configures fresh
+every run) and the live framebuffer size.
+
+This exists because "did my change deploy?" repeatedly cost a round trip.
+Every CI step can be green while the browser serves a cached `.wasm` —
+nothing on screen distinguished the two, so a screenshot could not settle
+it. Now it can: compare the stamp against the pushed SHA.
+
+If the stamp is behind the pushed commit, it is caching, not the
+pipeline. GitHub Pages serves subresources with a ~10 minute max-age, and
+a plain reload can reuse a cached `colony_playtest.js`/`.wasm` even when
+`index.html` is fresh. Either wait out the window or use DevTools →
+Network → **Disable cache**, or "Empty cache and hard reload". Appending
+`?v=N` busts `index.html` only, not the wasm — which is why the stamp,
+not the URL, is the thing to trust.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <map>
 #include <string>
 #include "raylib.h"
@@ -55,6 +56,20 @@ enum class ConfidenceLevel
     CERTAIN     // 0.81 - 1.00
 };
 
+// How well a spot is known, in the language a decision is actually made in.
+//
+// This is a GROUPING of ConfidenceLevel above, never a second banding of the
+// same number -- see GetResourceClass(). Borrowed from how real resource
+// statements are written (JORC, NI 43-101), where the classes carry a rule
+// the player inherits: Inferred ground cannot be committed to.
+enum class ResourceClass
+{
+    UNCLASSIFIED,   // VERY_LOW           -- blind, only the cell average is known
+    INFERRED,       // LOW                -- a bet
+    INDICATED,      // MODERATE + HIGH    -- worth digging, not worth a shaft
+    MEASURED        // CERTAIN            -- commit
+};
+
 // Crystal visual encoding for pre-rendered sample sprites
 struct CrystalVisual
 {
@@ -104,6 +119,34 @@ struct SubCell
     int sweepFrequencyBand = -1;
     std::vector<int> sampleIds;
     float aggregateConfidence = 0.0f;
+
+    // How much of each depth layer excavation has dug out, 0-1. Written only
+    // by ProspectingGrid::RecordExcavation, which excavation calls -- the
+    // dependency runs one way, excavation to prospecting, never back.
+    //
+    // A dug layer is known for certain, and known differently from a surveyed
+    // one: a surveyed spot says what is there, a dug spot says what WAS there
+    // and how much has been taken out of it.
+    std::array<float, 4> workedFraction = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    // Which depth layers a drill core has cut here. This is the PERMANENT
+    // assay record: a core is rock you are holding, so the spot it cut is
+    // known forever. It lives on the grid, not in the tray -- the tray caps
+    // physical specimens only, and evicting a specimen must never delete the
+    // ground it classified.
+    std::array<bool, 4> cored = { false, false, false, false };
+
+    bool HasCore(int depthIndex) const
+    {
+        if (depthIndex < 0 || depthIndex > 3) return false;
+        return cored[depthIndex];
+    }
+
+    bool HasBeenDug(int depthIndex) const
+    {
+        if (depthIndex < 0 || depthIndex > 3) return false;
+        return workedFraction[depthIndex] > 0.0f;
+    }
 };
 
 // Record of a GPR sweep performed on the grid
@@ -124,6 +167,16 @@ struct DepthLayerInfo
 
 ShapeFamily GetPrimaryShapeFamily(DepthLayer layer);
 ConfidenceLevel GetConfidenceLevel(float confidence);
+
+// Derived from GetConfidenceLevel, NOT from thresholds of its own. Written
+// this way on purpose: one set of boundaries means the coarse reading and the
+// fine one can never contradict each other, and there is nothing to keep in
+// sync when either is tuned. tests/test_resource_class.cpp asserts it.
+ResourceClass GetResourceClass(float confidence);
+const char* ResourceClassName(ResourceClass cls);
+
+// Inferred ground cannot be committed to -- the one rule the classes carry.
+bool IsCommittable(ResourceClass cls);
 int GetGlowLevel(float confidence);
 int GetSizeLevel(float richness);
 Color GetElementColor(ResourceType element);

@@ -42,6 +42,19 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
         }
         prospectingSystem = std::make_unique<ProspectingSystem>(
             prosTier, gx, gy, resourceManager);
+
+        // Excavation reads prospecting's lattice but keeps its OWN tier, so
+        // its reach can differ from what prospecting can survey.
+        int excTier = 0;
+        for (const auto& m : modules)
+        {
+            if (m.moduleType == "EXCAVATION")
+            {
+                excTier = m.tier;
+                break;
+            }
+        }
+        excavationSystem = std::make_unique<ExcavationSystem>(excTier);
     }
 }
 
@@ -229,7 +242,6 @@ void Unit::SetInitialParameters() {
         parameters["SiExtractionRate"] = DEFAULT_SiExtractionRate;
         parameters["ResourceFocus"] = DEFAULT_ResourceFocus;
         parameters["EnergyConsumption"] = DEFAULT_EnergyConsumption;
-        parameters["WearAndTear"] = DEFAULT_WearAndTear;
         parameters["Efficiency"] = DEFAULT_Efficiency;
         parameters["StorageCapacity"] = DEFAULT_StorageCapacity;
         parameters["BreakdownChance"] = DEFAULT_BreakdownChance;
@@ -1067,6 +1079,39 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
             "Autonomous fleet. 8 drones, zone painting."
         };
         module.description = tierDescs[module.tier];
+
+        // Fleet size comes from tier. This used to live in a second
+        // `else if (moduleType == "EXCAVATION")` further down the same
+        // if/else chain, which the branch above already matched -- so it was
+        // dead code and a tier upgrade never actually added a machine.
+        int targetCount = 1;
+        if (module.tier == 1) targetCount = 2;
+        else if (module.tier == 2) targetCount = 4;
+        else if (module.tier == 3) targetCount = 8;
+
+        while (static_cast<int>(excavators.size()) < targetCount)
+        {
+            Excavator exc;
+            exc.id = static_cast<int>(excavators.size());
+            exc.gridPos = WorldToGrid(parentSectPosition);
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.depth = 0.0f;
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+            exc.wear = 0.0f;
+            excavators.push_back(exc);
+        }
+
+        // Existing machines are re-fitted to the new tier too, otherwise the
+        // fleet is a mix of old and new and the tier means nothing.
+        for (auto& exc : excavators)
+        {
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+        }
     }
     else if (module.moduleType == "BENEFICIATION")
     {
@@ -1105,28 +1150,6 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
             separationChain.push_back(SeparationNodes::CreateMRE());
         }
     }
-    else if (module.moduleType == "EXCAVATION")
-    {
-        // Add excavators based on tier
-        int targetCount = 1;
-        if (module.tier == 1) targetCount = 2;
-        else if (module.tier == 2) targetCount = 4;
-        else if (module.tier == 3) targetCount = 8;
-
-        while (static_cast<int>(excavators.size()) < targetCount)
-        {
-            Excavator exc;
-            exc.id = static_cast<int>(excavators.size());
-            exc.gridPos = WorldToGrid(parentSectPosition);
-            exc.method = module.tier >= 3 ? "drone" :
-                         module.tier >= 2 ? "percussive" :
-                         module.tier >= 1 ? "bucket_wheel" : "scoop";
-            exc.depth = 0.0f;
-            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
-            exc.wear = 0.0f;
-            excavators.push_back(exc);
-        }
-    }
 
     // Update tier dependencies for the NEXT tier
     if (module.moduleType == "PROSPECTING")
@@ -1158,6 +1181,11 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
     if (activeModuleIndices.count(moduleIndex) > 0)
     {
         CalculateConsumption();
+    }
+
+    if (module.moduleType == "EXCAVATION" && excavationSystem)
+    {
+        excavationSystem->SetTier(module.tier);
     }
 
     if (module.moduleType == "PROSPECTING" && prospectingSystem)
@@ -1225,6 +1253,39 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
             "Autonomous fleet. 8 drones, zone painting."
         };
         module.description = tierDescs[module.tier];
+
+        // Fleet size comes from tier. This used to live in a second
+        // `else if (moduleType == "EXCAVATION")` further down the same
+        // if/else chain, which the branch above already matched -- so it was
+        // dead code and a tier upgrade never actually added a machine.
+        int targetCount = 1;
+        if (module.tier == 1) targetCount = 2;
+        else if (module.tier == 2) targetCount = 4;
+        else if (module.tier == 3) targetCount = 8;
+
+        while (static_cast<int>(excavators.size()) < targetCount)
+        {
+            Excavator exc;
+            exc.id = static_cast<int>(excavators.size());
+            exc.gridPos = WorldToGrid(parentSectPosition);
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.depth = 0.0f;
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+            exc.wear = 0.0f;
+            excavators.push_back(exc);
+        }
+
+        // Existing machines are re-fitted to the new tier too, otherwise the
+        // fleet is a mix of old and new and the tier means nothing.
+        for (auto& exc : excavators)
+        {
+            exc.method = module.tier >= 3 ? "drone" :
+                         module.tier >= 2 ? "percussive" :
+                         module.tier >= 1 ? "bucket_wheel" : "scoop";
+            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
+        }
     }
     else if (module.moduleType == "BENEFICIATION")
     {
@@ -1262,27 +1323,6 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
             separationChain.push_back(SeparationNodes::CreateMRE());
         }
     }
-    else if (module.moduleType == "EXCAVATION")
-    {
-        int targetCount = 1;
-        if (module.tier == 1) targetCount = 2;
-        else if (module.tier == 2) targetCount = 4;
-        else if (module.tier == 3) targetCount = 8;
-
-        while (static_cast<int>(excavators.size()) < targetCount)
-        {
-            Excavator exc;
-            exc.id = static_cast<int>(excavators.size());
-            exc.gridPos = WorldToGrid(parentSectPosition);
-            exc.method = module.tier >= 3 ? "drone" :
-                         module.tier >= 2 ? "percussive" :
-                         module.tier >= 1 ? "bucket_wheel" : "scoop";
-            exc.depth = 0.0f;
-            exc.rate = 30.0f * tierMults[std::min(module.tier, 3)];
-            exc.wear = 0.0f;
-            excavators.push_back(exc);
-        }
-    }
 
     if (module.moduleType == "PROSPECTING")
     {
@@ -1312,6 +1352,11 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
     if (activeModuleIndices.count(moduleIndex) > 0)
     {
         CalculateConsumption();
+    }
+
+    if (module.moduleType == "EXCAVATION" && excavationSystem)
+    {
+        excavationSystem->SetTier(module.tier);
     }
 
     if (module.moduleType == "PROSPECTING" && prospectingSystem)
@@ -1423,7 +1468,17 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
 
         // Handle production based on unit type (scaled by efficiency)
         if (unit_type == "Extraction") {
-            ProcessExtraction(deltaTime * efficiencyMultiplier, resourceManager);
+            // ProcessExtraction runs the WHOLE unit's pipeline -- prospecting
+            // gating, excavation, beneficiation, storage -- so it belongs to
+            // the unit, not to a module. Calling it inside the per-module loop
+            // ran it once per active module: with prospecting, excavation and
+            // beneficiation all on, the unit dug three times a tick and every
+            // number downstream was three times too big.
+            //
+            // Run it once, on the module that actually does the digging.
+            if (module.moduleType == "EXCAVATION") {
+                ProcessExtraction(deltaTime * efficiencyMultiplier, resourceManager);
+            }
         }
         else {
             // Normal production for other unit types (scaled by efficiency)
@@ -1440,19 +1495,6 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     Vector2 gridPos = WorldToGrid(parentSectPosition);
     int gridX = static_cast<int>(gridPos.x);
     int gridY = static_cast<int>(gridPos.y);
-
-    // --- Determine depth layer from first excavator ---
-    DepthLayer activeLayer = DepthLayer::SURFACE;
-    if (!excavators.empty())
-    {
-        float depth = excavators[0].depth;
-        if (depth >= 100.0f) activeLayer = DepthLayer::DEEP;
-        else if (depth >= 30.0f) activeLayer = DepthLayer::MID;
-        else if (depth >= 10.0f) activeLayer = DepthLayer::SHALLOW;
-    }
-
-    // Get available resources at this location and depth layer
-    auto availableResources = resourceManager.GetResourcesAtGridLayer(gridX, gridY, activeLayer);
 
     // --- Survey-gated extraction efficiency ---
     float scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY;
@@ -1522,47 +1564,56 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     static const float tierMults[] = {1.0f, 1.4f, 1.9f, 2.5f};
     float tierMultiplier = tierMults[std::min(excavationMod->tier, 3)];
 
-    // Map for base extraction rates
-    std::map<ResourceType, float> extractionRates = {
-        {ResourceType::H2, parameters["H2ExtractionRate"]},
-        {ResourceType::O2, parameters["O2ExtractionRate"]},
-        {ResourceType::C,  parameters["CExtractionRate"]},
-        {ResourceType::Fe, parameters["FeExtractionRate"]},
-        {ResourceType::Si, parameters["SiExtractionRate"]}
-    };
-
     // --- Stage 1: Excavation (raw regolith) ---
+    //
+    // The excavation module works ONE spot on prospecting's 8x8 lattice with a
+    // chosen machine, rather than skimming the whole parent cell evenly. What
+    // comes up is a composition, so how dirty the dig was needs no separate
+    // number -- a blunt or hurried machine simply brings more of everything
+    // that is not the target. See docs/design/excavation/excavation-design.md.
+    //
+    // Every modifier that applied before still applies, with its old meaning:
+    // operations efficiency, directives, module tier and survey gating are all
+    // folded into one multiplier handed to the engine.
     std::map<ResourceType, float> rawRegolith;
 
-    for (const auto& [resourceType, abundance] : availableResources)
+    int activeExcavators = 0;
+    for (const auto& exc : excavators)
     {
-        float baseRate = extractionRates.count(resourceType) ?
-            extractionRates[resourceType] : 0.01f;
+        if (exc.wear < 1.0f) activeExcavators++;
+    }
+    activeExcavators = std::max(1, activeExcavators);
 
-        // Apply directive priority boost
-        float priorityBoost = 1.0f;
-        if (activeDirective.type == DirectiveType::PRIORITIZE &&
-            resourceType == prioritizedResource)
+    // Both systems are constructed together for every Extraction unit
+    // (see the constructor), so this is not a branch -- it is an assertion
+    // that the unit is one. The flat per-cell skim that used to sit in the
+    // else arm is in docs/design/graveyard/extraction-fallback-skim.md.
+    if (excavationSystem && prospectingSystem)
+    {
+        // The prioritise directive steers what excavation aims at, which is
+        // more direct than the old flat +40% on one resource.
+        if (activeDirective.type == DirectiveType::PRIORITIZE)
         {
-            priorityBoost = 1.4f;  // +40% for prioritized resource
+            excavationSystem->targetResource = prioritizedResource;
         }
 
-        float extractionAmount = baseRate * efficiency * tierMultiplier *
-                                  abundance * opsModifier * directiveModifier *
-                                  scanMultiplier * priorityBoost * deltaTime;
+        float externalMultiplier = efficiency * tierMultiplier * opsModifier *
+                                   directiveModifier * scanMultiplier;
 
-        // Scale by number of active excavators
-        int activeExcavators = 0;
-        for (const auto& exc : excavators)
+        DigResult dig = excavationSystem->Dig(*prospectingSystem, activeExcavators,
+                                              externalMultiplier, deltaTime);
+
+        for (const auto& [resourceType, amount] : dig.yield)
         {
-            if (exc.wear < 1.0f) activeExcavators++;
+            resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, amount);
+            rawRegolith[resourceType] = amount;
         }
-        extractionAmount *= std::max(1, activeExcavators);
 
-        // Deplete from planet
-        resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, extractionAmount);
-
-        rawRegolith[resourceType] = extractionAmount;
+        // Wear now follows the work done rather than the clock.
+        for (auto& exc : excavators)
+        {
+            if (exc.wear < 1.0f) exc.wear += dig.wearDelta;
+        }
     }
 
     // --- Stage 2: Beneficiation (separation chain) ---
@@ -1915,53 +1966,6 @@ bool Unit::DeactivateModule(int moduleIndex) {
 
     std::cout << "Deactivated module: " << module.name << " (index " << moduleIndex << ")" << std::endl;
     return true;
-}
-
-// --- Excavation Methods ---
-
-void Unit::MoveExcavator(int excavatorId, int gridX, int gridY) {
-    for (auto& exc : excavators)
-    {
-        if (exc.id == excavatorId)
-        {
-            exc.gridPos = {static_cast<float>(gridX), static_cast<float>(gridY)};
-            std::cout << "[EXCAVATION] Excavator " << excavatorId
-                      << " moved to (" << gridX << "," << gridY << ")" << std::endl;
-            return;
-        }
-    }
-}
-
-void Unit::SetExcavatorDepth(int excavatorId, float depth) {
-    for (auto& exc : excavators)
-    {
-        if (exc.id == excavatorId)
-        {
-            float maxDepth = 10.0f;
-            for (const auto& mod : modules)
-            {
-                if (mod.moduleType == "EXCAVATION")
-                {
-                    float tierMaxDepths[] = {10.0f, 30.0f, 100.0f, 300.0f};
-                    maxDepth = tierMaxDepths[std::min(mod.tier, 3)];
-                    break;
-                }
-            }
-            exc.depth = std::clamp(depth, 0.0f, maxDepth);
-            return;
-        }
-    }
-}
-
-void Unit::SetExcavatorRate(int excavatorId, float rate) {
-    for (auto& exc : excavators)
-    {
-        if (exc.id == excavatorId)
-        {
-            exc.rate = std::clamp(rate, 0.0f, 500.0f);
-            return;
-        }
-    }
 }
 
 // --- Beneficiation Methods ---

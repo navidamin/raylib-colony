@@ -204,7 +204,7 @@ Units have a modular upgrade system where each unit type has specialized named m
 
 **Extraction unit modules** (5 specialized):
 1. **Prospecting** - LIBS scanning, site marking, scan history (`ScanResult` struct), survey progress (0-100%)
-2. **Excavation** - Excavator fleet management (`Excavator` struct), depth/rate control, wear
+2. **Excavation** - Targeted digging on prospecting's 8×8 lattice (`src/Excavation/`): pick a spot and depth, a machine, a target resource and a pace; what comes up is a composition, so a blunt or hurried machine brings more waste. See `docs/design/excavation/`
 3. **Beneficiation** - Separation chain (`SeparationNode` structs: SIZE_SORT, MAGNETIC, ELECTROSTATIC, THERMAL, MRE, DIRECT_OUTPUT)
 4. **Operations** - Efficiency modifier (tier 0=0.85 penalty, tier 3=1.2 bonus)
 5. **Directives** - Autonomous control (PRIORITIZE, MAXIMIZE, CONSERVE, EXPLORATION_MODE, EMERGENCY_HARVEST, THERMAL_SYNC)
@@ -395,7 +395,7 @@ without a display:
 
 | Tool | Use it for |
 |------|-----------|
-| `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so screenshots are faithful and reproducible. |
+| `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so the ground is reproducible. The **pixels are not** — animation eases on frame time, so two runs differ; judge by looking, not by diffing (see `docs/dev-workflow.md`). |
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
 | `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
@@ -422,8 +422,25 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 
 | Module | Design Directory | Context Trigger |
 |--------|-----------------|-----------------|
+| **Subsurface** | `docs/design/subsurface/README.md` | **Read first** when touching resource generation, or anything both extraction modules read |
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
+| Excavation | `docs/design/excavation/README.md` | Working on excavator handling or `ProcessExtraction()` Stage 1 in `unit.cpp`, the excavation panel in `rendermanager.cpp`, or excavation input handling |
+| Graphics (Dark Plating) | `docs/design/graphics/README.md` | Drawing or restyling **any code-drawn graphic** — hero visuals, canvas prototypes, animated rigs, icons, particles. The style guide is a living document: adding a new graphical component includes extending it (see its Rule) |
+| **Graveyard** | `docs/design/graveyard/README.md` | **Removing** anything that was once reachable in the game. Read its Rule before deleting |
 | Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
 | Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
 
 See `docs/design/README.md` for the full planning method explanation.
+
+### Removing code: the graveyard rule
+
+Deleting a part of this game is a **two-file change — the deletion and its
+record in `docs/design/graveyard/`, in the same commit.** Git keeps the bytes;
+the graveyard keeps the reasoning, which is the only thing that stops a future
+session rebuilding a thing that was removed on purpose. A record answers five
+questions: what it was, when it died, why it went, what idea survived into the
+replacement, and what would justify bringing it back. Full template and the
+scope of what owes a record are in
+[`docs/design/graveyard/README.md`](docs/design/graveyard/README.md).
+
+Renames, typo fixes, and code that never worked owe nothing.

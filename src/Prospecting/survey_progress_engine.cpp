@@ -7,12 +7,13 @@ CellSurveyResult SurveyProgressEngine::Calculate(const ProspectingGrid& grid,
     CellSurveyResult result;
     result.sweepConfidence = ComputeSweepComponent(grid);
     result.sampleConfidence = ComputeSampleComponent(grid, tray);
+    // Kept reporting so the field still means something to anything reading
+    // it, but it no longer contributes -- see SURVEY_TESTING_WEIGHT.
     result.testingConfidence = ComputeTestingComponent(grid, tray);
 
     result.surveyProgress = std::clamp(
         SURVEY_SWEEP_WEIGHT * result.sweepConfidence
-      + SURVEY_SAMPLE_WEIGHT * result.sampleConfidence
-      + SURVEY_TESTING_WEIGHT * result.testingConfidence,
+      + SURVEY_SAMPLE_WEIGHT * result.sampleConfidence,
         0.0f, 1.0f);
 
     return result;
@@ -29,10 +30,15 @@ float SurveyProgressEngine::ComputeSweepComponent(const ProspectingGrid& grid)
     int total = size * size;
     if (total == 0) return 0.0f;
 
+    // Sweeping is not the only way to learn what is in the ground -- digging a
+    // layer observes it directly. A cell counts as known by whichever route got
+    // further, so a player who never surveys still bootstraps their own
+    // extraction efficiency, just the expensive way.
     float sum = 0.0f;
     for (int y = 0; y < size; y++)
         for (int x = 0; x < size; x++)
-            sum += grid.GetSubCell(x, y).aggregateConfidence;
+            sum += std::max(grid.GetSubCell(x, y).aggregateConfidence,
+                            grid.GetExcavatedKnowledge(x, y));
 
     return sum / total;
 }

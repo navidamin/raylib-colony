@@ -3,39 +3,6 @@
 #include "test_helpers.h"
 #include "sampling_engine.h"
 
-TEST_CASE("SamplingEngine CanDrill respects tier gating", "[sampling]")
-{
-    SamplingEngine t0(0);
-    REQUIRE(t0.CanDrill(DepthLayer::SURFACE));
-    REQUIRE_FALSE(t0.CanDrill(DepthLayer::SHALLOW));
-    REQUIRE_FALSE(t0.CanDrill(DepthLayer::MID));
-    REQUIRE_FALSE(t0.CanDrill(DepthLayer::DEEP));
-
-    SamplingEngine t1(1);
-    REQUIRE(t1.CanDrill(DepthLayer::SURFACE));
-    REQUIRE(t1.CanDrill(DepthLayer::SHALLOW));
-    REQUIRE_FALSE(t1.CanDrill(DepthLayer::MID));
-
-    SamplingEngine t2(2);
-    REQUIRE(t2.CanDrill(DepthLayer::MID));
-    REQUIRE_FALSE(t2.CanDrill(DepthLayer::DEEP));
-
-    SamplingEngine t3(3);
-    REQUIRE(t3.CanDrill(DepthLayer::DEEP));
-}
-
-TEST_CASE("SamplingEngine GetDrillCost matches constants", "[sampling]")
-{
-    SamplingEngine t0(0);
-    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::SURFACE), Catch::Matchers::WithinAbs(15.0f, 0.01f));
-    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::SHALLOW), Catch::Matchers::WithinAbs(-1.0f, 0.01f));
-
-    SamplingEngine t3(3);
-    REQUIRE_THAT(t3.GetDrillCost(DepthLayer::SURFACE), Catch::Matchers::WithinAbs(8.0f, 0.01f));
-    REQUIRE_THAT(t3.GetDrillCost(DepthLayer::SHALLOW), Catch::Matchers::WithinAbs(20.0f, 0.01f));
-    REQUIRE_THAT(t3.GetDrillCost(DepthLayer::MID), Catch::Matchers::WithinAbs(35.0f, 0.01f));
-    REQUIRE_THAT(t3.GetDrillCost(DepthLayer::DEEP), Catch::Matchers::WithinAbs(75.0f, 0.01f));
-}
 
 TEST_CASE("SamplingEngine CollectSample adds to tray", "[sampling]")
 {
@@ -50,50 +17,6 @@ TEST_CASE("SamplingEngine CollectSample adds to tray", "[sampling]")
     REQUIRE(tray.GetCount() == 1);
 }
 
-TEST_CASE("SamplingEngine CollectSample fails on full tray", "[sampling]")
-{
-    auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
-    SampleTray tray(0);
-    SamplingEngine engine(0);
-
-    // Tier 0 reaches a 2x2 window, which is exactly the tier 0 tray capacity
-    REQUIRE(InReachCellCount(0) == 4);
-    for (int i = 0; i < 4; i++)
-    {
-        auto [x, y] = InReachCoord(0, i);
-        REQUIRE(engine.CollectSample(grid, tray, x, y, DepthLayer::SURFACE));
-    }
-
-    REQUIRE(tray.IsFull());
-    auto [fx, fy] = InReachCoord(0);
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, fx, fy, DepthLayer::SURFACE));
-}
-
-TEST_CASE("SamplingEngine CollectSample fails outside tier reach", "[sampling]")
-{
-    auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
-    SampleTray tray(0);
-    SamplingEngine engine(0);
-
-    // In bounds, but outside the tier 0 reach window
-    REQUIRE_FALSE(grid.IsInReach(0, 0));
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, 0, 0, DepthLayer::SURFACE));
-    REQUIRE(tray.IsEmpty());
-}
-
-TEST_CASE("SamplingEngine CollectSample fails on inaccessible depth", "[sampling]")
-{
-    auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
-    SampleTray tray(0);
-    SamplingEngine engine(0);
-
-    auto [sx, sy] = InReachCoord(0);
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SHALLOW));
-    REQUIRE(tray.IsEmpty());
-}
 
 TEST_CASE("SamplingEngine CollectSample fails on out-of-bounds", "[sampling]")
 {
@@ -103,7 +26,7 @@ TEST_CASE("SamplingEngine CollectSample fails on out-of-bounds", "[sampling]")
     SamplingEngine engine(1);
 
     REQUIRE_FALSE(engine.CollectSample(grid, tray, -1, 0, DepthLayer::SURFACE));
-    REQUIRE_FALSE(engine.CollectSample(grid, tray, 10, 0, DepthLayer::SURFACE));
+    REQUIRE_FALSE(engine.CollectSample(grid, tray, PROSPECTING_GRID_SIZE + 2, 0, DepthLayer::SURFACE));
     REQUIRE(tray.IsEmpty());
 }
 
@@ -128,21 +51,6 @@ TEST_CASE("Collected sample has ground truth composition", "[sampling]")
     }
 }
 
-TEST_CASE("Collected sample starts with zero confidence", "[sampling]")
-{
-    auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
-    SampleTray tray(1);
-    SamplingEngine engine(1);
-
-    auto [sx, sy] = InReachCoord(1);
-    REQUIRE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SURFACE));
-    const Sample* s = tray.GetSampleByIndex(0);
-    REQUIRE(s != nullptr);
-
-    REQUIRE(s->elementConfidence.empty());
-    REQUIRE_THAT(s->GetAggregateConfidence(), Catch::Matchers::WithinAbs(0.0f, 0.001f));
-}
 
 TEST_CASE("Collected sample richness is in valid range", "[sampling]")
 {
@@ -196,17 +104,6 @@ TEST_CASE("Collected sample registered in sub-cell sampleIds", "[sampling]")
     REQUIRE(grid.GetSubCell(1, 1).sampleIds.size() == 2);
 }
 
-TEST_CASE("Crystal visual glow starts at 0", "[sampling]")
-{
-    auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
-    SampleTray tray(1);
-    SamplingEngine engine(1);
-
-    auto [sx, sy] = InReachCoord(1);
-    REQUIRE(engine.CollectSample(grid, tray, sx, sy, DepthLayer::SURFACE));
-    REQUIRE(tray.GetSampleByIndex(0)->visual.glowLevel == 0);
-}
 
 TEST_CASE("Crystal visual size matches richness", "[sampling]")
 {
@@ -337,4 +234,117 @@ TEST_CASE("SamplingEngine SetTier clamps range", "[sampling]")
     REQUIRE(engine.GetTier() == 3);
     engine.SetTier(-2);
     REQUIRE(engine.GetTier() == 0);
+}
+
+// ---------------------------------------------------------------
+// Carried across the main merge: cases this branch added while main
+// reworked the same files. Main's versions of the shared cases won
+// -- they derive coordinates from PROSPECTING_GRID_SIZE and so hold
+// at any lattice size, which hard-coded cells did not.
+// ---------------------------------------------------------------
+
+TEST_CASE("depth is priced, never gated", "[sampling]")
+{
+    // All four layers are drillable from tier 0. Depth stays meaningful
+    // through the per-metre price, not through a wall -- see
+    // docs/design/prospecting/progression-design.md.
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        SamplingEngine engine(tier);
+        REQUIRE(engine.CanDrill(DepthLayer::SURFACE));
+        REQUIRE(engine.CanDrill(DepthLayer::SHALLOW));
+        REQUIRE(engine.CanDrill(DepthLayer::MID));
+        REQUIRE(engine.CanDrill(DepthLayer::DEEP));
+    }
+}
+
+TEST_CASE("a hole is priced per metre of column, tier-independent", "[sampling]")
+{
+    // Thickness x rate, summed down the column: 12*1.2, +22*1.9, +34*2.8,
+    // +52*4.0. No tier discount, ever -- that is what stops "bank energy and
+    // drill after the upgrade" from being correct.
+    SamplingEngine t0(0);
+    SamplingEngine t3(3);
+    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::SURFACE), Catch::Matchers::WithinAbs(14.4f, 0.01f));
+    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::SHALLOW), Catch::Matchers::WithinAbs(56.2f, 0.01f));
+    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::MID),     Catch::Matchers::WithinAbs(151.4f, 0.01f));
+    REQUIRE_THAT(t0.GetDrillCost(DepthLayer::DEEP),    Catch::Matchers::WithinAbs(359.4f, 0.01f));
+    for (int d = 0; d < 4; d++)
+    {
+        REQUIRE_THAT(t3.GetDrillCost(static_cast<DepthLayer>(d)),
+                     Catch::Matchers::WithinAbs(
+                         t0.GetDrillCost(static_cast<DepthLayer>(d)), 0.001f));
+    }
+}
+
+TEST_CASE("a full specimen shelf never blocks knowledge", "[sampling]")
+{
+    auto rm = MakeTestResourceManager();
+    ProspectingGrid grid(0, 5, 5, rm);
+    SampleTray tray(0);          // capacity 4
+    SamplingEngine engine(0);
+
+    const int spots[4][2] = { {3,3}, {4,3}, {3,4}, {4,4} };
+    for (int i = 0; i < 4; i++)
+        REQUIRE(engine.CollectSample(grid, tray, spots[i][0], spots[i][1],
+                                     DepthLayer::SURFACE));
+    REQUIRE(tray.IsFull());
+
+    // Drilling still works: the assay lives on the grid, the tray is a shelf
+    // of physical rocks, and a full shelf must never un-know ground.
+    REQUIRE(engine.CollectSample(grid, tray, 2, 2, DepthLayer::SURFACE));
+    REQUIRE(grid.GetSubCell(2, 2).HasCore(0));
+    REQUIRE(tray.GetCount() == 4);          // the specimen was discarded
+}
+
+TEST_CASE("an auger hole cores the whole column", "[sampling]")
+{
+    auto rm = MakeTestResourceManager();
+    ProspectingGrid grid(0, 5, 5, rm);
+    SampleTray tray(3);
+    SamplingEngine engine(0);
+
+    // Deep drilling from tier 0: legal, and it recovers everything on the
+    // way down -- a MID hole knows SURFACE and SHALLOW too.
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::MID));
+    REQUIRE(grid.GetSubCell(3, 3).HasCore(0));
+    REQUIRE(grid.GetSubCell(3, 3).HasCore(1));
+    REQUIRE(grid.GetSubCell(3, 3).HasCore(2));
+    REQUIRE_FALSE(grid.GetSubCell(3, 3).HasCore(3));   // below the target
+}
+
+TEST_CASE("A recovered core comes out of the ground assayed", "[sampling]")
+{
+    auto rm = MakeTestResourceManager();
+    ProspectingGrid grid(1, 5, 5, rm);
+    SampleTray tray(1);
+    SamplingEngine engine(1);
+
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    const Sample* s = tray.GetSampleByIndex(0);
+    REQUIRE(s != nullptr);
+
+    // A core is rock you are holding. The lab stage used to gate this, and it
+    // modelled the wrong uncertainty: analytical precision is a percent or
+    // two, while the uncertainty BETWEEN holes is total.
+    REQUIRE_FALSE(s->elementConfidence.empty());
+    for (const auto& [type, abundance] : s->trueComposition)
+    {
+        REQUIRE(s->elementConfidence.at(type) == 1.0f);
+    }
+    REQUIRE_THAT(s->GetAggregateConfidence(), Catch::Matchers::WithinAbs(1.0f, 0.001f));
+}
+
+TEST_CASE("Crystal visual glow reflects a fully known core", "[sampling]")
+{
+    auto rm = MakeTestResourceManager();
+    ProspectingGrid grid(1, 5, 5, rm);
+    SampleTray tray(1);
+    SamplingEngine engine(1);
+
+    REQUIRE(engine.CollectSample(grid, tray, 3, 3, DepthLayer::SURFACE));
+    // Glow is derived from confidence, and a recovered core is fully known, so
+    // it now pins at the top. The channel no longer varies -- worth
+    // repurposing (richness? depth?) rather than leaving it constant.
+    REQUIRE(tray.GetSampleByIndex(0)->visual.glowLevel == 4);
 }

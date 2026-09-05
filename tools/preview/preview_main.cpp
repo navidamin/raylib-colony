@@ -21,8 +21,10 @@
 #include "terrain_synthesis.h"
 #include "game_constants.h"
 #include "game_enums.h"
+#include "rock_texture.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -38,6 +40,7 @@ struct PreviewOptions
     // Panel mode (--module) is the default; passing --view switches to
     // whole-view mode and the module options are ignored.
     std::string module = "prospecting";
+    int depth = -1;              // excavation: which layer the shaft works
     std::string tab = "sweep";
     std::string state = "analyzed";
     int tier = 2;
@@ -46,6 +49,9 @@ struct PreviewOptions
     int spriteSize = 4;
     int spriteGlow = 3;
     float energy = -1.0f;   // <0 = leave the unit's default
+    int bench = 0;
+    int hover = -1;
+    int mouseX = -1, mouseY = -1;          // >0 = time this many frames, print ms/frame
     std::string outPath = "preview.png";
 
     // View mode (--view): empty means panel mode
@@ -80,13 +86,17 @@ static void PrintUsage()
         << "                                 encryption | network\n"
         << "                    Core:        lifesupport | roster | command |\n"
         << "                                 monitoring | safety\n"
-        << "                    Also: overview | sprites          (default: prospecting)\n"
+        << "                    Also: overview | sprites | strata (default: prospecting)\n"
         << "  --sprite-size <n> crystal sprite size variant     (sprites only, default: 4)\n"
         << "  --sprite-glow <n> crystal sprite glow variant     (sprites only, default: 3)\n"
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
-        << "  --state <name>    empty | swept | sampled | analyzed\n"
+        << "  --state <name>    empty | swept | sampled | analyzed | line | line-early |\n                    line-pull | line-done | trip\n"
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
         << "  --energy <n>      override stored energy (tests cost gating)\n"
+        << "  --hover <0-3>     light a plate as if hovered (headless: no pointer)\n"
+        << "  --depth <0-3>     excavation: the depth layer the shaft works\n"
+        << "  --mouse <X,Y>     park the real pointer here -- exercises the true\n"
+        << "                    hover path (pick, cursors, ground readout)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
         << "  --out <path>      output PNG path                (default: preview.png)\n"
         << "  --help            show this message\n"
@@ -142,6 +152,28 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--energy" && hasNext)
         {
             options.energy = static_cast<float>(TextToInteger(argv[++i]));
+        }
+        else if (arg == "--mouse" && hasNext)
+        {
+            std::string v = argv[++i];
+            size_t comma = v.find(',');
+            if (comma != std::string::npos)
+            {
+                options.mouseX = TextToInteger(v.substr(0, comma).c_str());
+                options.mouseY = TextToInteger(v.substr(comma + 1).c_str());
+            }
+        }
+        else if (arg == "--hover" && hasNext)
+        {
+            options.hover = TextToInteger(argv[++i]);
+        }
+        else if (arg == "--depth" && hasNext)
+        {
+            options.depth = TextToInteger(argv[++i]);
+        }
+        else if (arg == "--bench" && hasNext)
+        {
+            options.bench = TextToInteger(argv[++i]);
         }
         else if (arg == "--view" && hasNext)
         {
@@ -284,70 +316,142 @@ static void ApplyProspectingState(ProspectingSystem& system, const std::string& 
     SampleTray& tray = system.GetTray();
     float gameTime = system.gameTime;
 
-    // "swept" and beyond: run GPR sweeps so the heat map has signal.
-    // Band 0 is left unswept so the RUN SWEEP button previews in its
-    // enabled state.
-    int bandCount = SWEEP_FREQUENCY_BANDS;
-    for (int band = 1; band < bandCount; band++)
+    // "worked": ground excavation has dug, at varying depths. Distinct from
+    // surveyed ground -- a dug spot is known for certain AND partly emptied,
+    // and the panel must show those as different things.
+    if (state == "worked")
     {
-        if (system.GetSweep().CanSweep(grid, band))
+        int size = grid.GetGridSize();
+        for (int y = 0; y < size; y++)
         {
-            system.GetSweep().ExecuteSweep(grid, band, gameTime);
+            for (int x = 0; x < size; x++)
+            {
+                if (!IsSubCellInReach(x, y, 3)) continue;
+
+                // A spread: some spots barely scratched, some worked out down
+                // the column, most untouched.
+                int layers = (x * 3 + y * 5) % 7;
+                if (layers > 4) layers = 0;
+                for (int d = 0; d < layers && d < 4; d++)
+                {
+                    grid.RecordExcavation(x, y, static_cast<DepthLayer>(d),
+                                          0.3f + 0.2f * ((x + y) % 4));
+                }
+            }
         }
+        return;
+    }
+
+    // "swept" and beyond: run the LIBS sweep (single band -- GPR is gone) so
+    // the surface layer's prior carries the lateral chemistry pattern.
+    if (system.GetSweep().CanSweep(grid, 0))
+    {
+        system.GetSweep().ExecuteSweep(grid, 0, gameTime);
     }
 
     if (state == "swept") return;
 
-    // "sampled" and beyond: collect a spread of samples across cells and depths.
-    const DepthLayer depths[] = {
-        DepthLayer::SURFACE, DepthLayer::SHALLOW, DepthLayer::MID, DepthLayer::DEEP
-    };
-
-    int gridSize = grid.GetGridSize();
-    int collected = 0;
-    for (int y = 0; y < gridSize && !tray.IsFull(); y++)
+    // "trip": the same hole driven FLAT OUT until the bit fractures, captured
+    // mid-trip -- string partway out of the hole, wear bar full-red history,
+    // the core log holding what was already cut.
+    if (state == "trip")
     {
-        for (int x = 0; x < gridSize && !tray.IsFull(); x++)
+        system.StartAim(4, 10);
+        system.AimAt(3, 10, 4);
+        system.CommitHole();
+        for (int i = 0; i < 6000 && !system.lineHole.tripping; i++)
         {
-            DepthLayer depth = depths[collected % 4];
-            if (!system.GetSampler().CanDrill(depth)) depth = DepthLayer::SURFACE;
-
-            if (system.GetSampler().CollectSample(grid, tray, x, y, depth))
-            {
-                collected++;
-            }
+            system.KickString();
+            system.UpdateLineHole(0.1f);
         }
+        float hold = system.lineHole.tripDur * 0.4f;
+        for (float t = 0.0f; t < hold; t += 0.1f)
+        {
+            system.UpdateLineHole(0.1f);
+        }
+        return;
     }
+
+    // "line": the prescribed line, mid-drill -- collar C6, aimed across the
+    // shoot, string in the fractured zone. "line-done": the same hole
+    // finished, specimen shelved.
+    // "line-early": the bit still in the REGOLITH plate, which carries the
+    // shoot's relief -- the case that proves the active-plate rim hugs a
+    // LIFTED surface, not just a flat one.
+    if (state == "line-early")
+    {
+        system.StartAim(4, 10);
+        system.AimAt(3, 10, 4);
+        system.CommitHole();
+        int step = 0;
+        for (float t = 0.0f; t < 4.0f; t += 0.1f)
+        {
+            if (step++ % 3 == 0) system.KickString();
+            system.UpdateLineHole(0.1f);
+        }
+        return;
+    }
+
+    // "line-pull": the hole is finished and the string is coming back out --
+    // caught mid-hoist, the one frame where the line over the plates is still
+    // drawn but is retreating up it. "line-done" is the same hole a few
+    // seconds later, string racked and the line gone from the block model.
+    if (state == "line-pull")
+    {
+        system.StartAim(4, 10);
+        system.AimAt(3, 10, 4);
+        system.CommitHole();
+        int step = 0;
+        for (int i = 0; i < 20000 &&
+                        system.lineHole.state == LineHoleState::DRILLING; i++)
+        {
+            if (step++ % 3 == 0) system.KickString();
+            system.UpdateLineHole(0.1f);
+        }
+        float hold = system.lineHole.pullDur * 0.45f;
+        for (float t = 0.0f; t < hold; t += 0.1f) system.UpdateLineHole(0.1f);
+        return;
+    }
+
+    if (state == "line" || state == "line-done")
+    {
+        system.StartAim(4, 10);
+        system.AimAt(3, 10, 4);
+        system.CommitHole();
+        // Drive like an engaged player: idle is a bare crawl by design, so
+        // kick the string at ~4 clicks/s while it runs.
+        float total = (state == "line") ? 30.0f : 240.0f;
+        int step = 0;
+        for (float t = 0.0f; t < total; t += 0.1f)
+        {
+            if (step++ % 3 == 0) system.KickString();
+            system.UpdateLineHole(0.1f);
+        }
+        return;
+    }
+
+
+    // "sampled": the first two holes of a campaign. Vertical auger columns --
+    // each cores everything from the surface down to its target, so a MID
+    // hole classifies three points of its column at once and an INDICATED
+    // halo grows around each hole.
+    system.GetSampler().CollectSample(grid, tray, 2, 2, DepthLayer::MID);
+    system.GetSampler().CollectSample(grid, tray, 5, 4, DepthLayer::SHALLOW);
 
     if (state == "sampled") return;
 
-    // "analyzed": run a thorough lab workup on every tray sample -- every
-    // available tool, ending with the destructive Fire Assay.
-    const AnalysisTool toolOrder[] = {
-        AnalysisTool::VISUAL_INSPECTION,
-        AnalysisTool::OPTICAL_MICROSCOPY,
-        AnalysisTool::MAGNETIC_SUSCEPTIBILITY,
-        AnalysisTool::XRF,
-        AnalysisTool::LIBS_PULSE,
-        AnalysisTool::FIRE_ASSAY,
-    };
-
-    std::vector<Sample>& samples = tray.GetSamples();
-    for (Sample& sample : samples)
-    {
-        for (AnalysisTool tool : toolOrder)
-        {
-            if (system.GetLab().CanApplyTool(sample, tool))
-            {
-                system.GetLab().ApplyTool(sample, tool, gameTime);
-            }
-        }
-    }
+    // "analyzed": a drilled-out campaign -- the state the whole design aims
+    // at. Step-out holes at varied depths: Measured columns, Indicated halos
+    // merging between neighbouring holes, Inferred fringes, and deep ground
+    // still a bet where nothing reached it. (The name is kept so preview.sh
+    // and its callers need no change; the lab this state once drove is gone.)
+    system.GetSampler().CollectSample(grid, tray, 3, 3, DepthLayer::DEEP);
+    system.GetSampler().CollectSample(grid, tray, 5, 2, DepthLayer::MID);
+    system.GetSampler().CollectSample(grid, tray, 1, 5, DepthLayer::SHALLOW);
+    system.GetSampler().CollectSample(grid, tray, 6, 6, DepthLayer::MID);
+    system.GetSampler().CollectSample(grid, tray, 0, 1, DepthLayer::SURFACE);
 }
 
-// Renders a contact sheet of the pre-rendered crystal sample sprites, one row
-// per shape family. These assets live in src/assets/sprites/samples/ but are
-// not currently drawn by the game, so this is the only way to review them.
 static int RenderSpriteSheet(const PreviewOptions& options)
 {
     const char* spriteRoot = "src/assets/sprites/samples";
@@ -490,6 +594,98 @@ static int RenderSpriteSheet(const PreviewOptions& options)
     return status;
 }
 
+// --- Just the drill bar --------------------------------------------------
+// The four strata textures as the borehole strip wears them, plus each tile
+// raw at 1:1 so the grain can be judged at the size it was generated. These
+// are the ACTUAL pixels the game draws with -- same generator, same tint law
+// (x2 against a mean of 128), same near-1:1 tiling scale as the dock.
+static int RenderStrataSheet(const PreviewOptions& options)
+{
+    SetTraceLogLevel(LOG_WARNING);
+    InitWindow(options.width, options.height, "Strata textures");
+
+    int status = 0;
+    {
+        const Color rock[4] = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
+        const Color edge[4] = {{25,21,16,255},{28,23,18,255},{22,28,35,255},{16,18,22,255}};
+        const char* names[4]  = {"REGOLITH", "MEGAREGOLITH", "FRACTURED", "BASALT"};
+        const char* depths[4] = {"0 - 12 m", "12 - 34 m", "34 - 68 m", "68 - 120 m"};
+        const char* note[4]   = {"impact-gardened soil: fine grain, broad mottle, angular grit",
+                                 "coarse breccia: poorly sorted blocks, dark seams between",
+                                 "fractured rock: calm slabs cut by fractures, some ice-filled",
+                                 "dense lava: near-uniform, vesicles, faint columnar joints"};
+
+        Texture2D tex[4] = {};
+        for (int L = 0; L < 4; L++)
+        {
+            std::vector<unsigned char> px = RockTexture::Generate(L, RockTexture::SIZE);
+            Image img = { px.data(), RockTexture::SIZE, RockTexture::SIZE, 1,
+                          PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 };
+            tex[L] = LoadTextureFromImage(img);
+            SetTextureFilter(tex[L], TEXTURE_FILTER_BILINEAR);
+            SetTextureWrap(tex[L], TEXTURE_WRAP_REPEAT);
+        }
+
+        for (int frame = 0; frame < 2; frame++)
+        {
+            BeginDrawing();
+            ClearBackground({10, 13, 20, 255});
+            DrawText("BOREHOLE - four generated strata", 40, 24, 20, {200, 220, 245, 255});
+            DrawText("one texture per rock; the block model's plates wear the same four",
+                     40, 50, 13, {120, 140, 165, 255});
+
+            const float barX = 44.0f, barW = 150.0f, barTop = 84.0f;
+            const float bandH = 142.0f;
+            const float k = static_cast<float>(RockTexture::SIZE) / 118.0f;
+
+            // sky above the collar, as the dock has it
+            DrawRectangleRec({barX, barTop - 22.0f, barW, 22.0f}, {10, 16, 24, 255});
+
+            for (int L = 0; L < 4; L++)
+            {
+                float y0 = barTop + L * bandH;
+                Color tint = { static_cast<unsigned char>(std::min(255, rock[L].r * 2)),
+                               static_cast<unsigned char>(std::min(255, rock[L].g * 2)),
+                               static_cast<unsigned char>(std::min(255, rock[L].b * 2)), 255 };
+                DrawTexturePro(tex[L], {0.0f, L * 41.0f, barW * k, bandH * k},
+                               {barX, y0, barW, bandH}, {0.0f, 0.0f}, 0.0f, tint);
+                DrawRectangleRec({barX, y0, barW, 2.0f}, edge[L]);
+
+                float tx = barX + barW + 26.0f;
+                DrawText(names[L], static_cast<int>(tx), static_cast<int>(y0 + 6.0f), 17,
+                         {214, 226, 240, 255});
+                DrawText(depths[L], static_cast<int>(tx), static_cast<int>(y0 + 28.0f), 13,
+                         {120, 200, 235, 255});
+                DrawText(note[L], static_cast<int>(tx), static_cast<int>(y0 + 48.0f), 12,
+                         {120, 140, 165, 255});
+
+                // the raw tile at 1:1, untinted, so the generated grain is
+                // visible without the stratum colour over it
+                float rx = static_cast<float>(options.width) - RockTexture::SIZE - 40.0f;
+                DrawTextureRec(tex[L], {0.0f, 0.0f, static_cast<float>(RockTexture::SIZE),
+                                        static_cast<float>(RockTexture::SIZE)},
+                               {rx, y0 + 4.0f}, WHITE);
+                DrawRectangleLines(static_cast<int>(rx), static_cast<int>(y0 + 4.0f),
+                                   RockTexture::SIZE, RockTexture::SIZE, {60, 72, 88, 255});
+            }
+            DrawText("128 x 128, tileable", static_cast<int>(options.width) - RockTexture::SIZE - 40,
+                     static_cast<int>(barTop - 18.0f), 12, {120, 140, 165, 255});
+            EndDrawing();
+        }
+
+        Image shot = LoadImageFromScreen();
+        bool exported = ExportImage(shot, options.outPath.c_str());
+        UnloadImage(shot);
+        for (int L = 0; L < 4; L++) UnloadTexture(tex[L]);
+
+        if (exported) std::cout << "Wrote " << options.outPath << " (strata textures)\n";
+        else { std::cout << "Failed to write " << options.outPath << "\n"; status = 1; }
+    }
+
+    CloseWindow();
+    return status;
+}
+
 // Renders a whole game view (--view) rather than a single module panel.
 static int RenderGameView(const PreviewOptions& options)
 {
@@ -623,6 +819,7 @@ int main(int argc, char** argv)
     if (!options.view.empty()) return RenderGameView(options);
 
     if (options.module == "sprites") return RenderSpriteSheet(options);
+    if (options.module == "strata") return RenderStrataSheet(options);
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(options.width, options.height, "Colony UI Preview");
@@ -707,12 +904,34 @@ int main(int argc, char** argv)
         unit.SetSelectedModuleIndex(moduleIndex);
         unit.SetIsInModuleView(true);
 
-        if (moduleType == "PROSPECTING" && unit.HasProspectingSystem())
+        // Ground state is a property of the WORLD, not of whichever panel is
+        // being previewed. Excavation reads the same grid prospecting writes,
+        // so its panel needs the state applied too -- surveyed ground is the
+        // whole point of comparing it against unsurveyed.
+        if (unit.HasProspectingSystem())
         {
             ProspectingSystem* system = unit.GetProspectingSystem();
-            system->activeTab = TabFromName(options.tab);
 
+            // The prospecting rig needs its own tier to survey deeply, and in
+            // an excavation preview nothing else raises it.
+            if (moduleType != "PROSPECTING")
+            {
+                for (size_t i = 0; i < unit.GetModules().size(); i++)
+                {
+                    if (unit.GetModules()[i].moduleType != "PROSPECTING") continue;
+                    for (int t = 0; t < options.tier; t++)
+                    {
+                        unit.DebugUpgradeModuleTier(static_cast<int>(i));
+                    }
+                    break;
+                }
+            }
+
+            system->activeTab = TabFromName(options.tab);
             ApplyProspectingState(*system, options.state);
+            // Headless: there is no pointer to put on a plate, so the hover
+            // is handed to the panel directly.
+            system->previewHoverLayer = options.hover;
 
             // Select a cell inside instrument reach, so the cell readout shows
             // real data rather than an out-of-range cell.
@@ -720,6 +939,30 @@ int main(int argc, char** argv)
             system->selectedCellX = centre;
             system->selectedCellY = centre;
             if (system->GetTray().GetCount() > 0) system->selectedSampleIndex = 0;
+        }
+
+        // Excavation's own state. Depth is what the shaft dock draws against,
+        // so it needs a headless setter for the same reason the block model
+        // needed previewHoverLayer: there is no pointer to click a depth with.
+        if (unit.HasExcavationSystem() && options.depth >= 0)
+        {
+            unit.GetExcavationSystem()->selectedDepth =
+                static_cast<DepthLayer>(std::clamp(options.depth, 0, 3));
+        }
+
+        // Run the module for a few ticks so the panel shows a rig that is
+        // WORKING rather than one that has never been asked to. lastResult is
+        // what drives the bit's spin, its heat and the readout, and it is empty
+        // until something digs -- so an excavation preview was previously a
+        // still life of an idle machine, which is not the state worth judging.
+        if (moduleType == "EXCAVATION" && unit.HasExcavationSystem() &&
+            unit.HasProspectingSystem())
+        {
+            ExcavationSystem* exc = unit.GetExcavationSystem();
+            for (int t = 0; t < 6; t++)
+            {
+                exc->Dig(*unit.GetProspectingSystem(), 1, 1.0f, 0.5f);
+            }
         }
         }
     }
@@ -729,10 +972,31 @@ int main(int argc, char** argv)
         // Draw twice: the first frame lets fonts and textures settle before capture.
         for (int frame = 0; frame < 2; frame++)
         {
+            // Park the pointer before the frame reads it, so the hover paths
+            // run exactly as they do under a hand.
+            if (options.mouseX >= 0) SetMousePosition(options.mouseX, options.mouseY);
             BeginDrawing();
             ClearBackground(BLACK);
             renderManager.DrawUnitView(&unit, timeManager);
             EndDrawing();
+        }
+
+        // Frame-cost instrument: the panel math runs on the CPU, so ms/frame
+        // here tracks what the wasm build feels like (times a wasm penalty).
+        if (options.bench > 0)
+        {
+            auto t0 = std::chrono::steady_clock::now();
+            for (int i = 0; i < options.bench; i++)
+            {
+                BeginDrawing();
+                ClearBackground(BLACK);
+                renderManager.DrawUnitView(&unit, timeManager);
+                EndDrawing();
+            }
+            double ms = std::chrono::duration<double, std::milli>(
+                            std::chrono::steady_clock::now() - t0).count();
+            std::cout << "bench: " << options.bench << " frames, "
+                      << ms / options.bench << " ms/frame\n";
         }
 
         Image screenshot = LoadImageFromScreen();

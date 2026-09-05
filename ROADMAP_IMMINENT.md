@@ -157,7 +157,12 @@ previous scan-based system.
 - `MarkSiteForExcavation()` / `UnmarkSite()`
 - Scan cooldown tracking in Update()
 
-### Phase E: Excavation Module ✅ COMPLETE (Data Model)
+### Phase E: Excavation Module ✅ REPLACED (2026-08-13) — see below
+
+The data model described here was superseded by the excavation module rebuild.
+See "Excavation Module Rebuild" at the end of this file.
+
+**Original Phase E notes (historical):**
 
 - `Excavator` struct (id, gridPos, method, depth, rate, wear)
 - `MoveExcavator()`, `SetExcavatorDepth()`, `SetExcavatorRate()`
@@ -369,3 +374,50 @@ moves, roughly in order of value:
 - Subsurface Anomaly Detection (GPR structures: lava tubes, ice deposits)
 - Core Drill Sampling — definitive depth data via excavator commitment
 - Sample Collection & Assay Queue — timed lab analysis as alternative to field LIBS
+
+
+---
+
+## Excavation Module Rebuild (2026-08-13)
+
+Replaced the Stage 1 multiply chain with a targeted-digging module. Design in
+`docs/design/excavation/`; build order and findings in
+`docs/design/excavation/implementation-plan.md`.
+
+| Phase | Status |
+|-------|--------|
+| 1. Read-only view of prospecting's lattice | ✅ |
+| 2. Estimate engine — what the player is told vs what is there | ✅ |
+| 3. Dig engine — machines, precision, selectivity, depletion | ✅ |
+| 4. Write-back — digging reports into prospecting's grid | ✅ |
+| 5. The panel | ✅ |
+| 6. AI ladder — MANUAL / BASIC / TRAINED / EXPERT | ✅ |
+| 7. Balance | ⏳ **outstanding — no human playtest yet** |
+
+**What it is:** you point a machine at a spot on prospecting's 8×8 lattice and
+tune how hard it works. Reach grows in rings with the *excavation* tier, so it
+can differ from what prospecting can survey — dig further than you can see and
+you are working ground you have no way to learn about first.
+
+**New instruments:**
+- `colony_test` — 88 invariant checks (`cmake --build build --target colony_test`)
+- `colony_sim` — a 20-day playtest that runs in CI, five players, 18 checks
+
+**Defects found and fixed along the way**, none of which the build or the unit
+tests caught:
+- Excavation tier upgrades never added machines (dead `else if` branch, both
+  upgrade paths) — a tier-3 module ran one scoop
+- Depletion was asymptotic, so a spot never actually ran out
+- `SelectBestReachableSpot` ignored depletion and re-picked dead ground forever
+- The estimate blurred around each spot's own value, so a blind reading already
+  captured 95% of the best spot's value and surveying was near-worthless
+- The automation re-picked every tick, so nothing was ever worked out
+
+**Outstanding before this is finished:**
+- No human has played it. Every constant is calibrated from dumped data and
+  arithmetic, not from watching a session
+- Tier 0 has no decisions at all — 4 reachable spots, one machine, and every
+  automation level scores identically
+- Depth never advances past the surface in 20 game days
+- Beneficiation, Operations and Directives have not been re-checked against the
+  new Stage 1 output beyond "the pipeline still runs"

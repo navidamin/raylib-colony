@@ -1,0 +1,166 @@
+#pragma once
+
+#include "site_view.h"
+#include "estimate_engine.h"
+#include "dig_engine.h"
+#include "auto_pilot.h"
+#include "resource_types.h"
+// PLATE_REST_LIGHT / PLATE_LIGHT_FULL / PLATE_LIGHT_TAU_S: the plate focus
+// table is shared, so both block models ease on one law.
+#include "prospecting_constants.h"
+
+class ProspectingSystem;
+
+// Excavation module facade.
+//
+// Owns the engines and the panel's UI state. The renderer is immediate-mode
+// and keeps nothing between frames, so anything that must persist across
+// frames lives here -- which is also what lets the preview and playtest
+// harnesses drive the module into any state without a renderer.
+//
+// Phase 1 is read-only: this reports what excavation can see. It does not
+// yet dig. ProcessExtraction() is untouched.
+class ExcavationSystem
+{
+public:
+    explicit ExcavationSystem(int tier = 0);
+
+    void SetTier(int tier);
+    int  GetTier() const;
+
+    SiteView&       GetSite();
+    const SiteView& GetSite() const;
+
+    const EstimateEngine& GetEstimator() const;
+
+    // Convenience for the currently selected spot.
+
+    // What the player is TOLD is in the selected spot, as opposed to what is
+    // actually there. The panel reads this; the dig engine reads the truth.
+    SpotEstimate EstimateSelected(const ProspectingSystem& prospecting) const;
+
+    // Move the selection to the best spot this tier can reach, by true value.
+    // Used to give a fresh unit a sensible starting spot rather than (0,0),
+    // which may not even be in reach.
+    void SelectBestReachableSpot(const ProspectingSystem& prospecting);
+
+    // Clamp the selection back inside reach after a tier change.
+    void EnsureSelectionInReach();
+
+    // --- Digging ---
+
+    // Work the selected spot for one tick. Applies depletion and moves the
+    // selection on when a spot runs out, so an unattended unit keeps producing.
+    // Non-const: digging reports back into prospecting's grid (Rule 5).
+    DigResult Dig(ProspectingSystem& prospecting, int machineCount,
+                  float externalMultiplier, float deltaTime);
+
+    const DigSite& GetWorked() const;
+    const DigEngine& GetDigger() const;
+
+    // ---- Block model focus ----------------------------------------------
+    // How lit each plate is, 0..1, eased toward its target every frame. This
+    // is persistent presentation state, so it lives on the facade rather than
+    // in the renderer, which is rebuilt from nothing each frame and could only
+    // ever snap. Same law and the same table as prospecting's stack: the two
+    // block models are one instrument seen twice, and a different easing would
+    // read as a different world.
+    void UpdatePlateLight(int hoveredLayer, int activeLayer, float dt);
+    float plateLight[4] = { PLATE_REST_LIGHT[0], PLATE_REST_LIGHT[1],
+                            PLATE_REST_LIGHT[2], PLATE_REST_LIGHT[3] };
+    // How hot the bit is, 0..1, eased toward what the work demands. State that
+    // outlives a frame belongs here and not in the renderer -- and heat is a
+    // consequence of DIGGING, so it is integrated on the dig tick rather than
+    // the draw. Integrating it in the renderer meant a headless preview, which
+    // draws two frames, could never show a hot bit however hard it was working.
+    float bitHeat = 0.0f;
+
+    // ---- What the module reports ----------------------------------------
+    // Output as a RATE -- mass per second of game time -- eased with
+    // EXC_RATE_SMOOTH_TAU_S, one for the target and one for everything moved.
+    //
+    // A rate, not a mass, because DigResult carries quantities that scale with
+    // the tick length; whoever displays them would otherwise have to guess the
+    // interval, and guessing it wrong was exactly the old bug. Per SECOND and
+    // not per day, because a day is a game-wide idea and this module has no
+    // business knowing it -- the panel multiplies by TICKS_PER_DAY itself.
+    //
+    // Integrated on the dig tick for the same reason bit heat is: a headless
+    // preview draws two frames, and a value eased in the renderer could never
+    // arrive. The first sample seeds both directly, so a single-dig preview
+    // screenshot shows the true rate rather than one still climbing from zero.
+    float massPerSecTarget = 0.0f;
+    float massPerSecTotal = 0.0f;
+
+    // Headless has no pointer, so hover states could not be screenshotted at
+    // all. -1 is off; otherwise the renderer treats this layer as hovered.
+    // Only the preview tool sets it.
+    int previewHoverLayer = -1;
+
+    // Machines available to this tier, in table order.
+    bool IsMachineAvailable(MachineId id) const;
+    const Machine& GetActiveMachine() const;
+
+    // What the automation would do right now, without doing it. The panel
+    // shows this so the player can see the machine's judgement before handing
+    // over -- and so a survey hint is visible without waiting for a tick.
+    AutoDecision PreviewAuto(const ProspectingSystem& prospecting) const;
+
+    // Highest automation level this tier can run.
+    AiLevel MaxAiLevel() const;
+
+    // Bring the facade's displayed state in line with the ground: a target
+    // that exists here, and the AUTO machine choice if AUTO is on. Called by
+    // the panel as well as the dig tick, so what is shown is never a stale
+    // default the module would not actually use.
+    void SyncToGround(const ProspectingSystem& prospecting);
+
+    // Point the target at something this spot actually contains. A target the
+    // ground does not hold reads as a flat, empty map and gives the player
+    // nothing to choose between.
+    void EnsureTargetPresent(const ProspectingSystem& prospecting);
+
+    // Picks a machine that suits the ground and what is known about it. This
+    // is the AUTO default -- a player who never opens the machine bay still
+    // gets something sensible.
+    void SelectAutoMachine(const ProspectingSystem& prospecting);
+
+    // What the last tick produced, for the panel's readout.
+    const DigResult& GetLastResult() const;
+
+    // Move to the best remaining reachable spot by KNOWN value -- what the
+    // player has been told, not the truth, so digging blind stays blind.
+    void MoveToNextSpot(const ProspectingSystem& prospecting);
+
+    // --- UI state ---
+    int selectedSpotX = -1;
+    int selectedSpotY = -1;
+    DepthLayer selectedDepth = DepthLayer::SURFACE;
+    ResourceType targetResource = ResourceType::Fe;
+
+    MachineId activeMachine = MachineId::SCOOP;
+    bool autoMachine = true;      // AUTO until the player picks one
+
+    // Default to BASIC so a unit the player never opens still works competently
+    // -- badly, but competently. Manual is opt-in.
+    AiLevel aiLevel = AiLevel::BASIC;
+
+    // The last decision the automation made, kept for the panel's readout.
+    AutoDecision lastDecision;
+    float pace = 1.0f;            // the player's first dial
+    float powerCap = 0.0f;        // second dial; 0 = uncapped
+
+private:
+    int tier;
+    SiteView site;
+    EstimateEngine estimator;
+    DigEngine digger;
+    AutoPilot autoPilot;
+    DigSite worked;
+    DigResult lastResult;
+
+    // Whether the reported rate has ever had a sample. Distinguishes "nothing
+    // has been dug yet" from "the last dig produced zero", which ease
+    // identically from a standing start but should not.
+    bool rateSeeded = false;
+};

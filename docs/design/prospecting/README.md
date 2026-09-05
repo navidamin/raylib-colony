@@ -6,13 +6,26 @@
 
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
-| 1 | [prospecting-master-design.md](prospecting-master-design.md) | Pipeline stages, multi-scale control, mechanics integration, gaps inventory | IMPLEMENTED (except §11b AI tree) |
+| 1 | [prospecting-master-design.md](prospecting-master-design.md) | Pipeline stages, multi-scale control, mechanics integration, gaps inventory | IMPLEMENTED — **panel and interaction superseded by #9** |
 | 2 | [sampling-mechanics.md](sampling-mechanics.md) | Science-based technology review + Design 7 variants (7A-7E) | IMPLEMENTED |
 | 3 | [depth-sampling-design.md](depth-sampling-design.md) | Depth layers, resource distribution by depth, tier gating, default allocation | IMPLEMENTED |
 | 4 | [confidence-system.md](confidence-system.md) | Formal confidence metric: scale, composition, per-tool behavior | IMPLEMENTED |
 | 5 | [resource-distribution-model.md](resource-distribution-model.md) | Pathfinder correlations, geological coherence, clue chaining, map init | STUB — undesigned, blocks pathfinder tips |
 | 6 | [ai-default-mode.md](ai-default-mode.md) | AI delegation logic, default behavior, efficiency penalties, heuristics | DESIGNED, NOT BUILT (Phase 7) |
-| 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | IMPLEMENTED (restyled 2026-08; no stratigraphy panel) |
+| 7 | [ui-layout.md](ui-layout.md) | Prospecting menu views, sample visualization, stage-based interaction | IMPLEMENTED — **superseded by #9** |
+| 8 | [implementation-plan.md](implementation-plan.md) | **Resource classification.** Measured / Indicated / Inferred as a grouping of the existing confidence bands, on a colour key shared with excavation | C1-C4 BUILT |
+| 9 | [block-model-design.md](block-model-design.md) | **THE NEW PROSPECTING.** Drill holes with azimuth and dip, an interpolated estimate field, and a four-layer isometric block model. Supersedes the panel and interaction design in #1 and #7 | PARTLY BUILT — view, one-screen panel, LIBS-only sweep, certain cores shipped; estimate field and line holes not |
+| 10 | [progression-design.md](progression-design.md) | **PROGRESSION.** No tiers: rigs you buy (a stable, not a ladder) and techniques you learn (UnlockRegistry). Depth and reach ungated; disposition table for every `*_PER_TIER` constant | DESIGN — plan of record |
+| 11 | [prototypes/drill-dock.html](prototypes/drill-dock.html) | **DRILL DOCK.** Layout study docking the hands-on borehole view against the 4-layer block model: one ground across both panels, one trace in two projections, three placements (`?v=a/b/c`). Graphics per [Dark Plating](../graphics/dark-plating.md) | **PORTED TO THE GAME** — `v=b` in `DrawProspectingPanel` (borehole dock, shared depth axis, prescribed line with shadow/string/advance, drag-to-draw input, line holes cored over game time via `ProspectingSystem::UpdateLineHole`) |
+| 12 | [drill-tuning.md](drill-tuning.md) | **DRILL TUNING.** The clicking campaign, the screw-true spin law, how a hole ends (the hoist), and the 16x16 and 32x32 migration ledgers -- every constant the finer lattices touched, with the sim numbers that chose it | MEASURED |
+
+> **Two designs live here.** #1-#8 describe **v1** as it was built. The game
+> has since moved: the panel is one screen on a four-layer block model, the
+> lab and GPR are gone, cores come out assayed, and a sweep can never
+> classify. #9 is the design of record for the loop, #10 for progression.
+> Start at #9 and #10 for new work; read #1-#8 for instrument details, with
+> the caveat that anything about tabs, the lab, GPR bands, tier-gated depth
+> or the reach ring is superseded.
 
 ## Design Summary
 
@@ -58,7 +71,7 @@ The prospecting module uses a **Core Samples** approach (Design 7) enhanced with
 ### Related Module Designs
 | Module | Dependency | Status |
 |--------|-----------|--------|
-| Excavation | Receives `surveyProgress` + `markedSites` from prospecting | Not yet in design/ |
+| **Excavation** | Receives `surveyProgress` + `markedSites` from prospecting; proposed Design B also consumes per-sub-cell confidence for grade control | [`docs/design/excavation/`](../excavation/README.md) — DRAFT |
 | Beneficiation | Downstream of excavation, no direct prospecting dependency | Not yet in design/ |
 | Resource Manager | Provides ground truth resource data that prospecting reveals | Existing code in `src/ResourceManager/` |
 | **Research** | Funds AI automation upgrades via SCIENCE tokens (Section 11b) | [`docs/design/research/`](../research/README.md) — STUB |

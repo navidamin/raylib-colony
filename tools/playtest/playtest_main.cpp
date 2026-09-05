@@ -8,8 +8,15 @@
 // Controls (also shown in-game):
 //   Mouse/touch - operate the panel (tabs, grid cells, bands, tools)
 //   TIER UP button or T - upgrade prospecting tier (0 -> 3)
+//   DIG SPOT button or D - dig the selected cell at the selected depth
 //   RESET button or R   - reset the run (fresh grid, tier 0)
 //   ESC                 - quit (native build)
+//
+// The RESOURCE STATEMENT panel (bottom left) is the point of the sandbox: it
+// shows, per element, how much tonnage is Measured / Indicated / Inferred at
+// the current tier. Sweeping and sampling move tonnage leftward along that
+// bar, and DIG SPOT converts one spot outright. Watching that bar move is
+// how you feel whether surveying is worth its cost.
 //
 // Build & run (native):
 //   cmake -B build && cmake --build build --target colony_playtest
@@ -19,16 +26,31 @@
 // and is playable on phone/tablet -- taps map to clicks.
 
 #include "raylib.h"
+#include "rlgl.h"
+#include "web_mouse.h"
 
 #include "rendermanager.h"
 #include "unit.h"
 #include "resource_manager.h"
 #include "time_manager.h"
 #include "game_constants.h"
+#include "prospecting_system.h"
+#include "prospecting_grid.h"
+#include "resource_types.h"
 
+// Which build is this? Set from the git short SHA at configure time (see
+// src/CMakeLists.txt). Drawn in the corner so "did my change deploy?" is a
+// glance, not a round trip -- a browser can serve a stale wasm while every
+// CI step is green.
+#ifndef COLONY_BUILD_ID
+#define COLONY_BUILD_ID "dev"
+#endif
+
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -56,6 +78,12 @@ struct PlaytestContext
 
     int screenWidth = 1280;
     int screenHeight = 720;
+    // Web supersampling: on a screen larger than the layout the buffer is
+    // renderScale x bigger and every frame draws through a matrix scale, so
+    // the browser only ever DOWNSCALES -- sharp at any fraction, where
+    // stretching the 1280 buffer smeared every small glyph. Layout, input
+    // and all game code stay in 1280x720 logical space.
+    int renderScale = 1;
     int frame = 0;
     const char* shotPath = nullptr;
     bool done = false;
@@ -82,14 +110,21 @@ static std::unique_ptr<Unit> MakeUnit(PlaytestContext& ctx)
         unit->SetSelectedModuleIndex(prospectingIndex);
         unit->SetIsInModuleView(true);
     }
-    unit->PublicShowMessage("[PLAYTEST] Tap cells to survey. TIER UP / RESET top right.");
+    // The deep plates rest dim and light up under the pointer. On a phone
+    // there is no pointer, and the behaviour survives only because the shell
+    // keeps publishing the last touch position after the finger lifts -- so
+    // a tap IS the hover. That is worth saying out loud on the one build
+    // people actually use on a phone; an unreachable feature is not a
+    // feature (docs/guides/feature-completeness.md).
+    unit->PublicShowMessage("[PLAYTEST] Tap cells to survey - tap a layer to light it. "
+                            "TIER UP / RESET top right.");
     return unit;
 }
 
 // Small clickable chip; returns true when clicked/tapped this frame.
 static bool PlaytestButton(Rectangle r, const char* label, Color accent)
 {
-    Vector2 mouse = GetMousePosition();
+    Vector2 mouse = ColonyGetMousePosition();
     bool hover = CheckCollisionPointRec(mouse, r);
 
     DrawRectangleRounded(r, 0.35f, 4, hover ? Color{20, 56, 96, 255} : Color{14, 30, 52, 255});
@@ -100,6 +135,111 @@ static bool PlaytestButton(Rectangle r, const char* label, Color accent)
              static_cast<int>(r.y + (r.height - 10.0f) / 2.0f), 10, accent);
 
     return hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+}
+
+// The three named classes, in the colour key the panel and the design docs
+// both use. Duplicated here rather than exported from the renderer because
+// the playtest is a harness, not part of the game's UI.
+static Color PlaytestClassColor(ResourceClass cls)
+{
+    switch (cls)
+    {
+        case ResourceClass::MEASURED:  return Color{ 80, 230, 150, 255};
+        case ResourceClass::INDICATED: return Color{255, 200,  80, 255};
+        case ResourceClass::INFERRED:  return Color{124, 143, 214, 255};
+        default:                       return Color{ 70,  84, 104, 255};
+    }
+}
+
+// Resource statement: per element, tonnage split by how well it is known.
+//
+// This is GetClassSplit() made visible. Without it the classification work is
+// engine-implemented but not player-reachable -- you could not tell from the
+// panel alone whether a sweep had actually converted anything.
+static void PlaytestDrawStatement(Unit& unit, float x, float y, float w, float h)
+{
+    const ProspectingSystem* ps = unit.GetProspectingSystem();
+    if (!ps) return;
+
+    const ProspectingGrid& grid = ps->GetGrid();
+    const SampleTray& tray = ps->GetTray();
+    int tier = ps->GetTier();
+
+    DrawRectangleRounded({x, y, w, h}, 0.06f, 4, Color{10, 14, 26, 235});
+    DrawRectangleRoundedLinesEx({x, y, w, h}, 0.06f, 4, 1.0f, Color{30, 44, 66, 255});
+    DrawText("RESOURCE STATEMENT", static_cast<int>(x + 10), static_cast<int>(y + 8),
+             10, Color{80, 225, 255, 255});
+
+    // Which elements this parent cell actually has. Centre of the lattice is
+    // always in reach, so it is a safe probe at any tier.
+    std::map<ResourceType, float> present =
+        grid.GetGroundTruth(PROSPECTING_GRID_SIZE / 2, PROSPECTING_GRID_SIZE / 2,
+                            DepthLayer::SURFACE);
+
+    struct Row { ResourceType type; ClassSplit split; float total; };
+    std::vector<Row> rows;
+    for (const auto& kv : present)
+    {
+        ClassSplit split = GetClassSplit(grid, tray, kv.first, tier);
+        float total = split.Total();
+        if (total <= 0.0f) continue;
+        rows.push_back({kv.first, split, total});
+    }
+
+    // Biggest deposits first -- the statement should lead with what matters.
+    std::sort(rows.begin(), rows.end(),
+              [](const Row& a, const Row& b) { return a.total > b.total; });
+
+    // Only so many rows fit. Say how many were dropped rather than silently
+    // truncating, which would read as "these are all of them".
+    const size_t MAX_ROWS = 4;
+    size_t hidden = rows.size() > MAX_ROWS ? rows.size() - MAX_ROWS : 0;
+    if (rows.size() > MAX_ROWS) rows.resize(MAX_ROWS);
+
+    float maxTotal = 0.0f;
+    for (const Row& r : rows) maxTotal = std::max(maxTotal, r.total);
+    if (maxTotal <= 0.0f) return;
+
+    float rowY = y + 21.0f;
+    const float rowH = 11.0f;
+    const float labelW = 34.0f;
+    const float barX = x + 10.0f + labelW;
+    const float barMaxW = w - labelW - 76.0f;
+
+    for (const Row& r : rows)
+    {
+        DrawText(ResourceTypeToString(r.type), static_cast<int>(x + 10),
+                 static_cast<int>(rowY + 1), 10, Color{180, 198, 220, 255});
+
+        // Bar length is tonnage, so a small deposit cannot look like a big one
+        // just because it happens to be well surveyed.
+        float barW = barMaxW * (r.total / maxTotal);
+        float segX = barX;
+        const ResourceClass order[4] = { ResourceClass::MEASURED, ResourceClass::INDICATED,
+                                         ResourceClass::INFERRED, ResourceClass::UNCLASSIFIED };
+        for (ResourceClass cls : order)
+        {
+            float segW = barW * (r.split.Get(cls) / r.total);
+            if (segW <= 0.0f) continue;
+            DrawRectangleRec({segX, rowY, segW, 7.0f}, PlaytestClassColor(cls));
+            segX += segW;
+        }
+        DrawRectangleLinesEx({barX, rowY, barW, 7.0f}, 1.0f, Color{26, 34, 52, 255});
+
+        // The number the player is actually trying to grow.
+        float committablePct = 100.0f * r.split.Committable() / r.total;
+        DrawText(TextFormat("%3.0f%%", committablePct),
+                 static_cast<int>(barX + barMaxW + 8.0f), static_cast<int>(rowY - 1), 10,
+                 committablePct > 0.5f ? Color{80, 230, 150, 255} : Color{70, 84, 104, 255});
+
+        rowY += rowH;
+    }
+
+    DrawText(hidden > 0 ? TextFormat("%% = measured + indicated   (+%d more)",
+                                     static_cast<int>(hidden))
+                        : "% = measured + indicated",
+             static_cast<int>(x + 10), static_cast<int>(y + h - 12.0f), 9,
+             Color{90, 106, 130, 255});
 }
 
 static void UpdateDrawFrame(void* arg)
@@ -118,16 +258,44 @@ static void UpdateDrawFrame(void* arg)
 
     bool wantTierUp = IsKeyPressed(KEY_T);
     bool wantReset = IsKeyPressed(KEY_R);
+    bool wantDig = IsKeyPressed(KEY_D);
 
     BeginDrawing();
     ClearBackground(BLACK);
+    // Everything draws in 1280x720 logical space; the matrix carries it into
+    // the (possibly supersampled) buffer. Scissors don't ride the matrix --
+    // RenderManager scales those itself via SetPixelScale.
+    rlPushMatrix();
+    if (ctx.renderScale != 1)
+    {
+        rlScalef(static_cast<float>(ctx.renderScale),
+                 static_cast<float>(ctx.renderScale), 1.0f);
+    }
     ctx.renderManager->DrawUnitView(ctx.unit.get(), *ctx.timeManager);
 
     // On-screen controls (touch-friendly), tucked into the top bar
     float bx = ctx.screenWidth - 460.0f;
     wantTierUp |= PlaytestButton({bx, 14.0f, 80.0f, 28.0f}, "TIER UP", {80, 225, 255, 255});
     wantReset |= PlaytestButton({bx + 88.0f, 14.0f, 70.0f, 28.0f}, "RESET", {255, 200, 80, 255});
+    wantDig |= PlaytestButton({bx + 166.0f, 14.0f, 80.0f, 28.0f}, "DIG SPOT",
+                              {80, 230, 150, 255});
 
+    // Drawn after the panel, in the empty strip below the module list. Sized
+    // to clear the DIRECTIVES card above it and the panel border below.
+    PlaytestDrawStatement(*ctx.unit, 18.0f, 497.0f, 250.0f, 80.0f);
+
+    // Build stamp, bottom-right: the git SHA this binary was configured
+    // from, plus the live framebuffer, so a screenshot answers both "which
+    // build is this?" and "did the canvas fit as intended?".
+    {
+        const char* stamp = TextFormat("BUILD %s   %dx%d", COLONY_BUILD_ID,
+                                       GetScreenWidth(), GetScreenHeight());
+        int sw = MeasureText(stamp, 10);
+        DrawText(stamp, ctx.screenWidth - sw - 10, ctx.screenHeight - 15, 10,
+                 Color{90, 110, 130, 255});
+    }
+
+    rlPopMatrix();
     EndDrawing();
     ctx.frame++;
 
@@ -136,6 +304,35 @@ static void UpdateDrawFrame(void* arg)
         int idx = FindProspectingModule(*ctx.unit);
         if (idx >= 0) ctx.unit->DebugUpgradeModuleTier(idx);
     }
+    // Sandbox shortcut for what the excavation module will do properly: dig
+    // the selected spot so its class flips to MEASURED, and watch the
+    // statement bar move. Digging is direct observation, so it is the fastest
+    // way to feel the difference between knowing and guessing.
+    if (wantDig)
+    {
+        ProspectingSystem* ps = ctx.unit->GetProspectingSystem();
+        if (ps && ps->selectedCellX >= 0 && ps->selectedCellY >= 0)
+        {
+            ProspectingGrid& grid = ps->GetGrid();
+            if (grid.IsInReach(ps->selectedCellX, ps->selectedCellY))
+            {
+                grid.RecordExcavation(ps->selectedCellX, ps->selectedCellY,
+                                      ps->selectedDepth, 1.0f);
+                ctx.unit->PublicShowMessage(
+                    TextFormat("[PLAYTEST] Dug (%d,%d) - that layer is now MEASURED",
+                               ps->selectedCellX, ps->selectedCellY));
+            }
+            else
+            {
+                ctx.unit->PublicShowMessage("[PLAYTEST] That spot is out of reach");
+            }
+        }
+        else
+        {
+            ctx.unit->PublicShowMessage("[PLAYTEST] Select a grid cell first");
+        }
+    }
+
     if (wantReset)
     {
         ctx.storage.clear();
@@ -164,11 +361,37 @@ int main(int argc, char** argv)
     }
 
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(ctx.screenWidth, ctx.screenHeight, "Colony - Prospecting Playtest");
+#ifdef __EMSCRIPTEN__
+    // Choose the supersample before the window exists, and tell the shell
+    // (SHELL v6 reads __colonyBufW/H to pin the framebuffer, and
+    // __colonyLogicalW/H to keep pointer coordinates in layout space).
+    {
+        int devW = EM_ASM_INT({
+            return Math.round(document.documentElement.clientWidth
+                              * (window.devicePixelRatio || 1));
+        });
+        int devH = EM_ASM_INT({
+            return Math.round(document.documentElement.clientHeight
+                              * (window.devicePixelRatio || 1));
+        });
+        float fit = std::min(devW / static_cast<float>(ctx.screenWidth),
+                             devH / static_cast<float>(ctx.screenHeight));
+        ctx.renderScale = fit > 1.05f ? 2 : 1;
+        EM_ASM({
+            window.__colonyBufW = $0; window.__colonyBufH = $1;
+            window.__colonyLogicalW = $2; window.__colonyLogicalH = $3;
+        }, ctx.screenWidth * ctx.renderScale, ctx.screenHeight * ctx.renderScale,
+           ctx.screenWidth, ctx.screenHeight);
+    }
+#endif
+    InitWindow(ctx.screenWidth * ctx.renderScale,
+               ctx.screenHeight * ctx.renderScale,
+               "Colony - Prospecting Playtest");
     SetTargetFPS(60);
 
     {
         RenderManager renderManager(ctx.screenWidth, ctx.screenHeight);
+        renderManager.SetPixelScale(static_cast<float>(ctx.renderScale));
         renderManager.LoadFonts();
 
         // The constructor only allocates the grids; Planet normally calls this

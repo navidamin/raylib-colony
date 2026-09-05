@@ -3,40 +3,6 @@
 #include "test_helpers.h"
 #include <cmath>
 
-TEST_CASE("ProspectingGrid lattice size is fixed across tiers", "[grid]")
-{
-    auto rm = MakeTestResourceManager();
-
-    // The lattice no longer refines with tier -- every tier sees the same
-    // 8x8 sub-cell grid, and tier instead widens the reachable window.
-    for (int tier = 0; tier <= 3; tier++)
-    {
-        ProspectingGrid grid(tier, 5, 5, rm);
-        REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
-        REQUIRE(grid.GetReach() == PROSPECTING_REACH_PER_TIER[tier]);
-    }
-}
-
-TEST_CASE("ProspectingGrid reach window is centred and grows with tier", "[grid]")
-{
-    auto rm = MakeTestResourceManager();
-
-    // Centre sub-cells are reachable at every tier, corners only at tier 3.
-    for (int tier = 0; tier <= 3; tier++)
-    {
-        ProspectingGrid grid(tier, 5, 5, rm);
-        REQUIRE(grid.IsInReach(3, 3));
-        REQUIRE(grid.IsInReach(4, 4));
-    }
-
-    ProspectingGrid t0(0, 5, 5, rm);
-    REQUIRE_FALSE(t0.IsInReach(0, 0));
-    REQUIRE_FALSE(t0.IsInReach(PROSPECTING_GRID_SIZE - 1, PROSPECTING_GRID_SIZE - 1));
-
-    ProspectingGrid t3(3, 5, 5, rm);
-    REQUIRE(t3.IsInReach(0, 0));
-    REQUIRE(t3.IsInReach(PROSPECTING_GRID_SIZE - 1, PROSPECTING_GRID_SIZE - 1));
-}
 
 TEST_CASE("ProspectingGrid stores parent cell coordinates", "[grid]")
 {
@@ -212,29 +178,6 @@ TEST_CASE("ProspectingGrid out-of-bounds returns empty", "[grid]")
     REQUIRE(grid.GetQuantity(0, PROSPECTING_GRID_SIZE, DepthLayer::SURFACE) == 0.0f);
 }
 
-TEST_CASE("ProspectingGrid ResizeForTier widens reach and preserves the lattice", "[grid]")
-{
-    auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
-    REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
-    REQUIRE(grid.GetReach() == PROSPECTING_REACH_PER_TIER[0]);
-    REQUIRE_FALSE(grid.IsInReach(1, 1));
-
-    // Survey data survives an upgrade, so record a sweep before resizing.
-    grid.GetSubCellMut(3, 3).hasBeenSwept = true;
-
-    grid.ResizeForTier(2);
-    REQUIRE(grid.GetTier() == 2);
-    REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
-    REQUIRE(grid.GetReach() == PROSPECTING_REACH_PER_TIER[2]);
-    REQUIRE(grid.IsInReach(1, 1));
-    REQUIRE(grid.GetSubCell(3, 3).hasBeenSwept);
-
-    // Ground truth should be accessible at valid coordinates after resize
-    // (may be empty if parent cell has no resources — test that it doesn't crash)
-    auto gt = grid.GetGroundTruth(2, 2, DepthLayer::SURFACE);
-    (void)gt;
-}
 
 TEST_CASE("ProspectingGrid deterministic: same inputs produce same results", "[grid]")
 {
@@ -286,4 +229,40 @@ TEST_CASE("ProspectingGrid SubCell starts unswept", "[grid]")
     REQUIRE(cell.sweepSignal == 0.0f);
     REQUIRE(cell.sweepFrequencyBand == -1);
     REQUIRE(cell.sampleIds.empty());
+}
+
+// ---------------------------------------------------------------
+// Carried across the main merge: cases this branch added while main
+// reworked the same files. Main's versions of the shared cases won
+// -- they derive coordinates from PROSPECTING_GRID_SIZE and so hold
+// at any lattice size, which hard-coded cells did not.
+// ---------------------------------------------------------------
+
+TEST_CASE("ProspectingGrid initializes with correct size per tier", "[grid]")
+{
+    auto rm = MakeTestResourceManager();
+
+    // Fixed lattice at every tier -- see prospecting_constants.h.
+    for (int tier = 0; tier <= 3; tier++)
+    {
+        ProspectingGrid g(tier, 5, 5, rm);
+        REQUIRE(g.GetGridSize() == PROSPECTING_GRID_SIZE);
+        REQUIRE(g.GetTier() == tier);
+    }
+}
+
+TEST_CASE("ResizeForTier changes reach and keeps the lattice", "[grid]")
+{
+    auto rm = MakeTestResourceManager();
+    ProspectingGrid grid(0, 5, 5, rm);
+    REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
+
+    // A tier upgrade must not reallocate the grid, or survey data and the
+    // sample links pointing into it would be lost.
+    grid.RecordExcavation(4, 4, DepthLayer::SURFACE, 0.5f);
+
+    grid.ResizeForTier(2);
+    REQUIRE(grid.GetTier() == 2);
+    REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
+    REQUIRE(grid.GetSubCell(4, 4).workedFraction[0] == 0.5f);
 }

@@ -34,7 +34,8 @@ libraries on Linux; see `tools/preview/README.md` for the apt list).
 | Input | Action |
 |---|---|
 | Mouse | everything in the panel: tabs, grid cells, frequency bands, depth layers, COLLECT, lab tools |
-| `T` | upgrade prospecting tier (0 → 3; grid grows, bands/depths unlock) |
+| `T` | upgrade prospecting tier (0 → 3; reach ring widens, bands/depths unlock) |
+| `D` | dig the selected spot at the selected depth — a sandbox shortcut for what excavation will do properly |
 | `R` | reset the run — fresh grid, tier 0 |
 | `ESC` | quit |
 
@@ -88,3 +89,29 @@ LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a ./build/src/colony_playtest --shot boot.png
 - **Phone still shows an old/cropped page** — GitHub Pages caches HTML for
   10 minutes and mobile browsers cache hard; append a query string
   (`/playtest/?v=3`) to force a fresh fetch.
+
+
+## The resource statement
+
+The panel at the bottom left is the point of the sandbox. For each element it
+shows total tonnage as a bar, split by how well that tonnage is known:
+
+| Colour | Class | What it means |
+|--------|-------|---------------|
+| green | Measured | commit to it |
+| gold | Indicated | worth digging |
+| violet | Inferred | a bet |
+| grey | Unclassified | you know only the cell average |
+
+The percentage on the right is Measured + Indicated — the share you could
+actually commit to. That number is what surveying is *for*, and watching it
+move is the fastest way to feel whether a sweep was worth its energy. Bars are
+scaled by tonnage, so a small deposit cannot look like a big one just because
+it happens to be well surveyed.
+
+`DIG SPOT` (or `D`) digs the selected cell at the selected depth. Digging is
+direct observation, so the spot flips straight to Measured — the quickest way
+to see the difference between knowing and guessing without driving the whole
+sweep → sample → lab chain. It is **per depth**: digging the surface says
+nothing about what lies under it, which is what keeps the deep layers a bet
+long after the surface is mapped.

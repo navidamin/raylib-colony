@@ -16,7 +16,10 @@ float SamplingEngine::GetDrillCost(DepthLayer depth) const
 {
     int layerIdx = static_cast<int>(depth);
     if (layerIdx < 0 || layerIdx > 3) return -1.0f;
-    return DRILL_ENERGY_COST[tier][layerIdx];
+
+    // Priced per metre of column, never per hole and never discounted by
+    // anything -- the whole way depth stays meaningful without a gate.
+    return DrillEnergyToDepth(layerIdx);
 }
 
 bool SamplingEngine::CollectSample(ProspectingGrid& grid, SampleTray& tray,
@@ -25,28 +28,47 @@ bool SamplingEngine::CollectSample(ProspectingGrid& grid, SampleTray& tray,
     if (!CanDrill(depth))
         return false;
 
-    if (tray.IsFull())
-        return false;
-
     int size = grid.GetGridSize();
     if (subX < 0 || subX >= size || subY < 0 || subY >= size)
         return false;
 
-    // Out-of-reach sub-cells exist and hold real data, but the drill cannot
-    // get to them until a higher tier extends range.
     if (!grid.IsInReach(subX, subY))
         return false;
 
-    Sample sample = CreateSample(grid, subX, subY, depth);
+    // A VERTICAL HOLE, not a teleported point sample. The auger cores
+    // everything between the surface and its target -- drilling to MID
+    // recovers (and therefore knows) SURFACE and SHALLOW on the way down.
+    // Vertical drilling is the degenerate case of the designed line hole
+    // (dip 90), which is what makes this an extension rather than a rewrite.
+    int targetDepth = static_cast<int>(depth);
+    for (int d = 0; d <= targetDepth; d++)
+    {
+        grid.RecordCore(subX, subY, static_cast<DepthLayer>(d));
+    }
 
+    // The specimen is best-effort. Knowledge lives on the grid; the tray is a
+    // shelf of physical rocks, and a full shelf must never un-know ground.
+    // One specimen per hole -- the deepest interval, the interesting one.
+    AddSpecimen(grid, tray, subX, subY, depth);
+
+    return true;
+}
+
+// The tray half of a hole, on its own so LINE holes can use it too: create
+// the physical specimen and remember which cell it came from. Never cores --
+// knowledge is the caller's job -- and never blocks on a full shelf.
+bool SamplingEngine::AddSpecimen(ProspectingGrid& grid, SampleTray& tray,
+                                  int subX, int subY, DepthLayer depth)
+{
+    if (tray.IsFull())
+        return false;
+
+    Sample sample = CreateSample(grid, subX, subY, depth);
     if (!tray.AddSample(sample))
         return false;
 
     int assignedId = tray.GetSampleByIndex(tray.GetCount() - 1)->id;
-
-    SubCell& cell = grid.GetSubCellMut(subX, subY);
-    cell.sampleIds.push_back(assignedId);
-
+    grid.GetSubCellMut(subX, subY).sampleIds.push_back(assignedId);
     return true;
 }
 
@@ -67,6 +89,18 @@ Sample SamplingEngine::CreateSample(const ProspectingGrid& grid,
     s.trueComposition = grid.GetGroundTruth(subX, subY, depth);
     s.richness = CalculateRichnessFromQuantity(grid.GetQuantity(subX, subY, depth));
     s.state = SampleState::IN_TRAY;
+
+    // A recovered core is rock you are holding. Its composition is KNOWN --
+    // there is nothing further for the player to decide about reading it, and
+    // analytical precision is a percent or two while the uncertainty BETWEEN
+    // holes is total. The lab stage used to gate this; it modelled the small
+    // uncertainty and made the drill look like it might not tell you what you
+    // had just pulled out. See docs/design/prospecting/block-model-design.md.
+    for (const auto& [type, abundance] : s.trueComposition)
+    {
+        s.elementConfidence[type] = 1.0f;
+    }
+
     s.visual = AssignCrystalVisual(s, grid.GetParentGridX(), grid.GetParentGridY());
     return s;
 }

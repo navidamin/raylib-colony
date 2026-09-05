@@ -9,6 +9,52 @@
 
 enum class ProspectingTab { SWEEP, SAMPLES, LAB };
 
+// ---------------------------------------------------------------------------
+// The prescribed line: ONE hole drawn from a collar cell on the surface
+// toward a chosen cell at a chosen layer, then drilled over game time by the
+// auger. The visual contract is the drill-dock prototype
+// (docs/design/prospecting/prototypes/drill-dock.html, variant b); the
+// knowledge contract is RecordCore at every layer the line crosses.
+// ---------------------------------------------------------------------------
+// NONE -> AIMING -> DRILLING -> RETRACTING -> DONE.
+// RETRACTING is the hoist after the bit reaches the bottom: nothing advances,
+// the string comes back to the collar, and only when it is out does the hole
+// read as DONE. The two end states differ in exactly one way that matters to
+// the rest of the game: in DONE the string is OUT OF THE GROUND, so the
+// prescribed line stops being drawn over the block model. What the hole
+// produced -- the cored cells, the core log, the specimen -- outlives both.
+enum class LineHoleState { NONE, AIMING, DRILLING, RETRACTING, DONE };
+
+struct LineHole
+{
+    LineHoleState state = LineHoleState::NONE;
+    int   collarX = 0, collarY = 0;   // cell on layer 0
+    float dirX = 0.0f, dirY = 0.0f;   // cells drifted per metre of depth
+    int   targetLayer = 0;            // the layer the hole is prescribed into
+    float depthM = 0.0f;              // bit depth now
+    float endM = 0.0f;                // bottom of the target layer
+    bool  cored[4]     = { false, false, false, false };
+    float coredTime[4] = { -100.0f, -100.0f, -100.0f, -100.0f };
+    float doneTime = -100.0f;
+    float heat = 0.0f;                // 0..1, bit temperature
+    bool  dwelling = false;           // auto-peck: off the face, cooling
+    float rpm = 0.0f;                 // spindle speed, idle..max
+    float wear = 0.0f;                // 0..1, bit spent; at 1.0 it fractures
+    bool  tripping = false;           // string out rod by rod, and back
+    float tripT = 0.0f;               // seconds into the trip
+    float tripDur = 0.0f;             // BIT_TRIP_BASE_S + depth * PER_M
+    float pullT = 0.0f;               // seconds into the end-of-hole hoist
+    float pullDur = 0.0f;             // DrillPullSeconds(depth at the bottom)
+    float fracturedTime = -100.0f;    // when the bit last let go
+    int   trips = 0;                  // fractures this hole has cost
+    // The fine core log: one grade per 5 m stick.
+    // 0 = uncut, 1 = LOST (the bit fractured in it), 2 = PARTIAL (smoked),
+    // 3 = INTACT. Derived from the thermal dose accumulated per metre cut.
+    unsigned char logQ[PROS_LOG_INTERVALS] = {};
+    float logDose[PROS_LOG_INTERVALS] = {};   // sum of x^2 * metres, x = heat excess
+    float logLen[PROS_LOG_INTERVALS] = {};    // metres cut in the stick
+};
+
 class ProspectingSystem
 {
 public:
@@ -31,6 +77,39 @@ public:
     const SamplingEngine& GetSampler() const;
     LabEngine& GetLab();
     const LabEngine& GetLab() const;
+
+    // ---- Line hole (the prescribed line) --------------------------------
+    // Aim with StartAim/AimAt while the pointer drags across the block
+    // model; Commit starts the string turning (the CALLER charges energy);
+    // UpdateLineHole advances it and cores each crossing as the bit passes
+    // its layer centre. Returns true on the frame the hole completes.
+    void StartAim(int collarX, int collarY);
+    void AimAt(int layer, int cellX, int cellY);
+    void CancelAim();
+    bool CommitHole();
+    void KickString();                // a click on the borehole: spike the rpm
+    bool UpdateLineHole(float dt);
+    // The line's fractional cell at depth m, and the cell it cores on a layer
+    void GetLineCell(float m, float& gx, float& gy) const;
+    void GetCrossingCell(int layer, int& gx, int& gy) const;
+
+    LineHole lineHole;
+
+    // ---- Block model focus ----------------------------------------------
+    // How lit each plate is, 0..1, eased toward its target every frame. This
+    // is persistent presentation state, so it lives on the facade: the
+    // renderer is rebuilt from nothing each frame and could only ever snap.
+    // Pass the layer under the pointer, or -1 for none.
+    // Lit: the plate under the pointer, and the plate the bit is cutting --
+    // the stratum being worked is live whether or not you are pointing at it.
+    // Either may be -1.
+    void UpdatePlateLight(int hoveredLayer, int activeLayer, float dt);
+    float plateLight[4] = { PLATE_REST_LIGHT[0], PLATE_REST_LIGHT[1],
+                            PLATE_REST_LIGHT[2], PLATE_REST_LIGHT[3] };
+    // The preview tool renders headless and has no pointer, so hover states
+    // could not be screenshotted at all. -1 is off; otherwise the renderer
+    // treats this layer as hovered. Only the preview sets it.
+    int previewHoverLayer = -1;
 
     // UI state
     ProspectingTab activeTab = ProspectingTab::SWEEP;
