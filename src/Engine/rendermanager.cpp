@@ -30,6 +30,38 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
     for (int i = 0; i < 3; i++) terrainLevels[i] = {0};
 }
 
+
+// ---------------------------------------------------------------------------
+// Design tokens
+// ---------------------------------------------------------------------------
+// These live at the TOP of the file on purpose. They were declared beside the
+// extraction UI two thirds of the way down, which meant every view above that
+// point -- planet, colony, site selection -- physically could not reach them
+// and kept whatever colours it was born with. That is a large part of how
+// this file came to hold three visual generations at once. A token any view
+// might want belongs where any view can see it.
+// Design tokens for the extraction UI (dark sci-fi kit)
+static const Color EXT_SCREEN_BG     = {5, 7, 14, 255};       // near-black backdrop
+static const Color EXT_PANEL_BG      = {10, 15, 28, 255};     // card fill
+static const Color EXT_PANEL_BG2     = {14, 21, 38, 255};     // raised fill (buttons, chips)
+static const Color EXT_PANEL_BORDER  = {36, 62, 92, 255};     // dim slate-cyan hairline
+static const Color EXT_FRAME_ACCENT  = {70, 190, 230, 170};   // corner bracket accents
+static const Color EXT_HEADER_COLOR  = {168, 130, 255, 255};  // purple section headers
+static const Color EXT_ACCENT_CYAN   = {80, 225, 255, 255};
+static const Color EXT_ACCENT_GREEN  = {80, 230, 150, 255};
+static const Color EXT_ACCENT_GOLD   = {255, 200, 80, 255};
+static const Color EXT_ACCENT_RED    = {235, 70, 70, 255};
+static const Color EXT_ACCENT_VIOLET = {170, 110, 255, 255};
+static const Color EXT_DIM_TEXT      = {120, 138, 165, 255};
+
+// Inferred needs its own token. EXT_ACCENT_VIOLET {170,110,255} cannot be
+// reused -- it is within a few units of EXT_HEADER_COLOR {168,130,255}, so
+// section headings and Inferred ground would read as the same thing. The
+// muted violet is deliberate: Inferred is the class the eye should settle
+// on least.
+static const Color EXT_CLASS_INFERRED = {124, 143, 214, 255};
+static const Color EXT_TEXT          = {225, 235, 245, 255};
+
 void RenderManager::LoadFonts()
 {
     uiFont = LoadFontEx("src/assets/fonts/Exo2-Regular.ttf", 48, nullptr, 0);
@@ -181,6 +213,8 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
     // and they would screenshot the loading notice forever.
     ServicePendingTerrain();
 
+    bool terrainReady = false;
+
     BeginMode2D(camera);
 
     if (planet) {  // Guard against null planet
@@ -194,15 +228,17 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
         // 20x20 grid, registered on the playfield anchor. This is the
         // same generated ground the sect stands on, seen from 100 km —
         // so zooming in approaches it instead of cutting to tiles.
-        bool terrainReady = RequestTerrainForCell(PLANET_SIZE / 2, PLANET_SIZE / 2);
-        if (!terrainReady) {
-            // The ground for this location is not built yet. Say so, and
-            // let the next frame do the building.
-            EndMode2D();
-            DrawTerrainLoadingNotice();
-            return;
-        }
-        if (terrainLoaded && terrainLevels[0].id != 0) {
+        // NEVER take the whole view over for a loading state. The previous
+        // cut returned early and drew nothing but the notice, so the view's
+        // success depended entirely on generation succeeding: any path where
+        // the ground failed to arrive left a screen with nothing on it, and
+        // no way to tell a stall from a crash. A loading state that can
+        // strand the player is worse than the stall it explains.
+        //
+        // Ask, draw the view either way on fallback ground, and report in a
+        // banner rather than instead of everything else.
+        terrainReady = RequestTerrainForCell(PLANET_SIZE / 2, PLANET_SIZE / 2);
+        if (terrainReady && terrainLoaded && terrainLevels[0].id != 0) {
             DrawWorldTerrainLayer(0,
                 Vector2{PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f},
                 (float)PLANET_SIZE);
@@ -295,6 +331,27 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
                  10, 40, 20, GRAY);
     }
 
+    // While the ground is building, a banner -- not a takeover. If it came
+    // back empty, say so plainly rather than showing a loading state forever:
+    // the player is on fallback tiles and is entitled to know.
+    if (!terrainReady || terrainFailed) {
+        const char* msg = terrainFailed ? "TERRAIN UNAVAILABLE - fallback ground"
+                                        : "GENERATING TERRAIN";
+        int mw = MeasureText(msg, 18);
+        int bx = screenWidth / 2 - mw / 2;
+        Color c = terrainFailed ? EXT_ACCENT_RED : EXT_ACCENT_CYAN;
+        DrawRectangle(bx - 14, 54, mw + 28, 30, Color{8, 10, 14, 230});
+        DrawRectangleLines(bx - 14, 54, mw + 28, 30, c);
+        DrawText(msg, bx, 60, 18, c);
+    }
+
+    // A labelled state. This view has black-screened twice on the web build
+    // for reasons that could not be reproduced off-device, and "black" told
+    // us nothing at all. This can be read straight off a screenshot.
+    DrawText(TextFormat("terrain: %s  tex=%u",
+                        terrainFailed ? "failed" : (terrainReady ? "ready" : "pending"),
+                        terrainLevels[0].id),
+             10, screenHeight - 62, 14, DARKGRAY);
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
     DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
 }
@@ -318,15 +375,10 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
                              0, PLANET_SIZE - 1);
         int cgy = std::clamp((int)(colonyCentre.y / (SECT_CORE_RADIUS * 2.0f)),
                              0, PLANET_SIZE - 1);
-        // Same stall as the planet view: a colony on a cell whose chain is
-        // not built yet blocks the frame for seconds. Ask, and let the next
-        // frame build it.
-        if (!RequestTerrainForCell(cgx, cgy)) {
-            EndMode2D();
-            DrawTerrainLoadingNotice();
-            return;
-        }
-        if (terrainLoaded && terrainLevels[1].id != 0) {
+        // Ask, and let the next frame build it -- but draw the view either
+        // way, on fallback ground. Same reason as the planet view.
+        bool colonyTerrainReady = RequestTerrainForCell(cgx, cgy);
+        if (colonyTerrainReady && terrainLoaded && terrainLevels[1].id != 0) {
             // The level is registered on its cell centre, not the sect's
             // arbitrary position, so it lines up with the grid.
             Vector2 cellCentre = {
@@ -803,6 +855,12 @@ void RenderManager::EnsureTerrainForCell(int gx, int gy)
     terrainCellX = gx;
     terrainCellY = gy;
     terrainAnchorVersion = anchorVersion;
+
+    // If the chain came back with nothing usable -- the mosaic failed to
+    // load, the device refused the textures -- latch it. Without this the
+    // view asks again every frame, pays the whole cost every frame, and shows
+    // a loading state that can never finish.
+    terrainFailed = (terrainLevels[0].id == 0);
 }
 
 // Draw a chain level as world-space ground. Called inside BeginMode2D,
@@ -1414,26 +1472,7 @@ void RenderManager::DrawRoadInfoPanel(Road* selectedRoad, Colony* colony) {
 // EXTRACTION UNIT UI
 // ============================================================================
 
-// Design tokens for the extraction UI (dark sci-fi kit)
-static const Color EXT_SCREEN_BG     = {5, 7, 14, 255};       // near-black backdrop
-static const Color EXT_PANEL_BG      = {10, 15, 28, 255};     // card fill
-static const Color EXT_PANEL_BG2     = {14, 21, 38, 255};     // raised fill (buttons, chips)
-static const Color EXT_PANEL_BORDER  = {36, 62, 92, 255};     // dim slate-cyan hairline
-static const Color EXT_FRAME_ACCENT  = {70, 190, 230, 170};   // corner bracket accents
-static const Color EXT_HEADER_COLOR  = {168, 130, 255, 255};  // purple section headers
-static const Color EXT_ACCENT_CYAN   = {80, 225, 255, 255};
-static const Color EXT_ACCENT_GREEN  = {80, 230, 150, 255};
-static const Color EXT_ACCENT_GOLD   = {255, 200, 80, 255};
-static const Color EXT_ACCENT_RED    = {235, 70, 70, 255};
-static const Color EXT_ACCENT_VIOLET = {170, 110, 255, 255};
-static const Color EXT_DIM_TEXT      = {120, 138, 165, 255};
-
-// Inferred needs its own token. EXT_ACCENT_VIOLET {170,110,255} cannot be
-// reused -- it is within a few units of EXT_HEADER_COLOR {168,130,255}, so
-// section headings and Inferred ground would read as the same thing. The
-// muted violet is deliberate: Inferred is the class the eye should settle
-// on least.
-static const Color EXT_CLASS_INFERRED = {124, 143, 214, 255};
+// (Design tokens moved to the top of this file -- see the note there.)
 
 // One colour key for the three named classes, used identically by the grid,
 // the readout and the resource ring. Green is minable now, violet is not.
@@ -1447,7 +1486,6 @@ static Color ExtClassColor(ResourceClass cls)
         default:                       return EXT_DIM_TEXT;
     }
 }
-static const Color EXT_TEXT          = {225, 235, 245, 255};
 
 // Layout constants
 static const int EXT_TOP_BAR_H    = 56;

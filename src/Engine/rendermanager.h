@@ -116,6 +116,7 @@ private:
     bool RequestTerrainForCell(int gx, int gy);
     void ServicePendingTerrain();
     void DrawTerrainLoadingNotice();
+    bool terrainFailed = false;
     bool terrainRequestPending = false;
     int terrainRequestX = 0;
     int terrainRequestY = 0;
