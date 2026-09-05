@@ -90,19 +90,18 @@ double SurveyZoomMax(int level);
 // One wheel notch.
 const double SURVEY_ZOOM_NOTCH = 1.25;
 
-// How far a level may zoom OUT, as a multiple of its own window, so a
-// value below 1.
+// How far a level may zoom OUT, as a multiple of its own window.
 //
-// Zooming out costs nothing up to a point, because the ground is already
-// there: the instrument builds a SQUARE window of spanKm * aspect so the
-// terrain fills a wide screen, and only spanKm of it is ever shown.
-// groundSpanKm says how much was built; past that there is no ground and
-// the answer is 1.
+// Currently always 1: there is none to be had for free. The window is a
+// square of span * aspect and the camera already frames its full WIDTH,
+// so the only spare ground is vertical, and zooming out needs both axes
+// at once. Anything wider has to be built, and a wider window spends the
+// same texture budget on more ground.
 //
-// Bounded so the widest view stays narrower than the window of the level
-// ABOVE -- the mirror of SurveyZoomMax's rule. Together they mean no
-// amount of scrolling reaches a neighbouring rung's picture from either
-// direction, which is what keeps a rung a place rather than a range.
+// Kept as a function, and kept bounded by the rung above when it comes
+// back, because the rule it has to obey is not obvious: the widest view
+// must stay inside the window above, the mirror of SurveyZoomMax, so that
+// no amount of scrolling reaches a neighbour's picture from either side.
 double SurveyZoomMin(int level, double groundSpanKm);
 
 // ---------------------------------------------------------------------------

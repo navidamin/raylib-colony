@@ -129,21 +129,20 @@ double SurveyZoomMax(int level)
 
 double SurveyZoomMin(int level, double groundSpanKm)
 {
-    if (level < 0 || level >= SURVEY_LEVEL_COUNT) return 1.0;
-    const SurveyLevelDef& d = LADDER[level];
-    if (groundSpanKm <= d.windowSpanKm) return 1.0;   // nothing spare
-
-    double z = d.windowSpanKm / groundSpanKm;
-
-    // Never as wide as the rung above's own window, with a margin, so
-    // backing out is always a click and never a scroll.
-    if (level > 0)
-    {
-        double above = LADDER[level - 1].windowSpanKm * 0.75;
-        double floorZ = d.windowSpanKm / above;
-        if (z < floorZ) z = floorZ;
-    }
-    return (z > 1.0) ? 1.0 : z;
+    // There is no free zoom-out, and the first version of this claimed
+    // there was. The window is a square of groundSpanKm = span * aspect,
+    // and the camera frames it so the whole WIDTH is already on screen:
+    // the spare ground is vertical only. Zooming out needs more of both
+    // axes at once, so it immediately runs off the sides and letterboxes
+    // the terrain -- black margins, not more moon.
+    //
+    // Zooming out therefore costs a wider window: same texture budget
+    // over more ground, so coarser synthesis (the LOLA data itself is
+    // 1.9 km/px and unaffected -- only what is invented below its floor
+    // gets softer). That is a trade to make deliberately, not a thing to
+    // switch on because it looked free.
+    (void)level; (void)groundSpanKm;
+    return 1.0;
 }
 
 SurveyCursor MakeSurveyCursor(int level, double windowLatDeg,
@@ -268,17 +267,21 @@ void SurveyCursorTrack(SurveyCursor* cursor, const SurveyViewport& viewport,
     SurveyScreenToOffsetKm(viewport, cursor->windowSpanKm,
                            screenX, screenY, &dx, &dy);
 
-    // How far the cursor may go on each axis: what the viewport shows,
-    // but never past the ground the window actually holds.
-    float pxPerKm = SurveyPixelsPerKm(viewport, cursor->windowSpanKm);
-    double ground = (cursor->groundSpanKm > 0.0) ? cursor->groundSpanKm
+    // How far the cursor may go on each axis.
+    //
+    // NOT derived from the viewport: LadderViewport is a SQUARE of side
+    // screenH, so viewport.width / pxPerKm is exactly windowSpanKm and a
+    // min() against it can never exceed the square -- which is the bug
+    // this was supposed to fix and did not.
+    //
+    // The instrument knows the real answer and states it. It builds a
+    // square window of groundSpanKm and frames it so the full WIDTH is on
+    // screen and windowSpanKm of the height. So the cursor reaches the
+    // ground across, and the window down. On a square screen the two are
+    // equal and nothing changes.
+    double reachX = (cursor->groundSpanKm > 0.0) ? cursor->groundSpanKm
                                                  : cursor->windowSpanKm;
-    double reachX = cursor->windowSpanKm, reachY = cursor->windowSpanKm;
-    if (pxPerKm > 0.0f)
-    {
-        reachX = std::min((double)(viewport.width / pxPerKm), ground);
-        reachY = std::min((double)(viewport.height / pxPerKm), ground);
-    }
+    double reachY = cursor->windowSpanKm;
 
     if (cursor->snapToGrid)
     {

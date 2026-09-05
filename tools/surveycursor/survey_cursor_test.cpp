@@ -75,23 +75,12 @@ int main()
         }
     }
 
-    // 1c. Zooming OUT cannot reach the rung above either. The window is
-    //     built spanKm * aspect square, so on a 16:9 screen there is 1.78x
-    //     of ground already generated and out of frame.
+    // 1c. There is no free zoom-out: the camera already frames the
+    //     window's full width, so the spare ground is vertical only.
     for (int i = 1; i < SURVEY_LEVEL_COUNT; i++)
-    {
-        double ground = ladder[i].windowSpanKm * (16.0 / 9.0);
-        double zmin = SurveyZoomMin(i, ground);
-        double widest = ladder[i].windowSpanKm / zmin;
-        printf("   level %d %-9s zoom out to x%.2f  widest view %8.1f km "
-               "(rung above: %.0f km)\n",
-               i + 1, ladder[i].name, zmin, widest, ladder[i - 1].windowSpanKm);
-        Check(zmin <= 1.0, "zoom floor is at most 1x");
-        Check(widest < ladder[i - 1].windowSpanKm,
-              "zoomed out fully, still narrower than the rung above");
-    }
-    Check(std::fabs(SurveyZoomMin(1, 200.0) - 1.0) < 1e-9,
-          "no spare ground means no zoom out");
+        Check(std::fabs(SurveyZoomMin(i, ladder[i].windowSpanKm * 16.0 / 9.0)
+                        - 1.0) < 1e-9,
+              "zoom-out is 1x until a wider window is built for it");
 
     // 2. Each level's cursor is the next level's window.
     for (int i = 0; i + 1 < SURVEY_LEVEL_COUNT; i++)
