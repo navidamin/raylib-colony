@@ -92,17 +92,16 @@ const double SURVEY_ZOOM_NOTCH = 1.25;
 
 // How far a level may zoom OUT, as a multiple of its own window.
 //
-// Currently always 1: there is none to be had for free. The window is a
-// square of span * aspect and the camera already frames its full WIDTH,
-// so the only spare ground is vertical, and zooming out needs both axes
-// at once. Anything wider has to be built, and a wider window spends the
-// same texture budget on more ground.
+// There is nothing free here: the camera already frames the window's full
+// WIDTH, so the only unshown ground is above and below and zooming out
+// needs both axes at once. A wider view means a wider WINDOW, built for
+// it, spending the same texture budget on more ground -- which is why
+// this is a design constant and not a function of the screen.
 //
-// Kept as a function, and kept bounded by the rung above when it comes
-// back, because the rule it has to obey is not obvious: the widest view
-// must stay inside the window above, the mirror of SurveyZoomMax, so that
-// no amount of scrolling reaches a neighbour's picture from either side.
-double SurveyZoomMin(int level, double groundSpanKm);
+// Bounded by the rung above, the mirror of SurveyZoomMax: the widest view
+// stays well inside the window above, so no amount of scrolling reaches a
+// neighbour's picture from either direction.
+double SurveyZoomMin(int level);
 
 // ---------------------------------------------------------------------------
 // Cursor state
@@ -115,13 +114,16 @@ struct SurveyCursor
 {
     int level = 0;                  // 0-based index into the ladder
     double windowSpanKm = 0.0;
-    // How much ground the window actually holds, when that is more than
-    // the rung's nominal span. A wide screen shows spanKm top to bottom
-    // and spanKm * aspect across, and the instrument builds the wider
-    // window to fill it -- so the cursor must be allowed to reach the
-    // sides. Left at 0 it means "square, same as windowSpanKm", which is
-    // what every non-widened caller wants.
-    double groundSpanKm = 0.0;
+    // How much ground is on screen, per axis, which is not the rung's
+    // nominal span: a wide screen shows spanKm down and spanKm * aspect
+    // across, and zooming out shows more of both. The instrument states
+    // these because only it knows the screen and the zoom -- deriving
+    // them from the viewport does not work, since LadderViewport is a
+    // square of side screenH and would just hand back windowSpanKm.
+    // Either left at 0 means "the window", which is what an unwidened,
+    // unzoomed caller wants.
+    double reachAcrossKm = 0.0;
+    double reachDownKm = 0.0;
     double windowLatDeg = 0.0;      // window centre on the moon
     double windowLonDeg = 0.0;
     double footprintKm = 0.0;

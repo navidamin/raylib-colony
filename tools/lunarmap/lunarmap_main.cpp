@@ -2957,6 +2957,17 @@ struct AppState
     // GPU, so zooming into the cursor with it costs nothing but redraws
     // and covers the gap before the build blocks the loop.
     float sceneAspect = 1.0f;        // how much wider the window is built
+
+    // --- zoom-out: a second, wider window ---------------------------
+    //
+    // Zooming out is not free: the camera already frames the window's
+    // full width, so a wider view needs a wider WINDOW. That is a whole
+    // second scene, and 87 places draw app.scene -- so it is not drawn
+    // as a second thing, it is SWAPPED in. spare always holds whichever
+    // of the two is off screen.
+    TerrainScene spare;
+    double wideSpanKm = 0.0;         // 0 = no wide window for this site
+    bool wideActive = false;         // is app.scene the wide one?
     double pointerStillSince = 0.0;  // when the cursor last stopped moving
     bool transActive = false;
     int transKind = 0;               // 1 = claim a region, 2 = descend
@@ -3217,8 +3228,17 @@ struct FakePointer
     Vector2 pos = { 0.0f, 0.0f };
     bool click = false;
     bool escape = false;
+    float wheel = 0.0f;            // scripted zoom, one notch per unit
 };
 static FakePointer g_fake;
+
+// The harness could script a pointer, a click and Esc but not the wheel,
+// so the walk structurally could not reach a zoomed-out view -- which is
+// the one piece of this geometry that has been wrong twice.
+static float SiteWheel()
+{
+    return g_fake.active ? g_fake.wheel : GetMouseWheelMove();
+}
 
 static Vector2 SitePointer()
 {
@@ -3318,8 +3338,47 @@ static const char* RegionCardHintAt(Vector2 m, int px, int py, int pw)
     return nullptr;
 }
 
+// Build the wider window for the current site into app.spare. Same
+// centre, same texture budget, more ground -- so coarser synthesis, which
+// is the whole price of zooming out and is only paid by the view that
+// uses it.
+static bool BuildWideWindow(AppState& app)
+{
+    double zmin = SurveyZoomMin(app.siteLevel);
+    if (app.siteLevel <= 0 || zmin >= 1.0) return false;
+
+    MapOptions wide = app.options;
+    wide.spanKm = app.options.spanKm / zmin;
+    if (!BuildScene(wide, app.dem, app.spare)) return false;
+    app.wideSpanKm = wide.spanKm;
+    std::fprintf(stderr, "ZOOMOUT: wide window %.1f km ready (from %.1f)\n",
+                 wide.spanKm, app.options.spanKm);
+    return true;
+}
+
+// Forget it: the site moved, the rung changed, or the colony was founded.
+// Whatever is on screen becomes the sharp one again first.
+static void DropWideWindow(AppState& app)
+{
+    if (app.wideActive)
+    {
+        std::swap(app.scene, app.spare);
+        app.wideActive = false;
+    }
+    UnloadSceneGpu(app.spare);
+    app.wideSpanKm = 0.0;
+    if (app.zoomK < 1.0f) app.zoomK = 1.0f;
+}
+
 static void BuildSiteScene(AppState& app)
 {
+    // Any rebuild makes the wider window stale -- different rung,
+    // different site, or just a different sharpening resolution. Drop it
+    // properly: whatever is on screen becomes the sharp one again first,
+    // or the next rebuild would overwrite the wide scene and leave the
+    // sharp one stranded in spare.
+    DropWideWindow(app);
+
     // A wide viewport shows spanKm * aspect horizontally, but the DEM
     // window is square -- which left the terrain as a centred square
     // with black bars beside it on any landscape screen. Build the
@@ -3347,10 +3406,11 @@ static void BuildSiteScene(AppState& app)
         app.options.pickLon = c->windowLonDeg;
         app.options.spanKm = c->windowSpanKm * app.sceneAspect;
         app.options.spanAspect = app.sceneAspect;
-        // The window built here is wider than the rung's nominal span, so
-        // tell the cursor: otherwise it clamps to a square and the left
-        // and right thirds of a wide screen show ground you cannot pick.
-        c->groundSpanKm = app.options.spanKm;
+        // What is on screen, per axis. Across is the widened window the
+        // camera frames whole; down is the rung's own span. Zoom scales
+        // both, and UpdateSiteSelect refreshes them each frame.
+        c->reachAcrossKm = app.options.spanKm;
+        c->reachDownKm = c->windowSpanKm;
     }
     // Sharpen in steps rather than one jump. Window cost is quadratic in
     // texture resolution, so 384 is 1/28th of the full build and lands
@@ -3644,15 +3704,33 @@ static void UpdateSiteSelect(AppState& app)
         // Zooming out is free as far as the ground already built: the
         // window is spanKm * aspect square and only spanKm of it is
         // shown, so the rest is generated and simply out of frame.
-        zoomMin = (float)SurveyZoomMin(app.siteLevel, app.options.spanKm);
+        // The floor only exists once the wider window does.
+        if (app.wideSpanKm > 0.0)
+            zoomMin = (float)SurveyZoomMin(app.siteLevel);
     }
-    bool zoomable = (app.siteLevel > 0) && (zoomMax > zoomMin)
-                    && !app.transActive && !app.founded;
-    float wheel = zoomable ? GetMouseWheelMove() : 0.0f;
-    if (wheel != 0.0f)
+    bool zoomable = (app.siteLevel > 0) && !app.transActive && !app.founded;
+    float wheel = zoomable ? SiteWheel() : 0.0f;
+
+    // First scroll outward builds the wider window. Synchronous for now;
+    // the speculative build fills it in before the wheel is touched.
+    if (wheel < 0.0f && app.zoomK <= 1.0f + 1e-4f && app.wideSpanKm <= 0.0
+        && SurveyZoomMin(app.siteLevel) < 1.0)
+    {
+        if (BuildWideWindow(app)) zoomMin = (float)SurveyZoomMin(app.siteLevel);
+    }
+    if (wheel != 0.0f && zoomMax > zoomMin)
     {
         app.zoomK = std::clamp(app.zoomK * std::pow(1.25f, wheel),
                                zoomMin, zoomMax);
+    }
+
+    // Swap, do not branch: everything downstream draws app.scene.
+    bool wantWide = (app.zoomK < 1.0f - 1e-4f) && app.wideSpanKm > 0.0;
+    if (wantWide != app.wideActive)
+    {
+        std::swap(app.scene, app.spare);
+        app.wideActive = wantWide;
+        app.sceneCacheValid = false;
     }
     // The viewport for THIS frame uses last frame's camera, which breaks
     // the circle between "where the cursor is" and "where the camera is
@@ -3802,6 +3880,11 @@ static void UpdateSiteSelect(AppState& app)
     else
     {
         SurveyCursor* c = SurveyCurrent(&app.descent);
+        // What is on screen right now, which zoom changes: the widened
+        // window across and the rung's own span down, both opened up by
+        // however far the view has zoomed out.
+        c->reachAcrossKm = app.options.spanKm / app.zoomK;
+        c->reachDownKm = c->windowSpanKm / app.zoomK;
         SurveyCursorTrack(c, viewport, m.x, m.y);
         SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
         onGround = true;
@@ -3862,7 +3945,14 @@ static void UpdateSiteSelect(AppState& app)
     }
 
     // ---------- draw ----------
-    float sceneZoom = app.sceneAspect * app.zoomK;   // levels below the globe
+    // The wide window is 1/zmin bigger, so the same zoomK has to be
+    // divided by zmin to mean the same framing: at zoomK == zmin the wide
+    // window fills the width exactly as the sharp one does at 1.
+    float zmin = (app.siteLevel > 0) ? (float)SurveyZoomMin(app.siteLevel)
+                                     : 1.0f;
+    float sceneZoom = app.wideActive
+        ? app.sceneAspect * app.zoomK / zmin
+        : app.sceneAspect * app.zoomK;
     Camera3D camera = TopDownCamera(app.scene, sceneZoom);
     if (app.siteLevel > 0 && app.zoomK > 1.0f)
     {
@@ -4985,7 +5075,8 @@ int main(int argc, char** argv)
         // Scripted walk through the real interactive state machine: a
         // pointer position and an optional click per step, each rendered
         // to its own PNG. Verifies the flow a player will actually use.
-        struct Step { float x, y; bool click; const char* tag; bool esc; };
+        struct Step { float x, y; bool click; const char* tag; bool esc;
+                      float wheel; };
         // Fractions of the screen, not pixels: the same walk has to run
         // at --size 390x844 (the phone layout, where a card spans the
         // full width) as well as at the default square. Every point sits
@@ -5003,14 +5094,25 @@ int main(int argc, char** argv)
             { 0.44f, 0.56f, true,  "3_claim",     false },
             { 0.52f, 0.62f, false, "4_playfield", false },
             { 0.52f, 0.62f, true,  "5_descend",   false },
-            { 0.42f, 0.70f, true,  "6_descend",   false },
-            // The site level arrives already holding the base's own
-            // 1.5 km footprint, so one click founds. Nothing exercised
-            // founding before this.
-            { 0.46f, 0.68f, true,  "7_found",     false },
-            { 0.46f, 0.68f, false, "8_founded",   false },
-            { 0.46f, 0.68f, false, "9_back",      true  },
-            { 0.46f, 0.68f, false, "10_back",     true  },
+            // Zoom out at the site rung: a wider view needs a wider
+            // WINDOW built for it, because the camera already frames the
+            // sharp one's full width. Two notches out and back, so the
+            // swap runs both ways and the sharp window has to return.
+            //
+            // These sit BEFORE the founding click, and that ordering is
+            // the point: a step renders the state and THEN clicks to
+            // advance, so after "6_descend" the colony is founded and
+            // zooming is frozen. That tag is stale too -- since LOCALITY
+            // and SITE merged there is one descent fewer, so the click it
+            // carries founds, which makes "7_found" a no-op that has been
+            // passing quietly ever since.
+            { 0.46f, 0.68f, false, "5a_zoomout1", false, -1.0f },
+            { 0.46f, 0.68f, false, "5b_zoomout2", false, -1.0f },
+            { 0.46f, 0.68f, false, "5c_zoomin",   false,  2.0f },
+            { 0.42f, 0.70f, true,  "6_found",     false, 0.0f },
+            { 0.46f, 0.68f, false, "8_founded",   false, 0.0f },
+            { 0.46f, 0.68f, false, "9_back",      true , 0.0f },
+            { 0.46f, 0.68f, false, "10_back",     true , 0.0f },
         };
         std::string stem = app.options.siteShot;
         size_t dot = stem.find_last_of('.');
@@ -5025,6 +5127,7 @@ int main(int argc, char** argv)
                                   steps[i].y * app.options.height };
             g_fake.click = false;
             g_fake.escape = false;
+            g_fake.wheel = steps[i].wheel;
 
             // Settle the two-pass build first. Interactively the 512
             // draft is on screen for one frame and the full build lands

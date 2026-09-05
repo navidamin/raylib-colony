@@ -127,22 +127,26 @@ double SurveyZoomMax(int level)
     return (z < 1.0) ? 1.0 : z;
 }
 
-double SurveyZoomMin(int level, double groundSpanKm)
+double SurveyZoomMin(int level)
 {
-    // There is no free zoom-out, and the first version of this claimed
-    // there was. The window is a square of groundSpanKm = span * aspect,
-    // and the camera frames it so the whole WIDTH is already on screen:
-    // the spare ground is vertical only. Zooming out needs more of both
-    // axes at once, so it immediately runs off the sides and letterboxes
-    // the terrain -- black margins, not more moon.
-    //
-    // Zooming out therefore costs a wider window: same texture budget
-    // over more ground, so coarser synthesis (the LOLA data itself is
-    // 1.9 km/px and unaffected -- only what is invented below its floor
-    // gets softer). That is a trade to make deliberately, not a thing to
-    // switch on because it looked free.
-    (void)level; (void)groundSpanKm;
-    return 1.0;
+    if (level < 0 || level >= SURVEY_LEVEL_COUNT) return 1.0;
+
+    // Twice the ground. Enough to see what a site sits in without the
+    // window growing so far that the synthesis below the DEM floor goes
+    // soft -- the same texture budget is being spread over four times
+    // the area at this factor.
+    double z = 0.5;
+
+    // Never near the rung above's own window, so backing out stays a
+    // click. SITE 25/0.5 = 50 km against DISTRICT's 200; DISTRICT
+    // 200/0.5 = 400 km against ORBITAL's 3000.
+    if (level > 0)
+    {
+        double ceiling = LADDER[level - 1].windowSpanKm * 0.75;
+        double floorZ = LADDER[level].windowSpanKm / ceiling;
+        if (z < floorZ) z = floorZ;
+    }
+    return (z > 1.0) ? 1.0 : z;
 }
 
 SurveyCursor MakeSurveyCursor(int level, double windowLatDeg,
@@ -279,9 +283,10 @@ void SurveyCursorTrack(SurveyCursor* cursor, const SurveyViewport& viewport,
     // screen and windowSpanKm of the height. So the cursor reaches the
     // ground across, and the window down. On a square screen the two are
     // equal and nothing changes.
-    double reachX = (cursor->groundSpanKm > 0.0) ? cursor->groundSpanKm
-                                                 : cursor->windowSpanKm;
-    double reachY = cursor->windowSpanKm;
+    double reachX = (cursor->reachAcrossKm > 0.0) ? cursor->reachAcrossKm
+                                                  : cursor->windowSpanKm;
+    double reachY = (cursor->reachDownKm > 0.0) ? cursor->reachDownKm
+                                                : cursor->windowSpanKm;
 
     if (cursor->snapToGrid)
     {

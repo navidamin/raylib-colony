@@ -75,12 +75,20 @@ int main()
         }
     }
 
-    // 1c. There is no free zoom-out: the camera already frames the
-    //     window's full width, so the spare ground is vertical only.
+    // 1c. Zooming OUT cannot reach the rung above either. It costs a
+    //     wider WINDOW -- the camera already frames the full width -- so
+    //     the factor is a design constant, bounded from above.
     for (int i = 1; i < SURVEY_LEVEL_COUNT; i++)
-        Check(std::fabs(SurveyZoomMin(i, ladder[i].windowSpanKm * 16.0 / 9.0)
-                        - 1.0) < 1e-9,
-              "zoom-out is 1x until a wider window is built for it");
+    {
+        double zmin = SurveyZoomMin(i);
+        double widest = ladder[i].windowSpanKm / zmin;
+        printf("   level %d %-9s zoom out to x%.2f  widest view %8.1f km "
+               "(rung above: %.0f km)\n",
+               i + 1, ladder[i].name, zmin, widest, ladder[i - 1].windowSpanKm);
+        Check(zmin > 0.0 && zmin <= 1.0, "zoom floor in range");
+        Check(widest < ladder[i - 1].windowSpanKm * 0.8,
+              "zoomed out fully, still well inside the rung above");
+    }
 
     // 2. Each level's cursor is the next level's window.
     for (int i = 0; i + 1 < SURVEY_LEVEL_COUNT; i++)
@@ -204,7 +212,8 @@ int main()
     //     which the old square clamp cut back to 12.5.
     SurveyViewport wide = { 0.0f, 0.0f, 1600.0f, 900.0f };
     SurveyCursor w = MakeSurveyCursor(SURVEY_LEVEL_COUNT - 1, 0.0, 0.0);
-    w.groundSpanKm = 25.0 * (1600.0 / 900.0);
+    w.reachAcrossKm = 25.0 * (1600.0 / 900.0);
+    w.reachDownKm = 25.0;
     SurveyCursorTrack(&w, wide, 1599.0f, 450.0f);
     double reachKm = (25.0 * 1600.0 / 900.0 - SURVEY_BUILD_FOOTPRINT_KM) * 0.5;
     printf("   wide screen: cursor reaches %.1f km east of centre "
