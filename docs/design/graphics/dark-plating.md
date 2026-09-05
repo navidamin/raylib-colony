@@ -949,6 +949,16 @@ other is to stop exploding them: draw the column as **one body**, cut into
 its four strata, and take layers off when the player asks. Reference:
 `../prospecting/prototypes/layer-block.html`.
 
+The prototype is now a **shape bench**: its interfaces are generated rather
+than measured, and every number that bends them is a lever — relief, feature
+size, octaves, conformity between beds, depth damping, dip with a fan into
+angular unconformity, grain, a buried impact bowl (depth, radius, rim, which
+interface it was cut into, how far up it reaches), the four thicknesses, tilt,
+lattice, depth scale, light angle and strength, the two face tones, texture
+strength and scale, and the seam and lip of the bedding line. That is the
+document's own argument made operable: the constants below are defaults, and
+the bench exists to argue with them.
+
 Reach for the body over the stack when **the ground itself is the subject**
 — its structure, its thicknesses, where one rock gives way to the next. Keep
 the stack when **four planes of data must be readable at once**, because
@@ -1010,6 +1020,11 @@ translucent; what is under it stays solid.
   to milk, and where the slab's top crosses its own side faces the two
   translucent passes stack into a brighter patch than either. Draw the whole
   body opaque on a scratch canvas, then composite it at `ALPHA_SLAB` once.
+The next three were learned on the prototype while it still carried
+prospecting's class map, and they govern the **game panel**, which does; the
+prototype itself has since had its data plots taken out to become a shape
+bench (below), so read them against `DrawBlockLayer`, not against the file.
+
 - **One job per exposed surface.** Peeling exposes two planes at 22 m apart
   and ~70 px apart on screen. If both speak class they superimpose into an
   unreadable double image. So the slab's own top carries **shape** — rock,
@@ -1027,6 +1042,32 @@ translucent; what is under it stays solid.
 - **A translucent body has no silhouette**, so the line is what says where it
   starts and stops: `--text` at 0.88 on the top, 0.75 and 0.50 on the two
   boundaries, 0.62 on the corner verticals.
+
+**Shade against the surface's own range, never a nominal amplitude.** The
+hill-shading divisor started as the relief constant — correct while relief was
+the only thing bending the ground. Give the same surface a regional dip and an
+impact bowl and it spans three times that, so every slope arrives at `tanh`
+already saturated: the surface goes two-tone and a crater rim reads as the edge
+of a mesa. Measure `hi - lo` over the surface being drawn and divide by that.
+The rule generalises past this panel — **a shading normaliser has to be
+measured from the shape that is there, not from the parameter that used to be
+the only one making it.**
+
+**A texture-strength control must not be a brightness control.** Laying rock on
+at strength `a` (a multiply blend at `globalAlpha = a`) lands on
+`base·(1 − 0.498a)`, because the tile's mean is exactly 128 (§rock_texture.h).
+Left alone, turning texture down turns the block *up*, and every palette
+judgement made at full texture is wrong at half. Divide the base by that same
+factor — `base = rock / (1 − 0.498a)` — and the mean tone is identical at every
+strength, so the slider moves material and nothing else. At `a = 1` it reduces
+to the familiar gain of 2.
+
+**Fit the frame to the body, and only ever shrink.** A bench whose levers can
+triple the column has to re-fit every frame or it clips exactly when a setting
+gets interesting. Scale the whole scene — instrument included, or the shared
+axis breaks — from the body's measured extent. But clamp the scale at 1:1:
+scaling *up* centres the design width on the canvas and pushes the depth gutter
+off its left edge, taking the scale the whole panel is read against with it.
 
 **Cache the body; it is not what is moving.** Measured before any caching:
 45 ms a frame stacked, 74 ms peeled — 13 fps, and wasm would have been worse

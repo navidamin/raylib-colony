@@ -1,60 +1,112 @@
 <title>Layer Block</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
 <style>
+/* One committed world: this is an instrument console for a game whose whole
+   art direction is a near-black ground (docs/design/graphics/dark-plating.md).
+   Every colour below is that system's, so the bench and the thing it tunes
+   cannot drift apart. Single theme on purpose -- every surface is painted. */
 :root{
-  --ground:#070b11; --panel:#0d151e; --rule:#1c2a39; --text:#c9d8e8;
-  --dim:#61768a; --am:#d9962f; --am-lit:#f4c66a; --cy:#50e1ff;
-  --ui:"Chakra Petch",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+  --ground:#070b11; --panel:#0d151e; --panel2:#111c28; --rule:#1c2a39;
+  --rule-lit:#2b4356; --text:#c9d8e8; --dim:#61768a; --dimmer:#3f5163;
+  --am:#d9962f; --am-lit:#f4c66a; --cy:#50e1ff;
+  --ui:"Chakra Petch",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
 }
 *{box-sizing:border-box}
+html{color-scheme:dark}
 body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
   font-size:15px;-webkit-font-smoothing:antialiased}
-.wrap{max-width:820px;margin:0 auto;padding:20px 16px 40px}
+
+.app{max-width:1360px;margin:0 auto;padding:20px 18px 34px;
+  display:grid;grid-template-columns:minmax(0,1fr) 344px;gap:18px;
+  grid-template-areas:"head head" "stage rail"}
+.head{grid-area:head}
 .eyebrow{font:700 10.5px/1 var(--mono);letter-spacing:.2em;color:var(--am);
-  text-transform:uppercase;margin-bottom:7px}
-h1{font:700 34px/1 var(--ui);margin:0 0 5px}
-.sub{color:var(--dim);font-size:13.5px;line-height:1.5;max-width:66ch;margin:0 0 14px}
-.sub b{color:var(--text)}
-.stage{border:1px solid var(--rule);border-radius:6px;background:#070b11;overflow:hidden}
+  text-transform:uppercase;margin-bottom:8px}
+h1{font:700 33px/1.02 var(--ui);margin:0 0 6px;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--dim);font-size:13.5px;line-height:1.55;max-width:66ch;margin:0}
+.sub b{color:var(--text);font-weight:600}
+.sub kbd{font:700 11px var(--mono);color:var(--am-lit);background:var(--panel2);
+  border:1px solid var(--rule);border-radius:3px;padding:1px 5px}
+
+.stage{grid-area:stage;border:1px solid var(--rule);border-radius:6px;
+  background:var(--ground);overflow:hidden;align-self:start}
 canvas{display:block;width:100%;height:auto}
-.row{display:flex;gap:8px;margin-top:10px;align-items:center;flex-wrap:wrap}
-button{font:700 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
-  padding:8px 12px;border-radius:4px;border:1px solid var(--rule);
-  background:var(--panel);color:var(--dim);cursor:pointer}
-button:hover{border-color:var(--am);color:var(--am-lit)}
-button.on{border-color:var(--cy);color:var(--cy)}
-.note{color:var(--dim);font-size:12.5px;line-height:1.55;max-width:72ch;margin:14px 0 0}
-.note b{color:var(--text)}
+
+.rail{grid-area:rail;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{border:1px solid var(--rule);border-radius:6px;background:var(--panel);padding:11px 12px 13px}
+.card > h2{font:700 9.5px/1 var(--mono);letter-spacing:.19em;text-transform:uppercase;
+  color:var(--am);margin:0 0 3px}
+.card > .note{font-size:11.5px;line-height:1.45;color:var(--dimmer);margin:0 0 9px}
+
+/* Controls are dense on purpose: this is a lever board, and the levers have to
+   be reachable together to be compared. */
+.ctl{display:grid;grid-template-columns:1fr auto;align-items:baseline;
+  column-gap:8px;margin-top:9px}
+.ctl:first-of-type{margin-top:2px}
+.ctl > .lab{font:700 9.5px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.ctl > .val{font:700 10.5px/1.4 var(--mono);color:var(--cy);
+  font-variant-numeric:tabular-nums;justify-self:end}
+.ctl > input[type=range]{grid-column:1/-1;margin:4px 0 0;width:100%;height:14px;
+  background:none;-webkit-appearance:none;appearance:none;cursor:ew-resize}
+input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;
+  background:linear-gradient(90deg,var(--cy) 0 var(--fill,50%),var(--rule) var(--fill,50%) 100%)}
+input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:var(--rule)}
+input[type=range]::-moz-range-progress{height:3px;border-radius:2px;background:var(--cy)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+  width:9px;height:15px;margin-top:-6px;border-radius:1.5px;
+  background:var(--am-lit);border:1px solid #2a1d08}
+input[type=range]::-moz-range-thumb{width:9px;height:15px;border-radius:1.5px;
+  background:var(--am-lit);border:1px solid #2a1d08}
+input[type=range]:focus-visible{outline:2px solid var(--cy);outline-offset:3px;border-radius:3px}
+
+.seg{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font:700 9.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  padding:7px 9px;border-radius:4px;border:1px solid var(--rule);
+  background:var(--panel2);color:var(--dim);cursor:pointer;transition:none}
+.chip:hover{border-color:var(--am);color:var(--am-lit)}
+.chip[aria-pressed=true]{border-color:var(--cy);color:var(--cy);background:#0d2430}
+.chip:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+.chip .sw{display:inline-block;width:8px;height:8px;margin-right:6px;
+  vertical-align:-1px;border:1px solid #000}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.acts .chip{flex:1 1 auto;text-align:center}
+
+.out{grid-area:rail;display:none}
+.dump{font:400 10.5px/1.5 var(--mono);color:var(--dim);background:var(--ground);
+  border:1px solid var(--rule);border-radius:4px;padding:9px 10px;margin:9px 0 0;
+  white-space:pre;overflow-x:auto;max-height:190px}
+
+@media (min-width:981px){ .stage{position:sticky;top:14px} }
+@media (max-width:980px){
+  .app{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "stage" "rail"}
+  .rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));align-items:start}
+}
+@media (prefers-reduced-motion:reduce){ .chip{transition:none} }
 </style>
-<div class="wrap">
-  <div class="eyebrow">Prospecting &middot; block model &middot; solid-body study</div>
-  <h1>Layer Block</h1>
-  <p class="sub">The four exploded plates, rebuilt as <b>one solid body</b> that is cut into
-  four strata. The drill bar is unchanged and still shares the column's depth axis &mdash;
-  now a straight one, so the bands are at last their <b>true thickness</b>.
-  <b>Click a layer</b> (on the block or on the chips) and everything above it is taken off:
-  the layer is left translucent, so you read its <b>surface</b> and the <b>floor beneath it</b>
-  at the same time. Click the ground outside the block, or press Escape, to put it back.</p>
-  <div class="stage"><canvas id="cv" width="1480" height="1560"></canvas></div>
-  <div class="row">
-    <button id="anim" class="on">Drill running</button>
-    <button id="wire">Lattice</button>
-    <button id="shot">Freeze pose</button>
-    <span style="margin-left:auto;font:700 10px/1 var(--mono);letter-spacing:.12em;color:var(--dim)">
-      N=<span id="nlab">32</span> &middot; 0&ndash;120 M</span>
-  </div>
-  <p class="note"><b>What the block gives up, and what it buys.</b> Exploded, all four class
-  maps were readable at once; solid, only the surface is &mdash; that is the cost, and the peel
-  is what pays it back. What it buys: one body instead of four floating sheets, layer
-  thickness that is finally to scale, a depth axis with no gaps to interpolate across, and a
-  floor to put the class map on where nothing is standing on top of it.</p>
+
+<div class="app">
+  <header class="head">
+    <div class="eyebrow">Prospecting &middot; block model &middot; shape bench</div>
+    <h1>Layer Block</h1>
+    <p class="sub">Four lunar strata as one cut body &mdash; regolith over megaregolith over
+    fractured rock over intact basalt, 0&ndash;120&nbsp;m, with the borehole bar on the same
+    depth axis. Nothing here is data: the interfaces are <b>generated</b>, so every lever
+    below changes the ground itself. <b>Click a layer</b> to take off everything above it and
+    leave it translucent; <kbd>Esc</kbd> puts the stack back.</p>
+  </header>
+
+  <div class="stage"><canvas id="cv" width="1520" height="1760" aria-label="Isometric block of four rock strata"></canvas></div>
+
+  <aside class="rail" id="rail"></aside>
 </div>
 <script>
 "use strict";
 (function(){
-
+const CV = document.getElementById("cv");
+let CTX = CV.getContext("2d");
 /* =====================================================================
    1. THE ROCK -- a port of src/Prospecting/rock_texture.cpp
    ---------------------------------------------------------------------
@@ -297,23 +349,15 @@ function GenerateRock(layer, size){
 }
 
 /* =====================================================================
-   2. THE GROUND -- palette and depths, verbatim from rendermanager.cpp
+   2. THE GROUND -- palette from src/Engine/rendermanager.cpp, verbatim
    ===================================================================== */
 const ROCK_COL  = [[58,52,43],[69,62,52],[57,66,77],[53,52,55]];   // DP_ROCK_COL
 const ROCK_EDGE = [[25,21,16],[28,23,18],[22,28,35],[16,18,22]];   // DP_ROCK_EDGE
-const PANEL_BG  = [10,15,28];                                      // EXT_PANEL_BG
 const OUT       = "#0a0e14";                                       // DP_OUT
-const CY        = [80,225,255];                                    // EXT_ACCENT_CYAN
-const DIMT      = [120,138,165];                                   // EXT_DIM_TEXT
-const TEXT      = [225,235,245];                                   // EXT_TEXT
+const CY        = [80,225,255];
+const DIMT      = [120,138,165];
+const TEXT      = [225,235,245];
 const AMBER     = [244,198,106];
-/* One colour key for the three named classes (ExtClassColor). */
-const CLS_COL = { mea:[80,230,150], ind:[255,200,80], inf:[124,143,214], un:[120,138,165] };
-const CLS_W   = { mea:0.90,          ind:0.75,        inf:0.40,          un:0.12 };
-
-const LAYER_TOP_M   = [0, 12, 34, 68];
-const FULL_COLUMN_M = 120;
-const LAYER_BOT_M   = [12, 34, 68, FULL_COLUMN_M];
 const ROCK_NAME  = ["REGOLITH", "MEGAREGOLITH", "FRACTURED", "INTACT BASALT"];
 const LEVEL_NAME = ["SURFACE", "SHALLOW", "MID", "DEEP"];
 
@@ -321,188 +365,200 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp  = (a, b, t) => a + (b - a) * t;
 const rgb   = (c, a) => a === undefined ? `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`
                                         : `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
-/* A surface is thousands of fills a frame and every one of them was building
-   a fresh "rgb(...)" string. Quantised to 3 levels a channel -- invisible on
-   a textured surface, and it collapses those thousands to a few hundred. */
+const scalec= (c, f) => [clamp(c[0]*f,0,255), clamp(c[1]*f,0,255), clamp(c[2]*f,0,255)];
+/* Thousands of fills a frame; quantised to 3 levels a channel (invisible
+   under texture) this collapses them to a few hundred distinct strings. */
 const COL_MEMO = new Map();
 function rgbq(c){
-  const r = (c[0] / 3) | 0, g = (c[1] / 3) | 0, b = (c[2] / 3) | 0;
-  const k = (r << 16) | (g << 8) | b;
+  const r = (c[0]/3)|0, g = (c[1]/3)|0, b = (c[2]/3)|0, k = (r<<16)|(g<<8)|b;
   let v = COL_MEMO.get(k);
   if (v === undefined){ v = `rgb(${r*3},${g*3},${b*3})`; COL_MEMO.set(k, v); }
   return v;
 }
-const mixc  = (a, b, t) => [lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t)];
-const scalec= (c, f) => [clamp(c[0]*f,0,255), clamp(c[1]*f,0,255), clamp(c[2]*f,0,255)];
-const layerOfM = m => { for (let L = 3; L >= 0; L--) if (m >= LAYER_TOP_M[L]) return L; return 0; };
 
-/* =====================================================================
-   3. LAYOUT -- one depth axis, shared by the block and the drill bar
-   ---------------------------------------------------------------------
-   The exploded stack had to give each plate an equal SLOT and interpolate
-   depth across the gaps between them (dark-plating 9.1: "trading true
-   thickness for perfect alignment"). A solid body has no gaps, so the
-   mapping collapses to a straight line -- and the trade goes away: the
-   bands are now their true thickness AND still perfectly aligned.
-   ===================================================================== */
-const W = 740, H = 780;
-const CV = document.getElementById("cv");
-let CTX = CV.getContext("2d");
-const Q = new URLSearchParams(location.search);
-const N = clamp(parseInt(Q.get("n") || "32", 10) || 32, 4, 48);
-document.getElementById("nlab").textContent = N;
-
-const LBL_X   = 6,   GUT_W  = 68;                 // depth labels, then their ruling
-const BLK_X   = 74,  BLK_W  = 526;                // the block's own space
-const STRIP_X = 612, STRIP_W = 104;               // the drill bar (dockW, as in game)
-const SURF_Y  = 176;                              // y of 0 m
-const PX_PER_M = 3.30;                            // the one depth scale
-const YOf     = m => SURF_Y + m * PX_PER_M;
-const DepthAtY= y => clamp((y - SURF_Y) / PX_PER_M, 0, FULL_COLUMN_M);
-const STRIP_CX = STRIP_X + STRIP_W * 0.5;
-
-/* The iso basis. Flatter than a 2:1 iso, but not as flat as the exploded
-   plates (0.22): that flattening existed to stop the receding axis being
-   read as depth, and in a solid body depth is unmistakably the vertical
-   extent of the side faces, so the reason lapses. 0.42 is enough tilt to
-   read as a body and little enough to keep the top reading as a plane. */
-const TX = (BLK_W * 0.5) / N;
-const TY = TX * 0.42;
-const BLK_CX = BLK_X + BLK_W * 0.5;
-const ISO_HALF = N * TY;                           // waist to back / front corner
-
-/* Relief is carried in METRES so it lives on the shared axis. Capped
-   under half the THINNEST layer (12 m) so no boundary can ever punch
-   through the one below it; the shape is then carried by hill-shading,
-   which is what makes relief legible anyway. */
-const RELIEF_M = 5.6;
-
-/* i+j = N -- the waist, through the left and right corners -- sits exactly
-   on YOf(m). So the block's left corner lands on the depth label's ruling
-   and its right corner lands on the drill bar's band boundary, at every
-   depth, by construction. That alignment IS the join (dark-plating 9.1). */
-function Iso(i, j, m){
-  return { x: BLK_CX + (i - j) * TX,
-           y: YOf(m) + (i + j - N) * TY };
-}
-
-/* =====================================================================
-   4. THE BLOCK MODEL -- believed grade and class, one plane per layer
-   ===================================================================== */
-function shoot(l, u, v){            // u,v in cell units on an 8-wide field
-  const c1 = [1.8 + 1.2 * l, 6.2 - 1.1 * l], c2 = [6.5 - 0.6 * l, 1.5 + 0.9 * l];
-  const d1 = Math.hypot(u - c1[0], v - c1[1]), d2 = Math.hypot(u - c2[0], v - c2[1]);
-  return clamp(Math.exp(-d1 * d1 / (2 * 1.6 * 1.6)) + 0.55 * Math.exp(-d2 * d2 / (2 * 1.2 * 1.2)), 0, 1);
-}
-/* Where cores have gone in: everything near one is MEASURED, the ring out
-   from it INDICATED, and the rest is believed from the sweep alone. */
-const HOLES = [[[6,3],[2.4,5.6]], [[6,3],[2.2,5.4]], [[5,4],[2.0,5.0]], [[5,4],[1.9,4.8]]];
-
-const layers = [];
-let maxGrade = 0.0001;
-for (let L = 0; L < 4; L++){
-  const P = new Array(N * N);
-  for (let j = 0; j < N; j++)
-    for (let i = 0; i < N; i++){
-      const u = (i + 0.5) * 8 / N, v = (j + 0.5) * 8 / N;
-      const g = shoot(L, u, v);
-      let best = 9e9;
-      for (const h of HOLES[L]) best = Math.min(best, Math.hypot(u - h[0], v - h[1]));
-      const cls = best <= 1.15 ? "mea" : best <= 1.95 ? "ind" : (g > 0.42 ? "inf" : "un");
-      P[j * N + i] = { g, cls };
-      if (g > maxGrade) maxGrade = g;
-    }
-  layers.push(P);
-}
-
-/* The one lift law (BlockCornerLift): a corner averages the blocks that
-   touch it, so the surface reads as ground and not as data resolution;
-   the 0.8 power lifts the middle grades, where most of a flank lives. */
-function CornerLift(L, i, j){
-  const P = layers[L];
-  let sum = 0.0, n = 0;
-  for (let dj = -1; dj <= 0; dj++)
-    for (let di = -1; di <= 0; di++){
-      const a = i + di, b = j + dj;
-      if (a < 0 || b < 0 || a >= N || b >= N) continue;
-      sum += P[b * N + a].g; n++;
-    }
-  if (n === 0) return 0.0;
-  return Math.pow(Math.min((sum / n) / maxGrade, 1.0), 0.8) * RELIEF_M;
-}
-/* Each boundary is CENTRED on the depth it is named for: the mean lift of
-   its own layer is taken out, so rich ground bulges above the line and
-   poor ground hangs below it while the line itself stays true. The depth
-   labels name these boundaries -- they must not be allowed to drift. */
-const MEAN_LIFT = [];
-for (let L = 0; L < 4; L++){
-  let s = 0, n = 0;
-  for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++){ s += CornerLift(L, i, j); n++; }
-  MEAN_LIFT.push(s / n);
-}
-/* Depth of layer L's top surface at lattice corner (i,j). L === 4 is the
-   base of the column, which is flat: nothing was surveyed below it. */
-function TopM(L, i, j){
-  if (L >= 4) return FULL_COLUMN_M;
-  return LAYER_TOP_M[L] - (CornerLift(L, i, j) - MEAN_LIFT[L]);
-}
-const CellLift = (L, i, j) => 0.25 * (CornerLift(L, i, j) + CornerLift(L, i + 1, j)
-                                    + CornerLift(L, i + 1, j + 1) + CornerLift(L, i, j + 1));
-
-/* Geometry is static, so every boundary's corner depths and screen points
-   are built once. Index k = j*(N+1)+i; boundary 4 is the flat column base. */
-const STRIDE = N + 1;
-const SURF = [], SPX = [], SPY = [];
-for (let L = 0; L <= 4; L++){
-  const d = new Float32Array(STRIDE * STRIDE);
-  for (let j = 0; j <= N; j++)
-    for (let i = 0; i <= N; i++) d[j * STRIDE + i] = TopM(L, i, j);
-  SURF.push(d);
-}
-/* RELIEF_M is capped under half the thinnest layer so this can never fire,
-   but a boundary that punched through the one below it would draw a layer
-   inside out, and that is not a failure worth trusting arithmetic for.
-   Every layer keeps at least 15% of its nominal thickness. */
-for (let L = 1; L <= 4; L++){
-  const above = SURF[L - 1], here = SURF[L];
-  const floorGap = (LAYER_BOT_M[L - 1] - LAYER_TOP_M[L - 1]) * 0.15;
-  for (let k = 0; k < here.length; k++)
-    here[k] = Math.max(here[k], above[k] + floorGap);
-}
-for (let L = 0; L <= 4; L++){
-  const d = SURF[L];
-  const sx = new Float32Array(STRIDE * STRIDE), sy = new Float32Array(STRIDE * STRIDE);
-  for (let j = 0; j <= N; j++)
-    for (let i = 0; i <= N; i++){
-      const k = j * STRIDE + i;
-      sx[k] = BLK_CX + (i - j) * TX;
-      sy[k] = YOf(d[k]) + (i + j - N) * TY;
-    }
-  SPX.push(sx); SPY.push(sy);
-}
-const RELIEF_PX = RELIEF_M * PX_PER_M;
-
-/* The generated rock, and a repeating pattern per stratum. */
+/* The four generated rocks, and a repeating pattern each. */
+const SCRATCH = document.createElement("canvas").getContext("2d");
 const TEX = [], PAT = [];
 for (let L = 0; L < 4; L++){
   const cv = GenerateRock(L, TEX_SIZE);
-  TEX.push(cv); PAT.push(CTX.createPattern(cv, "repeat"));
+  TEX.push(cv); PAT.push(SCRATCH.createPattern(cv, "repeat"));
 }
 
 /* =====================================================================
-   5. DRAWING THE BODY
+   3. THE LEVERS
    ---------------------------------------------------------------------
-   Tone is built exactly as DrawBlockLayer builds it, then the rock is
-   multiplied over the top at a gain of 2 against the texture's mean of
-   exactly 128 -- which is what raylib's tinted DrawTexturePro does, so a
-   textured surface averages the tone the flat fill would have had.
+   Every number the ground is made of, in one object. The UI is generated
+   from SCHEMA below, so a lever cannot exist in the panel without
+   existing here, and "Copy values" dumps exactly this.
    ===================================================================== */
-const FACE_SHADE_L = 0.64;    // the j=N face, falling away to the lower left
-const FACE_SHADE_R = 0.84;    // the i=N face, turned toward the key light
-/* Dimmer than the drill bar, which stays the full-strength specimen, but
-   nowhere near as dim as the exploded plates were: these faces are the
-   material itself now, not data floating in front of it. */
-const REST_LIGHT = [0.80, 0.74, 0.68, 0.62];
+const P = {
+  relief: 5.6, feature: 3.4, detail: 3, conform: 0.72, damp: 0.86,
+  dip: 4.0, dipAz: 205, dipSpread: 0.35, grain: 0.25,
+  crater: 1, craterDepth: 9.0, craterR: 0.24, craterRim: 0.35,
+  craterLayer: 1, craterInfill: 0.45, craterX: 0.38, craterY: 0.44,
+  t0: 12, t1: 22, t2: 34, t3: 52,
+  tilt: 0.42, lattice: 28, depthScale: 3.3,
+  shade: 1.0, lightAz: 29, faceL: 0.64, faceR: 0.84,
+  texAmt: 1.0, texScale: 2.0, seam: 0.95, lip: 0.55,
+  bar: 1, running: 0, grid: 0, lips: 1
+};
+const DEFAULTS = Object.assign({}, P);
+
+const st = { sel: -1, hover: -1, cell: null, ground: null,
+             t: 0, depth: 42, phase: 0, mx: -1, my: -1 };
+
+/* =====================================================================
+   4. THE GROUND ITSELF -- generated, not measured
+   ---------------------------------------------------------------------
+   Each interface is one height field: undulation (shared between layers
+   by `conform`, so beds either follow each other or go their own way),
+   a regional dip that can fan with depth into an angular unconformity,
+   and an impact bowl that is carried by one interface and infilled
+   upward from it. Depth is metres throughout -- the same axis the bar
+   is ruled in -- so a lever never means one thing here and another
+   there.
+   ===================================================================== */
+const SEED_SHARED = 0x51ed, SEED_OWN = 0x9e37;
+let N, STRIDE, TX, TY, PXM, BLK_X, BLK_W, BLK_CX;
+let TOPS = [0,12,34,68], COLUMN_M = 120, RELIEF_PX = 18;
+let SURF = [], SPX = [], SPY = [];
+/* The rig block reads these names. */
+let LAYER_TOP_M = [0,12,34,68], LAYER_BOT_M = [12,34,68,120];
+let FULL_COLUMN_M = 120, PX_PER_M = 3.3, SURF_Y = 176, H = 880;
+const VW = 760, LBL_X = 6, GUT = 68;
+const STRIP_W = 104;
+let STRIP_X = 574, STRIP_CX = 626;
+let CLIP_TOP = 0, CLIP_BOT = 880;
+let FIT = { s: 1, tx: 0, ty: 0 };
+const YOf = m => SURF_Y + m * PX_PER_M;
+const DepthAtY = y => clamp((y - SURF_Y) / PX_PER_M, 0, FULL_COLUMN_M);
+const layerOfM = m => { for (let L = 3; L >= 0; L--) if (m >= LAYER_TOP_M[L]) return L; return 0; };
+
+/* An impact bowl: parabolic floor inside the radius, a raised rim ring on
+   it. Returns 0 far away, -1 at the centre -- negative is down, so the
+   interface is excavated rather than lifted. */
+function Bowl(u, v){
+  const dx = u - P.craterX, dy = v - P.craterY;
+  const r = Math.hypot(dx, dy) / Math.max(P.craterR, 0.02);
+  const floor = r < 1 ? -(1 - r * r) : 0;
+  const rim = P.craterRim * Math.exp(-((r - 1) * (r - 1)) / (2 * 0.18 * 0.18));
+  return floor + rim;
+}
+/* Which interfaces the crater reaches. It was cut into interface k, so
+   everything below is undisturbed and everything above it is the same
+   bowl progressively filled in -- which is what "buried crater" means. */
+function CraterAmp(L){
+  if (!P.crater) return 0;
+  const k = P.craterLayer;
+  if (L > k) return 0;
+  return P.craterDepth * Math.pow(P.craterInfill, k - L);
+}
+
+function BuildHeights(){
+  TOPS = [0, P.t0, P.t0 + P.t1, P.t0 + P.t1 + P.t2];
+  COLUMN_M = TOPS[3] + P.t3;
+  LAYER_TOP_M = TOPS.slice();
+  LAYER_BOT_M = [TOPS[1], TOPS[2], TOPS[3], COLUMN_M];
+  FULL_COLUMN_M = COLUMN_M;
+  const edge = [TOPS[0], TOPS[1], TOPS[2], TOPS[3], COLUMN_M];
+
+  const az = P.dipAz * Math.PI / 180, ca = Math.cos(az), sa = Math.sin(az);
+  const period = Math.max(1, Math.round(P.feature));
+  const oct = Math.max(1, Math.round(P.detail));
+  // Anisotropy squashes the noise domain on one axis, so mottle becomes ridges.
+  const ky = 1 - 0.85 * P.grain;
+
+  SURF = [];
+  for (let L = 0; L <= 4; L++){
+    const d = new Float32Array(STRIDE * STRIDE);
+    const amp = P.relief * Math.pow(P.damp, L);
+    const dip = P.dip * (1 + P.dipSpread * L);
+    const cr  = CraterAmp(L);
+    for (let j = 0; j <= N; j++)
+      for (let i = 0; i <= N; i++){
+        const u = i / N, v = j / N, vv = 0.5 + (v - 0.5) * ky;
+        const shared = Fbm(u, vv, period, oct, SEED_SHARED) - 0.5;
+        const own    = Fbm(u, vv, period, oct, (SEED_OWN + L * 7919) >>> 0) - 0.5;
+        let h = amp * 2 * (P.conform * shared + (1 - P.conform) * own);
+        h += dip * ((u - 0.5) * ca + (v - 0.5) * sa);
+        if (cr !== 0) h += cr * Bowl(u, v);
+        d[j * STRIDE + i] = edge[L] - h;         // h is up-positive
+      }
+    SURF.push(d);
+  }
+  /* No interface may pass through the one below it. A deep crater bottoming
+     out on a harder unit is the interesting case this allows to happen and
+     keeps legal: the floor flattens against the layer beneath instead of
+     turning the block inside out. */
+  for (let L = 1; L <= 4; L++){
+    const above = SURF[L - 1], here = SURF[L];
+    const minTh = Math.max(0.4, (edge[L] - edge[L - 1]) * 0.12);
+    for (let k = 0; k < here.length; k++) here[k] = Math.max(here[k], above[k] + minTh);
+  }
+}
+
+/* Screen points, and a fit that keeps the whole body in frame whatever the
+   levers do -- the alternative is a bench that clips exactly when a setting
+   gets interesting. */
+function Layout(){
+  N = Math.max(4, Math.round(P.lattice));
+  STRIDE = N + 1;
+  P.bar = P.bar ? 1 : 0;
+  BLK_X = 78; BLK_W = P.bar ? 484 : 600;
+  BLK_CX = BLK_X + BLK_W * 0.5;
+  STRIP_X = BLK_X + BLK_W + 14; STRIP_CX = STRIP_X + STRIP_W * 0.5;
+  TX = BLK_W * 0.5 / N;
+  TY = TX * P.tilt;
+  PX_PER_M = P.depthScale; PXM = PX_PER_M;
+  RELIEF_PX = Math.max(4, P.relief * PX_PER_M);
+
+  BuildHeights();
+
+  // Where the body actually reaches, measured rather than assumed.
+  let rise = 0, drop = 0;
+  for (let j = 0; j <= N; j++)
+    for (let i = 0; i <= N; i++){
+      const k = j * STRIDE + i, off = (i + j - N) * TY;
+      rise = Math.max(rise, -(SURF[0][k] * PX_PER_M + off));
+      drop = Math.max(drop, SURF[4][k] * PX_PER_M + off);
+    }
+  const RIG_SKY = P.bar ? 74 : 10;
+  SURF_Y = 26 + Math.max(rise, RIG_SKY);
+  const contentH = SURF_Y + drop + 46;
+  // Shrink to fit, never grow: enlarging centres the design width on the
+  // canvas and pushes the depth gutter off its left edge, taking the scale
+  // the whole panel is read against with it.
+  FIT.s = clamp(Math.min(H / contentH, 1.0), 0.3, 1.0);
+  FIT.tx = 0;
+  FIT.ty = (H - contentH * FIT.s) * 0.5;
+  CLIP_TOP = -FIT.ty / FIT.s; CLIP_BOT = CLIP_TOP + H / FIT.s;
+
+  SPX = []; SPY = [];
+  for (let L = 0; L <= 4; L++){
+    const d = SURF[L];
+    const sx = new Float32Array(STRIDE * STRIDE), sy = new Float32Array(STRIDE * STRIDE);
+    for (let j = 0; j <= N; j++)
+      for (let i = 0; i <= N; i++){
+        const k = j * STRIDE + i;
+        sx[k] = BLK_CX + (i - j) * TX;
+        sy[k] = YOf(d[k]) + (i + j - N) * TY;
+      }
+    SPX.push(sx); SPY.push(sy);
+  }
+}
+
+/* =====================================================================
+   5. DRAWING THE BODY -- rock and light, nothing else
+   ---------------------------------------------------------------------
+   Tone is the stratum's own colour, hill-shaded by the slope of the
+   drawn surface, with the generated rock multiplied over the top. The
+   gain is solved so the texture NEVER shifts the mean tone: at strength
+   a, a multiply blend lands on base*(1 - 0.498a), so the base is divided
+   by exactly that. Turn the texture down to nothing and the block keeps
+   the colour it had -- which is what makes the strength slider a lever
+   on material and not on brightness.
+   ===================================================================== */
+const TexGain = a => 1 / (1 - 0.498 * clamp(a, 0, 1.6));
 
 function SurfacePath(L){
   const x = SPX[L], y = SPY[L];
@@ -514,31 +570,25 @@ function SurfacePath(L){
   for (let j = N - 1; j >= 0; j--) CTX.lineTo(x[j * STRIDE], y[j * STRIDE]);
   CTX.closePath();
 }
-
-/* Lay a stratum's rock over whatever has just been filled, in the surface's
-   own axes: one tile across N/2 cells, so a clast on the block is about the
-   size of the same clast in the drill bar (BLOCK_TEX_REPEAT). */
-function TexOverTop(L, texL, alpha){
-  const sc = N * 0.5 / TEX_SIZE;
+function TexOverTop(L, texL){
+  if (P.texAmt <= 0.001) return;
+  const rep = Math.max(0.25, P.texScale), sc = N / rep / TEX_SIZE;
   CTX.save();
   SurfacePath(L); CTX.clip();
   CTX.globalCompositeOperation = "multiply";
-  if (alpha < 1) CTX.globalAlpha = alpha;
-  const o = { x: BLK_CX, y: YOf(LAYER_TOP_M[Math.min(L, 3)]) - N * TY };
-  CTX.transform(sc * TX, sc * TY, -sc * TX, sc * TY, o.x, o.y);
+  CTX.globalAlpha = clamp(P.texAmt, 0, 1);
+  CTX.transform(sc * TX, sc * TY, -sc * TX, sc * TY, BLK_CX, YOf(TOPS[Math.min(L,3)]) - N * TY);
   CTX.fillStyle = PAT[texL];
-  CTX.fillRect(-48, -48, 2 * TEX_SIZE + 96, 2 * TEX_SIZE + 96);
+  CTX.fillRect(-64, -64, rep * TEX_SIZE + 128, rep * TEX_SIZE + 128);
   CTX.restore();
 }
-/* The same rock on a side face, laid the way the drill bar lays it: 1:1,
-   one texel per screen pixel, entering the tile at its own row so four
-   bands of similar height cannot line up into a visible repeat. */
-function TexOverFace(pathFn, texL, L, ox, oy, ux, uy, runPx, depthPx, alpha){
+function TexOverFace(pathFn, texL, L, ox, oy, ux, uy, runPx, depthPx){
+  if (P.texAmt <= 0.001) return;
   CTX.save();
   pathFn(); CTX.clip();
   CTX.globalCompositeOperation = "multiply";
-  if (alpha < 1) CTX.globalAlpha = alpha;
-  const off = L * 41.0;
+  CTX.globalAlpha = clamp(P.texAmt, 0, 1);
+  const off = L * 41.0;                     // each band enters the tile elsewhere
   CTX.transform(ux, uy, 0, 1, ox, oy);
   CTX.translate(0, -off);
   CTX.fillStyle = PAT[texL];
@@ -546,91 +596,75 @@ function TexOverFace(pathFn, texL, L, ox, oy, ux, uy, runPx, depthPx, alpha){
   CTX.restore();
 }
 
-/* One boundary drawn as a surface. `geo` is the boundary the quads sit on,
-   `dat` the layer whose cells colour them, and `classMode` decides how loudly
-   the class speaks: 2 = the class map, what the floor of a peeled layer
-   wears; 1 = the normal blend toward rock as certainty falls; 0 = a whisper,
-   for the top of a peeled slab, which has shape to carry instead. */
-function DrawSurface(geo, dat, texL, light, classMode){
-  const P = layers[dat], x = SPX[geo], y = SPY[geo], d = SURF[geo];
-  const perCell = N / Math.max(RELIEF_PX, 1.0);
+function DrawSurface(geo, texL, light){
+  const x = SPX[geo], y = SPY[geo], d = SURF[geo];
+  // Normalised against what this surface ACTUALLY spans, not against the
+  // relief lever. Dip and the crater bowl both add height that relief knows
+  // nothing about, so a fixed divisor sent the tanh straight into saturation
+  // the moment either was turned up -- the whole surface went two-tone and a
+  // crater rim read as a mesa. Slope, not height, is what the eye reads as
+  // shape, and slope has to be measured against the shape that is there.
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 0; k < d.length; k++){ if (d[k] < lo) lo = d[k]; if (d[k] > hi) hi = d[k]; }
+  const perCell = N / Math.max((hi - lo) * PX_PER_M, 6.0);
   const rock = ROCK_COL[Math.min(geo, 3)];
-  const ground = mixc(PANEL_BG, rock, 0.80);
+  const g = TexGain(P.texAmt);
+  const a = P.lightAz * Math.PI / 180;
+  const wt = 0.515 * P.shade * Math.cos(a), wl = 0.515 * P.shade * Math.sin(a);
   for (let j = 0; j < N; j++){
     for (let i = 0; i < N; i++){
-      const c = P[j * N + i];
       const k00 = j * STRIDE + i, k10 = k00 + 1, k01 = k00 + STRIDE, k11 = k01 + 1;
-      // Lift in pixels, up-positive: a shallower boundary is a higher one.
       const l00 = -d[k00] * PX_PER_M, l10 = -d[k10] * PX_PER_M,
             l01 = -d[k01] * PX_PER_M, l11 = -d[k11] * PX_PER_M;
-      const base = CLS_COL[c.cls];
-        // Two surfaces are exposed at once when a layer is peeled, and if both
-      // speak class they superimpose into one unreadable double image. So
-      // each is given ONE job: the slab's own top carries SHAPE -- rock and
-      // relief, with class only whispered -- and the floor beneath it carries
-      // the CLASS MAP, which is what the floor was exposed for. On the floor
-      // the three NAMED classes speak plainly; UNCLASSIFIED is not a class
-      // but the absence of one, so it stays its stratum, or it becomes a pale
-      // field louder than the ore.
-      const w = classMode === 2 ? (c.cls === "un" ? CLS_W.un : 0.92)
-              : classMode === 0 ? CLS_W[c.cls] * 0.10
-              : CLS_W[c.cls];
-      const tone = mixc(ground, base, w);
-      const lit = (0.65 + 0.35 * Math.min(c.g / maxGrade, 1.0)) * light;
-      let fill = mixc(PANEL_BG, tone, lit);
-      // Hill-shading: light implied from the upper left. Slope, not height,
-      // is what the eye reads as shape, and the lit side swings further than
-      // the shadowed one so a face in shadow still shows its class.
-      const slope = Math.tanh(0.45 * (l11 - l00) * perCell + 0.25 * (l01 - l10) * perCell);
-      fill = scalec(fill, 1.0 + (slope >= 0 ? 0.70 : 0.50) * slope);
-      CTX.fillStyle = rgbq(scalec(fill, 2.0));         // gain 2, for the multiply
+      // Slope, not height, is what the eye reads as shape. The lit side
+      // swings further than the shadowed one so a face turned away still
+      // shows its grain instead of going flat black.
+      const slope = Math.tanh(wt * (l11 - l00) * perCell + wl * (l01 - l10) * perCell);
+      const shade = 1.0 + (slope >= 0 ? 0.70 : 0.50) * slope;
+      CTX.fillStyle = rgbq(scalec(rock, light * shade * g));
       CTX.beginPath();
       CTX.moveTo(x[k00], y[k00]); CTX.lineTo(x[k10], y[k10]);
       CTX.lineTo(x[k11], y[k11]); CTX.lineTo(x[k01], y[k01]);
       CTX.closePath(); CTX.fill();
     }
   }
-  TexOverTop(geo, texL, classMode === 2 ? 0.60 : 1);
+  TexOverTop(geo, texL);
 }
 
-/* The two faces the viewer can see, for one layer: j=N runs from the left
-   corner to the front one, i=N from the front corner to the right. */
+/* The two faces the viewer can see: j = N falls away to the lower left,
+   i = N is turned toward the key light. */
 function FacePath(side, L){
-  const top = L, bot = L + 1;
-  const xt = SPX[top], yt = SPY[top], xb = SPX[bot], yb = SPY[bot];
+  const xt = SPX[L], yt = SPY[L], xb = SPX[L + 1], yb = SPY[L + 1];
   CTX.beginPath();
-  if (side === 0){                                   // j = N, lower-left
+  if (side === 0){
     for (let i = 0; i <= N; i++){ const k = N * STRIDE + i;
       i === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
     for (let i = N; i >= 0; i--){ const k = N * STRIDE + i; CTX.lineTo(xb[k], yb[k]); }
-  } else {                                           // i = N, lower-right
+  } else {
     for (let j = 0; j <= N; j++){ const k = j * STRIDE + N;
       j === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
     for (let j = N; j >= 0; j--){ const k = j * STRIDE + N; CTX.lineTo(xb[k], yb[k]); }
   }
   CTX.closePath();
 }
-function DrawFaces(L, light){
-  const rock = ROCK_COL[L];
-  const depthPx = (LAYER_BOT_M[L] - LAYER_TOP_M[L]) * PX_PER_M + 2 * RELIEF_PX + 8;
+function DrawFaces(L){
+  const rock = ROCK_COL[L], g = TexGain(P.texAmt);
+  const depthPx = (LAYER_BOT_M[L] - LAYER_TOP_M[L]) * PX_PER_M + 4 * RELIEF_PX + 8;
   const len = Math.hypot(TX, TY), run = N * len;
   for (const side of [0, 1]){
-    const shade = side === 0 ? FACE_SHADE_L : FACE_SHADE_R;
-    CTX.fillStyle = rgb(scalec(rock, 2.0 * shade * light));
+    const shade = side === 0 ? P.faceL : P.faceR;
+    CTX.fillStyle = rgb(scalec(rock, shade * g));
     FacePath(side, L); CTX.fill();
     const k0 = side === 0 ? N * STRIDE : N;
-    const ox = SPX[L][k0], oy = YOf(LAYER_TOP_M[L]) - RELIEF_PX - 4;
+    const ox = SPX[L][k0], oy = YOf(LAYER_TOP_M[L]) - 2 * RELIEF_PX - 4;
     const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
-    TexOverFace(() => FacePath(side, L), L, L, ox, oy, ux, uy, run, depthPx, 1);
+    TexOverFace(() => FacePath(side, L), L, L, ox, oy, ux, uy, run, depthPx);
   }
 }
 
-/* The chunky line (dark-plating 2): every stratum boundary is drawn where
-   it meets a visible face, and the body's silhouette on top of that. This
-   is what makes four layers read as four rather than as a gradient. */
-function BoundaryStroke(L, side, col, wpx, dy){
+function BoundaryStroke(L, side, col, w, dy){
   const x = SPX[L], y = SPY[L], o = dy || 0;
-  CTX.strokeStyle = col; CTX.lineWidth = wpx;
+  CTX.strokeStyle = col; CTX.lineWidth = w;
   CTX.beginPath();
   if (side === 0) for (let i = 0; i <= N; i++){ const k = N * STRIDE + i;
     i === 0 ? CTX.moveTo(x[k], y[k] + o) : CTX.lineTo(x[k], y[k] + o); }
@@ -638,174 +672,104 @@ function BoundaryStroke(L, side, col, wpx, dy){
     j === 0 ? CTX.moveTo(x[k], y[k] + o) : CTX.lineTo(x[k], y[k] + o); }
   CTX.stroke();
 }
-/* A stratum boundary as it actually reads on a cut face: a dark seam with
-   the newly exposed bedding plane catching the key light just above it.
-   The seam alone was invisible -- these rocks are nearly black, and a dark
-   line on dark rock is not a line. */
-function BeddingLine(L, light){
-  const dark = rgb(ROCK_EDGE[Math.min(L, 3)], 0.95);
-  const lip = rgb(scalec(ROCK_COL[Math.max(L - 1, 0)], 1.9), 0.30 + 0.30 * light);
+/* A bedding plane as it reads on a cut face: a dark seam with the newly
+   exposed surface catching the key light just above it. The seam alone is
+   invisible -- these rocks are nearly black, and a dark line on dark rock
+   is not a line. Both halves are levers because which one carries depends
+   entirely on how bright the rest of the block ends up. */
+function BeddingLine(L){
   for (const side of [0, 1]){
-    BoundaryStroke(L, side, dark, 2.2, 0);
-    BoundaryStroke(L, side, lip, 1.1, -1.7);
+    if (P.seam > 0.01) BoundaryStroke(L, side, rgb(ROCK_EDGE[Math.min(L,3)], P.seam), 2.2, 0);
+    if (P.lips && P.lip > 0.01)
+      BoundaryStroke(L, side, rgb(scalec(ROCK_COL[Math.max(L-1,0)], 1.9), P.lip), 1.1, -1.7);
   }
 }
-const CORNER_K = [N * STRIDE, N * STRIDE + N, N];      // left, front, right
-function CornerVerticals(topL, botL, col, wpx){
-  CTX.strokeStyle = col; CTX.lineWidth = wpx;
-  for (const k of CORNER_K){
+const CornerK = () => [N * STRIDE, N * STRIDE + N, N];
+function CornerVerticals(topL, botL, col, w){
+  CTX.strokeStyle = col; CTX.lineWidth = w;
+  for (const k of CornerK()){
     CTX.beginPath();
     CTX.moveTo(SPX[topL][k], SPY[topL][k]);
     CTX.lineTo(SPX[botL][k], SPY[botL][k]);
     CTX.stroke();
   }
 }
-
-/* =====================================================================
-   6. STATE -- the focus law, eased where it survives a frame
-   ---------------------------------------------------------------------
-   dark-plating 9.46: one thing lit, the rest resting, and the hovered one
-   coming up over ~0.14 s. A snap flickers as the pointer crosses the body.
-   ===================================================================== */
-const st = {
-  sel: -1,              // -1 stacked, else the isolated layer
-  hover: -1,            // layer under the pointer
-  cell: null,           // {L,i,j} on a top surface
-  ground: null,         // depth read off bare rock beside the body
-  light: REST_LIGHT.slice(),
-  t: 0, depth: 0, phase: 0, rpm: 0, drilling: true, wire: false,
-  mx: -1, my: -1
-};
-const VisibleTop = () => (st.sel < 0 ? 0 : st.sel);
-const IsVisible  = L => L >= VisibleTop();
-
-const CutLayer = () => (st.drilling && st.depth > 0.5 ? layerOfM(st.depth) : -1);
-function EaseLight(dt){
-  const tau = 0.045;
-  const k = 1 - Math.exp(-dt / tau);
-  const cut = CutLayer();
-  for (let L = 0; L < 4; L++){
-    let want = REST_LIGHT[L];
-    if (st.sel === L) want = 1.0;                       // the peeled layer is pinned lit
-    else if (st.sel < 0 && st.hover === L) want = 1.0;
-    else if (cut === L && IsVisible(L)) want = 0.94;    // the rock the bit is in
-    st.light[L] += (want - st.light[L]) * k;
-  }
+function DrawLattice(){
+  const L = st.sel < 0 ? 0 : st.sel, x = SPX[L], y = SPY[L];
+  const step = Math.max(1, Math.round(N / 16));
+  CTX.strokeStyle = rgb(TEXT, 0.13); CTX.lineWidth = 0.7;
+  CTX.beginPath();
+  for (let j = 0; j <= N; j += step)
+    for (let i = 0; i <= N; i++){ const k = j * STRIDE + i;
+      i === 0 ? CTX.moveTo(x[k], y[k]) : CTX.lineTo(x[k], y[k]); }
+  for (let i = 0; i <= N; i += step)
+    for (let j = 0; j <= N; j++){ const k = j * STRIDE + i;
+      j === 0 ? CTX.moveTo(x[k], y[k]) : CTX.lineTo(x[k], y[k]); }
+  CTX.stroke();
 }
 
 /* =====================================================================
-   7. THE BODY, COMPOSED
-   ===================================================================== */
-/* The peeled layer is ONE body seen through, so it is rendered opaque on a
+   6. THE BODY, COMPOSED
+   ---------------------------------------------------------------------
+   The peeled layer is ONE body seen through, so it is drawn opaque on a
    scratch canvas and composited once. Fading each fill and each texture
-   multiply separately -- the obvious way -- is not the same picture: a
-   half-strength multiply barely darkens, so the rock washed out to milk,
-   and where the slab's top crossed its own side faces the two translucent
-   passes stacked into a brighter patch than either. Compositing the
-   finished body once keeps the material exactly as it is drawn everywhere
-   else, and only then makes it see-through. */
+   multiply separately is a different picture: a half-strength multiply
+   barely darkens, so the rock washes out to milk, and where the slab's
+   top crosses its own side faces the two translucent passes stack into a
+   brighter patch than either.
+   ===================================================================== */
 const ALPHA_SLAB = 0.44;
 const SCR = document.createElement("canvas");
-SCR.width = CV.width; SCR.height = CV.height;
 const SCTX = SCR.getContext("2d");
 function AsSeenThrough(alpha, draw){
   const main = CTX;
-  SCTX.setTransform(1, 0, 0, 1, 0, 0);
-  SCTX.clearRect(0, 0, SCR.width, SCR.height);
-  SCTX.setTransform(2, 0, 0, 2, 0, 0);
-  CTX = SCTX;
-  draw();
-  CTX = main;
-  CTX.save();
-  CTX.setTransform(1, 0, 0, 1, 0, 0);
-  CTX.globalAlpha = alpha;
-  CTX.drawImage(SCR, 0, 0);
-  CTX.restore();
+  SCTX.setTransform(1,0,0,1,0,0); SCTX.clearRect(0,0,SCR.width,SCR.height);
+  ApplyFit(SCTX);
+  CTX = SCTX; draw(); CTX = main;
+  CTX.save(); CTX.setTransform(1,0,0,1,0,0);
+  CTX.globalAlpha = alpha; CTX.drawImage(SCR, 0, 0); CTX.restore();
 }
 
 function DrawBody(){
   const sel = st.sel;
+  const dark = rgb([6,9,13], 0.9);
   if (sel < 0){
-    for (let L = 3; L >= 0; L--) DrawFaces(L, st.light[L]);
-    DrawSurface(0, 0, 0, 1.0, 1);
-    for (let L = 1; L <= 3; L++) BeddingLine(L, st.light[L]);
-    CornerVerticals(0, 4, rgb([6,9,13], 0.9), 2.6);
+    for (let L = 3; L >= 0; L--) DrawFaces(L);
+    DrawSurface(0, 0, 1.0);
+    for (let L = 1; L <= 3; L++) BeddingLine(L);
+    CornerVerticals(0, 4, dark, 2.6);
     CTX.strokeStyle = rgb(TEXT, 0.34); CTX.lineWidth = 1.3;
     SurfacePath(0); CTX.stroke();
-    BoundaryStroke(4, 0, rgb(ROCK_EDGE[3], 0.95), 2.2, 0);
-    BoundaryStroke(4, 1, rgb(ROCK_EDGE[3], 0.95), 2.2, 0);
+    if (P.seam > 0.01){
+      BoundaryStroke(4, 0, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
+      BoundaryStroke(4, 1, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
+    }
+    if (P.grid) DrawLattice();
     return;
   }
-
-  // Peeled. Everything above `sel` is gone; what is left is the remaining
-  // body, the FLOOR of the chosen layer laid on top of it wearing that
-  // layer's class map, and then the layer itself as a translucent slab.
-  for (let L = 3; L > sel; L--) DrawFaces(L, st.light[L]);
+  for (let L = 3; L > sel; L--) DrawFaces(L);
   const floorGeo = sel + 1;
-  // Lit at exactly full, never past it. Overshooting to buy back what the
-  // glass takes was the obvious fix and it was wrong: brightening clips the
-  // largest channel first, so MEASURED green went to (111,255,204) and read
-  // as cyan -- a class key that lies about which class it is. The glass is
-  // thinned instead (ALPHA_SLAB), which costs no hue at all.
-  DrawSurface(floorGeo, sel, Math.min(sel + 1, 3), 1.0, 2);
-  for (let L = sel + 2; L <= 3; L++) BeddingLine(L, st.light[L]);
-  CornerVerticals(floorGeo, 4, rgb([6,9,13], 0.9), 2.6);
-  BoundaryStroke(4, 0, rgb(ROCK_EDGE[3], 0.95), 2.2, 0);
-  BoundaryStroke(4, 1, rgb(ROCK_EDGE[3], 0.95), 2.2, 0);
-
-  // the slab itself, seen through
-  AsSeenThrough(ALPHA_SLAB, () => {
-    DrawFaces(sel, 1.0);
-    DrawSurface(sel, sel, sel, 1.0, 0);
-  });
-
-  // Its wireframe. A translucent body has no silhouette of its own -- the
-  // line is what says where it starts and stops, top and floor both.
+  DrawSurface(floorGeo, Math.min(sel + 1, 3), 1.0);
+  for (let L = sel + 2; L <= 3; L++) BeddingLine(L);
+  CornerVerticals(floorGeo, 4, dark, 2.6);
+  if (P.seam > 0.01){
+    BoundaryStroke(4, 0, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
+    BoundaryStroke(4, 1, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
+  }
+  AsSeenThrough(ALPHA_SLAB, () => { DrawFaces(sel); DrawSurface(sel, sel, 1.0); });
+  // A translucent body has no silhouette of its own; the line is what says
+  // where it starts and stops, top and floor both.
   CTX.strokeStyle = rgb(TEXT, 0.88); CTX.lineWidth = 1.6;
   SurfacePath(sel); CTX.stroke();
-  CTX.strokeStyle = rgb(TEXT, 0.55); CTX.lineWidth = 1.4;
   BoundaryStroke(sel, 0, rgb(TEXT, 0.75), 1.6, 0);
   BoundaryStroke(sel, 1, rgb(TEXT, 0.75), 1.6, 0);
   BoundaryStroke(floorGeo, 0, rgb(TEXT, 0.50), 1.5, 0);
   BoundaryStroke(floorGeo, 1, rgb(TEXT, 0.50), 1.5, 0);
   CornerVerticals(sel, floorGeo, rgb(TEXT, 0.62), 1.5);
+  if (P.grid) DrawLattice();
 }
-
-/* The stratum being cut rim-lights, in both instruments, on the one clock
-   (dark-plating 9.4 and 9.5). This is what says the bar and the body are one
-   machine looking at one column rather than two pictures side by side. */
-function DrawCutRim(){
-  const cut = CutLayer();
-  if (cut < 0 || !IsVisible(cut)) return;
-  const a = 0.45 + 0.25 * Math.sin(st.t * 12.6);
-  const col = rgb(AMBER, a);
-  BoundaryStroke(cut, 0, col, 1.8, 0); BoundaryStroke(cut, 1, col, 1.8, 0);
-  BoundaryStroke(cut + 1, 0, col, 1.8, 0); BoundaryStroke(cut + 1, 1, col, 1.8, 0);
-  CornerVerticals(cut, cut + 1, col, 1.6);
-  // its twin: the same band, in the bar
-  CTX.strokeStyle = col; CTX.lineWidth = 1.8;
-  CTX.strokeRect(STRIP_X + 0.9, YOf(LAYER_TOP_M[cut]) + 0.9,
-                 STRIP_W - 1.8, (LAYER_BOT_M[cut] - LAYER_TOP_M[cut]) * PX_PER_M - 1.8);
-}
-
-/* The lattice, on request: proof that the surface is a heightfield over the
-   same 8x8-and-up grid prospecting always had, not a smooth blob. */
-function DrawLattice(){
-  const L = VisibleTop(), x = SPX[L], y = SPY[L];
-  const step = Math.max(1, Math.round(N / 16));
-  CTX.strokeStyle = rgb(TEXT, 0.13); CTX.lineWidth = 0.7;
-  CTX.beginPath();
-  for (let j = 0; j <= N; j += step){
-    for (let i = 0; i <= N; i++){ const k = j * STRIDE + i;
-      i === 0 ? CTX.moveTo(x[k], y[k]) : CTX.lineTo(x[k], y[k]); } }
-  for (let i = 0; i <= N; i += step){
-    for (let j = 0; j <= N; j++){ const k = j * STRIDE + i;
-      j === 0 ? CTX.moveTo(x[k], y[k]) : CTX.lineTo(x[k], y[k]); } }
-  CTX.stroke();
-}
-
 /* =====================================================================
-   8. THE DRILL BAR -- unchanged, on the same axis
+   7. THE DRILL BAR -- unchanged, on the same axis
    ---------------------------------------------------------------------
    Geometry and steel are the pass-6 constants from rendermanager.cpp's
    ProsRig (dark-plating 4 and 6); only yOf changed, and it changed by
@@ -974,7 +938,7 @@ function drawHead(){
   for (let i = 0; i < 3; i++){ CTX.fillStyle="#7a5115";CTX.fillRect(hx-16,top+8+i*8,32,4);
     CTX.fillStyle="rgba(0,0,0,.5)";CTX.fillRect(hx-16,top+8+i*8+2.7,32,1.3); }
   box(hx+27, top+7, 20, 17, "#39424e", true);
-  CTX.fillStyle = st.drilling ? "#ffc84d" : "#50e1ff";
+  CTX.fillStyle = P.running ? "#ffc84d" : "#50e1ff";
   CTX.fillRect(hx+32, top+12, 4, 4);
   box(hx-12, top+34, 24, 10, "#4a545f", true);
   box(hx-8, top+44, 16, 10, "#39424e", true);
@@ -984,23 +948,24 @@ function rnd(){ grainSeed = (grainSeed * 16807) % 2147483647; return grainSeed /
 
 function DrawStripRock(){
   // sky
-  CTX.fillStyle = "rgb(10,16,24)"; CTX.fillRect(STRIP_X, 8, STRIP_W, SURF_Y - 8);
+  CTX.fillStyle = "rgb(10,16,24)"; CTX.fillRect(STRIP_X, CLIP_TOP, STRIP_W, SURF_Y - CLIP_TOP);
   grainSeed = 3; CTX.fillStyle = "rgba(200,220,240,.5)";
   for (let i = 0; i < 8; i++)
-    CTX.fillRect(STRIP_X + rnd() * STRIP_W, 8 + rnd() * (SURF_Y - 20), 1.4, 1.4);
+    CTX.fillRect(STRIP_X + rnd() * STRIP_W, CLIP_TOP + rnd() * (SURF_Y - CLIP_TOP - 12), 1.4, 1.4);
   // the rock, full strength -- x2 against the texture's mean of 128
   for (let L = 0; L < 4; L++){
     const y0 = YOf(LAYER_TOP_M[L]), y1 = YOf(LAYER_BOT_M[L]);
-    CTX.fillStyle = rgb(scalec(ROCK_COL[L], 2.0));
+    CTX.fillStyle = rgb(scalec(ROCK_COL[L], TexGain(P.texAmt)));
     CTX.fillRect(STRIP_X, y0, STRIP_W, y1 - y0);
     CTX.save();
     CTX.beginPath(); CTX.rect(STRIP_X, y0, STRIP_W, y1 - y0); CTX.clip();
     CTX.globalCompositeOperation = "multiply";
+    CTX.globalAlpha = clamp(P.texAmt, 0, 1);
     CTX.fillStyle = PAT[L];
     CTX.translate(STRIP_X, y0 - L * 41.0);
     CTX.fillRect(0, L * 41.0, STRIP_W, y1 - y0);
     CTX.restore();
-    CTX.fillStyle = rgb(ROCK_EDGE[L]); CTX.fillRect(STRIP_X, y0, STRIP_W, 2.0);
+    CTX.fillStyle = rgb(ROCK_EDGE[L], P.seam); CTX.fillRect(STRIP_X, y0, STRIP_W, 2.0);
   }
   CTX.fillStyle = "rgb(74,85,96)"; CTX.fillRect(STRIP_X, SURF_Y - 1.8, STRIP_W, 2.0);
 
@@ -1033,255 +998,126 @@ function DrawStripLive(){
   CTX.fillStyle = "rgba(255,255,255,.18)"; CTX.fillRect(STRIP_CX-30, SURF_Y-11, 60, 2.4);
 
   CTX.save();
-  CTX.beginPath(); CTX.rect(STRIP_X, 8, STRIP_W, H - 30); CTX.clip();
+  CTX.beginPath(); CTX.rect(STRIP_X, CLIP_TOP, STRIP_W, CLIP_BOT - CLIP_TOP); CTX.clip();
   drawThread(false); drawShaft(); drawThread(true); drawHead();
   CTX.restore();
 }
 
-/* =====================================================================
-   9. CHROME -- the layer chips, the depth scale, the legend, the readout
-   ===================================================================== */
-const CHIP_Y = 10, CHIP_H = 22;
-let chipBoxes = [];
-function DrawChips(){
-  CTX.font = "700 9px 'JetBrains Mono',monospace";
-  const items = [{L:-1, t:"STACKED"}].concat(
-    [0,1,2,3].map(L => ({L, t:"L" + L + "  " + ROCK_NAME[L]})));
-  chipBoxes = [];
-  let x = BLK_X;
-  for (const it of items){
-    const sw = it.L >= 0 ? 13 : 0;
-    const w = CTX.measureText(it.t).width + 18 + sw;
-    const on = st.sel === it.L, hot = st.hover === it.L && st.sel < 0 && it.L >= 0;
-    CTX.fillStyle = on ? "rgba(80,225,255,.10)" : "rgb(14,21,38)";
-    CTX.fillRect(x, CHIP_Y, w, CHIP_H);
-    CTX.strokeStyle = on ? rgb(CY, 0.95) : hot ? rgb(AMBER, 0.85) : "rgb(51,102,119)";
-    CTX.lineWidth = 1.1; CTX.strokeRect(x + 0.5, CHIP_Y + 0.5, w - 1, CHIP_H - 1);
-    if (it.L >= 0){                                     // a chip of the rock itself
-      CTX.fillStyle = rgb(scalec(ROCK_COL[it.L], 1.55));
-      CTX.fillRect(x + 8, CHIP_Y + 7, 8, 8);
-      CTX.strokeStyle = rgb(ROCK_EDGE[it.L]); CTX.lineWidth = 1;
-      CTX.strokeRect(x + 8.5, CHIP_Y + 7.5, 7, 7);
-    }
-    CTX.fillStyle = on ? rgb(CY) : hot ? rgb(AMBER) : rgb(DIMT);
-    CTX.fillText(it.t, x + 9 + sw, CHIP_Y + 15);
-    chipBoxes.push({x, y:CHIP_Y, w, h:CHIP_H, L:it.L});
-    x += w + 6;
-  }
-}
 
-/* The depth scale. Anchored to the BOUNDARY -- which is what the number
-   names -- and running out to the body's left corner, which sits exactly
-   on it because the waist of the block is the depth line. */
+/* =====================================================================
+   8. CHROME -- the depth scale and the readout
+   ---------------------------------------------------------------------
+   The depth labels name the BOUNDARY, and the body's waist (i + j = N,
+   the line through its left and right corners) sits exactly on YOf(m).
+   So the ruling runs level out of the label and meets the body's left
+   corner, and the bar's band boundary meets its right corner, at every
+   depth, by construction rather than by tuning.
+   ===================================================================== */
 function DrawDepthScale(){
-  CTX.font = "700 10px 'JetBrains Mono',monospace";
+  const vis = L => st.sel < 0 || L >= st.sel;
   for (let L = 0; L <= 4; L++){
-    const m = L === 4 ? FULL_COLUMN_M : LAYER_TOP_M[L];
-    const y = YOf(m);
-    const vis = L === 4 || IsVisible(L) || (st.sel >= 0 && L === st.sel);
-    const lit = L < 4 && (st.sel === L || (st.sel < 0 && st.hover === L));
-    const a = (vis ? 0.55 : 0.20) + (lit ? 0.45 : 0.0);
+    const m = L === 4 ? COLUMN_M : TOPS[L];
+    const y = YOf(m), on = L === 4 || vis(L);
+    const a = on ? 0.85 : 0.22;
     CTX.textAlign = "left";
-    CTX.fillStyle = rgb(CY, a); CTX.fillText(m + " m", LBL_X, y - 1);
+    CTX.font = "700 10px 'JetBrains Mono',monospace";
+    CTX.fillStyle = rgb(CY, a);
+    CTX.fillText(Math.round(m) + " m", LBL_X, y - 1);
     if (L < 4){
       CTX.font = "700 7.5px 'JetBrains Mono',monospace";
       CTX.fillStyle = rgb(DIMT, a); CTX.fillText(LEVEL_NAME[L], LBL_X, y + 9);
-      CTX.font = "700 10px 'JetBrains Mono',monospace";
     }
-    CTX.fillStyle = rgb(CY, 0.12 + 0.30 * (vis ? 1 : 0.25) + (lit ? 0.25 : 0));
+    CTX.fillStyle = rgb(CY, on ? 0.34 : 0.12);
     for (let dx = LBL_X + 44; dx < BLK_X - 4; dx += 6) CTX.fillRect(dx, y - 0.5, 2.5, 1);
   }
-  CTX.textAlign = "left";
 }
-
-function DrawLegend(){
-  const y = YOf(FULL_COLUMN_M) + ISO_HALF + 26;
-  CTX.font = "700 8.5px 'JetBrains Mono',monospace";
-  CTX.fillStyle = rgb(DIMT, 0.95);
-  CTX.fillText("HEIGHT = GRADE   COLOUR = CLASS   REACH " + N + "x" + N, BLK_X, y);
-  let x = BLK_X;
-  const key = [["mea","MEASURED"],["ind","INDICATED"],["inf","INFERRED"],["un","UNCLASSIFIED"]];
-  for (const [k, name] of key){
-    CTX.fillStyle = rgb(CLS_COL[k]); CTX.fillRect(x, y + 8, 7, 7);
-    CTX.fillStyle = rgb(DIMT, 0.95); CTX.fillText(name, x + 11, y + 15);
-    x += CTX.measureText(name).width + 26;
-  }
-  CTX.fillStyle = rgb(DIMT, 0.8);
-  CTX.fillText(st.sel < 0
-    ? "SOLID BODY  ·  CLICK A LAYER TO TAKE OFF WHAT IS ABOVE IT"
-    : "L" + st.sel + " PEELED  ·  SHAPE ON THE SURFACE, CLASS ON THE FLOOR  ·  ESC TO STACK",
-    BLK_X, y + 30);
-}
-
 function DrawReadout(){
-  const y = YOf(FULL_COLUMN_M) + ISO_HALF + 26;
-  CTX.textAlign = "right";
-  CTX.font = "700 11px 'JetBrains Mono',monospace";
+  const bot = YOf(COLUMN_M) + N * TY + 30;
+  CTX.font = "700 8.5px 'JetBrains Mono',monospace";
+  CTX.textAlign = "left"; CTX.fillStyle = rgb(DIMT, 0.95);
+  CTX.fillText(Math.round(COLUMN_M) + " M COLUMN   " + N + "×" + N + " LATTICE   "
+             + "RELIEF " + P.relief.toFixed(1) + " M   DIP " + P.dip.toFixed(1) + " M @ "
+             + Math.round(P.dipAz) + "°", BLK_X, bot);
   const L = st.sel >= 0 ? st.sel : (st.hover >= 0 ? st.hover : 0);
-  CTX.fillStyle = rgb(TEXT);
-  CTX.fillText(LAYER_TOP_M[L] + " – " + LAYER_BOT_M[L] + " m", STRIP_X + STRIP_W, y);
-  CTX.font = "700 9px 'JetBrains Mono',monospace";
-  CTX.fillStyle = rgb(DIMT);
-  CTX.fillText(ROCK_NAME[L] + "  ·  " + LEVEL_NAME[L], STRIP_X + STRIP_W, y + 13);
+  CTX.textAlign = "right";
+  CTX.font = "700 11px 'JetBrains Mono',monospace"; CTX.fillStyle = rgb(TEXT);
+  const right = P.bar ? STRIP_X + STRIP_W : BLK_X + BLK_W;
+  CTX.fillText(Math.round(TOPS[L]) + " – " + Math.round(LAYER_BOT_M[L]) + " m", right, bot - 13);
+  CTX.font = "700 9px 'JetBrains Mono',monospace"; CTX.fillStyle = rgb(DIMT);
+  CTX.fillText(ROCK_NAME[L] + "  ·  " + LEVEL_NAME[L], right, bot);
   if (st.cell){
-    const c = layers[st.cell.L][st.cell.j * N + st.cell.i];
-    CTX.fillStyle = rgb(CLS_COL[c.cls]);
-    CTX.fillText("[" + st.cell.i + "," + st.cell.j + "]  " +
-                 (c.g * 100).toFixed(0) + "%  " + c.cls.toUpperCase(),
-                 STRIP_X + STRIP_W, y + 26);
+    CTX.fillStyle = rgb(CY, 0.9);
+    CTX.fillText(SURF[st.cell.L][st.cell.j * STRIDE + st.cell.i].toFixed(1) + " m at ["
+                 + st.cell.i + "," + st.cell.j + "]", right, bot + 13);
   } else if (st.ground !== null){
     CTX.fillStyle = rgb(TEXT, 0.55);
-    CTX.fillText(st.ground.toFixed(1) + " m", STRIP_X + STRIP_W, y + 26);
+    CTX.fillText(st.ground.toFixed(1) + " m", right, bot + 13);
   }
   CTX.textAlign = "left";
 }
-
-/* Twin cursors (dark-plating 9.3): the same glyph in both views on the same
-   clock. Solid and saturated on a cell, because that is something you can
-   act on; pale and translucent for a depth read off bare rock, because that
-   is only a height. Give a reading aid an actionable cursor's weight and the
-   panel starts lying about what is clickable. */
+/* Twin cursors: the same glyph in both views on the same clock. Solid and
+   saturated on a cell, because that is a place on the ground; pale and
+   translucent for a depth read off bare rock, because that is only a
+   height. Give a reading aid an actionable cursor's weight and the panel
+   starts lying about what can be clicked. */
 function DrawCursors(){
   const pulse = 4.6 + 1.2 * Math.sin(st.t * 12.6);
   const diamond = (x, y, s, fill, a) => {
     CTX.fillStyle = OUT;
-    CTX.beginPath();CTX.moveTo(x,y-s-1.6);CTX.lineTo(x+s+1.6,y);
-    CTX.lineTo(x,y+s+1.6);CTX.lineTo(x-s-1.6,y);CTX.closePath();CTX.fill();
-    CTX.globalAlpha = a;
-    CTX.fillStyle = fill;
-    CTX.beginPath();CTX.moveTo(x,y-s);CTX.lineTo(x+s,y);
-    CTX.lineTo(x,y+s);CTX.lineTo(x-s,y);CTX.closePath();CTX.fill();
+    CTX.beginPath(); CTX.moveTo(x,y-s-1.6); CTX.lineTo(x+s+1.6,y);
+    CTX.lineTo(x,y+s+1.6); CTX.lineTo(x-s-1.6,y); CTX.closePath(); CTX.fill();
+    CTX.globalAlpha = a; CTX.fillStyle = fill;
+    CTX.beginPath(); CTX.moveTo(x,y-s); CTX.lineTo(x+s,y);
+    CTX.lineTo(x,y+s); CTX.lineTo(x-s,y); CTX.closePath(); CTX.fill();
     CTX.globalAlpha = 1;
   };
   if (st.cell){
-    const { L, i, j } = st.cell;
-    const k = j * STRIDE + i;
+    const { L, i, j } = st.cell, k = j * STRIDE + i;
     const x = (SPX[L][k] + SPX[L][k+1] + SPX[L][k+STRIDE] + SPX[L][k+STRIDE+1]) * 0.25;
     const y = (SPY[L][k] + SPY[L][k+1] + SPY[L][k+STRIDE] + SPY[L][k+STRIDE+1]) * 0.25;
     diamond(x, y, pulse, rgb(AMBER), 1);
-    const m = SURF[L][k];
-    // The twin travels sideways only: the surface is one depth, so a cursor
-    // that walked up and down as the pointer crossed it would be the
-    // misreading itself, drawn.
-    CTX.strokeStyle = rgb(AMBER, 0.28); CTX.lineWidth = 1;
-    CTX.beginPath(); CTX.moveTo(STRIP_X, YOf(m)); CTX.lineTo(STRIP_X + STRIP_W, YOf(m)); CTX.stroke();
-    diamond(STRIP_X + STRIP_W * (0.5 + 0.36 * (i - j) / N), YOf(m), pulse, rgb(AMBER), 1);
+    if (P.bar){
+      const m = SURF[L][k];
+      CTX.strokeStyle = rgb(AMBER, 0.28); CTX.lineWidth = 1;
+      CTX.beginPath(); CTX.moveTo(STRIP_X, YOf(m)); CTX.lineTo(STRIP_X + STRIP_W, YOf(m)); CTX.stroke();
+      // sideways only: the twin rides a level line, because iso screen x is
+      // (i - j) and that is the axis the body already shows
+      diamond(STRIP_X + STRIP_W * (0.5 + 0.36 * (i - j) / N), YOf(m), pulse, rgb(AMBER), 1);
+    }
   } else if (st.ground !== null){
-    diamond(st.mx, st.my, 3.6, rgb(TEXT), 0.45);
-    diamond(STRIP_CX, YOf(st.ground), 3.6, rgb(TEXT), 0.45);
+    diamond(st.vx, st.vy, 3.6, rgb(TEXT), 0.45);
+    if (P.bar) diamond(STRIP_CX, YOf(st.ground), 3.6, rgb(TEXT), 0.45);
   }
 }
 
 /* =====================================================================
-   10. PICKING
+   9. PICKING -- decide before you draw
    ===================================================================== */
-/* Invert the iso onto the lattice. The surface is lifted, so the depth term
-   depends on the answer -- three passes settle it. */
-function PickCell(L, mx, my){
-  let m = LAYER_TOP_M[L], i = 0, j = 0;
-  for (let pass = 0; pass < 3; pass++){
-    const s = (my - YOf(m)) / TY + N, t = (mx - BLK_CX) / TX;
-    i = Math.floor((s + t) * 0.5); j = Math.floor((s - t) * 0.5);
-    i = clamp(i, 0, N - 1); j = clamp(j, 0, N - 1);
+function PickCell(L, vx, vy){
+  let m = TOPS[Math.min(L,3)], i = 0, j = 0;
+  for (let pass = 0; pass < 3; pass++){          // the surface is lifted, so
+    const s = (vy - YOf(m)) / TY + N, t = (vx - BLK_CX) / TX;   // the depth term
+    i = clamp(Math.floor((s + t) * 0.5), 0, N - 1);             // depends on the
+    j = clamp(Math.floor((s - t) * 0.5), 0, N - 1);             // answer
     m = SURF[L][j * STRIDE + i];
   }
   return { L, i, j };
 }
-
-/* =====================================================================
-   11. WHAT IS REDRAWN, AND WHAT IS NOT
-   ---------------------------------------------------------------------
-   Measured before any of this existed: 45 ms a frame stacked, 74 ms peeled
-   -- 13 fps, and the web build would have been worse (dev-workflow: the
-   16x16 estimate-field regression read 55 ms here and was unplayable in
-   wasm). Profiling put it in two places and neither was the one to guess:
-   the per-cell surface fills, and the drill bar's per-row steel gradients.
-   Both are cached rather than made cheaper, because both are STATIC -- the
-   body only changes when a layer is peeled or the focus eases, and the bar's
-   rock never changes at all. What is left redrawing every frame is the hole,
-   the machine turning in it, and the chrome.
-   ===================================================================== */
-const BODY = document.createElement("canvas");
-BODY.width = CV.width; BODY.height = CV.height;
-const BCTX = BODY.getContext("2d");
-let bodyKey = "", bodyRebuilds = 0;
-function OnLayer(target, draw){
-  const main = CTX;
-  target.setTransform(1, 0, 0, 1, 0, 0);
-  target.clearRect(0, 0, CV.width, CV.height);
-  target.setTransform(2, 0, 0, 2, 0, 0);
-  CTX = target;
-  draw();
-  CTX = main;
-}
-function EnsureBody(){
-  // Light is quantised into the key: an ease that redrew on every float step
-  // would defeat the cache exactly when the panel is busiest.
-  const k = st.sel + "|" + (st.wire ? 1 : 0) + "|" +
-            st.light.map(v => Math.round(v * 24)).join(",");
-  if (k === bodyKey) return;
-  bodyKey = k; bodyRebuilds++;
-  OnLayer(BCTX, () => { DrawBody(); if (st.wire) DrawLattice(); });
-}
-const STRIPBG = document.createElement("canvas");
-STRIPBG.width = CV.width; STRIPBG.height = CV.height;
-const SBCTX = STRIPBG.getContext("2d");
-OnLayer(SBCTX, DrawStripRock);
-function Blit(src){
-  CTX.save(); CTX.setTransform(1, 0, 0, 1, 0, 0);
-  CTX.drawImage(src, 0, 0); CTX.restore();
-}
-
-function Frame(dt){
-  st.t += dt;
-  if (st.drilling){
-    st.rpm = 0.16;
-    st.phase += st.rpm * 62 * dt;
-    st.depth += 5.5 * dt;
-    if (st.depth > FULL_COLUMN_M) st.depth = 0;
-  }
-  CTX.setTransform(2, 0, 0, 2, 0, 0);
-  UpdatePick();                       // pick, then light, then draw
-  EaseLight(dt);
-  CTX.fillStyle = "#070b11"; CTX.fillRect(0, 0, W, H);
-
-  EnsureBody();
-  Blit(BODY);
-  Blit(STRIPBG);
-  DrawStripLive();
-  DrawCutRim();
-  DrawDepthScale();
-  DrawChips();
-  DrawLegend();
-  DrawReadout();
-  DrawCursors();
-}
-
-/* =====================================================================
-   12. INPUT
-   ---------------------------------------------------------------------
-   Decide before you draw (dark-plating 9.46): the pick is resolved at the
-   top of the frame, so the light and the cursor are never one frame behind
-   a fast pointer.
-   ===================================================================== */
 function UpdatePick(){
   st.hover = -1; st.cell = null; st.ground = null;
   if (st.mx < 0) return;
-  const dx = st.mx * 2, dy = st.my * 2;          // isPointInPath ignores the CTM
-  const top = VisibleTop();
+  st.vx = (st.mx - FIT.tx) / FIT.s; st.vy = (st.my - FIT.ty) / FIT.s;
+  const dx = st.mx * 2, dy = st.my * 2;        // isPointInPath ignores the CTM
+  const top = st.sel < 0 ? 0 : st.sel;
   SurfacePath(top);
   if (CTX.isPointInPath(dx, dy)){
-    st.hover = top;
-    st.cell = PickCell(top, st.mx, st.my);
-    return;
+    st.hover = top; st.cell = PickCell(top, st.vx, st.vy); return;
   }
-  if (st.sel >= 0){                               // the floor, seen through the slab
+  if (st.sel >= 0){                            // the floor, seen through the slab
     SurfacePath(st.sel + 1);
     if (CTX.isPointInPath(dx, dy)){
       st.hover = st.sel;
-      st.cell = PickCell(st.sel + 1, st.mx, st.my);
-      st.cell.L = st.sel + 1;
-      return;
+      st.cell = PickCell(st.sel + 1, st.vx, st.vy); st.cell.L = st.sel + 1; return;
     }
   }
   for (let L = top; L <= 3; L++)
@@ -1289,120 +1125,352 @@ function UpdatePick(){
       FacePath(side, L);
       if (CTX.isPointInPath(dx, dy)){ st.hover = L; return; }
     }
-  if (st.mx > BLK_X - GUT_W && st.mx < STRIP_X) st.ground = DepthAtY(st.my);
+  if (st.vx > BLK_X - GUT && st.vx < STRIP_X) st.ground = DepthAtY(st.vy);
 }
 
+/* =====================================================================
+   10. WHAT IS REDRAWN, AND WHAT IS NOT
+   ---------------------------------------------------------------------
+   The body and the bar's rock are static between lever moves, and both
+   are expensive: the per-cell surface fills, and the bar's per-row steel
+   gradients (the string is walked in 1.4 px rows, which asked for some
+   400 createLinearGradient objects a frame before they were memoised).
+   Both are cached on a signature, so dragging a slider costs one rebuild
+   per frame and holding still costs none.
+   ===================================================================== */
+function ApplyFit(ctx){
+  ctx.setTransform(2 * FIT.s, 0, 0, 2 * FIT.s, 2 * FIT.tx, 2 * FIT.ty);
+}
+const BODY = document.createElement("canvas"), BCTX = BODY.getContext("2d");
+const STRIPBG = document.createElement("canvas"), SBCTX = STRIPBG.getContext("2d");
+let bodyKey = "", stripKey = "";
+function SizeLayers(){
+  for (const c of [SCR, BODY, STRIPBG]){ c.width = CV.width; c.height = CV.height; }
+}
+function OnLayer(target, draw){
+  const main = CTX;
+  target.setTransform(1,0,0,1,0,0); target.clearRect(0,0,CV.width,CV.height);
+  ApplyFit(target);
+  CTX = target; draw(); CTX = main;
+}
+const Sig = () => JSON.stringify(P) + "|" + st.sel;
+function EnsureCaches(){
+  const k = Sig();
+  if (k !== bodyKey){ bodyKey = k; OnLayer(BCTX, DrawBody); }
+  if (P.bar && k !== stripKey){ stripKey = k; OnLayer(SBCTX, DrawStripRock); }
+}
+function Blit(src){
+  CTX.save(); CTX.setTransform(1,0,0,1,0,0); CTX.drawImage(src, 0, 0); CTX.restore();
+}
+
+function Frame(dt){
+  st.t += dt;
+  if (P.running){
+    st.phase += 9.9 * dt;
+    st.depth += 5.5 * dt;
+    if (st.depth > COLUMN_M) st.depth = 0;
+  }
+  CTX.setTransform(1,0,0,1,0,0);
+  CTX.fillStyle = "#070b11"; CTX.fillRect(0, 0, CV.width, CV.height);
+  ApplyFit(CTX);
+  UpdatePick();                                  // pick, then draw
+  EnsureCaches();
+  Blit(BODY);
+  if (P.bar){ Blit(STRIPBG); DrawStripLive(); }
+  DrawDepthScale();
+  DrawReadout();
+  DrawCursors();
+}
+
+/* =====================================================================
+   11. THE LEVER BOARD
+   ---------------------------------------------------------------------
+   Generated from one schema, so a lever cannot appear in the panel
+   without existing in P, and Copy values cannot fall out of step with
+   what is on screen.
+   ===================================================================== */
+const pc  = v => Math.round(v * 100) + "%";
+const m1  = v => v.toFixed(1) + " m";
+const deg = v => Math.round(v) + "°";
+const SCHEMA = [
+  { title: "Layer", kind: "view" },
+  { title: "Interface shape", note: "How each bed is bent before anything is cut into it.",
+    items: [
+      { k:"relief",    lab:"Relief",        min:0,   max:16,  step:0.1, fmt:m1 },
+      { k:"feature",   lab:"Feature size",  min:1,   max:10,  step:0.5,
+        fmt:v => Math.round(100 / v) + "% of block" },
+      { k:"detail",    lab:"Detail",        min:1,   max:5,   step:1,
+        fmt:v => v + (v === 1 ? " octave" : " octaves") },
+      { k:"conform",   lab:"Conformity",    min:0,   max:1,   step:0.01, fmt:pc },
+      { k:"damp",      lab:"Depth damping", min:0.3, max:1.4, step:0.01,
+        fmt:v => "×" + v.toFixed(2) + " a layer" },
+      { k:"dip",       lab:"Dip",           min:0,   max:26,  step:0.5, fmt:m1 },
+      { k:"dipAz",     lab:"Dip direction", min:0,   max:360, step:1,   fmt:deg },
+      { k:"dipSpread", lab:"Dip fan",       min:0,   max:1.2, step:0.01, fmt:pc },
+      { k:"grain",     lab:"Grain",         min:0,   max:1,   step:0.01, fmt:pc }
+    ] },
+  { title: "Impact bowl", note: "A crater cut into one interface, then buried.",
+    items: [
+      { k:"crater",      type:"toggle", lab:"Crater" },
+      { k:"craterLayer", type:"seg", lab:"Cut into",
+        opts:[[0,"L0"],[1,"L1"],[2,"L2"],[3,"L3"]] },
+      { k:"craterDepth", lab:"Depth",  min:0,    max:34,  step:0.5, fmt:m1 },
+      { k:"craterR",     lab:"Radius", min:0.04, max:0.6, step:0.005,
+        fmt:v => Math.round(v * 200) + "% of block" },
+      { k:"craterRim",   lab:"Rim",    min:0,    max:1.2, step:0.01, fmt:pc },
+      { k:"craterInfill",lab:"Reaches up", min:0, max:1,  step:0.01, fmt:pc },
+      { k:"craterX",     lab:"Position X", min:0, max:1,  step:0.01, fmt:pc },
+      { k:"craterY",     lab:"Position Y", min:0, max:1,  step:0.01, fmt:pc }
+    ] },
+  { title: "Strata", note: "Thickness in metres. The column is their sum.",
+    items: [
+      { k:"t0", lab:"Regolith",      min:2, max:60, step:1, fmt:m1 },
+      { k:"t1", lab:"Megaregolith",  min:2, max:80, step:1, fmt:m1 },
+      { k:"t2", lab:"Fractured",     min:2, max:90, step:1, fmt:m1 },
+      { k:"t3", lab:"Intact basalt", min:2, max:120, step:1, fmt:m1 }
+    ] },
+  { title: "Body", note: "The block itself, and how deep a metre is drawn.",
+    items: [
+      { k:"tilt",       lab:"Tilt",        min:0.1, max:0.8, step:0.01,
+        fmt:v => v.toFixed(2) + " : 1" },
+      { k:"lattice",    lab:"Lattice",     min:8,   max:44,  step:2,
+        fmt:v => v + "×" + v },
+      { k:"depthScale", lab:"Depth scale", min:1.2, max:7,   step:0.05,
+        fmt:v => v.toFixed(2) + " px/m" }
+    ] },
+  { title: "Light & line", note: "Where the key light falls, and how the beds are cut.",
+    items: [
+      { k:"shade",    lab:"Hill shading", min:0, max:2.4, step:0.02, fmt:pc },
+      { k:"lightAz",  lab:"Light angle",  min:0, max:360, step:1,   fmt:deg },
+      { k:"faceL",    lab:"Left face",    min:0.2, max:1.3, step:0.01, fmt:pc },
+      { k:"faceR",    lab:"Right face",   min:0.2, max:1.3, step:0.01, fmt:pc },
+      { k:"texAmt",   lab:"Rock texture", min:0, max:1,   step:0.01, fmt:pc },
+      { k:"texScale", lab:"Texture scale",min:0.5, max:8, step:0.1,
+        fmt:v => v.toFixed(1) + " tiles" },
+      { k:"seam",     lab:"Bedding seam", min:0, max:1,   step:0.01, fmt:pc },
+      { k:"lip",      lab:"Bedding lip",  min:0, max:1,   step:0.01, fmt:pc }
+    ] }
+];
+
+const rail = document.getElementById("rail");
+const syncers = [];
+const El = (tag, cls, txt) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (txt !== undefined) e.textContent = txt;
+  return e;
+};
+
+function Changed(){
+  Layout();
+  bodyKey = stripKey = "";
+  try { localStorage.setItem("layer-block", JSON.stringify(P)); } catch (e) {}
+  if (dumpEl.textContent) dumpEl.textContent = Dump();
+}
+function SyncAll(){ for (const f of syncers) f(); }
+
+function SliderRow(it){
+  const row = El("div", "ctl");
+  const val = El("div", "val");
+  const inp = document.createElement("input");
+  inp.type = "range"; inp.min = it.min; inp.max = it.max; inp.step = it.step;
+  inp.setAttribute("aria-label", it.lab);
+  const sync = () => {
+    inp.value = P[it.k];
+    val.textContent = it.fmt ? it.fmt(P[it.k]) : P[it.k];
+    inp.style.setProperty("--fill", ((P[it.k] - it.min) / (it.max - it.min) * 100) + "%");
+  };
+  inp.addEventListener("input", () => { P[it.k] = parseFloat(inp.value); sync(); Changed(); });
+  row.append(El("div", "lab", it.lab), val, inp);
+  syncers.push(sync); sync();
+  return row;
+}
+function ToggleRow(it){
+  const wrap = El("div", "seg");
+  const b = El("button", "chip", it.lab);
+  b.type = "button";
+  const sync = () => b.setAttribute("aria-pressed", P[it.k] ? "true" : "false");
+  b.addEventListener("click", () => { P[it.k] = P[it.k] ? 0 : 1; sync(); Changed(); });
+  wrap.append(b); syncers.push(sync); sync();
+  const row = El("div", "ctl");
+  row.style.gridTemplateColumns = "1fr";
+  row.append(wrap);
+  return row;
+}
+function SegRow(it){
+  const row = El("div", "ctl");
+  row.append(El("div", "lab", it.lab), El("div", "val", ""));
+  const wrap = El("div", "seg");
+  wrap.style.gridColumn = "1/-1"; wrap.style.marginTop = "4px";
+  const btns = it.opts.map(([v, label]) => {
+    const b = El("button", "chip", label);
+    b.type = "button";
+    b.addEventListener("click", () => { P[it.k] = v; SyncAll(); Changed(); });
+    wrap.append(b);
+    return [v, b];
+  });
+  syncers.push(() => { for (const [v, b] of btns) b.setAttribute("aria-pressed", P[it.k] === v ? "true" : "false"); });
+  row.append(wrap);
+  return row;
+}
+
+/* The view card is hand-built: the peel is the page's primary state, and it
+   deserves the top of the rail rather than a row among the levers. */
+function ViewCard(card){
+  card.append(El("p", "note", "Take off everything above a layer and see through what is left."));
+  const seg = El("div", "seg");
+  const opts = [[-1, "Stacked"]].concat([0,1,2,3].map(L => [L, "L" + L]));
+  const btns = opts.map(([v, label]) => {
+    const b = El("button", "chip");
+    b.type = "button";
+    if (v >= 0){
+      const sw = El("span", "sw");
+      sw.style.background = rgb(scalec(ROCK_COL[v], 1.55));
+      b.append(sw);
+    }
+    b.append(document.createTextNode(label));
+    b.title = v < 0 ? "The whole column" : ROCK_NAME[v];
+    b.addEventListener("click", () => { st.sel = v; SyncAll(); Changed(); });
+    seg.append(b);
+    return [v, b];
+  });
+  syncers.push(() => { for (const [v, b] of btns) b.setAttribute("aria-pressed", st.sel === v ? "true" : "false"); });
+  card.append(seg);
+  const tg = El("div", "seg");
+  tg.style.marginTop = "8px";
+  for (const [k, label] of [["bar","Drill bar"],["running","Drill running"],
+                            ["grid","Lattice"],["lips","Bedding lips"]]){
+    const b = El("button", "chip", label);
+    b.type = "button";
+    const sync = () => b.setAttribute("aria-pressed", P[k] ? "true" : "false");
+    b.addEventListener("click", () => { P[k] = P[k] ? 0 : 1; sync(); Changed(); });
+    tg.append(b); syncers.push(sync); sync();
+  }
+  card.append(tg);
+}
+
+for (const sec of SCHEMA){
+  const card = El("section", "card");
+  card.append(El("h2", null, sec.title));
+  if (sec.kind === "view"){ ViewCard(card); }
+  else {
+    if (sec.note) card.append(El("p", "note", sec.note));
+    for (const it of sec.items)
+      card.append(it.type === "toggle" ? ToggleRow(it)
+                : it.type === "seg"    ? SegRow(it)
+                : SliderRow(it));
+  }
+  rail.append(card);
+}
+
+/* Actions. "Roll" is the one that earns its place on a bench like this:
+   the levers interact, and stumbling on a combination is faster than
+   reasoning your way to one. It rolls the GROUND only -- view, light and
+   line stay where you put them, or every roll would throw away the look
+   you were building around. */
+const actCard = El("section", "card");
+actCard.append(El("h2", null, "Take it away"));
+actCard.append(El("p", "note", "Roll the ground, or lift the numbers out to paste into the game."));
+const acts = El("div", "acts");
+const bRoll = El("button", "chip", "Roll ground"), bReset = El("button", "chip", "Reset"),
+      bCopy = El("button", "chip", "Copy values");
+for (const b of [bRoll, bReset, bCopy]) b.type = "button";
+acts.append(bRoll, bReset, bCopy);
+actCard.append(acts);
+const dumpEl = El("pre", "dump");
+dumpEl.hidden = true;
+actCard.append(dumpEl);
+rail.append(actCard);
+
+const RR = (a, b) => a + Math.random() * (b - a);
+bRoll.addEventListener("click", () => {
+  P.relief = +RR(1.5, 11).toFixed(1);
+  P.feature = Math.round(RR(1, 8) * 2) / 2;
+  P.detail = 1 + Math.floor(Math.random() * 4);
+  P.conform = +RR(0.2, 1).toFixed(2);
+  P.damp = +RR(0.55, 1.2).toFixed(2);
+  P.dip = +RR(0, 14).toFixed(1);
+  P.dipAz = Math.round(RR(0, 360));
+  P.dipSpread = +RR(0, 0.8).toFixed(2);
+  P.grain = +RR(0, 0.7).toFixed(2);
+  P.crater = Math.random() < 0.75 ? 1 : 0;
+  P.craterLayer = Math.floor(Math.random() * 4);
+  P.craterDepth = +RR(3, 22).toFixed(1);
+  P.craterR = +RR(0.10, 0.42).toFixed(3);
+  P.craterRim = +RR(0, 0.8).toFixed(2);
+  P.craterInfill = +RR(0, 0.85).toFixed(2);
+  P.craterX = +RR(0.25, 0.75).toFixed(2);
+  P.craterY = +RR(0.25, 0.75).toFixed(2);
+  SyncAll(); Changed();
+});
+bReset.addEventListener("click", () => {
+  Object.assign(P, DEFAULTS); st.sel = -1; SyncAll(); Changed();
+});
+function Dump(){
+  const keys = Object.keys(DEFAULTS);
+  const w = Math.max.apply(null, keys.map(k => k.length));
+  return "// Layer Block — " + Math.round(COLUMN_M) + " m column, " + N + "×" + N + " lattice\n"
+       + "const P = {\n"
+       + keys.map(k => "    " + k.padEnd(w) + " : "
+                     + (typeof P[k] === "number" ? +P[k].toFixed(3) : P[k]) + ",").join("\n")
+       + "\n};";
+}
+bCopy.addEventListener("click", () => {
+  const text = Dump();
+  dumpEl.textContent = text; dumpEl.hidden = false;
+  const done = ok => {
+    bCopy.textContent = ok ? "Copied" : "Select below";
+    setTimeout(() => { bCopy.textContent = "Copy values"; }, 1400);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+  else done(false);
+});
+
+/* =====================================================================
+   12. INPUT
+   ===================================================================== */
 function evPos(e){
   const r = CV.getBoundingClientRect();
-  return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height];
+  return [(e.clientX - r.left) * VW / r.width, (e.clientY - r.top) * H / r.height];
 }
 CV.addEventListener("pointermove", e => { const p = evPos(e); st.mx = p[0]; st.my = p[1]; });
 CV.addEventListener("pointerleave", () => { st.mx = st.my = -1; });
 CV.addEventListener("pointerdown", e => {
-  const [mx, my] = evPos(e); st.mx = mx; st.my = my;
-  for (const b of chipBoxes)
-    if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h){ st.sel = b.L; return; }
+  const p = evPos(e); st.mx = p[0]; st.my = p[1];
   UpdatePick();
   // Clicking the layer you are already inside keeps it; clicking the ground
-  // outside the body puts the stack back, which is the way out that does not
-  // need a chip.
+  // outside the body puts the stack back, which is the way out that needs
+  // no control at all.
   st.sel = st.hover >= 0 ? st.hover : -1;
+  SyncAll(); Changed();
 });
 window.addEventListener("keydown", e => {
-  if (e.key === "Escape") st.sel = -1;
-  else if (e.key >= "0" && e.key <= "3") st.sel = parseInt(e.key, 10);
+  if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (e.key === "Escape"){ st.sel = -1; SyncAll(); Changed(); }
+  else if (e.key >= "0" && e.key <= "3"){ st.sel = parseInt(e.key, 10); SyncAll(); Changed(); }
 });
-document.getElementById("anim").onclick = e => {
-  st.drilling = !st.drilling; e.target.className = st.drilling ? "on" : ""; };
-document.getElementById("wire").onclick = e => {
-  st.wire = !st.wire; e.target.className = st.wire ? "on" : ""; };
-document.getElementById("shot").onclick = e => {
-  st.drilling = false; st.depth = 74; st.phase = 3.3; st.t = 3.3;
-  document.getElementById("anim").className = "";
-  e.target.className = "on"; setTimeout(() => e.target.className = "", 400); };
 
 /* =====================================================================
-   13. THE STRATA PROBE -- ?probe=tex
-   ---------------------------------------------------------------------
-   The same contact sheet `preview.sh --module strata` renders from the C++,
-   so the port can be checked against the original by eye rather than by
-   assertion. If these four do not match that sheet, the port is wrong.
+   13. GO
    ===================================================================== */
-function DrawProbe(){
-  CTX.setTransform(2, 0, 0, 2, 0, 0);
-  CTX.fillStyle = "#070b11"; CTX.fillRect(0, 0, W, H);
-  CTX.font = "700 13px 'JetBrains Mono',monospace"; CTX.fillStyle = rgb(TEXT);
-  CTX.fillText("FOUR GENERATED STRATA — JS PORT", 24, 30);
-  CTX.font = "700 9px 'JetBrains Mono',monospace"; CTX.fillStyle = rgb(DIMT);
-  CTX.fillText("left: tinted as the drill bar wears it   right: the raw 128x128 tile", 24, 46);
-  for (let L = 0; L < 4; L++){
-    const y = 66 + L * 168;
-    CTX.fillStyle = rgb(scalec(ROCK_COL[L], 2.0));
-    CTX.fillRect(24, y, 150, 150);
-    CTX.save();
-    CTX.beginPath(); CTX.rect(24, y, 150, 150); CTX.clip();
-    CTX.globalCompositeOperation = "multiply";
-    CTX.drawImage(TEX[L], 24, y, 150, 150);
-    CTX.restore();
-    CTX.imageSmoothingEnabled = false;
-    CTX.drawImage(TEX[L], 480, y, 150, 150);
-    CTX.imageSmoothingEnabled = true;
-    CTX.font = "700 13px 'JetBrains Mono',monospace"; CTX.fillStyle = rgb(TEXT);
-    CTX.fillText(ROCK_NAME[L], 196, y + 18);
-    CTX.font = "700 9px 'JetBrains Mono',monospace"; CTX.fillStyle = rgb(CY, 0.9);
-    CTX.fillText(LAYER_TOP_M[L] + " – " + LAYER_BOT_M[L] + " m", 196, y + 34);
-    CTX.fillStyle = rgb(DIMT);
-    CTX.fillText("rgb(" + ROCK_COL[L].join(",") + ")", 196, y + 50);
-  }
-}
+try {
+  const saved = JSON.parse(localStorage.getItem("layer-block") || "null");
+  if (saved && typeof saved === "object")
+    for (const k of Object.keys(DEFAULTS)) if (typeof saved[k] === "number") P[k] = saved[k];
+} catch (e) {}
+SizeLayers();
+Layout();
+SyncAll();
 
-/* =====================================================================
-   14. LOOP + capture harness
-   ===================================================================== */
-/* Capture and inspection hooks, same shape as drill-dock.html's.
-   __geom dumps the depth join by numbers; __rebuilds is how the body cache
-   was shown to be holding (0 rebuilds a second, settled). */
-window.__st = () => st;
-window.__rebuilds = () => bodyRebuilds;
-window.__manual = on => { manual = on; last = performance.now(); };
-window.__step = dt => Frame(dt);
-window.__setState = o => {
-  if (o.sel !== undefined) st.sel = o.sel;
-  if (o.depth !== undefined) st.depth = o.depth;
-  if (o.phase !== undefined) st.phase = o.phase;
-  if (o.t !== undefined) st.t = o.t;
-  if (o.wire !== undefined) st.wire = o.wire;
-  if (o.drilling !== undefined) st.drilling = o.drilling;
-  if (o.mouse !== undefined){ st.mx = o.mouse[0]; st.my = o.mouse[1]; }
-};
-/* Geometry dump, for checking the join by numbers instead of by eye. */
-window.__geom = () => {
-  const rows = [];
-  for (let L = 0; L <= 4; L++){
-    const m = L === 4 ? FULL_COLUMN_M : LAYER_TOP_M[L];
-    const kL = N * STRIDE, kR = N;                       // left corner, right corner
-    rows.push({ L, namedM: m, labelY: +YOf(m).toFixed(2),
-      leftCornerY: +SPY[L][kL].toFixed(2), rightCornerY: +SPY[L][kR].toFixed(2),
-      leftCornerM: +SURF[L][kL].toFixed(2), rightCornerM: +SURF[L][kR].toFixed(2),
-      meanLift: L < 4 ? +MEAN_LIFT[L].toFixed(3) : null });
-  }
-  let minTh = 1e9, worst = null;
-  for (let L = 0; L < 4; L++)
-    for (let k = 0; k < SURF[L].length; k++){
-      const th = SURF[L + 1][k] - SURF[L][k];
-      if (th < minTh){ minTh = th; worst = L; }
-    }
-  return { TX:+TX.toFixed(3), TY:+TY.toFixed(3), PX_PER_M, RELIEF_PX:+RELIEF_PX.toFixed(2),
-           blockLeftX: BLK_CX - N*TX, blockRightX: BLK_CX + N*TX, STRIP_X,
-           minThicknessM: +minTh.toFixed(3), thinnestLayer: worst, rows };
-};
-let manual = false, last = performance.now();
-function tick(now){
-  const dt = clamp((now - last) / 1000, 0, 0.05); last = now;
-  if (!manual) Frame(dt);
+const REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (REDUCED) P.running = 0;
+let last = performance.now();
+(function tick(now){
+  const dt = REDUCED ? 0 : clamp((now - last) / 1000, 0, 0.05);
+  last = now;
+  Frame(dt);
   requestAnimationFrame(tick);
-}
-if (Q.get("probe") === "tex"){ DrawProbe(); }
-else { requestAnimationFrame(tick); }
+})(last);
 })();
 </script>
