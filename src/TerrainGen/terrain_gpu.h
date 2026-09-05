@@ -55,6 +55,19 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
 
 void UnloadTerrainGpuChain(TerrainGpuChain* chain);
 
+// The chain's two unlit fields on the GPU -- the same contract as
+// GenerateTerrainFields (terrain_synthesis.h), and the same fields, from
+// the shader passes instead of the CPU. Needs a live GL context and the
+// main thread, like the rest of this file. Returns false if the shaders
+// are unavailable, in which case the caller uses the CPU function.
+//
+// The height comes back 16-bit and the albedo 8-bit, which is what
+// survives the caller's high-pass; heightScaleM is filled in the same
+// way the CPU fills it.
+bool GenerateTerrainFieldsGPU(double latDeg, double lonDeg, int res,
+                              double spanKm, TerrainChainFields* out,
+                              const TerrainSiteDisturbance* site = nullptr);
+
 // Shaders and scratch targets. Call once at shutdown.
 void UnloadTerrainGpu();
 

@@ -1107,6 +1107,7 @@ struct ChainLayer
     int res = 0;
     float reliefRms = 0.0f;
     double buildMs = 0.0;
+    bool onGpu = false;
 };
 
 struct ChainCacheEntry
@@ -1154,8 +1155,15 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
 {
     double t0 = GetTime();
     const int R = CHAIN_LAYER_RES;
+    // The GPU makes the same two fields from the same passes, and this
+    // is the one place it matters: the chain is the slowest thing the
+    // site level does, and until now a machine with a GPU still paid the
+    // CPU for it.
     TerrainChainFields fields;
-    if (!GenerateTerrainFields(lat, lon, R, spanKm, &fields)) return false;
+    bool onGpu = (GetTerrainPath() == TERRAIN_PATH_GPU)
+              && GenerateTerrainFieldsGPU(lat, lon, R, spanKm, &fields);
+    if (!onGpu && !GenerateTerrainFields(lat, lon, R, spanKm, &fields))
+        return false;
 
     // Band-limit to what the elevation data cannot resolve. The chain's
     // long wavelengths are the imagery's landforms read as topography;
@@ -1221,6 +1229,7 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
 
     out->res = R;
     out->buildMs = (GetTime() - t0) * 1000.0;
+    out->onGpu = onGpu;
     return true;
 }
 
@@ -1403,8 +1412,9 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
                          "(relief %.1f m rms, %s)\n",
                          scene.chainSpanKm, layer->res, texRes,
                          scene.chainReliefM,
-                         built ? TextFormat("built in %.0f ms",
-                                            layer->buildMs)
+                         built ? TextFormat("built in %.0f ms on the %s",
+                                            layer->buildMs,
+                                            layer->onGpu ? "GPU" : "CPU")
                                : "cached");
         }
     }

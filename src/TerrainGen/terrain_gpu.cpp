@@ -523,6 +523,49 @@ void main()
 
 // Lunar tone ramp, sampled unflipped so the colour lands in image
 // orientation (see the header comment).
+// The two fields the fused pass builds before it lights anything --
+// TerrainChainFields, on the GPU. No hillshade and no shadow march: the
+// march is up to 64 heightAt calls per pixel, each a five-octave fbm,
+// and skipping it is the whole reason fields are cheaper than a picture.
+const char* FS_FIELDS = R"GLSL(
+uniform sampler2D uMeans;
+uniform vec2 uSeedS;
+vec2 unpackMeansF()
+{
+    vec4 m = TEX(uMeans, vec2(0.5, 0.5));
+    float tone = (floor(m.r * 255.0 + 0.5) * 256.0 + floor(m.g * 255.0 + 0.5)) / 65535.0;
+    float hm = (floor(m.b * 255.0 + 0.5) * 256.0 + floor(m.a * 255.0 + 0.5)) / 65535.0;
+    return vec2(tone, hm * 2.0 - 1.0);
+}
+void main()
+{
+    // Flipped, so the read-back lands in image order the way the ramp
+    // pass leaves the colour targets. Every other pass keeps the working
+    // orientation because the next pass samples it through rtuv(); this
+    // one has no next pass, only a glReadPixels.
+    vec2 pix = vec2(fragTexCoord.x, 1.0 - fragTexCoord.y) * uRes;
+    vec2 mm = unpackMeansF();
+    float tone = mm.x;
+    float hmean = mm.y;
+    float w = siteW(pix);
+    float m = toneAt(pix, w, tone);
+    float rough = roughAt(m);
+
+    float h = heightAt(pix, tone, hmean, 1.0);
+    float speckle = fbm(world(pix), 4.0, 0.5, 2, uSeedS);
+    float alb = clamp(m * (1.0 + 0.04 * min(uAmp, 1.6)
+                               * (speckle - 0.5) * rough), 0.0, 1.0);
+
+    // Height packed 16-bit across R:G, the way the macro crop travels.
+    // Eight bits would be torn apart by the caller's high-pass, which
+    // subtracts a blur of this field from itself. Zero sits at 0.5.
+    float e = clamp(h + 0.5, 0.0, 1.0);
+    float q = floor(e * 65535.0 + 0.5);
+    float hi = floor(q / 256.0);
+    OUT = vec4(hi / 255.0, (q - hi * 256.0) / 255.0, alb, 1.0);
+}
+)GLSL";
+
 const char* FS_RAMP = R"GLSL(
 uniform sampler2D uSrc;
 void main()
@@ -552,6 +595,7 @@ struct Gpu
     bool ok = false;
     Shader macroSh = {}, cropSh = {}, downSh = {}, blurSh = {};
     Shader sharpenSh = {}, meansSh = {}, fusedSh = {}, rampSh = {};
+    Shader fieldsSh = {};
     int res = 0;
     // Full-resolution scratch: macro, blur temp, sharpened macro, blur
     // destination, and the two luminance targets the levels ping-pong.
@@ -675,6 +719,7 @@ bool InitGpu()
     const char* sharpen[] = {COMMON, FS_SHARPEN};
     const char* means[] = {COMMON, NOISE, HEIGHT, FS_MEANS};
     const char* fused[] = {COMMON, NOISE, HEIGHT, FS_FUSED};
+    const char* fields[] = {COMMON, NOISE, HEIGHT, FS_FIELDS};
     const char* ramp[] = {COMMON, FS_RAMP};
     G.macroSh = Build(macro, 2);
     G.cropSh = Build(crop, 2);
@@ -683,10 +728,12 @@ bool InitGpu()
     G.sharpenSh = Build(sharpen, 2);
     G.meansSh = Build(means, 4);
     G.fusedSh = Build(fused, 4);
+    G.fieldsSh = Build(fields, 4);
     G.rampSh = Build(ramp, 2);
     G.ok = ShaderOk(G.macroSh) && ShaderOk(G.cropSh) && ShaderOk(G.downSh)
         && ShaderOk(G.blurSh) && ShaderOk(G.sharpenSh) && ShaderOk(G.meansSh)
-        && ShaderOk(G.fusedSh) && ShaderOk(G.rampSh);
+        && ShaderOk(G.fusedSh) && ShaderOk(G.rampSh)
+        && ShaderOk(G.fieldsSh);
     if (!G.ok)
     {
         TraceLog(LOG_WARNING, "TERRAIN: GPU shaders failed to build, CPU path");
@@ -1035,10 +1082,14 @@ int GetTerrainPathResolution()
 #endif
 }
 
-bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
-                             TerrainGpuChain* out,
-                             const TerrainSiteDisturbance* site,
-                             const TerrainChainSpans* spans)
+// outFields, when given, replaces the last level's relight and colour
+// with the unlit fields pass and reads the result back. Every level above
+// it is still lit, because the next one down is a crop of its output.
+static bool RunChainGPU(double latDeg, double lonDeg, int res,
+                        TerrainGpuChain* out,
+                        const TerrainSiteDisturbance* site,
+                        const TerrainChainSpans* spans,
+                        TerrainChainFields* outFields)
 {
     if (!out || res < 64) return false;
     if (!InitGpu() || !EnsureScratch(res)) return false;
@@ -1184,7 +1235,36 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
             });
         }
 
-        // 5. The fused relight.
+        // 5. The fused relight -- or, on the last level of a fields
+        //    run, the two fields instead, which skips the shadow march.
+        if (outFields && lvl == levelCount - 1)
+        {
+            Pass(G.fieldsSh, out->color[lvl], [&]() {
+                BindHeight(G.fieldsSh, G.C, relief, amp, k, su,
+                           boulderCell, boulderAmp, lvlSalt,
+                           frame, kmPerPx);
+                SetTex(G.fieldsSh, "uMeans", G.means.texture);
+                float v[2];
+                SeedVec(lvlSalt, 53.0f, v);
+                SetV2(G.fieldsSh, "uSeedS", v[0], v[1]);
+            });
+
+            Image img = LoadImageFromTexture(out->color[lvl].texture);
+            if (img.data == nullptr) { RestoreGl(saved); return false; }
+            ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+            const unsigned char* px = (const unsigned char*)img.data;
+            outFields->height.resize((size_t)res * res);
+            outFields->albedo.resize((size_t)res * res);
+            for (size_t i = 0; i < outFields->height.size(); i++)
+            {
+                float q = (float)px[i * 4 + 0] * 256.0f + (float)px[i * 4 + 1];
+                outFields->height[i] = q / 65535.0f - 0.5f;
+                outFields->albedo[i] = px[i * 4 + 2] / 255.0f;
+            }
+            UnloadImage(img);
+            break;
+        }
+
         Pass(G.fusedSh, *lumCur, [&]() {
             BindHeight(G.fusedSh, G.C, relief, amp, k, su,
                        boulderCell, boulderAmp, lvlSalt,
@@ -1207,6 +1287,32 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
     RestoreGl(saved);
     TraceLog(LOG_INFO, "TERRAIN: GPU chain at (%.3f, %.3f) %d px submitted in %.1f ms",
              latDeg, lonDeg, res, (GetTime() - t0) * 1000.0);
+    return true;
+}
+
+bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
+                             TerrainGpuChain* out,
+                             const TerrainSiteDisturbance* site,
+                             const TerrainChainSpans* spans)
+{
+    return RunChainGPU(latDeg, lonDeg, res, out, site, spans, nullptr);
+}
+
+bool GenerateTerrainFieldsGPU(double latDeg, double lonDeg, int res,
+                              double spanKm, TerrainChainFields* out,
+                              const TerrainSiteDisturbance* site)
+{
+    if (!out || res < 8 || spanKm <= 0.0) return false;
+    TerrainChainSpans ladder = TerrainChainSpansForWindow(spanKm);
+    TerrainGpuChain chain = {};
+    bool ok = RunChainGPU(latDeg, lonDeg, res, &chain, site, &ladder, out);
+    UnloadTerrainGpuChain(&chain);
+    if (!ok || out->height.empty()) return false;
+    out->res = res;
+    // The same factor the CPU fills in, and for the same reason: it is
+    // the scale at which the chain's own hillshade treats this field as
+    // terrain. See GenerateTerrainFields.
+    out->heightScaleM = 110.0f * (float)(spanKm * 1000.0 / res);
     return true;
 }
 
@@ -1234,6 +1340,7 @@ void UnloadTerrainGpu()
         UnloadShader(G.macroSh); UnloadShader(G.cropSh); UnloadShader(G.downSh);
         UnloadShader(G.blurSh); UnloadShader(G.sharpenSh); UnloadShader(G.meansSh);
         UnloadShader(G.fusedSh); UnloadShader(G.rampSh);
+    UnloadShader(G.fieldsSh);
     }
     G.locs.clear();
     G.res = 0;
