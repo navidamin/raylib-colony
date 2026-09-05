@@ -19,6 +19,8 @@ with the tree.
 | [`maturation/media_map.html`](maturation/media_map.html) · [`.png`](maturation/media_map.png) | — | The medium roster as the buffer↔speed frontier. |
 | [`maturation/H-crops.md`](maturation/H-crops.md) | DRAFT | **Branch H** — `CropDescriptor`, the computed medium-fit rule, crop roles, the diet ledger, seed stock, pathogens, and a 17-crop preliminary catalog. |
 | [`maturation/crop_medium_matrix.html`](maturation/crop_medium_matrix.html) · [`.png`](maturation/crop_medium_matrix.png) | — | Crop × medium fit, and why each refusal happens. |
+| [`maturation/mechanics_forge.html`](maturation/mechanics_forge.html) | POOL | **The selector.** 154 candidate mechanics as a shuffle deck + list, with 16 synoptic framings and 115 research findings. Shortlist persists. |
+| [`maturation/MECHANICS_POOL.md`](maturation/MECHANICS_POOL.md) | POOL | Durable text record of the same pool, grouped by branch with critic scores. |
 | [`maturation/BRANCH_MATURATION.md`](maturation/BRANCH_MATURATION.md) | DRAFT | The branch-maturation method itself: node grammar, states, navigation verbs (focus / graft / prune / park / harvest / mix). |
 | [`maturation/concept_tree.html`](maturation/concept_tree.html) · [`.png`](maturation/concept_tree.png) | — | The tree as a visual, for opening beside a session. |
 | `farming-master-design.md` | — | **Not yet written** — harvested from ◆ nodes when maturation settles. |
