@@ -4813,6 +4813,21 @@ int main(int argc, char** argv)
     InitWindow(app.options.width, app.options.height,
                "lunar_map - LOLA elevation");
 
+    // The chain's first build was dominated by decoding one 8192x4096
+    // JPEG, not by any chain work -- a pause in the middle of a descent
+    // for something that has nothing to do with the descent. Pay it here,
+    // where a pause is expected, and only when the layer is wanted.
+    if (app.options.chain)
+    {
+        double t0 = GetTime();
+        // stderr, not TraceLog: the log level is LOG_WARNING just above,
+        // so an INFO line here would be swallowed and the number is worth
+        // seeing next to the CHAIN line it explains.
+        if (TerrainWarmMosaic())
+            std::fprintf(stderr, "CHAIN: mosaic warmed in %.0f ms\n",
+                         (GetTime() - t0) * 1000.0);
+    }
+
     LolaSetDespeckle(app.options.despeckle);
     LolaSetOverlayDecimation(app.options.demDecim);
     LolaSetTextureMode(app.options.texture == "craters"

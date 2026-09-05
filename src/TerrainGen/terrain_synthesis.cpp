@@ -1443,6 +1443,11 @@ bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
     return true;
 }
 
+bool TerrainWarmMosaic()
+{
+    return EnsureWacLoaded();
+}
+
 TerrainChainSpans TerrainChainSpansForWindow(double spanKm)
 {
     TerrainChainSpans s;

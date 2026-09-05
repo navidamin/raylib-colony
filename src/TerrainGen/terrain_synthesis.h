@@ -169,6 +169,13 @@ struct TerrainChainSpans
 // above it to crop from.
 TerrainChainSpans TerrainChainSpansForWindow(double spanKm);
 
+// Decode the WAC mosaic now rather than inside the first chain that
+// wants it. It is one 8192x4096 JPEG and it dominates the first build,
+// so paying for it where a pause is expected -- startup -- beats paying
+// for it in the middle of a descent. Cheap and idempotent afterwards.
+// Returns false if the mosaic is missing.
+bool TerrainWarmMosaic();
+
 // spans == nullptr walks the game's own 100 / 25 / 5.
 void GenerateTerrainChain(double latDeg, double lonDeg, int res,
                           Image outLevels[3],
