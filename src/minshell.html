@@ -96,7 +96,7 @@
     </script>
     </head>
     <body>
-        <canvas class=emscripten id=canvas oncontextmenu=event.preventDefault() tabindex=-1></canvas>
+        <canvas class=emscripten id=canvas oncontextmenu=event.preventDefault() tabindex=0></canvas>
         <!-- Live geometry readout for diagnosing mobile fit issues.
              Hidden unless the page is loaded with ?debug=1 -- see
              docs/web-deploy-mobile.md. -->
@@ -392,6 +392,66 @@
                 // Fallback poll: cheap, and covers engines the observer misses
                 setInterval(fitCanvas, 500);
                 fitCanvas();
+            })();
+        </script>
+        <script>
+            // KEYBOARD. Nothing ever focused the canvas and nothing stopped
+            // the browser's default action, so key events reached the game
+            // AND the browser acted on them: in Firefox, pressing C -- the
+            // game's Colony View key -- opened find-as-you-type, which then
+            // swallowed everything typed after it. The game looked
+            // unresponsive to the keyboard when the browser was eating it.
+            //
+            // The tabindex is NOT what fixed this, though it looks like the
+            // culprit: focus() works fine on tabindex=-1, which only means
+            // "not reachable by Tab". Verified by putting -1 back -- every
+            // keyboard check still passed. It is 0 here so the canvas is
+            // also tab-reachable, which is a keyboard-access improvement and
+            // nothing to do with the bug.
+            //
+            // Two halves, and both are needed. Focus alone does not stop the
+            // default action; suppressing the default without focus is not
+            // enough either, because a click on the page chrome takes focus
+            // away again.
+            (function() {
+                var c = document.getElementById('canvas');
+                if (!c) return;
+
+                function grab() { try { c.focus({ preventScroll: true }); } catch (e) { c.focus(); } }
+
+                // Grabbing during the capture phase is too early: the
+                // browser's own focus handling runs after the event and puts
+                // focus back on <body>, so the click that was meant to return
+                // the keyboard to the game took it away instead. Measured --
+                // activeElement came back empty. Re-assert after the event
+                // has finished being handled.
+                function grabSoon() { grab(); setTimeout(grab, 0); }
+
+                window.addEventListener('load', grabSoon);
+                // Any interaction with the page hands the keyboard back to
+                // the game -- pointerdown covers mouse, pen and touch.
+                window.addEventListener('pointerdown', grabSoon, true);
+                window.addEventListener('click', grabSoon, true);
+                grab();
+
+                // Keys the BROWSER should keep. F5 and F12 are game debug
+                // keys too, but reload and devtools matter more than cycling
+                // unlocks, and a player who loses reload on a web build has
+                // no way back. F11 is fullscreen. Anything with Ctrl, Meta or
+                // Alt held is a browser command (Ctrl+R, Cmd+W, Ctrl+Tab) --
+                // the game only uses Ctrl as a MOUSE modifier, so nothing is
+                // lost by leaving those alone.
+                var browserKeys = { F5: 1, F11: 1, F12: 1 };
+
+                window.addEventListener('keydown', function(e) {
+                    if (document.activeElement !== c) return;
+                    if (e.ctrlKey || e.metaKey || e.altKey) return;
+                    if (browserKeys[e.key]) return;
+                    // Everything else belongs to the game. Stopping the
+                    // default here is what keeps quick-find, spacebar
+                    // scrolling and apostrophe-search out of the way.
+                    e.preventDefault();
+                }, false);
             })();
         </script>
         <p id="output" />

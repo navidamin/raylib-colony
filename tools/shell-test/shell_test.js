@@ -221,6 +221,60 @@ async function main() {
         await page.close();
     }
 
+    // ---- Keyboard ownership -------------------------------------------
+    // The canvas carried tabindex=-1 and nothing focused it, so keys went to
+    // the document and the browser acted on them as well as the game: in
+    // Firefox, C (Colony View) opened find-as-you-type, which then ate every
+    // key after it. The game read as having no keyboard at all.
+    //
+    // Two things have to hold, and the second is the one that regressed
+    // first: the canvas must HAVE focus, and it must keep it after a click
+    // lands anywhere on the page.
+    {
+        const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+        await page.goto('file://' + pagePath);
+        await page.waitForTimeout(600);
+
+        const pressedOn = (key, ctrl) => page.evaluate(({ k, c }) => new Promise((res) => {
+            const h = (e) => { window.removeEventListener('keydown', h, false); res(e.defaultPrevented); };
+            window.addEventListener('keydown', h, false);
+            document.getElementById('canvas').dispatchEvent(new KeyboardEvent('keydown',
+                { key: k, ctrlKey: !!c, bubbles: true, cancelable: true }));
+        }), { k: key, c: ctrl });
+
+        const check = (name, got, want) => {
+            const ok = got === want;
+            if (!ok) failures++;
+            console.log(`${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(16)} ${got} (want ${want})`);
+        };
+
+        check('kbd-focus', await page.evaluate(() =>
+            document.activeElement && document.activeElement.id), 'canvas');
+
+        // Game keys: the browser default must be suppressed. Apostrophe and
+        // space are the ones that bite hardest -- quick-find and page scroll.
+        for (const k of ['c', 's', 'u', 'Enter', 'Escape', ' ', "'"]) {
+            check('kbd-game-' + (k === ' ' ? 'space' : k), await pressedOn(k, false), true);
+        }
+        // Browser keys: reload, devtools and fullscreen stay the browser's.
+        // A player on a web build who loses reload has no way back.
+        for (const k of ['F5', 'F11', 'F12']) {
+            check('kbd-browser-' + k, await pressedOn(k, false), false);
+        }
+        check('kbd-ctrl-r', await pressedOn('r', true), false);
+
+        // Click the page chrome, then the keyboard must come back. Grabbing
+        // focus in the capture phase alone failed this: the browser's own
+        // focus handling runs afterwards and hands focus to <body>.
+        await page.evaluate(() => document.body.focus());
+        await page.mouse.click(5, 5);
+        await page.waitForTimeout(200);
+        check('kbd-refocus', await page.evaluate(() =>
+            document.activeElement && document.activeElement.id), 'canvas');
+
+        await page.close();
+    }
+
     await browser.close();
 
     console.log(failures === 0

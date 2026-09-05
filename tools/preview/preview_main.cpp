@@ -11,6 +11,7 @@
 #include "raylib.h"
 
 #include "rendermanager.h"
+#include "viewmanager.h"
 #include "unit.h"
 #include "planet.h"
 #include "colony.h"
@@ -760,15 +761,25 @@ static int RenderGameView(const PreviewOptions& options)
             UnloadImage(ground);
         }
 
-        Camera2D camera = {0};
-        camera.target = {PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f};
-        camera.offset = {options.width / 2.0f, options.height / 2.0f};
-        camera.rotation = 0.0f;
-        camera.zoom = 1.0f;
+        // Frame this view the way the GAME frames it. Hardcoding zoom 1.0
+        // here made the preview show a blurry zoomed-in patch of ground that
+        // the player never actually sees -- the harness was answering a
+        // question about itself. ViewManager owns the framing, so ask it.
+        ViewManager previewView(options.width, options.height);
+        previewView.ResetCameraForCurrentView(
+            options.view == "planet" ? View::Planet : View::Planet,
+            colonies, colonies.empty() ? nullptr : colonies[0], &planet);
+        Camera2D camera = previewView.GetCamera();
+
+        // Park the pointer before the frame reads it -- the view path
+        // ignored --mouse, so anything hover-driven in these views could
+        // only ever be screenshotted wherever the pointer happened to be.
+        if (options.mouseX >= 0) SetMousePosition(options.mouseX, options.mouseY);
 
         // Draw twice: the first frame lets fonts and textures settle.
         for (int frame = 0; frame < 2; frame++)
         {
+            if (options.mouseX >= 0) SetMousePosition(options.mouseX, options.mouseY);
             BeginDrawing();
             ClearBackground(BLACK);
 

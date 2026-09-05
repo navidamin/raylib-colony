@@ -198,13 +198,45 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
             }
             RenderMoonSurface();
         }
-/*
-        // Draw grid
-        for (int i = 0; i <= PLANET_SIZE; i++) {
-            float linePos = i * SECT_CORE_RADIUS * 2;
-            DrawLineV({linePos, 0}, {linePos, PLANET_HEIGHT}, LIGHTGRAY);
-            DrawLineV({0, linePos}, {PLANET_WIDTH, linePos}, LIGHTGRAY);
-        }*/
+        // The playfield lattice. This was commented out when the generated
+        // terrain replaced the tile shuffle, and with it went the only thing
+        // on screen saying the 100 km square is divided into places you can
+        // put a colony. An empty planet view then drew ground and nothing
+        // else: correct, and unplayable -- there was no target to aim at and
+        // no sign the view was interactive at all.
+        //
+        // Thickness is divided by zoom so a line stays about a pixel on
+        // screen at any zoom; drawn in world space it would otherwise
+        // thicken into bars as you pull out.
+        {
+            float px = 1.0f / std::max(camera.zoom, 0.0001f);
+            Color gridLine = {150, 170, 190, 60};
+
+            for (int i = 0; i <= PLANET_SIZE; i++) {
+                float linePos = i * SECT_CORE_RADIUS * 2.0f;
+                DrawLineEx({linePos, 0.0f}, {linePos, PLANET_HEIGHT}, px, gridLine);
+                DrawLineEx({0.0f, linePos}, {PLANET_WIDTH, linePos}, px, gridLine);
+            }
+
+            // The playfield edge, brighter than the lattice: at low zoom the
+            // moon map surrounds the square, and without a border the two
+            // read as one continuous grey.
+            DrawRectangleLinesEx({0.0f, 0.0f, PLANET_WIDTH, PLANET_HEIGHT},
+                                 px * 2.0f, Color{190, 210, 230, 130});
+
+            // The cell under the pointer, always -- not only while Ctrl is
+            // held. A view that only admits it is interactive once you guess
+            // the modifier is a view nobody finds their way into.
+            Vector2 hoverWorld = GetScreenToWorld2D(inputManager.GetMousePosition(), camera);
+            int hx = static_cast<int>(hoverWorld.x / (SECT_CORE_RADIUS * 2.0f));
+            int hy = static_cast<int>(hoverWorld.y / (SECT_CORE_RADIUS * 2.0f));
+            if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE) {
+                float cell = SECT_CORE_RADIUS * 2.0f;
+                Rectangle r = {hx * cell, hy * cell, cell, cell};
+                DrawRectangleRec(r, Color{120, 200, 255, 28});
+                DrawRectangleLinesEx(r, px * 2.0f, Color{140, 215, 255, 200});
+            }
+        }
 
         // Draw colonies if any
         for (const auto& colony : colonies) {
@@ -234,7 +266,17 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
     // Draw UI elements including time
     timeManager.Draw(screenWidth, screenHeight);
     DrawText("Planet View", 10, 10, 20, BLACK);
-    DrawText("Press C for Colony View", 10, 40, 20, GRAY);
+    // With no colony on the map, "Press C for Colony View" is the one
+    // instruction on screen and it cannot work: SwitchToColonyView(nullptr)
+    // logs "FAILED to switch" and returns. Tell the player the thing that
+    // does work instead -- placing the first colony is the only move
+    // available here, and it was behind an undocumented modifier.
+    if (colonies.empty()) {
+        DrawText("Ctrl+click a cell to survey a landing site", 10, 40, 20, DARKBLUE);
+    } else {
+        DrawText("Press C for Colony View   |   Ctrl+click to survey a new site",
+                 10, 40, 20, GRAY);
+    }
 
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
     DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
