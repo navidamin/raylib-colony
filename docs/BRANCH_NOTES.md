@@ -8,6 +8,10 @@ only makes sense if you were here, and that costs an hour to rediscover.
 
 **Fold this into the design docs and delete it when the branch lands.**
 
+> **STATUS: the branch has landed** (main `d1005e3`, 2026-09-05). The fold-and-
+> delete above is therefore **due** — this file is living past its own terms.
+> Sections 1, 3 and 5 are still worth keeping somewhere; §2 is now history.
+
 ---
 
 ## 1. Environment hazards — read first, they have cost real work
@@ -27,23 +31,32 @@ only makes sense if you were here, and that costs an hour to rediscover.
   changed function signature. **Check the build's exit status before believing
   any test output.**
 
-## 2. Where the branch stands
+## 2. Where the branch stands — **LANDED**
 
-- **`main` is already fully merged in.** Merge commit `66099d2`, which took
-  main at `a26a9e6` — still main's tip.
-  - `git merge-base --is-ancestor origin/main HEAD` → yes; 0 commits in main
-    not here. `git merge origin/main` does nothing. Verify before re-merging.
-- **108 commits ahead of main**, 120 files, +23,404 / −2,574.
-- **Nothing is proposed to main.** PR #12 was opened and then **closed
-  unmerged** at the user's request — https://github.com/navidamin/raylib-colony/pull/12
-  - The instruction was *pull main in*, not *push to main*, and the PR was
-    not wanted. **Do not push `main`, and do not open a PR** unless asked in
-    so many words. How this branch lands is the user's call, not a default.
-- **From the merge:** 4 shared test cases resolved to our versions, 15 of
-  main's dropped as superseded design — each checked for a renamed equivalent
-  here first. If a "missing" test from main turns up, that is why.
-- **CI is green on all six workflows** at `0a5b8e1` (Tests, Linux, macOS,
-  Windows, WebAssembly, Deploy to Pages).
+- **The work is on `main`.** Main's tip `d1005e3` is
+  `Merge pull request #12 from navidamin/claude/excavation-module-design-jhp3v1`,
+  merging `a26a9e6` with `0a5b8e1`. All 106 commits of excavation work are in.
+- **The PR's history is confusing on purpose to no one — record it plainly.**
+  PR #12 was opened, then **closed unmerged at the user's request**, then
+  reopened and merged. An earlier revision of this file said it was closed and
+  stopped there, which was true when written and misleading a day later.
+  - Lesson worth keeping: **a note about a mutable external object goes stale
+    silently.** Re-check `origin/main` at the start of a session rather than
+    trusting what this file says about it.
+- **This branch now carries only:** the two commits that created this file, plus
+  the merge that brought main's copy of our own work back (`49f6a83`). That
+  merge changed **no files** — main's new content was our commits returning.
+- **Follow-up work is a fresh change.** A merged PR is finished; do not stack
+  new work on it expecting the same PR to track it. Restart from the latest
+  `main`, keep the branch name if you like, and open a new PR if — and only
+  if — asked.
+- **Still true, and still the rule:** do not push `main`, and do not open a PR
+  unless asked in so many words.
+- **From the earlier main merge (`66099d2`):** 4 shared test cases resolved to
+  our versions, 15 of main's dropped as superseded design — each checked for a
+  renamed equivalent first. If a "missing" test from main turns up, that is why.
+- **CI was green on all six workflows** at `0a5b8e1`, the commit main merged
+  (Tests, Linux, macOS, Windows, WebAssembly, Deploy to Pages).
 
 ## 3. Traps in the test and preview harnesses
 
@@ -126,7 +139,9 @@ only makes sense if you were here, and that costs an hour to rediscover.
 
 ## 6. Open / deferred
 
-- **How this branch lands is undecided.** No PR is open; see §2.
+- **The fold-and-delete of this file** — see the status note at the top. The
+  branch landed, so this file is overdue; §§1, 3 and 5 need a home in
+  `docs/design/` or `docs/dev-workflow.md` before it goes.
 - **`GetOrbitalSurveyAt` is never read by `src/Prospecting`** — a real but
   unhooked seam between orbital survey data and the prospecting grid. Found,
   raised, **left alone by the user's decision.** It is not an oversight.
