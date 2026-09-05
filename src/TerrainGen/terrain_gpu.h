@@ -32,6 +32,15 @@ const char* GetTerrainPathName();
 // phone memory.
 int GetTerrainPathResolution();
 
+// Whether this machine should build the site-level chain layer at all,
+// and the one-line reason. Decided by the same probe that picks the path:
+// a GPU path can afford it, a CPU path can where there is a thread to put
+// it on, and a browser falling back to a software rasteriser should not
+// have it -- that is the case this exists for, where "WebGL is a real
+// GPU" used to send the layer into a 44 second build.
+bool TerrainLayerAffordable();
+const char* TerrainLayerWhy();
+
 // One generated chain: PLANET (100 km), COLONY (25 km), SECT (5 km),
 // each a res x res colour render target. Caller owns all three.
 struct TerrainGpuChain

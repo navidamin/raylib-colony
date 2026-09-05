@@ -1118,11 +1118,14 @@ struct ChainCacheEntry
 };
 static std::vector<ChainCacheEntry> g_chainCache;
 
-// What the CPU chain affords, and deliberately NOT
-// GetTerrainPathResolution(): that answers for whichever path the machine
-// chose, and only the CPU path can produce fields today, so on a box with
-// a GPU it would promise 1024 for work the CPU is still doing.
-static const int CHAIN_LAYER_RES = 512;
+// What this machine affords, measured. This used to be a hard 512 with a
+// note that GetTerrainPathResolution() could not be trusted here, because
+// it answers for the path the machine chose and only the CPU could make
+// fields -- so on a box with a GPU it promised 1024 for work the CPU was
+// doing. The GPU makes fields now, so the measured answer is the right
+// one: a real GPU gets 1024 and its finer texture back, a software
+// rasteriser stays at 512, and COLONY_TERRAIN_RES still overrides.
+static int ChainLayerRes() { return GetTerrainPathResolution(); }
 
 static void ResampleField(const std::vector<float>& src, int sw,
                           std::vector<float>& dst, int dw)
@@ -1154,7 +1157,7 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
                             double nativeKm, float strength, ChainLayer* out)
 {
     double t0 = GetTime();
-    const int R = CHAIN_LAYER_RES;
+    const int R = ChainLayerRes();
     // The GPU makes the same two fields from the same passes, and this
     // is the one place it matters: the chain is the slowest thing the
     // site level does, and until now a machine with a GPU still paid the
@@ -1355,11 +1358,24 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.chainTex = Texture2D{ 0 };
     scene.chainMs = 0.0;
     scene.chainSpanKm = 0.0f;
+    // Say once why a machine that asked for the layer is not getting it,
+    // rather than leaving --chain looking broken.
+    if (options.chain && !TerrainLayerAffordable())
+    {
+        static bool said = false;
+        if (!said)
+        {
+            said = true;
+            std::fprintf(stderr, "CHAIN: layer off -- %s\n",
+                         TerrainLayerWhy());
+        }
+    }
     // The site rung only. A window wider than the chain's own 100 km
     // macro has nothing above it to crop from, so the layer stops being
     // detail below the data floor and becomes a second opinion about
     // landforms the DEM already resolves.
-    if (options.chain && !options.nearside && options.spanKm <= 100.0)
+    if (options.chain && !options.nearside && options.spanKm <= 100.0
+        && TerrainLayerAffordable())
     {
         scene.chainSpanKm = scene.worldWidthKm;
         bool built = false;

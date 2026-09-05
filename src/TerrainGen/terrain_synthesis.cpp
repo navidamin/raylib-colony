@@ -520,7 +520,12 @@ static Field CastShadows(const Field& height, int res, float zFactor,
 // WAC source (grayscale float, loaded once)
 // ---------------------------------------------------------------------------
 
-static Field g_wac;
+// One byte per texel, not one float. The source is an 8-bit JPEG, so the
+// float copy spent four bytes carrying three bits of rounding: 134 MB
+// where 33.5 MB says the same thing. site-ground-texture.md 3.5 calls
+// this the binding constraint on the web and the allocation most likely
+// to fail on a phone. Readers scale by 1/255 as they sample.
+static std::vector<unsigned char> g_wac;
 static int g_wacW = 0;
 static int g_wacH = 0;
 
@@ -537,10 +542,11 @@ static bool EnsureWacLoaded()
     for (size_t i = 0; i < g_wac.size(); i++)
     {
         int r = px[i * 3 + 0], g = px[i * 3 + 1], b = px[i * 3 + 2];
-        g_wac[i] = (r + g + b) / (3.0f * 255.0f);
+        g_wac[i] = (unsigned char)((r + g + b + 1) / 3);
     }
     UnloadImage(img);
-    TraceLog(LOG_INFO, "TERRAIN: WAC loaded %dx%d", g_wacW, g_wacH);
+    TraceLog(LOG_INFO, "TERRAIN: WAC loaded %dx%d (%.1f MB)", g_wacW, g_wacH,
+             g_wac.size() / (1024.0 * 1024.0));
     return true;
 }
 
@@ -588,7 +594,8 @@ static Field CropMacro(double latDeg, double lonDeg, double spanDeg, int res)
         for (int x = 0; x < cw; x++)
         {
             int wx = ((x0 + x) % g_wacW + g_wacW) % g_wacW;
-            crop[(size_t)y * cw + x] = g_wac[(size_t)wy * g_wacW + wx];
+            crop[(size_t)y * cw + x] =
+                g_wac[(size_t)wy * g_wacW + wx] * (1.0f / 255.0f);
         }
     }
     GaussianBlur(crop, cw, ch, 0.7f);         // denoise JPEG artifacts
@@ -1397,7 +1404,8 @@ bool GetTerrainMacroCrop(double latDeg, double lonDeg, TerrainMacroCrop* out,
         for (int x = 0; x < cw; x++)
         {
             int wx = ((x0 + x) % g_wacW + g_wacW) % g_wacW;
-            crop[y * cw + x] = g_wac[(size_t)wy * g_wacW + wx];
+            crop[y * cw + x] =
+                g_wac[(size_t)wy * g_wacW + wx] * (1.0f / 255.0f);
         }
     }
     GaussianBlur(crop, cw, ch, 0.7f);         // denoise JPEG artifacts
