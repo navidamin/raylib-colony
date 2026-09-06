@@ -1084,71 +1084,75 @@ that remains is the rig actually turning. Colour strings are quantised to 3
 levels a channel and memoised too — invisible under texture, and it collapses
 thousands of `rgb(...)` allocations a frame to a few hundred.
 
-### 9.48 Fog — drawing what is not known
+### 9.48 Fog of war — the ground you have not established
 
-A block model draws an interpretation, and an interpretation is not evenly
-trustworthy: near the surface you know what the beds do, deep down you are
-guessing. Drawn identically, the panel presents a guess in the same voice as a
-measurement. **Fog is that ignorance made visible.** Reference:
+A block model draws an interpretation. Fog of war is the panel admitting how
+much of that interpretation is invented: which rock a bed is, where one gives
+way to the next, how the column is arranged at all. Reference:
 `../prospecting/prototypes/layer-block.html`.
 
-**One diffuse field, and no rule per layer.** Haze everywhere, thickening
-downward, mottled by noise; the beds show through wherever it happens to thin.
-The first build had structure instead — a clear zone above a lost zone, columns
-of ignorance through one bed, engineered windows onto another — and every piece
-of it had to be told which bed it was in. That is not an uncertainty, it is a
-diagram of one. Worse, it fights itself: declaring the bottom bed absolutely
-unknown while the bed above stayed partly clear put a hard horizontal fog edge
-along the whole face at exactly their interface, so **the fog traced the very
-boundary it was there to obscure.** A single smooth field cannot do that, and
-gets the same reading for free — the interface shows in some places and not
-others because the haze is thinner there.
+**It is two bodies, not a haze.** A haze dims a truth the panel is still
+telling you; this withholds it. Draw an **unknown** body — one undifferentiated
+mass from the top of the block to its base, one structureless texture, no
+bedding line anywhere in it — then the real strata on top, **masked** to the
+part that has been established. Where nothing is established the real body is
+not dimmed, it is not drawn, so the panel cannot leak a boundary it has no
+business knowing. Turn the opacity up and boundaries do not fade, they stop
+existing, which is the honest picture of not knowing where they are.
 
-**The field decides everything, so nothing else needs to know fog exists.** One
-scalar drives the haze, the vagueness of the grain, and which stretches of a
-boundary line survive. Fog paints **last**, over finished rock and finished
-lines; a boundary drawn confidently underneath simply stops being visible where
-the haze is thick. Give the line its own rule instead and the panel says
-"unknown" in one place while drawing a confident edge through it in another.
+Order is the whole argument: unknown mass → haze over it → real strata masked
+on top → the block's outline over everything.
 
-**Depth multiplies the noise; it never adds to it.** Summing a depth ramp and a
-noise field and thresholding the total lets a high noise value clear the bar at
-zero depth on its own — and the ground *surface*, the one thing you can
-actually see, comes out foggy. Depth scales the density instead:
-`density = depthRamp(t) · (0.25 + 1.5·n)`, with the ramp `t^e` and `e` running
-from 2.4 (gathers only at the bottom) to 0.35 (in the room with you from the
-first few metres). Give the ramp a small floor at high thickness, or "diffuse
-all over" quietly means "starts at some depth".
+**The unknown tile has to have no structure.** Every other tile in the set says
+*which* rock it is by its structure — clasts, breccia cells, joints, vesicles —
+so the tile for "not established" is the one with nothing to read: a broad,
+low-contrast mottle, clamped to a narrow range. Its tone has to be **neutral**
+for the same reason. Every stratum colour in a palette leans somewhere (tan,
+brown, blue, near-black), so an unknown that leans reads as a guess at which
+rock it is rather than as an absence of one.
 
-**Expand the noise around its midpoint or the controls do nothing.** fbm spends
-most of its life near 0.5, so used raw it lays down a wash: granularity and
-scale can be dragged end to end with nothing visibly happening.
-`clamp((n − 0.5)·1.9 + 0.5, 0, 1)` is what turns the field back into something
-with structure — and therefore something tunable.
+**The noise must shift the depth ramp, never multiply it.** Multiplying
+(`hidden = dep · noise`) means a low noise value scales the whole thing down at
+*any* depth, so `hidden` never reaches 1 and the real strata leak through the
+deepest ground — the one thing fog of war must not do. Add instead:
+`hidden = dep·1.35 + (n − 0.5)·0.85`. The noise then moves where the fog's edge
+sits without ever lifting the floor under it, and the bottom of the column
+saturates at completely unknown.
+
+**Haze and mask come out of one pass.** They are two readings of the same
+number — `a = min(hidden, 0.9)` and `known = 1 − hidden` — and computing them
+separately lets them drift, which shows up as rock visible through fog that is
+supposedly opaque. One loop, two `ImageData`.
+
+**Clicks are the gameplay, and they live in the fog's own space.** Store each
+established patch as a point in (perimeter, depth) or (u, v), never in screen
+pixels, and it survives every change of tilt, lattice and depth scale. The hit
+test is the exact inverse of the projection the haze is drawn through, so a
+patch lands where it was clicked at any geometry.
+
+**Whatever caches the body must know about the clicks.** The body cache was
+keyed on the parameter object; reveals are not in it, so clicking rebuilt the
+fog raster and then blitted the stale body over it — the click appeared to do
+nothing at all. Any state that changes the picture belongs in the cache
+signature, including state that is not a setting.
 
 **Fog is DARK, measured against the panel it sits in.** The obvious pale haze
 `{138,156,178}` put full fog at luminance 150 against basalt's 52: the unknown
-half of the column became the loudest thing on screen, the panel shouting about
-what it could not tell you. `{66,78,95}` lands it at 77 against 67 — plainly
-lighter than the rock, plainly not lit. Cap the alpha short of opaque (0.88):
-a trace of rock under the haze is what says there *is* ground there, merely
-unresolved. Tint from the same noise that hides, so even full fog keeps a vague
-texture instead of going flat.
+half of the column became the loudest thing on screen. `{66,78,95}` over
+`{58,63,72}` ground lands it near 80 — plainly lighter than the rock, plainly
+not lit. Cap the alpha short of opaque: a trace under the haze says there *is*
+ground there, merely unestablished.
 
-**Rasterise it small and let the GPU blur it.** The field goes into a ~112×176
-image per face and is drawn through the face's own affine with
-`imageSmoothingEnabled` — the same transform the rock texture already uses.
-That is what makes it read as fog rather than as a stack of quads. Parameterise
-it by distance around the block's **visible perimeter** rather than per face,
-so one continuous field covers both cut faces and meets itself exactly at the
-corner they share; give each face its own canvas over its own half of that
-range, and there is no sub-rectangle edge to bleed. Cache on the fog levers
-alone, so a light or texture slider never pays for a fog raster.
+**Rasterise small and let the GPU blur it.** ~112×176 per face, drawn through
+the face's own affine with `imageSmoothingEnabled` — the same transform the
+rock texture already uses. Parameterise by distance around the block's
+**visible perimeter** rather than per face, so one continuous field covers both
+cut faces and meets itself exactly at the corner they share. Cache on the fog
+levers alone, so a light or texture slider never pays for a fog raster.
 
-**Redraw the body's outline on top of the fog.** Where the column *goes* is not
-in doubt even where its contents are — the survey reached its depth whatever it
-failed to resolve there. Without the outline the block dissolves into the
-background and stops being an object.
+**Redraw the body's outline on top.** Where the column *goes* is not in doubt
+even where its contents are. Without it the block dissolves into the background
+and stops being an object.
 
 ### 9.5 The animation recipes
 

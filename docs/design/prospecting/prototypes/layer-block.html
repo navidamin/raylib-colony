@@ -95,10 +95,10 @@ input[type=range]:focus-visible{outline:2px solid var(--cy);outline-offset:3px;b
     fractured rock over intact basalt, 0&ndash;120&nbsp;m, with the borehole bar on the same
     depth axis. Nothing here is data: the interfaces are <b>generated</b>, so every lever
     below changes the ground itself. <b>Click a layer</b> to take off everything above it and
-    leave it translucent; <kbd>Esc</kbd> puts the stack back. <b>Fog is what the column is
-    not known to do</b> &mdash; it thickens with depth, runs in vertical columns through the
-    fractured bed, closes over the basalt entirely, and opens only in windows onto the
-    interface between them.</p>
+    leave it translucent; <kbd>Esc</kbd> puts the stack back. <b>Fog is fog of war</b>: under it the ground has
+    no type and no boundaries at all &mdash; one undifferentiated mass, because you have not
+    established which rock is down there or where one bed gives way to the next.
+    <b>Click the block</b> to establish ground and watch the real strata come through.</p>
   </header>
 
   <div class="stage"><canvas id="cv" width="1520" height="1760" aria-label="Isometric block of four rock strata"></canvas></div>
@@ -316,6 +316,23 @@ function BuildBasalt(c, seed){
   }
 }
 
+/* 4 UNKNOWN -- not a rock. This is what ground looks like when you have not
+   established what it is: a broad, low-contrast mottle with no clasts, no
+   cells, no joints, no vesicles. Every other tile in this set says WHICH rock
+   by its structure, so the tile for "we do not know which" has to be the one
+   with no structure to read. Deliberately quiet: it must not look like a
+   fifth stratum you failed to recognise. */
+function BuildUnknown(c, seed){
+  const N = c.size;
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++){
+      const u = x / N, v = y / N;
+      c.lum[y * N + x] = (Fbm(u, v, 3, 3, seed) - 0.5) * 15.0
+                       + (Fbm(u, v, 9, 2, (seed + 71) >>> 0) - 0.5) * 5.0
+                       + (Hash2(x, y, (seed + 505) >>> 0) - 0.5) * 4.0;
+    }
+}
+
 /* One 128x128 greyscale tile per stratum, as an ImageBitmap-ready canvas. */
 function GenerateRock(layer, size){
   const c = RockCanvas(size);
@@ -323,7 +340,8 @@ function GenerateRock(layer, size){
   if (layer === 0) BuildRegolith(c, seed);
   else if (layer === 1) BuildMegaregolith(c, seed);
   else if (layer === 2) BuildFractured(c, seed);
-  else BuildBasalt(c, seed);
+  else if (layer === 3) BuildBasalt(c, seed);
+  else BuildUnknown(c, seed);
 
   // Centre on 128 EXACTLY -- the contract that lets a textured surface keep
   // the tone its flat fill had.
@@ -332,8 +350,8 @@ function GenerateRock(layer, size){
   const shift = 128.0 - sum / c.lum.length;
   // Basalt sits on the darkest rock in the palette, where a multiplicative
   // modulation loses most of its absolute contrast, so it swings wider.
-  const lo = layer === 3 ? 38.0 : layer === 0 ? 48.0 : 60.0;
-  const hi = layer === 3 ? 226.0 : layer === 0 ? 216.0 : 205.0;
+  const lo = layer === 4 ? 96.0 : layer === 3 ? 38.0 : layer === 0 ? 48.0 : 60.0;
+  const hi = layer === 4 ? 162.0 : layer === 3 ? 226.0 : layer === 0 ? 216.0 : 205.0;
 
   const cv = document.createElement("canvas");
   cv.width = cv.height = size;
@@ -382,7 +400,7 @@ function rgbq(c){
 /* The four generated rocks, and a repeating pattern each. */
 const SCRATCH = document.createElement("canvas").getContext("2d");
 const TEX = [], PAT = [];
-for (let L = 0; L < 4; L++){
+for (let L = 0; L < 5; L++){          // 0-3 the strata, 4 the unknown ground
   const cv = GenerateRock(L, TEX_SIZE);
   TEX.push(cv); PAT.push(SCRATCH.createPattern(cv, "repeat"));
 }
@@ -404,7 +422,7 @@ const P = {
   shade: 1.0, lightAz: 29, faceL: 0.64, faceR: 0.84,
   texAmt: 1.0, texScale: 2.0, seam: 0.95, lip: 0.55,
   bar: 1, running: 0, grid: 0, lips: 1, solo: 0,
-  fog: 1, fogAmt: 1.0, fogGrain: 3, fogSpreadH: 0.35, fogSpreadV: 0.45, fogThick: 0.66
+  fog: 1, fogAmt: 1.0, fogGrain: 3, fogSpreadH: 0.35, fogSpreadV: 0.45, fogThick: 0.80
 };
 const DEFAULTS = Object.assign({}, P);
 
@@ -553,121 +571,148 @@ function Layout(){
 }
 
 /* =====================================================================
-   4b. FOG -- what the column is NOT known to do
+   4b. FOG OF WAR -- the ground you have not established yet
    ---------------------------------------------------------------------
-   The block draws an interpretation, and an interpretation is not evenly
-   trustworthy: near the surface you know what the beds do, deep down you
-   are guessing. Fog is that ignorance made visible, so the panel stops
-   presenting a guess in the same voice as a measurement.
+   Not a haze over known rock. Under fog you do not learn a bed's TYPE
+   (which is carried by its texture), you do not learn WHERE its
+   boundaries are, and you do not learn how the column is arranged at
+   all. So the block draws two bodies: an UNKNOWN one -- one
+   undifferentiated mass, one structureless texture, no bedding lines --
+   and the real strata on top of it, masked to the part you have
+   established. Fog is what stands between them.
 
-   It is ONE diffuse field -- no zones, no per-bed rules, no engineered
-   windows. Haze everywhere, thickening downward, mottled by noise, and
-   the beds show through wherever it happens to thin. Five levers shape
-   it and nothing else does, which is the point: an uncertainty that
-   needs a rule per layer is not an uncertainty, it is a diagram.
+   That is the difference from a haze. A haze dims a truth the panel is
+   still telling you; this withholds it. Turn the opacity up and the
+   boundaries do not merely fade, they stop existing, which is the
+   honest picture of not knowing where they are.
 
-       0 = clear, you know this        1 = fog, you do not
+   CLICK THE BLOCK to establish ground there -- the fog lifts in a patch
+   and the real rock comes through it.
+
+       0 = established, you know this        1 = fog, you do not
    ===================================================================== */
 const FOG_SEED = 0x2f19;
 /* Cool, and DARK for one measured against the rest of the panel. An earlier
    pass used {138,156,178}: over near-black rock that put full fog at luminance
    150 against basalt's 52, and the unknown half of the column became the
-   loudest thing on screen -- the panel shouting about what it could not tell
-   you. Fog reads as absent, never as lit. */
+   loudest thing on screen. Fog reads as absent, never as lit. */
 const FOG_COL  = [66, 78, 95];
-const FOG_MAX_A = 0.88;             // never fully opaque: a trace of rock under
-                                    // the haze says there IS ground there,
-                                    // merely unresolved.
+/* And the ground under it. Neutral on purpose: every stratum colour in this
+   palette leans somewhere -- tan, brown, blue, near-black -- so the tone for
+   "type not established" has to lean nowhere, or it reads as a guess at which
+   rock it is. */
+const UNK_COL  = [58, 63, 72];
+const FOG_MAX_A = 0.9;
+
+const smoothstep = (a, b, x) => {
+  const t = clamp((x - a) / Math.max(b - a, 1e-6), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+/* Clicks. Each is a patch of ground established, stored in the fog's own
+   space so it survives every change of tilt, lattice and depth scale. */
+const reveals = [];
+let revealRev = 0;      // the body cache is keyed on P; clicks are not in P
+const REVEAL_R_PX = 92;
+function RevealK(sp, x, y){
+  let k = 0;
+  for (let i = 0; i < reveals.length; i++){
+    const r = reveals[i];
+    if (r.sp !== sp) continue;
+    const d = Math.hypot((x - r.x) / r.rx, (y - r.y) / r.ry);
+    if (d < 1) k = Math.max(k, 1 - smoothstep(0.35, 1, d));
+  }
+  return k;
+}
 
 /* The whole law. `pp` runs 0..1 around the block's VISIBLE perimeter and `tt`
    is depth as a fraction of the column, so one continuous field covers both
    cut faces and meets itself exactly at the corner they share. */
-function FogSample(pp, tt){
-  if (!P.fog) return { a: 0, n: 0.5 };
-  const n = FogNoise(pp, tt);
-  // Thickness is how early and how hard the haze builds. Low: it only gathers
-  // at the bottom of the column. High: it is in the room with you from the
-  // first few metres -- including a floor of haze at the very top, because
-  // "diffused all over" means the whole column is a little uncertain, not
-  // that uncertainty starts at some depth.
-  const e = lerp(2.4, 0.35, clamp(P.fogThick, 0, 1));
-  const floor = 0.08 * clamp(P.fogThick, 0, 1);
-  const dep = floor + (1 - floor) * Math.pow(clamp(tt, 0, 1), e);
-  return { a: clamp(dep * (0.25 + 1.5 * n) * P.fogAmt, 0, FOG_MAX_A), n };
-}
-/* fbm spends most of its life near the middle of its range, so used raw it
-   gives a wash: granularity and spread were being moved with nothing visibly
-   happening. Expanding around 0.5 is what turns the field back into
-   something you can see structure in -- and therefore tune. */
 function FogNoise(u, v){
+  // fbm spends most of its life near the middle of its range, so used raw it
+  // gives a wash: granularity and spread were being moved with nothing
+  // visibly happening. Expanding around 0.5 makes the field tunable.
   const n = Fbm(u / Math.max(P.fogSpreadH, 0.04),
                 v / Math.max(P.fogSpreadV, 0.04),
                 2, Math.max(1, Math.round(P.fogGrain)), FOG_SEED);
   return clamp((n - 0.5) * 1.9 + 0.5, 0, 1);
 }
+/* Returns the haze alpha, the tint noise, and -- the part fog of war needs --
+   how much of the real column is ESTABLISHED here. */
+function FogSample(sp, x, y, tt){
+  if (!P.fog) return { a: 0, n: 0.5, known: 1 };
+  const n = FogNoise(x, y);
+  // Thickness is how early and how hard the fog builds. Low: it only gathers
+  // at the bottom of the column. High: it is in the room with you from the
+  // first few metres -- including a floor at the very top, because "all over"
+  // means the whole column is uncertain, not that uncertainty starts deep.
+  const e = lerp(2.4, 0.35, clamp(P.fogThick, 0, 1));
+  const floor = 0.08 * clamp(P.fogThick, 0, 1);
+  const dep = floor + (1 - floor) * Math.pow(clamp(tt, 0, 1), e);
+  // Multiplying the ramp by the noise was wrong: at any depth a low noise
+  // value scaled the whole thing down, so `hidden` never reached 1 and the
+  // real strata leaked through the deepest ground -- exactly what fog of war
+  // must not do. The noise SHIFTS the ramp instead, so it moves where the fog
+  // edge sits without ever lifting the floor under it, and the bottom of the
+  // column saturates at completely unknown.
+  let hidden = clamp((dep * 1.35 + (n - 0.5) * 0.85) * P.fogAmt, 0, 1);
+  hidden *= 1 - RevealK(sp, x, y);
+  return { a: Math.min(hidden, FOG_MAX_A), n, known: 1 - hidden };
+}
 
 /* Rasterised small and blown up with smoothing -- which is what makes it read
    as fog rather than as a stack of quads -- and drawn through the same affine
-   the rock texture already uses. One canvas per face, each sampling its own
-   half of the perimeter, so there is no sub-rectangle seam to bleed. */
+   the rock texture already uses. Haze and mask come out of ONE pass, because
+   they are two readings of the same number and must not drift. */
 const FOG_MARGIN_M = 8;
 const FOG_W = 112, FOG_H = 176, FOG_TOP = 56;
 let fogKey = "", fogFace = [null, null], fogTop = null;
+let mskFace = [null, null], mskTop = null;
 
-function Paint(img, k, a, n){
-  const lift = 0.82 + 0.42 * n;     // the same noise tints as it hides, so even
-  img.data[k]     = clamp(FOG_COL[0] * lift, 0, 255);   // full fog keeps a
-  img.data[k + 1] = clamp(FOG_COL[1] * lift, 0, 255);   // vague texture instead
-  img.data[k + 2] = clamp(FOG_COL[2] * lift, 0, 255);   // of going flat
-  img.data[k + 3] = a * 255;
-}
-function FogFaceCanvas(side){
-  const w = FOG_W, h = FOG_H, span = COLUMN_M + 2 * FOG_MARGIN_M;
-  const cv = document.createElement("canvas");
-  cv.width = w; cv.height = h;
-  const ctx = cv.getContext("2d"), img = ctx.createImageData(w, h);
-  for (let y = 0; y < h; y++){
-    const tt = (-FOG_MARGIN_M + y / (h - 1) * span) / Math.max(COLUMN_M, 1);
+function MakePair(w, h, sample){
+  const fc = document.createElement("canvas"), mc = document.createElement("canvas");
+  fc.width = mc.width = w; fc.height = mc.height = h;
+  const fx = fc.getContext("2d"), mx = mc.getContext("2d");
+  const fi = fx.createImageData(w, h), mi = mx.createImageData(w, h);
+  for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++){
-      const pp = (side === 0 ? 0 : 0.5) + x / (w - 1) * 0.5;
-      const f = FogSample(pp, tt);
-      Paint(img, (y * w + x) * 4, f.a, f.n);
+      const r = sample(x, y), k = (y * w + x) * 4;
+      const lift = 0.82 + 0.42 * r.n;      // the noise tints as well as hides,
+      fi.data[k]     = clamp(FOG_COL[0] * lift, 0, 255);   // so even full fog
+      fi.data[k + 1] = clamp(FOG_COL[1] * lift, 0, 255);   // keeps a vague
+      fi.data[k + 2] = clamp(FOG_COL[2] * lift, 0, 255);   // texture
+      fi.data[k + 3] = r.a * 255;
+      mi.data[k] = mi.data[k + 1] = mi.data[k + 2] = 255;
+      mi.data[k + 3] = clamp(r.known, 0, 1) * 255;
     }
-  }
-  ctx.putImageData(img, 0, 0);
-  return cv;
+  fx.putImageData(fi, 0, 0); mx.putImageData(mi, 0, 0);
+  return [fc, mc];
 }
-function FogTopCanvas(L){
-  const w = FOG_TOP, tt = TOPS[Math.min(L, 3)] / Math.max(COLUMN_M, 1);
-  const cv = document.createElement("canvas");
-  cv.width = cv.height = w;
-  const ctx = cv.getContext("2d"), img = ctx.createImageData(w, w);
-  const e = lerp(2.4, 0.35, clamp(P.fogThick, 0, 1));
-  const floor = 0.08 * clamp(P.fogThick, 0, 1);
-  const dep = P.fog ? floor + (1 - floor) * Math.pow(clamp(tt, 0, 1), e) : 0;
-  for (let y = 0; y < w; y++)
-    for (let x = 0; x < w; x++){
-      // the cap is a plan view, so both axes are horizontal: one spread
-      const n = FogNoise(x / (w - 1), y / (w - 1) * P.fogSpreadV / Math.max(P.fogSpreadH, 0.04));
-      Paint(img, (y * w + x) * 4,
-            clamp(dep * (0.25 + 1.5 * n) * P.fogAmt, 0, FOG_MAX_A), n);
-    }
-  ctx.putImageData(img, 0, 0);
-  return cv;
-}
-/* Only the fog levers and the column's own geometry can change these, so a
-   light or texture slider never pays for a fog raster. */
 function EnsureFog(topB){
   const k = [P.fog, P.fogAmt, P.fogGrain, P.fogSpreadH, P.fogSpreadV, P.fogThick,
-             COLUMN_M, TOPS.join(","), topB].join("|");
+             COLUMN_M, TOPS.join(","), topB, reveals.length,
+             reveals.length ? reveals[reveals.length - 1].x : 0].join("|");
   if (k === fogKey) return;
   fogKey = k;
-  fogFace = [FogFaceCanvas(0), FogFaceCanvas(1)];
-  fogTop = FogTopCanvas(topB);
+  const span = COLUMN_M + 2 * FOG_MARGIN_M;
+  for (const side of [0, 1]){
+    const pair = MakePair(FOG_W, FOG_H, (x, y) => {
+      const pp = (side === 0 ? 0 : 0.5) + x / (FOG_W - 1) * 0.5;
+      const tt = (-FOG_MARGIN_M + y / (FOG_H - 1) * span) / Math.max(COLUMN_M, 1);
+      return FogSample("face", pp, tt, tt);
+    });
+    fogFace[side] = pair[0]; mskFace[side] = pair[1];
+  }
+  const tt = TOPS[Math.min(topB, 3)] / Math.max(COLUMN_M, 1);
+  const pair = MakePair(FOG_TOP, FOG_TOP, (x, y) =>
+    FogSample("top", x / (FOG_TOP - 1),
+              y / (FOG_TOP - 1) * P.fogSpreadV / Math.max(P.fogSpreadH, 0.04), tt));
+  fogTop = pair[0]; mskTop = pair[1];
 }
 
-/* The face path across a RANGE of interfaces, so fog is laid on the whole
-   exposed side in one pass and has no seam at a bedding plane. */
+/* The face path across a RANGE of interfaces, so the unknown body, the haze
+   and the mask are each laid on the whole exposed side in one pass, with no
+   seam at a bedding plane -- and, for the unknown body, no bedding plane. */
 function FacePathSpan(side, topB, botB){
   const xt = SPX[topB], yt = SPY[topB], xb = SPX[botB], yb = SPY[botB];
   CTX.beginPath();
@@ -682,13 +727,9 @@ function FacePathSpan(side, topB, botB){
   }
   CTX.closePath();
 }
-/* Fog goes on LAST, over finished rock and finished lines. Nothing else has to
-   know it exists: a boundary drawn confidently underneath simply stops being
-   visible where the haze is thick, and shows through where it thins -- which
-   is the whole reason the field is one field. */
-function FogOver(topB, botB){
-  if (!P.fog || P.fogAmt <= 0.001) return;
-  EnsureFog(topB);
+/* One projection used by all three overlays, so haze, mask and reveal cannot
+   land in different places. */
+function ProjectTriple(topB, botB, faceCvs, topCv){
   const len = Math.hypot(TX, TY), run = N * len;
   const span = COLUMN_M + 2 * FOG_MARGIN_M;
   for (const side of [0, 1]){
@@ -699,7 +740,7 @@ function FogOver(topB, botB){
     const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
     CTX.transform(ux * run / FOG_W, uy * run / FOG_W, 0, span * PX_PER_M / FOG_H,
                   ox, YOf(-FOG_MARGIN_M));
-    CTX.drawImage(fogFace[side], 0, 0);
+    CTX.drawImage(faceCvs[side], 0, 0);
     CTX.restore();
   }
   CTX.save();
@@ -708,13 +749,37 @@ function FogOver(topB, botB){
   const a = N / FOG_TOP;
   CTX.transform(a * TX, a * TY, -a * TX, a * TY, BLK_CX,
                 YOf(TOPS[Math.min(topB, 3)]) - N * TY);
-  CTX.drawImage(fogTop, 0, 0);
+  CTX.drawImage(topCv, 0, 0);
   CTX.restore();
+}
 
-  /* The body's own outline is redrawn ON TOP of the fog. Where the column goes
-     is not in doubt -- the survey reached its depth whatever it failed to
-     resolve there -- and without this the block dissolves into the background
-     and stops being an object at all. */
+/* The unknown body: ONE mass from the top of the block to its base, in the
+   neutral tone and the structureless tile, with no boundary drawn anywhere in
+   it. Everything that would tell you how the column is arranged is simply
+   absent -- which is the point, and is why this cannot be done by dimming. */
+function DrawUnknown(topB, botB){
+  const g = TexGain(P.texAmt);
+  const len = Math.hypot(TX, TY), run = N * len;
+  const depthPx = (COLUMN_M + 2 * FOG_MARGIN_M) * PX_PER_M;
+  for (const side of [0, 1]){
+    const shade = side === 0 ? P.faceL : P.faceR;
+    CTX.fillStyle = rgb(scalec(UNK_COL, shade * g));
+    FacePathSpan(side, topB, botB); CTX.fill();
+    const ox = BLK_CX + (side === 0 ? -N * TX : N * TX);
+    const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
+    TexOverFace(() => FacePathSpan(side, topB, botB), 4, 0,
+                ox, YOf(-FOG_MARGIN_M), ux, uy, run, depthPx);
+  }
+  CTX.fillStyle = rgb(scalec(UNK_COL, g));
+  SurfacePath(topB); CTX.fill();
+  TexOverTop(topB, 4);
+}
+
+/* The block's own outline, drawn over everything. Where the column GOES is
+   not in doubt even where its contents are -- the survey reached its depth
+   whatever it failed to resolve there -- and without this the block dissolves
+   into the background and stops being an object. */
+function FogFrame(topB, botB){
   const e = rgb([150, 168, 190], 0.30);
   CTX.strokeStyle = e; CTX.lineWidth = 1.2;
   SurfacePath(botB); CTX.stroke();
@@ -868,6 +933,32 @@ function CornerVerticals(topL, botL, col, w){
     CTX.stroke();
   }
 }
+/* The two bodies, and the fog between them. Order is the whole argument: the
+   UNKNOWN mass first, then the haze that says you cannot see through it, then
+   the real strata masked to what you have established. Where nothing is
+   established the real body is not dimmed, it is not drawn -- so the panel
+   cannot leak a boundary it has no business knowing. */
+const REVEAL_CV = document.createElement("canvas"), RCTX = REVEAL_CV.getContext("2d");
+const MASK_CV = document.createElement("canvas"), MCTX = MASK_CV.getContext("2d");
+function DrawBody(){
+  const topB = st.sel < 0 ? 0 : st.sel;
+  const botB = P.solo ? topB + 1 : 4;
+  if (!P.fog || P.fogAmt <= 0.001){ DrawRealBody(); return; }
+  EnsureFog(topB);
+  DrawUnknown(topB, botB);
+  ProjectTriple(topB, botB, fogFace, fogTop);
+  OnLayer(RCTX, DrawRealBody);
+  OnLayer(MCTX, () => ProjectTriple(topB, botB, mskFace, mskTop));
+  RCTX.save();
+  RCTX.setTransform(1, 0, 0, 1, 0, 0);
+  RCTX.globalCompositeOperation = "destination-in";
+  RCTX.drawImage(MASK_CV, 0, 0);
+  RCTX.restore();
+  CTX.save(); CTX.setTransform(1, 0, 0, 1, 0, 0);
+  CTX.drawImage(REVEAL_CV, 0, 0); CTX.restore();
+  FogFrame(topB, botB);
+}
+
 function DrawLattice(){
   const L = st.sel < 0 ? 0 : st.sel, x = SPX[L], y = SPY[L];
   const step = Math.max(1, Math.round(N / 16));
@@ -904,7 +995,7 @@ function AsSeenThrough(alpha, draw){
   CTX.globalAlpha = alpha; CTX.drawImage(SCR, 0, 0); CTX.restore();
 }
 
-function DrawBody(){
+function DrawRealBody(){
   const sel = st.sel;
   const dark = rgb([6,9,13], 0.9);
   if (P.solo){
@@ -920,7 +1011,6 @@ function DrawBody(){
     CTX.strokeStyle = rgb(TEXT, 0.34); CTX.lineWidth = 1.3;
     SurfacePath(L); CTX.stroke();
     if (P.grid) DrawLattice();
-    FogOver(L, L + 1);
     return;
   }
   if (sel < 0){
@@ -935,7 +1025,6 @@ function DrawBody(){
       BoundaryStroke(4, 1, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
     }
     if (P.grid) DrawLattice();
-    FogOver(0, 4);
     return;
   }
   for (let L = 3; L > sel; L--) DrawFaces(L);
@@ -958,7 +1047,6 @@ function DrawBody(){
   BoundaryStroke(floorGeo, 1, rgb(TEXT, 0.50), 1.5, 0);
   CornerVerticals(sel, floorGeo, rgb(TEXT, 0.62), 1.5);
   if (P.grid) DrawLattice();
-  FogOver(sel, 4);
 }
 /* =====================================================================
    7. THE DRILL BAR -- unchanged, on the same axis
@@ -1341,7 +1429,8 @@ const BODY = document.createElement("canvas"), BCTX = BODY.getContext("2d");
 const STRIPBG = document.createElement("canvas"), SBCTX = STRIPBG.getContext("2d");
 let bodyKey = "", stripKey = "";
 function SizeLayers(){
-  for (const c of [SCR, BODY, STRIPBG]){ c.width = CV.width; c.height = CV.height; }
+  for (const c of [SCR, BODY, STRIPBG, REVEAL_CV, MASK_CV]){
+    c.width = CV.width; c.height = CV.height; }
 }
 function OnLayer(target, draw){
   const main = CTX;
@@ -1349,7 +1438,7 @@ function OnLayer(target, draw){
   ApplyFit(target);
   CTX = target; draw(); CTX = main;
 }
-const Sig = () => JSON.stringify(P) + "|" + st.sel;
+const Sig = () => JSON.stringify(P) + "|" + st.sel + "|" + revealRev;
 function EnsureCaches(){
   const k = Sig();
   if (k !== bodyKey){ bodyKey = k; OnLayer(BCTX, DrawBody); }
@@ -1419,7 +1508,7 @@ const SCHEMA = [
       { k:"craterY",     lab:"Position Y", min:0, max:1,  step:0.01, fmt:pc }
     ] },
   { title: "Fog — what is not known",
-    note: "One diffuse field. Haze everywhere, thickening downward; the beds show through where it thins.",
+    note: "Under fog the ground has no type and no boundaries. Click the block to establish it.",
     items: [
       { k:"fog",        type:"toggle", lab:"Fog" },
       { k:"fogAmt",     lab:"Opacity",      min:0,    max:1,   step:0.01, fmt:pc },
@@ -1429,7 +1518,9 @@ const SCHEMA = [
         fmt:v => Math.round(v * 100) + "% of face" },
       { k:"fogSpreadV", lab:"Spread down",  min:0.05, max:1.4, step:0.01,
         fmt:v => Math.round(v * 100) + "% of column" },
-      { k:"fogThick",   lab:"Thickness",    min:0,    max:1,   step:0.01, fmt:pc }
+      { k:"fogThick",   lab:"Thickness",    min:0,    max:1,   step:0.01, fmt:pc },
+      { type:"act", lab:"Cover it back up",
+        run:() => { reveals.length = 0; revealRev++; fogKey = ""; } }
     ] },
   { title: "Strata", note: "Thickness in metres. The column is their sum.",
     items: [
@@ -1505,6 +1596,16 @@ function ToggleRow(it){
   row.append(wrap);
   return row;
 }
+function ActRow(it){
+  const row = El("div", "ctl");
+  row.style.gridTemplateColumns = "1fr";
+  const wrap = El("div", "acts");
+  const b = El("button", "chip", it.lab);
+  b.type = "button";
+  b.addEventListener("click", () => { it.run(); SyncAll(); Changed(); });
+  wrap.append(b); row.append(wrap);
+  return row;
+}
 function SegRow(it){
   const row = El("div", "ctl");
   row.append(El("div", "lab", it.lab), El("div", "val", ""));
@@ -1567,6 +1668,7 @@ for (const sec of SCHEMA){
     for (const it of sec.items)
       card.append(it.type === "toggle" ? ToggleRow(it)
                 : it.type === "seg"    ? SegRow(it)
+                : it.type === "act"    ? ActRow(it)
                 : SliderRow(it));
   }
   rail.append(card);
@@ -1645,8 +1747,48 @@ function evPos(e){
 }
 CV.addEventListener("pointermove", e => { const p = evPos(e); st.mx = p[0]; st.my = p[1]; });
 CV.addEventListener("pointerleave", () => { st.mx = st.my = -1; });
+/* Where on the block a click landed, in the fog's own coordinates -- the
+   inverse of the projection the haze and the mask are drawn through, so a
+   patch lands exactly where it was clicked at any tilt, lattice or scale. */
+function FogHitAt(topB, botB, vx, vy){
+  const dx = st.mx * 2, dy = st.my * 2;      // isPointInPath ignores the CTM
+  const len = Math.hypot(TX, TY), run = N * len;
+  const span = COLUMN_M + 2 * FOG_MARGIN_M;
+  for (const side of [0, 1]){
+    FacePathSpan(side, topB, botB);
+    if (!CTX.isPointInPath(dx, dy)) continue;
+    const ox = BLK_CX + (side === 0 ? -N * TX : N * TX), oy = YOf(-FOG_MARGIN_M);
+    const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
+    const sIdx = (vx - ox) / (ux * run);
+    const yn = (vy - oy - sIdx * uy * run) / (span * PX_PER_M);
+    return { sp: "face", x: (side === 0 ? 0 : 0.5) + sIdx * 0.5,
+             y: (-FOG_MARGIN_M + yn * span) / Math.max(COLUMN_M, 1),
+             rx: REVEAL_R_PX / (2 * run),
+             ry: REVEAL_R_PX / Math.max(COLUMN_M * PX_PER_M, 1) };
+  }
+  SurfacePath(topB);
+  if (CTX.isPointInPath(dx, dy)){
+    const c = PickCell(topB, vx, vy);
+    return { sp: "top", x: c.i / N, y: c.j / N,
+             rx: REVEAL_R_PX / Math.max(run, 1), ry: REVEAL_R_PX / Math.max(run, 1) };
+  }
+  return null;
+}
 CV.addEventListener("pointerdown", e => {
   const p = evPos(e); st.mx = p[0]; st.my = p[1];
+  const vx = (st.mx - FIT.tx) / FIT.s, vy = (st.my - FIT.ty) / FIT.s;
+  if (P.fog && P.fogAmt > 0.001){
+    // Fog on: a click establishes ground. Peeling stays on the chips and the
+    // number keys, because with fog up there is nothing to peel INTO until
+    // you have found out what is down there.
+    const hit = FogHitAt(st.sel < 0 ? 0 : st.sel,
+                         P.solo ? (st.sel < 0 ? 1 : st.sel + 1) : 4, vx, vy);
+    if (hit){
+      reveals.push(hit);
+      if (reveals.length > 80) reveals.shift();   // the sampler walks this list
+      revealRev++; fogKey = ""; SyncAll(); Changed(); return;
+    }
+  }
   UpdatePick();
   // Clicking the layer you are already inside keeps it; clicking the ground
   // outside the body puts the stack back, which is the way out that needs
