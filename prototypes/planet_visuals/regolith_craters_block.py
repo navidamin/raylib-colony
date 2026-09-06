@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Cut the WAC block that regolith_craters.html carries inside itself.
+"""Cut the WAC blocks that regolith_craters.html carries inside itself.
 
-The bench needs a piece of the real mosaic and has to open from file://
-with no server, so the imagery travels in the page as a base64 PNG. A
-100 km window is only ~75 texels at the WAC's 22.7556 texels/degree, so
-a block big enough to pan around in is still small enough to embed.
+The bench needs real imagery and has to open from file:// with no
+server, so the mosaic travels in the page: one square block per region,
+base64 PNG. A 100 km window is only ~75 texels at the WAC's 22.7556
+texels/degree, so a block big enough to pan and zoom out in is still
+small enough to embed -- 256 texels is 341 km and about 50 kB.
 
     python3 prototypes/planet_visuals/regolith_craters_block.py
-    python3 ... --lat -43.3 --lon -11.4 --size 320 --write
+    python3 ... --write
+    python3 ... --add "Marius Hills" 14.2 -56.2 --write
 
 Without --write it prints what it would do and leaves the bench alone.
 Requires Pillow and numpy (the game itself needs neither).
@@ -27,14 +29,38 @@ WAC = ROOT / "src/assets/planet/wac_global.jpg"
 BENCH = Path(__file__).with_name("regolith_craters.html")
 KM_PER_DEG = 30.32268
 
+# key, name, lat, lon, what the ground is, and where the view starts
+# relative to the region centre in km east / km south. The offset exists
+# because for a region NAMED after a crater the interesting ground for a
+# synthesis bench is usually next to it, not inside it.
+REGIONS = [
+    ("plinius", "Plinius", 15.40, 23.70,
+     "43 km crater on the Serenitatis / Tranquillitatis shore", 33.0, 12.0),
+    ("imbrium", "Mare Imbrium", 32.80, -15.60,
+     "the playfield's default anchor -- flat mare, few landforms", 0.0, 0.0),
+    ("tranquility", "Tranquility Base", 0.67, 23.47,
+     "Apollo 11 -- about as flat as the moon gets", 0.0, 0.0),
+    ("copernicus", "Copernicus", 9.62, -20.08,
+     "93 km, terraced walls and central peaks", 0.0, 0.0),
+    ("tycho", "Tycho", -43.31, -11.36,
+     "85 km and the freshest of the big ones; rays and rough highlands", 0.0, 0.0),
+    ("aristarchus", "Aristarchus", 23.70, -47.40,
+     "the brightest feature on the moon, on a plateau cut by Vallis Schröteri",
+     0.0, 0.0),
+    ("hadley", "Hadley / Apennines", 26.13, 3.63,
+     "Apollo 15 -- mountain front and a sinuous rille", 0.0, 0.0),
+    ("aristoteles", "Aristoteles", 50.20, 17.40,
+     "87 km terraced crater in the northern highlands", 0.0, 0.0),
+]
+
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--lat", type=float, default=15.4, help="block centre latitude")
-    ap.add_argument("--lon", type=float, default=23.7, help="block centre longitude")
-    ap.add_argument("--size", type=int, default=320, help="block edge in WAC texels")
+    ap.add_argument("--size", type=int, default=256, help="block edge in WAC texels")
+    ap.add_argument("--add", nargs=3, metavar=("NAME", "LAT", "LON"), action="append",
+                    help="an extra region to carry")
     ap.add_argument("--write", action="store_true",
-                    help="patch the block into regolith_craters.html")
+                    help="patch the blocks into regolith_craters.html")
     args = ap.parse_args()
 
     from PIL import Image
@@ -46,46 +72,56 @@ def main():
     im = Image.open(WAC).convert("RGB")
     w, h = im.size
     rgb = np.asarray(im).astype(np.int32)
-    # EnsureWacLoaded's own grayscale, so the block is byte-identical to
+    # EnsureWacLoaded's own grayscale, so a block is byte-identical to
     # what the C++ reads out of the same JPEG.
     gray = ((rgb[:, :, 0] + rgb[:, :, 1] + rgb[:, :, 2] + 1) // 3).astype(np.uint8)
 
+    regions = list(REGIONS)
+    for extra in (args.add or []):
+        name, lat, lon = extra[0], float(extra[1]), float(extra[2])
+        key = re.sub(r"[^a-z0-9]+", "", name.lower())
+        regions.append((key, name, lat, lon, "", 0.0, 0.0))
+
     n = args.size
-    x0 = int(round((args.lon + 180.0) / 360.0 * w - n / 2))
-    y0 = int(round((90.0 - args.lat) / 180.0 * h - n / 2))
-    if x0 < 0 or y0 < 0 or x0 + n > w or y0 + n > h:
-        sys.exit("block runs off the mosaic; move the centre or shrink --size")
-    block = gray[y0:y0 + n, x0:x0 + n]
-
-    buf = io.BytesIO()
-    Image.fromarray(block, "L").save(buf, format="PNG", optimize=True)
-    b64 = base64.b64encode(buf.getvalue()).decode()
-
     span_km = n / (w / 360.0) * KM_PER_DEG
-    lon_km = span_km * math.cos(math.radians(args.lat))
     print(f"mosaic  {w}x{h}  {w / 360.0:.4f} texels/deg  "
           f"{KM_PER_DEG / (w / 360.0):.3f} km/texel")
-    print(f"block   {n}x{n} texels at ({x0}, {y0})  "
-          f"{span_km:.0f} km N-S x {lon_km:.0f} km E-W")
-    print(f"png     {len(buf.getvalue())} bytes  -> {len(b64)} base64")
+    print(f"blocks  {n}x{n} texels = {span_km:.0f} km north-south each\n")
 
-    meta = {"wacW": w, "wacH": h, "x0": x0, "y0": y0, "w": n, "h": n,
-            "lat": args.lat, "lon": args.lon, "png": b64}
-    payload = json.dumps(meta, separators=(",", ":"))
+    out, total = [], 0
+    for key, name, lat, lon, note, eKm, sKm in regions:
+        x0 = int(round((lon + 180.0) / 360.0 * w - n / 2))
+        y0 = int(round((90.0 - lat) / 180.0 * h - n / 2))
+        if y0 < 0 or y0 + n > h:
+            sys.exit(f"{name}: block runs off the mosaic in latitude")
+        cols = [(x0 + i) % w for i in range(n)]          # longitude wraps
+        block = gray[y0:y0 + n][:, cols]
+        buf = io.BytesIO()
+        Image.fromarray(block, "L").save(buf, format="PNG", optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        total += len(b64)
+        lon_km = span_km * math.cos(math.radians(lat))
+        print(f"  {name:22s} {lat:7.2f} {lon:8.2f}   "
+              f"{lon_km:.0f} km E-W   {len(buf.getvalue()) // 1024:3d} kB")
+        out.append({"key": key, "name": name, "note": note,
+                    "lat": lat, "lon": lon, "eKm": eKm, "sKm": sKm,
+                    "x0": x0, "y0": y0, "png": b64})
+
+    print(f"\ntotal base64 {total / 1024:.0f} kB across {len(out)} regions")
+    payload = json.dumps({"wacW": w, "wacH": h, "size": n, "regions": out},
+                         separators=(",", ":"))
 
     if not args.write:
-        print("\n(dry run -- pass --write to patch the bench)")
+        print("(dry run -- pass --write to patch the bench)")
         return
     src = BENCH.read_text()
     patched, count = re.subn(
-        r'(<script id="wac-block" type="application/json">)[\s\S]*?(</script>)',
+        r'(<script id="wac-blocks" type="application/json">)[\s\S]*?(</script>)',
         lambda m: m.group(1) + "\n" + payload + "\n" + m.group(2), src, count=1)
     if count != 1:
-        sys.exit("could not find the wac-block script tag in the bench")
+        sys.exit("could not find the wac-blocks script tag in the bench")
     BENCH.write_text(patched)
-    print(f"\nwrote {BENCH.relative_to(ROOT)}")
-    print("REGION / CRATER_ORIGIN / FOCUS in the bench still point at the old "
-          "ground -- move them too, or the window will sit outside the block.")
+    print(f"wrote {BENCH.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

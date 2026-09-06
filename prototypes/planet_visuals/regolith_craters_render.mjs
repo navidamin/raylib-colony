@@ -7,20 +7,24 @@
 // which is the only way to look at a change without a browser.
 //
 //   node prototypes/planet_visuals/regolith_craters_render.mjs
-//   node ... --focus plinius --res 400 --no-craters --out /tmp/shot
+//   node ... --region tycho --span 5 --res 400
+//   node ... --span 1 --no-craters --out build/off
 //   node ... --lat 32.7176 --lon -15.5019 --block anchor.bin --spans 100,25,5
 //
 // Options:
 //   --out DIR        where the PNGs go            (default build/regolith)
-//   --focus KEY      one of the bench's FOCUS presets   (default mare)
-//   --lat/--lon D    an explicit centre, overriding --focus
+//   --region KEY     one of the carried regions   (default the first)
+//   --list           print the carried regions and stop
+//   --lat/--lon D    an explicit window centre, overriding the region
+//   --span KM        the window                   (default 25)
+//   --window         2-step ladder (100 km, then the window) rather than stepped
+//   --spans A,B,C    an explicit km ladder, overriding --span
 //   --res N          pixels per level              (default 320)
-//   --spans A,B,C    the km ladder                 (default 100,25,5)
 //   --no-craters     the same ground with the craters off (A/B)
 //   --last-only      carve only the deepest level, not every one
 //   --set K=V,...    override any tune or crater lever
-//   --block FILE     raw 8-bit block + FILE.json instead of the embedded one
-//   --dump-lum FILE  write level 2's luminance as raw float32 (port checks)
+//   --block FILE     raw 8-bit block + FILE.json instead of a carried one
+//   --dump-lum FILE  write the last level's luminance as raw float32
 
 import fs from "node:fs";
 import path from "node:path";
@@ -120,17 +124,18 @@ const html = fs.readFileSync(HTML, "utf8");
 const B = "/* ===== CHAIN BEGIN", E = "/* ===== CHAIN END";
 const b0 = html.indexOf(B), e0 = html.indexOf(E);
 if (b0 < 0 || e0 < 0) throw new Error("CHAIN markers not found in " + HTML);
-const chainSrc = html.slice(b0, e0);
-const TC = new Function(chainSrc + "\nreturn TerrainChain;")();
+const TC = new Function(html.slice(b0, e0) + "\nreturn TerrainChain;")();
 
-function EmbeddedBlock(){
-  const m = html.match(/<script id="wac-block"[^>]*>([\s\S]*?)<\/script>/);
-  const meta = JSON.parse(m[1]);
-  const png = ReadGrayPng(Buffer.from(meta.png, "base64"));
-  if (png.w !== meta.w || png.h !== meta.h)
+const PAYLOAD = JSON.parse(
+  html.match(/<script id="wac-blocks"[^>]*>([\s\S]*?)<\/script>/)[1]);
+
+function CarriedBlock(region){
+  const png = ReadGrayPng(Buffer.from(region.png, "base64"));
+  if (png.w !== PAYLOAD.size || png.h !== PAYLOAD.size)
     throw new Error("block PNG size disagrees with its registration");
-  return { data: png.data, w: meta.w, h: meta.h, x0: meta.x0, y0: meta.y0,
-           wacW: meta.wacW, wacH: meta.wacH };
+  return { data: png.data, w: PAYLOAD.size, h: PAYLOAD.size,
+           x0: region.x0, y0: region.y0,
+           wacW: PAYLOAD.wacW, wacH: PAYLOAD.wacH };
 }
 
 /* --- arguments ------------------------------------------------------ */
@@ -139,27 +144,42 @@ const argv = process.argv.slice(2);
 const Arg = (k, d) => { const i = argv.indexOf("--" + k); return i < 0 ? d : argv[i + 1]; };
 const Flag = k => argv.includes("--" + k);
 
+if (Flag("list")){
+  for (const r of PAYLOAD.regions)
+    console.log(`${r.key.padEnd(13)} ${r.lat.toFixed(2).padStart(7)} `
+      + `${r.lon.toFixed(2).padStart(8)}   ${r.name} — ${r.note}`);
+  process.exit(0);
+}
+
 const outDir = Arg("out", path.join(HERE, "..", "..", "build", "regolith"));
 fs.mkdirSync(outDir, { recursive: true });
-
 const res = parseInt(Arg("res", "320"), 10);
-const spans = Arg("spans", "100,25,5").split(",").map(Number);
 
-let block, originLat, originLon;
+const regionKey = Arg("region", PAYLOAD.regions[0].key);
+const region = PAYLOAD.regions.find(r => r.key === regionKey);
+if (!region) throw new Error(`no carried region "${regionKey}" (try --list)`);
+
+// The crater population is pinned to the region's own origin.
+const originLat = region.lat - region.sKm / TC.MOON_KM_PER_DEG;
+const originLon = region.lon + region.eKm /
+  (TC.MOON_KM_PER_DEG * Math.cos(originLat * TC.DEG2RAD));
+
+let block;
 const blockFile = Arg("block", null);
 if (blockFile){
   const meta = JSON.parse(fs.readFileSync(blockFile + ".json", "utf8"));
   block = { data: new Uint8Array(fs.readFileSync(blockFile)), w: meta.w, h: meta.h,
             x0: meta.x0, y0: meta.y0, wacW: meta.wacW, wacH: meta.wacH };
 } else {
-  block = EmbeddedBlock();
+  block = CarriedBlock(region);
 }
-originLat = TC.CRATER_ORIGIN.lat; originLon = TC.CRATER_ORIGIN.lon;
 
-const focusKey = Arg("focus", "mare");
-const focus = TC.FOCUS.find(f => f.key === focusKey) || TC.FOCUS[0];
-const lat = parseFloat(Arg("lat", String(focus.lat)));
-const lon = parseFloat(Arg("lon", String(focus.lon)));
+const lat = parseFloat(Arg("lat", String(originLat)));
+const lon = parseFloat(Arg("lon", String(originLon)));
+const span = parseFloat(Arg("span", "25"));
+const spans = Arg("spans", null)
+  ? Arg("spans").split(",").map(Number)
+  : TC.ChainSpans(span, !Flag("window"));
 
 const tune = Object.assign({}, TC.DEFAULT_TUNE);
 const cp = Object.assign({}, TC.DEFAULT_CRATER);
@@ -181,7 +201,6 @@ const { levels, report } = TC.GenerateChain({
 });
 const ms = Date.now() - t0;
 
-const NAMES = ["planet", "colony", "sect"];
 const files = [];
 for (let i = 0; i < levels.length; i++){
   const L = levels[i];
@@ -190,32 +209,54 @@ for (let i = 0; i < levels.length; i++){
     rgb[p * 3] = L.rgba[p * 4]; rgb[p * 3 + 1] = L.rgba[p * 4 + 1];
     rgb[p * 3 + 2] = L.rgba[p * 4 + 2];
   }
-  const f = path.join(outDir, `${NAMES[i] || "level" + i}.png`);
+  const tag = L.spanKm < 1 ? Math.round(L.spanKm * 1000) + "m"
+                           : (+L.spanKm.toFixed(2)) + "km";
+  const f = path.join(outDir, `level${i}_${tag}.png`);
   WritePng(f, rgb, res, res);
-  files.push(f);
+  files.push({ f, rgb });
   let lo = 1e9, hi = -1e9;
   for (const v of L.height){ if (v < lo) lo = v; if (v > hi) hi = v; }
-  console.log(`${(NAMES[i] || i).padEnd(7)} ${String(L.spanKm).padStart(4)} km  `
-    + `${(L.kmPerPx * 1000).toFixed(1).padStart(6)} m/px  `
+  console.log(`level ${i}  ${tag.padStart(7)}  `
+    + `${(L.kmPerPx * 1000).toFixed(1).padStart(7)} m/px  `
     + `craters ${String(L.craters).padStart(2)}  `
     + `relief ${((hi - lo) * L.heightScaleM).toFixed(0).padStart(6)} m  -> ${path.basename(f)}`);
 }
 
-// One sheet, so a whole descent can be looked at in a single image.
-const GAP = 10;
-const sw = res * levels.length + GAP * (levels.length - 1), sh = res;
-const sheet = new Uint8Array(sw * sh * 3);
-for (let i = 0; i < levels.length; i++){
-  const ox = i * (res + GAP);
-  for (let y = 0; y < res; y++)
+// The mosaic itself, at the same window and the same output size, with
+// its texels kept square -- the comparison the bench is built around.
+const S = TC.SourceTexels(block, lat, lon, spans[spans.length - 1] / TC.MOON_KM_PER_DEG);
+const srcRgb = new Uint8Array(res * res * 3);
+{
+  const px = new Uint8ClampedArray(4);
+  for (let y = 0; y < res; y++){
+    const ty = Math.min(S.h - 1, Math.max(0, Math.floor(S.sy + (y + 0.5) / res * S.sh)));
     for (let x = 0; x < res; x++){
-      const s = (y * res + x) * 4, d = (y * sw + ox + x) * 3;
-      sheet[d] = levels[i].rgba[s]; sheet[d + 1] = levels[i].rgba[s + 1];
-      sheet[d + 2] = levels[i].rgba[s + 2];
+      const tx = Math.min(S.w - 1, Math.max(0, Math.floor(S.sx + (x + 0.5) / res * S.sw)));
+      TC.RampColor(S.data[ty * S.w + tx] / 255, px, 0);
+      const d = (y * res + x) * 3;
+      srcRgb[d] = px[0]; srcRgb[d + 1] = px[1]; srcRgb[d + 2] = px[2];
     }
+  }
 }
-const sheetFile = path.join(outDir, "descent.png");
-WritePng(sheetFile, sheet, sw, sh);
+const srcFile = path.join(outDir, "source.png");
+WritePng(srcFile, srcRgb, res, res);
+console.log(`mosaic     ${S.sw.toFixed(1)} x ${S.sh.toFixed(1)} real texels  `
+  + `${(S.kmPerTexel * 1000).toFixed(0)} m/texel  -> ${path.basename(srcFile)}`);
+
+// mosaic | synthesis, side by side.
+const GAP = 10, sw = res * 2 + GAP;
+const sheet = new Uint8Array(sw * res * 3);
+const lastRgb = files[files.length - 1].rgb;
+for (let y = 0; y < res; y++)
+  for (let x = 0; x < res; x++){
+    const s = (y * res + x) * 3;
+    let d = (y * sw + x) * 3;
+    sheet[d] = srcRgb[s]; sheet[d + 1] = srcRgb[s + 1]; sheet[d + 2] = srcRgb[s + 2];
+    d = (y * sw + res + GAP + x) * 3;
+    sheet[d] = lastRgb[s]; sheet[d + 1] = lastRgb[s + 1]; sheet[d + 2] = lastRgb[s + 2];
+  }
+const sheetFile = path.join(outDir, "compare.png");
+WritePng(sheetFile, sheet, sw, res);
 
 const dump = Arg("dump-lum", null);
 if (dump){
@@ -224,7 +265,8 @@ if (dump){
   console.log("dumped luminance ->", dump);
 }
 
-console.log(`centre ${lat.toFixed(4)}, ${lon.toFixed(4)}  res ${res}  `
+console.log(`${region.name}  ${lat.toFixed(4)}, ${lon.toFixed(4)}  res ${res}  `
+  + `ladder ${spans.map(v => +v.toFixed(2)).join(" -> ")} km  `
   + `craters ${cp.on ? (cp.everyLevel ? "every level" : "last level") : "OFF"}  `
   + `${ms} ms${report.escaped ? "  [WINDOW LEFT THE CARRIED IMAGERY]" : ""}`);
-console.log("sheet ->", sheetFile);
+console.log("compare ->", sheetFile);

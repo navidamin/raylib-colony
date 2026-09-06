@@ -278,10 +278,12 @@ and rejected; see SITE_SYNTHESIS.md before re-proposing one.
 
 Design record: `prototypes/planet_visuals/SITE_SYNTHESIS.md`. The same
 chain also runs in JavaScript in
-`prototypes/planet_visuals/regolith_craters.html` — a bench for impact
-relief carved back into it (craters are **not** in the shipped chain,
-removed 2026-08-13). It carries its own WAC crop, renders headlessly
-through `regolith_craters_render.mjs`, and its port is checked against
+`prototypes/planet_visuals/regolith_craters.html` — an interactive bench
+that puts the mosaic beside what the chain made of it, over eight real
+regions and a free 200 km → 500 m zoom, with impact relief carved back
+in (craters are **not** in the shipped chain, removed 2026-08-13). It
+carries its own WAC blocks, renders headlessly through
+`regolith_craters_render.mjs`, and its port is checked against
 `colony_preview`'s output rather than assumed.
 
 ### Unlock Registry
