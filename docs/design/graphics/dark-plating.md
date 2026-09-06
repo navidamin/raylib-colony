@@ -1087,64 +1087,63 @@ thousands of `rgb(...)` allocations a frame to a few hundred.
 ### 9.48 Fog — drawing what is not known
 
 A block model draws an interpretation, and an interpretation is not evenly
-trustworthy: near the surface you know what the beds do, deep between holes you
-are guessing. Drawn identically, the panel presents a guess in the same voice as
-a measurement. **Fog is that ignorance made visible.** Reference:
+trustworthy: near the surface you know what the beds do, deep down you are
+guessing. Drawn identically, the panel presents a guess in the same voice as a
+measurement. **Fog is that ignorance made visible.** Reference:
 `../prospecting/prototypes/layer-block.html`.
 
-**One field, or the panel contradicts itself.** A single scalar over the
-column — `0 = known, 1 = fog` — decides the haze, where the grain goes vague,
-*and* which stretches of a boundary line survive. Give the line its own rule and
-you get a panel that says "unknown" in one place while drawing a confident edge
-through it in another. With one field, nothing else needs to know fog exists:
-fog paints last over finished rock and finished lines, and a boundary simply
-stops being visible where the ground is not known.
+**One diffuse field, and no rule per layer.** Haze everywhere, thickening
+downward, mottled by noise; the beds show through wherever it happens to thin.
+The first build had structure instead — a clear zone above a lost zone, columns
+of ignorance through one bed, engineered windows onto another — and every piece
+of it had to be told which bed it was in. That is not an uncertainty, it is a
+diagram of one. Worse, it fights itself: declaring the bottom bed absolutely
+unknown while the bed above stayed partly clear put a hard horizontal fog edge
+along the whole face at exactly their interface, so **the fog traced the very
+boundary it was there to obscure.** A single smooth field cannot do that, and
+gets the same reading for free — the interface shows in some places and not
+others because the haze is thinner there.
 
-**Depth gates the fog, it never adds to it.** The first pass summed a depth ramp
-and a patch-noise field and thresholded the total. A high patch value then
-cleared the bar at 0 m on its own, and the ground *surface* — the one thing you
-can actually see — came out foggy. Make depth move the threshold instead:
+**The field decides everything, so nothing else needs to know fog exists.** One
+scalar drives the haze, the vagueness of the grain, and which stretches of a
+boundary line survive. Fog paints **last**, over finished rock and finished
+lines; a boundary drawn confidently underneath simply stops being visible where
+the haze is thick. Give the line its own rule instead and the panel says
+"unknown" in one place while drawing a confident edge through it in another.
 
-```
-k = smoothstep((1 − dep) − edge, (1 − dep) + edge, patch)
-```
+**Depth multiplies the noise; it never adds to it.** Summing a depth ramp and a
+noise field and thresholding the total lets a high noise value clear the bar at
+zero depth on its own — and the ground *surface*, the one thing you can
+actually see, comes out foggy. Depth scales the density instead:
+`density = depthRamp(t) · (0.25 + 1.5·n)`, with the ramp `t^e` and `e` running
+from 2.4 (gathers only at the bottom) to 0.35 (in the room with you from the
+first few metres). Give the ramp a small floor at high thickness, or "diffuse
+all over" quietly means "starts at some depth".
 
-At the surface nothing qualifies; deep down everything does; in between the
-patch field decides *where*, which is the gradient. `edge` is the width of the
-clear-to-foggy transition, and it wants to be a real width — a hard threshold
-reads as a stencil, not as weather.
+**Expand the noise around its midpoint or the controls do nothing.** fbm spends
+most of its life near 0.5, so used raw it lays down a wash: granularity and
+scale can be dragged end to end with nothing visibly happening.
+`clamp((n − 0.5)·1.9 + 0.5, 0, 1)` is what turns the field back into something
+with structure — and therefore something tunable.
 
 **Fog is DARK, measured against the panel it sits in.** The obvious pale haze
 `{138,156,178}` put full fog at luminance 150 against basalt's 52: the unknown
 half of the column became the loudest thing on screen, the panel shouting about
-what it could not tell you. `{66,78,95}` lands it at 81 against 55 — plainly
-lighter than any rock in the palette, plainly not lit. Cap the alpha short of
-opaque (0.88): a trace of rock under the haze is what says there *is* ground
-there, merely unresolved.
+what it could not tell you. `{66,78,95}` lands it at 77 against 67 — plainly
+lighter than the rock, plainly not lit. Cap the alpha short of opaque (0.88):
+a trace of rock under the haze is what says there *is* ground there, merely
+unresolved. Tint from the same noise that hides, so even full fog keeps a vague
+texture instead of going flat.
 
-**Rasterise it small and let the GPU blur it.** The field goes into a ~128×200
-image and is drawn through the face's own affine with `imageSmoothingEnabled`.
-That is what makes it read as fog rather than as a stack of quads, and it is
-the same transform the rock texture already uses. On a cut face the (u,v) terms
-do not vary with depth — they are per COLUMN — so sample them once per column
-instead of once per pixel; the law stays in one function that takes the noise
-as arguments. Cache on the fog levers alone, so a light slider never pays for a
-fog raster.
-
-**A mask that ignores depth reads as a vertical column.** In section, a thing
-that does not vary with depth *is* a vertical band. So "columns of ignorance
-through one bed" needs no column geometry at all — a (u,v) noise threshold
-applied within that bed draws them for free.
-
-**Beware the fog edge becoming the very boundary it hides.** Declaring the
-bottom bed absolutely unknown while the bed above is partly clear puts a hard
-horizontal fog edge along the whole face at exactly their interface — so the
-fog traces the boundary it was meant to obscure, and "visible only in places"
-becomes visible everywhere. Fog the *approach*: ramp the bed above up to full
-as it nears its base, then punch **windows** through — a second noise field,
-thresholded, tapering away from that boundary so a window is a clear view *of
-that interface* rather than a hole down the whole column. The line then appears
-exactly where the ground was actually pinned, and nowhere else.
+**Rasterise it small and let the GPU blur it.** The field goes into a ~112×176
+image per face and is drawn through the face's own affine with
+`imageSmoothingEnabled` — the same transform the rock texture already uses.
+That is what makes it read as fog rather than as a stack of quads. Parameterise
+it by distance around the block's **visible perimeter** rather than per face,
+so one continuous field covers both cut faces and meets itself exactly at the
+corner they share; give each face its own canvas over its own half of that
+range, and there is no sub-rectangle edge to bleed. Cache on the fog levers
+alone, so a light or texture slider never pays for a fog raster.
 
 **Redraw the body's outline on top of the fog.** Where the column *goes* is not
 in doubt even where its contents are — the survey reached its depth whatever it

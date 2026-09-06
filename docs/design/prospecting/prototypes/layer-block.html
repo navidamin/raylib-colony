@@ -404,8 +404,7 @@ const P = {
   shade: 1.0, lightAz: 29, faceL: 0.64, faceR: 0.84,
   texAmt: 1.0, texScale: 2.0, seam: 0.95, lip: 0.55,
   bar: 1, running: 0, grid: 0, lips: 1, solo: 0,
-  fog: 1, fogAmt: 1.0, fogFrom: 30, fogFull: 96, fogScale: 3, fogEdge: 0.22,
-  fogColumns: 0.50, fogColScale: 8, fogWindows: 0.45, fogWinSpread: 12, fogCloud: 0.75
+  fog: 1, fogAmt: 1.0, fogGrain: 3, fogSpreadH: 0.35, fogSpreadV: 0.45, fogThick: 0.66
 };
 const DEFAULTS = Object.assign({}, P);
 
@@ -557,161 +556,114 @@ function Layout(){
    4b. FOG -- what the column is NOT known to do
    ---------------------------------------------------------------------
    The block draws an interpretation, and an interpretation is not evenly
-   trustworthy: near the surface you know what the beds do, and deep
-   between holes you are guessing. Fog is that ignorance drawn, so the
-   panel stops presenting a guess in the same voice as a measurement.
+   trustworthy: near the surface you know what the beds do, deep down you
+   are guessing. Fog is that ignorance made visible, so the panel stops
+   presenting a guess in the same voice as a measurement.
 
-   ONE scalar field decides everything -- the haze, where the grain goes
-   vague, and which stretches of a boundary line survive. That is
-   deliberate: the fog and the missing line have to be the same fact, or
-   the panel says "unknown" in one place and draws a confident edge
-   through it in another.
+   It is ONE diffuse field -- no zones, no per-bed rules, no engineered
+   windows. Haze everywhere, thickening downward, mottled by noise, and
+   the beds show through wherever it happens to thin. Five levers shape
+   it and nothing else does, which is the point: an uncertainty that
+   needs a rule per layer is not an uncertainty, it is a diagram.
 
        0 = clear, you know this        1 = fog, you do not
    ===================================================================== */
 const FOG_SEED = 0x2f19;
-/* A cool haze, and DARK for one measured by the rest of the panel. The first
-   pass used {138,156,178}: over near-black rock that put full fog at about
-   luminance 150 against basalt's 52, and the unknown half of the column
-   became the loudest thing on screen -- the panel shouting about what it
-   could not tell you. Fog has to read as absent, not as lit. */
+/* Cool, and DARK for one measured against the rest of the panel. An earlier
+   pass used {138,156,178}: over near-black rock that put full fog at luminance
+   150 against basalt's 52, and the unknown half of the column became the
+   loudest thing on screen -- the panel shouting about what it could not tell
+   you. Fog reads as absent, never as lit. */
 const FOG_COL  = [66, 78, 95];
-const FOG_MAX_A = 0.88;             // never fully opaque: a trace of rock
-                                    // under the haze is what says there IS
-                                    // ground there, merely unresolved.
-const smoothstep = (a, b, x) => {
-  const t = clamp((x - a) / Math.max(b - a, 1e-6), 0, 1);
-  return t * t * (3 - 2 * t);
-};
+const FOG_MAX_A = 0.88;             // never fully opaque: a trace of rock under
+                                    // the haze says there IS ground there,
+                                    // merely unresolved.
 
-/* The law, given noise already sampled. Split this way because for a cut face
-   the three (u,v) fields do not vary with depth -- they are per COLUMN -- so
-   the raster below samples them once per column instead of once per pixel,
-   and the law still lives in exactly one place. */
-function FogFrom(L, patch, colN, win, m){
-  // Depth GATES the fog, it does not add to it. Adding was the first attempt
-  // and it fogged the ground surface: a high patch value alone cleared the
-  // threshold at 0 m, which says the top of the ground is unknown when it is
-  // the one thing you can see. Depth lowers the bar instead -- at the surface
-  // nothing qualifies, deep down everything does, and in between the patch
-  // field decides WHERE, which is the gradient.
-  const dep = smoothstep(P.fogFrom, P.fogFull, m);
-  let k = smoothstep((1 - dep) - P.fogEdge, (1 - dep) + P.fogEdge, patch);
-
-  // The bottom bed is not partly unknown, it is unknown: nothing has reached
-  // it. The one place the field is a rule rather than a gradient.
-  if (L >= 3) k = 1.0;
-
-  // Vertical columns of ignorance through the third bed. The mask depends on
-  // (u,v) and NOT on depth, which is exactly why it reads as columns: in
-  // section, a thing that does not vary with depth is a vertical band.
-  if (L === 2){
-    if (P.fogColumns > 0.01)
-      k = Math.max(k, smoothstep(1 - P.fogColumns, 1 - P.fogColumns + 0.16, colN) * 0.94);
-    // And the bed FOGS UP into its base. Without this the rule above -- the
-    // bottom bed absolutely unknown -- draws a hard horizontal edge at 68 m
-    // along the whole face, so the fog itself traces the very interface that
-    // is supposed to be visible only in places. Burying the approach means
-    // the windows are the only thing that reveals it, which is the ask.
-    k = Math.max(k, smoothstep(TOPS[3] - Math.max(P.fogWinSpread, 1) * 1.6, TOPS[3], m));
-  }
-
-  // ...and the windows cut back through all of it, tapering away from the
-  // boundary they were opened on, so a window is a clear view OF THAT
-  // INTERFACE rather than a hole punched down the whole column.
-  const near = 1 - smoothstep(0, Math.max(P.fogWinSpread, 0.5), Math.abs(m - TOPS[3]));
-  k *= 1 - win * near;
-
-  return clamp(k * P.fogAmt, 0, 1);
+/* The whole law. `pp` runs 0..1 around the block's VISIBLE perimeter and `tt`
+   is depth as a fraction of the column, so one continuous field covers both
+   cut faces and meets itself exactly at the corner they share. */
+function FogSample(pp, tt){
+  if (!P.fog) return { a: 0, n: 0.5 };
+  const n = FogNoise(pp, tt);
+  // Thickness is how early and how hard the haze builds. Low: it only gathers
+  // at the bottom of the column. High: it is in the room with you from the
+  // first few metres -- including a floor of haze at the very top, because
+  // "diffused all over" means the whole column is a little uncertain, not
+  // that uncertainty starts at some depth.
+  const e = lerp(2.4, 0.35, clamp(P.fogThick, 0, 1));
+  const floor = 0.08 * clamp(P.fogThick, 0, 1);
+  const dep = floor + (1 - floor) * Math.pow(clamp(tt, 0, 1), e);
+  return { a: clamp(dep * (0.25 + 1.5 * n) * P.fogAmt, 0, FOG_MAX_A), n };
 }
-const FogWin = n => P.fogWindows <= 0.001 ? 0
-  : smoothstep(1 - P.fogWindows, 1 - P.fogWindows + 0.14, n);
-function FogAt(L, u, v, m){
-  if (!P.fog) return 0;
-  const ps = Math.max(1, Math.round(P.fogScale));
-  return FogFrom(L,
-    Fbm(u, v, ps, 3, FOG_SEED),
-    Fbm(u, v, Math.max(2, Math.round(P.fogColScale)), 2, (FOG_SEED + 811) >>> 0),
-    FogWin(Fbm(u, v, ps + 1, 3, (FOG_SEED + 313) >>> 0)),
-    m);
+/* fbm spends most of its life near the middle of its range, so used raw it
+   gives a wash: granularity and spread were being moved with nothing visibly
+   happening. Expanding around 0.5 is what turns the field back into
+   something you can see structure in -- and therefore tune. */
+function FogNoise(u, v){
+  const n = Fbm(u / Math.max(P.fogSpreadH, 0.04),
+                v / Math.max(P.fogSpreadV, 0.04),
+                2, Math.max(1, Math.round(P.fogGrain)), FOG_SEED);
+  return clamp((n - 0.5) * 1.9 + 0.5, 0, 1);
 }
 
-/* Rasterised small and blown up with smoothing, which is what makes it read
-   as fog rather than as a stack of quads. Cloud structure modulates BOTH the
-   alpha and the tone, so even full fog keeps a vague texture instead of going
-   flat -- the difference between weather and a grey rectangle. */
+/* Rasterised small and blown up with smoothing -- which is what makes it read
+   as fog rather than as a stack of quads -- and drawn through the same affine
+   the rock texture already uses. One canvas per face, each sampling its own
+   half of the perimeter, so there is no sub-rectangle seam to bleed. */
 const FOG_MARGIN_M = 8;
-const FOG_W = 128, FOG_H = 200, FOG_TOP = 48;
+const FOG_W = 112, FOG_H = 176, FOG_TOP = 56;
 let fogKey = "", fogFace = [null, null], fogTop = null;
 
-function CloudField(w, h){                     // half res: it is smooth anyway
-  const cw = w >> 1, ch = h >> 1, out = new Float32Array(cw * ch);
-  for (let y = 0; y < ch; y++)
-    for (let x = 0; x < cw; x++)
-      out[y * cw + x] = Fbm(x / cw * 1.7 + 0.31, y / ch * 2.3, 3, 2,
-                            (FOG_SEED + 7) >>> 0) - 0.5;
-  return { a: out, w: cw, h: ch };
+function Paint(img, k, a, n){
+  const lift = 0.82 + 0.42 * n;     // the same noise tints as it hides, so even
+  img.data[k]     = clamp(FOG_COL[0] * lift, 0, 255);   // full fog keeps a
+  img.data[k + 1] = clamp(FOG_COL[1] * lift, 0, 255);   // vague texture instead
+  img.data[k + 2] = clamp(FOG_COL[2] * lift, 0, 255);   // of going flat
+  img.data[k + 3] = a * 255;
 }
-function Paint(img, k, a, cloud){
-  const lift = 1 + P.fogCloud * 0.5 * cloud;
-  img.data[k]     = clamp(FOG_COL[0] * lift, 0, 255);
-  img.data[k + 1] = clamp(FOG_COL[1] * lift, 0, 255);
-  img.data[k + 2] = clamp(FOG_COL[2] * lift, 0, 255);
-  img.data[k + 3] = clamp(a * (1 + P.fogCloud * 0.7 * cloud), 0, FOG_MAX_A) * 255;
-}
-function FogFaceCanvas(side, cloud){
+function FogFaceCanvas(side){
   const w = FOG_W, h = FOG_H, span = COLUMN_M + 2 * FOG_MARGIN_M;
-  const ps = Math.max(1, Math.round(P.fogScale));
-  const cs = Math.max(2, Math.round(P.fogColScale));
-  const patch = new Float32Array(w), colN = new Float32Array(w), win = new Float32Array(w);
-  for (let x = 0; x < w; x++){                 // once per column, not per pixel
-    const sx = x / (w - 1), u = side === 0 ? sx : 1, v = side === 0 ? 1 : sx;
-    patch[x] = Fbm(u, v, ps, 3, FOG_SEED);
-    colN[x]  = Fbm(u, v, cs, 2, (FOG_SEED + 811) >>> 0);
-    win[x]   = FogWin(Fbm(u, v, ps + 1, 3, (FOG_SEED + 313) >>> 0));
-  }
   const cv = document.createElement("canvas");
   cv.width = w; cv.height = h;
   const ctx = cv.getContext("2d"), img = ctx.createImageData(w, h);
   for (let y = 0; y < h; y++){
-    const m = -FOG_MARGIN_M + y / (h - 1) * span;
-    const L = layerOfM(clamp(m, 0, COLUMN_M - 0.01));
-    const cy = Math.min(cloud.h - 1, (y * cloud.h / h) | 0);
+    const tt = (-FOG_MARGIN_M + y / (h - 1) * span) / Math.max(COLUMN_M, 1);
     for (let x = 0; x < w; x++){
-      const cx = Math.min(cloud.w - 1, (x * cloud.w / w) | 0);
-      Paint(img, (y * w + x) * 4, FogFrom(L, patch[x], colN[x], win[x], m),
-            cloud.a[cy * cloud.w + cx]);
+      const pp = (side === 0 ? 0 : 0.5) + x / (w - 1) * 0.5;
+      const f = FogSample(pp, tt);
+      Paint(img, (y * w + x) * 4, f.a, f.n);
     }
   }
   ctx.putImageData(img, 0, 0);
   return cv;
 }
-function FogTopCanvas(L, cloud){
-  const w = FOG_TOP, m = TOPS[Math.min(L, 3)];
+function FogTopCanvas(L){
+  const w = FOG_TOP, tt = TOPS[Math.min(L, 3)] / Math.max(COLUMN_M, 1);
   const cv = document.createElement("canvas");
   cv.width = cv.height = w;
   const ctx = cv.getContext("2d"), img = ctx.createImageData(w, w);
+  const e = lerp(2.4, 0.35, clamp(P.fogThick, 0, 1));
+  const floor = 0.08 * clamp(P.fogThick, 0, 1);
+  const dep = P.fog ? floor + (1 - floor) * Math.pow(clamp(tt, 0, 1), e) : 0;
   for (let y = 0; y < w; y++)
     for (let x = 0; x < w; x++){
-      const cx = Math.min(cloud.w - 1, (x * cloud.w / w) | 0);
-      const cy = Math.min(cloud.h - 1, (y * cloud.h / w) | 0);
-      Paint(img, (y * w + x) * 4, FogAt(L, x / (w - 1), y / (w - 1), m),
-            cloud.a[cy * cloud.w + cx]);
+      // the cap is a plan view, so both axes are horizontal: one spread
+      const n = FogNoise(x / (w - 1), y / (w - 1) * P.fogSpreadV / Math.max(P.fogSpreadH, 0.04));
+      Paint(img, (y * w + x) * 4,
+            clamp(dep * (0.25 + 1.5 * n) * P.fogAmt, 0, FOG_MAX_A), n);
     }
   ctx.putImageData(img, 0, 0);
   return cv;
 }
 /* Only the fog levers and the column's own geometry can change these, so a
-   light or texture slider never pays for a fog rebuild. */
+   light or texture slider never pays for a fog raster. */
 function EnsureFog(topB){
-  const k = [P.fog, P.fogAmt, P.fogFrom, P.fogFull, P.fogScale, P.fogEdge,
-             P.fogColumns, P.fogColScale, P.fogWindows, P.fogWinSpread, P.fogCloud,
+  const k = [P.fog, P.fogAmt, P.fogGrain, P.fogSpreadH, P.fogSpreadV, P.fogThick,
              COLUMN_M, TOPS.join(","), topB].join("|");
   if (k === fogKey) return;
   fogKey = k;
-  const cloud = CloudField(FOG_W, FOG_H);
-  fogFace = [FogFaceCanvas(0, cloud), FogFaceCanvas(1, cloud)];
-  fogTop = FogTopCanvas(topB, cloud);
+  fogFace = [FogFaceCanvas(0), FogFaceCanvas(1)];
+  fogTop = FogTopCanvas(topB);
 }
 
 /* The face path across a RANGE of interfaces, so fog is laid on the whole
@@ -730,10 +682,10 @@ function FacePathSpan(side, topB, botB){
   }
   CTX.closePath();
 }
-/* Fog goes on LAST, over finished rock and finished lines. Nothing else has
-   to know about it: a boundary drawn confidently underneath simply stops
-   being visible where the column is not known, and reappears in a window,
-   because it is the same field deciding both. */
+/* Fog goes on LAST, over finished rock and finished lines. Nothing else has to
+   know it exists: a boundary drawn confidently underneath simply stops being
+   visible where the haze is thick, and shows through where it thins -- which
+   is the whole reason the field is one field. */
 function FogOver(topB, botB){
   if (!P.fog || P.fogAmt <= 0.001) return;
   EnsureFog(topB);
@@ -759,10 +711,10 @@ function FogOver(topB, botB){
   CTX.drawImage(fogTop, 0, 0);
   CTX.restore();
 
-  /* The body's own outline is redrawn ON TOP of the fog. Where the column
-     goes it is not in doubt -- the survey reached 120 m whatever it failed to
-     resolve there -- and without this the block simply dissolves into the
-     background and stops being an object at all. */
+  /* The body's own outline is redrawn ON TOP of the fog. Where the column goes
+     is not in doubt -- the survey reached its depth whatever it failed to
+     resolve there -- and without this the block dissolves into the background
+     and stops being an object at all. */
   const e = rgb([150, 168, 190], 0.30);
   CTX.strokeStyle = e; CTX.lineWidth = 1.2;
   SurfacePath(botB); CTX.stroke();
@@ -1467,22 +1419,17 @@ const SCHEMA = [
       { k:"craterY",     lab:"Position Y", min:0, max:1,  step:0.01, fmt:pc }
     ] },
   { title: "Fog — what is not known",
-    note: "One field decides the haze and which stretches of a boundary survive.",
+    note: "One diffuse field. Haze everywhere, thickening downward; the beds show through where it thins.",
     items: [
-      { k:"fog",         type:"toggle", lab:"Fog" },
-      { k:"fogAmt",      lab:"Amount",       min:0, max:1,   step:0.01, fmt:pc },
-      { k:"fogFrom",     lab:"Clear above",  min:0, max:120, step:1,   fmt:m1 },
-      { k:"fogFull",     lab:"Lost below",   min:0, max:120, step:1,   fmt:m1 },
-      { k:"fogScale",    lab:"Patch size",   min:1, max:9,   step:1,
-        fmt:v => Math.round(100 / v) + "% of block" },
-      { k:"fogEdge",     lab:"Gradient",     min:0.02, max:0.5, step:0.01,
-        fmt:v => v < 0.1 ? "hard edge" : v > 0.38 ? "all gradient" : pc(v * 2) },
-      { k:"fogColumns",  lab:"Columns in L2",min:0, max:1,   step:0.01, fmt:pc },
-      { k:"fogColScale", lab:"Column width", min:2, max:14,  step:1,
-        fmt:v => Math.round(100 / v) + "% of block" },
-      { k:"fogWindows",  lab:"L2/L3 windows",min:0, max:1,   step:0.01, fmt:pc },
-      { k:"fogWinSpread",lab:"Window reach", min:1, max:34,  step:1,   fmt:m1 },
-      { k:"fogCloud",    lab:"Cloud",        min:0, max:1.4, step:0.01, fmt:pc }
+      { k:"fog",        type:"toggle", lab:"Fog" },
+      { k:"fogAmt",     lab:"Opacity",      min:0,    max:1,   step:0.01, fmt:pc },
+      { k:"fogGrain",   lab:"Granularity",  min:1,    max:5,   step:1,
+        fmt:v => v === 1 ? "smooth" : v + " octaves" },
+      { k:"fogSpreadH", lab:"Spread across",min:0.05, max:1.4, step:0.01,
+        fmt:v => Math.round(v * 100) + "% of face" },
+      { k:"fogSpreadV", lab:"Spread down",  min:0.05, max:1.4, step:0.01,
+        fmt:v => Math.round(v * 100) + "% of column" },
+      { k:"fogThick",   lab:"Thickness",    min:0,    max:1,   step:0.01, fmt:pc }
     ] },
   { title: "Strata", note: "Thickness in metres. The column is their sum.",
     items: [
