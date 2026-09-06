@@ -1084,6 +1084,73 @@ that remains is the rig actually turning. Colour strings are quantised to 3
 levels a channel and memoised too — invisible under texture, and it collapses
 thousands of `rgb(...)` allocations a frame to a few hundred.
 
+### 9.48 Fog — drawing what is not known
+
+A block model draws an interpretation, and an interpretation is not evenly
+trustworthy: near the surface you know what the beds do, deep between holes you
+are guessing. Drawn identically, the panel presents a guess in the same voice as
+a measurement. **Fog is that ignorance made visible.** Reference:
+`../prospecting/prototypes/layer-block.html`.
+
+**One field, or the panel contradicts itself.** A single scalar over the
+column — `0 = known, 1 = fog` — decides the haze, where the grain goes vague,
+*and* which stretches of a boundary line survive. Give the line its own rule and
+you get a panel that says "unknown" in one place while drawing a confident edge
+through it in another. With one field, nothing else needs to know fog exists:
+fog paints last over finished rock and finished lines, and a boundary simply
+stops being visible where the ground is not known.
+
+**Depth gates the fog, it never adds to it.** The first pass summed a depth ramp
+and a patch-noise field and thresholded the total. A high patch value then
+cleared the bar at 0 m on its own, and the ground *surface* — the one thing you
+can actually see — came out foggy. Make depth move the threshold instead:
+
+```
+k = smoothstep((1 − dep) − edge, (1 − dep) + edge, patch)
+```
+
+At the surface nothing qualifies; deep down everything does; in between the
+patch field decides *where*, which is the gradient. `edge` is the width of the
+clear-to-foggy transition, and it wants to be a real width — a hard threshold
+reads as a stencil, not as weather.
+
+**Fog is DARK, measured against the panel it sits in.** The obvious pale haze
+`{138,156,178}` put full fog at luminance 150 against basalt's 52: the unknown
+half of the column became the loudest thing on screen, the panel shouting about
+what it could not tell you. `{66,78,95}` lands it at 81 against 55 — plainly
+lighter than any rock in the palette, plainly not lit. Cap the alpha short of
+opaque (0.88): a trace of rock under the haze is what says there *is* ground
+there, merely unresolved.
+
+**Rasterise it small and let the GPU blur it.** The field goes into a ~128×200
+image and is drawn through the face's own affine with `imageSmoothingEnabled`.
+That is what makes it read as fog rather than as a stack of quads, and it is
+the same transform the rock texture already uses. On a cut face the (u,v) terms
+do not vary with depth — they are per COLUMN — so sample them once per column
+instead of once per pixel; the law stays in one function that takes the noise
+as arguments. Cache on the fog levers alone, so a light slider never pays for a
+fog raster.
+
+**A mask that ignores depth reads as a vertical column.** In section, a thing
+that does not vary with depth *is* a vertical band. So "columns of ignorance
+through one bed" needs no column geometry at all — a (u,v) noise threshold
+applied within that bed draws them for free.
+
+**Beware the fog edge becoming the very boundary it hides.** Declaring the
+bottom bed absolutely unknown while the bed above is partly clear puts a hard
+horizontal fog edge along the whole face at exactly their interface — so the
+fog traces the boundary it was meant to obscure, and "visible only in places"
+becomes visible everywhere. Fog the *approach*: ramp the bed above up to full
+as it nears its base, then punch **windows** through — a second noise field,
+thresholded, tapering away from that boundary so a window is a clear view *of
+that interface* rather than a hole down the whole column. The line then appears
+exactly where the ground was actually pinned, and nowhere else.
+
+**Redraw the body's outline on top of the fog.** Where the column *goes* is not
+in doubt even where its contents are — the survey reached its depth whatever it
+failed to resolve there. Without the outline the block dissolves into the
+background and stops being an object.
+
 ### 9.5 The animation recipes
 
 Approved in the drill-dock prototype; reuse verbatim:
