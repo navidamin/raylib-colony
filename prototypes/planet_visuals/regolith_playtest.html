@@ -141,8 +141,13 @@ const st = {
   originLat: 0, originLon: 0,
   tile: null, prev: null, fade: 1,
   res: 512, genMs: 0, genCount: 0, busy: false,
-  // 0 smooth, 1 hard pixels, 2 hard pixels with banded tone.
-  style: 0, px: 3,
+  // 0 smooth as it was, 1 smooth but with the chain's softening dropped,
+  // 2 hard pixels, 3 hard pixels with banded tone. Split this way because
+  // the softening and the filtering turned out to be separate questions:
+  // more resolution does NOT fix the softness, since the chain's blurs
+  // are scaled by k = res/300 and therefore cover the same GROUND however
+  // many pixels you give them. Only dropping them does.
+  style: 2, px: 3,
   drag: null, pinch: null, dirty: true, mini: null
 };
 
@@ -182,10 +187,15 @@ function LatLonAt(cxKm, cyKm){
 // first: nearest-neighbour does not create detail, it only stops the
 // browser from smearing what is there. `crisp` drops the softening
 // steps that exist because the picture was going to be resampled.
+// The two questions turned out to be separate, so they are separate
+// predicates: whether the chain SOFTENS what it makes, and whether the
+// browser softens it again on the way to the screen.
+const Crisp = () => st.style >= 1;      // the chain's own blurs dropped
+const Hard  = () => st.style >= 2;      // whole-pixel draw, no smoothing
 function Tune(){
   return Object.assign({}, TC.DEFAULT_TUNE, {
-    crisp: st.style > 0 ? 1 : 0,
-    bands: st.style === 2 ? 9 : 0
+    crisp: Crisp() ? 1 : 0,
+    bands: st.style === 3 ? 9 : 0
   });
 }
 
@@ -195,8 +205,17 @@ function Tune(){
 // however big it needs to be for the block size asked for -- and if that
 // would cost too much, the block gets bigger instead of the rule bending.
 const RES_CAP = 820;
+// Smooth mode's only real answer to softness is more pixels, so it can go
+// all the way to one tile pixel per screen pixel -- FIT, no upscale at
+// all. It is the honest experiment and it is not free: cost grows faster
+// than res^2, because a finer tile also opens more sub-floor octaves.
+// Measured here: 640 -> 401 ms, 800 -> 514, 1024 -> 936, 1280 -> 1924.
+const FIT_CAP = 1600;
+function FitRes(){
+  return Math.min(FIT_CAP, Math.ceil(Math.max(CV.width, CV.height) * TILE_MARGIN));
+}
 function WantedRes(){
-  if (st.style === 0) return st.res;
+  if (!Hard()) return st.res === 0 ? FitRes() : st.res;
   const long = Math.max(CV.width, CV.height) * TILE_MARGIN;
   const f = Math.max(st.px, Math.ceil(long / RES_CAP));
   return Math.ceil(long / f);
@@ -323,7 +342,7 @@ function DrawTile(t, alpha){
   let dx = CV.width / 2 + (t.cxKm - st.cxKm) * p - size / 2;
   let dy = CV.height / 2 + (t.cyKm - st.cyKm) * p - size / 2;
   let hard = false;
-  if (st.style > 0){
+  if (Hard()){
     // Snap to a whole number of screen pixels per tile pixel, and snap
     // the corner to the pixel grid as well -- a half-pixel origin gives
     // ragged block edges even at an exact scale. If the zoom has drifted
@@ -438,10 +457,19 @@ function LevelOf(span){
 // drifted too far from a whole number since the last tile. Draw() applies
 // the same test; this is here so the readout does not lag a frame behind.
 function HardFactor(){
-  if (st.style === 0 || !st.tile) return 0;
+  if (!Hard() || !st.tile) return 0;
   const f = (st.tile.spanKm * PxPerKm()) / st.tile.canvas.width;
   const F = Math.max(1, Math.round(f));
   return Math.abs(f - F) < 0.06 * F ? F : 0;
+}
+
+// In smooth mode the number that explains the softness is the upscale:
+// how many screen pixels each generated pixel is being stretched over.
+function SmoothLabel(){
+  const tag = Crisp() ? "sharp" : "smooth";
+  if (!st.tile) return tag;
+  const f = (st.tile.spanKm * PxPerKm()) / st.tile.canvas.width;
+  return f <= 1.06 ? `${tag} · 1:1` : `${tag} · ${f.toFixed(1)}× up`;
 }
 
 function Hud(){
@@ -451,8 +479,8 @@ function Hud(){
   const mpp = st.tile ? st.tile.kmPerPx * 1000 : 0;
   $("mpp").textContent = mpp.toFixed(mpp < 10 ? 2 : 1) + " m/px";
   $("place").textContent = REGIONS[st.region].name;
-  $("draw").textContent = st.style === 0 ? "smooth" : HardFactor()
-    ? `${HardFactor()}× hard` + (st.style === 2 ? " · banded" : "")
+  $("draw").textContent = !Hard() ? SmoothLabel() : HardFactor()
+    ? `${HardFactor()}× hard` + (st.style === 3 ? " · banded" : "")
     : "settling…";
   $("gen").textContent = st.genCount
     ? `${st.genMs.toFixed(0)} ms · ${st.genCount}` : "—";
@@ -549,7 +577,7 @@ $("zoom").addEventListener("input", e => {
 $("in").addEventListener("click", () => SetSpan(st.spanKm / 1.6));
 $("out").addEventListener("click", () => SetSpan(st.spanKm * 1.6));
 $("reset").addEventListener("click", () => GoRegion(st.region));
-const RES_STEPS = [384, 512, 640];
+const RES_STEPS = [384, 512, 640, 900, 1280, 0];   // 0 = one tile pixel per screen pixel
 // Only the block sizes this window can actually afford: a 2x block on a
 // wide screen needs a tile past RES_CAP, and offering a setting that
 // silently becomes a different one is worse than not offering it.
@@ -559,7 +587,7 @@ function PxSteps(){
   const ok = PX_STEPS_ALL.filter(f => f >= min);
   return ok.length ? ok : [min];
 }
-const STYLE_NAMES = ["Smooth", "Hard", "Hard + bands"];
+const STYLE_NAMES = ["Smooth", "Smooth sharp", "Hard", "Hard + bands"];
 function SyncStyle(){
   const steps = PxSteps();
   if (steps.indexOf(st.px) < 0) st.px = steps[0];
@@ -567,15 +595,16 @@ function SyncStyle(){
   $("style").setAttribute("aria-pressed", st.style > 0 ? "true" : "false");
   // One button, two meanings: how big the tile is when the picture will be
   // resampled anyway, how big a PIXEL is when it will not.
-  $("res").textContent = st.style === 0 ? String(st.res) : "×" + st.px;
-  $("res").title = st.style === 0 ? "Tile detail" : "Pixel size";
+  $("res").textContent = !Hard()
+    ? (st.res === 0 ? "Fit" : String(st.res)) : "×" + st.px;
+  $("res").title = Hard() ? "Pixel size" : "Tile detail";
 }
 $("style").addEventListener("click", () => {
-  st.style = (st.style + 1) % 3;
+  st.style = (st.style + 1) % 4;
   SyncStyle(); Recentre();
 });
 $("res").addEventListener("click", () => {
-  if (st.style === 0)
+  if (!Hard())
     st.res = RES_STEPS[(RES_STEPS.indexOf(st.res) + 1) % RES_STEPS.length];
   else {
     const steps = PxSteps();
@@ -634,7 +663,7 @@ function ReadHash(){
   const key = h.get("r");
   const i = REGIONS.findIndex(r => r.key === key);
   const d = parseInt(h.get("d"), 10), px = parseInt(h.get("p"), 10);
-  if (d >= 0 && d <= 2) st.style = d;
+  if (d >= 0 && d <= 3) st.style = d;
   if (px >= 2 && px <= 4) st.px = px;
   return { region: i < 0 ? 0 : i,
            span: parseFloat(h.get("s")) || null,
