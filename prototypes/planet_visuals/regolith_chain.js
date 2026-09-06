@@ -272,21 +272,46 @@ function CastShadows(height, res, zFactor, maxDistPx, stepPx, sunAzDeg, sunAltDe
   const tanAlt = Math.tan(sunAltDeg * DEG2RAD);
   const nSteps = (maxDistPx / stepPx) | 0;
   const light = new Float32Array(res * res);
-  for (let y = 0; y < res; y++)
-    for (let x = 0; x < res; x++){
-      const hHere = height[y * res + x] * zFactor;
-      let maxBlock = -1e9;
-      for (let s = 1; s <= nSteps; s++){
-        const dist = s * stepPx;
-        const sxp = Math.min(Math.max((x + sx * dist) | 0, 0), res - 1);
-        const syp = Math.min(Math.max((y + syImage * dist) | 0, 0), res - 1);
-        const bs = (height[syp * res + sxp] * zFactor - hHere) / dist;
-        if (bs > maxBlock) maxBlock = bs;
+  // The sample offsets are the same for every pixel, so the step loop
+  // goes OUTSIDE the pixel loops. Each pass is then a shifted, stride-1
+  // read of two rows instead of a diagonal walk that leaves the cache on
+  // every sample -- at res 1498 one step of that walk jumped 6 kB.
+  //
+  // Identical arithmetic, not an approximation: floor(x + o) = x +
+  // floor(o) for integer x, and where the two differ from the old
+  // truncation -- only at negative coordinates -- both were clamped to
+  // the same edge pixel anyway.
+  const hz = new Float32Array(res * res);
+  for (let i = 0; i < hz.length; i++) hz[i] = height[i] * zFactor;
+  const maxBlock = new Float32Array(res * res).fill(-1e9);
+  for (let s = 1; s <= nSteps; s++){
+    const dist = s * stepPx;
+    const dx = Math.floor(sx * dist), dy = Math.floor(syImage * dist);
+    const inv = 1.0 / dist;
+    // Where the shifted row falls inside the image the inner loop needs
+    // no bounds test at all; the two clamped ends are walked separately.
+    const x0 = Math.min(res, Math.max(0, -dx));
+    const x1 = Math.min(res, Math.max(0, res - dx));
+    for (let y = 0; y < res; y++){
+      const syp = y + dy < 0 ? 0 : (y + dy > res - 1 ? res - 1 : y + dy);
+      const srow = syp * res, drow = y * res;
+      for (let x = 0; x < x0; x++){
+        const bs = (hz[srow] - hz[drow + x]) * inv;
+        if (bs > maxBlock[drow + x]) maxBlock[drow + x] = bs;
       }
-      const band = tanAlt * 0.35;
-      const shadow = Math.min(Math.max((maxBlock - tanAlt) / band, 0.0), 1.0);
-      light[y * res + x] = 1.0 - shadow;
+      for (let x = x0; x < x1; x++){
+        const bs = (hz[srow + x + dx] - hz[drow + x]) * inv;
+        if (bs > maxBlock[drow + x]) maxBlock[drow + x] = bs;
+      }
+      for (let x = x1; x < res; x++){
+        const bs = (hz[srow + res - 1] - hz[drow + x]) * inv;
+        if (bs > maxBlock[drow + x]) maxBlock[drow + x] = bs;
+      }
     }
+  }
+  const band = tanAlt * 0.35;
+  for (let i = 0; i < light.length; i++)
+    light[i] = 1.0 - Math.min(Math.max((maxBlock[i] - tanAlt) / band, 0.0), 1.0);
   GaussianBlur(light, res, res, blurPx === undefined ? 0.8 : blurPx);
   for (let i = 0; i < light.length; i++)
     light[i] = Math.min(Math.max(light[i], 0.0), 1.0);
