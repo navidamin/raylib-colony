@@ -1097,8 +1097,23 @@ mass from the top of the block to its base, one structureless texture, no
 bedding line anywhere in it — then the real strata on top, **masked** to the
 part that has been established. Where nothing is established the real body is
 not dimmed, it is not drawn, so the panel cannot leak a boundary it has no
-business knowing. Turn the opacity up and boundaries do not fade, they stop
-existing, which is the honest picture of not knowing where they are.
+business knowing.
+
+**Fog has no shape of its own; it IS the uncollapsed ground.** Giving it a
+depth ramp and a noise field of its own and then hiding a finished column
+behind it is still a picture with a curtain in front, and it reads that way —
+the eye follows the veil rather than the ignorance. Make coverage exactly
+`1 − collapsed`, where the only thing that collapses ground is the player
+looking. Then the appearance controls (opacity, granularity, the two spreads,
+thickness) shape how the fog *looks* and never where it is, which is the line
+that keeps a fog-of-war honest. The one thing collapsed for free is the
+surface, because you can see it.
+
+**A collapse needs an edge.** A long soft falloff at the rim of a revealed
+patch reads as fog thinning over a fixed picture; a short one (~75% of the
+radius at full, the rest a quick ramp) reads as ground becoming determinate.
+The gradient length is the whole difference between "wiping a window" and
+"finding out".
 
 Order is the whole argument: unknown mass → haze over it → real strata masked
 on top → the block's outline over everything.
@@ -1153,6 +1168,12 @@ levers alone, so a light or texture slider never pays for a fog raster.
 **Redraw the body's outline on top.** Where the column *goes* is not in doubt
 even where its contents are. Without it the block dissolves into the background
 and stops being an object.
+
+**Stroke only the edges that are silhouette.** Stroking a whole base diamond to
+get that outline also draws its two BACK edges — which the body hides, and
+which come out as a pair of diagonals ruled across both cut faces: the edge of
+a shape you cannot see. Trace the two front edges instead. The same care
+applies to any capping face on a solid iso body.
 
 ### 9.5 The animation recipes
 

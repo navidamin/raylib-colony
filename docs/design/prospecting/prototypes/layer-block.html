@@ -95,10 +95,11 @@ input[type=range]:focus-visible{outline:2px solid var(--cy);outline-offset:3px;b
     fractured rock over intact basalt, 0&ndash;120&nbsp;m, with the borehole bar on the same
     depth axis. Nothing here is data: the interfaces are <b>generated</b>, so every lever
     below changes the ground itself. <b>Click a layer</b> to take off everything above it and
-    leave it translucent; <kbd>Esc</kbd> puts the stack back. <b>Fog is fog of war</b>: under it the ground has
-    no type and no boundaries at all &mdash; one undifferentiated mass, because you have not
-    established which rock is down there or where one bed gives way to the next.
-    <b>Click the block</b> to establish ground and watch the real strata come through.</p>
+    leave it translucent; <kbd>Esc</kbd> puts the stack back. <b>Fog is fog of war</b>: under it there are no
+    layers at all &mdash; not hidden ones, none. The column has no types and no boundaries
+    until you go and look. <b>Click a cut face</b> to collapse that ground into something
+    determinate: the fog goes and the real strata are there. Clicking the top peels, as
+    before.</p>
   </header>
 
   <div class="stage"><canvas id="cv" width="1520" height="1760" aria-label="Isometric block of four rock strata"></canvas></div>
@@ -620,7 +621,7 @@ function RevealK(sp, x, y){
     const r = reveals[i];
     if (r.sp !== sp) continue;
     const d = Math.hypot((x - r.x) / r.rx, (y - r.y) / r.ry);
-    if (d < 1) k = Math.max(k, 1 - smoothstep(0.35, 1, d));
+    if (d < 1) k = Math.max(k, 1 - smoothstep(0.74, 1, d));
   }
   return k;
 }
@@ -639,25 +640,27 @@ function FogNoise(u, v){
 }
 /* Returns the haze alpha, the tint noise, and -- the part fog of war needs --
    how much of the real column is ESTABLISHED here. */
-function FogSample(sp, x, y, tt){
+/* COLLAPSE, not coverage. The previous build gave the fog a shape of its own
+   -- a depth ramp, a noise field -- and then hid a finished column behind it,
+   which is still a picture with a curtain in front. Here the fog has no shape:
+   it is exactly the ground that has NOT collapsed yet, and the only thing that
+   collapses ground is a click.
+
+       collapsed = 0  ->  no layers here. Not hidden ones: none.
+       collapsed = 1  ->  the column is determinate, and the fog is gone.
+
+   The surface is the one thing collapsed for free, because you can see it.
+   Everything under it is undetermined until you go and look, and the five
+   levers now shape only how the fog LOOKS, never where it is. */
+function FogSample(sp, x, y){
   if (!P.fog) return { a: 0, n: 0.5, known: 1 };
+  const collapsed = sp === "top" ? 1 : RevealK(sp, x, y);
   const n = FogNoise(x, y);
-  // Thickness is how early and how hard the fog builds. Low: it only gathers
-  // at the bottom of the column. High: it is in the room with you from the
-  // first few metres -- including a floor at the very top, because "all over"
-  // means the whole column is uncertain, not that uncertainty starts deep.
-  const e = lerp(2.4, 0.35, clamp(P.fogThick, 0, 1));
-  const floor = 0.08 * clamp(P.fogThick, 0, 1);
-  const dep = floor + (1 - floor) * Math.pow(clamp(tt, 0, 1), e);
-  // Multiplying the ramp by the noise was wrong: at any depth a low noise
-  // value scaled the whole thing down, so `hidden` never reached 1 and the
-  // real strata leaked through the deepest ground -- exactly what fog of war
-  // must not do. The noise SHIFTS the ramp instead, so it moves where the fog
-  // edge sits without ever lifting the floor under it, and the bottom of the
-  // column saturates at completely unknown.
-  let hidden = clamp((dep * 1.35 + (n - 0.5) * 0.85) * P.fogAmt, 0, 1);
-  hidden *= 1 - RevealK(sp, x, y);
-  return { a: Math.min(hidden, FOG_MAX_A), n, known: 1 - hidden };
+  // Opacity is the fog's ceiling, thickness its floor: together they are the
+  // difference between something wispy you can half-read and a solid blanket.
+  const floorA = 0.30 + 0.65 * clamp(P.fogThick, 0, 1);
+  const a = P.fogAmt * lerp(floorA, 1, n) * (1 - collapsed);
+  return { a: Math.min(a, FOG_MAX_A), n, known: collapsed };
 }
 
 /* Rasterised small and blown up with smoothing -- which is what makes it read
@@ -699,14 +702,13 @@ function EnsureFog(topB){
     const pair = MakePair(FOG_W, FOG_H, (x, y) => {
       const pp = (side === 0 ? 0 : 0.5) + x / (FOG_W - 1) * 0.5;
       const tt = (-FOG_MARGIN_M + y / (FOG_H - 1) * span) / Math.max(COLUMN_M, 1);
-      return FogSample("face", pp, tt, tt);
+      return FogSample("face", pp, tt);
     });
     fogFace[side] = pair[0]; mskFace[side] = pair[1];
   }
-  const tt = TOPS[Math.min(topB, 3)] / Math.max(COLUMN_M, 1);
   const pair = MakePair(FOG_TOP, FOG_TOP, (x, y) =>
     FogSample("top", x / (FOG_TOP - 1),
-              y / (FOG_TOP - 1) * P.fogSpreadV / Math.max(P.fogSpreadH, 0.04), tt));
+              y / (FOG_TOP - 1) * P.fogSpreadV / Math.max(P.fogSpreadH, 0.04)));
   fogTop = pair[0]; mskTop = pair[1];
 }
 
@@ -781,8 +783,11 @@ function DrawUnknown(topB, botB){
    into the background and stops being an object. */
 function FogFrame(topB, botB){
   const e = rgb([150, 168, 190], 0.30);
-  CTX.strokeStyle = e; CTX.lineWidth = 1.2;
-  SurfacePath(botB); CTX.stroke();
+  // Only the two FRONT edges. Stroking the whole base diamond also draws its
+  // two back edges, which the body hides -- and they came out as a pair of
+  // diagonals ruled across both faces, an edge of a shape you cannot see.
+  BoundaryStroke(botB, 0, e, 1.2, 0);
+  BoundaryStroke(botB, 1, e, 1.2, 0);
   CornerVerticals(topB, botB, e, 1.4);
 }
 
@@ -1508,7 +1513,7 @@ const SCHEMA = [
       { k:"craterY",     lab:"Position Y", min:0, max:1,  step:0.01, fmt:pc }
     ] },
   { title: "Fog — what is not known",
-    note: "Under fog the ground has no type and no boundaries. Click the block to establish it.",
+    note: "Fog IS the uncollapsed ground. Click a cut face to collapse it and the layers there become real. These five shape how the fog looks, not where it is.",
     items: [
       { k:"fog",        type:"toggle", lab:"Fog" },
       { k:"fogAmt",     lab:"Opacity",      min:0,    max:1,   step:0.01, fmt:pc },
@@ -1766,13 +1771,8 @@ function FogHitAt(topB, botB, vx, vy){
              rx: REVEAL_R_PX / (2 * run),
              ry: REVEAL_R_PX / Math.max(COLUMN_M * PX_PER_M, 1) };
   }
-  SurfacePath(topB);
-  if (CTX.isPointInPath(dx, dy)){
-    const c = PickCell(topB, vx, vy);
-    return { sp: "top", x: c.i / N, y: c.j / N,
-             rx: REVEAL_R_PX / Math.max(run, 1), ry: REVEAL_R_PX / Math.max(run, 1) };
-  }
-  return null;
+  return null;      // the cap is collapsed already; a click there peels
+
 }
 CV.addEventListener("pointerdown", e => {
   const p = evPos(e); st.mx = p[0]; st.my = p[1];
