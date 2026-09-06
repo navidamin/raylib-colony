@@ -176,8 +176,38 @@ synthesis rather than a contrast difference; the chip says which is on.
   count, and below it they are the same rocks seen closer rather than a
   fresh scattering every time you zoom.
 
-**Headless renders.** `regolith_craters_render.mjs` slices the chain out
-of the page and runs it in Node, so a change can be looked at without a
+### The descent: `regolith_playtest.html`
+
+The bench renders one window and stops. This one is a zoom.
+
+**[navidamin.github.io/raylib-colony/regolith/](https://navidamin.github.io/raylib-colony/regolith/)**
+— or open the file. Drag, wheel or pinch to zoom, arrows, `+`/`-`, `R`.
+The bench is beside it at `/regolith/bench.html` (the *Bench* button).
+
+It walks the bottom of the game's own ladder and one rung below it:
+**50 km, wide enough that the mosaic still carries the landforms, down to
+1 km, where it carries nothing at all** — level 1 COLONY (25 km), level 2
+SECT (5 km), level 3 UNIT (1 km), continuous between and past them. Every
+tile is made when it is asked for; the counter and the millisecond cost
+in the corner are real.
+
+That is only affordable because the wide rungs do not depend on how far
+in you are — they are crops, and crops of the same ground from the same
+centre are the same crops. `MakeLiveChain` builds them once and rebuilds
+only the rung being LOOKED at, which is also the only rung carrying
+sub-floor detail, so the split falls exactly where the work is: ~250-500
+ms a tile against ~900 for the full ladder. Rungs are built on demand,
+and `View()` takes an offset and crops the deepest rung that still
+contains the window, so panning costs one rung as well.
+
+Between tiles the current one is scaled and the new one cross-fades, so
+the ground sharpens rather than jumping; the tile is asked for 18% wider
+than the window so a zoom can drift before the next lands. The hash
+carries region, span and position, so a spot found on a phone can be
+sent to somebody else.
+
+**Headless renders.** `regolith_craters_render.mjs` runs `regolith_chain.js`
+-- the same file the pages load -- in Node, so a change can be looked at without a
 browser:
 
 ```

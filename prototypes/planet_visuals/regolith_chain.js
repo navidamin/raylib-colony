@@ -833,8 +833,12 @@ function SubFloorMottle(res, frame, spanKm, tune){
   const kmPerPx = spanKm / res;
   const W = WorldGrid(frame, res);
   const out = new Float32Array(res * res);
+  // Four octaves, not everything down to the pixel: mottling is a broad
+  // tone, the fine end of it is invisible under the grit, and measured at
+  // res 640 the extra octaves cost more than the crater population does.
+  const MOTTLE_OCTAVES = 4;
   let lambda = FLOOR_KM * 0.7, amp = 1.0, norm = 0.0;
-  for (let o = 0; o < SUB_MAX_OCTAVES && lambda >= 4.0 * kmPerPx; o++, lambda *= 0.5){
+  for (let o = 0; o < MOTTLE_OCTAVES && lambda >= 4.0 * kmPerPx; o++, lambda *= 0.5){
     const w = SubFade(lambda * 2.0) * amp;
     norm += amp;
     if (w > 0.001){

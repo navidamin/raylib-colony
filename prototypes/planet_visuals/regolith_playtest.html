@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Descent — Sect to Ground</title>
+<title>Descent — Colony to Unit</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
@@ -94,7 +94,9 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
 
 <div id="bar">
   <button class="btn" id="out" title="Zoom out">&minus;</button>
-  <input id="zoom" type="range" min="0" max="1" step="0.0005" value="0" aria-label="Zoom">
+  <input id="zoom" type="range" min="0" max="1" step="0.0005" value="0"
+         list="rungs" aria-label="Zoom">
+  <datalist id="rungs"></datalist>
   <button class="btn" id="in" title="Zoom in">+</button>
   <button class="btn" id="res" title="Detail">512</button>
   <button class="btn" id="reset">Reset</button>
@@ -114,19 +116,19 @@ const CTX = CV.getContext("2d");
 
 /* --- what the descent is ---------------------------------------------
    The game's ladder is 100 / 25 / 5 km -- PLANET, COLONY, SECT. This
-   picks it up at SECT and keeps going: level 3 at a quarter of it, level
-   4 at a quarter of that. Below the sect the mosaic has nothing at all
-   (a 5 km window is under four WAC texels), so everything you fly into
-   here is generated on the way in -- and generated in WORLD wavelengths,
-   which is what lets it be generated ad hoc without the ground changing
-   under you.
+   walks the bottom three rungs of it and one below: 50 km, wide enough
+   that the mosaic still carries the landforms, down to 1 km, where it
+   carries nothing at all and every crater and rock you see was made on
+   the way in. 1 km is the floor on purpose -- it is a unit's own ground,
+   and the scale the game would have to draw if it ever went below the
+   sect.
    -------------------------------------------------------------------- */
 const LEVELS = [
-  { n: 2, span: 5.0,    name: "SECT" },
-  { n: 3, span: 1.25,   name: "UNIT" },
-  { n: 4, span: 0.3125, name: "SURFACE" }
+  { n: 1, span: 25.0, name: "COLONY" },
+  { n: 2, span: 5.0,  name: "SECT" },
+  { n: 3, span: 1.0,  name: "UNIT" }
 ];
-const SPAN_MAX = 6.0, SPAN_MIN = 0.25;
+const SPAN_MAX = 50.0, SPAN_MIN = 1.0;
 const LOG_MAX = Math.log(SPAN_MAX), LOG_MIN = Math.log(SPAN_MIN);
 
 const st = {
@@ -180,8 +182,7 @@ function BuildCache(then){
       craterParams: TC.DEFAULT_CRATER,
       originLat: st.originLat, originLon: st.originLon
     });
-    st.lc.EnsureRung(1);            // the inset lives on the 25 km rung
-    st.mini = RungCanvas(st.lc, 25.0);
+    st.mini = RungCanvas(st.lc, 100.0);   // wider than any view, so the box always fits
     Busy(false);
     if (then) then();
   }, 16);
@@ -239,10 +240,15 @@ function Regenerate(){
 function MaybeRegenerate(){
   if (!st.tile){ Regenerate(); return; }
   // Past the widest cached rung there is nothing left to crop from, so
-  // that -- and only that -- is what makes a pan rebuild the cache.
+  // that -- and only that -- is what makes a pan rebuild the cache. The
+  // test is the one View() itself applies: half the tile plus however far
+  // the view has walked, against half the macro. Written with the whole
+  // span instead of half, a 50 km window rebuilt the cache on every
+  // regeneration while sitting perfectly still.
   const reach = Math.max(Math.abs(st.cxKm - st.cacheCx),
-                         Math.abs(st.cyKm - st.cacheCy)) + st.spanKm;
-  if (reach > TC.LIVE_RUNGS[0] * 0.45){ Recentre(); return; }
+                         Math.abs(st.cyKm - st.cacheCy))
+              + st.spanKm * TILE_MARGIN / 2;
+  if (reach > TC.LIVE_RUNGS[0] * 0.47){ Recentre(); return; }
   const drift = Math.abs(Math.log(st.spanKm * TILE_MARGIN / st.tile.spanKm));
   const moved = Math.hypot(st.cxKm - st.tile.cxKm, st.cyKm - st.tile.cyKm);
   if (drift > 0.113 || moved > st.spanKm * 0.035) Regenerate();
@@ -295,7 +301,7 @@ function DrawTile(t, alpha){
 function ScaleBar(){
   const p = PxPerKm() / DPR, W = CV.width / DPR;
   const want = (W * 0.22) / p;                       // km
-  const nice = [0.01,0.02,0.05,0.1,0.2,0.5,1,2,5].reduce((a,b) =>
+  const nice = [0.05,0.1,0.2,0.5,1,2,5,10,20].reduce((a,b) =>
     Math.abs(b - want) < Math.abs(a - want) ? b : a);
   const len = nice * p, x = 16, y = CV.height / DPR - 26;
   CTX.save(); CTX.scale(DPR, DPR);
@@ -372,16 +378,17 @@ function Frame(ts){
 
 /* --- the readouts ----------------------------------------------------- */
 const $ = id => document.getElementById(id);
+// The boundaries are the geometric midpoints between the rungs, so a
+// level owns the spans it is nearer to than either neighbour.
 function LevelOf(span){
-  if (span >= 2.5) return LEVELS[0];
-  if (span >= 0.625) return LEVELS[1];
+  if (span >= Math.sqrt(25.0 * 5.0)) return LEVELS[0];
+  if (span >= Math.sqrt(5.0 * 1.0)) return LEVELS[1];
   return LEVELS[2];
 }
 function Hud(){
   const L = LevelOf(st.spanKm);
   $("lvl").textContent = `LEVEL ${L.n} · ${L.name}`;
-  $("span").textContent = st.spanKm < 1
-    ? Math.round(st.spanKm * 1000) + " m" : st.spanKm.toFixed(2) + " km";
+  $("span").textContent = st.spanKm.toFixed(st.spanKm >= 10 ? 1 : 2) + " km";
   const mpp = st.tile ? st.tile.kmPerPx * 1000 : 0;
   $("mpp").textContent = mpp.toFixed(mpp < 10 ? 2 : 1) + " m/px";
   $("place").textContent = REGIONS[st.region].name;
@@ -486,6 +493,17 @@ $("res").addEventListener("click", () => {
   $("res").textContent = st.res;
   Recentre();
 });
+
+// Mark where the game's own rungs fall on the zoom.
+{
+  const dl = $("rungs");
+  for (const L of LEVELS){
+    const o = document.createElement("option");
+    o.value = (Math.log(L.span) - LOG_MAX) / (LOG_MIN - LOG_MAX);
+    o.label = L.span + " km";
+    dl.appendChild(o);
+  }
+}
 
 const regionBar = $("regions");
 REGIONS.forEach((r, i) => {
