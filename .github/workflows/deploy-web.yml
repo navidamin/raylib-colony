@@ -92,6 +92,9 @@ jobs:
         cp prototypes/planet_visuals/regolith_craters.html  deploy/regolith/bench.html
         cp prototypes/planet_visuals/regolith_chain.js      deploy/regolith/
         cp prototypes/planet_visuals/regolith_blocks.js     deploy/regolith/
+        # The playtest builds its tiles in a worker, which needs a real
+        # origin -- so this is the only place the refined picture exists.
+        cp prototypes/planet_visuals/regolith_worker.js     deploy/regolith/
 
     # One repo has one Pages site and every deploy replaces ALL of it. The
     # excavation branch serves /playtest/ and /extraction/; this step pulls

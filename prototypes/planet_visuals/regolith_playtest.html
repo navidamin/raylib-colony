@@ -75,6 +75,12 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   #zoom{width:38vw}
   /* Only here is there not room for one row of controls. */
   #bar{flex-wrap:wrap}
+  /* ...and no room for an eighth button: a fourth row of bar runs into
+     the regions strip above it. Refine is on by default and costs a
+     phone about a second, so the toggle is the thing to drop; #f=0 in
+     the hash still turns it off, which is how a phone gets configured
+     anyway. */
+  #refine{display:none}
 }
 </style>
 
@@ -91,6 +97,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   <div id="busy">GENERATING</div>
   <div><span class="k">tile</span> <span class="v" id="gen">—</span></div>
   <div><span class="k">craters</span> <span class="v" id="cr">—</span></div>
+  <div><span class="k">fine</span> <span class="v" id="fine">—</span></div>
 </div>
 
 <div id="regions"></div>
@@ -103,6 +110,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   <button class="btn" id="in" title="Zoom in">+</button>
   <button class="btn" id="style" title="Smooth, hard pixels, or hard pixels with banded tone">Smooth</button>
   <button class="btn" id="res" title="Tile detail, or pixel size">512</button>
+  <button class="btn" id="refine" title="Rebuild the tile near 1:1 once you stop moving">Refine</button>
   <button class="btn" id="reset">Reset</button>
   <a class="btn" id="bench" href="#" title="The lever bench">Bench</a>
 </div>
@@ -148,7 +156,9 @@ const st = {
   // are scaled by k = res/300 and therefore cover the same GROUND however
   // many pixels you give them. Only dropping them does.
   style: 1, px: 3,
-  drag: null, pinch: null, dirty: true, mini: null
+  drag: null, pinch: null, dirty: true, mini: null,
+  // The refine pass. See REFINE_UPSCALE for what it is and why.
+  refine: 1, epoch: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
 };
 
 /* --- the imagery ------------------------------------------------------ */
@@ -165,9 +175,140 @@ function LoadRegion(i, then){
     for (let k = 0; k < data.length; k++) data[k] = px[k * 4];
     st.block = { data, w: WAC_BLOCKS.size, h: WAC_BLOCKS.size,
                  x0: r.x0, y0: r.y0, wacW: WAC_BLOCKS.wacW, wacH: WAC_BLOCKS.wacH };
+    // Copied, not transferred: there are two workers and the page keeps
+    // its own for the no-worker path. It is 64 kB.
+    if (WORK){ WORK.fast.postMessage({ cmd: "block", block: st.block });
+               WORK.fine.postMessage({ cmd: "block", block: st.block }); }
     then();
   };
   img.src = "data:image/png;base64," + r.png;
+}
+
+/* --- the workers ------------------------------------------------------
+   Why this exists, in one paragraph, because it is the answer to a
+   question worth recording.
+
+   Zooming out fast used to show a brief frame that looked far better
+   than the one that replaced it. That frame was not a cheap renderer:
+   it was the PREVIOUS tile -- built for the tighter view being left, so
+   about twice the ground resolution -- still on screen, and stretched
+   1.4x instead of 2.7x. Measured against the 1280 chip at the same
+   window it is the same picture (high-frequency energy 2.94 against
+   3.15; the tile it replaced, 1.15). So the good frame was the
+   EXPENSIVE one, seen for free only because the way in had already paid
+   for it.
+
+   There is no cheap way to make it. The chain's cost is close to linear
+   in pixels (1381 ms at 640, 5293 at 1280) and spread over a dozen
+   stages, so there is no one stage to cut: the only superlinear one is
+   CastShadows, at 34% of a 1280 tile, and marching it at half
+   resolution saves 22% overall while visibly deepening every small
+   crater's shadow -- a different picture, not the same one cheaper.
+
+   What is left is to stop it being in the way. The chain has no DOM in
+   it, so it runs here off the main thread: the coarse tile lands at
+   once and carries the view, and the fine one replaces it when it
+   arrives. Five seconds costs nothing anybody can feel if the page
+   never stops.
+   -------------------------------------------------------------------- */
+let WORK = null;                      // { fast, fine } or null on file://
+function StartWorkers(){
+  try {
+    const mk = () => {
+      const w = new Worker("regolith_worker.js");
+      w.onerror = () => { WORK = null; SyncRefine(); };
+      w.onmessage = OnWorker;
+      return w;
+    };
+    // Two of them, because a refine takes seconds and must not sit in
+    // front of the tile the hand is waiting for.
+    WORK = { fast: mk(), fine: mk() };
+  } catch (e){ WORK = null; }         // file:// has no origin to load from
+}
+
+// The refine target: the upscale the good frame turned out to have.
+// Below it the browser smears; much above it the wait stops being worth
+// the difference. 1280 is where a desktop lands, and it is the chip that
+// was measured against the frame in the first place.
+const REFINE_UPSCALE = 1.33, REFINE_CAP = 1280, REFINE_MS = 320;
+function RefineRes(){
+  const long = Math.max(CV.width, CV.height) * TILE_MARGIN;
+  return Math.min(REFINE_CAP, FIT_CAP, Math.ceil(long / REFINE_UPSCALE));
+}
+function RefineWorth(){
+  return !!WORK && st.refine && !Hard() && st.tile
+      && RefineRes() > st.tile.canvas.width * 1.15;
+}
+
+let fineTimer = null;
+function ArmRefine(){
+  clearTimeout(fineTimer);
+  if (!RefineWorth()) return;
+  fineTimer = setTimeout(() => {
+    if (!RefineWorth()) return;
+    st.fining = true; Hud();
+    Ask(WORK.fine, RefineRes(), true);
+  }, REFINE_MS);
+}
+
+// One view request. `fine` only marks which reply it is, so the HUD can
+// say which picture is on screen.
+function Ask(w, res, fine){
+  const id = ++st.reqId;
+  w.postMessage({ cmd: "view", id, epoch: st.epoch, fine, res,
+                  spanKm: Math.max(0.05, st.spanKm * TILE_MARGIN),
+                  offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
+                  cxKm: st.cxKm, cyKm: st.cyKm });
+}
+
+// A tile that arrives after the view has moved on is not wrong, it is
+// late. The test is the one MaybeRegenerate uses to decide a tile still
+// fits, so "still good" means the same thing in both places.
+function StillFits(m){
+  const drift = Math.abs(Math.log(st.spanKm * TILE_MARGIN / m.spanKm));
+  const moved = Math.hypot(st.cxKm - m.cxKm, st.cyKm - m.cyKm);
+  return drift <= 0.113 && moved <= st.spanKm * 0.035;
+}
+
+function OnWorker(e){
+  const m = e.data;
+  if (m.cmd === "block" || m.cmd === "place") return;
+  if (m.cmd === "mini"){
+    if (m.epoch === st.epoch){ st.mini = LumCanvas(m.lum, m.res, m.spanKm); st.dirty = true; }
+    return;
+  }
+  if (m.cmd !== "view") return;
+  // The bookkeeping happens whatever the reply turned out to be worth,
+  // or a dropped one leaves the page thinking it is still waiting.
+  if (m.fine) st.fining = false;
+  else { genPending = false; Busy(false); }
+  if (m.stale || m.epoch !== st.epoch){         // a different place or look
+    if (!m.fine && askAgain){ askAgain = false; Regenerate(); }
+    return;
+  }
+  if (!m.fine && askAgain){                     // the view moved while it built
+    askAgain = false; Regenerate();
+  }
+  if (!StillFits(m)){                            // late; the view moved on
+    if (!m.fine) MaybeRegenerate();
+    Hud();
+    return;
+  }
+  Install(m);
+  if (m.fine){ st.fineMs = m.ms; st.fineRes = m.res; }
+  else { st.genMs = m.ms; st.genCount++; st.fineRes = 0; ArmRefine(); }
+  Hud(); WriteHash();
+}
+
+function Install(m){
+  const c = document.createElement("canvas");
+  c.width = c.height = m.res;
+  c.getContext("2d").putImageData(new ImageData(m.rgba, m.res, m.res), 0, 0);
+  st.prev = st.tile;
+  st.tile = { canvas: c, spanKm: m.spanKm, cxKm: m.cxKm, cyKm: m.cyKm,
+              craters: m.craters, pop: m.popCraters, kmPerPx: m.kmPerPx };
+  st.fade = st.prev ? 0 : 1;
+  st.dirty = true;
 }
 
 /* --- km <-> lat/lon, about the region's own origin -------------------- */
@@ -223,6 +364,21 @@ function WantedRes(){
 
 function BuildCache(then){
   const [lat, lon] = LatLonAt(st.cxKm, st.cyKm);
+  st.epoch++;
+  clearTimeout(fineTimer); st.fining = false; st.fineRes = 0;
+  if (WORK){
+    // Nothing is built here: the chains live in the workers and are made
+    // on demand, one rung at a time, for whatever resolution is asked
+    // for. The page only waits for pictures.
+    const msg = { cmd: "place", epoch: st.epoch, lat, lon, tune: Tune(),
+                  originLat: st.originLat, originLon: st.originLon };
+    WORK.fast.postMessage(msg); WORK.fine.postMessage(msg);
+    if (then) then();
+    // The locator inset, behind the tile the eye is waiting for.
+    WORK.fast.postMessage({ cmd: "mini", epoch: st.epoch,
+                            res: WantedRes(), spanKm: 100.0 });
+    return;
+  }
   Busy(true);
   setTimeout(() => {
     st.lc = TC.MakeLiveChain({
@@ -237,19 +393,22 @@ function BuildCache(then){
   }, 16);
 }
 // One cached rung as a picture, for the inset that says where you are.
-function RungCanvas(lc, spanKm){
-  let best = lc.rungs[0];
-  for (const r of lc.rungs) if (Math.abs(r.spanKm - spanKm) < Math.abs(best.spanKm - spanKm)) best = r;
-  const res = lc.res, c = document.createElement("canvas");
+function LumCanvas(lum, res, spanKm){
+  const c = document.createElement("canvas");
   c.width = c.height = res;
   const g = c.getContext("2d"), img = g.createImageData(res, res);
   // The mare is genuinely dark; the inset is a locator, so it is lifted
   // to be readable rather than left faithful.
   for (let i = 0; i < res * res; i++){
-    TC.RampColor(Math.min(1, best.lum[i] * 1.55 + 0.06), img.data, i * 4);
+    TC.RampColor(Math.min(1, lum[i] * 1.55 + 0.06), img.data, i * 4);
   }
   g.putImageData(img, 0, 0);
-  return { canvas: c, spanKm: best.spanKm };
+  return { canvas: c, spanKm };
+}
+function RungCanvas(lc, spanKm){
+  let best = lc.rungs[0];
+  for (const r of lc.rungs) if (Math.abs(r.spanKm - spanKm) < Math.abs(best.spanKm - spanKm)) best = r;
+  return LumCanvas(best.lum, lc.res, best.spanKm);
 }
 
 function TileCanvas(view){
@@ -260,8 +419,19 @@ function TileCanvas(view){
   return c;
 }
 
-let genPending = false;
+let genPending = false, askAgain = false;
 function Regenerate(){
+  if (WORK){
+    clearTimeout(fineTimer); st.fining = false;
+    // One request in flight at a time. A worker is a queue, and a drag
+    // that posts on every frame would fill it with tiles for places the
+    // view has already left -- each one built in full before the one
+    // that matters. So the extra asks collapse into a single "again".
+    if (genPending){ askAgain = true; return; }
+    genPending = true; Busy(true);
+    Ask(WORK.fast, WantedRes(), false);
+    return;
+  }
   if (!st.lc || genPending) return;
   genPending = true;
   Busy(true);
@@ -305,6 +475,7 @@ function MaybeRegenerate(){
   const drift = Math.abs(Math.log(st.spanKm * TILE_MARGIN / st.tile.spanKm));
   const moved = Math.hypot(st.cxKm - st.tile.cxKm, st.cyKm - st.tile.cyKm);
   if (drift > 0.113 || moved > st.spanKm * 0.035) Schedule();
+  else ArmRefine();          // still where it was: sharpen it in place
 }
 
 // Generation is synchronous: a big tile freezes the page for as long as it
@@ -316,7 +487,8 @@ const HEAVY_RES = 760, SETTLE_MS = 380;
 let settleTimer = null;
 function Schedule(){
   clearTimeout(settleTimer);
-  if (WantedRes() < HEAVY_RES){ Regenerate(); return; }
+  // In a worker nothing freezes, so there is nothing to wait for.
+  if (WORK || WantedRes() < HEAVY_RES){ Regenerate(); return; }
   settleTimer = setTimeout(() => Regenerate(), SETTLE_MS);
 }
 
@@ -504,6 +676,12 @@ function Hud(){
   // A tile over a second is a visible freeze, and the tile size is the
   // player's choice, so the number that says so is worth colouring.
   $("gen").style.color = st.genMs > 1200 ? "var(--am-lit)" : "";
+  $("fine").textContent = !WORK ? "no worker"
+    : !st.refine ? "off"
+    : st.fining ? `${RefineRes()}…`
+    : st.fineRes ? `${st.fineRes} · ${(st.fineMs / 1000).toFixed(1)} s`
+    : RefineWorth() ? "waiting" : "—";
+  $("fine").style.color = st.fineRes ? "var(--cy)" : "var(--dimmer)";
   $("cr").textContent = st.tile ? `${st.tile.craters} + ${st.tile.pop}` : "—";
   const z = (Math.log(st.spanKm) - LOG_MAX) / (LOG_MIN - LOG_MAX);
   const zi = $("zoom");
@@ -622,10 +800,28 @@ function SyncStyle(){
   $("res").textContent = !Hard()
     ? (st.res === 0 ? "Fit" : String(st.res)) : "×" + st.px;
   $("res").title = Hard() ? "Pixel size" : "Tile detail";
+  SyncRefine();
 }
 $("style").addEventListener("click", () => {
   st.style = (st.style + 1) % 4;
   SyncStyle(); Recentre();
+});
+function SyncRefine(){
+  const b = $("refine");
+  b.textContent = "Refine";
+  b.setAttribute("aria-pressed", (WORK && st.refine && !Hard()) ? "true" : "false");
+  b.disabled = !WORK;
+  b.title = !WORK
+    ? "Needs a worker — serve the page over http, not file://"
+    : Hard()
+      ? "Hard pixels pick their own tile size, so there is nothing to refine"
+      : "Rebuild the tile near 1:1 once you stop moving";
+  Hud();
+}
+$("refine").addEventListener("click", () => {
+  st.refine = st.refine ? 0 : 1;
+  SyncRefine();
+  if (st.refine) ArmRefine(); else { clearTimeout(fineTimer); st.fining = false; }
 });
 $("res").addEventListener("click", () => {
   if (!Hard())
@@ -689,6 +885,7 @@ function ReadHash(){
   const d = parseInt(h.get("d"), 10), px = parseInt(h.get("p"), 10);
   if (d >= 0 && d <= 3) st.style = d;
   if (px >= 2 && px <= 4) st.px = px;
+  if (h.get("f") === "0") st.refine = 0;
   return { region: i < 0 ? 0 : i,
            span: parseFloat(h.get("s")) || null,
            x: parseFloat(h.get("x")) || 0,
@@ -700,12 +897,14 @@ function WriteHash(){
   hashTimer = setTimeout(() => {
     const q = `r=${REGIONS[st.region].key}&s=${st.spanKm.toPrecision(4)}`
             + `&x=${st.cxKm.toFixed(3)}&y=${st.cyKm.toFixed(3)}`
-            + `&d=${st.style}${st.style ? "&p=" + st.px : ""}`;
+            + `&d=${st.style}${st.style ? "&p=" + st.px : ""}`
+            + (st.refine ? "" : "&f=0");
     try { history.replaceState(null, "", "#" + q); } catch (e) {}
   }, 500);
 }
 
 Resize();
+StartWorkers();
 // A tile blown up much past 3x reads as mush whatever the synthesis does,
 // so the default follows the screen. The chip trades it back for speed.
 // A tile blown up much past 3x reads as mush whatever the synthesis
