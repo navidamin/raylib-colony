@@ -97,9 +97,13 @@ input[type=range]:focus-visible{outline:2px solid var(--cy);outline-offset:3px;b
     below changes the ground itself. <b>Click a layer</b> to take off everything above it and
     leave it translucent; <kbd>Esc</kbd> puts the stack back. <b>Fog is fog of war</b>: under it there are no
     layers at all &mdash; not hidden ones, none. The column has no types and no boundaries
-    until you go and look. <b>Click a cut face</b> to collapse that ground into something
-    determinate: the fog goes and the real strata are there. Clicking the top peels, as
-    before.</p>
+    until you go and look. What collapses it is <b>drilling</b>: arm the rig from the
+    <b>DRILL</b> dock, put the bit tip anywhere on the ground and click. It sinks until only
+    the head stands out, digs a scour bowl with a rim of spoil and throws grit the colour of
+    the bed it is cutting; when it comes back out, the hole leaves a narrow band of real
+    section on the cut faces &mdash; full near an edge, half&#8209;resolved out in the middle,
+    which is what a hole that far from a section actually tells you. <kbd>Esc</kbd> stows the
+    rig.</p>
   </header>
 
   <div class="stage"><canvas id="cv" width="1520" height="1760" aria-label="Isometric block of four rock strata"></canvas></div>
@@ -1812,7 +1816,7 @@ const SCHEMA = [
       { k:"craterY",     lab:"Position Y", min:0, max:1,  step:0.01, fmt:pc }
     ] },
   { title: "Fog — what is not known",
-    note: "Fog IS the uncollapsed ground. Click a cut face to collapse it and the layers there become real. These five shape how the fog looks, not where it is.",
+    note: "Fog IS the uncollapsed ground. Drilling is what collapses it: each hole leaves a band of real section on the faces. These five shape how the fog looks, not where it is.",
     items: [
       { k:"fog",        type:"toggle", lab:"Fog" },
       { k:"fogAmt",     lab:"Opacity",      min:0,    max:1,   step:0.01, fmt:pc },
