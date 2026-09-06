@@ -1134,24 +1134,25 @@ const LIVE_RUNGS = [100.0, 25.0, 5.0, 1.25, 0.3125];
 // centre. The offset is what lets a view pan inside the cached pyramid
 // instead of rebuilding it: a rung's pixels are geographically
 // registered, so a pixel offset IS a ground offset.
-function CropRung(lum, res, fromSpanKm, toSpanKm, offXKm, offYKm, crisp){
+function CropRung(lum, res, fromSpanKm, toSpanKm, offXKm, offYKm, crisp, srcRes){
+  const src = srcRes || res;
   const k = res / 300.0;
   const frac = toSpanKm / fromSpanKm;
-  const half = frac * res / 2.0;
-  const ox = (offXKm || 0) / fromSpanKm * res;
-  const oy = (offYKm || 0) / fromSpanKm * res;
-  const loX = res / 2.0 - half + ox, loY = res / 2.0 - half + oy;
+  const half = frac * src / 2.0;
+  const ox = (offXKm || 0) / fromSpanKm * src;
+  const oy = (offYKm || 0) / fromSpanKm * src;
+  const loX = src / 2.0 - half + ox, loY = src / 2.0 - half + oy;
   const step = 2.0 * half / res;
   const next = new Float32Array(res * res);
   for (let y = 0; y < res; y++){
     const sy = loY + (y + 0.5) * step - 0.5;
-    const iy = Math.min(Math.max(Math.floor(sy), 0), res - 2);
+    const iy = Math.min(Math.max(Math.floor(sy), 0), src - 2);
     const ty = Math.min(Math.max(sy - iy, 0.0), 1.0);
     for (let x = 0; x < res; x++){
       const sx = loX + (x + 0.5) * step - 0.5;
-      const ix = Math.min(Math.max(Math.floor(sx), 0), res - 2);
+      const ix = Math.min(Math.max(Math.floor(sx), 0), src - 2);
       const tx = Math.min(Math.max(sx - ix, 0.0), 1.0);
-      const r0 = iy * res + ix, r1 = (iy + 1) * res + ix;
+      const r0 = iy * src + ix, r1 = (iy + 1) * src + ix;
       const a = lum[r0] + (lum[r0 + 1] - lum[r0]) * tx;
       const b = lum[r1] + (lum[r1 + 1] - lum[r1]) * tx;
       next[y * res + x] = a + (b - a) * ty;
@@ -1165,8 +1166,17 @@ function CropRung(lum, res, fromSpanKm, toSpanKm, offXKm, offYKm, crisp){
   return next;
 }
 
+// o.rungRes: the CACHED rungs may be built coarser than the view is.
+// They are intermediate macros -- cropped, resampled and then modulated
+// again with fresh sub-floor detail at the view's own resolution -- so
+// most of their pixels are thrown away by the crop. Measured at a 2400
+// view: building them at 1200 instead costs RMS 1.0-1.8/255 (max 16,
+// and the difference image is structureless) and saves, from a cold
+// chain, 20.8 -> 13.2 s at 25 km, 28.6 -> 14.6 at 5 km, and 46.4 ->
+// 18.4 at 1 km, where four rungs have to be walked. That last one is
+// the wait after a zoom to a new level, and it is most of it.
 function MakeLiveChain(o){
-  const res = o.res, t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  const res = o.res, rungRes = o.rungRes || o.res, t0 = (typeof performance !== "undefined" ? performance.now() : Date.now());
   const spansDeg0 = LIVE_RUNGS[0] / MOON_KM_PER_DEG;
   const report = {};
   const rungs = [];
@@ -1178,22 +1188,22 @@ function MakeLiveChain(o){
   function EnsureRung(i){
     if (built >= i) return;
     if (built < 0){
-      let lum = CropMacro(o.block, o.lat, o.lon, spansDeg0, res, report);
-      SharpenAdaptive(lum, res);
+      let lum = CropMacro(o.block, o.lat, o.lon, spansDeg0, rungRes, report);
+      SharpenAdaptive(lum, rungRes);
       // Cached rungs are intermediate BY CONSTRUCTION -- lastRung false --
       // so none of them carries sub-floor detail into the macro the live
       // rung inherits. Same rule the bench found: relief carved at rung
       // after rung is shaded once per rung.
-      TextureModulate(lum, res, MakeNoiseFrame(o.lat, o.lon, LIVE_RUNGS[0], res, 0),
+      TextureModulate(lum, rungRes, MakeNoiseFrame(o.lat, o.lon, LIVE_RUNGS[0], rungRes, 0),
                       1.0, o.tune, 0, null, false);
       rungs[0] = { spanKm: LIVE_RUNGS[0], lum };
       built = 0;
     }
     for (let j = built + 1; j <= i; j++){
-      const lum = CropRung(rungs[j - 1].lum, res, LIVE_RUNGS[j - 1], LIVE_RUNGS[j],
+      const lum = CropRung(rungs[j - 1].lum, rungRes, LIVE_RUNGS[j - 1], LIVE_RUNGS[j],
                            0, 0, o.tune.crisp);
-      TextureModulate(lum, res,
-                      MakeNoiseFrame(o.lat, o.lon, LIVE_RUNGS[j], res,
+      TextureModulate(lum, rungRes,
+                      MakeNoiseFrame(o.lat, o.lon, LIVE_RUNGS[j], rungRes,
                                      Math.imul(0x9E3779B9, j) >>> 0),
                       1.0 + 0.7 * j, o.tune, 0, null, false);
       rungs[j] = { spanKm: LIVE_RUNGS[j], lum };
@@ -1216,8 +1226,9 @@ function MakeLiveChain(o){
       if (LIVE_RUNGS[i] / 2.0 >= reach - 1e-9) base = i;
     EnsureRung(base);
     const lvl = base + (spanKm < rungs[base].spanKm - 1e-9 ? 1 : 0);
-    let l = Float32Array.from(rungs[base].lum);
-    if (lvl > base) l = CropRung(l, res, rungs[base].spanKm, spanKm, ox, oy, o.tune.crisp);
+    let l = (lvl === base && rungRes === res)
+      ? Float32Array.from(rungs[base].lum)
+      : CropRung(rungs[base].lum, res, rungs[base].spanKm, spanKm, ox, oy, o.tune.crisp, rungRes);
     // The frame belongs to the window, not to the cache, or the craters
     // would stay behind while the imagery moved.
     const vLat = o.lat - oy / MOON_KM_PER_DEG;

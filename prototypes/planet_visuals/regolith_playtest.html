@@ -285,12 +285,46 @@ function RefineWorth(){
       && FineRes() > st.tile.canvas.width * 1.05;
 }
 
-let fineTimer = null;
+// The last few fine tiles, kept. Trying a level, going back and trying
+// it again is how anybody looks at a zoom, and the second visit has no
+// business costing what the first one did.
+const FINE_KEEP = 6;
+let fineCache = [];
+function CachedFine(){
+  const want = FineRes();
+  for (let i = fineCache.length - 1; i >= 0; i--){
+    const t = fineCache[i];
+    if (t.canvas.width === want && StillFits(t)) return t;
+  }
+  return null;
+}
+function KeepFine(t){
+  fineCache = fineCache.filter(x => x !== t);
+  fineCache.push(t);
+  while (fineCache.length > FINE_KEEP) fineCache.shift();
+}
+
+let fineTimer = null, fineAgain = false;
 function ArmRefine(){
   clearTimeout(fineTimer);
   if (!RefineWorth()) return;
+  // A tile already built for this view goes up now rather than in
+  // fifteen seconds.
+  const had = CachedFine();
+  if (had){
+    st.prev = st.tile; st.tile = had; st.fade = st.prev ? 0 : 1;
+    st.fineRes = had.canvas.width; st.fineMs = 0;
+    st.dirty = true; KeepFine(had); Hud();
+    return;
+  }
   fineTimer = setTimeout(() => {
     if (!RefineWorth()) return;
+    // One fine tile in flight at a time. It cannot be cancelled once the
+    // worker starts -- the chain is a blocking loop -- but it must not
+    // have a second queued behind it: measured on a zoom across a rung,
+    // that was 31 seconds spent on a tile for a view already left,
+    // before the one that mattered even started.
+    if (st.fining){ fineAgain = true; return; }
     st.fining = true; Hud();
     Ask(WORK.fine, FineRes(), true, FINE_MARGIN);
   }, REFINE_MS);
@@ -325,8 +359,10 @@ function OnWorker(e){
   if (m.cmd !== "view") return;
   // The bookkeeping happens whatever the reply turned out to be worth,
   // or a dropped one leaves the page thinking it is still waiting.
-  if (m.fine) st.fining = false;
-  else { genPending = false; Busy(false); }
+  if (m.fine){
+    st.fining = false;
+    if (fineAgain){ fineAgain = false; ArmRefine(); }
+  } else { genPending = false; Busy(false); }
   if (m.stale || m.epoch !== st.epoch){         // a different place or look
     if (!m.fine && askAgain){ askAgain = false; Regenerate(); }
     return;
@@ -355,7 +391,7 @@ function Install(m){
   // The coarse tile stays as a backdrop under the fine one, which is
   // what lets the fine one be built barely wider than the window: a pan
   // between tiles exposes soft ground instead of black.
-  if (!m.fine) st.base = st.tile;
+  if (!m.fine) st.base = st.tile; else KeepFine(st.tile);
   st.fade = st.prev ? 0 : 1;
   st.dirty = true;
 }
@@ -414,7 +450,7 @@ function WantedRes(){
 function BuildCache(then){
   const [lat, lon] = LatLonAt(st.cxKm, st.cyKm);
   st.epoch++;
-  clearTimeout(fineTimer); st.fining = false; st.fineRes = 0;
+  clearTimeout(fineTimer); st.fining = false; st.fineRes = 0; fineCache = [];
   if (WORK){
     // Nothing is built here: the chains live in the workers and are made
     // on demand, one rung at a time, for whatever resolution is asked
@@ -471,7 +507,7 @@ function TileCanvas(view){
 let genPending = false, askAgain = false;
 function Regenerate(){
   if (WORK){
-    clearTimeout(fineTimer); st.fining = false;
+    clearTimeout(fineTimer); fineAgain = false;
     // One request in flight at a time. A worker is a queue, and a drag
     // that posts on every frame would fill it with tiles for places the
     // view has already left -- each one built in full before the one
@@ -742,7 +778,8 @@ function Hud(){
   $("fine").textContent = !WORK ? "no worker"
     : !st.super ? "off"
     : st.fining ? `×${got.toFixed(1)}${asked} · ${FineRes()}…`
-    : st.fineRes ? `×${got.toFixed(1)}${asked} · ${(st.fineMs / 1000).toFixed(1)} s`
+    : st.fineRes ? `×${got.toFixed(1)}${asked} · `
+        + (st.fineMs ? `${(st.fineMs / 1000).toFixed(1)} s` : "kept")
     : RefineWorth() ? "waiting" : "—";
   $("fine").style.color = st.fineRes ? "var(--cy)" : "var(--dimmer)";
   $("cr").textContent = st.tile ? `${st.tile.craters} + ${st.tile.pop}` : "—";

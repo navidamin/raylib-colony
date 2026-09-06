@@ -22,11 +22,17 @@ let block = null;
 let place = null;                       // lat, lon, tune, origin
 let chains = new Map();                 // res -> live chain, built on demand
 
+// The cached rungs stop getting finer here. Past it they cost real
+// seconds -- most of the wait after a zoom to a new level -- and buy a
+// difference that does not survive the crop. See MakeLiveChain.
+const RUNG_RES_CAP = 1200;
+
 function ChainFor(res){
   let lc = chains.get(res);
   if (!lc){
     lc = TC.MakeLiveChain({
       block, lat: place.lat, lon: place.lon, res,
+      rungRes: Math.min(res, RUNG_RES_CAP),
       tune: place.tune, craters: TC.CRATERS,
       craterParams: TC.DEFAULT_CRATER,
       originLat: place.originLat, originLon: place.originLon
