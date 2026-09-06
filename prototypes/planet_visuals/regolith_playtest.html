@@ -57,6 +57,7 @@ canvas.drag{cursor:grabbing}
 .btn[aria-pressed=true]{border-color:var(--cy);color:var(--cy);background:#0d2430}
 .btn:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
 a.btn{text-decoration:none;display:inline-flex;align-items:center}
+.brk{display:none}
 #regions{position:fixed;top:12px;left:50%;transform:translateX(-50%);
   display:flex;gap:5px;flex-wrap:wrap;justify-content:center;max-width:min(70vw,760px)}
 #help{position:fixed;bottom:14px;right:14px;font:400 10.5px/1.6 var(--mono);
@@ -75,12 +76,14 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   #zoom{width:38vw}
   /* Only here is there not room for one row of controls. */
   #bar{flex-wrap:wrap}
-  /* ...and no room for an eighth button: a fourth row of bar runs into
-     the regions strip above it. Refine is on by default and costs a
-     phone about a second, so the toggle is the thing to drop; #f=0 in
-     the hash still turns it off, which is how a phone gets configured
-     anyway. */
-  #refine{display:none}
+  /* Two rows, decided rather than fallen into: the zoom and its two
+     steppers, then every button. Left to wrap on its own the bar put
+     one control on each of four lines. */
+  /* The bar is shrink-to-fit, so wrapping inside it was wrapping inside
+     about 200 px however much screen there was. */
+  #bar{width:calc(100vw - 24px)}
+  #zoom{flex:1 1 auto;width:auto;min-width:0}
+  .brk{display:block;flex-basis:100%;height:0}
 }
 </style>
 
@@ -108,6 +111,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
          list="rungs" aria-label="Zoom">
   <datalist id="rungs"></datalist>
   <button class="btn" id="in" title="Zoom in">+</button>
+  <span class="brk"></span>
   <button class="btn" id="style" title="Smooth, hard pixels, or hard pixels with banded tone">Smooth</button>
   <button class="btn" id="res" title="Tile detail, or pixel size">512</button>
   <button class="btn" id="refine" title="Rebuild the tile near 1:1 once you stop moving">Refine</button>
@@ -157,8 +161,8 @@ const st = {
   // many pixels you give them. Only dropping them does.
   style: 1, px: 3,
   drag: null, pinch: null, dirty: true, mini: null,
-  // The refine pass. See REFINE_UPSCALE for what it is and why.
-  refine: 1, epoch: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
+  // The refine pass and its supersample ratio. See SUPER_STEPS.
+  super: 1.6, base: null, epoch: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
 };
 
 /* --- the imagery ------------------------------------------------------ */
@@ -226,18 +230,59 @@ function StartWorkers(){
   } catch (e){ WORK = null; }         // file:// has no origin to load from
 }
 
-// The refine target: the upscale the good frame turned out to have.
-// Below it the browser smears; much above it the wait stops being worth
-// the difference. 1280 is where a desktop lands, and it is the chip that
-// was measured against the frame in the first place.
-const REFINE_UPSCALE = 1.33, REFINE_CAP = 1280, REFINE_MS = 320;
-function RefineRes(){
-  const long = Math.max(CV.width, CV.height) * TILE_MARGIN;
-  return Math.min(REFINE_CAP, FIT_CAP, Math.ceil(long / REFINE_UPSCALE));
+/* --- the supersample ratio --------------------------------------------
+   The lever this page is really for.
+
+   Zooming out fast from the floor shows the tile MINIFIED -- measured,
+   down to 0.29 destination pixels per tile pixel, so 3.4x supersampled
+   -- and that frame looks better than anything the page settles to:
+   neither staggered nor vague. It is not an accident of the zoom. The
+   chain's finest content is a 3-pixel noise wavelength and a 2.5-pixel
+   crater, both right at Nyquist, and drawn one-to-one they alias. Draw
+   them into fewer screen pixels than they were made in and the average
+   over each screen pixel resolves them instead.
+
+   So the ratio is: tile pixels per screen pixel. 1.0 is one-to-one; 2.0
+   builds four times the pixels and lets the browser average them down.
+   Cost is the square of it, and that is the whole trade.
+
+   Two alternatives were measured against a converged reference (ratio 3)
+   at a 2.5 km window, as RMS distance from what the picture actually is:
+
+     ratio 1.0, as it was          2.6 s    11.07 / 255
+     band-limit the octaves at 6px 2.2 s    11.43     <- worse AND vaguer
+     ratio 1.3                     4.3 s    10.05
+     ratio 1.6                     8.3 s     8.40
+     ratio 2.0                    14.8 s     6.05
+
+   Band-limiting -- stopping the octaves further above the pixel, the
+   classic cheap answer to aliasing -- trades staggered for vague and
+   lands further from the truth, which is exactly the trade to refuse.
+   Scaling the chain's own softening (blurScale, tried and removed) did
+   nothing at all: 6.45 / 6.47 / 6.48 high-frequency energy at scale
+   1.0 / 0.5 / 0.0, images indistinguishable. Supersampling is the only
+   lever that moves it, and there is no knee -- you get what you pay for.
+   -------------------------------------------------------------------- */
+const SUPER_STEPS = [0, 1.0, 1.3, 1.6, 2.0, 2.5];
+// The fine tile does not need the coarse one's 18% overhang: the coarse
+// tile stays underneath it as a backdrop, so a small pan exposes soft
+// ground rather than black. At ratio 2 that margin would have cost 29%
+// of a 30-second tile.
+const FINE_MARGIN = 1.04;
+// Somewhere the wait stops being a playtest. 3400 px is about 11 Mpx and
+// the better part of a minute; past that the ratio is quietly clamped
+// and the readout says the ratio actually achieved.
+const FINE_MAX_PX = 3400, REFINE_MS = 320;
+function FineRes(){
+  const long = Math.max(CV.width, CV.height) * FINE_MARGIN;
+  return Math.min(FINE_MAX_PX, Math.ceil(long * st.super));
+}
+function FineRatio(){          // what the cap actually left us with
+  return FineRes() / (Math.max(CV.width, CV.height) * FINE_MARGIN);
 }
 function RefineWorth(){
-  return !!WORK && st.refine && !Hard() && st.tile
-      && RefineRes() > st.tile.canvas.width * 1.15;
+  return !!WORK && st.super > 0 && !Hard() && st.tile
+      && FineRes() > st.tile.canvas.width * 1.05;
 }
 
 let fineTimer = null;
@@ -247,16 +292,16 @@ function ArmRefine(){
   fineTimer = setTimeout(() => {
     if (!RefineWorth()) return;
     st.fining = true; Hud();
-    Ask(WORK.fine, RefineRes(), true);
+    Ask(WORK.fine, FineRes(), true, FINE_MARGIN);
   }, REFINE_MS);
 }
 
 // One view request. `fine` only marks which reply it is, so the HUD can
 // say which picture is on screen.
-function Ask(w, res, fine){
+function Ask(w, res, fine, margin){
   const id = ++st.reqId;
-  w.postMessage({ cmd: "view", id, epoch: st.epoch, fine, res,
-                  spanKm: Math.max(0.05, st.spanKm * TILE_MARGIN),
+  w.postMessage({ cmd: "view", id, epoch: st.epoch, fine, res, margin,
+                  spanKm: Math.max(0.05, st.spanKm * margin),
                   offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
                   cxKm: st.cxKm, cyKm: st.cyKm });
 }
@@ -265,7 +310,7 @@ function Ask(w, res, fine){
 // late. The test is the one MaybeRegenerate uses to decide a tile still
 // fits, so "still good" means the same thing in both places.
 function StillFits(m){
-  const drift = Math.abs(Math.log(st.spanKm * TILE_MARGIN / m.spanKm));
+  const drift = Math.abs(Math.log(st.spanKm * m.margin / m.spanKm));
   const moved = Math.hypot(st.cxKm - m.cxKm, st.cyKm - m.cyKm);
   return drift <= 0.113 && moved <= st.spanKm * 0.035;
 }
@@ -305,8 +350,12 @@ function Install(m){
   c.width = c.height = m.res;
   c.getContext("2d").putImageData(new ImageData(m.rgba, m.res, m.res), 0, 0);
   st.prev = st.tile;
-  st.tile = { canvas: c, spanKm: m.spanKm, cxKm: m.cxKm, cyKm: m.cyKm,
+  st.tile = { canvas: c, spanKm: m.spanKm, cxKm: m.cxKm, cyKm: m.cyKm, margin: m.margin,
               craters: m.craters, pop: m.popCraters, kmPerPx: m.kmPerPx };
+  // The coarse tile stays as a backdrop under the fine one, which is
+  // what lets the fine one be built barely wider than the window: a pan
+  // between tiles exposes soft ground instead of black.
+  if (!m.fine) st.base = st.tile;
   st.fade = st.prev ? 0 : 1;
   st.dirty = true;
 }
@@ -429,7 +478,7 @@ function Regenerate(){
     // that matters. So the extra asks collapse into a single "again".
     if (genPending){ askAgain = true; return; }
     genPending = true; Busy(true);
-    Ask(WORK.fast, WantedRes(), false);
+    Ask(WORK.fast, WantedRes(), false, TILE_MARGIN);
     return;
   }
   if (!st.lc || genPending) return;
@@ -444,9 +493,10 @@ function Regenerate(){
     const v = st.lc.View(Math.max(0.05, st.spanKm * TILE_MARGIN),
                          cx - st.cacheCx, cy - st.cacheCy);
     st.prev = st.tile;
-    st.tile = { canvas: TileCanvas(v), spanKm: v.spanKm,
+    st.tile = { canvas: TileCanvas(v), spanKm: v.spanKm, margin: TILE_MARGIN,
                 cxKm: cx, cyKm: cy,
                 craters: v.craters, pop: v.popCraters, kmPerPx: v.kmPerPx };
+    st.base = st.tile;
     st.fade = st.prev ? 0 : 1;
     st.genMs = v.ms; st.genCount++;
     genPending = false; Busy(false); st.dirty = true;
@@ -472,7 +522,11 @@ function MaybeRegenerate(){
     settleTimer = setTimeout(() => Recentre(), WantedRes() < HEAVY_RES ? 0 : SETTLE_MS);
     return;
   }
-  const drift = Math.abs(Math.log(st.spanKm * TILE_MARGIN / st.tile.spanKm));
+  // Against the tile's own margin: a fine tile is built at 1.04 and
+  // comparing it to 1.18 reads as 12% of drift the moment it lands,
+  // which had every refine immediately order its own replacement.
+  const drift = Math.abs(Math.log(st.spanKm * (st.tile.margin || TILE_MARGIN)
+                                  / st.tile.spanKm));
   const moved = Math.hypot(st.cxKm - st.tile.cxKm, st.cyKm - st.tile.cyKm);
   if (drift > 0.113 || moved > st.spanKm * 0.035) Schedule();
   else ArmRefine();          // still where it was: sharpen it in place
@@ -618,6 +672,7 @@ function Draw(){
     CTX.restore();
     return;
   }
+  if (st.base && st.base !== st.tile && st.base !== st.prev) DrawTile(st.base, 1);
   DrawTile(st.prev, 1);
   DrawTile(st.tile, st.fade);
   ScaleBar();
@@ -658,6 +713,10 @@ function SmoothLabel(){
   const tag = Crisp() ? "sharp" : "smooth";
   if (!st.tile) return tag;
   const f = (st.tile.spanKm * PxPerKm()) / st.tile.canvas.width;
+  // Below one the tile is being averaged down rather than stretched,
+  // which is the state this page exists to reach -- so it gets said, not
+  // rounded away into "1:1".
+  if (f < 0.94) return `${tag} · ×${(1 / f).toFixed(1)} super`;
   return f <= 1.06 ? `${tag} · 1:1` : `${tag} · ${f.toFixed(1)}× up`;
 }
 
@@ -676,10 +735,14 @@ function Hud(){
   // A tile over a second is a visible freeze, and the tile size is the
   // player's choice, so the number that says so is worth colouring.
   $("gen").style.color = st.genMs > 1200 ? "var(--am-lit)" : "";
+  // The ratio ASKED for and the one the pixel cap left, because on a
+  // wide screen at x2.5 they are not the same number.
+  const got = FineRatio();
+  const asked = st.super > 0 && got < st.super - 0.02 ? ` (of ×${st.super})` : "";
   $("fine").textContent = !WORK ? "no worker"
-    : !st.refine ? "off"
-    : st.fining ? `${RefineRes()}…`
-    : st.fineRes ? `${st.fineRes} · ${(st.fineMs / 1000).toFixed(1)} s`
+    : !st.super ? "off"
+    : st.fining ? `×${got.toFixed(1)}${asked} · ${FineRes()}…`
+    : st.fineRes ? `×${got.toFixed(1)}${asked} · ${(st.fineMs / 1000).toFixed(1)} s`
     : RefineWorth() ? "waiting" : "—";
   $("fine").style.color = st.fineRes ? "var(--cy)" : "var(--dimmer)";
   $("cr").textContent = st.tile ? `${st.tile.craters} + ${st.tile.pop}` : "—";
@@ -790,10 +853,14 @@ function PxSteps(){
   return ok.length ? ok : [min];
 }
 const STYLE_NAMES = ["Smooth", "Smooth sharp", "Hard", "Hard + bands"];
+// Two of these labels are twice the width of the rest, and on a phone
+// that is the difference between two rows of bar and four.
+const STYLE_SHORT = ["Smooth", "Sharp", "Hard", "Bands"];
+const NARROW = () => window.innerWidth < 820;
 function SyncStyle(){
   const steps = PxSteps();
   if (steps.indexOf(st.px) < 0) st.px = steps[0];
-  $("style").textContent = STYLE_NAMES[st.style];
+  $("style").textContent = (NARROW() ? STYLE_SHORT : STYLE_NAMES)[st.style];
   $("style").setAttribute("aria-pressed", st.style > 0 ? "true" : "false");
   // One button, two meanings: how big the tile is when the picture will be
   // resampled anyway, how big a PIXEL is when it will not.
@@ -801,6 +868,7 @@ function SyncStyle(){
     ? (st.res === 0 ? "Fit" : String(st.res)) : "×" + st.px;
   $("res").title = Hard() ? "Pixel size" : "Tile detail";
   SyncRefine();
+  PlaceRegions();
 }
 $("style").addEventListener("click", () => {
   st.style = (st.style + 1) % 4;
@@ -808,20 +876,25 @@ $("style").addEventListener("click", () => {
 });
 function SyncRefine(){
   const b = $("refine");
-  b.textContent = "Refine";
-  b.setAttribute("aria-pressed", (WORK && st.refine && !Hard()) ? "true" : "false");
+  b.textContent = NARROW()
+    ? (st.super ? "×" + st.super.toFixed(1) : "×off")
+    : (st.super ? "Super ×" + st.super.toFixed(1) : "Super off");
+  b.setAttribute("aria-pressed", (WORK && st.super && !Hard()) ? "true" : "false");
   b.disabled = !WORK;
   b.title = !WORK
     ? "Needs a worker — serve the page over http, not file://"
     : Hard()
-      ? "Hard pixels pick their own tile size, so there is nothing to refine"
-      : "Rebuild the tile near 1:1 once you stop moving";
+      ? "Hard pixels pick their own tile size, so there is nothing to supersample"
+      : `Tile pixels per screen pixel once you stop moving. Cost is the `
+        + `square of it: ×2 is four times the pixels.`;
   Hud();
 }
 $("refine").addEventListener("click", () => {
-  st.refine = st.refine ? 0 : 1;
-  SyncRefine();
-  if (st.refine) ArmRefine(); else { clearTimeout(fineTimer); st.fining = false; }
+  const i = SUPER_STEPS.indexOf(st.super);
+  st.super = SUPER_STEPS[(i < 0 ? 0 : i + 1) % SUPER_STEPS.length];
+  st.fineRes = 0;
+  SyncRefine(); WriteHash();
+  if (st.super) ArmRefine(); else { clearTimeout(fineTimer); st.fining = false; }
 });
 $("res").addEventListener("click", () => {
   if (!Hard())
@@ -852,6 +925,12 @@ REGIONS.forEach((r, i) => {
   b.addEventListener("click", () => GoRegion(i));
   regionBar.appendChild(b);
 });
+function PlaceRegions(){
+  if (!NARROW()){ regionBar.style.bottom = ""; return; }
+  const bar = $("bar");
+  regionBar.style.bottom = (bar.offsetHeight + 22) + "px";
+}
+window.addEventListener("resize", PlaceRegions);
 function SyncRegions(){
   [...regionBar.children].forEach((b, i) =>
     b.setAttribute("aria-pressed", i === st.region ? "true" : "false"));
@@ -869,7 +948,7 @@ function GoRegion(i){
   st.spanKm = clamp(start.span || LEVELS[0].span, SPAN_MIN, SPAN_MAX);
   st.cacheCx = st.cxKm; st.cacheCy = st.cyKm;
   start = { x: 0, y: 0, span: null };          // only the first landing
-  st.tile = null; st.prev = null; st.dirty = true;
+  st.tile = null; st.prev = null; st.base = null; st.dirty = true;
   Hud();
   LoadRegion(i, () => BuildCache(() => Regenerate()));
 }
@@ -885,7 +964,8 @@ function ReadHash(){
   const d = parseInt(h.get("d"), 10), px = parseInt(h.get("p"), 10);
   if (d >= 0 && d <= 3) st.style = d;
   if (px >= 2 && px <= 4) st.px = px;
-  if (h.get("f") === "0") st.refine = 0;
+  const sup = parseFloat(h.get("f"));
+  if (SUPER_STEPS.indexOf(sup) >= 0) st.super = sup;
   return { region: i < 0 ? 0 : i,
            span: parseFloat(h.get("s")) || null,
            x: parseFloat(h.get("x")) || 0,
@@ -898,7 +978,7 @@ function WriteHash(){
     const q = `r=${REGIONS[st.region].key}&s=${st.spanKm.toPrecision(4)}`
             + `&x=${st.cxKm.toFixed(3)}&y=${st.cyKm.toFixed(3)}`
             + `&d=${st.style}${st.style ? "&p=" + st.px : ""}`
-            + (st.refine ? "" : "&f=0");
+            + `&f=${st.super}`;
     try { history.replaceState(null, "", "#" + q); } catch (e) {}
   }, 500);
 }

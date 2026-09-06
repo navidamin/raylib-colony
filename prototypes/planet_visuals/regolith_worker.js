@@ -73,6 +73,7 @@ self.onmessage = (e) => {
     const v = lc.View(m.spanKm, m.offX, m.offY);
     // rgba is freshly allocated per view, so it can be given away.
     self.postMessage({ cmd: "view", id: m.id, epoch: m.epoch, fine: !!m.fine,
+                       margin: m.margin,
                        res: v.res, spanKm: v.spanKm, kmPerPx: v.kmPerPx,
                        cxKm: m.cxKm, cyKm: m.cyKm,
                        craters: v.craters, popCraters: v.popCraters, ms: v.ms,
