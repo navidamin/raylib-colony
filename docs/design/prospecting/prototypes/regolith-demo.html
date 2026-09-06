@@ -1,0 +1,49 @@
+<title>Regolith Layer</title>
+<style>
+body{margin:0;background:#070b11;color:#c9d8e8;
+  font:15px/1.5 "Chakra Petch",system-ui,sans-serif;padding:22px 18px 40px}
+h1{font:700 28px/1 system-ui;margin:0 0 6px}
+p{color:#61768a;font-size:13.5px;max-width:70ch;margin:0 0 18px}
+code{font:700 12px ui-monospace,monospace;color:#f4c66a}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+figure{margin:0;border:1px solid #1c2a39;border-radius:6px;overflow:hidden;background:#070b11}
+figcaption{font:700 9.5px/1.5 ui-monospace,monospace;letter-spacing:.14em;
+  text-transform:uppercase;color:#61768a;padding:8px 10px;border-top:1px solid #1c2a39}
+figcaption b{color:#50e1ff;font-weight:700}
+canvas{display:block;width:100%;height:auto}
+</style>
+<h1>Regolith Layer</h1>
+<p>One stratum, drawn by <code>regolith-layer.js</code> with nothing else on the page.
+Each panel is the same module with one or two levers moved, to show what they do.</p>
+<div class="grid" id="grid"></div>
+<script src="regolith-layer.js"></script>
+<script>
+const CASES = [
+  ["Defaults", {}],
+  ["relief 12 · detail 5", { relief: 12, detail: 5 }],
+  ["dip 16 · dipAz 90 · dipSpread 1.0", { dip: 16, dipAz: 90, dipSpread: 1.0 }],
+  ["grain 0.9 · feature 7", { grain: 0.9, feature: 7 }],
+  ["crater on the surface (craterLayer 0)", { craterLayer: 0, craterDepth: 14, craterR: 0.3 }],
+  ["crater buried below (craterLayer 2)", { craterLayer: 2, craterDepth: 20 }],
+  ["conform 0 — unconformity", { conform: 0, relief: 9, t0: 26 }],
+  ["texAmt 0 — tone must not move", { texAmt: 0 }],
+  ["lattice 12 · tilt 0.7", { lattice: 12, tilt: 0.7 }]
+];
+const DEF = Object.assign({}, RegolithLayer.P);
+const grid = document.getElementById("grid");
+for (const [label, over] of CASES){
+  const fig = document.createElement("figure");
+  const cv = document.createElement("canvas");
+  cv.width = 660; cv.height = 520;
+  const cap = document.createElement("figcaption");
+  cap.innerHTML = "<b>" + label + "</b>";
+  fig.append(cv, cap); grid.append(fig);
+
+  Object.assign(RegolithLayer.P, DEF, over, { blockW: 420, originX: 120, originY: 210 });
+  RegolithLayer.build();
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = "#070b11"; ctx.fillRect(0, 0, cv.width, cv.height);
+  RegolithLayer.draw(ctx);
+}
+Object.assign(RegolithLayer.P, DEF);
+</script>

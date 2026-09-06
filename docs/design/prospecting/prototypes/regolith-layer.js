@@ -1,0 +1,534 @@
+/* ===========================================================================
+   REGOLITH LAYER -- standalone
+   ---------------------------------------------------------------------------
+   Everything that makes the top stratum of the block model: its generated
+   rock, its top and bottom interfaces, and the code that draws them. Lifted
+   verbatim from the Layer Block bench (docs/design/prospecting/prototypes/
+   layer-block.html) with the other three strata removed, so tuning here and
+   tuning there give the same picture.
+
+   No dependencies. Browser only (it needs a 2D canvas).
+
+       const R = RegolithLayer;
+       R.P.relief = 8;  R.P.dip = 6;  R.P.craterDepth = 14;
+       R.build();                                  // heightfields
+       R.draw(canvas.getContext("2d"));            // the layer
+
+   Every field of R.P is a lever; the block comments say what each one does
+   and, where the value was argued for, why it is what it is.
+   ========================================================================= */
+const RegolithLayer = (function(){
+"use strict";
+
+/* ---------------------------------------------------------------------------
+   THE LEVERS
+   ---------------------------------------------------------------------------
+   Depth is METRES everywhere; only depthScale turns metres into pixels. A
+   lever never means one thing in the shape and another in the drawing.
+   ------------------------------------------------------------------------- */
+const P = {
+  /* -- interface shape ---------------------------------------------------- */
+  relief:      5.6,   // m, peak-to-trough of the undulation on the top surface
+  feature:     3.4,   // noise lattice period: 1 = one broad dome, 10 = fine bumps
+  detail:      3,     // fbm octaves, 1-5. Each doubles the lattice.
+  conform:     0.72,  // 0..1. 1 = the floor follows the surface exactly
+                      // (conformable beds); 0 = they are independent, which is
+                      // what an unconformity looks like.
+  damp:        0.86,  // relief multiplier PER INTERFACE going down, so the
+                      // floor is flatter than the surface by this much.
+  dip:         4.0,   // m of regional tilt across the whole block
+  dipAz:       205,   // degrees, the direction it falls
+  dipSpread:   0.35,  // the floor dips MORE than the surface by this fraction
+                      // -- turn it up and the two beds fan apart (angular
+                      // unconformity); 0 keeps them parallel.
+  grain:       0.25,  // 0..1 anisotropy: squashes the noise domain on one
+                      // axis, so round mottle becomes ridges.
+
+  /* -- the impact bowl ---------------------------------------------------- */
+  crater:      1,     // 0/1
+  craterLayer: 1,     // WHICH interface it was cut into. 0 = the regolith's own
+                      // surface, 1 = its floor, 2-3 = below it (and then the
+                      // regolith never sees it at all).
+  craterDepth: 9.0,   // m at the centre
+  craterR:     0.24,  // radius as a fraction of the block's width
+  craterRim:   0.35,  // height of the raised rim ring, as a fraction of depth
+  craterInfill:0.45,  // 0..1. How much of the bowl survives each interface on
+                      // the way UP from the one it was cut into. 0 = buried
+                      // completely by the next bed; 1 = it reaches the surface
+                      // undiminished.
+  craterX:     0.38,  // 0..1 across the block
+  craterY:     0.44,
+
+  /* -- the stratum -------------------------------------------------------- */
+  t0:          12,    // m, regolith thickness -- its floor is at this depth
+  t1:          22,    // m, the bed below it (only used to shade its floor)
+
+  /* -- body and view ------------------------------------------------------ */
+  tilt:        0.42,  // tileY / tileX. Flatter than a 2:1 iso: the flatter the
+                      // plate, the more plainly it reads as a HORIZONTAL PLANE
+                      // at one depth rather than as a receding volume.
+  lattice:     28,    // N. The surface is an N x N grid of cells.
+  depthScale:  3.3,   // px per metre -- the one place metres become pixels
+  blockW:      484,   // px wide
+  originX:     78,    // px, left edge of the block
+  originY:     176,   // px, y of 0 m at the block's WAIST (see Iso below)
+
+  /* -- light and line ----------------------------------------------------- */
+  shade:       1.0,   // hill-shading strength
+  lightAz:     29,    // degrees. 29 is the pair (0.45, 0.25) the panel shipped
+                      // with, written as an angle so it can be turned.
+  faceL:       0.64,  // tone of the lower-left cut face, vs the top
+  faceR:       0.84,  // tone of the lower-right cut face (turned toward the key)
+  texAmt:      1.0,   // 0..1 rock texture strength -- tone-preserving, see TexGain
+  texScale:    2.0,   // texture tiles across the lattice
+  seam:        0.95,  // darkness of the bedding seam at the floor
+  lip:         0.55   // brightness of the lit lip just above the seam
+};
+
+/* The stratum's own colours, from src/Engine/rendermanager.cpp (DP_ROCK_COL /
+   DP_ROCK_EDGE). Index 0 is regolith, 1 is the megaregolith under it. */
+const ROCK_COL  = [[58,52,43],[69,62,52]];
+const ROCK_EDGE = [[25,21,16],[28,23,18]];
+const TEXT      = [225,235,245];
+const TEX_SIZE  = 128;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rgb   = (c, a) => a === undefined ? `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`
+                                        : `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+const scalec= (c, f) => [clamp(c[0]*f,0,255), clamp(c[1]*f,0,255), clamp(c[2]*f,0,255)];
+
+/* ===========================================================================
+   1. THE ROCK -- a port of src/Prospecting/rock_texture.cpp
+   ---------------------------------------------------------------------------
+   The output is a MODULATION MAP, not a colour: grey centred on exactly 128,
+   low contrast, so a surface drawn `col * 2 * tex/255` keeps the tone the flat
+   fill had. Deterministic (fixed seed -- ground must not shimmer between
+   frames) and wrap-safe on both axes, so it tiles with no seam.
+   ========================================================================= */
+
+function Mix(a){
+  a = a >>> 0;
+  a ^= a >>> 16; a = Math.imul(a, 0x7feb352d) >>> 0;
+  a ^= a >>> 15; a = Math.imul(a, 0x846ca68b) >>> 0;
+  a ^= a >>> 16;
+  return a >>> 0;
+}
+function Hash2(x, y, seed){
+  const v = ((Math.imul(x >>> 0, 374761393) >>> 0) +
+             (Math.imul(y >>> 0, 668265263) >>> 0) + (seed >>> 0)) >>> 0;
+  return Mix(v) / 4294967295.0;
+}
+const Smooth = t => t * t * (3.0 - 2.0 * t);
+
+/* Value noise on a lattice of `period` cells that WRAPS, so a band tiles
+   down a strip of any height with no seam. */
+function ValueNoise(u, v, period, seed){
+  const fx = u * period, fy = v * period;
+  let x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const tx = Smooth(fx - x0), ty = Smooth(fy - y0);
+  const x1 = (x0 + 1) % period, y1 = (y0 + 1) % period;
+  x0 = ((x0 % period) + period) % period;
+  y0 = ((y0 % period) + period) % period;
+  const a = Hash2(x0, y0, seed), b = Hash2(x1, y0, seed);
+  const c = Hash2(x0, y1, seed), d = Hash2(x1, y1, seed);
+  const ab = a + (b - a) * tx, cd = c + (d - c) * tx;
+  return ab + (cd - ab) * ty;
+}
+function Fbm(u, v, basePeriod, octaves, seed){
+  let sum = 0.0, amp = 1.0, norm = 0.0, period = basePeriod;
+  for (let o = 0; o < octaves; o++){
+    sum += ValueNoise(u, v, period, (seed + o * 7919) >>> 0) * amp;
+    norm += amp; amp *= 0.5; period *= 2;
+  }
+  return sum / norm;
+}
+/* A canvas of luminance deltas, wrapped on both axes. */
+function RockCanvas(size){
+  const c = { size, lum: new Float32Array(size * size), ice: new Float32Array(size * size) };
+  c.Wrap = a => { a %= size; return a < 0 ? a + size : a; };
+  c.Add = (x, y, d) => { c.lum[c.Wrap(y) * size + c.Wrap(x)] += d; };
+  c.AddIce = (x, y, t) => {
+    const k = c.Wrap(y) * size + c.Wrap(x);
+    c.ice[k] = Math.min(1.0, c.ice[k] + t);
+  };
+  // A round clast/vug/bubble: dark core, light rim on the lower-right --
+  // the implied upper-left key light, applied at grain scale.
+  c.Disc = (cx, cy, r, core, rim) => {
+    const ri = Math.ceil(r) + 1;
+    for (let dy = -ri; dy <= ri; dy++)
+      for (let dx = -ri; dx <= ri; dx++){
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > r + 1.0) continue;
+        if (d <= r) c.Add((cx | 0) + dx, (cy | 0) + dy, core);
+        else if (dx + dy > 0) c.Add((cx | 0) + dx, (cy | 0) + dy, rim);
+      }
+  };
+  return c;
+}
+
+/* A fracture: a random walk that crosses the tile and wraps off its edges.
+   Straight lines read as drawn, not as broken rock, so the heading jitters. */
+function Fracture(c, seed, dark, halo, iceAmt, lengthMul, jitter){
+  let x = Hash2(0, 0, seed) * c.size;
+  let y = Hash2(1, 0, seed) * c.size;
+  let ang = Hash2(2, 0, seed) * 6.2832;
+  const steps = (c.size * lengthMul) | 0;
+  for (let i = 0; i < steps; i++){
+    ang += (Hash2(i, 3, seed) - 0.5) * jitter;
+    x += Math.cos(ang); y += Math.sin(ang);
+    const xi = Math.floor(x), yi = Math.floor(y);
+    c.Add(xi, yi, dark);
+    c.Add(xi + (Math.sin(ang) > 0.0 ? 1 : -1), yi, halo);   // one-sided halo
+    if (iceAmt > 0.0){ c.AddIce(xi, yi, iceAmt); c.AddIce(xi, yi + 1, iceAmt * 0.5); }
+  }
+}
+/* 0 REGOLITH -- impact-gardened soil: finest grain of the four, broad
+   mottled patches, faint bedding laminae, scattered angular grit. */
+function BuildRegolith(c, seed){
+  const N = c.size;
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++){
+      const u = x / N, v = y / N;
+      const broad = Fbm(u, v, 4, 3, seed) - 0.5;
+      const warp = (Fbm(u, v, 3, 2, (seed + 55) >>> 0) - 0.5) * 0.22;
+      const bed = Math.sin((v + warp) * 6.2832 * 6.0) * 0.6
+                + Math.sin((v + warp * 1.7) * 6.2832 * 11.0) * 0.4;
+      const fine = Hash2(x, y, (seed + 101) >>> 0) - 0.5;
+      c.lum[y * N + x] = broad * 24.0 + bed * 9.0 + fine * 7.0;
+    }
+  for (let i = 0; i < 300; i++){
+    const h = Hash2(i, 13, seed);
+    const r = 0.7 + h * h * 1.5;
+    c.Disc(Hash2(i, 11, seed) * N, Hash2(i, 12, seed) * N, r,
+           20.0 + h * 13.0, -18.0 - h * 9.0);
+  }
+  for (let i = 0; i < 22; i++)
+    c.Disc(Hash2(i, 15, seed) * N, Hash2(i, 16, seed) * N,
+           1.5 + Hash2(i, 17, seed) * 1.2, 16.0, -22.0);
+}
+/* One 128x128 greyscale tile per stratum, as an ImageBitmap-ready canvas. */
+function GenerateRock(layer, size){
+  const c = RockCanvas(size);
+  const seed = (0x9e37 + layer * 0x51ed) >>> 0;
+  // Only the regolith builder ships here; the megaregolith (wrapped Voronoi
+  // breccia), fractured (slabs cut by ice-filled joints) and basalt (vesicles
+  // and columnar joints) builders are in src/Prospecting/rock_texture.cpp and
+  // in the Layer Block bench, and drop straight in beside this one.
+  BuildRegolith(c, seed);
+
+  // Centre on 128 EXACTLY -- the contract that lets a textured surface keep
+  // the tone its flat fill had.
+  let sum = 0.0;
+  for (let i = 0; i < c.lum.length; i++) sum += c.lum[i];
+  const shift = 128.0 - sum / c.lum.length;
+  // Basalt sits on the darkest rock in the palette, where a multiplicative
+  // modulation loses most of its absolute contrast, so it swings wider.
+  const lo = layer === 3 ? 38.0 : layer === 0 ? 48.0 : 60.0;
+  const hi = layer === 3 ? 226.0 : layer === 0 ? 216.0 : 205.0;
+
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = size;
+  const ctx = cv.getContext("2d");
+  const img = ctx.createImageData(size, size);
+  for (let i = 0; i < size * size; i++){
+    const g = Math.max(lo, Math.min(hi, c.lum[i] + shift));
+    const t = Math.min(1.0, c.ice[i]);
+    img.data[i * 4 + 0] = Math.max(0, Math.min(255, g - 16.0 * t));
+    img.data[i * 4 + 1] = Math.max(0, Math.min(255, g +  2.0 * t));
+    img.data[i * 4 + 2] = Math.max(0, Math.min(255, g + 22.0 * t));
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return cv;
+}
+
+/* ===========================================================================
+   2. THE TWO INTERFACES
+   ---------------------------------------------------------------------------
+   The layer is the space between two height fields: its SURFACE (0 m) and its
+   FLOOR (t0). Each is built from the same three terms, so `conform`, `damp`
+   and `dipSpread` are the levers that say how alike the two are -- which is
+   the whole difference between a conformable bed and an unconformity.
+   ========================================================================= */
+const SEED_SHARED = 0x51ed, SEED_OWN = 0x9e37;
+let N, STRIDE, TX, TY, PX_PER_M, BLK_CX, SURF_Y, RELIEF_PX;
+let TOPS, LAYER_TOP_M, LAYER_BOT_M;
+let SURF = [], SPX = [], SPY = [];
+let TEX = null, PAT = [];
+let CTX = null;
+const YOf = m => SURF_Y + m * PX_PER_M;
+
+function BuildHeights(){
+  const edge = [0, P.t0, P.t0 + P.t1];        // interface 0, 1, and the one below
+  TOPS = [0, P.t0];
+  LAYER_TOP_M = [0]; LAYER_BOT_M = [P.t0];
+
+  const az = P.dipAz * Math.PI / 180, ca = Math.cos(az), sa = Math.sin(az);
+  const period = Math.max(1, Math.round(P.feature));
+  const oct = Math.max(1, Math.round(P.detail));
+  // Anisotropy squashes the noise domain on one axis, so mottle becomes ridges.
+  const ky = 1 - 0.85 * P.grain;
+
+  SURF = [];
+  for (let L = 0; L <= 1; L++){
+    const d = new Float32Array(STRIDE * STRIDE);
+    const amp = P.relief * Math.pow(P.damp, L);      // deeper beds flatter
+    const dip = P.dip * (1 + P.dipSpread * L);       // ...and dipping more
+    const cr  = CraterAmp(L);
+    for (let j = 0; j <= N; j++)
+      for (let i = 0; i <= N; i++){
+        const u = i / N, v = j / N, vv = 0.5 + (v - 0.5) * ky;
+        // One noise field shared by both interfaces and one of their own:
+        // `conform` mixes them, so the beds follow each other or do not.
+        const shared = Fbm(u, vv, period, oct, SEED_SHARED) - 0.5;
+        const own    = Fbm(u, vv, period, oct, (SEED_OWN + L * 7919) >>> 0) - 0.5;
+        let h = amp * 2 * (P.conform * shared + (1 - P.conform) * own);
+        h += dip * ((u - 0.5) * ca + (v - 0.5) * sa);
+        if (cr !== 0) h += cr * Bowl(u, v);
+        d[j * STRIDE + i] = edge[L] - h;             // h is up-positive
+      }
+    SURF.push(d);
+  }
+  /* The floor may not pass through the surface. A deep crater bottoming out
+     on the harder bed below is the interesting case this allows to happen and
+     keeps legal: the floor flattens against it instead of turning the layer
+     inside out. */
+  const minTh = Math.max(0.4, P.t0 * 0.12);
+  for (let k = 0; k < SURF[1].length; k++)
+    SURF[1][k] = Math.max(SURF[1][k], SURF[0][k] + minTh);
+}
+
+/* Screen points. The block's WAIST -- i + j = N, the line through its left and
+   right corners -- sits exactly on YOf(m), so a depth ruling drawn level out
+   of a label meets the body's corner at that depth by construction, at any
+   tilt or scale. */
+function Project(){
+  BLK_CX = P.originX + P.blockW * 0.5;
+  SURF_Y = P.originY;
+  SPX = []; SPY = [];
+  for (let L = 0; L <= 1; L++){
+    const d = SURF[L];
+    const sx = new Float32Array(STRIDE * STRIDE), sy = new Float32Array(STRIDE * STRIDE);
+    for (let j = 0; j <= N; j++)
+      for (let i = 0; i <= N; i++){
+        const k = j * STRIDE + i;
+        sx[k] = BLK_CX + (i - j) * TX;
+        sy[k] = YOf(d[k]) + (i + j - N) * TY;
+      }
+    SPX.push(sx); SPY.push(sy);
+  }
+}
+
+function build(){
+  N = Math.max(4, Math.round(P.lattice));
+  STRIDE = N + 1;
+  TX = P.blockW * 0.5 / N;
+  TY = TX * P.tilt;
+  PX_PER_M = P.depthScale;
+  RELIEF_PX = Math.max(4, P.relief * PX_PER_M);
+  BuildHeights();
+  Project();
+  return SURF;
+}
+
+/* ===========================================================================
+   3. DRAWING
+   ---------------------------------------------------------------------------
+   Tone is the stratum's own colour, hill-shaded by the slope of the drawn
+   surface, with the generated rock multiplied over the top.
+   ========================================================================= */
+/* Thousands of fills a frame; quantised to 3 levels a channel (invisible under
+   texture) this collapses them to a few hundred distinct strings. */
+const COL_MEMO = new Map();
+function rgbq(c){
+  const r = (c[0]/3)|0, g = (c[1]/3)|0, b = (c[2]/3)|0, k = (r<<16)|(g<<8)|b;
+  let v = COL_MEMO.get(k);
+  if (v === undefined){ v = `rgb(${r*3},${g*3},${b*3})`; COL_MEMO.set(k, v); }
+  return v;
+}
+/* A texture-strength control must not be a brightness control. Laying the rock
+   on at strength a (a multiply blend at globalAlpha = a) lands on
+   base*(1 - 0.498a), because the tile's mean is exactly 128. Dividing the base
+   by that same factor holds the mean tone identical at every strength, so the
+   slider moves material and nothing else. At a = 1 it reduces to a gain of 2. */
+const TexGain = a => 1 / (1 - 0.498 * clamp(a, 0, 1.6));
+
+/* An impact bowl: parabolic floor inside the radius, a raised rim ring on
+   it. Returns 0 far away, -1 at the centre -- negative is down, so the
+   interface is excavated rather than lifted. */
+function Bowl(u, v){
+  const dx = u - P.craterX, dy = v - P.craterY;
+  const r = Math.hypot(dx, dy) / Math.max(P.craterR, 0.02);
+  const floor = r < 1 ? -(1 - r * r) : 0;
+  const rim = P.craterRim * Math.exp(-((r - 1) * (r - 1)) / (2 * 0.18 * 0.18));
+  return floor + rim;
+}
+/* Which interfaces the crater reaches. It was cut into interface k, so
+   everything below is undisturbed and everything above it is the same bowl
+   progressively filled in -- which is what "buried crater" means. Set
+   craterLayer to 2 or 3 and the regolith never sees it: the bowl is below
+   this layer entirely. */
+function CraterAmp(L){
+  if (!P.crater) return 0;
+  const k = P.craterLayer;
+  if (L > k) return 0;
+  return P.craterDepth * Math.pow(P.craterInfill, k - L);
+}
+function SurfacePath(L){
+  const x = SPX[L], y = SPY[L];
+  CTX.beginPath();
+  CTX.moveTo(x[0], y[0]);
+  for (let i = 1; i <= N; i++)  CTX.lineTo(x[i], y[i]);
+  for (let j = 1; j <= N; j++)  CTX.lineTo(x[j * STRIDE + N], y[j * STRIDE + N]);
+  for (let i = N - 1; i >= 0; i--) CTX.lineTo(x[N * STRIDE + i], y[N * STRIDE + i]);
+  for (let j = N - 1; j >= 0; j--) CTX.lineTo(x[j * STRIDE], y[j * STRIDE]);
+  CTX.closePath();
+}
+function TexOverTop(L, texL){
+  if (P.texAmt <= 0.001) return;
+  const rep = Math.max(0.25, P.texScale), sc = N / rep / TEX_SIZE;
+  CTX.save();
+  SurfacePath(L); CTX.clip();
+  CTX.globalCompositeOperation = "multiply";
+  CTX.globalAlpha = clamp(P.texAmt, 0, 1);
+  CTX.transform(sc * TX, sc * TY, -sc * TX, sc * TY, BLK_CX, YOf(TOPS[Math.min(L,3)]) - N * TY);
+  CTX.fillStyle = PAT[texL];
+  CTX.fillRect(-64, -64, rep * TEX_SIZE + 128, rep * TEX_SIZE + 128);
+  CTX.restore();
+}
+function TexOverFace(pathFn, texL, L, ox, oy, ux, uy, runPx, depthPx){
+  if (P.texAmt <= 0.001) return;
+  CTX.save();
+  pathFn(); CTX.clip();
+  CTX.globalCompositeOperation = "multiply";
+  CTX.globalAlpha = clamp(P.texAmt, 0, 1);
+  const off = L * 41.0;                     // each band enters the tile elsewhere
+  CTX.transform(ux, uy, 0, 1, ox, oy);
+  CTX.translate(0, -off);
+  CTX.fillStyle = PAT[texL];
+  CTX.fillRect(-24, off - 24, runPx + 48, depthPx + 48);
+  CTX.restore();
+}
+function DrawSurface(geo, texL, light){
+  const x = SPX[geo], y = SPY[geo], d = SURF[geo];
+  // Normalised against what this surface ACTUALLY spans, not against the
+  // relief lever. Dip and the crater bowl both add height that relief knows
+  // nothing about, so a fixed divisor sent the tanh straight into saturation
+  // the moment either was turned up -- the whole surface went two-tone and a
+  // crater rim read as a mesa. Slope, not height, is what the eye reads as
+  // shape, and slope has to be measured against the shape that is there.
+  let lo = Infinity, hi = -Infinity;
+  for (let k = 0; k < d.length; k++){ if (d[k] < lo) lo = d[k]; if (d[k] > hi) hi = d[k]; }
+  const perCell = N / Math.max((hi - lo) * PX_PER_M, 6.0);
+  const rock = ROCK_COL[Math.min(geo, 3)];
+  const g = TexGain(P.texAmt);
+  const a = P.lightAz * Math.PI / 180;
+  const wt = 0.515 * P.shade * Math.cos(a), wl = 0.515 * P.shade * Math.sin(a);
+  for (let j = 0; j < N; j++){
+    for (let i = 0; i < N; i++){
+      const k00 = j * STRIDE + i, k10 = k00 + 1, k01 = k00 + STRIDE, k11 = k01 + 1;
+      const l00 = -d[k00] * PX_PER_M, l10 = -d[k10] * PX_PER_M,
+            l01 = -d[k01] * PX_PER_M, l11 = -d[k11] * PX_PER_M;
+      // Slope, not height, is what the eye reads as shape. The lit side
+      // swings further than the shadowed one so a face turned away still
+      // shows its grain instead of going flat black.
+      const slope = Math.tanh(wt * (l11 - l00) * perCell + wl * (l01 - l10) * perCell);
+      const shade = 1.0 + (slope >= 0 ? 0.70 : 0.50) * slope;
+      CTX.fillStyle = rgbq(scalec(rock, light * shade * g));
+      CTX.beginPath();
+      CTX.moveTo(x[k00], y[k00]); CTX.lineTo(x[k10], y[k10]);
+      CTX.lineTo(x[k11], y[k11]); CTX.lineTo(x[k01], y[k01]);
+      CTX.closePath(); CTX.fill();
+    }
+  }
+  TexOverTop(geo, texL);
+}
+/* The two faces the viewer can see: j = N falls away to the lower left,
+   i = N is turned toward the key light. */
+function FacePath(side, L){
+  const xt = SPX[L], yt = SPY[L], xb = SPX[L + 1], yb = SPY[L + 1];
+  CTX.beginPath();
+  if (side === 0){
+    for (let i = 0; i <= N; i++){ const k = N * STRIDE + i;
+      i === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
+    for (let i = N; i >= 0; i--){ const k = N * STRIDE + i; CTX.lineTo(xb[k], yb[k]); }
+  } else {
+    for (let j = 0; j <= N; j++){ const k = j * STRIDE + N;
+      j === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
+    for (let j = N; j >= 0; j--){ const k = j * STRIDE + N; CTX.lineTo(xb[k], yb[k]); }
+  }
+  CTX.closePath();
+}
+function DrawFaces(L){
+  const rock = ROCK_COL[L], g = TexGain(P.texAmt);
+  const depthPx = (LAYER_BOT_M[L] - LAYER_TOP_M[L]) * PX_PER_M + 4 * RELIEF_PX + 8;
+  const len = Math.hypot(TX, TY), run = N * len;
+  for (const side of [0, 1]){
+    const shade = side === 0 ? P.faceL : P.faceR;
+    CTX.fillStyle = rgb(scalec(rock, shade * g));
+    FacePath(side, L); CTX.fill();
+    const k0 = side === 0 ? N * STRIDE : N;
+    const ox = SPX[L][k0], oy = YOf(LAYER_TOP_M[L]) - 2 * RELIEF_PX - 4;
+    const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
+    TexOverFace(() => FacePath(side, L), L, L, ox, oy, ux, uy, run, depthPx);
+  }
+}
+function BoundaryStroke(L, side, col, w, dy){
+  const x = SPX[L], y = SPY[L], o = dy || 0;
+  CTX.strokeStyle = col; CTX.lineWidth = w;
+  CTX.beginPath();
+  if (side === 0) for (let i = 0; i <= N; i++){ const k = N * STRIDE + i;
+    i === 0 ? CTX.moveTo(x[k], y[k] + o) : CTX.lineTo(x[k], y[k] + o); }
+  else for (let j = 0; j <= N; j++){ const k = j * STRIDE + N;
+    j === 0 ? CTX.moveTo(x[k], y[k] + o) : CTX.lineTo(x[k], y[k] + o); }
+  CTX.stroke();
+}
+/* A bedding plane as it reads on a cut face: a dark seam with the newly
+   exposed surface catching the key light just above it. The seam alone is
+   invisible -- these rocks are nearly black, and a dark line on dark rock
+   is not a line. Both halves are levers because which one carries depends
+   entirely on how bright the rest of the block ends up. */
+function BeddingLine(L){
+  for (const side of [0, 1]){
+    if (P.seam > 0.01) BoundaryStroke(L, side, rgb(ROCK_EDGE[Math.min(L,3)], P.seam), 2.2, 0);
+    if (P.lip > 0.01)
+      BoundaryStroke(L, side, rgb(scalec(ROCK_COL[Math.max(L-1,0)], 1.9), P.lip), 1.1, -1.7);
+  }
+}
+/* ===========================================================================
+   4. THE PUBLIC FACE
+   ========================================================================= */
+function texture(){
+  if (!TEX){
+    TEX = GenerateRock(0, TEX_SIZE);
+    const s = document.createElement("canvas").getContext("2d");
+    PAT = [s.createPattern(TEX, "repeat"), s.createPattern(TEX, "repeat")];
+  }
+  return TEX;
+}
+
+/* Draw the layer into a 2D context. Call build() first, or after changing any
+   lever in P that is not purely a light/line one. */
+function draw(ctx){
+  CTX = ctx;
+  texture();
+  if (!SURF.length) build();
+  DrawFaces(0);                 // the two cut faces, surface down to floor
+  DrawSurface(0, 0, 1.0);       // the ground itself
+  BeddingLine(1);               // the seam where it meets the bed below
+  CTX.strokeStyle = rgb(TEXT, 0.34); CTX.lineWidth = 1.3;
+  SurfacePath(0); CTX.stroke(); // silhouette
+}
+
+/* Depth in metres at a lattice corner, on the surface (which = 0) or the
+   floor (which = 1) -- the layer's thickness at (i,j) is the difference. */
+const depthAt = (which, i, j) => SURF[which][j * STRIDE + i];
+
+return { P, build, draw, texture, depthAt,
+         get surface(){ return SURF[0]; },
+         get floor(){ return SURF[1]; },
+         get lattice(){ return N; },
+         Fbm, Bowl, CraterAmp, GenerateRock };
+})();
+
+if (typeof module !== "undefined" && module.exports) module.exports = RegolithLayer;
