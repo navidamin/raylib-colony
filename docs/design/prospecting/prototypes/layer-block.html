@@ -400,7 +400,7 @@ const P = {
   tilt: 0.42, lattice: 28, depthScale: 3.3,
   shade: 1.0, lightAz: 29, faceL: 0.64, faceR: 0.84,
   texAmt: 1.0, texScale: 2.0, seam: 0.95, lip: 0.55,
-  bar: 1, running: 0, grid: 0, lips: 1
+  bar: 1, running: 0, grid: 0, lips: 1, solo: 0
 };
 const DEFAULTS = Object.assign({}, P);
 
@@ -520,10 +520,11 @@ function Layout(){
     for (let i = 0; i <= N; i++){
       const k = j * STRIDE + i, off = (i + j - N) * TY;
       rise = Math.max(rise, -(SURF[0][k] * PX_PER_M + off));
-      drop = Math.max(drop, SURF[4][k] * PX_PER_M + off);
+      drop = Math.max(drop, SURF[P.solo ? (st.sel < 0 ? 1 : st.sel + 1) : 4][k] * PX_PER_M + off);
     }
   const RIG_SKY = P.bar ? 74 : 10;
   SURF_Y = 26 + Math.max(rise, RIG_SKY);
+  if (P.bar) drop = Math.max(drop, COLUMN_M * PX_PER_M + 30);
   const contentH = SURF_Y + drop + 46;
   // Shrink to fit, never grow: enlarging centres the design width on the
   // canvas and pushes the depth gutter off its left edge, taking the scale
@@ -733,6 +734,21 @@ function AsSeenThrough(alpha, draw){
 function DrawBody(){
   const sel = st.sel;
   const dark = rgb([6,9,13], 0.9);
+  if (P.solo){
+    // One stratum on its own: whichever is peeled, or the surface bed when
+    // nothing is. Its floor is the next interface down, so the crater levers
+    // read exactly as they do in the stack -- this hides beds, it does not
+    // change a single number that shapes them.
+    const L = sel < 0 ? 0 : sel;
+    DrawFaces(L);
+    DrawSurface(L, L, 1.0);
+    BeddingLine(L + 1);
+    CornerVerticals(L, L + 1, dark, 2.6);
+    CTX.strokeStyle = rgb(TEXT, 0.34); CTX.lineWidth = 1.3;
+    SurfacePath(L); CTX.stroke();
+    if (P.grid) DrawLattice();
+    return;
+  }
   if (sel < 0){
     for (let L = 3; L >= 0; L--) DrawFaces(L);
     DrawSurface(0, 0, 1.0);
@@ -1014,10 +1030,14 @@ function DrawStripLive(){
    depth, by construction rather than by tuning.
    ===================================================================== */
 function DrawDepthScale(){
-  const vis = L => st.sel < 0 || L >= st.sel;
+  // A ruling that points at a boundary nothing draws is a scale telling a lie,
+  // so in solo only the two that bound the drawn bed are lit.
+  const soloL = st.sel < 0 ? 0 : st.sel;
+  const vis = L => P.solo ? (L === soloL || L === soloL + 1)
+                          : (L === 4 || st.sel < 0 || L >= st.sel);
   for (let L = 0; L <= 4; L++){
     const m = L === 4 ? COLUMN_M : TOPS[L];
-    const y = YOf(m), on = L === 4 || vis(L);
+    const y = YOf(m), on = vis(L);
     const a = on ? 0.85 : 0.22;
     CTX.textAlign = "left";
     CTX.font = "700 10px 'JetBrains Mono',monospace";
@@ -1317,7 +1337,7 @@ function SegRow(it){
 /* The view card is hand-built: the peel is the page's primary state, and it
    deserves the top of the rail rather than a row among the levers. */
 function ViewCard(card){
-  card.append(El("p", "note", "Take off everything above a layer and see through what is left."));
+  card.append(El("p", "note", "Take off everything above a layer and see through what is left. One layer only lifts the chosen bed out on its own — the levers below still shape it identically."));
   const seg = El("div", "seg");
   const opts = [[-1, "Stacked"]].concat([0,1,2,3].map(L => [L, "L" + L]));
   const btns = opts.map(([v, label]) => {
@@ -1338,7 +1358,8 @@ function ViewCard(card){
   card.append(seg);
   const tg = El("div", "seg");
   tg.style.marginTop = "8px";
-  for (const [k, label] of [["bar","Drill bar"],["running","Drill running"],
+  for (const [k, label] of [["solo","One layer only"],["bar","Drill bar"],
+                            ["running","Drill running"],
                             ["grid","Lattice"],["lips","Bedding lips"]]){
     const b = El("button", "chip", label);
     b.type = "button";
