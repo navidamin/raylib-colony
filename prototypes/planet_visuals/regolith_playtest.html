@@ -147,7 +147,7 @@ const st = {
   // more resolution does NOT fix the softness, since the chain's blurs
   // are scaled by k = res/300 and therefore cover the same GROUND however
   // many pixels you give them. Only dropping them does.
-  style: 2, px: 3,
+  style: 1, px: 3,
   drag: null, pinch: null, dirty: true, mini: null
 };
 
@@ -297,10 +297,27 @@ function MaybeRegenerate(){
   const reach = Math.max(Math.abs(st.cxKm - st.cacheCx),
                          Math.abs(st.cyKm - st.cacheCy))
               + st.spanKm * TILE_MARGIN / 2;
-  if (reach > TC.LIVE_RUNGS[0] * 0.47){ Recentre(); return; }
+  if (reach > TC.LIVE_RUNGS[0] * 0.47){
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(() => Recentre(), WantedRes() < HEAVY_RES ? 0 : SETTLE_MS);
+    return;
+  }
   const drift = Math.abs(Math.log(st.spanKm * TILE_MARGIN / st.tile.spanKm));
   const moved = Math.hypot(st.cxKm - st.tile.cxKm, st.cyKm - st.tile.cyKm);
-  if (drift > 0.113 || moved > st.spanKm * 0.035) Regenerate();
+  if (drift > 0.113 || moved > st.spanKm * 0.035) Schedule();
+}
+
+// Generation is synchronous: a big tile freezes the page for as long as it
+// takes, and at 1280 that is seconds. Small tiles can be built as the view
+// moves and it still feels connected; big ones cannot, so they wait until
+// the hand stops. The stretched tile carries the view meanwhile, which is
+// the same bargain the whole thing already runs on.
+const HEAVY_RES = 760, SETTLE_MS = 380;
+let settleTimer = null;
+function Schedule(){
+  clearTimeout(settleTimer);
+  if (WantedRes() < HEAVY_RES){ Regenerate(); return; }
+  settleTimer = setTimeout(() => Regenerate(), SETTLE_MS);
 }
 
 function Busy(on){
@@ -484,6 +501,9 @@ function Hud(){
     : "settling…";
   $("gen").textContent = st.genCount
     ? `${st.genMs.toFixed(0)} ms · ${st.genCount}` : "—";
+  // A tile over a second is a visible freeze, and the tile size is the
+  // player's choice, so the number that says so is worth colouring.
+  $("gen").style.color = st.genMs > 1200 ? "var(--am-lit)" : "";
   $("cr").textContent = st.tile ? `${st.tile.craters} + ${st.tile.pop}` : "—";
   const z = (Math.log(st.spanKm) - LOG_MAX) / (LOG_MIN - LOG_MAX);
   const zi = $("zoom");
@@ -539,7 +559,11 @@ CV.addEventListener("pointermove", e => {
     st.cyKm -= (e.clientY - st.drag.y) * DPR / p;
     st.drag = { x: e.clientX, y: e.clientY };
     st.dirty = true;
-    if (!genPending) MaybeRegenerate();
+    // No tile while the hand is down. Generation is synchronous, so a
+    // regeneration mid-drag is a stall in the middle of the gesture that
+    // caused it -- measured, a drag across the frame was costing several.
+    // The tile is 18% wider than the window precisely so it can carry a
+    // drag; the one on pointerup catches up.
   }
 });
 function EndPointer(e){
