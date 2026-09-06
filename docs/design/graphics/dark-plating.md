@@ -1113,7 +1113,8 @@ surface, because you can see it.
 patch reads as fog thinning over a fixed picture; a short one (~75% of the
 radius at full, the rest a quick ramp) reads as ground becoming determinate.
 The gradient length is the whole difference between "wiping a window" and
-"finding out".
+"finding out". What shape that patch takes is set by the action that made
+it — see 9.49.
 
 Order is the whole argument: unknown mass → haze over it → real strata masked
 on top → the block's outline over everything.
@@ -1174,6 +1175,88 @@ get that outline also draws its two BACK edges — which the body hides, and
 which come out as a pair of diagonals ruled across both cut faces: the edge of
 a shape you cannot see. Trace the two front edges instead. The same care
 applies to any capping face on a solid iso body.
+
+### 9.49 Drilling — making the collapse an action
+
+Clicking to collapse ground is a placeholder. The moment a rig does it, three
+graphics problems appear at once, and they are the whole of the effect:
+**the rig**, **the denudation** (what the hole does to the ground) and **the
+spatter** (what comes out of it). Reference:
+`../prospecting/prototypes/layer-block.html`.
+
+**The tool is the cursor, tip-anchored.** Arm from a dock whose icon is the
+rig *at rest* — string drawn up into the head, so idle reads as stowed rather
+than as a small drill — then hide the system cursor and draw the rig with the
+**bit tip exactly on the pointer**. Anchoring anywhere else (centre of the
+body, the head) makes the player aim with a part of the tool that is not
+doing the work, and every placement feels a few pixels wrong without their
+being able to say why.
+
+**A vertical tool is the one thing an iso projection draws honestly.** World
+"down" maps to screen "down" with no foreshortening, so the rig is drawn
+straight, at one scale, at any tilt — no per-cell axonometric rig. Everything
+else about the hole (mouth, bowl, ejecta) still has to be projected.
+
+**Denudation is not a decal. It is the surface.** Drive the bowl into the
+height field the block already draws — a smooth `(1−u²)²` well of a few metres
+inside ~3 cells, plus a Gaussian rim of spoil just outside it — and the
+hill-shading, the silhouette against the sky, the fog raster and the cut faces
+all pick the hole up for free. An overlay ellipse could not have done one of
+those. Two consequences worth planning for:
+
+- the *rim* is what actually reads. The bowl is a dark patch among dark
+  patches; the bright lip of spoil catching the key light is what says
+  "something was dug here". Give it a real height (~40% of the bowl's depth).
+- the ground has to be **re-generated**, not merely redrawn, and the height
+  field is usually cached. Quantise the scour depth into ~10 steps and rebuild
+  only when the step changes; the rig and the ejecta run smooth on top of a
+  ground that updates ten times over the cut, and nobody can tell.
+
+**Spatter is a cone, and its speed must be chosen in SCREEN units.** This is
+the trap. Ejecta moves in two different coordinate systems at once — laterally
+across a lattice scaled by the tile width, vertically through a depth axis
+scaled by pixels-per-metre — and picking "1–4 cells/s sideways, 11–33 m/s up"
+looks reasonable in code and renders as a **narrow vertical plume**, because
+those two numbers came out 20:1 apart in pixels. Choose a launch speed and an
+elevation angle in pixels per second, then divide into each axis' own unit at
+spawn:
+
+```js
+const az = Math.random() * TAU;
+const el = 0.72 + Math.random() * 0.46;      // 41 deg .. 68 deg
+const S  = 78 + Math.random() * 74;          // px/s along the throw
+const up = S * Math.sin(el), out = S * Math.cos(el);
+vi = Math.cos(az) * out / TX;                // lattice cells per second
+vj = Math.sin(az) * out / TX;
+vz = up / PX_PER_M;                          // metres per second
+g  = EJECTA_G_PX / PX_PER_M;                 // and gravity likewise
+```
+
+Gravity chosen in pixels too (~300 px/s²) keeps the arc short enough to read as
+grit rather than as fireworks. Colour each grain by the bed the bit is in *at
+the moment it is thrown*, and the first thing the player learns about a column
+is something they watched come out of it.
+
+**A borehole is a narrow column, and a cut face is a section — those are two
+different distances.** Measuring both with one `hypot()` is the obvious thing
+and it is wrong: a hole four cells in from an edge reveals nothing, so drilling
+anywhere but the very rim appears to do nothing at all. Split them:
+
+- **along** the face — a hole to your left says nothing about the section to
+  your right. Cut off hard; that hard cut-off is what keeps the reveal reading
+  as a column rather than a spotlight.
+- **into** the block — a hole a few cells behind the face cut essentially the
+  same section the face exposes. That is sight-line, not ignorance. Fall off
+  slowly and never quite to zero (~55% over half the block).
+
+The band a mid-block hole leaves is then *half*-resolved: bedding planes
+faintly legible, texture not. "Constrained, but not confirmed" is a real state
+in a survey, and it is worth a look of its own.
+
+**Retract, and leave the evidence.** The cycle is spin-up → cut → withdraw, and
+the column is established at the moment the string clears the collar, not
+before: you do not know a hole until you have finished it. What stays behind is
+the mouth, the bowl and the spoil — the rig leaves, its work does not.
 
 ### 9.5 The animation recipes
 

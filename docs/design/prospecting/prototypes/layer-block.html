@@ -431,6 +431,31 @@ const st = { sel: -1, hover: -1, cell: null, ground: null,
              t: 0, depth: 42, phase: 0, mx: -1, my: -1 };
 
 /* =====================================================================
+   THE DRILL -- the one verb that collapses ground
+   ---------------------------------------------------------------------
+   Arm it from the dock, put its tip on the ground, click. The bit goes
+   in until only the head is left standing out; the collar scours into a
+   bowl and throws its spoil; then the string comes out and the column
+   under it is real. Nothing else establishes ground any more, which is
+   why the drill can be this expensive to draw: it is the mechanic, not
+   an ornament on one.
+   ===================================================================== */
+const drill = { armed: 0, mode: "aim", t: 0, phase: 0, i: 0, j: 0, prog: 0 };
+const holes = [];              // {i, j, k} -- k is how far the scour has got
+const spatter = [];            // ejecta, in lattice units with a height in m
+const DRILL_S = 0.92;          // tool-sized: about one stratum band tall
+const SCOUR_R = 3.1;          // scour radius, lattice cells
+const SCOUR_DEEP_M = 5.4;     // how far the bowl is driven down, metres
+const SCOUR_RIM_M = 2.3;      // how high the spoil rim stands, metres
+const EJECTA_G_PX = 300;      // ejecta gravity, screen px/s^2
+const DRILL_IN = 95 * DRILL_S; // how far the tip travels: the whole string,
+                               // so the head lands on the collar
+const HOLE_CELLS = 3.0;        // half-width of the band a hole lights up
+const HOLE_REACH = 13;         // how far back from a face a hole still speaks
+const HOLE_FADE = 0.55;        // how much it loses over that distance
+const SPIN_T = 0.35, CUT_T = 2.4, OUT_T = 0.9;
+
+/* =====================================================================
    4. THE GROUND ITSELF -- generated, not measured
    ---------------------------------------------------------------------
    Each interface is one height field: undulation (shared between layers
@@ -509,6 +534,28 @@ function BuildHeights(){
       }
     SURF.push(d);
   }
+  /* Denudation. The scour is not a decal on the surface, it is the surface:
+     a bowl driven into interface 0 with the spoil heaped in a ring outside
+     it. Because it deforms the height field the block already draws, the
+     hill-shading, the silhouette and the fog raster all pick it up for free
+     -- an overlay could not have done any of that. */
+  if (holes.length){
+    const d0 = SURF[0];
+    for (const h of holes){
+      if (h.k <= 0.001) continue;
+      for (let j = 0; j <= N; j++)
+        for (let i = 0; i <= N; i++){
+          const dd = Math.hypot(i - h.i, j - h.j);
+          if (dd > SCOUR_R * 2.1) continue;
+          const u = dd / SCOUR_R;
+          const bowl = u < 1 ? (1 - u * u) * (1 - u * u) : 0;
+          const s = (dd - SCOUR_R * 1.25) / (SCOUR_R * 0.62);
+          const ring = Math.exp(-s * s * 0.5);
+          d0[j * STRIDE + i] += (bowl * SCOUR_DEEP_M - ring * SCOUR_RIM_M) * h.k;
+        }
+    }
+  }
+
   /* No interface may pass through the one below it. A deep crater bottoming
      out on a harder unit is the interesting case this allows to happen and
      keeps legal: the floor flattens against the layer beneath instead of
@@ -614,16 +661,40 @@ const smoothstep = (a, b, x) => {
    space so it survives every change of tilt, lattice and depth scale. */
 const reveals = [];
 let revealRev = 0;      // the body cache is keyed on P; clicks are not in P
-const REVEAL_R_PX = 92;
+/* What a hole has established, sampled on a cut face. A hole is a narrow
+   vertical cylinder at one lattice spot; a face is a section at the block's
+   edge; so what it lights up on a face is a BAND, no wider than the column
+   it cut. The two distances are not the same kind of distance, though, and
+   the first version treated them as one:
+
+     ALONG the face   -- a hole to your left tells you nothing about the
+                         section to your right, so this cuts off hard, and
+                         that hard cut-off is what keeps the column narrow.
+     INTO the block   -- a hole four cells behind the face cut essentially
+                         the same section the face exposes. Sight-line, not
+                         ignorance. So this falls off slowly and never quite
+                         reaches zero: a hole out in the middle leaves its
+                         band half-resolved rather than blank, which reads
+                         as "constrained, not confirmed".
+
+   Measuring both with one hypot() made every hole more than three cells in
+   from an edge invisible, and drilling near the middle -- which is where you
+   naturally aim -- appeared to do nothing at all. */
 function RevealK(sp, x, y){
+  if (!reveals.length || sp !== "face") return 0;
+  const onFirst = x < 0.5;
+  const idx = onFirst ? x * 2 * N : (x - 0.5) * 2 * N;
   let k = 0;
-  for (let i = 0; i < reveals.length; i++){
-    const r = reveals[i];
-    if (r.sp !== sp) continue;
-    const d = Math.hypot((x - r.x) / r.rx, (y - r.y) / r.ry);
-    if (d < 1) k = Math.max(k, 1 - smoothstep(0.74, 1, d));
+  for (let n = 0; n < reveals.length; n++){
+    const h = reveals[n];
+    const along = onFirst ? Math.abs(idx - h.i) : Math.abs(idx - h.j);
+    const into  = onFirst ? (N - h.j) : (N - h.i);
+    const band = 1 - smoothstep(HOLE_CELLS * 0.55, HOLE_CELLS, along);
+    if (band <= 0) continue;
+    const reach = 1 - HOLE_FADE * smoothstep(0, HOLE_REACH, into);
+    k = Math.max(k, band * reach);
   }
-  return k;
+  return clamp(k, 0, 1);
 }
 
 /* The whole law. `pp` runs 0..1 around the block's VISIBLE perimeter and `tt`
@@ -668,9 +739,8 @@ function FogSample(sp, x, y){
    the rock texture already uses. Haze and mask come out of ONE pass, because
    they are two readings of the same number and must not drift. */
 const FOG_MARGIN_M = 8;
-const FOG_W = 112, FOG_H = 176, FOG_TOP = 56;
-let fogKey = "", fogFace = [null, null], fogTop = null;
-let mskFace = [null, null], mskTop = null;
+const FOG_W = 112, FOG_H = 176;
+let fogKey = "", fogFace = [null, null], mskFace = [null, null];
 
 function MakePair(w, h, sample){
   const fc = document.createElement("canvas"), mc = document.createElement("canvas");
@@ -693,8 +763,7 @@ function MakePair(w, h, sample){
 }
 function EnsureFog(topB){
   const k = [P.fog, P.fogAmt, P.fogGrain, P.fogSpreadH, P.fogSpreadV, P.fogThick,
-             COLUMN_M, TOPS.join(","), topB, reveals.length,
-             reveals.length ? reveals[reveals.length - 1].x : 0].join("|");
+             COLUMN_M, TOPS.join(","), topB, N, revealRev].join("|");
   if (k === fogKey) return;
   fogKey = k;
   const span = COLUMN_M + 2 * FOG_MARGIN_M;
@@ -706,10 +775,6 @@ function EnsureFog(topB){
     });
     fogFace[side] = pair[0]; mskFace[side] = pair[1];
   }
-  const pair = MakePair(FOG_TOP, FOG_TOP, (x, y) =>
-    FogSample("top", x / (FOG_TOP - 1),
-              y / (FOG_TOP - 1) * P.fogSpreadV / Math.max(P.fogSpreadH, 0.04)));
-  fogTop = pair[0]; mskTop = pair[1];
 }
 
 /* The face path across a RANGE of interfaces, so the unknown body, the haze
@@ -731,7 +796,7 @@ function FacePathSpan(side, topB, botB){
 }
 /* One projection used by all three overlays, so haze, mask and reveal cannot
    land in different places. */
-function ProjectTriple(topB, botB, faceCvs, topCv){
+function ProjectTriple(topB, botB, faceCvs, capFill){
   const len = Math.hypot(TX, TY), run = N * len;
   const span = COLUMN_M + 2 * FOG_MARGIN_M;
   for (const side of [0, 1]){
@@ -745,14 +810,13 @@ function ProjectTriple(topB, botB, faceCvs, topCv){
     CTX.drawImage(faceCvs[side], 0, 0);
     CTX.restore();
   }
-  CTX.save();
-  SurfacePath(topB); CTX.clip();
-  CTX.imageSmoothingEnabled = true;
-  const a = N / FOG_TOP;
-  CTX.transform(a * TX, a * TY, -a * TX, a * TY, BLK_CX,
-                YOf(TOPS[Math.min(topB, 3)]) - N * TY);
-  CTX.drawImage(topCv, 0, 0);
-  CTX.restore();
+  /* The cap is not projected. It is collapsed by definition -- you can see the
+     ground you stand on -- so its fog is 0 and its mask is 1 everywhere, both
+     uniform. Projecting an image for a uniform value was not merely wasteful:
+     the image sits on the DATUM diamond while the surface is drawn LIFTED, so
+     the two were offset by the relief and left a pale margin of unknown ground
+     all round the rim. A fill cannot be misaligned. */
+  if (capFill){ CTX.fillStyle = capFill; SurfacePath(topB); CTX.fill(); }
 }
 
 /* The unknown body: ONE mass from the top of the block to its base, in the
@@ -951,9 +1015,9 @@ function DrawBody(){
   if (!P.fog || P.fogAmt <= 0.001){ DrawRealBody(); return; }
   EnsureFog(topB);
   DrawUnknown(topB, botB);
-  ProjectTriple(topB, botB, fogFace, fogTop);
+  ProjectTriple(topB, botB, fogFace, null);
   OnLayer(RCTX, DrawRealBody);
-  OnLayer(MCTX, () => ProjectTriple(topB, botB, mskFace, mskTop));
+  OnLayer(MCTX, () => ProjectTriple(topB, botB, mskFace, "#fff"));
   RCTX.save();
   RCTX.setTransform(1, 0, 0, 1, 0, 0);
   RCTX.globalCompositeOperation = "destination-in";
@@ -1418,6 +1482,228 @@ function UpdatePick(){
 }
 
 /* =====================================================================
+   9b. THE DRILL RIG, THE DOCK, AND THE SPATTER
+   ---------------------------------------------------------------------
+   The rig is drawn side-on in screen space, not projected: in this iso
+   the world's vertical axis IS screen vertical, so a vertical drill is a
+   vertical drawing. Grammar per dark-plating 6 -- cone, helicoid, rod,
+   joint, chuck, powerhead -- at a fraction of the borehole bar's detail,
+   because this one is 110 px tall and moving.
+   ===================================================================== */
+const D_CONE = 15, D_FLUTE_T = 60, D_ROD_T = 76, D_CHUCK_T = 95, D_HEAD_T = 122;
+const D_RB = 5.6, D_R = 8.2, D_RC = 4.6, D_ROD = 5.0, D_CHK = 8.5, D_HEAD = 15;
+
+/* The helicoid, back half then front half, so the rod sits between them and
+   the ribbon reads as wrapping rather than as a painted stripe. */
+function DrillFlute(cx, yTop, yBot, phase, front, s){
+  const len = yBot - yTop;
+  if (len < 4) return;
+  const turns = len / (D_R * s * 2.9);
+  const steps = Math.max(10, Math.round(len / 2.0));
+  const th = 3.0 * s, drop = 1.2 * s;
+  for (let k = 0; k < steps; k++){
+    const t0 = k / steps, t1 = (k + 1) / steps;
+    const a0 = t0 * turns * 6.2832 + phase, a1 = t1 * turns * 6.2832 + phase;
+    const cm = (Math.cos(a0) + Math.cos(a1)) * 0.5;
+    if (front !== (cm > 0)) continue;
+    const y0 = yTop + t0 * len, y1 = yTop + t1 * len;
+    const xr0 = cx + D_RC * s * Math.sin(a0), xr1 = cx + D_RC * s * Math.sin(a1);
+    const xc0 = cx + D_R  * s * Math.sin(a0), xc1 = cx + D_R  * s * Math.sin(a1);
+    CTX.beginPath();
+    CTX.moveTo(xr0, y0); CTX.lineTo(xc0, y0 + drop);
+    CTX.lineTo(xc1, y1 + drop); CTX.lineTo(xr1, y1);
+    CTX.lineTo(xr1, y1 + th); CTX.lineTo(xc1, y1 + th + drop);
+    CTX.lineTo(xc0, y0 + th + drop); CTX.lineTo(xr0, y0 + th);
+    CTX.closePath();
+    // Stepped, never smooth (dark-plating 3.1): the ribbon banding is what
+    // makes a turning thing read as turning at this size.
+    const raw = front ? 0.34 + 0.48 * Math.max(0, cm) : 0.12 + 0.14 * Math.max(0, -cm);
+    CTX.fillStyle = steel(Math.round(raw * 7) / 7, 0);
+    CTX.fill();
+  }
+}
+/* tipY is the point of the bit. Everything is measured up from it, so the tip
+   can be put anywhere -- on the cursor, or sinking into the ground. */
+function DrawDrill(cx, tipY, s, phase, lit){
+  const y = m => tipY - m * s;
+  const bar = (x0, x1, y0, y1, tones) => {
+    const g = CTX.createLinearGradient(x0, 0, x1, 0); let t = 0;
+    for (const [sp, sh] of tones){ const c = steel(sh, 0);
+      g.addColorStop(t, c); t = Math.min(1, t + sp); g.addColorStop(t, c); }
+    CTX.fillStyle = OUT; CTX.fillRect(x0 - 2 * s, y0 - 1.5 * s, (x1 - x0) + 4 * s, (y1 - y0) + 3 * s);
+    CTX.fillStyle = g; CTX.fillRect(x0, y0, x1 - x0, y1 - y0);
+  };
+  const ROD = [[0.15,0.11],[0.17,0.98],[0.21,0.58],[0.27,0.30],[0.20,0.07]];
+  const CHK = [[0.17,0.06],[0.16,0.62],[0.22,0.34],[0.26,0.18],[0.19,0.04]];
+
+  DrillFlute(cx, y(D_FLUTE_T), y(D_CONE), phase, false, s);   // back half
+  bar(cx - D_RC * s, cx + D_RC * s, y(D_FLUTE_T), y(D_CONE), ROD);   // the core
+  bar(cx - D_ROD * s, cx + D_ROD * s, y(D_ROD_T), y(D_FLUTE_T), ROD);
+  DrillFlute(cx, y(D_FLUTE_T), y(D_CONE), phase, true, s);    // front half
+
+  // the bit: three facets to a point, the lit one on the left per the key
+  const sh = y(D_CONE), cw = D_RB * s;
+  for (const [a, b, t] of [[-1,-0.34,0.90],[-0.34,0.28,0.52],[0.28,1,0.22]]){
+    CTX.beginPath(); CTX.moveTo(cx + cw * a, sh); CTX.lineTo(cx + cw * b, sh);
+    CTX.lineTo(cx, tipY); CTX.closePath();
+    CTX.fillStyle = steel(t, 0); CTX.fill();
+  }
+  CTX.fillStyle = "rgba(0,0,0,.45)"; CTX.fillRect(cx - cw - 1, sh - 1.4 * s, (cw + 1) * 2, 1.6 * s);
+
+  // joint, chuck, powerhead
+  const jw = 6.5 * s, jy = y(D_ROD_T);
+  bar(cx - jw, cx + jw, jy - 2.6 * s, jy + 2.6 * s, CHK);
+  bar(cx - D_CHK * s, cx + D_CHK * s, y(D_CHUCK_T), y(D_ROD_T) - 1.5 * s, CHK);
+
+  const hy0 = y(D_HEAD_T), hy1 = y(D_CHUCK_T), hw = D_HEAD * s;
+  CTX.fillStyle = OUT; CTX.fillRect(cx - hw - 2 * s, hy0 - 2 * s, (hw + 2 * s) * 2, (hy1 - hy0) + 4 * s);
+  CTX.fillStyle = lit ? "#e8a63a" : "#d9962f";
+  CTX.fillRect(cx - hw, hy0, hw * 2, hy1 - hy0);
+  CTX.fillStyle = "rgba(255,255,255,.30)"; CTX.fillRect(cx - hw, hy0, hw * 2, 2.4 * s);
+  CTX.fillStyle = "rgba(0,0,0,.30)"; CTX.fillRect(cx - hw, hy1 - 2.4 * s, hw * 2, 2.4 * s);
+  for (let k = 0; k < 3; k++){
+    CTX.fillStyle = "#7a5115";
+    CTX.fillRect(cx - hw * 0.62, hy0 + (5 + k * 6) * s, hw * 1.24, 2.6 * s);
+  }
+  CTX.fillStyle = OUT; CTX.fillRect(cx + hw + 1 * s, hy0 + 5 * s, 9 * s, 11 * s);
+  CTX.fillStyle = "#39424e"; CTX.fillRect(cx + hw + 2 * s, hy0 + 6 * s, 7 * s, 9 * s);
+  CTX.fillStyle = lit ? "#ffc84d" : "#50e1ff";
+  CTX.fillRect(cx + hw + 4 * s, hy0 + 8.5 * s, 3 * s, 3 * s);
+}
+
+/* The dock. Its icon is the rig at rest -- string drawn up into the head, so
+   the idle state reads as "stowed" rather than as a small drill. */
+let dockBox = null;
+function DrawDock(){
+  const w = 46, h = 46, x = BLK_X, yy = 10;
+  dockBox = { x, y: yy, w, h };
+  const on = drill.armed;
+  CTX.fillStyle = on ? "rgba(80,225,255,.10)" : "rgb(14,21,38)";
+  CTX.fillRect(x, yy, w, h);
+  CTX.strokeStyle = on ? rgb(CY, 0.95) : "rgb(51,102,119)";
+  CTX.lineWidth = 1.1; CTX.strokeRect(x + 0.5, yy + 0.5, w - 1, h - 1);
+  CTX.save();
+  CTX.beginPath(); CTX.rect(x + 1, yy + 1, w - 2, h - 2); CTX.clip();
+  DrawDrill(x + w * 0.5, yy + h - 8, 0.30, drill.armed ? drill.phase : 0.7, on);
+  CTX.restore();
+  CTX.font = "700 7px 'JetBrains Mono',monospace";
+  CTX.fillStyle = on ? rgb(CY) : rgb(DIMT);
+  CTX.textAlign = "center"; CTX.fillText("DRILL", x + w * 0.5, yy + h + 10);
+  CTX.textAlign = "left";
+}
+
+/* Spatter. Ejecta leaves the collar on a ballistic arc, in lattice units so
+   it lands on the ground it came out of, and it wears the colour of the bed
+   the bit is in RIGHT NOW -- which makes the first thing you learn about the
+   column a thing you see thrown out of it. */
+function SpawnSpatter(i, j, m, n){
+  const col = ROCK_COL[layerOfM(clamp(m, 0, COLUMN_M - 0.01))];
+  for (let k = 0; k < n; k++){
+    /* A cone, not a fountain. The launch speed is chosen in SCREEN pixels
+       and only then converted into the two very different units the block
+       actually moves things in -- lattice cells across, metres of depth up
+       -- because it is the picture that has to read as a spray, and those
+       two units are scaled by TX and PX_PER_M by wildly different amounts. */
+    const az = Math.random() * 6.2832;
+    const el = 0.72 + Math.random() * 0.46;           // 41 deg .. 68 deg
+    const S  = 78 + Math.random() * 74;               // px/s along the throw
+    const up = S * Math.sin(el), out = S * Math.cos(el);
+    spatter.push({ i, j, z: 0.6,
+      vi: Math.cos(az) * out / TX, vj: Math.sin(az) * out / TX,
+      vz: up / PX_PER_M, g: EJECTA_G_PX / PX_PER_M,
+      col, sz: 1.8 + Math.random() * 2.4 });
+  }
+}
+function StepSpatter(dt){
+  for (let k = spatter.length - 1; k >= 0; k--){
+    const p = spatter[k];
+    p.i += p.vi * dt; p.j += p.vj * dt;
+    p.vz -= p.g * dt; p.z += p.vz * dt;
+    if (p.z <= 0 || p.i < -1 || p.j < -1 || p.i > N + 1 || p.j > N + 1) spatter.splice(k, 1);
+  }
+  if (spatter.length > 420) spatter.splice(0, spatter.length - 420);
+}
+function DrawSpatter(){
+  for (const p of spatter){
+    const i = clamp(p.i, 0, N), j = clamp(p.j, 0, N);
+    const k = Math.round(j) * STRIDE + Math.round(i);
+    const x = BLK_CX + (p.i - p.j) * TX;
+    const yv = YOf(SURF[0][k] - p.z) + (p.i + p.j - N) * TY;
+    CTX.fillStyle = rgb(scalec(p.col, p.z > 3 ? 1.9 : 1.3));
+    CTX.fillRect(x, yv, p.sz, p.sz * 0.8);
+  }
+}
+
+/* The cycle. Aim while armed, then spin up, cut, and come out; the ground is
+   established at the moment the string clears the collar, not before -- you
+   do not know a column until the hole is finished. */
+function StepDrill(dt){
+  if (drill.mode === "aim"){ drill.phase += 2.2 * dt; return; }
+  drill.t += dt; drill.phase += 13.5 * dt;
+  const h = holes[holes.length - 1];
+  if (drill.mode === "spin"){
+    if (drill.t >= SPIN_T){ drill.mode = "cut"; drill.t = 0; }
+  } else if (drill.mode === "cut"){
+    drill.prog = clamp(drill.t / CUT_T, 0, 1);
+    if (h) h.k = drill.prog;
+    const m = drill.prog * DRILL_IN / Math.max(PX_PER_M, 0.01);
+    if (Math.random() < 0.85) SpawnSpatter(drill.i, drill.j, m, 2 + (Math.random() * 3 | 0));
+    if (drill.t >= CUT_T){ drill.mode = "out"; drill.t = 0; }
+  } else if (drill.mode === "out"){
+    drill.prog = 1 - clamp(drill.t / OUT_T, 0, 1);
+    if (drill.t >= OUT_T){
+      // the column is real now
+      reveals.push({ i: drill.i, j: drill.j });
+      revealRev++; fogKey = "";
+      drill.mode = "aim"; drill.prog = 0; drill.t = 0;
+    }
+  }
+  StepSpatter(dt);
+}
+/* Where the tip is, and where the collar it is standing in is. */
+function DrillPose(){
+  if (drill.mode === "aim"){
+    return { cx: st.vx, tipY: st.vy, collarY: st.vy + 6, live: false };
+  }
+  const k = drill.j * STRIDE + drill.i;
+  const gx = SPX[0][k], gy = SPY[0][k];
+  return { cx: gx, tipY: gy + drill.prog * DRILL_IN, collarY: gy + 2, live: true };
+}
+/* The mouth. Dark, with a lit lip on the near side and a hair of shadow on
+   the far one -- the same implied upper-left key the rest of the panel uses,
+   which is what makes a flat ellipse read as a hole rather than a sticker. */
+function DrawCollar(cx, cy, k){
+  const rw = 11.5 * DRILL_S * (0.55 + 0.45 * k), rh = rw * 0.38;
+  CTX.fillStyle = "rgb(10,9,7)";
+  CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 0, 6.2832); CTX.fill();
+  CTX.strokeStyle = "rgba(190,205,220,.22)"; CTX.lineWidth = 1.2;
+  CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 3.34, 6.08); CTX.stroke();
+  CTX.strokeStyle = "rgba(0,0,0,.45)"; CTX.lineWidth = 1.4;
+  CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 0.2, 2.94); CTX.stroke();
+}
+/* Holes that have been finished keep their mouth, drawn with the ground so
+   the block accumulates a record of where you have been. */
+function DrawHoleMouths(){
+  for (const h of holes){
+    if (h.k < 0.05) continue;
+    if (drill.mode !== "aim" && h === holes[holes.length - 1]) continue;
+    const k = h.j * STRIDE + h.i;
+    DrawCollar(SPX[0][k], SPY[0][k] + 2, h.k);
+  }
+}
+function DrawDrillLive(){
+  if (!drill.armed) return;
+  const p = DrillPose();
+  if (p.live) DrawCollar(p.cx, p.collarY, 1);
+  CTX.save();
+  CTX.beginPath();
+  CTX.rect(p.cx - 46 * DRILL_S, CLIP_TOP, 92 * DRILL_S, p.collarY - CLIP_TOP);
+  CTX.clip();
+  DrawDrill(p.cx, p.tipY, DRILL_S, drill.phase, drill.mode !== "aim");
+  CTX.restore();
+}
+
+/* =====================================================================
    10. WHAT IS REDRAWN, AND WHAT IS NOT
    ---------------------------------------------------------------------
    The body and the bar's rock are static between lever moves, and both
@@ -1432,7 +1718,7 @@ function ApplyFit(ctx){
 }
 const BODY = document.createElement("canvas"), BCTX = BODY.getContext("2d");
 const STRIPBG = document.createElement("canvas"), SBCTX = STRIPBG.getContext("2d");
-let bodyKey = "", stripKey = "";
+let bodyKey = "", stripKey = "", lastSpoilRev = 0;
 function SizeLayers(){
   for (const c of [SCR, BODY, STRIPBG, REVEAL_CV, MASK_CV]){
     c.width = CV.width; c.height = CV.height; }
@@ -1443,7 +1729,11 @@ function OnLayer(target, draw){
   ApplyFit(target);
   CTX = target; draw(); CTX = main;
 }
-const Sig = () => JSON.stringify(P) + "|" + st.sel + "|" + revealRev;
+/* The scour deepens continuously but the body is far too expensive to redraw
+   at 60 Hz, so the ground steps in about ten stages across a cut while the
+   drill and its spatter run smooth on top. Quantising here is what buys that. */
+const SpoilRev = () => { let v = 0; for (const h of holes) v += Math.round(h.k * 10) * 31; return v; };
+const Sig = () => JSON.stringify(P) + "|" + st.sel + "|" + revealRev + "|" + SpoilRev();
 function EnsureCaches(){
   const k = Sig();
   if (k !== bodyKey){ bodyKey = k; OnLayer(BCTX, DrawBody); }
@@ -1464,12 +1754,21 @@ function Frame(dt){
   CTX.fillStyle = "#070b11"; CTX.fillRect(0, 0, CV.width, CV.height);
   ApplyFit(CTX);
   UpdatePick();                                  // pick, then draw
+  StepDrill(dt);
+  // The scour deforms the height field, so the geometry itself has to be
+  // rebuilt -- at the same ~ten steps the body cache uses, not every frame.
+  const sr = SpoilRev();
+  if (sr !== lastSpoilRev){ lastSpoilRev = sr; Layout(); }
   EnsureCaches();
   Blit(BODY);
   if (P.bar){ Blit(STRIPBG); DrawStripLive(); }
+  DrawHoleMouths();
+  DrawDrillLive();
+  DrawSpatter();
   DrawDepthScale();
+  DrawDock();
   DrawReadout();
-  DrawCursors();
+  if (!drill.armed) DrawCursors();
 }
 
 /* =====================================================================
@@ -1525,7 +1824,8 @@ const SCHEMA = [
         fmt:v => Math.round(v * 100) + "% of column" },
       { k:"fogThick",   lab:"Thickness",    min:0,    max:1,   step:0.01, fmt:pc },
       { type:"act", lab:"Cover it back up",
-        run:() => { reveals.length = 0; revealRev++; fogKey = ""; } }
+        run:() => { reveals.length = 0; holes.length = 0; spatter.length = 0;
+                    revealRev++; fogKey = ""; } }
     ] },
   { title: "Strata", note: "Thickness in metres. The column is their sum.",
     items: [
@@ -1752,42 +2052,29 @@ function evPos(e){
 }
 CV.addEventListener("pointermove", e => { const p = evPos(e); st.mx = p[0]; st.my = p[1]; });
 CV.addEventListener("pointerleave", () => { st.mx = st.my = -1; });
-/* Where on the block a click landed, in the fog's own coordinates -- the
-   inverse of the projection the haze and the mask are drawn through, so a
-   patch lands exactly where it was clicked at any tilt, lattice or scale. */
-function FogHitAt(topB, botB, vx, vy){
-  const dx = st.mx * 2, dy = st.my * 2;      // isPointInPath ignores the CTM
-  const len = Math.hypot(TX, TY), run = N * len;
-  const span = COLUMN_M + 2 * FOG_MARGIN_M;
-  for (const side of [0, 1]){
-    FacePathSpan(side, topB, botB);
-    if (!CTX.isPointInPath(dx, dy)) continue;
-    const ox = BLK_CX + (side === 0 ? -N * TX : N * TX), oy = YOf(-FOG_MARGIN_M);
-    const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
-    const sIdx = (vx - ox) / (ux * run);
-    const yn = (vy - oy - sIdx * uy * run) / (span * PX_PER_M);
-    return { sp: "face", x: (side === 0 ? 0 : 0.5) + sIdx * 0.5,
-             y: (-FOG_MARGIN_M + yn * span) / Math.max(COLUMN_M, 1),
-             rx: REVEAL_R_PX / (2 * run),
-             ry: REVEAL_R_PX / Math.max(COLUMN_M * PX_PER_M, 1) };
-  }
-  return null;      // the cap is collapsed already; a click there peels
-
-}
 CV.addEventListener("pointerdown", e => {
   const p = evPos(e); st.mx = p[0]; st.my = p[1];
   const vx = (st.mx - FIT.tx) / FIT.s, vy = (st.my - FIT.ty) / FIT.s;
-  if (P.fog && P.fogAmt > 0.001){
-    // Fog on: a click establishes ground. Peeling stays on the chips and the
-    // number keys, because with fog up there is nothing to peel INTO until
-    // you have found out what is down there.
-    const hit = FogHitAt(st.sel < 0 ? 0 : st.sel,
-                         P.solo ? (st.sel < 0 ? 1 : st.sel + 1) : 4, vx, vy);
-    if (hit){
-      reveals.push(hit);
-      if (reveals.length > 80) reveals.shift();   // the sampler walks this list
-      revealRev++; fogKey = ""; SyncAll(); Changed(); return;
-    }
+  if (dockBox && vx >= dockBox.x && vx <= dockBox.x + dockBox.w &&
+      vy >= dockBox.y && vy <= dockBox.y + dockBox.h){
+    drill.armed = drill.armed ? 0 : 1;
+    drill.mode = "aim"; drill.prog = 0;
+    CV.style.cursor = drill.armed ? "none" : "";
+    return;
+  }
+  if (drill.armed){
+    if (drill.mode !== "aim") return;             // one hole at a time
+    // The tip is the cursor, so the hole goes where the point is -- but it
+    // has to be ON the ground, and the top surface is the only ground you
+    // can stand a rig on.
+    SurfacePath(st.sel < 0 ? 0 : st.sel);
+    if (!CTX.isPointInPath(st.mx * 2, st.my * 2)) return;
+    const c = PickCell(st.sel < 0 ? 0 : st.sel, vx, vy);
+    drill.i = c.i; drill.j = c.j;
+    drill.mode = "spin"; drill.t = 0; drill.prog = 0;
+    holes.push({ i: c.i, j: c.j, k: 0 });
+    if (holes.length > 40) holes.shift();
+    return;
   }
   UpdatePick();
   // Clicking the layer you are already inside keeps it; clicking the ground
@@ -1798,7 +2085,10 @@ CV.addEventListener("pointerdown", e => {
 });
 window.addEventListener("keydown", e => {
   if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
-  if (e.key === "Escape"){ st.sel = -1; SyncAll(); Changed(); }
+  if (e.key === "Escape"){
+    if (drill.armed && drill.mode === "aim"){ drill.armed = 0; CV.style.cursor = ""; return; }
+    st.sel = -1; SyncAll(); Changed();
+  }
   else if (e.key >= "0" && e.key <= "3"){ st.sel = parseInt(e.key, 10); SyncAll(); Changed(); }
 });
 
@@ -1816,6 +2106,14 @@ SyncAll();
 
 const REDUCED = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 if (REDUCED) P.running = 0;
+/* Inspection hook for capture harnesses: where things are on screen, and what
+   the drill is doing. */
+window.__L = () => ({ fit: { s: FIT.s, tx: FIT.tx, ty: FIT.ty },
+  dock: dockBox && { x: FIT.tx + dockBox.x * FIT.s, y: FIT.ty + dockBox.y * FIT.s,
+                     w: dockBox.w * FIT.s, h: dockBox.h * FIT.s },
+  drill: { armed: drill.armed, mode: drill.mode, prog: +drill.prog.toFixed(2) },
+  holes: holes.length, reveals: reveals.length, spatter: spatter.length });
+
 let last = performance.now();
 (function tick(now){
   const dt = REDUCED ? 0 : clamp((now - last) / 1000, 0, 0.05);
