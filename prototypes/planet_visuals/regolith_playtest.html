@@ -37,7 +37,7 @@ canvas.drag{cursor:grabbing}
 #busy.on{opacity:1}
 
 #bar{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;
-  display:flex;align-items:center;gap:10px;
+  display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px;
   background:var(--panel);border:1px solid var(--rule);border-radius:6px;
   padding:9px 12px;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
   max-width:calc(100vw - 24px)}
@@ -83,6 +83,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   <div><span class="k">span</span> <span class="v" id="span">5.00 km</span>
        <span class="k">·</span> <span class="v" id="mpp">15.6 m/px</span></div>
   <div><span class="k" id="place">Plinius</span></div>
+  <div><span class="k">draw</span> <span class="v" id="draw">smooth</span></div>
 </div>
 <div class="hud" id="tr">
   <div id="busy">GENERATING</div>
@@ -98,7 +99,8 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
          list="rungs" aria-label="Zoom">
   <datalist id="rungs"></datalist>
   <button class="btn" id="in" title="Zoom in">+</button>
-  <button class="btn" id="res" title="Detail">512</button>
+  <button class="btn" id="style" title="Smooth, hard pixels, or hard pixels with banded tone">Smooth</button>
+  <button class="btn" id="res" title="Tile detail, or pixel size">512</button>
   <button class="btn" id="reset">Reset</button>
   <a class="btn" id="bench" href="#" title="The lever bench">Bench</a>
 </div>
@@ -137,6 +139,8 @@ const st = {
   originLat: 0, originLon: 0,
   tile: null, prev: null, fade: 1,
   res: 512, genMs: 0, genCount: 0, busy: false,
+  // 0 smooth, 1 hard pixels, 2 hard pixels with banded tone.
+  style: 0, px: 3,
   drag: null, pinch: null, dirty: true, mini: null
 };
 
@@ -172,13 +176,37 @@ function LatLonAt(cxKm, cyKm){
    paid once per PLACE; a view is one rung and is paid per ZOOM. That is
    the whole reason a zoom can regenerate while it is still moving.
    -------------------------------------------------------------------- */
+// Hard pixels only work if the tile is sharp AT ITS OWN RESOLUTION
+// first: nearest-neighbour does not create detail, it only stops the
+// browser from smearing what is there. `crisp` drops the softening
+// steps that exist because the picture was going to be resampled.
+function Tune(){
+  return Object.assign({}, TC.DEFAULT_TUNE, {
+    crisp: st.style > 0 ? 1 : 0,
+    bands: st.style === 2 ? 9 : 0
+  });
+}
+
+// In hard mode the tile size is dictated by the window, not chosen: one
+// tile pixel has to land on a whole number of screen pixels or some
+// become 3 wide and some 4, which shimmers as you move. So the tile is
+// however big it needs to be for the block size asked for -- and if that
+// would cost too much, the block gets bigger instead of the rule bending.
+const RES_CAP = 820;
+function WantedRes(){
+  if (st.style === 0) return st.res;
+  const long = Math.max(CV.width, CV.height) * TILE_MARGIN;
+  const f = Math.max(st.px, Math.ceil(long / RES_CAP));
+  return Math.ceil(long / f);
+}
+
 function BuildCache(then){
   const [lat, lon] = LatLonAt(st.cxKm, st.cyKm);
   Busy(true);
   setTimeout(() => {
     st.lc = TC.MakeLiveChain({
-      block: st.block, lat, lon, res: st.res,
-      tune: TC.DEFAULT_TUNE, craters: TC.CRATERS,
+      block: st.block, lat, lon, res: WantedRes(),
+      tune: Tune(), craters: TC.CRATERS,
       craterParams: TC.DEFAULT_CRATER,
       originLat: st.originLat, originLon: st.originLon
     });
@@ -288,13 +316,32 @@ function PxPerKm(){ return Math.max(CV.width, CV.height) / st.spanKm; }
 
 function DrawTile(t, alpha){
   if (!t) return;
-  const p = PxPerKm(), size = t.spanKm * p;
-  const cx = CV.width / 2 + (t.cxKm - st.cxKm) * p;
-  const cy = CV.height / 2 + (t.cyKm - st.cyKm) * p;
+  const p = PxPerKm();
+  let size = t.spanKm * p;
+  let dx = CV.width / 2 + (t.cxKm - st.cxKm) * p - size / 2;
+  let dy = CV.height / 2 + (t.cyKm - st.cyKm) * p - size / 2;
+  let hard = false;
+  if (st.style > 0){
+    // Snap to a whole number of screen pixels per tile pixel, and snap
+    // the corner to the pixel grid as well -- a half-pixel origin gives
+    // ragged block edges even at an exact scale. If the zoom has drifted
+    // too far from a whole number since the last tile, fall back to
+    // smoothing until the next one lands: soft for a moment beats
+    // shimmering.
+    const f = size / t.canvas.width;
+    const F = Math.max(1, Math.round(f));
+    if (Math.abs(f - F) < 0.06 * F){
+      const cx = dx + size / 2, cy = dy + size / 2;
+      size = t.canvas.width * F;
+      dx = Math.round(cx - size / 2);
+      dy = Math.round(cy - size / 2);
+      hard = true;
+    }
+  }
   CTX.globalAlpha = alpha;
-  CTX.imageSmoothingEnabled = true;
+  CTX.imageSmoothingEnabled = !hard;
   CTX.imageSmoothingQuality = "high";
-  CTX.drawImage(t.canvas, cx - size / 2, cy - size / 2, size, size);
+  CTX.drawImage(t.canvas, dx, dy, size, size);
   CTX.globalAlpha = 1;
 }
 
@@ -385,6 +432,16 @@ function LevelOf(span){
   if (span >= Math.sqrt(5.0 * 1.0)) return LEVELS[1];
   return LEVELS[2];
 }
+// The whole-pixel factor this frame would draw at, or 0 if the zoom has
+// drifted too far from a whole number since the last tile. Draw() applies
+// the same test; this is here so the readout does not lag a frame behind.
+function HardFactor(){
+  if (st.style === 0 || !st.tile) return 0;
+  const f = (st.tile.spanKm * PxPerKm()) / st.tile.canvas.width;
+  const F = Math.max(1, Math.round(f));
+  return Math.abs(f - F) < 0.06 * F ? F : 0;
+}
+
 function Hud(){
   const L = LevelOf(st.spanKm);
   $("lvl").textContent = `LEVEL ${L.n} · ${L.name}`;
@@ -392,6 +449,9 @@ function Hud(){
   const mpp = st.tile ? st.tile.kmPerPx * 1000 : 0;
   $("mpp").textContent = mpp.toFixed(mpp < 10 ? 2 : 1) + " m/px";
   $("place").textContent = REGIONS[st.region].name;
+  $("draw").textContent = st.style === 0 ? "smooth" : HardFactor()
+    ? `${HardFactor()}× hard` + (st.style === 2 ? " · banded" : "")
+    : "settling…";
   $("gen").textContent = st.genCount
     ? `${st.genMs.toFixed(0)} ms · ${st.genCount}` : "—";
   $("cr").textContent = st.tile ? `${st.tile.craters} + ${st.tile.pop}` : "—";
@@ -488,10 +548,39 @@ $("in").addEventListener("click", () => SetSpan(st.spanKm / 1.6));
 $("out").addEventListener("click", () => SetSpan(st.spanKm * 1.6));
 $("reset").addEventListener("click", () => GoRegion(st.region));
 const RES_STEPS = [384, 512, 640];
+// Only the block sizes this window can actually afford: a 2x block on a
+// wide screen needs a tile past RES_CAP, and offering a setting that
+// silently becomes a different one is worse than not offering it.
+const PX_STEPS_ALL = [2, 3, 4];
+function PxSteps(){
+  const min = Math.ceil(Math.max(CV.width, CV.height) * TILE_MARGIN / RES_CAP);
+  const ok = PX_STEPS_ALL.filter(f => f >= min);
+  return ok.length ? ok : [min];
+}
+const STYLE_NAMES = ["Smooth", "Hard", "Hard + bands"];
+function SyncStyle(){
+  const steps = PxSteps();
+  if (steps.indexOf(st.px) < 0) st.px = steps[0];
+  $("style").textContent = STYLE_NAMES[st.style];
+  $("style").setAttribute("aria-pressed", st.style > 0 ? "true" : "false");
+  // One button, two meanings: how big the tile is when the picture will be
+  // resampled anyway, how big a PIXEL is when it will not.
+  $("res").textContent = st.style === 0 ? String(st.res) : "×" + st.px;
+  $("res").title = st.style === 0 ? "Tile detail" : "Pixel size";
+}
+$("style").addEventListener("click", () => {
+  st.style = (st.style + 1) % 3;
+  SyncStyle(); Recentre();
+});
 $("res").addEventListener("click", () => {
-  st.res = RES_STEPS[(RES_STEPS.indexOf(st.res) + 1) % RES_STEPS.length];
-  $("res").textContent = st.res;
-  Recentre();
+  if (st.style === 0)
+    st.res = RES_STEPS[(RES_STEPS.indexOf(st.res) + 1) % RES_STEPS.length];
+  else {
+    const steps = PxSteps();
+    const i = steps.indexOf(st.px);
+    st.px = steps[(i < 0 ? 0 : i + 1) % steps.length];
+  }
+  SyncStyle(); Recentre();
 });
 
 // Mark where the game's own rungs fall on the zoom.
@@ -542,6 +631,9 @@ function ReadHash(){
   const h = new URLSearchParams(location.hash.replace(/^#/, ""));
   const key = h.get("r");
   const i = REGIONS.findIndex(r => r.key === key);
+  const d = parseInt(h.get("d"), 10), px = parseInt(h.get("p"), 10);
+  if (d >= 0 && d <= 2) st.style = d;
+  if (px >= 2 && px <= 4) st.px = px;
   return { region: i < 0 ? 0 : i,
            span: parseFloat(h.get("s")) || null,
            x: parseFloat(h.get("x")) || 0,
@@ -552,7 +644,8 @@ function WriteHash(){
   clearTimeout(hashTimer);
   hashTimer = setTimeout(() => {
     const q = `r=${REGIONS[st.region].key}&s=${st.spanKm.toPrecision(4)}`
-            + `&x=${st.cxKm.toFixed(3)}&y=${st.cyKm.toFixed(3)}`;
+            + `&x=${st.cxKm.toFixed(3)}&y=${st.cyKm.toFixed(3)}`
+            + `&d=${st.style}${st.style ? "&p=" + st.px : ""}`;
     try { history.replaceState(null, "", "#" + q); } catch (e) {}
   }, 500);
 }
@@ -569,7 +662,7 @@ Resize();
 // machine the largest tile.
 const LONG = Math.max(CV.clientWidth, CV.clientHeight);
 st.res = COARSE ? 384 : (LONG >= 1300 ? 640 : (LONG >= 800 ? 512 : 384));
-$("res").textContent = st.res;
+SyncStyle();
 // Deployed, the bench sits beside this page as bench.html; in the repo it
 // keeps its own name. Either way it is one file over.
 $("bench").href = /regolith_playtest\.html$/.test(location.pathname)

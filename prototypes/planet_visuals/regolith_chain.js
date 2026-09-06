@@ -266,7 +266,7 @@ function Hillshade(height, res, zFactor, smoothPx, sunAzDeg, sunAltDeg){
 
 // Horizon ray-march toward the sun: 1 lit, 0 blocked. This is what puts
 // a crater floor in the dark instead of merely shading its far wall.
-function CastShadows(height, res, zFactor, maxDistPx, stepPx, sunAzDeg, sunAltDeg){
+function CastShadows(height, res, zFactor, maxDistPx, stepPx, sunAzDeg, sunAltDeg, blurPx){
   const az = (360.0 - sunAzDeg + 90.0) * DEG2RAD;
   const sx = Math.cos(az), syImage = -Math.sin(az);
   const tanAlt = Math.tan(sunAltDeg * DEG2RAD);
@@ -287,7 +287,7 @@ function CastShadows(height, res, zFactor, maxDistPx, stepPx, sunAzDeg, sunAltDe
       const shadow = Math.min(Math.max((maxBlock - tanAlt) / band, 0.0), 1.0);
       light[y * res + x] = 1.0 - shadow;
     }
-  GaussianBlur(light, res, res, 0.8);
+  GaussianBlur(light, res, res, blurPx === undefined ? 0.8 : blurPx);
   for (let i = 0; i < light.length; i++)
     light[i] = Math.min(Math.max(light[i], 0.0), 1.0);
   return light;
@@ -818,7 +818,9 @@ function SubFloorRelief(height, res, frame, spanKm, tune, density){
       grit[row + x] = DetailHash01(Math.floor(W.lonKm[x] * c / cellKm),
                                    Math.floor(v / cellKm), 0x6A09E667) - 0.5;
   }
-  GaussianBlur(grit, res, res, 0.55);
+  // Crisp keeps the finest term at one pixel: blurring it is what makes a
+  // hard-pixel upscale look like blocky mush rather than like grain.
+  GaussianBlur(grit, res, res, tune.crisp ? 0.0 : 0.55);
   const gritM = tune.subGrit * 1.4 * kmPerPx * 1000.0;   // ~1.4 px of relief
   for (let i = 0; i < height.length; i++)
     height[i] += (accM[i] + gritM * grit[i] * roughMask[i]) / heightScaleM;
@@ -871,7 +873,10 @@ function TextureModulate(macro, res, frame, amp, tune, boulderCount, carve, last
   // Height field: the smoothed macro as a relief proxy -- the imagery's
   // own form re-read as topography -- plus grain and undulation.
   const height = Float32Array.from(macro);
-  GaussianBlur(height, res, res, 2.5 * k);
+  // The macro as a relief proxy. Smoothed hard by default so the imagery's
+  // own noise does not become terrain; smoothed less when the picture is
+  // going to be shown at its own resolution and can afford the detail.
+  GaussianBlur(height, res, res, (tune.crisp ? 1.2 : 2.5) * k);
   for (let i = 0; i < height.length; i++)
     height[i] = (height[i] - 0.5) * 0.13 * tune.formRelief;
 
@@ -913,9 +918,10 @@ function TextureModulate(macro, res, frame, amp, tune, boulderCount, carve, last
   }
 
   const z = 110.0;
-  const hs = Hillshade(height, res, z, 0.6, tune.sunAz, tune.sunAlt);
+  const hs = Hillshade(height, res, z, tune.crisp ? 0.0 : 0.6, tune.sunAz, tune.sunAlt);
   const flatRef = Math.sin(tune.sunAlt * DEG2RAD);
-  const light = CastShadows(height, res, z, 22.0 * k, 1.5, tune.sunAz, tune.sunAlt);
+  const light = CastShadows(height, res, z, 22.0 * k, 1.5, tune.sunAz, tune.sunAlt,
+                            tune.crisp ? 0.25 : 0.8);
 
   const speckleFrame = Object.assign({}, frame);
   speckleFrame.salt = (frame.salt ^ NOISE_SPECKLE) >>> 0;
@@ -933,7 +939,12 @@ function TextureModulate(macro, res, frame, amp, tune, boulderCount, carve, last
     lum *= 1.0 + speckGain * Math.min(amp, 1.6) * (speckle[i] - speckMid) * rough;
     lum = Math.min(Math.max(lum, 0.0), 1.0);
     const s = lum * lum * (3.0 - 2.0 * lum);          // gentle S-curve
-    macro[i] = Math.min(Math.max(s * tune.sCurve + lum * (1.0 - tune.sCurve), 0.0), 1.0);
+    let out = Math.min(Math.max(s * tune.sCurve + lum * (1.0 - tune.sCurve), 0.0), 1.0);
+    // Quantised tone. Chunky pixels over continuous shading read as a
+    // rendering accident; the same pixels over banded shading read as a
+    // decision. Off by default -- this is a look, not a correction.
+    if (tune.bands >= 2) out = Math.round(out * tune.bands) / tune.bands;
+    macro[i] = out;
   }
   return { height, light, hs, craters, popCraters };
 }
@@ -1123,7 +1134,7 @@ const LIVE_RUNGS = [100.0, 25.0, 5.0, 1.25, 0.3125];
 // centre. The offset is what lets a view pan inside the cached pyramid
 // instead of rebuilding it: a rung's pixels are geographically
 // registered, so a pixel offset IS a ground offset.
-function CropRung(lum, res, fromSpanKm, toSpanKm, offXKm, offYKm){
+function CropRung(lum, res, fromSpanKm, toSpanKm, offXKm, offYKm, crisp){
   const k = res / 300.0;
   const frac = toSpanKm / fromSpanKm;
   const half = frac * res / 2.0;
@@ -1146,7 +1157,7 @@ function CropRung(lum, res, fromSpanKm, toSpanKm, offXKm, offYKm){
       next[y * res + x] = a + (b - a) * ty;
     }
   }
-  GaussianBlur(next, res, res, 0.6 * k);
+  GaussianBlur(next, res, res, crisp ? 0.0 : 0.6 * k);
   const blur = Float32Array.from(next);
   GaussianBlur(blur, res, res, 5.0 * k);
   for (let i = 0; i < next.length; i++)
@@ -1179,7 +1190,8 @@ function MakeLiveChain(o){
       built = 0;
     }
     for (let j = built + 1; j <= i; j++){
-      const lum = CropRung(rungs[j - 1].lum, res, LIVE_RUNGS[j - 1], LIVE_RUNGS[j]);
+      const lum = CropRung(rungs[j - 1].lum, res, LIVE_RUNGS[j - 1], LIVE_RUNGS[j],
+                           0, 0, o.tune.crisp);
       TextureModulate(lum, res,
                       MakeNoiseFrame(o.lat, o.lon, LIVE_RUNGS[j], res,
                                      Math.imul(0x9E3779B9, j) >>> 0),
@@ -1205,7 +1217,7 @@ function MakeLiveChain(o){
     EnsureRung(base);
     const lvl = base + (spanKm < rungs[base].spanKm - 1e-9 ? 1 : 0);
     let l = Float32Array.from(rungs[base].lum);
-    if (lvl > base) l = CropRung(l, res, rungs[base].spanKm, spanKm, ox, oy);
+    if (lvl > base) l = CropRung(l, res, rungs[base].spanKm, spanKm, ox, oy, o.tune.crisp);
     // The frame belongs to the window, not to the cache, or the craters
     // would stay behind while the imagery moved.
     const vLat = o.lat - oy / MOON_KM_PER_DEG;
@@ -1264,6 +1276,10 @@ const DEFAULT_TUNE = {
   // exactly; 1 replaces its grain and undulation with octaves in world
   // wavelengths plus an impact population, so zooming adds detail instead
   // of exchanging it.
+  // Both off: the chain behaves exactly as it did. crisp drops the
+  // softening steps that only make sense when a picture is going to be
+  // resampled anyway; bands quantises the tone.
+  crisp: 0, bands: 0,
   subFloor: 1, subRough: 0.045, subGrit: 1.8, subCraters: 1.15,
   popDensity: 0.75, subMottle: 0.20, cosineBowl: 1,
   clasts: 1.0, clastDensity: 0.30,

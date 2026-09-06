@@ -200,6 +200,16 @@ ms a tile against ~900 for the full ladder. Rungs are built on demand,
 and `View()` takes an offset and crops the deepest rung that still
 contains the window, so panning costs one rung as well.
 
+The **Smooth / Hard / Hard + bands** button is the answer to a real
+complaint: at any resolution the ground looked soft, because a 640 px
+tile stretched over a 1900 px window is a 3x blur however good the
+synthesis is. Hard mode fixes the cause rather than the symptom — it
+drops the chain's softening steps (`crisp`), sizes the tile so one tile
+pixel lands on a whole number of screen pixels, and turns the browser's
+smoothing off. It uses FEWER pixels than smooth mode and looks
+considerably sharper. Bands quantises the tone on top, so the blocks read
+as a decision rather than as a low-resolution render.
+
 Between tiles the current one is scaled and the new one cross-fades, so
 the ground sharpens rather than jumping; the tile is asked for 18% wider
 than the window so a zoom can drift before the next lands. The hash
