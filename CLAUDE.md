@@ -276,7 +276,13 @@ partially — not a platform) and then worked with undulations plus
 alterations around each dome. A graded construction platform was tried
 and rejected; see SITE_SYNTHESIS.md before re-proposing one.
 
-Design record: `prototypes/planet_visuals/SITE_SYNTHESIS.md`.
+Design record: `prototypes/planet_visuals/SITE_SYNTHESIS.md`. The same
+chain also runs in JavaScript in
+`prototypes/planet_visuals/regolith_craters.html` — a bench for impact
+relief carved back into it (craters are **not** in the shipped chain,
+removed 2026-08-13). It carries its own WAC crop, renders headlessly
+through `regolith_craters_render.mjs`, and its port is checked against
+`colony_preview`'s output rather than assumed.
 
 ### Unlock Registry
 

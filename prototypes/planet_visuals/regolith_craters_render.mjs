@@ -1,0 +1,230 @@
+#!/usr/bin/env node
+//
+// Headless renderer for regolith_craters.html.
+//
+// Slices the CHAIN block out of the bench and runs it in Node, so the
+// PNGs written here are made by the same code the page draws with --
+// which is the only way to look at a change without a browser.
+//
+//   node prototypes/planet_visuals/regolith_craters_render.mjs
+//   node ... --focus plinius --res 400 --no-craters --out /tmp/shot
+//   node ... --lat 32.7176 --lon -15.5019 --block anchor.bin --spans 100,25,5
+//
+// Options:
+//   --out DIR        where the PNGs go            (default build/regolith)
+//   --focus KEY      one of the bench's FOCUS presets   (default mare)
+//   --lat/--lon D    an explicit centre, overriding --focus
+//   --res N          pixels per level              (default 320)
+//   --spans A,B,C    the km ladder                 (default 100,25,5)
+//   --no-craters     the same ground with the craters off (A/B)
+//   --last-only      carve only the deepest level, not every one
+//   --set K=V,...    override any tune or crater lever
+//   --block FILE     raw 8-bit block + FILE.json instead of the embedded one
+//   --dump-lum FILE  write level 2's luminance as raw float32 (port checks)
+
+import fs from "node:fs";
+import path from "node:path";
+import zlib from "node:zlib";
+import { fileURLToPath } from "node:url";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const HTML = path.join(HERE, "regolith_craters.html");
+
+/* --- minimal PNG in and out ---------------------------------------- */
+
+const CRC_TABLE = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++){
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c;
+  }
+  return t;
+})();
+function Crc32(buf){
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function Chunk(type, data){
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, "ascii");
+  data.copy(out, 8);
+  out.writeUInt32BE(Crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+  return out;
+}
+// 8-bit RGB, no interlace.
+function WritePng(file, rgb, w, h){
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++){
+    raw[y * (w * 3 + 1)] = 0;
+    Buffer.from(rgb.buffer, rgb.byteOffset + y * w * 3, w * 3)
+          .copy(raw, y * (w * 3 + 1) + 1);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  fs.writeFileSync(file, Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
+    Chunk("IHDR", ihdr),
+    Chunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
+    Chunk("IEND", Buffer.alloc(0))
+  ]));
+}
+// 8-bit grayscale, no interlace -- what the embedded block is.
+function ReadGrayPng(buf){
+  let p = 8, w = 0, h = 0, bitDepth = 0, colorType = 0;
+  const idat = [];
+  while (p < buf.length){
+    const len = buf.readUInt32BE(p);
+    const type = buf.toString("ascii", p + 4, p + 8);
+    const data = buf.subarray(p + 8, p + 8 + len);
+    if (type === "IHDR"){
+      w = data.readUInt32BE(0); h = data.readUInt32BE(4);
+      bitDepth = data[8]; colorType = data[9];
+    } else if (type === "IDAT") idat.push(data);
+    else if (type === "IEND") break;
+    p += 12 + len;
+  }
+  if (bitDepth !== 8 || colorType !== 0)
+    throw new Error(`block PNG must be 8-bit grayscale (got depth ${bitDepth} type ${colorType})`);
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const out = new Uint8Array(w * h);
+  const stride = w;
+  for (let y = 0; y < h; y++){
+    const filter = raw[y * (stride + 1)];
+    const row = raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride);
+    for (let x = 0; x < stride; x++){
+      const a = x > 0 ? out[y * w + x - 1] : 0;
+      const b = y > 0 ? out[(y - 1) * w + x] : 0;
+      const c = (x > 0 && y > 0) ? out[(y - 1) * w + x - 1] : 0;
+      let v = row[x];
+      if (filter === 1) v += a;
+      else if (filter === 2) v += b;
+      else if (filter === 3) v += (a + b) >> 1;
+      else if (filter === 4){
+        const pp = a + b - c, pa = Math.abs(pp - a), pb = Math.abs(pp - b),
+              pc = Math.abs(pp - c);
+        v += (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+      }
+      out[y * w + x] = v & 0xFF;
+    }
+  }
+  return { data: out, w, h };
+}
+
+/* --- load the bench ------------------------------------------------- */
+
+const html = fs.readFileSync(HTML, "utf8");
+const B = "/* ===== CHAIN BEGIN", E = "/* ===== CHAIN END";
+const b0 = html.indexOf(B), e0 = html.indexOf(E);
+if (b0 < 0 || e0 < 0) throw new Error("CHAIN markers not found in " + HTML);
+const chainSrc = html.slice(b0, e0);
+const TC = new Function(chainSrc + "\nreturn TerrainChain;")();
+
+function EmbeddedBlock(){
+  const m = html.match(/<script id="wac-block"[^>]*>([\s\S]*?)<\/script>/);
+  const meta = JSON.parse(m[1]);
+  const png = ReadGrayPng(Buffer.from(meta.png, "base64"));
+  if (png.w !== meta.w || png.h !== meta.h)
+    throw new Error("block PNG size disagrees with its registration");
+  return { data: png.data, w: meta.w, h: meta.h, x0: meta.x0, y0: meta.y0,
+           wacW: meta.wacW, wacH: meta.wacH };
+}
+
+/* --- arguments ------------------------------------------------------ */
+
+const argv = process.argv.slice(2);
+const Arg = (k, d) => { const i = argv.indexOf("--" + k); return i < 0 ? d : argv[i + 1]; };
+const Flag = k => argv.includes("--" + k);
+
+const outDir = Arg("out", path.join(HERE, "..", "..", "build", "regolith"));
+fs.mkdirSync(outDir, { recursive: true });
+
+const res = parseInt(Arg("res", "320"), 10);
+const spans = Arg("spans", "100,25,5").split(",").map(Number);
+
+let block, originLat, originLon;
+const blockFile = Arg("block", null);
+if (blockFile){
+  const meta = JSON.parse(fs.readFileSync(blockFile + ".json", "utf8"));
+  block = { data: new Uint8Array(fs.readFileSync(blockFile)), w: meta.w, h: meta.h,
+            x0: meta.x0, y0: meta.y0, wacW: meta.wacW, wacH: meta.wacH };
+} else {
+  block = EmbeddedBlock();
+}
+originLat = TC.CRATER_ORIGIN.lat; originLon = TC.CRATER_ORIGIN.lon;
+
+const focusKey = Arg("focus", "mare");
+const focus = TC.FOCUS.find(f => f.key === focusKey) || TC.FOCUS[0];
+const lat = parseFloat(Arg("lat", String(focus.lat)));
+const lon = parseFloat(Arg("lon", String(focus.lon)));
+
+const tune = Object.assign({}, TC.DEFAULT_TUNE);
+const cp = Object.assign({}, TC.DEFAULT_CRATER);
+if (Flag("no-craters")) cp.on = 0;
+if (Flag("last-only")) cp.everyLevel = 0;
+for (const kv of (Arg("set", "") || "").split(",").filter(Boolean)){
+  const [k, v] = kv.split("=");
+  if (k in tune) tune[k] = parseFloat(v);
+  else if (k in cp) cp[k] = parseFloat(v);
+  else throw new Error("unknown lever: " + k);
+}
+
+/* --- render --------------------------------------------------------- */
+
+const t0 = Date.now();
+const { levels, report } = TC.GenerateChain({
+  block, lat, lon, res, spans, tune,
+  craters: TC.CRATERS, craterParams: cp, originLat, originLon
+});
+const ms = Date.now() - t0;
+
+const NAMES = ["planet", "colony", "sect"];
+const files = [];
+for (let i = 0; i < levels.length; i++){
+  const L = levels[i];
+  const rgb = new Uint8Array(res * res * 3);
+  for (let p = 0; p < res * res; p++){
+    rgb[p * 3] = L.rgba[p * 4]; rgb[p * 3 + 1] = L.rgba[p * 4 + 1];
+    rgb[p * 3 + 2] = L.rgba[p * 4 + 2];
+  }
+  const f = path.join(outDir, `${NAMES[i] || "level" + i}.png`);
+  WritePng(f, rgb, res, res);
+  files.push(f);
+  let lo = 1e9, hi = -1e9;
+  for (const v of L.height){ if (v < lo) lo = v; if (v > hi) hi = v; }
+  console.log(`${(NAMES[i] || i).padEnd(7)} ${String(L.spanKm).padStart(4)} km  `
+    + `${(L.kmPerPx * 1000).toFixed(1).padStart(6)} m/px  `
+    + `craters ${String(L.craters).padStart(2)}  `
+    + `relief ${((hi - lo) * L.heightScaleM).toFixed(0).padStart(6)} m  -> ${path.basename(f)}`);
+}
+
+// One sheet, so a whole descent can be looked at in a single image.
+const GAP = 10;
+const sw = res * levels.length + GAP * (levels.length - 1), sh = res;
+const sheet = new Uint8Array(sw * sh * 3);
+for (let i = 0; i < levels.length; i++){
+  const ox = i * (res + GAP);
+  for (let y = 0; y < res; y++)
+    for (let x = 0; x < res; x++){
+      const s = (y * res + x) * 4, d = (y * sw + ox + x) * 3;
+      sheet[d] = levels[i].rgba[s]; sheet[d + 1] = levels[i].rgba[s + 1];
+      sheet[d + 2] = levels[i].rgba[s + 2];
+    }
+}
+const sheetFile = path.join(outDir, "descent.png");
+WritePng(sheetFile, sheet, sw, sh);
+
+const dump = Arg("dump-lum", null);
+if (dump){
+  const L = levels[levels.length - 1];
+  fs.writeFileSync(dump, Buffer.from(L.lum.buffer, L.lum.byteOffset, L.lum.byteLength));
+  console.log("dumped luminance ->", dump);
+}
+
+console.log(`centre ${lat.toFixed(4)}, ${lon.toFixed(4)}  res ${res}  `
+  + `craters ${cp.on ? (cp.everyLevel ? "every level" : "last level") : "OFF"}  `
+  + `${ms} ms${report.escaped ? "  [WINDOW LEFT THE CARRIED IMAGERY]" : ""}`);
+console.log("sheet ->", sheetFile);
