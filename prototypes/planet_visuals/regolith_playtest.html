@@ -1,0 +1,564 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Descent — Sect to Ground</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+/* The game's own near-black plating, so a playtest looks like the thing
+   it is testing (docs/design/graphics/dark-plating.md). */
+:root{
+  --ground:#070b11; --panel:#0d151ecc; --rule:#1c2a39;
+  --text:#c9d8e8; --dim:#61768a; --dimmer:#3f5163;
+  --am:#d9962f; --am-lit:#f4c66a; --cy:#50e1ff;
+  --ui:"Chakra Petch",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+html{color-scheme:dark}
+body{margin:0;background:var(--ground);color:var(--text);font-family:var(--ui);
+  overflow:hidden;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
+
+#stage{position:fixed;inset:0}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+canvas.drag{cursor:grabbing}
+
+.hud{position:fixed;font:700 11px/1.5 var(--mono);letter-spacing:.06em;
+  background:var(--panel);border:1px solid var(--rule);border-radius:5px;
+  padding:8px 10px;backdrop-filter:blur(3px);pointer-events:none;
+  -webkit-backdrop-filter:blur(3px)}
+#tl{top:12px;left:12px}
+#tr{top:12px;right:12px;text-align:right}
+#lvl{color:var(--am-lit);font-size:13px;letter-spacing:.14em}
+.k{color:var(--dimmer)}
+.v{color:var(--cy)}
+#busy{color:var(--am);opacity:0}
+#busy.on{opacity:1}
+
+#bar{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;
+  display:flex;align-items:center;gap:10px;
+  background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+  padding:9px 12px;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  max-width:calc(100vw - 24px)}
+#zoom{width:min(46vw,420px);height:22px;-webkit-appearance:none;appearance:none;
+  background:none;cursor:ew-resize;margin:0}
+#zoom::-webkit-slider-runnable-track{height:3px;border-radius:2px;
+  background:linear-gradient(90deg,var(--cy) 0 var(--fill,50%),var(--rule) var(--fill,50%) 100%)}
+#zoom::-moz-range-track{height:3px;border-radius:2px;background:var(--rule)}
+#zoom::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:11px;height:19px;
+  margin-top:-8px;border-radius:2px;background:var(--am-lit);border:1px solid #2a1d08}
+#zoom::-moz-range-thumb{width:11px;height:19px;border-radius:2px;
+  background:var(--am-lit);border:1px solid #2a1d08}
+.btn{font:700 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;
+  padding:8px 10px;border-radius:4px;border:1px solid var(--rule);
+  background:#111c28;color:var(--dim);cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--am);color:var(--am-lit)}
+.btn[aria-pressed=true]{border-color:var(--cy);color:var(--cy);background:#0d2430}
+.btn:focus-visible{outline:2px solid var(--cy);outline-offset:2px}
+a.btn{text-decoration:none;display:inline-flex;align-items:center}
+#regions{position:fixed;top:12px;left:50%;transform:translateX(-50%);
+  display:flex;gap:5px;flex-wrap:wrap;justify-content:center;max-width:min(70vw,760px)}
+#help{position:fixed;bottom:14px;right:14px;font:400 10.5px/1.6 var(--mono);
+  color:var(--dimmer);text-align:right;pointer-events:none}
+#bar{padding-bottom:calc(9px + env(safe-area-inset-bottom,0px))}
+@media (max-width:820px){
+  /* A phone still needs the regions; it just cannot spare two rows for
+     them, so they scroll instead of wrapping. */
+  #regions{flex-wrap:nowrap;overflow-x:auto;max-width:calc(100vw - 24px);
+    justify-content:flex-start;padding-bottom:2px;-webkit-overflow-scrolling:touch;
+    top:auto;bottom:calc(66px + env(safe-area-inset-bottom,0px));scrollbar-width:none}
+  #regions::-webkit-scrollbar{display:none}
+  #help{display:none}
+  #tr{font-size:10px;padding:6px 8px}
+  #tl{font-size:10px;padding:6px 8px}
+  #zoom{width:44vw}
+}
+</style>
+
+<div id="stage"><canvas id="cv"></canvas></div>
+
+<div class="hud" id="tl">
+  <div id="lvl">LEVEL 2 · SECT</div>
+  <div><span class="k">span</span> <span class="v" id="span">5.00 km</span>
+       <span class="k">·</span> <span class="v" id="mpp">15.6 m/px</span></div>
+  <div><span class="k" id="place">Plinius</span></div>
+</div>
+<div class="hud" id="tr">
+  <div id="busy">GENERATING</div>
+  <div><span class="k">tile</span> <span class="v" id="gen">—</span></div>
+  <div><span class="k">craters</span> <span class="v" id="cr">—</span></div>
+</div>
+
+<div id="regions"></div>
+
+<div id="bar">
+  <button class="btn" id="out" title="Zoom out">&minus;</button>
+  <input id="zoom" type="range" min="0" max="1" step="0.0005" value="0" aria-label="Zoom">
+  <button class="btn" id="in" title="Zoom in">+</button>
+  <button class="btn" id="res" title="Detail">512</button>
+  <button class="btn" id="reset">Reset</button>
+  <a class="btn" id="bench" href="#" title="The lever bench">Bench</a>
+</div>
+
+<div id="help">drag to move · wheel or pinch to zoom · +/&minus; &nbsp;arrows &nbsp;R</div>
+
+<script src="regolith_blocks.js"></script>
+<script src="regolith_chain.js"></script>
+<script>
+"use strict";
+(function(){
+const TC = TerrainChain;
+const CV = document.getElementById("cv");
+const CTX = CV.getContext("2d");
+
+/* --- what the descent is ---------------------------------------------
+   The game's ladder is 100 / 25 / 5 km -- PLANET, COLONY, SECT. This
+   picks it up at SECT and keeps going: level 3 at a quarter of it, level
+   4 at a quarter of that. Below the sect the mosaic has nothing at all
+   (a 5 km window is under four WAC texels), so everything you fly into
+   here is generated on the way in -- and generated in WORLD wavelengths,
+   which is what lets it be generated ad hoc without the ground changing
+   under you.
+   -------------------------------------------------------------------- */
+const LEVELS = [
+  { n: 2, span: 5.0,    name: "SECT" },
+  { n: 3, span: 1.25,   name: "UNIT" },
+  { n: 4, span: 0.3125, name: "SURFACE" }
+];
+const SPAN_MAX = 6.0, SPAN_MIN = 0.25;
+const LOG_MAX = Math.log(SPAN_MAX), LOG_MIN = Math.log(SPAN_MIN);
+
+const st = {
+  region: 0, block: null, lc: null,
+  cxKm: 0, cyKm: 0, spanKm: 5.0,           // the view, in km from the origin
+  originLat: 0, originLon: 0,
+  tile: null, prev: null, fade: 1,
+  res: 512, genMs: 0, genCount: 0, busy: false,
+  drag: null, pinch: null, dirty: true, mini: null
+};
+
+/* --- the imagery ------------------------------------------------------ */
+const REGIONS = WAC_BLOCKS.regions;
+function LoadRegion(i, then){
+  const r = REGIONS[i], img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = c.height = WAC_BLOCKS.size;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(img, 0, 0);
+    const px = g.getImageData(0, 0, WAC_BLOCKS.size, WAC_BLOCKS.size).data;
+    const data = new Uint8Array(WAC_BLOCKS.size * WAC_BLOCKS.size);
+    for (let k = 0; k < data.length; k++) data[k] = px[k * 4];
+    st.block = { data, w: WAC_BLOCKS.size, h: WAC_BLOCKS.size,
+                 x0: r.x0, y0: r.y0, wacW: WAC_BLOCKS.wacW, wacH: WAC_BLOCKS.wacH };
+    then();
+  };
+  img.src = "data:image/png;base64," + r.png;
+}
+
+/* --- km <-> lat/lon, about the region's own origin -------------------- */
+const KMDEG = TC.MOON_KM_PER_DEG, D2R = TC.DEG2RAD;
+function LatLonAt(cxKm, cyKm){
+  const lat = st.originLat - cyKm / KMDEG;
+  const lon = st.originLon + cxKm / (KMDEG * Math.cos(lat * D2R));
+  return [lat, lon];
+}
+
+/* --- generating -------------------------------------------------------
+   Two costs, kept apart. Building the cache walks the wide rungs and is
+   paid once per PLACE; a view is one rung and is paid per ZOOM. That is
+   the whole reason a zoom can regenerate while it is still moving.
+   -------------------------------------------------------------------- */
+function BuildCache(then){
+  const [lat, lon] = LatLonAt(st.cxKm, st.cyKm);
+  Busy(true);
+  setTimeout(() => {
+    st.lc = TC.MakeLiveChain({
+      block: st.block, lat, lon, res: st.res,
+      tune: TC.DEFAULT_TUNE, craters: TC.CRATERS,
+      craterParams: TC.DEFAULT_CRATER,
+      originLat: st.originLat, originLon: st.originLon
+    });
+    st.lc.EnsureRung(1);            // the inset lives on the 25 km rung
+    st.mini = RungCanvas(st.lc, 25.0);
+    Busy(false);
+    if (then) then();
+  }, 16);
+}
+// One cached rung as a picture, for the inset that says where you are.
+function RungCanvas(lc, spanKm){
+  let best = lc.rungs[0];
+  for (const r of lc.rungs) if (Math.abs(r.spanKm - spanKm) < Math.abs(best.spanKm - spanKm)) best = r;
+  const res = lc.res, c = document.createElement("canvas");
+  c.width = c.height = res;
+  const g = c.getContext("2d"), img = g.createImageData(res, res);
+  // The mare is genuinely dark; the inset is a locator, so it is lifted
+  // to be readable rather than left faithful.
+  for (let i = 0; i < res * res; i++){
+    TC.RampColor(Math.min(1, best.lum[i] * 1.55 + 0.06), img.data, i * 4);
+  }
+  g.putImageData(img, 0, 0);
+  return { canvas: c, spanKm: best.spanKm };
+}
+
+function TileCanvas(view){
+  const c = document.createElement("canvas");
+  c.width = c.height = view.res;
+  c.getContext("2d").putImageData(
+    new ImageData(view.rgba, view.res, view.res), 0, 0);
+  return c;
+}
+
+let genPending = false;
+function Regenerate(){
+  if (!st.lc || genPending) return;
+  genPending = true;
+  Busy(true);
+  setTimeout(() => {
+    // A little wider than the window: a zoom can then drift outward
+    // before the next tile lands without opening a gap at the edges.
+    // The offset from the cache centre is handed to the view, so panning
+    // costs one rung like zooming does instead of a whole rebuild.
+    const cx = st.cxKm, cy = st.cyKm;
+    const v = st.lc.View(Math.max(0.05, st.spanKm * TILE_MARGIN),
+                         cx - st.cacheCx, cy - st.cacheCy);
+    st.prev = st.tile;
+    st.tile = { canvas: TileCanvas(v), spanKm: v.spanKm,
+                cxKm: cx, cyKm: cy,
+                craters: v.craters, pop: v.popCraters, kmPerPx: v.kmPerPx };
+    st.fade = st.prev ? 0 : 1;
+    st.genMs = v.ms; st.genCount++;
+    genPending = false; Busy(false); st.dirty = true;
+    Hud(); WriteHash();
+  }, 0);
+}
+// Regenerate once the zoom has drifted far enough from the tile it is
+// stretching -- about 12% either way, which is where the softening starts
+// to read on a dark surface.
+function MaybeRegenerate(){
+  if (!st.tile){ Regenerate(); return; }
+  // Past the widest cached rung there is nothing left to crop from, so
+  // that -- and only that -- is what makes a pan rebuild the cache.
+  const reach = Math.max(Math.abs(st.cxKm - st.cacheCx),
+                         Math.abs(st.cyKm - st.cacheCy)) + st.spanKm;
+  if (reach > TC.LIVE_RUNGS[0] * 0.45){ Recentre(); return; }
+  const drift = Math.abs(Math.log(st.spanKm * TILE_MARGIN / st.tile.spanKm));
+  const moved = Math.hypot(st.cxKm - st.tile.cxKm, st.cyKm - st.tile.cyKm);
+  if (drift > 0.113 || moved > st.spanKm * 0.035) Regenerate();
+}
+
+function Busy(on){
+  st.busy = on;
+  document.getElementById("busy").classList.toggle("on", on);
+}
+
+/* --- drawing ----------------------------------------------------------
+   The tile is generated a little wider than the window (TILE_MARGIN), so
+   a zoom can drift outward before the next one lands without opening a
+   gap at the edges. Between regenerations the tile is simply scaled: the
+   ground stretches for a fraction of a second and then sharpens, which
+   is the honest way to show that it is being made on the way in.
+   -------------------------------------------------------------------- */
+const TILE_MARGIN = 1.18;
+const COL = { text:"#c9d8e8", dim:"#61768a", dimmer:"#3f5163",
+              am:"#d9962f", amLit:"#f4c66a", cy:"#50e1ff", rule:"#1c2a39" };
+const MONO = (w, s) => `${w} ${s}px "JetBrains Mono", ui-monospace, monospace`;
+let DPR = 1;
+
+const COARSE = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+function Resize(){
+  // A phone's 3x backing store would ask a 384 tile to cover ~2000 px.
+  // The ground is a soft image; 1x there costs nothing anyone can see and
+  // saves the fill as well as the upscale.
+  DPR = COARSE ? 1 : Math.min(2, window.devicePixelRatio || 1);
+  CV.width = Math.round(CV.clientWidth * DPR);
+  CV.height = Math.round(CV.clientHeight * DPR);
+  st.dirty = true;
+}
+window.addEventListener("resize", Resize);
+
+function PxPerKm(){ return Math.max(CV.width, CV.height) / st.spanKm; }
+
+function DrawTile(t, alpha){
+  if (!t) return;
+  const p = PxPerKm(), size = t.spanKm * p;
+  const cx = CV.width / 2 + (t.cxKm - st.cxKm) * p;
+  const cy = CV.height / 2 + (t.cyKm - st.cyKm) * p;
+  CTX.globalAlpha = alpha;
+  CTX.imageSmoothingEnabled = true;
+  CTX.imageSmoothingQuality = "high";
+  CTX.drawImage(t.canvas, cx - size / 2, cy - size / 2, size, size);
+  CTX.globalAlpha = 1;
+}
+
+function ScaleBar(){
+  const p = PxPerKm() / DPR, W = CV.width / DPR;
+  const want = (W * 0.22) / p;                       // km
+  const nice = [0.01,0.02,0.05,0.1,0.2,0.5,1,2,5].reduce((a,b) =>
+    Math.abs(b - want) < Math.abs(a - want) ? b : a);
+  const len = nice * p, x = 16, y = CV.height / DPR - 26;
+  CTX.save(); CTX.scale(DPR, DPR);
+  CTX.strokeStyle = "rgba(5,8,12,.85)"; CTX.lineWidth = 4.5;
+  CTX.beginPath(); CTX.moveTo(x, y); CTX.lineTo(x + len, y); CTX.stroke();
+  CTX.strokeStyle = COL.text; CTX.lineWidth = 1.7;
+  CTX.beginPath();
+  CTX.moveTo(x, y - 4.5); CTX.lineTo(x, y + 4.5);
+  CTX.moveTo(x, y); CTX.lineTo(x + len, y);
+  CTX.moveTo(x + len, y - 4.5); CTX.lineTo(x + len, y + 4.5);
+  CTX.stroke();
+  const lab = nice < 1 ? Math.round(nice * 1000) + " m" : nice + " km";
+  CTX.font = MONO(700, 11); CTX.textBaseline = "bottom";
+  const tw = CTX.measureText(lab).width;
+  CTX.fillStyle = "rgba(5,8,12,.75)"; CTX.fillRect(x - 2, y - 22, tw + 8, 14);
+  CTX.fillStyle = COL.text; CTX.fillText(lab, x + 2, y - 10);
+  CTX.restore();
+}
+
+// Where you are inside the sect you started in.
+function MiniMap(){
+  if (!st.mini) return;
+  const W = CV.width / DPR, H = CV.height / DPR;
+  const narrow = W < 820;                       // the phone layout
+  const S = narrow ? 92 : 118, m = 14;
+  // Bottom-right on a desktop; under the top-right readout on a phone,
+  // where the scrolling region strip is not.
+  const x = W - S - m, y = narrow ? 96 : H - S - m - 34;
+  CTX.save(); CTX.scale(DPR, DPR);
+  CTX.globalAlpha = 0.92;
+  CTX.drawImage(st.mini.canvas, x, y, S, S);
+  CTX.globalAlpha = 1;
+  CTX.strokeStyle = COL.rule; CTX.lineWidth = 1;
+  CTX.strokeRect(x + 0.5, y + 0.5, S - 1, S - 1);
+  const f = st.spanKm / st.mini.spanKm;
+  const bx = x + S / 2 + (st.cxKm - st.cacheCx) / st.mini.spanKm * S;
+  const by = y + S / 2 + (st.cyKm - st.cacheCy) / st.mini.spanKm * S;
+  const bs = Math.max(3, S * f);
+  CTX.strokeStyle = COL.amLit; CTX.lineWidth = 1.4;
+  CTX.strokeRect(bx - bs / 2, by - bs / 2, bs, bs);
+  CTX.font = MONO(700, 9.5); CTX.fillStyle = COL.dimmer;
+  CTX.textBaseline = "top"; CTX.textAlign = "right";
+  CTX.fillText(st.mini.spanKm + " KM · WHERE YOU ARE", x + S, y - 12);
+  CTX.textAlign = "left";
+  CTX.restore();
+}
+
+function Draw(){
+  CTX.fillStyle = "#05080c";
+  CTX.fillRect(0, 0, CV.width, CV.height);
+  if (!st.tile){
+    CTX.save(); CTX.scale(DPR, DPR);
+    CTX.font = MONO(700, 12); CTX.fillStyle = COL.dim;
+    CTX.textAlign = "center"; CTX.textBaseline = "middle";
+    CTX.fillText("GENERATING THE GROUND",
+                 CV.width / DPR / 2, CV.height / DPR / 2);
+    CTX.restore();
+    return;
+  }
+  DrawTile(st.prev, 1);
+  DrawTile(st.tile, st.fade);
+  ScaleBar();
+  MiniMap();
+}
+
+let last = 0;
+function Frame(ts){
+  const dt = Math.min(64, ts - last || 16); last = ts;
+  if (st.fade < 1){ st.fade = Math.min(1, st.fade + dt / 170); st.dirty = true; }
+  else if (st.prev){ st.prev = null; }
+  if (st.dirty){ Draw(); st.dirty = false; }
+  requestAnimationFrame(Frame);
+}
+
+/* --- the readouts ----------------------------------------------------- */
+const $ = id => document.getElementById(id);
+function LevelOf(span){
+  if (span >= 2.5) return LEVELS[0];
+  if (span >= 0.625) return LEVELS[1];
+  return LEVELS[2];
+}
+function Hud(){
+  const L = LevelOf(st.spanKm);
+  $("lvl").textContent = `LEVEL ${L.n} · ${L.name}`;
+  $("span").textContent = st.spanKm < 1
+    ? Math.round(st.spanKm * 1000) + " m" : st.spanKm.toFixed(2) + " km";
+  const mpp = st.tile ? st.tile.kmPerPx * 1000 : 0;
+  $("mpp").textContent = mpp.toFixed(mpp < 10 ? 2 : 1) + " m/px";
+  $("place").textContent = REGIONS[st.region].name;
+  $("gen").textContent = st.genCount
+    ? `${st.genMs.toFixed(0)} ms · ${st.genCount}` : "—";
+  $("cr").textContent = st.tile ? `${st.tile.craters} + ${st.tile.pop}` : "—";
+  const z = (Math.log(st.spanKm) - LOG_MAX) / (LOG_MIN - LOG_MAX);
+  const zi = $("zoom");
+  zi.value = z; zi.style.setProperty("--fill", (z * 100) + "%");
+}
+
+/* --- moving ----------------------------------------------------------- */
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function SetSpan(next, anchorX, anchorY){
+  next = clamp(next, SPAN_MIN, SPAN_MAX);
+  if (anchorX !== undefined){
+    // Keep the ground under the cursor where it is.
+    const p = PxPerKm();
+    const gx = st.cxKm + (anchorX * DPR - CV.width / 2) / p;
+    const gy = st.cyKm + (anchorY * DPR - CV.height / 2) / p;
+    const p2 = Math.max(CV.width, CV.height) / next;
+    st.cxKm = gx - (anchorX * DPR - CV.width / 2) / p2;
+    st.cyKm = gy - (anchorY * DPR - CV.height / 2) / p2;
+  }
+  st.spanKm = next;
+  st.dirty = true; Hud(); MaybeRegenerate();
+}
+
+CV.addEventListener("wheel", e => {
+  e.preventDefault();
+  const r = CV.getBoundingClientRect();
+  SetSpan(st.spanKm * Math.exp(e.deltaY * 0.0009), e.clientX - r.left, e.clientY - r.top);
+}, { passive: false });
+
+const pointers = new Map();
+CV.addEventListener("pointerdown", e => {
+  CV.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 1){ st.drag = { x: e.clientX, y: e.clientY }; CV.classList.add("drag"); }
+  else if (pointers.size === 2){
+    const [a, b] = [...pointers.values()];
+    st.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), span: st.spanKm };
+    st.drag = null;
+  }
+});
+CV.addEventListener("pointermove", e => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (st.pinch && pointers.size === 2){
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y);
+    const r = CV.getBoundingClientRect();
+    SetSpan(st.pinch.span * st.pinch.d / Math.max(1, d),
+            (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+  } else if (st.drag){
+    const p = PxPerKm();
+    st.cxKm -= (e.clientX - st.drag.x) * DPR / p;
+    st.cyKm -= (e.clientY - st.drag.y) * DPR / p;
+    st.drag = { x: e.clientX, y: e.clientY };
+    st.dirty = true;
+    if (!genPending) MaybeRegenerate();
+  }
+});
+function EndPointer(e){
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) st.pinch = null;
+  if (pointers.size === 0 && st.drag){ st.drag = null; CV.classList.remove("drag"); }
+  if (pointers.size === 0) MaybeRegenerate();
+}
+CV.addEventListener("pointerup", EndPointer);
+CV.addEventListener("pointercancel", EndPointer);
+
+function Recentre(){
+  st.cacheCx = st.cxKm; st.cacheCy = st.cyKm;
+  BuildCache(() => Regenerate());
+}
+
+window.addEventListener("keydown", e => {
+  const step = st.spanKm * 0.12;
+  if (e.key === "+" || e.key === "=") SetSpan(st.spanKm / 1.25);
+  else if (e.key === "-" || e.key === "_") SetSpan(st.spanKm * 1.25);
+  else if (e.key === "ArrowLeft"){ st.cxKm -= step; st.dirty = true; MaybeRegenerate(); }
+  else if (e.key === "ArrowRight"){ st.cxKm += step; st.dirty = true; MaybeRegenerate(); }
+  else if (e.key === "ArrowUp"){ st.cyKm -= step; st.dirty = true; MaybeRegenerate(); }
+  else if (e.key === "ArrowDown"){ st.cyKm += step; st.dirty = true; MaybeRegenerate(); }
+  else if (e.key === "r" || e.key === "R") GoRegion(st.region);
+  else return;
+  e.preventDefault();
+});
+
+/* --- the bar and the regions ------------------------------------------ */
+$("zoom").addEventListener("input", e => {
+  const t = parseFloat(e.target.value);
+  SetSpan(Math.exp(LOG_MAX + t * (LOG_MIN - LOG_MAX)));
+});
+$("in").addEventListener("click", () => SetSpan(st.spanKm / 1.6));
+$("out").addEventListener("click", () => SetSpan(st.spanKm * 1.6));
+$("reset").addEventListener("click", () => GoRegion(st.region));
+const RES_STEPS = [384, 512, 640];
+$("res").addEventListener("click", () => {
+  st.res = RES_STEPS[(RES_STEPS.indexOf(st.res) + 1) % RES_STEPS.length];
+  $("res").textContent = st.res;
+  Recentre();
+});
+
+const regionBar = $("regions");
+REGIONS.forEach((r, i) => {
+  const b = document.createElement("button");
+  b.className = "btn"; b.type = "button"; b.textContent = r.name;
+  b.addEventListener("click", () => GoRegion(i));
+  regionBar.appendChild(b);
+});
+function SyncRegions(){
+  [...regionBar.children].forEach((b, i) =>
+    b.setAttribute("aria-pressed", i === st.region ? "true" : "false"));
+}
+
+let start = { x: 0, y: 0, span: null };
+function GoRegion(i){
+  st.region = i; SyncRegions();
+  const r = REGIONS[i];
+  // The crater population is pinned to the region's own origin, exactly
+  // as in the bench, so the two show the same ground.
+  st.originLat = r.lat - r.sKm / KMDEG;
+  st.originLon = r.lon + r.eKm / (KMDEG * Math.cos(st.originLat * D2R));
+  st.cxKm = start.x; st.cyKm = start.y;
+  st.spanKm = clamp(start.span || LEVELS[0].span, SPAN_MIN, SPAN_MAX);
+  st.cacheCx = st.cxKm; st.cacheCy = st.cyKm;
+  start = { x: 0, y: 0, span: null };          // only the first landing
+  st.tile = null; st.prev = null; st.dirty = true;
+  Hud();
+  LoadRegion(i, () => BuildCache(() => Regenerate()));
+}
+
+/* --- the URL carries the spot -----------------------------------------
+   A playtest is worth more if the thing somebody found can be sent to
+   somebody else. The hash is written on settle, never pushed, so it
+   never fills the back button. */
+function ReadHash(){
+  const h = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const key = h.get("r");
+  const i = REGIONS.findIndex(r => r.key === key);
+  return { region: i < 0 ? 0 : i,
+           span: parseFloat(h.get("s")) || null,
+           x: parseFloat(h.get("x")) || 0,
+           y: parseFloat(h.get("y")) || 0 };
+}
+let hashTimer = null;
+function WriteHash(){
+  clearTimeout(hashTimer);
+  hashTimer = setTimeout(() => {
+    const q = `r=${REGIONS[st.region].key}&s=${st.spanKm.toPrecision(4)}`
+            + `&x=${st.cxKm.toFixed(3)}&y=${st.cyKm.toFixed(3)}`;
+    try { history.replaceState(null, "", "#" + q); } catch (e) {}
+  }, 500);
+}
+
+Resize();
+// A tile blown up much past 3x reads as mush whatever the synthesis does,
+// so the default follows the screen. The chip trades it back for speed.
+// A tile blown up much past 3x reads as mush whatever the synthesis
+// does, so the default follows the screen -- and a phone gets the small
+// one, because a tile there is seconds rather than half of one. The chip
+// trades it back either way.
+// CSS pixels, not device pixels: a phone's backing store is two or three
+// times its screen and picking the tile size off that hands the slowest
+// machine the largest tile.
+const LONG = Math.max(CV.clientWidth, CV.clientHeight);
+st.res = COARSE ? 384 : (LONG >= 1300 ? 640 : (LONG >= 800 ? 512 : 384));
+$("res").textContent = st.res;
+// Deployed, the bench sits beside this page as bench.html; in the repo it
+// keeps its own name. Either way it is one file over.
+$("bench").href = /regolith_playtest\.html$/.test(location.pathname)
+  ? "regolith_craters.html" : "bench.html";
+const first = ReadHash();
+start = { x: first.x, y: first.y, span: first.span };
+GoRegion(first.region);
+requestAnimationFrame(Frame);
+})();
+</script>

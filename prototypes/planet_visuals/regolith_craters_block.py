@@ -11,6 +11,8 @@ small enough to embed -- 256 texels is 341 km and about 50 kB.
     python3 ... --write
     python3 ... --add "Marius Hills" 14.2 -56.2 --write
 
+Writes regolith_blocks.js, which both benches load.
+
 Without --write it prints what it would do and leaves the bench alone.
 Requires Pillow and numpy (the game itself needs neither).
 """
@@ -26,7 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WAC = ROOT / "src/assets/planet/wac_global.jpg"
-BENCH = Path(__file__).with_name("regolith_craters.html")
+BLOCKS_JS = Path(__file__).with_name("regolith_blocks.js")
 KM_PER_DEG = 30.32268
 
 # key, name, lat, lon, what the ground is, and where the view starts
@@ -60,7 +62,7 @@ def main():
     ap.add_argument("--add", nargs=3, metavar=("NAME", "LAT", "LON"), action="append",
                     help="an extra region to carry")
     ap.add_argument("--write", action="store_true",
-                    help="patch the blocks into regolith_craters.html")
+                    help="rewrite regolith_blocks.js")
     args = ap.parse_args()
 
     from PIL import Image
@@ -112,16 +114,26 @@ def main():
                          separators=(",", ":"))
 
     if not args.write:
-        print("(dry run -- pass --write to patch the bench)")
+        print("(dry run -- pass --write to rewrite regolith_blocks.js)")
         return
-    src = BENCH.read_text()
-    patched, count = re.subn(
-        r'(<script id="wac-blocks" type="application/json">)[\s\S]*?(</script>)',
-        lambda m: m.group(1) + "\n" + payload + "\n" + m.group(2), src, count=1)
-    if count != 1:
-        sys.exit("could not find the wac-blocks script tag in the bench")
-    BENCH.write_text(patched)
-    print(f"wrote {BENCH.relative_to(ROOT)}")
+    BLOCKS_JS.write_text(HEADER + payload + ";\n")
+    print(f"wrote {BLOCKS_JS.relative_to(ROOT)} "
+          f"({BLOCKS_JS.stat().st_size // 1024} kB)")
+
+
+HEADER = """// Eight real pieces of the moon, carried as data so the benches open from
+// file:// with no server and no network.
+//
+// One 256x256-texel block per region out of src/assets/planet/wac_global.jpg
+// (8192x4096 LROC WAC global mosaic, 22.7556 texels/degree, ~1.33 km/texel),
+// grayscaled by EnsureWacLoaded's own (r+g+b+1)/3 and cut on whole texels, so
+// the JS addresses it with the SAME global texel arithmetic the C++ uses. Each
+// block is 341 km north-south, which leaves room to pan and to zoom out past
+// the 100 km macro.
+//
+// Regenerate or extend with regolith_craters_block.py --write.
+var WAC_BLOCKS =
+"""
 
 
 if __name__ == "__main__":

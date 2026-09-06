@@ -15,6 +15,7 @@ on:
       - 'tools/**'
       - 'CMakeLists.txt'
       - 'tools/playtest/**'
+      - 'prototypes/planet_visuals/regolith_*'
       - '.github/workflows/deploy-web.yml'
 
 permissions:
@@ -80,6 +81,17 @@ jobs:
         if [ -f build/src/lunar_map.data ]; then
           cp build/src/lunar_map.data deploy/lunarmap/lunar_map.data
         fi
+        # Terrain-synthesis benches at /regolith/. Plain JS -- the chain is
+        # a port of src/TerrainGen/terrain_synthesis.cpp and the imagery
+        # travels inside regolith_blocks.js -- so there is nothing to
+        # build and nothing to fetch at runtime. index.html is the zoomable
+        # descent (sect -> ground, tiles made on the way in); bench.html is
+        # the lever board with the mosaic beside the synthesis.
+        mkdir -p deploy/regolith
+        cp prototypes/planet_visuals/regolith_playtest.html deploy/regolith/index.html
+        cp prototypes/planet_visuals/regolith_craters.html  deploy/regolith/bench.html
+        cp prototypes/planet_visuals/regolith_chain.js      deploy/regolith/
+        cp prototypes/planet_visuals/regolith_blocks.js     deploy/regolith/
 
     # One repo has one Pages site and every deploy replaces ALL of it. The
     # excavation branch serves /playtest/ and /extraction/; this step pulls

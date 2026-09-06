@@ -2,9 +2,9 @@
 //
 // Headless renderer for regolith_craters.html.
 //
-// Slices the CHAIN block out of the bench and runs it in Node, so the
-// PNGs written here are made by the same code the page draws with --
-// which is the only way to look at a change without a browser.
+// Runs regolith_chain.js -- the same file the pages load -- in Node, so
+// the PNGs written here are made by the code the pages draw with, which
+// is the only way to look at a change without a browser.
 //
 //   node prototypes/planet_visuals/regolith_craters_render.mjs
 //   node ... --region tycho --span 5 --res 400
@@ -32,7 +32,8 @@ import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const HTML = path.join(HERE, "regolith_craters.html");
+const CHAIN = path.join(HERE, "regolith_chain.js");
+const BLOCKS = path.join(HERE, "regolith_blocks.js");
 
 /* --- minimal PNG in and out ---------------------------------------- */
 
@@ -118,16 +119,10 @@ function ReadGrayPng(buf){
   return { data: out, w, h };
 }
 
-/* --- load the bench ------------------------------------------------- */
+/* --- load the chain and the imagery ---------------------------------- */
 
-const html = fs.readFileSync(HTML, "utf8");
-const B = "/* ===== CHAIN BEGIN", E = "/* ===== CHAIN END";
-const b0 = html.indexOf(B), e0 = html.indexOf(E);
-if (b0 < 0 || e0 < 0) throw new Error("CHAIN markers not found in " + HTML);
-const TC = new Function(html.slice(b0, e0) + "\nreturn TerrainChain;")();
-
-const PAYLOAD = JSON.parse(
-  html.match(/<script id="wac-blocks"[^>]*>([\s\S]*?)<\/script>/)[1]);
+const TC = new Function(fs.readFileSync(CHAIN, "utf8") + "\nreturn TerrainChain;")();
+const PAYLOAD = new Function(fs.readFileSync(BLOCKS, "utf8") + "\nreturn WAC_BLOCKS;")();
 
 function CarriedBlock(region){
   const png = ReadGrayPng(Buffer.from(region.png, "base64"));
@@ -137,6 +132,7 @@ function CarriedBlock(region){
            x0: region.x0, y0: region.y0,
            wacW: PAYLOAD.wacW, wacH: PAYLOAD.wacH };
 }
+
 
 /* --- arguments ------------------------------------------------------ */
 
