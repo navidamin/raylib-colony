@@ -182,7 +182,7 @@ function LoadRegion(i, then){
     // Copied, not transferred: there are two workers and the page keeps
     // its own for the no-worker path. It is 64 kB.
     if (WORK){ WORK.fast.postMessage({ cmd: "block", block: st.block });
-               WORK.fine.postMessage({ cmd: "block", block: st.block }); }
+               EachFine(w => w.postMessage({ cmd: "block", block: st.block })); }
     then();
   };
   img.src = "data:image/png;base64," + r.png;
@@ -215,7 +215,11 @@ function LoadRegion(i, then){
    arrives. Five seconds costs nothing anybody can feel if the page
    never stops.
    -------------------------------------------------------------------- */
-let WORK = null;                      // { fast, fine } or null on file://
+let WORK = null;                      // { fast, fine[] } or null on file://
+// How many ways the fine tile is cut. Four pieces on four workers is
+// the shape that fits a laptop: nine would need nine cores to be worth
+// more, and on four it is three rounds instead of one.
+let SPLIT = 1;
 function StartWorkers(){
   try {
     const mk = () => {
@@ -224,11 +228,27 @@ function StartWorkers(){
       w.onmessage = OnWorker;
       return w;
     };
-    // Two of them, because a refine takes seconds and must not sit in
-    // front of the tile the hand is waiting for.
-    WORK = { fast: mk(), fine: mk() };
+    const cores = navigator.hardwareConcurrency || 2;
+    // Four pieces need four cores. The page's own thread is idle while
+    // they build -- it is waiting for them -- so it does not need one of
+    // its own. Below four the split would just be queueing.
+    //
+    // Nine pieces is left alone deliberately. The worker handles any n,
+    // and n=3 renders correctly, but hardwareConcurrency counts threads
+    // rather than cores: a six-core machine says twelve, and nine pieces
+    // on six cores is two rounds where four is one. Tried at a faked
+    // twelve on a four-core box, x1.6 went 5.4 -> 7.7 s. It needs a
+    // machine with nine real cores to pay, and that cannot be detected
+    // from here.
+    SPLIT = cores >= 4 ? 2 : 1;
+    const fine = [];
+    for (let i = 0; i < SPLIT * SPLIT; i++) fine.push(mk());
+    // The fast worker is its own, because a refine takes seconds and
+    // must not sit in front of the tile the hand is waiting for.
+    WORK = { fast: mk(), fine };
   } catch (e){ WORK = null; }         // file:// has no origin to load from
 }
+function EachFine(fn){ WORK.fine.forEach(fn); }
 
 /* --- the supersample ratio --------------------------------------------
    The lever this page is really for.
@@ -326,7 +346,7 @@ function ArmRefine(){
     // before the one that mattered even started.
     if (st.fining){ fineAgain = true; return; }
     st.fining = true; Hud();
-    Ask(WORK.fine, FineRes(), true, FINE_MARGIN);
+    AskFine();
   }, REFINE_MS);
 }
 
@@ -338,6 +358,46 @@ function Ask(w, res, fine, margin){
                   spanKm: Math.max(0.05, st.spanKm * margin),
                   offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
                   cxKm: st.cxKm, cyKm: st.cyKm });
+}
+
+// The fine tile, cut into SPLIT x SPLIT pieces and handed to one worker
+// each. The padding has to cover the widest thing the chain reads across
+// a pixel: the shadow march, 22*k where k is the PIECE's res over 300.
+// cell/10 solves pad >= 22*(cell + 2*pad)/300 with room over.
+let fineSet = null;
+function AskFine(){
+  const n = SPLIT;
+  const cell = Math.ceil(FineRes() / n), res = cell * n;
+  const id = ++st.reqId;
+  const c = document.createElement("canvas");
+  c.width = c.height = res;
+  fineSet = { id, epoch: st.epoch, n, cell, res, got: 0, dead: false,
+              canvas: c, ctx: c.getContext("2d"), t0: performance.now() };
+  const pad = n > 1 ? Math.ceil(cell / 10) : 0;
+  const base = { cmd: "view", id, epoch: st.epoch, fine: true, res,
+                 margin: FINE_MARGIN,
+                 spanKm: Math.max(0.05, st.spanKm * FINE_MARGIN),
+                 offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
+                 cxKm: st.cxKm, cyKm: st.cyKm };
+  if (n === 1){ WORK.fine[0].postMessage(base); return; }
+  let k = 0;
+  for (let j = 0; j < n; j++)
+    for (let i = 0; i < n; i++, k++)
+      WORK.fine[k].postMessage(Object.assign({}, base, { part: { i, j, n, cell, pad } }));
+}
+
+// One piece home. The padding is dropped here rather than in the worker
+// so the transfer stays a single buffer.
+function TakePart(m){
+  if (!fineSet.dead){
+    const { i, j, cell, pad } = m.part, sub = m.subRes;
+    const tmp = document.createElement("canvas");
+    tmp.width = tmp.height = sub;
+    tmp.getContext("2d").putImageData(new ImageData(m.rgba, sub, sub), 0, 0);
+    fineSet.ctx.drawImage(tmp, pad, pad, cell, cell, i * cell, j * cell, cell, cell);
+    fineSet.craters = m.craters; fineSet.pop = m.popCraters;
+  }
+  return ++fineSet.got === fineSet.n * fineSet.n;
 }
 
 // A tile that arrives after the view has moved on is not wrong, it is
@@ -357,6 +417,33 @@ function OnWorker(e){
     return;
   }
   if (m.cmd !== "view") return;
+
+  // A piece of a split tile: nothing is decided until the last one is
+  // in. Every piece of the set has to be counted even once the set is
+  // known to be worthless, because "still building" is cleared by the
+  // last arrival -- abandoning the set on the first stale piece left the
+  // page waiting for a tile nobody was going to send, and no refine ever
+  // fired again.
+  if (m.part){
+    if (!fineSet || m.id !== fineSet.id) return;   // a set already retired
+    if (!TakePart(m)) return;                      // still missing pieces
+    st.fining = false;
+    if (fineAgain){ fineAgain = false; ArmRefine(); }
+    const set = fineSet; fineSet = null;
+    if (set.dead || m.epoch !== st.epoch){ Hud(); return; }
+    const whole = { canvas: set.canvas, spanKm: m.spanKm, margin: m.margin,
+                    cxKm: m.cxKm, cyKm: m.cyKm, kmPerPx: m.kmPerPx,
+                    craters: set.craters, pop: set.pop };
+    if (!StillFits(whole)){ Hud(); return; }
+    st.prev = st.tile; st.tile = whole; st.fade = st.prev ? 0 : 1;
+    st.dirty = true; KeepFine(whole);
+    // The wall time, not the slowest piece: what was actually waited.
+    st.fineMs = performance.now() - set.t0;
+    st.fineRes = set.res;
+    Hud(); WriteHash();
+    return;
+  }
+
   // The bookkeeping happens whatever the reply turned out to be worth,
   // or a dropped one leaves the page thinking it is still waiting.
   if (m.fine){
@@ -450,14 +537,16 @@ function WantedRes(){
 function BuildCache(then){
   const [lat, lon] = LatLonAt(st.cxKm, st.cyKm);
   st.epoch++;
-  clearTimeout(fineTimer); st.fining = false; st.fineRes = 0; fineCache = [];
+  clearTimeout(fineTimer); st.fining = false; st.fineRes = 0;
+  fineCache = [];
+  if (fineSet) fineSet.dead = true;
   if (WORK){
     // Nothing is built here: the chains live in the workers and are made
     // on demand, one rung at a time, for whatever resolution is asked
     // for. The page only waits for pictures.
     const msg = { cmd: "place", epoch: st.epoch, lat, lon, tune: Tune(),
                   originLat: st.originLat, originLon: st.originLon };
-    WORK.fast.postMessage(msg); WORK.fine.postMessage(msg);
+    WORK.fast.postMessage(msg); EachFine(w => w.postMessage(msg));
     if (then) then();
     // The locator inset, behind the tile the eye is waiting for.
     WORK.fast.postMessage({ cmd: "mini", epoch: st.epoch,
@@ -508,6 +597,7 @@ let genPending = false, askAgain = false;
 function Regenerate(){
   if (WORK){
     clearTimeout(fineTimer); fineAgain = false;
+    if (fineSet) fineSet.dead = true;
     // One request in flight at a time. A worker is a queue, and a drag
     // that posts on every frame would fill it with tiles for places the
     // view has already left -- each one built in full before the one

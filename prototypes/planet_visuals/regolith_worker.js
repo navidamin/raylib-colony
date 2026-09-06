@@ -75,6 +75,35 @@ self.onmessage = (e) => {
 
   if (m.cmd === "view"){
     if (!place || !block){ self.postMessage({ cmd: "view", id: m.id, stale: true }); return; }
+
+    // A piece of a bigger tile. Same ground sampling as the whole would
+    // have, offset to its own cell, and built `pad` pixels wider all
+    // round so the parts of the chain that read their neighbours -- the
+    // blurs, and the shadow march, which walks up to 22*k pixels toward
+    // the sun -- have real ground to read instead of a clamped edge.
+    // That padding is cropped off before the piece is blitted.
+    //
+    // The level is forced to the WHOLE tile's, because it seeds the
+    // noise and scales the amplitude: a piece that chose its own would
+    // not join up with its neighbours.
+    if (m.part){
+      const { i, j, cell, pad } = m.part;
+      const subRes = cell + 2 * pad;
+      const kmPerPx = m.spanKm / m.res;
+      const cx = ((i + 0.5) * cell - m.res / 2) * kmPerPx;
+      const cy = ((j + 0.5) * cell - m.res / 2) * kmPerPx;
+      const lc = ChainFor(subRes);
+      const v = lc.View(subRes * kmPerPx, m.offX + cx, m.offY + cy,
+                        lc.PickLevel(m.spanKm, m.offX, m.offY));
+      self.postMessage({ cmd: "view", id: m.id, epoch: m.epoch, fine: !!m.fine,
+                         margin: m.margin, part: m.part, subRes,
+                         res: m.res, spanKm: m.spanKm, kmPerPx,
+                         cxKm: m.cxKm, cyKm: m.cyKm,
+                         craters: v.craters, popCraters: v.popCraters, ms: v.ms,
+                         rgba: v.rgba }, [v.rgba.buffer]);
+      return;
+    }
+
     const lc = ChainFor(m.res);
     const v = lc.View(m.spanKm, m.offX, m.offY);
     // rgba is freshly allocated per view, so it can be given away.

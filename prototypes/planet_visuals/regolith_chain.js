@@ -1242,16 +1242,29 @@ function MakeLiveChain(o){
   // that still CONTAINS it -- which, once the window can be off-centre,
   // depends on where it is as well as how wide it is. Panning then costs
   // one rung like zooming does, until it walks off the 100 km macro.
-  function View(spanKm, offXKm, offYKm){
-    const t1 = (typeof performance !== "undefined" ? performance.now() : Date.now());
-    const ox = offXKm || 0, oy = offYKm || 0;
-    const reach = Math.max(Math.abs(ox), Math.abs(oy)) + spanKm / 2.0;
+  // Which rung a window comes off, and which level it counts as. Split
+  // out because a tile built in pieces has to force every piece to the
+  // WHOLE tile's answer: the level seeds the noise and scales the
+  // amplitude, so a piece that picked its own would not join up.
+  function PickLevel(spanKm, offXKm, offYKm){
+    const reach = Math.max(Math.abs(offXKm || 0), Math.abs(offYKm || 0)) + spanKm / 2.0;
     let base = 0;
     for (let i = 0; i < LIVE_RUNGS.length; i++)
       if (LIVE_RUNGS[i] / 2.0 >= reach - 1e-9) base = i;
+    return { base, lvl: base + (spanKm < LIVE_RUNGS[base] - 1e-9 ? 1 : 0) };
+  }
+
+  function View(spanKm, offXKm, offYKm, force){
+    const t1 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const ox = offXKm || 0, oy = offYKm || 0;
+    const pick = PickLevel(spanKm, ox, oy);
+    const base = force && force.base !== undefined ? force.base : pick.base;
+    const lvl = force && force.lvl !== undefined ? force.lvl : pick.lvl;
     EnsureRung(base);
-    const lvl = base + (spanKm < rungs[base].spanKm - 1e-9 ? 1 : 0);
-    let l = (lvl === base && rungRes === res)
+    // Whether to crop is geometry, not level: a forced level must not be
+    // able to decide that a narrower window is the whole rung.
+    const whole = spanKm >= rungs[base].spanKm - 1e-9;
+    let l = (whole && rungRes === res)
       ? Float32Array.from(rungs[base].lum)
       : CropRung(rungs[base].lum, res, rungs[base].spanKm, spanKm, ox, oy, o.tune.crisp, rungRes);
     // The frame belongs to the window, not to the cache, or the craters
@@ -1281,7 +1294,7 @@ function MakeLiveChain(o){
       ms: (typeof performance !== "undefined" ? performance.now() : Date.now()) - t1
     };
   }
-  return { View, rungs, EnsureRung, buildMs, escaped: !!report.escaped,
+  return { View, PickLevel, rungs, EnsureRung, buildMs, escaped: !!report.escaped,
            lat: o.lat, lon: o.lon, res };
 }
 
