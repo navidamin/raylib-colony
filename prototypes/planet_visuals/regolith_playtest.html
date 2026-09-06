@@ -37,7 +37,7 @@ canvas.drag{cursor:grabbing}
 #busy.on{opacity:1}
 
 #bar{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;
-  display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px;
+  display:flex;align-items:center;justify-content:center;flex-wrap:nowrap;gap:10px;
   background:var(--panel);border:1px solid var(--rule);border-radius:6px;
   padding:9px 12px;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
   max-width:calc(100vw - 24px)}
@@ -72,7 +72,9 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   #help{display:none}
   #tr{font-size:10px;padding:6px 8px}
   #tl{font-size:10px;padding:6px 8px}
-  #zoom{width:44vw}
+  #zoom{width:38vw}
+  /* Only here is there not room for one row of controls. */
+  #bar{flex-wrap:wrap}
 }
 </style>
 
