@@ -12,6 +12,18 @@ static bool g_siteDisturbEnabled = true;
 void SetSiteDisturbanceEnabled(bool e) { g_siteDisturbEnabled = e; }
 bool IsSiteDisturbanceEnabled() { return g_siteDisturbEnabled; }
 
+// Global switch for the world-anchored sub-floor, same shape and for the
+// same reason: the game's callers do not pass a tuning, so this is how an
+// instrument renders the whole game both ways without the default moving.
+//
+// OFF while only the CPU chain can draw it. Turning it on now would make
+// the ground depend on which path GetTerrainPath() picked -- the new look
+// on a software rasteriser, the old one on a real GPU -- and a look that
+// changes with the hardware is worse than a look that has not landed yet.
+static bool g_subFloorEnabled = false;
+void SetSubFloorEnabled(bool e) { g_subFloorEnabled = e; }
+bool IsSubFloorEnabled() { return g_subFloorEnabled; }
+
 // ---------------------------------------------------------------------------
 // Deterministic RNG (xorshift128) — the seed is the location, so the
 // same spot always regenerates the same ground.
@@ -1754,25 +1766,77 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     // The fields belong to the LAST level; every level above it still
     // has to be lit, because the next one down is a crop of its output.
     const bool wantFields = (outHeight != nullptr && outAlbedo != nullptr);
-    TextureModulate(lum, res,
-                    MakeNoiseFrame(latDeg, lonDeg, levelSpanKm[0], res, 0),
-                    1.0f, tune, 0, siteForLevel[0],
-                    (float)res / levelSpanKm[0],
-                    (wantFields && levelCount == 1) ? outHeight : nullptr,
-                    (wantFields && levelCount == 1) ? outAlbedo : nullptr,
-                    levelCount == 1);
 
-    auto emit = [&](int level)
+    // One level's lighting. Factored out because with the world stack on a
+    // level may be lit twice, for two different jobs -- see below.
+    auto lightLevel = [&](Field& f, int lvl, bool lastRung,
+                          Field* oh, Field* oa)
+    {
+        float kk = res / 300.0f;
+        int boulderBase = (levelSpanKm[lvl] <= 5.0f + 1e-3f)
+                          ? (int)(120 * kk * kk) : 0;
+        TextureModulate(f, res,
+                        MakeNoiseFrame(latDeg, lonDeg, levelSpanKm[lvl], res,
+                                       0x9E3779B9u * (uint32_t)lvl),
+                        1.0f + 0.7f * lvl, tune, boulderBase, siteForLevel[lvl],
+                        (float)res / levelSpanKm[lvl], oh, oa, lastRung);
+    };
+
+    auto emit = [&](int level, const Field& src)
     {
         if (level >= wantLevels) return;
         Image img = GenImageColor(res, res, BLACK);
         ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
         Color* px = (Color*)img.data;
-        for (int i = 0; i < res * res; i++) px[i] = RampColor(lum[i]);
+        for (int i = 0; i < res * res; i++) px[i] = RampColor(src[i]);
         outLevels[level] = img;
     };
 
-    emit(0);
+    // Every level of this ladder is a picture somebody LOOKS at. PLANET,
+    // COLONY and SECT are three views, not three steps on the way to one --
+    // and that is where the game parts company with the bench it was ported
+    // from.
+    //
+    // The bench only ever displays its deepest rung, so it can leave the
+    // ones above it bare: no grain and no world stack, so nothing invented
+    // up there comes back as height when the next crop re-reads its shading.
+    // Do the same here and the PLANET view loses all its texture and goes to
+    // mush -- rendered, it was the most visible thing the sub-floor did, and
+    // it was a regression rather than the point.
+    //
+    // So the ladder and the picture are separated. `lum` stays the ladder:
+    // lit at every level because the next level is a crop of it, and carrying
+    // no invented detail so none of it compounds. Each level that is shown is
+    // that same macro lit AGAIN, with the world stack at its own scale. Which
+    // is exactly the split the bench's live chain makes between a cached rung
+    // and a view -- reached here from the other direction.
+    const bool splitShown = (tune.subFloor != 0);
+
+    auto doLevel = [&](int lvl)
+    {
+        const bool last = (lvl == levelCount - 1);
+        if (splitShown && lvl < wantLevels)
+        {
+            Field shown = lum;
+            lightLevel(shown, lvl, true,
+                       (wantFields && last) ? outHeight : nullptr,
+                       (wantFields && last) ? outAlbedo : nullptr);
+            emit(lvl, shown);
+            // The ladder copy is only worth lighting if something below
+            // is going to be cropped out of it.
+            if (!last) lightLevel(lum, lvl, false, nullptr, nullptr);
+            else lum = std::move(shown);
+        }
+        else
+        {
+            lightLevel(lum, lvl, last,
+                       (wantFields && last) ? outHeight : nullptr,
+                       (wantFields && last) ? outAlbedo : nullptr);
+            emit(lvl, lum);
+        }
+    };
+
+    doLevel(0);
 
     for (int lvl = 1; lvl < levelCount; lvl++)
     {
@@ -1812,18 +1876,7 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
         for (size_t i = 0; i < lum.size(); i++)
             lum[i] = std::clamp(lum[i] + 0.40f * (lum[i] - blur[i]),
                                 0.0f, 1.0f);
-        int boulderBase = (levelSpanKm[lvl] <= 5.0f + 1e-3f)
-                          ? (int)(120 * k * k) : 0;
-        bool last = (lvl == levelCount - 1);
-        TextureModulate(lum, res,
-                        MakeNoiseFrame(latDeg, lonDeg, levelSpanKm[lvl], res,
-                                       0x9E3779B9u * (uint32_t)lvl),
-                        1.0f + 0.7f * lvl, tune, boulderBase,
-                        siteForLevel[lvl], (float)res / levelSpanKm[lvl],
-                        (wantFields && last) ? outHeight : nullptr,
-                        (wantFields && last) ? outAlbedo : nullptr,
-                        last);
-        emit(lvl);
+        doLevel(lvl);
     }
 
     TraceLog(LOG_INFO,
@@ -1936,6 +1989,7 @@ void GenerateTerrainChain(double latDeg, double lonDeg, int res,
                           const TerrainTuning* tune)
 {
     TerrainTuning defaults;
+    defaults.subFloor = g_subFloorEnabled ? 1 : 0;
     TerrainChainSpans game;
     GenerateChainInternal(latDeg, lonDeg, res, tune ? *tune : defaults,
                           outLevels, 3, site, spans ? *spans : game);
@@ -1947,6 +2001,7 @@ bool GenerateTerrainFields(double latDeg, double lonDeg, int res,
 {
     if (!out || res < 8 || spanKm <= 0.0) return false;
     TerrainTuning defaults;
+    defaults.subFloor = g_subFloorEnabled ? 1 : 0;
     TerrainChainSpans ladder = TerrainChainSpansForWindow(spanKm);
     Field height, albedo;
     GenerateChainInternal(latDeg, lonDeg, res, defaults, nullptr, 0, site,
@@ -1968,6 +2023,7 @@ Image GenerateSectTerrain(double latDeg, double lonDeg, int res,
                           const TerrainTuning* tuning)
 {
     TerrainTuning defaults;
+    defaults.subFloor = g_subFloorEnabled ? 1 : 0;
     const TerrainTuning& tune = tuning ? *tuning : defaults;
     Image levels[3] = {};
     TerrainChainSpans game;

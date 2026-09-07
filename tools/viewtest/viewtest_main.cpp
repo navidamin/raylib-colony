@@ -645,6 +645,10 @@ int main(int argc, char** argv)
         {
             SetSiteDisturbanceEnabled(false);
         }
+        else if (a == "--subfloor")
+        {
+            SetSubFloorEnabled(true);
+        }
         else if (a == "--pick" && i + 1 < argc)
         {
             // --pick LAT,LON: land anywhere on the moon without clicking.

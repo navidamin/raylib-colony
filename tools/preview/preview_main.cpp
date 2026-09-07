@@ -62,6 +62,10 @@ struct PreviewOptions
     float globeSun = -1.0f;    // <0 keeps the renderer's own default
     double globeSunLon = -35.0, globeSunLat = 8.0;
     bool globeMarks = false;   // crosshair known craters, to check the projection
+    // The world-anchored sub-floor, for the WHOLE view rather than the raw
+    // ground dump: the game's own callers pass no tuning, so --tune cannot
+    // reach them and this switch is the only way to see a real view both ways.
+    bool subFloor = false;
 };
 
 static void PrintUsage()
@@ -187,6 +191,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--globe-marks")
         {
             options.globeMarks = true;
+        }
+        else if (arg == "--subfloor")
+        {
+            options.subFloor = true;
         }
         else if (arg == "--tune" && hasNext)
         {
@@ -566,6 +574,7 @@ static void DrawGlobeMarks(const PreviewOptions& options)
 static int RenderGameView(const PreviewOptions& options)
 {
     SetTraceLogLevel(LOG_WARNING);
+    if (options.subFloor) SetSubFloorEnabled(true);
     InitWindow(options.width, options.height, "Colony View Preview");
 
     int status = 0;
@@ -643,6 +652,10 @@ static int RenderGameView(const PreviewOptions& options)
                 tune.lightWeight = 0.75f; tune.sCurve = 0.40f;
                 tune.boulders = 1.0f; tune.speckle = 1.2f;
             }
+            // --subfloor is a switch on the whole program, so it has to
+            // reach the explicit tuning here too -- otherwise the raw dump
+            // and the view beside it disagree about what was rendered.
+            if (IsSubFloorEnabled()) tune.subFloor = 1;
             Image ground = GenerateSectTerrain(lat, lon, 512, &tune);
             std::string groundPath = options.outPath + ".ground.png";
             ExportImage(ground, groundPath.c_str());

@@ -138,6 +138,11 @@ struct TerrainSiteDisturbance
 void SetSiteDisturbanceEnabled(bool enabled);
 bool IsSiteDisturbanceEnabled();
 
+// The same, for the world-anchored sub-floor (TerrainTuning::subFloor).
+// Off until the GPU chain can draw it too -- see the note at the switch.
+void SetSubFloorEnabled(bool enabled);
+bool IsSubFloorEnabled();
+
 // The three geographic zoom levels, in game terms:
 //   0  PLANET view  100 km   (20x20 cells of 5 km)
 //   1  COLONY view   25 km   (5x5 cells)
