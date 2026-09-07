@@ -823,7 +823,8 @@ function SubFloorRelief(height, res, frame, spanKm, tune, density){
   const roughMask = new Float32Array(res * res);
   for (let i = 0; i < roughMask.length; i++)
     roughMask[i] = 0.45 + 0.55 * density[i];    // bright ground is rough ground
-  SubFloorNoise(accM, res, W, kmPerPx, tune.subRough, roughMask);
+  if (tune.subRough > 0.0)
+    SubFloorNoise(accM, res, W, kmPerPx, tune.subRough, roughMask);
   if (tune.clasts > 0.001)
     ClastBands(accM, res, frame, spanKm, tune);
   let craters = 0;
@@ -837,11 +838,13 @@ function SubFloorRelief(height, res, frame, spanKm, tune, density){
   // live there: this is the grit the previous zoom could not show.
   const grit = new Float32Array(res * res);
   const cellKm = Math.max(1e-12, kmPerPx);
-  for (let y = 0; y < res; y++){
-    const v = W.vRow[y], c = W.cosRow[y], row = y * res;
-    for (let x = 0; x < res; x++)
-      grit[row + x] = DetailHash01(Math.floor(W.lonKm[x] * c / cellKm),
-                                   Math.floor(v / cellKm), 0x6A09E667) - 0.5;
+  if (tune.subGrit > 0.0){
+    for (let y = 0; y < res; y++){
+      const v = W.vRow[y], c = W.cosRow[y], row = y * res;
+      for (let x = 0; x < res; x++)
+        grit[row + x] = DetailHash01(Math.floor(W.lonKm[x] * c / cellKm),
+                                     Math.floor(v / cellKm), 0x6A09E667) - 0.5;
+    }
   }
   // Crisp keeps the finest term at one pixel: blurring it is what makes a
   // hard-pixel upscale look like blocky mush rather than like grain.
@@ -945,14 +948,21 @@ function TextureModulate(macro, res, frame, amp, tune, boulderCount, carve, last
   const z = 110.0;
   const hs = Hillshade(height, res, z, tune.crisp ? 0.0 : 0.6, tune.sunAz, tune.sunAlt);
   const flatRef = Math.sin(tune.sunAlt * DEG2RAD);
-  const light = CastShadows(height, res, z, 22.0 * k, 1.5, tune.sunAz, tune.sunAlt,
-                            tune.crisp ? 0.25 : 0.8);
+  // Every detail layer is switchable, so what each one costs and what it
+  // is worth can be looked at rather than argued about. The march is the
+  // expensive one and had no lever until now.
+  const light = tune.shadows === 0
+    ? new Float32Array(res * res).fill(1.0)
+    : CastShadows(height, res, z, 22.0 * k, 1.5, tune.sunAz, tune.sunAlt,
+                  tune.crisp ? 0.25 : 0.8);
 
   const speckleFrame = Object.assign({}, frame);
   speckleFrame.salt = (frame.salt ^ NOISE_SPECKLE) >>> 0;
   const worldTone = tune.subFloor && lastRung;
-  const speckle = worldTone ? SubFloorMottle(res, frame, spanKm, tune)
-                            : Fbm(res, 2, 4, 0.5, speckleFrame);
+  const speckle = worldTone
+    ? (tune.subMottle > 0.0 ? SubFloorMottle(res, frame, spanKm, tune)
+                            : new Float32Array(res * res))
+    : Fbm(res, 2, 4, 0.5, speckleFrame);
   const speckMid = worldTone ? 0.0 : 0.5;
   const speckGain = worldTone ? 1.0 : 0.04 * tune.speckle;
   for (let i = 0; i < macro.length; i++){
@@ -1258,6 +1268,12 @@ function MakeLiveChain(o){
   // frame, which is where the CPU and the GPU paths part company: the
   // rung ladder and the crop stay here, the per-pixel synthesis is what
   // regolith_gpu.js takes over.
+  // The rungs are built with the chain's own tune and carry no sub-floor
+  // detail -- they are never the last rung -- so the VIEW's tune can be
+  // overridden per call without any of them going stale. That is what
+  // makes a detail toggle instant instead of a rebuild.
+  function TuneFor(over){ return over ? Object.assign({}, o.tune, over) : o.tune; }
+
   function Prepare(spanKm, offXKm, offYKm, force){
     const ox = offXKm || 0, oy = offYKm || 0;
     const pick = PickLevel(spanKm, ox, oy);
@@ -1281,7 +1297,7 @@ function MakeLiveChain(o){
              heightScaleM: 110.0 * (spanKm * 1000.0 / res) };
   }
 
-  function View(spanKm, offXKm, offYKm, force){
+  function View(spanKm, offXKm, offYKm, force, tuneOver){
     const t1 = (typeof performance !== "undefined" ? performance.now() : Date.now());
     const pre = Prepare(spanKm, offXKm, offYKm, force);
     const l = pre.lum, lvl = pre.lvl, ox = pre.ox, oy = pre.oy;
@@ -1294,7 +1310,7 @@ function MakeLiveChain(o){
                                    o.originLat, o.originLon)
       : null;
     const f = TextureModulate(l, res, pre.frame,
-                              1.0 + 0.7 * lvl, o.tune, boulderBase, carve, true);
+                              1.0 + 0.7 * lvl, TuneFor(tuneOver), boulderBase, carve, true);
     const rgba = new Uint8ClampedArray(res * res * 4);
     for (let i = 0; i < res * res; i++) RampColor(l[i], rgba, i * 4);
     return {
@@ -1341,7 +1357,7 @@ const DEFAULT_TUNE = {
   // Both off: the chain behaves exactly as it did. crisp drops the
   // softening steps that only make sense when a picture is going to be
   // resampled anyway; bands quantises the tone.
-  crisp: 0, bands: 0,
+  crisp: 0, bands: 0, shadows: 1,
   subFloor: 1, subRough: 0.045, subGrit: 1.8, subCraters: 1.15,
   popDensity: 0.75, subMottle: 0.20, cosineBowl: 1,
   clasts: 1.0, clastDensity: 0.30,

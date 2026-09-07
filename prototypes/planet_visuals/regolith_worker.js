@@ -82,7 +82,7 @@ self.onmessage = (e) => {
     const t0 = performance.now();
     const lc = ChainFor(m.res);
     const pre = lc.Prepare(m.spanKm, m.offX, m.offY);
-    self.postMessage({ cmd: "macro", id: m.id, epoch: m.epoch, fine: !!m.fine,
+    self.postMessage({ cmd: "macro", id: m.id, epoch: m.epoch, fine: !!m.fine, gen: m.gen,
                        res: m.res, margin: m.margin, spanKm: m.spanKm,
                        cxKm: m.cxKm, cyKm: m.cyKm, frame: pre.frame,
                        kmPerPx: pre.kmPerPx, ms: performance.now() - t0,
@@ -111,8 +111,8 @@ self.onmessage = (e) => {
       const cy = ((j + 0.5) * cell - m.res / 2) * kmPerPx;
       const lc = ChainFor(subRes);
       const v = lc.View(subRes * kmPerPx, m.offX + cx, m.offY + cy,
-                        lc.PickLevel(m.spanKm, m.offX, m.offY));
-      self.postMessage({ cmd: "view", id: m.id, epoch: m.epoch, fine: !!m.fine,
+                        lc.PickLevel(m.spanKm, m.offX, m.offY), m.tuneOver);
+      self.postMessage({ cmd: "view", id: m.id, epoch: m.epoch, fine: !!m.fine, gen: m.gen,
                          margin: m.margin, part: m.part, subRes,
                          res: m.res, spanKm: m.spanKm, kmPerPx,
                          cxKm: m.cxKm, cyKm: m.cyKm,
@@ -122,9 +122,9 @@ self.onmessage = (e) => {
     }
 
     const lc = ChainFor(m.res);
-    const v = lc.View(m.spanKm, m.offX, m.offY);
+    const v = lc.View(m.spanKm, m.offX, m.offY, null, m.tuneOver);
     // rgba is freshly allocated per view, so it can be given away.
-    self.postMessage({ cmd: "view", id: m.id, epoch: m.epoch, fine: !!m.fine,
+    self.postMessage({ cmd: "view", id: m.id, epoch: m.epoch, fine: !!m.fine, gen: m.gen,
                        margin: m.margin,
                        res: v.res, spanKm: v.spanKm, kmPerPx: v.kmPerPx,
                        cxKm: m.cxKm, cyKm: m.cyKm,

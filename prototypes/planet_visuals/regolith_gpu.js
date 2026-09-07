@@ -165,6 +165,7 @@ void main(){
   // to about three pixels.
   float lambda = FLOOR_KM * 2.0;
   for (int o = 0; o < 16; o++){
+    if (uSub.x <= 0.0) break;
     if (lambda < 3.0 * uKmPerPx) break;
     float fw = subfade(lambda);
     if (fw > 0.001){
@@ -257,7 +258,7 @@ void main(){
   // because the pixel is where the world ends.
   float cellKm = max(1e-12, uKmPerPx);
   float grit = dhash(int(floor(w.x / cellKm)), int(floor(w.y / cellKm)), 0x6A09E667u) - 0.5;
-  accM += uSub.y * 1.4 * uKmPerPx * 1000.0 * grit * rough;
+  if (uSub.y > 0.0) accM += uSub.y * 1.4 * uKmPerPx * 1000.0 * grit * rough;
 
   // The named craters, carved in metres like everything else.
   float rOuterN = 1.0 + max(3.0 * uPop.w, uPop2.x);
@@ -332,6 +333,7 @@ void main(){
   // The regolith's own tone, four octaves of it, world-anchored.
   float mott = 0.0, amp = 1.0, norm = 0.0, lambda = FLOOR_KM * 0.7;
   for (int o = 0; o < 4; o++){
+    if (uLight.w <= 0.0) break;
     if (lambda < 4.0 * uKmPerPx) break;
     float fw = subfade(lambda * 2.0) * amp;
     norm += amp;
@@ -517,7 +519,8 @@ function Create(){
     gl.uniform1f(U(progs.shade, "uKmPerPx"), o.frame.kmPerPx);
     gl.uniform4f(U(progs.shade, "uLight"), T.relWeight, T.lightWeight, T.sCurve, T.subMottle);
     gl.uniform2f(U(progs.shade, "uSun"), T.sunAz, T.sunAlt);
-    gl.uniform1f(U(progs.shade, "uShadowSteps"), Math.min(128, Math.floor(22.0 * k / 1.5)));
+    gl.uniform1f(U(progs.shade, "uShadowSteps"),
+                 T.shadows === 0 ? 0 : Math.min(128, Math.floor(22.0 * k / 1.5)));
     gl.uniform1f(U(progs.shade, "uBands"), T.bands || 0);
     gl.uniform4fv(U(progs.shade, "uNamedA"), nm.A);
     gl.uniform2fv(U(progs.shade, "uNamedC"), nm.C);

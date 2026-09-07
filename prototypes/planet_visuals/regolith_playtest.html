@@ -60,6 +60,27 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
 .brk{display:none}
 #regions{position:fixed;top:12px;left:50%;transform:translateX(-50%);
   display:flex;gap:5px;flex-wrap:wrap;justify-content:center;max-width:min(70vw,760px)}
+/* The detail table. Each row is one layer of synthesis: a switch, and
+   what it costs, measured rather than guessed. */
+/* Below the readout it shares a corner with, not on top of it. */
+#detail{top:124px;right:12px;pointer-events:auto;min-width:290px;padding:10px 12px}
+#detail .dh{color:var(--am-lit);letter-spacing:.14em;font-size:11px;
+  display:flex;justify-content:space-between;gap:14px;margin-bottom:7px}
+#detail .dx{color:var(--dimmer);cursor:pointer}
+#dtab{border-collapse:collapse;width:100%;font:700 11px/1.5 var(--mono)}
+#dtab td{padding:3px 0}
+#dtab td.n{color:var(--text)}
+#dtab td.t{text-align:right;color:var(--cy);padding-left:14px;white-space:nowrap}
+#dtab td.b{text-align:right;color:var(--dimmer);padding-left:10px}
+#dtab tr.off td.n{color:var(--dimmer);text-decoration:line-through}
+#dtab tr{cursor:pointer}
+#dtab tr:hover td.n{color:var(--am-lit)}
+#dtab .sw{color:var(--cy);width:16px;display:inline-block}
+#dtab tr.off .sw{color:var(--dimmer)}
+.dfoot{margin-top:8px;display:flex;gap:6px;align-items:center}
+.dfoot #dnote{color:var(--dimmer);font:400 10px/1.4 var(--mono)}
+@media (max-width:820px){ #detail{top:auto;bottom:calc(112px + env(safe-area-inset-bottom,0px));
+  right:12px;left:12px;min-width:0} }
 #help{position:fixed;bottom:14px;right:14px;font:400 10.5px/1.6 var(--mono);
   color:var(--dimmer);text-align:right;pointer-events:none}
 #bar{padding-bottom:calc(9px + env(safe-area-inset-bottom,0px))}
@@ -106,6 +127,16 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
 
 <div id="regions"></div>
 
+<div class="hud" id="detail" hidden>
+  <div class="dh">DETAIL LAYERS<span class="dx" id="dclose">esc</span></div>
+  <table id="dtab"></table>
+  <div class="dfoot">
+    <button class="btn" id="dmeasure">Measure</button>
+    <button class="btn" id="dall">All on</button>
+    <span id="dnote"></span>
+  </div>
+</div>
+
 <div id="bar">
   <button class="btn" id="out" title="Zoom out">&minus;</button>
   <input id="zoom" type="range" min="0" max="1" step="0.0005" value="0"
@@ -120,7 +151,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   <a class="btn" id="bench" href="#" title="The lever bench">Bench</a>
 </div>
 
-<div id="help">drag to move · wheel or pinch to zoom · +/&minus; &nbsp;arrows &nbsp;R &nbsp;G gpu</div>
+<div id="help">drag to move · wheel or pinch to zoom · +/&minus; &nbsp;arrows &nbsp;R &nbsp;G gpu &nbsp;D detail</div>
 
 <script src="regolith_blocks.js"></script>
 <script src="regolith_chain.js"></script>
@@ -164,7 +195,7 @@ const st = {
   style: 1, px: 3,
   drag: null, pinch: null, dirty: true, mini: null,
   // The refine pass and its supersample ratio. See SUPER_STEPS.
-  super: 1.6, gpu: -1, base: null, epoch: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
+  super: 1.6, gpu: -1, base: null, epoch: 0, tuneGen: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
 };
 
 /* --- the imagery ------------------------------------------------------ */
@@ -382,7 +413,8 @@ function FineRatio(){          // what the cap actually left us with
 // view at all.
 function RefineWorth(){
   if (!WORK || st.super <= 0 || Hard() || !st.tile) return false;
-  if (st.tile.fine && st.tile.canvas.width === FineRes() && StillFits(st.tile)) return false;
+  if (st.tile.fine && st.tile.gen === st.tuneGen
+      && st.tile.canvas.width === FineRes() && StillFits(st.tile)) return false;
   // And only if it would actually read the ground more finely than the
   // coarse tile does; on a small window at x1.0 it does not.
   const fineKm = (st.spanKm * FINE_MARGIN) / FineRes();
@@ -399,7 +431,7 @@ function CachedFine(){
   const want = FineRes();
   for (let i = fineCache.length - 1; i >= 0; i--){
     const t = fineCache[i];
-    if (t.canvas.width === want && StillFits(t)) return t;
+    if (t.canvas.width === want && t.gen === st.tuneGen && StillFits(t)) return t;
   }
   return null;
 }
@@ -440,6 +472,7 @@ function ArmRefine(){
 function Ask(w, res, fine, margin){
   const id = ++st.reqId;
   w.postMessage({ cmd: "view", id, epoch: st.epoch, fine, res, margin,
+                  tuneOver: LayerTune(), gen: st.tuneGen,
                   spanKm: Math.max(0.05, st.spanKm * margin),
                   offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
                   cxKm: st.cxKm, cyKm: st.cyKm });
@@ -458,6 +491,7 @@ function AskFine(){
     const id = ++st.reqId;
     fineSet = { id, epoch: st.epoch, gpu: true, dead: false, t0: performance.now() };
     WORK.fine[0].postMessage({ cmd: "macro", id, epoch: st.epoch, fine: true,
+                               gen: st.tuneGen,
                                res: FineRes(), margin: FINE_MARGIN,
                                spanKm: Math.max(0.05, st.spanKm * FINE_MARGIN),
                                offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
@@ -473,7 +507,7 @@ function AskFine(){
               canvas: c, ctx: c.getContext("2d"), t0: performance.now() };
   const pad = n > 1 ? Math.ceil(cell / 10) : 0;
   const base = { cmd: "view", id, epoch: st.epoch, fine: true, res,
-                 margin: FINE_MARGIN,
+                 margin: FINE_MARGIN, tuneOver: LayerTune(), gen: st.tuneGen,
                  spanKm: Math.max(0.05, st.spanKm * FINE_MARGIN),
                  offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
                  cxKm: st.cxKm, cyKm: st.cyKm };
@@ -510,6 +544,13 @@ function StillFits(m){
 function OnWorker(e){
   const m = e.data;
   if (m.cmd === "block" || m.cmd === "place") return;
+  // A measurement asked for this one directly. It must not go through
+  // the refine machinery, which would drop it for no longer fitting.
+  if (typeof m.id === "string" && probeWaiting.has(m.id)){
+    const w = probeWaiting.get(m.id); probeWaiting.delete(m.id);
+    if (m.stale) w.bad(new Error("stale")); else w.ok(m);
+    return;
+  }
   if (m.cmd === "mini"){
     if (m.epoch === st.epoch){ st.mini = LumCanvas(m.lum, m.res, m.spanKm); st.dirty = true; }
     return;
@@ -535,7 +576,7 @@ function OnWorker(e){
     c.getContext("2d").drawImage(out.canvas, 0, 0);
     const whole = { canvas: c, spanKm: m.spanKm, margin: m.margin,
                     cxKm: m.cxKm, cyKm: m.cyKm, kmPerPx: m.kmPerPx,
-                    craters: 0, pop: 0, fine: true };
+                    craters: 0, pop: 0, fine: true, gen: m.gen };
     if (!StillFits(whole)){ Hud(); return; }
     st.prev = st.tile; st.tile = whole; st.fade = st.prev ? 0 : 1;
     st.dirty = true; KeepFine(whole);
@@ -562,7 +603,7 @@ function OnWorker(e){
     if (set.dead || m.epoch !== st.epoch){ Hud(); return; }
     const whole = { canvas: set.canvas, spanKm: m.spanKm, margin: m.margin,
                     cxKm: m.cxKm, cyKm: m.cyKm, kmPerPx: m.kmPerPx,
-                    craters: set.craters, pop: set.pop, fine: true };
+                    craters: set.craters, pop: set.pop, fine: true, gen: m.gen };
     if (!StillFits(whole)){ Hud(); return; }
     st.prev = st.tile; st.tile = whole; st.fade = st.prev ? 0 : 1;
     st.dirty = true; KeepFine(whole);
@@ -629,7 +670,7 @@ const KEEP_COVER = 0.30;
 // indefinitely -- measured, 4.61 m/px still on screen at a span that
 // wanted 13.6.
 function Finer(t){
-  return t && t.fine && t.kmPerPx && CoverFrac(t) >= KEEP_COVER;
+  return t && t.fine && t.gen === st.tuneGen && t.kmPerPx && CoverFrac(t) >= KEEP_COVER;
 }
 
 function Install(m){
@@ -637,7 +678,8 @@ function Install(m){
   c.width = c.height = m.res;
   c.getContext("2d").putImageData(new ImageData(m.rgba, m.res, m.res), 0, 0);
   const t = { canvas: c, spanKm: m.spanKm, cxKm: m.cxKm, cyKm: m.cyKm, margin: m.margin,
-              craters: m.craters, pop: m.popCraters, kmPerPx: m.kmPerPx, fine: !!m.fine };
+              craters: m.craters, pop: m.popCraters, kmPerPx: m.kmPerPx, fine: !!m.fine,
+              gen: m.gen };
   // The coarse tile stays as a backdrop under whatever is in front,
   // which is what lets the fine one be built barely wider than the
   // window: a pan between tiles exposes soft ground instead of black.
@@ -678,7 +720,7 @@ function Tune(){
   return Object.assign({}, TC.DEFAULT_TUNE, {
     crisp: Crisp() ? 1 : 0,
     bands: st.style === 3 ? 9 : 0
-  });
+  }, LayerTune() || {});
 }
 
 // In hard mode the tile size is dictated by the window, not chosen: one
@@ -1202,6 +1244,8 @@ window.addEventListener("keydown", e => {
   else if (e.key === "ArrowRight"){ st.cxKm += step; st.dirty = true; MaybeRegenerate(); }
   else if (e.key === "ArrowUp"){ st.cyKm -= step; st.dirty = true; MaybeRegenerate(); }
   else if (e.key === "ArrowDown"){ st.cyKm += step; st.dirty = true; MaybeRegenerate(); }
+  else if (e.key === "d" || e.key === "D") ShowDetail();
+  else if (e.key === "Escape") ShowDetail(false);
   else if (e.key === "g" || e.key === "G"){
     st.gpu = st.gpu === 1 ? 0 : 1;
     st.fineRes = 0; SyncRefine(); WriteHash(); ArmRefine();
@@ -1210,6 +1254,195 @@ window.addEventListener("keydown", e => {
   else return;
   e.preventDefault();
 });
+
+/* --- the detail layers ------------------------------------------------
+   Six things the synthesis invents below the mosaic's floor, each one
+   switchable and each one timed. The profile said the detail is where
+   the seconds go; this is how to see which detail, and what it buys.
+
+   The timing is a difference, not a guess: the tile is built with
+   everything on, then once per layer with that layer alone removed, and
+   the gap is what the layer costs. Measured on whichever path is
+   actually drawing, so the numbers are the ones you are paying.
+   -------------------------------------------------------------------- */
+const LAYERS = [
+  { key: "subRough",   name: "Fractal relief", off: 0,
+    note: "the ground's roughness continued below the mosaic" },
+  { key: "subCraters", name: "Crater field",   off: 0,
+    note: "impacts, in bands halving down to a few pixels" },
+  { key: "clasts",     name: "Clasts",         off: 0,
+    note: "rocks, as relief, so the sun lights each one" },
+  { key: "subGrit",    name: "Grit",           off: 0,
+    note: "the pixel's own noise, the one term below the world" },
+  { key: "subMottle",  name: "Mottle",         off: 0,
+    note: "the regolith's broad tone, albedo only" },
+  { key: "shadows",    name: "Cast shadows",   off: 0,
+    note: "the horizon march toward the sun" }
+];
+const layerOn = {};                       // key -> true/false
+const layerMs = {};                       // key -> measured cost
+for (const L of LAYERS) layerOn[L.key] = true;
+
+// What to hand the synthesis for the current switch positions. Null when
+// everything is on, so the normal path is untouched.
+function LayerTune(){
+  const off = LAYERS.filter(L => !layerOn[L.key]);
+  if (!off.length) return null;
+  const t = {};
+  for (const L of off) t[L.key] = L.off;
+  return t;
+}
+function LayersAllOn(){ return LAYERS.every(L => layerOn[L.key]); }
+
+function DrawTable(){
+  const rows = LAYERS.map(L => {
+    const ms = layerMs[L.key];
+    const cost = ms === undefined ? "—"
+      : ms < 1 ? "<1 ms" : ms < 1000 ? `${ms.toFixed(0)} ms` : `${(ms / 1000).toFixed(2)} s`;
+    const share = (ms !== undefined && layerMs.__all)
+      ? `${(100 * ms / layerMs.__all).toFixed(0)}%` : "";
+    return `<tr class="${layerOn[L.key] ? "" : "off"}" data-k="${L.key}" title="${L.note}">`
+         + `<td class="n"><span class="sw">${layerOn[L.key] ? "▣" : "▢"}</span>${L.name}</td>`
+         + `<td class="t">${cost}</td><td class="b">${share}</td></tr>`;
+  });
+  if (layerMs.__floor !== undefined)
+    rows.push(`<tr><td class="n" style="color:var(--dimmer)">everything else</td>`
+            + `<td class="t" style="color:var(--dim)">`
+            + `${(layerMs.__floor / 1000).toFixed(2)} s</td>`
+            + `<td class="b">${(100 * layerMs.__floor / layerMs.__all).toFixed(0)}%</td></tr>`);
+  if (layerMs.__all !== undefined)
+    rows.push(`<tr><td class="n" style="color:var(--dimmer)">whole tile</td>`
+            + `<td class="t" style="color:var(--am-lit)">`
+            + `${(layerMs.__all / 1000).toFixed(2)} s</td><td class="b"></td></tr>`);
+  $("dtab").innerHTML = rows.join("");
+  [...$("dtab").querySelectorAll("tr[data-k]")].forEach(tr => {
+    tr.addEventListener("click", () => {
+      layerOn[tr.dataset.k] = !layerOn[tr.dataset.k];
+      DrawTable(); ReRender();
+    });
+  });
+}
+function ShowDetail(on){
+  $("detail").hidden = on === undefined ? !$("detail").hidden : !on;
+  if (!$("detail").hidden) DrawTable();
+}
+
+// Re-make the tile at the current switch positions, without disturbing
+// the rung cache: the layers all live in the last rung.
+function ReRender(){
+  // A switch change makes every tile on hand wrong, the same way moving
+  // does. Without this the fine tile still "fitted" the view, so nothing
+  // was rebuilt and the toggles moved nothing at all.
+  st.tuneGen++;
+  st.fineRes = 0;
+  clearTimeout(fineTimer); st.fining = false;
+  if (fineSet) fineSet.dead = true;
+  fineCache = [];
+  ArmRefine();
+  if (!RefineWorth()) Regenerate();
+  Hud();
+}
+
+// One tile, built now, timed. Returns the milliseconds it took.
+function TimeTile(over){
+  return new Promise((resolve, reject) => {
+    const res = FineRes();
+    const t0 = performance.now();
+    if (GpuWorth()){
+      // The macro is the same for every run, so it is fetched once and
+      // only the shading is re-timed -- which is the part the layers are.
+      const done = (lum, frame) => {
+        const t1 = performance.now();
+        GPU.Render({ res, macro: lum, frame, spanKm: st.spanKm * FINE_MARGIN,
+                     tune: Object.assign({}, Tune(), over || {}),
+                     craters: TC.CRATERS, craterParams: TC.DEFAULT_CRATER,
+                     originLat: st.originLat, originLon: st.originLon });
+        resolve(performance.now() - t1);
+      };
+      if (measureMacro) return done(measureMacro.lum, measureMacro.frame);
+      AskMacro(res, (m) => { measureMacro = { lum: m.lum, frame: m.frame }; done(m.lum, m.frame); }, reject);
+      return;
+    }
+    AskTile(res, over, () => resolve(performance.now() - t0), reject);
+  });
+}
+let measureMacro = null;
+
+// The workers, asked directly rather than through the refine machinery,
+// because a measurement must not be dropped for no longer fitting.
+let probeId = 0;
+const probeWaiting = new Map();
+function AskMacro(res, ok, bad){
+  const id = "p" + (++probeId);
+  probeWaiting.set(id, { ok, bad });
+  WORK.fine[0].postMessage({ cmd: "macro", id, probe: true, epoch: st.epoch, res,
+                             margin: FINE_MARGIN, spanKm: st.spanKm * FINE_MARGIN,
+                             offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
+                             cxKm: st.cxKm, cyKm: st.cyKm });
+}
+function AskTile(res, over, ok, bad){
+  const id = "p" + (++probeId);
+  probeWaiting.set(id, { ok, bad });
+  WORK.fine[0].postMessage({ cmd: "view", id, probe: true, epoch: st.epoch, res, fine: true,
+                             margin: FINE_MARGIN, spanKm: st.spanKm * FINE_MARGIN,
+                             offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
+                             cxKm: st.cxKm, cyKm: st.cyKm, tuneOver: over || null });
+}
+
+async function Measure(){
+  if (!WORK){ $("dnote").textContent = "needs a worker"; return; }
+  const btn = $("dmeasure");
+  btn.disabled = true;
+  measureMacro = null;
+  try {
+    // A throwaway run first. The first tile at a resolution also builds
+    // that worker's rung ladder, and without this every layer was
+    // charged for it: six layers each "costing" three seconds out of a
+    // six second tile, adding to 328%.
+    $("dnote").textContent = "warming up…";
+    const warm = await TimeTile(null);
+    // One sample per configuration is not a measurement on a machine
+    // with anything else running: the same layer came back at 293 ms and
+    // then at under one, on the same box, minutes apart. Best of N, which
+    // is the right estimator for a time -- noise only ever adds.
+    const reps = warm < 800 ? 4 : 2;
+    const best = async (over, label) => {
+      let m = Infinity;
+      for (let i = 0; i < reps; i++){
+        $("dnote").textContent = `${label}… ${i + 1}/${reps}`;
+        m = Math.min(m, await TimeTile(over));
+      }
+      return m;
+    };
+    const all = await best(null, "all on");
+    layerMs.__all = all;
+    for (const L of LAYERS){
+      const without = await best({ [L.key]: L.off }, "without " + L.name.toLowerCase());
+      layerMs[L.key] = Math.max(0, all - without);
+      DrawTable();
+    }
+    // And what is left when every one of them is off: the imagery, the
+    // relief proxy, the hillshade and the ramp. The floor.
+    const off = {};
+    for (const L of LAYERS) off[L.key] = L.off;
+    layerMs.__floor = await best(off, "all off");
+    $("dnote").textContent = "cost = tile minus that layer; they overlap, "
+                          + "so the column does not add to 100";
+  } catch (e){
+    $("dnote").textContent = "measure failed";
+  }
+  btn.disabled = false;
+  measureMacro = null;
+  DrawTable();
+  ReRender();
+}
+
+$("dmeasure").addEventListener("click", Measure);
+$("dall").addEventListener("click", () => {
+  for (const L of LAYERS) layerOn[L.key] = true;
+  DrawTable(); ReRender();
+});
+$("dclose").addEventListener("click", () => ShowDetail(false));
 
 /* --- the bar and the regions ------------------------------------------ */
 $("zoom").addEventListener("input", e => {
