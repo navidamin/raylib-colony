@@ -98,6 +98,12 @@ jobs:
         # ...and the shaders, which are where the tile is actually made
         # on any machine with a GPU.
         cp prototypes/planet_visuals/regolith_gpu.js        deploy/regolith/
+        # Stamp the build into the page. Without it there is no telling a
+        # stale tab from a deploy that has not landed, which cost a
+        # playtest round to work out.
+        STAMP="$(git rev-parse --short HEAD) · $(date -u '+%Y-%m-%d %H:%M') UTC"
+        sed -i "s|BUILD_STAMP|${STAMP}|" deploy/regolith/index.html
+        grep -q BUILD_STAMP deploy/regolith/index.html && { echo "stamp not applied"; exit 1; } || true
 
     # One repo has one Pages site and every deploy replaces ALL of it. The
     # excavation branch serves /playtest/ and /extraction/; this step pulls
