@@ -1425,6 +1425,55 @@ rig should keep the shallow column it did establish — the ground is broken and
 the spoil is on it either way. A control that can strand the panel in a state
 with no move available is worse than one that costs the player a bad hole.
 
+### 9.495 Turning the block
+
+An iso block that cannot be turned shows you two of its four walls for ever, and
+the two it hides are the two the survey never has to answer for. Making it
+rotate is a change to the *projection* and to nothing downstream of it, provided
+the yaw goes in at the right place. Reference:
+`../prospecting/prototypes/layer-block.html`.
+
+**Turn the lattice, not the camera.** Rotate the grid offsets about the block's
+centre and then apply the same fixed isometric drop. The vertical axis stays
+screen-vertical at every angle, so a metre is the same number of pixels down as
+it always was: the depth ruler still rules, the drill is still drawn straight,
+and every overlay that was parameterised in depth needs no thought at all.
+
+**One quantity settles everything: screen depth, `a′ + b′`.** Its sign says which
+faces are front-facing (normal pointing down-screen), which corner is hidden
+round the back (the shallowest — draw verticals on the other three), and which
+way to sweep each lattice axis so a heightfield paints back-to-front with no
+sorting at all. Write it once and read it four times.
+
+**Face shading has to follow the face.** As the block turns, a wall swings from
+the shaded side of the key light to the lit one; interpolate the two face tones
+by the normal's screen-x, or the block stops being lit and starts being a
+diagram. For the same reason take the light's azimuth *against the lattice*
+(`lightAz − yaw`), so the key stays put in the room while the block turns
+under it.
+
+**Make the four faces a continuous loop.** Face *f* ends exactly where face
+*f + 1* begins, so one perimeter parameter runs all the way round and one fog
+field covers every wall and meets itself at every corner. Then a per-face table
+of "step *t* → lattice cell" is the only face-specific code in the panel.
+
+Two traps, both paid for here:
+
+- **A face table written as a literal freezes the lattice size.** `c0: [0, N]`
+  in a `const` at module scope captures `N` while it is still undefined; the
+  paths still come out right (their closures read the live `N`) but every
+  *projected* overlay gets a NaN transform, draws nothing, and looks precisely
+  like a face nobody remembered to fog. Derive the corners from the stepping
+  function.
+- **Each face's raster hangs off its own starting corner, at that corner's
+  height.** Hanging it off the datum works for whichever face happens to start
+  at the datum and puts the other face's fog a hundred pixels too high.
+
+**Drag the block, not a handle** — the block *is* the handle. That means
+press-and-release has to be told apart from press-drag-release, so the whole
+click path moves from pointerdown to pointerup. Yaw touches no geology, so a
+drag re-projects and never re-derives the height field.
+
 ### 9.5 The animation recipes
 
 Approved in the drill-dock prototype; reuse verbatim:

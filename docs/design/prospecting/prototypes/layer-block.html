@@ -109,8 +109,10 @@ input[type=range]:focus-visible{outline:2px solid var(--cy);outline-offset:3px;b
     stands, a little from the far corner of the block, nothing below the depth it reached
     &mdash; and what you are shown is an <b>estimate</b>, so each hole visibly re&#8209;fits it.
     Beds rise, dips shallow out, a level bed turns out to roll. At <b>5% fog the model is
-    called settled</b> and stops moving. <kbd>Esc</kbd> backs out of a planted rig, keeping
-    the shallow hole it did make.</p>
+    called settled</b> and stops moving. <b>Drag the block to turn it</b> &mdash; all four walls
+    are cut, all four are fogged, and every hole speaks to every one of them, most to the
+    wall it stands nearest. <kbd>Esc</kbd> backs out of a planted rig, keeping the shallow
+    hole it did make.</p>
   </header>
 
   <div class="stage"><canvas id="cv" width="1520" height="1760" aria-label="Isometric block of four rock strata"></canvas></div>
@@ -430,7 +432,7 @@ const P = {
   crater: 1, craterDepth: 9.0, craterR: 0.24, craterRim: 0.35,
   craterLayer: 1, craterInfill: 0.45, craterX: 0.38, craterY: 0.44,
   t0: 12, t1: 22, t2: 34, t3: 52,
-  tilt: 0.42, lattice: 28, depthScale: 3.3,
+  yaw: 0, tilt: 0.42, lattice: 28, depthScale: 3.3,
   shade: 1.0, lightAz: 29, faceL: 0.64, faceR: 0.84,
   texAmt: 1.0, texScale: 2.0, seam: 0.95, lip: 0.55,
   bar: 1, running: 0, grid: 0, lips: 1, solo: 0,
@@ -499,6 +501,82 @@ let STRIP_X = 574, STRIP_CX = 626;
 let CLIP_TOP = 0, CLIP_BOT = 880;
 let FIT = { s: 1, tx: 0, ty: 0 };
 const YOf = m => SURF_Y + m * PX_PER_M;
+/* =====================================================================
+   THE CAMERA -- one yaw, in one place
+   ---------------------------------------------------------------------
+   The block turns about its own vertical axis, and the axis is still
+   screen-vertical, so nothing about depth changes: a metre is the same
+   number of pixels down at every angle, the depth ruler still rules, and
+   the drill is still drawn straight. What turns is the LATTICE, before
+   the fixed isometric drop -- which is why every generalisation below is
+   about which of the four faces you are looking at, and never about how
+   a face is drawn.
+
+       screen x = (a' - b') * TX          a', b' = the lattice offsets
+       screen y = depth + (a' + b') * TY  from the centre, rotated by yaw
+
+   Screen depth grows with (a' + b'), so that sum is also the painter's
+   key: which faces are front, which corner is hidden, and which way to
+   sweep the cap all fall out of its sign.
+   ===================================================================== */
+let YC = 1, YS = 0;
+const SetYaw = () => { const r = P.yaw * Math.PI / 180; YC = Math.cos(r); YS = Math.sin(r); };
+const RotA = (a, b) => a * YC - b * YS;
+const RotB = (a, b) => a * YS + b * YC;
+const ProjX = (i, j) => { const a = i - N * 0.5, b = j - N * 0.5;
+  return BLK_CX + (RotA(a, b) - RotB(a, b)) * TX; };
+const ProjY = (i, j, m) => { const a = i - N * 0.5, b = j - N * 0.5;
+  return YOf(m) + (RotA(a, b) + RotB(a, b)) * TY; };
+const DepthOf = (a, b) => RotA(a, b) + RotB(a, b);
+/* The four cut faces, as a continuous loop around the block: face f ends
+   exactly where face f+1 begins, which is what lets ONE fog field run all the
+   way round instead of four that meet badly at the corners. */
+/* `at` is a FUNCTION of the step along the face, and the corners are read out
+   of it, because the lattice size is not known when this table is written --
+   a literal [0, N] here freezes an undefined N into every projected overlay
+   and the fog lands as a NaN transform, which draws nothing and looks exactly
+   like a face that was never fogged. */
+const FACES = [
+  { nx: 0, ny: 1,  at: t => [t, N] },        // j = N
+  { nx: 1, ny: 0,  at: t => [N, N - t] },    // i = N
+  { nx: 0, ny: -1, at: t => [N - t, 0] },    // j = 0
+  { nx: -1, ny: 0, at: t => [0, t] }         // i = 0
+];
+/* Which two you can see, far one first. A face is front-facing when its
+   outward normal points down-screen, which is the same test as everything
+   else here: the sign of its depth. */
+let VIS = [0, 1];
+function FrontFaces(){
+  const out = [];
+  for (let f = 0; f < 4; f++){
+    const d = DepthOf(FACES[f].nx, FACES[f].ny);
+    if (d > 1e-6) out.push({ f, d });
+  }
+  out.sort((a, b) => a.d - b.d);
+  VIS = out.map(o => o.f);
+  if (!VIS.length) VIS = [0];           // dead-on: never draw nothing
+}
+/* Face shading follows the face, not its index: as the block turns, a wall
+   swings from the shaded side of the key light to the lit one, and the tone
+   has to swing with it or the block stops being lit at all. */
+function FaceShade(f){
+  const rx = RotA(FACES[f].nx, FACES[f].ny), ry = RotB(FACES[f].nx, FACES[f].ny);
+  return lerp(P.faceL, P.faceR, clamp(0.5 + 0.5 * (rx - ry) / 1.4142, 0, 1));
+}
+/* Where a face starts and how long it is ON SCREEN: the origin and unit vector
+   every overlay projected onto that face shares. `yAt` is the part that has to
+   be asked for rather than assumed -- a face's starting corner sits at its own
+   height in the iso drop, and hanging the raster off the datum instead put the
+   whole of one face's fog a hundred pixels too high. */
+function FaceAxis(f){
+  const A = FACES[f].at(0), B = FACES[f].at(N);
+  const x0 = ProjX(A[0], A[1]), y0 = ProjY(A[0], A[1], 0);
+  const x1 = ProjX(B[0], B[1]), y1 = ProjY(B[0], B[1], 0);
+  const run = Math.max(1e-4, Math.hypot(x1 - x0, y1 - y0));
+  return { x0, y0, ux: (x1 - x0) / run, uy: (y1 - y0) / run, run,
+           yAt: m => ProjY(A[0], A[1], m) };
+}
+const FaceK = (f, t) => { const c = FACES[f].at(t); return c[1] * STRIDE + c[0]; };
 const DepthAtY = y => clamp((y - SURF_Y) / PX_PER_M, 0, FULL_COLUMN_M);
 const layerOfM = m => { for (let L = 3; L >= 0; L--) if (m >= LAYER_TOP_M[L]) return L; return 0; };
 
@@ -684,6 +762,7 @@ function Reproject(){
                     SURF_FROM[0].length !== SURF_TO[0].length)){
     SURF_FROM = null; morphT = 1;                 // the lattice changed under it
   }
+  SetYaw(); FrontFaces();
   const e = (!SURF_FROM || morphT >= 1) ? 1 : morphT * morphT * (3 - 2 * morphT);
   for (let L = 0; L < SURF_TO.length; L++){
     const to = SURF_TO[L], out = SURF[L];
@@ -694,11 +773,13 @@ function Reproject(){
 
   // Where the body actually reaches, measured rather than assumed.
   let rise = 0, drop = 0;
+  const botL = P.solo ? (st.sel < 0 ? 1 : st.sel + 1) : 4;
   for (let j = 0; j <= N; j++)
     for (let i = 0; i <= N; i++){
-      const k = j * STRIDE + i, off = (i + j - N) * TY;
+      const k = j * STRIDE + i;
+      const off = DepthOf(i - N * 0.5, j - N * 0.5) * TY;
       rise = Math.max(rise, -(SURF[0][k] * PX_PER_M + off));
-      drop = Math.max(drop, SURF[P.solo ? (st.sel < 0 ? 1 : st.sel + 1) : 4][k] * PX_PER_M + off);
+      drop = Math.max(drop, SURF[botL][k] * PX_PER_M + off);
     }
   const RIG_SKY = P.bar ? 74 : 10;
   SURF_Y = 26 + Math.max(rise, RIG_SKY);
@@ -719,8 +800,9 @@ function Reproject(){
     for (let j = 0; j <= N; j++)
       for (let i = 0; i <= N; i++){
         const k = j * STRIDE + i;
-        sx[k] = BLK_CX + (i - j) * TX;
-        sy[k] = YOf(d[k]) + (i + j - N) * TY;
+        const a = i - N * 0.5, b = j - N * 0.5;
+        sx[k] = BLK_CX + (RotA(a, b) - RotB(a, b)) * TX;
+        sy[k] = YOf(d[k]) + (RotA(a, b) + RotB(a, b)) * TY;
       }
     SPX.push(sx); SPY.push(sy);
   }
@@ -808,14 +890,15 @@ function KnowAt(i, j, m){
    stops moving. Without a ceiling the interfaces would keep creeping for ever
    by amounts too small to see and too large to ignore. */
 const Confidence = k => clamp(k / K_FULL, 0, 1);
-/* The same field, sampled where a cut face actually is: `x` runs around the
-   visible perimeter, so the first half is the j = N edge and the second the
-   i = N edge. */
+/* The same field, sampled where a cut face actually is. `x` runs around the
+   WHOLE perimeter now -- a quarter per face, in the loop order FACES is
+   written in -- so a hole speaks to all four walls of the block on exactly the
+   same terms, and the field stays continuous across every corner. */
 function FaceKnow(x, y){
   if (!reveals.length) return 0;
-  const first = x < 0.5;
-  const idx = first ? x * 2 * N : (x - 0.5) * 2 * N;
-  return clamp(KnowAt(first ? idx : N, first ? N : idx, y * COLUMN_M), 0, 1);
+  const f = Math.min(3, x * 4 | 0), t = (x * 4 - f) * N;
+  const c = FACES[f].at(t);
+  return clamp(KnowAt(c[0], c[1], y * COLUMN_M), 0, 1);
 }
 
 /* The whole law. `pp` runs 0..1 around the block's VISIBLE perimeter and `tt`
@@ -892,7 +975,7 @@ const FOG_MARGIN_M = 8;
    Detail you can see per pixel; structure you cannot, per five. */
 const FOG_W = 224, FOG_H = 352, FOG_CO = 4;
 const GRIT_SEED = 0x51c7;
-let fogKey = "", fogFace = [null, null], mskFace = [null, null];
+let fogKey = "", fogFace = [null, null, null, null], mskFace = [null, null, null, null];
 
 function BuildFogSide(side){
   const cw = Math.ceil(FOG_W / FOG_CO) + 1, ch = Math.ceil(FOG_H / FOG_CO) + 1;
@@ -901,7 +984,7 @@ function BuildFogSide(side){
   for (let cy = 0; cy < ch; cy++)
     for (let cx = 0; cx < cw; cx++){
       const x = Math.min(cx * FOG_CO, FOG_W - 1), y = Math.min(cy * FOG_CO, FOG_H - 1);
-      const pp = (side === 0 ? 0 : 0.5) + x / (FOG_W - 1) * 0.5;
+      const pp = (side + x / (FOG_W - 1)) * 0.25;
       const tt = (-FOG_MARGIN_M + y / (FOG_H - 1) * span) / Math.max(COLUMN_M, 1);
       KG[cy * cw + cx] = FaceKnow(pp, tt);
       NG[cy * cw + cx] = FogNoise(pp, tt);
@@ -940,40 +1023,25 @@ function EnsureFog(topB){
              COLUMN_M, TOPS.join(","), topB, N, revealRev].join("|");
   if (k === fogKey) return;
   fogKey = k;
-  BuildFogSide(0); BuildFogSide(1);
+  for (let f = 0; f < 4; f++) BuildFogSide(f);
 }
 
 /* The face path across a RANGE of interfaces, so the unknown body, the haze
    and the mask are each laid on the whole exposed side in one pass, with no
    seam at a bedding plane -- and, for the unknown body, no bedding plane. */
-function FacePathSpan(side, topB, botB){
-  const xt = SPX[topB], yt = SPY[topB], xb = SPX[botB], yb = SPY[botB];
-  CTX.beginPath();
-  if (side === 0){
-    for (let i = 0; i <= N; i++){ const k = N * STRIDE + i;
-      i === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
-    for (let i = N; i >= 0; i--){ const k = N * STRIDE + i; CTX.lineTo(xb[k], yb[k]); }
-  } else {
-    for (let j = 0; j <= N; j++){ const k = j * STRIDE + N;
-      j === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
-    for (let j = N; j >= 0; j--){ const k = j * STRIDE + N; CTX.lineTo(xb[k], yb[k]); }
-  }
-  CTX.closePath();
-}
+
 /* One projection used by all three overlays, so haze, mask and reveal cannot
    land in different places. */
 function ProjectTriple(topB, botB, faceCvs, capFill){
-  const len = Math.hypot(TX, TY), run = N * len;
   const span = COLUMN_M + 2 * FOG_MARGIN_M;
-  for (const side of [0, 1]){
+  for (const f of VIS){
+    const ax = FaceAxis(f);
     CTX.save();
-    FacePathSpan(side, topB, botB); CTX.clip();
+    FacePathSpan(f, topB, botB); CTX.clip();
     CTX.imageSmoothingEnabled = true;
-    const ox = BLK_CX + (side === 0 ? -N * TX : N * TX);
-    const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
-    CTX.transform(ux * run / FOG_W, uy * run / FOG_W, 0, span * PX_PER_M / FOG_H,
-                  ox, YOf(-FOG_MARGIN_M));
-    CTX.drawImage(faceCvs[side], 0, 0);
+    CTX.transform(ax.ux * ax.run / FOG_W, ax.uy * ax.run / FOG_W, 0,
+                  span * PX_PER_M / FOG_H, ax.x0, ax.yAt(-FOG_MARGIN_M));
+    CTX.drawImage(faceCvs[f], 0, 0);
     CTX.restore();
   }
   /* The cap is not projected. It is collapsed by definition -- you can see the
@@ -991,16 +1059,13 @@ function ProjectTriple(topB, botB, faceCvs, capFill){
    absent -- which is the point, and is why this cannot be done by dimming. */
 function DrawUnknown(topB, botB){
   const g = TexGain(P.texAmt);
-  const len = Math.hypot(TX, TY), run = N * len;
   const depthPx = (COLUMN_M + 2 * FOG_MARGIN_M) * PX_PER_M;
-  for (const side of [0, 1]){
-    const shade = side === 0 ? P.faceL : P.faceR;
-    CTX.fillStyle = rgb(scalec(UNK_COL, shade * g));
-    FacePathSpan(side, topB, botB); CTX.fill();
-    const ox = BLK_CX + (side === 0 ? -N * TX : N * TX);
-    const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
-    TexOverFace(() => FacePathSpan(side, topB, botB), 4, 0,
-                ox, YOf(-FOG_MARGIN_M), ux, uy, run, depthPx);
+  for (const f of VIS){
+    const ax = FaceAxis(f);
+    CTX.fillStyle = rgb(scalec(UNK_COL, FaceShade(f) * g));
+    FacePathSpan(f, topB, botB); CTX.fill();
+    TexOverFace(() => FacePathSpan(f, topB, botB), 4, 0,
+                ax.x0, ax.yAt(-FOG_MARGIN_M), ax.ux, ax.uy, ax.run, depthPx);
   }
   CTX.fillStyle = rgb(scalec(UNK_COL, g));
   SurfacePath(topB); CTX.fill();
@@ -1016,8 +1081,7 @@ function FogFrame(topB, botB){
   // Only the two FRONT edges. Stroking the whole base diamond also draws its
   // two back edges, which the body hides -- and they came out as a pair of
   // diagonals ruled across both faces, an edge of a shape you cannot see.
-  BoundaryStroke(botB, 0, e, 1.2, 0);
-  BoundaryStroke(botB, 1, e, 1.2, 0);
+  for (const f of VIS) BoundaryStroke(botB, f, e, 1.2, 0);
   CornerVerticals(topB, botB, e, 1.4);
 }
 
@@ -1083,10 +1147,18 @@ function DrawSurface(geo, texL, light){
   const perCell = N / Math.max((hi - lo) * PX_PER_M, 6.0);
   const rock = ROCK_COL[Math.min(geo, 3)];
   const g = TexGain(P.texAmt);
-  const a = P.lightAz * Math.PI / 180;
+  // The key light stays where it is in the ROOM while the block turns under
+  // it, so the azimuth is taken against the lattice, which is what rotates.
+  const a = (P.lightAz - P.yaw) * Math.PI / 180;
   const wt = 0.515 * P.shade * Math.cos(a), wl = 0.515 * P.shade * Math.sin(a);
-  for (let j = 0; j < N; j++){
-    for (let i = 0; i < N; i++){
+  /* Back to front, at any angle. Screen depth grows with (a' + b'), so the
+     sweep direction of each lattice axis is just the sign of what a step along
+     it contributes -- and a heightfield swept that way needs no sorting. */
+  const di = (YC + YS) >= 0 ? 1 : -1, dj = (YC - YS) >= 0 ? 1 : -1;
+  for (let jn = 0; jn < N; jn++){
+    const j = dj > 0 ? jn : N - 1 - jn;
+    for (let inn = 0; inn < N; inn++){
+      const i = di > 0 ? inn : N - 1 - inn;
       const k00 = j * STRIDE + i, k10 = k00 + 1, k01 = k00 + STRIDE, k11 = k01 + 1;
       const l00 = -d[k00] * PX_PER_M, l10 = -d[k10] * PX_PER_M,
             l01 = -d[k01] * PX_PER_M, l11 = -d[k11] * PX_PER_M;
@@ -1107,43 +1179,34 @@ function DrawSurface(geo, texL, light){
 
 /* The two faces the viewer can see: j = N falls away to the lower left,
    i = N is turned toward the key light. */
-function FacePath(side, L){
-  const xt = SPX[L], yt = SPY[L], xb = SPX[L + 1], yb = SPY[L + 1];
+function EdgePath(f, topL, botL){
+  const xt = SPX[topL], yt = SPY[topL], xb = SPX[botL], yb = SPY[botL];
   CTX.beginPath();
-  if (side === 0){
-    for (let i = 0; i <= N; i++){ const k = N * STRIDE + i;
-      i === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
-    for (let i = N; i >= 0; i--){ const k = N * STRIDE + i; CTX.lineTo(xb[k], yb[k]); }
-  } else {
-    for (let j = 0; j <= N; j++){ const k = j * STRIDE + N;
-      j === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
-    for (let j = N; j >= 0; j--){ const k = j * STRIDE + N; CTX.lineTo(xb[k], yb[k]); }
-  }
+  for (let t = 0; t <= N; t++){ const k = FaceK(f, t);
+    t === 0 ? CTX.moveTo(xt[k], yt[k]) : CTX.lineTo(xt[k], yt[k]); }
+  for (let t = N; t >= 0; t--){ const k = FaceK(f, t); CTX.lineTo(xb[k], yb[k]); }
   CTX.closePath();
 }
+const FacePath = (f, L) => EdgePath(f, L, L + 1);
+const FacePathSpan = (f, topB, botB) => EdgePath(f, topB, botB);
 function DrawFaces(L){
   const rock = ROCK_COL[L], g = TexGain(P.texAmt);
   const depthPx = (LAYER_BOT_M[L] - LAYER_TOP_M[L]) * PX_PER_M + 4 * RELIEF_PX + 8;
-  const len = Math.hypot(TX, TY), run = N * len;
-  for (const side of [0, 1]){
-    const shade = side === 0 ? P.faceL : P.faceR;
-    CTX.fillStyle = rgb(scalec(rock, shade * g));
-    FacePath(side, L); CTX.fill();
-    const k0 = side === 0 ? N * STRIDE : N;
-    const ox = SPX[L][k0], oy = YOf(LAYER_TOP_M[L]) - 2 * RELIEF_PX - 4;
-    const ux = (side === 0 ? TX : -TX) / len, uy = TY / len;
-    TexOverFace(() => FacePath(side, L), L, L, ox, oy, ux, uy, run, depthPx);
+  for (const f of VIS){
+    const ax = FaceAxis(f);
+    CTX.fillStyle = rgb(scalec(rock, FaceShade(f) * g));
+    FacePath(f, L); CTX.fill();
+    const oy = ax.yAt(LAYER_TOP_M[L]) - 2 * RELIEF_PX - 4;
+    TexOverFace(() => FacePath(f, L), L, L, ax.x0, oy, ax.ux, ax.uy, ax.run, depthPx);
   }
 }
 
-function BoundaryStroke(L, side, col, w, dy){
+function BoundaryStroke(L, f, col, w, dy){
   const x = SPX[L], y = SPY[L], o = dy || 0;
   CTX.strokeStyle = col; CTX.lineWidth = w;
   CTX.beginPath();
-  if (side === 0) for (let i = 0; i <= N; i++){ const k = N * STRIDE + i;
-    i === 0 ? CTX.moveTo(x[k], y[k] + o) : CTX.lineTo(x[k], y[k] + o); }
-  else for (let j = 0; j <= N; j++){ const k = j * STRIDE + N;
-    j === 0 ? CTX.moveTo(x[k], y[k] + o) : CTX.lineTo(x[k], y[k] + o); }
+  for (let t = 0; t <= N; t++){ const k = FaceK(f, t);
+    t === 0 ? CTX.moveTo(x[k], y[k] + o) : CTX.lineTo(x[k], y[k] + o); }
   CTX.stroke();
 }
 /* A bedding plane as it reads on a cut face: a dark seam with the newly
@@ -1152,13 +1215,20 @@ function BoundaryStroke(L, side, col, w, dy){
    is not a line. Both halves are levers because which one carries depends
    entirely on how bright the rest of the block ends up. */
 function BeddingLine(L){
-  for (const side of [0, 1]){
-    if (P.seam > 0.01) BoundaryStroke(L, side, rgb(ROCK_EDGE[Math.min(L,3)], P.seam), 2.2, 0);
+  for (const f of VIS){
+    if (P.seam > 0.01) BoundaryStroke(L, f, rgb(ROCK_EDGE[Math.min(L,3)], P.seam), 2.2, 0);
     if (P.lips && P.lip > 0.01)
-      BoundaryStroke(L, side, rgb(scalec(ROCK_COL[Math.max(L-1,0)], 1.9), P.lip), 1.1, -1.7);
+      BoundaryStroke(L, f, rgb(scalec(ROCK_COL[Math.max(L-1,0)], 1.9), P.lip), 1.1, -1.7);
   }
 }
-const CornerK = () => [N * STRIDE, N * STRIDE + N, N];
+/* The corners on the silhouette: all of them except the one hidden round the
+   back, which is always the shallowest. */
+const CornerK = () => {
+  const c = [[0,0],[N,0],[0,N],[N,N]].map(p =>
+    ({ k: p[1] * STRIDE + p[0], d: DepthOf(p[0] - N * 0.5, p[1] - N * 0.5) }));
+  c.sort((a, b) => b.d - a.d);
+  return [c[0].k, c[1].k, c[2].k];
+};
 function CornerVerticals(topL, botL, col, w){
   CTX.strokeStyle = col; CTX.lineWidth = w;
   for (const k of CornerK()){
@@ -1255,10 +1325,8 @@ function DrawRealBody(){
     CornerVerticals(0, 4, dark, 2.6);
     CTX.strokeStyle = rgb(TEXT, 0.34); CTX.lineWidth = 1.3;
     SurfacePath(0); CTX.stroke();
-    if (P.seam > 0.01){
-      BoundaryStroke(4, 0, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
-      BoundaryStroke(4, 1, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
-    }
+    if (P.seam > 0.01)
+      for (const f of VIS) BoundaryStroke(4, f, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
     if (P.grid) DrawLattice();
     return;
   }
@@ -1267,19 +1335,15 @@ function DrawRealBody(){
   DrawSurface(floorGeo, Math.min(sel + 1, 3), 1.0);
   for (let L = sel + 2; L <= 3; L++) BeddingLine(L);
   CornerVerticals(floorGeo, 4, dark, 2.6);
-  if (P.seam > 0.01){
-    BoundaryStroke(4, 0, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
-    BoundaryStroke(4, 1, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
-  }
+  if (P.seam > 0.01)
+    for (const f of VIS) BoundaryStroke(4, f, rgb(ROCK_EDGE[3], P.seam), 2.2, 0);
   AsSeenThrough(ALPHA_SLAB, () => { DrawFaces(sel); DrawSurface(sel, sel, 1.0); });
   // A translucent body has no silhouette of its own; the line is what says
   // where it starts and stops, top and floor both.
   CTX.strokeStyle = rgb(TEXT, 0.88); CTX.lineWidth = 1.6;
   SurfacePath(sel); CTX.stroke();
-  BoundaryStroke(sel, 0, rgb(TEXT, 0.75), 1.6, 0);
-  BoundaryStroke(sel, 1, rgb(TEXT, 0.75), 1.6, 0);
-  BoundaryStroke(floorGeo, 0, rgb(TEXT, 0.50), 1.5, 0);
-  BoundaryStroke(floorGeo, 1, rgb(TEXT, 0.50), 1.5, 0);
+  for (const f of VIS) BoundaryStroke(sel, f, rgb(TEXT, 0.75), 1.6, 0);
+  for (const f of VIS) BoundaryStroke(floorGeo, f, rgb(TEXT, 0.50), 1.5, 0);
   CornerVerticals(sel, floorGeo, rgb(TEXT, 0.62), 1.5);
   if (P.grid) DrawLattice();
 }
@@ -1659,7 +1723,8 @@ function DrawCursors(){
       CTX.beginPath(); CTX.moveTo(STRIP_X, YOf(m)); CTX.lineTo(STRIP_X + STRIP_W, YOf(m)); CTX.stroke();
       // sideways only: the twin rides a level line, because iso screen x is
       // (i - j) and that is the axis the body already shows
-      diamond(STRIP_X + STRIP_W * (0.5 + 0.36 * (i - j) / N), YOf(m), pulse, rgb(AMBER), 1);
+      const across = clamp((ProjX(i, j) - BLK_CX) / (N * TX), -1, 1);
+      diamond(STRIP_X + STRIP_W * (0.5 + 0.36 * across), YOf(m), pulse, rgb(AMBER), 1);
     }
   } else if (st.ground !== null){
     diamond(st.vx, st.vy, 3.6, rgb(TEXT), 0.45);
@@ -1673,9 +1738,12 @@ function DrawCursors(){
 function PickCell(L, vx, vy){
   let m = TOPS[Math.min(L,3)], i = 0, j = 0;
   for (let pass = 0; pass < 3; pass++){          // the surface is lifted, so
-    const s = (vy - YOf(m)) / TY + N, t = (vx - BLK_CX) / TX;   // the depth term
-    i = clamp(Math.floor((s + t) * 0.5), 0, N - 1);             // depends on the
-    j = clamp(Math.floor((s - t) * 0.5), 0, N - 1);             // answer
+    const t = (vx - BLK_CX) / TX;                // the depth term depends on
+    const sy = (vy - YOf(m)) / TY;               // the answer
+    const rx = (sy + t) * 0.5, ry = (sy - t) * 0.5;   // undo the iso drop,
+    const a = rx * YC + ry * YS, b = ry * YC - rx * YS;   // then the yaw
+    i = clamp(Math.floor(a + N * 0.5), 0, N - 1);
+    j = clamp(Math.floor(b + N * 0.5), 0, N - 1);
     m = SURF[L][j * STRIDE + i];
   }
   return { L, i, j };
@@ -1698,8 +1766,8 @@ function UpdatePick(){
     }
   }
   for (let L = top; L <= 3; L++)
-    for (const side of [0, 1]){
-      FacePath(side, L);
+    for (const f of VIS){
+      FacePath(f, L);
       if (CTX.isPointInPath(dx, dy)){ st.hover = L; return; }
     }
   if (st.vx > BLK_X - GUT && st.vx < STRIP_X) st.ground = DepthAtY(st.vy);
@@ -1907,8 +1975,8 @@ function DrawSpatter(){
   for (const p of spatter){
     const i = clamp(p.i, 0, N), j = clamp(p.j, 0, N);
     const k = Math.round(j) * STRIDE + Math.round(i);
-    const x = BLK_CX + (p.i - p.j) * TX;
-    const yv = YOf(SURF[0][k] - p.z) + (p.i + p.j - N) * TY;
+    const x = ProjX(p.i, p.j);
+    const yv = ProjY(p.i, p.j, SURF[0][k] - p.z);
     CTX.fillStyle = rgb(scalec(p.col, p.z > 3 ? 1.9 : 1.3));
     CTX.fillRect(x, yv, p.sz, p.sz * 0.8);
   }
@@ -2322,6 +2390,7 @@ const SCHEMA = [
     ] },
   { title: "Body", note: "The block itself, and how deep a metre is drawn.",
     items: [
+      { k:"yaw",        lab:"Rotate",       min:0,    max:359, step:1,   fmt:deg },
       { k:"tilt",       lab:"Tilt",        min:0.1, max:0.8, step:0.01,
         fmt:v => v.toFixed(2) + " : 1" },
       { k:"lattice",    lab:"Lattice",     min:8,   max:44,  step:2,
@@ -2536,11 +2605,36 @@ function evPos(e){
   const r = CV.getBoundingClientRect();
   return [(e.clientX - r.left) * VW / r.width, (e.clientY - r.top) * H / r.height];
 }
-CV.addEventListener("pointermove", e => { const p = evPos(e); st.mx = p[0]; st.my = p[1]; });
+/* Drag turns the block; a click that did not move still does what a click did.
+   Rotation is not on a handle because the block IS the handle -- but that means
+   press-and-release has to be told apart from press-drag-release, and the whole
+   click path therefore moves from pointerdown to pointerup. Yaw does not touch
+   the height field, so a drag re-projects and never re-derives the geology. */
+let drag = null;
+const DRAG_SLOP = 3;
+CV.addEventListener("pointermove", e => {
+  const p = evPos(e); st.mx = p[0]; st.my = p[1];
+  if (!drag) return;
+  const dx = st.mx - drag.x0;
+  if (Math.abs(dx) > DRAG_SLOP || Math.abs(st.my - drag.y0) > DRAG_SLOP) drag.moved = 1;
+  if (drag.moved){
+    P.yaw = ((drag.yaw0 - dx * 0.42) % 360 + 360) % 360;
+    SyncAll(); Reproject();
+  }
+});
 CV.addEventListener("pointerleave", () => { st.mx = st.my = -1; });
 CV.addEventListener("pointerdown", e => {
   const p = evPos(e); st.mx = p[0]; st.my = p[1];
-  const vx = (st.mx - FIT.tx) / FIT.s, vy = (st.my - FIT.ty) / FIT.s;
+  drag = { x0: p[0], y0: p[1], yaw0: P.yaw, moved: 0 };
+  if (CV.setPointerCapture) try { CV.setPointerCapture(e.pointerId); } catch (err) {}
+});
+CV.addEventListener("pointerup", e => {
+  const p = evPos(e); st.mx = p[0]; st.my = p[1];
+  const d = drag; drag = null;
+  if (d && d.moved){ Changed(); return; }        // it was a turn, not a click
+  ClickAt((st.mx - FIT.tx) / FIT.s, (st.my - FIT.ty) / FIT.s);
+});
+function ClickAt(vx, vy){
   if (dockBox && vx >= dockBox.x && vx <= dockBox.x + dockBox.w &&
       vy >= dockBox.y && vy <= dockBox.y + dockBox.h){
     if (drill.armed && drill.mode !== "aim"){ AbortDrill(); return; }
@@ -2581,7 +2675,7 @@ CV.addEventListener("pointerdown", e => {
   // no control at all.
   st.sel = st.hover >= 0 ? st.hover : -1;
   SyncAll(); Changed();
-});
+}
 window.addEventListener("keydown", e => {
   if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
   if (e.key === "Escape"){
@@ -2589,6 +2683,10 @@ window.addEventListener("keydown", e => {
     if (drill.armed){ drill.armed = 0; return; }
     st.sel = -1; SyncAll(); Changed();
   }
+  else if (e.key === "[" || e.key === "ArrowLeft"){
+    P.yaw = ((P.yaw + 15) % 360 + 360) % 360; SyncAll(); Changed(); }
+  else if (e.key === "]" || e.key === "ArrowRight"){
+    P.yaw = ((P.yaw - 15) % 360 + 360) % 360; SyncAll(); Changed(); }
   else if (e.key >= "0" && e.key <= "3"){ st.sel = parseInt(e.key, 10); SyncAll(); Changed(); }
 });
 
@@ -2618,10 +2716,15 @@ window.__L = () => ({ fit: { s: FIT.s, tx: FIT.tx, ty: FIT.ty },
            sink: +drill.sink.toFixed(2), curM: +drill.curM.toFixed(1),
            depthM: +drill.depthM.toFixed(1) },
   know: (i, j, m) => +KnowAt(i, j, m).toFixed(3),
+  yaw: P.yaw, vis: VIS.slice(),
+  faceKnow: (f, t, dep) => { const c = FACES[f].at(t * N);
+    return KnowAt(c[0], c[1], dep * COLUMN_M); },
+  lastHole: reveals.length ? [reveals[reveals.length-1].i, reveals[reveals.length-1].j] : null,
   morphT: +morphT.toFixed(2), surfAt: (L, i, j) => +SURF[L][j * STRIDE + i].toFixed(2),
   holes: holes.length, bores: bores.map(b => Math.round(b.m)),
   reveals: reveals.length, spatter: spatter.length });
 
+window.__setYaw = y => { P.yaw = y; SyncAll(); Changed(); };
 let last = performance.now();
 (function tick(now){
   const dt = REDUCED ? 0 : clamp((now - last) / 1000, 0, 0.05);
