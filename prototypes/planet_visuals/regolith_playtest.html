@@ -204,7 +204,8 @@ const st = {
   style: 1, px: 3,
   drag: null, pinch: null, dirty: true, mini: null,
   // The refine pass and its supersample ratio. See SUPER_STEPS.
-  super: 1.6, gpu: -1, base: null, epoch: 0, tuneGen: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
+  super: 1.6, gpu: -1, base: null, epoch: 0, tuneGen: 0,
+  fineShadeMs: 0, fineMacroMs: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
 };
 
 /* --- the imagery ------------------------------------------------------ */
@@ -590,6 +591,13 @@ function OnWorker(e){
     st.prev = st.tile; st.tile = whole; st.fade = st.prev ? 0 : 1;
     st.dirty = true; KeepFine(whole);
     st.fineMs = performance.now() - set.t0;
+    // Split, because "turning craters off changed nothing" turned out to
+    // be about which half the time is in. On the GPU the shading is
+    // often the smaller part: the macro -- the rung crop, and shipping a
+    // tile-sized float array back from the worker -- is the rest, and no
+    // detail switch touches it.
+    st.fineShadeMs = out.ms;
+    st.fineMacroMs = st.fineMs - out.ms;
     st.fineRes = m.res;
     Hud(); WriteHash();
     return;
@@ -619,6 +627,7 @@ function OnWorker(e){
     // The wall time, not the slowest piece: what was actually waited.
     st.fineMs = performance.now() - set.t0;
     CPU_FINE_MS = st.fineMs;         // the number the GPU has to beat
+    st.fineShadeMs = 0; st.fineMacroMs = 0;
     st.fineRes = set.res;
     Hud(); WriteHash();
     return;
@@ -1167,6 +1176,8 @@ function Hud(){
     : st.fining ? `×${got.toFixed(1)}${asked} · ${FineRes()}…`
     : st.fineRes ? `×${got.toFixed(1)}${asked} · `
         + (st.fineMs ? `${(st.fineMs / 1000).toFixed(1)} s` : "kept")
+        + (st.fineShadeMs ? ` (macro ${st.fineMacroMs.toFixed(0)}`
+                            + ` + shade ${st.fineShadeMs.toFixed(0)} ms)` : "")
     : RefineWorth() ? "waiting" : "—";
   $("fine").style.color = st.fineRes ? "var(--cy)" : "var(--dimmer)";
   $("cr").textContent = st.tile ? `${st.tile.craters} + ${st.tile.pop}` : "—";
@@ -1435,8 +1446,10 @@ async function Measure(){
     const off = {};
     for (const L of LAYERS) off[L.key] = L.off;
     layerMs.__floor = await best(off, "all off");
-    $("dnote").textContent = "cost = tile minus that layer; they overlap, "
-                          + "so the column does not add to 100";
+    $("dnote").textContent = (GpuWorth()
+        ? "shading only — the macro is the rest of the wait and no switch touches it. "
+        : "")
+      + "cost = tile minus that layer; they overlap, so the column does not add to 100";
   } catch (e){
     $("dnote").textContent = "measure failed";
   }
