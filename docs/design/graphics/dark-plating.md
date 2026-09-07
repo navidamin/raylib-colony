@@ -1425,6 +1425,31 @@ rig should keep the shallow column it did establish — the ground is broken and
 the spoil is on it either way. A control that can strand the panel in a state
 with no move available is worse than one that costs the player a bad hole.
 
+**Give the survey one number, and let it gate what depends on it.** A panel
+whose whole subject is confidence should say what the confidence *is*: mean
+confidence over the block's volume, on a coarse grid, computed from the same
+field the fog is drawn from so the bar and the picture can never disagree. Then
+use it. Controls that are meaningless before the survey is done — here, peeling
+the block apart layer by layer, which reads a number off a shape you invented —
+stay **locked** until the number clears its gate.
+
+- **Borrow the domain's own vocabulary** where it exists. *Inferred /
+  Indicated / Measured* are real resource categories and carry the whole idea
+  in one word each; "38%" alone does not tell anyone what kind of thing they
+  are looking at.
+- **Prove the gate is reachable before you set it, arithmetically.** A
+  threshold nobody can hit is a dead end that looks like a bug. Here: ~8
+  well-spread full-depth holes clear 95%, a 3×3 grid reaches 99.8%, and
+  shallow-only drilling plateaus around 94% for 25 holes — which is the right
+  answer, since nothing has been established about the bottom of the column.
+  Show the gate on the bar from the first frame, long before it bites.
+- **Lock, do not hide.** A control that vanishes teaches nothing; one plainly
+  present and plainly unavailable teaches the rule. Dash its border, drop its
+  opacity, say why in a line, and flash the gate on the bar when someone
+  reaches for it — that flash is what connects the refusal to its cause. The
+  way *back* (here, returning to the stacked view) is never gated; only the
+  step that needs the knowledge is.
+
 ### 9.495 Turning the block
 
 An iso block that cannot be turned shows you two of its four walls for ever, and
