@@ -102,8 +102,8 @@ input[type=range]:focus-visible{outline:2px solid var(--cy);outline-offset:3px;b
     <b>spuds in</b> &mdash; the bit sinks its own length and the handle comes to rest on the
     ground, which is as far as a rig goes before anyone decides anything. Then the
     <b>borehole bar starts flashing, because it is the control now</b>: click a depth on it
-    and the string is fed down to exactly there, the tail above the handle going into the
-    hole after it. It scours a bowl with a rim of spoil and throws grit the colour of the bed
+    and the string is fed down to exactly there &mdash; the handle stays on the ground and the
+    shaft runs through it, so what you watch is the <b>tail above the handle being used up</b>. It scours a bowl with a rim of spoil and throws grit the colour of the bed
     it is cutting; then it trips out, leaving a turning wireframe core barrel standing in the
     hole and a band of real section on the cut faces &mdash; <b>only as deep as you drilled</b>,
     full near an edge, half&#8209;resolved out in the middle. <kbd>Esc</kbd> backs out of a
@@ -1575,7 +1575,11 @@ const BIT_PX  = D_CHUCK_T * DRILL_S;              // handle bottom to the tip
 const HEAD_PX = (D_HEAD_T - D_CHUCK_T) * DRILL_S; // the amber block itself
 const TAIL_PX = 106;           // string above the handle -- the depth budget
 const TAIL_STUB = 15;          // and what is still standing out at the bottom
-const SINK_MAX = TAIL_PX + HEAD_PX - TAIL_STUB;
+/* How far the BIT travels while the handle stands still. The handle is the
+   collar: a powerhead sits ON the ground and the string is fed THROUGH it, so
+   the depth is bought entirely out of the tail, and the tail is exactly as
+   long as the travel plus what is left standing at the end of it. */
+const SINK_MAX = TAIL_PX - TAIL_STUB;
 /* The depth one bite reaches. In metres, because the bar is ruled in metres
    and the two have to agree about where the bit is. */
 const SpudM = () => BIT_PX / Math.max(PX_PER_M, 0.01);
@@ -1612,8 +1616,12 @@ function DrillFlute(cx, yTop, yBot, phase, front, s){
 /* tipY is the point of the bit. Everything is measured up from it, so the tip
    can be put anywhere -- on the cursor, or sinking into the ground -- and
    `tail` is how much string is standing above the handle. */
-function DrawDrill(cx, tipY, s, phase, lit, tail, feed){
+function DrawDrill(cx, tipY, s, phase, lit, tail, feed, headBotY){
   const y = m => tipY - m * s;
+  // The handle is not carried by the bit. Once the rig is collared it stays
+  // on the ground while the string runs down through it, so its position is
+  // an argument, not something measured up from the tip.
+  const hb = headBotY === undefined ? y(D_CHUCK_T) : headBotY;
   const grad = (x0, x1, tones) => {
     const g = CTX.createLinearGradient(x0, 0, x1, 0); let t = 0;
     for (const [sp, sh] of tones){ const c = steel(sh, 0);
@@ -1645,8 +1653,12 @@ function DrawDrill(cx, tipY, s, phase, lit, tail, feed){
   const jw = 6.5 * s, jy = y(D_ROD_T);
   bar(cx - jw, cx + jw, jy - 2.6 * s, jy + 2.6 * s, CHK);
   bar(cx - D_CHK * s, cx + D_CHK * s, y(D_CHUCK_T), y(D_ROD_T) - 1.5 * s, CHK);
+  // The string that has gone down through the handle. Underground and clipped
+  // away in practice, but the rig is not allowed to be drawn in pieces.
+  if (hb < y(D_CHUCK_T))
+    bar(cx - D_ROD * s, cx + D_ROD * s, hb, y(D_CHUCK_T) + 1, ROD);
 
-  const hy0 = y(D_HEAD_T), hy1 = y(D_CHUCK_T), hw = D_HEAD * s;
+  const hy1 = hb, hy0 = hb - (D_HEAD_T - D_CHUCK_T) * s, hw = D_HEAD * s;
 
   /* THE TAIL. The same rod the borehole bar runs off the top of its strip,
      drawn here as a finite length so it can be watched: it is the string
@@ -1827,11 +1839,16 @@ function StepDrill(dt){
    the bore marker replaces when the rig leaves. */
 function DrillPose(){
   if (drill.mode === "aim")
-    return { cx: st.vx, tipY: st.vy, collarY: st.vy + 6, live: false };
+    return { cx: st.vx, tipY: st.vy, collarY: st.vy + 6, live: false,
+             head: undefined, tail: TAIL_PX };
   const k = drill.j * STRIDE + drill.i;
   const gx = SPX[0][k], gy = SPY[0][k];
-  return { cx: gx, tipY: gy + drill.spud * BIT_PX + drill.sink * SINK_MAX,
-           collarY: gy + 2, live: true };
+  const sink = drill.sink * SINK_MAX;
+  return { cx: gx, tipY: gy + drill.spud * BIT_PX + sink, collarY: gy + 2, live: true,
+           // Spudding in, the handle rides down with the bit until it lands.
+           // After that it stays put and the string runs through it.
+           head: gy + (drill.spud - 1) * BIT_PX,
+           tail: Math.max(TAIL_PX - sink, TAIL_STUB) };
 }
 /* The mouth. Dark, with a lit lip on the near side and a hair of shadow on
    the far one -- the same implied upper-left key the rest of the panel uses,
@@ -1913,7 +1930,7 @@ function DrawDrillLive(){
   CTX.rect(p.cx - 46 * DRILL_S, CLIP_TOP, 92 * DRILL_S, p.collarY - CLIP_TOP);
   CTX.clip();
   DrawDrill(p.cx, p.tipY, DRILL_S, drill.phase, drill.mode !== "aim",
-            TAIL_PX, drill.feed);
+            p.tail, drill.feed, p.head);
   CTX.restore();
 }
 

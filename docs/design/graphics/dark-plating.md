@@ -1283,13 +1283,28 @@ real pointer back everywhere else — which also stops the armed cursor covering
 the very instrument it is waiting for with a picture of a drill standing in a
 diagram.
 
-**The tail is the depth.** A bit that only shows what stands out below the
-handle can never go deeper than its own length. Draw the **string above the
-handle** — the rod every rig has, the one the bar has always run off the top of
-its strip — shorten what hangs below to about a third, and let the whole
-assembly descend, tail and all, until a stub of it is still standing out at the
-bottom of its travel. Collars marching down the rod are what make a
-constant-width bar read as being *fed* rather than merely translated.
+**The tail is the depth, and the handle never leaves the ground.** A bit that
+only shows what stands out below the handle can never go deeper than its own
+length. Draw the **string above the handle** — the rod every rig has, the one
+the bar has always run off the top of its strip — and shorten what hangs below
+to about a third.
+
+Then be careful about *what* descends. Sinking the whole assembly, powerhead
+included, is the obvious reading and it is wrong twice over: a powerhead is a
+collar, it sits ON the ground and the string runs THROUGH it, and a wide amber
+box disappearing down a narrow hole is a box being swallowed, not a hole being
+drilled. Pin the handle to the ground the moment it lands, feed the string down
+through it, and let the **tail be consumed** — it shortens from the top, one
+pixel per pixel of bit travel, until a stub is still standing at the bottom of
+the run. That makes the tail a gauge you can read without looking away: what is
+left above the handle is what is left to drill. Collars marching down the rod
+are what make a constant-width bar read as being *fed* rather than merely
+translated.
+
+The one time the handle does move is spudding in, where it rides down with the
+bit until it lands — which is the whole content of that first click. So the
+handle's height is an *argument* to the rig, not something measured up from the
+tip; derive it from the tip and it can only ever sink with it.
 
 The travel is a **gesture, not a scale**: map the chosen depth onto the sky you
 have (a hundred-odd pixels), and let the bar carry the true metres. Both views
