@@ -1862,14 +1862,52 @@ function DrawCollar(cx, cy, k){
   CTX.strokeStyle = "rgba(0,0,0,.45)"; CTX.lineWidth = 1.4;
   CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 0.2, 2.94); CTX.stroke();
 }
-/* Holes that have been finished keep their mouth, drawn with the ground so
-   the block accumulates a record of where you have been. */
+/* A FINISHED hole is not a hole. Once the string is out, what is at the
+   surface is a collapsed, churned patch of the soil that came out of it --
+   loose grain over a mouth that closed on itself. Left as the black ellipse
+   the live rig stands in, a finished hole reads as a puncture in the picture:
+   nothing else in this panel is a hole through the ground, so the eye takes it
+   for a missing pixel rather than for a place.
+
+   Flat, deliberately: no rim, no lip, no shadow. The rim already exists a few
+   cells out, where the spoil is, and putting a second raised thing at the
+   centre of it turns one landform into two competing ones. This is only
+   texture -- freshly broken regolith is brighter and coarser than the ground
+   it came from, so it is drawn as a scatter of chips lighter and darker than
+   the local rock, with the shading underneath left to show through. */
+function DrawCrumbs(cx, cy, k){
+  const rw = 13.5 * DRILL_S * (0.62 + 0.38 * k), rh = rw * 0.42;
+  const base = ROCK_COL[0], g = TexGain(P.texAmt);
+  // Barely a fill. The patch must not read as a disc laid ON the ground -- an
+  // ellipse of any solidity is just the black hole in another colour -- so the
+  // ground keeps its own tone and shading, and the grain does the talking.
+  CTX.fillStyle = rgb(scalec(base, 1.04 * g), 0.22);
+  CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 0, 6.2832); CTX.fill();
+  const n = 22 + Math.round(26 * k);
+  for (let i = 0; i < n; i++){
+    // Density thins outward and a few chips land beyond the mouth, so the
+    // edge of the churn is ragged rather than drawn.
+    const r = Math.pow(rnd(), 0.62) * 1.22, t = rnd() * 6.2832;
+    if (r > 1 && rnd() > 0.45) continue;
+    const x = cx + rw * r * Math.cos(t), y = cy + rh * r * Math.sin(t);
+    const tone = rnd();
+    const c = tone > 0.74 ? scalec(base, 1.52 * g)
+            : tone > 0.34 ? scalec(base, 1.12 * g) : scalec(base, 0.55 * g);
+    const w = 1.1 + rnd() * 1.6;
+    CTX.fillStyle = rgb(c, 0.8);
+    CTX.fillRect(x - w * 0.5, y - w * 0.4, w, w * 0.85);
+  }
+}
+/* Holes that have been finished keep their scar, drawn with the ground so the
+   block accumulates a record of where you have been. Seeded per hole, so the
+   grain is the same grain every frame instead of boiling. */
 function DrawHoleMouths(){
   for (const h of holes){
     if (h.k < 0.05) continue;
-    if (drill.mode !== "aim" && h === holes[holes.length - 1]) continue;
     const k = h.j * STRIDE + h.i;
-    DrawCollar(SPX[0][k], SPY[0][k] + 2, h.k);
+    if (drill.mode !== "aim" && h === holes[holes.length - 1]) continue;
+    grainSeed = 1 + h.i * 7919 + h.j * 104729;
+    DrawCrumbs(SPX[0][k], SPY[0][k] + 2, h.k);
   }
 }
 

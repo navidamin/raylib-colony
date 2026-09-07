@@ -1255,8 +1255,20 @@ in a survey, and it is worth a look of its own.
 
 **Retract, and leave the evidence.** The column is established at the moment the
 string clears the collar, not before: you do not know a hole until you have
-finished it. What stays behind is the mouth, the bowl and the spoil — the rig
-leaves, its work does not.
+finished it. What stays behind is the bowl, the spoil, and a churned patch
+where the mouth was — the rig leaves, its work does not.
+
+**A finished hole is not a hole.** The dark ellipse the live string stands in is
+right while the string is in it and wrong the moment it leaves: nothing else in
+a panel like this is a hole *through* the ground, so a black disc left on the
+surface reads as a puncture in the picture — a missing pixel rather than a
+place. Fill it with the soil that came out of it: a scatter of chips lighter and
+darker than the local rock, thinning outward so the edge of the churn is ragged
+rather than drawn, over ground that keeps its own tone and shading. Keep the
+fill almost transparent — an ellipse of any solidity is just the black hole in
+another colour. And keep it **flat**: the raised rim already exists a few cells
+out where the spoil is, and a second raised thing at the centre of it turns one
+landform into two competing ones. Seed the grain per hole, or it boils.
 
 **Two decisions need two clicks.** *Where* to drill and *how deep* are separate
 judgements, and running both off the one click on the ground makes the second
