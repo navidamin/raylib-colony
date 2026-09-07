@@ -1443,12 +1443,25 @@ stay **locked** until the number clears its gate.
   shallow-only drilling plateaus around 94% for 25 holes — which is the right
   answer, since nothing has been established about the bottom of the column.
   Show the gate on the bar from the first frame, long before it bites.
+- **A status row is head-up: pin it, do not lay it out.** Put the bar in the
+  panel's own layout and it drifts down the canvas whenever the content is
+  short enough to be centred — the one place a status bar must never be.
+  Reserve a band at the top of the window, fit the rest of the panel into what
+  is left, and draw the row outside the fit transform, taking only its left and
+  right edges from the content so it still lines up with what it describes.
 - **Lock, do not hide.** A control that vanishes teaches nothing; one plainly
   present and plainly unavailable teaches the rule. Dash its border, drop its
   opacity, say why in a line, and flash the gate on the bar when someone
   reaches for it — that flash is what connects the refusal to its cause. The
   way *back* (here, returning to the stacked view) is never gated; only the
   step that needs the knowledge is.
+
+**One first-run tag, on the one control that cannot be discovered.** Everything
+else on a panel like this is either labelled or found by dragging something; a
+dock is the only control that does nothing until you know it is a tool you pick
+*up*. Give it a tag, make the tag a hit target in its own right (a hint you have
+to aim past is a worse hint), and delete it for good the first time the tool is
+taken. A tutorial that stays is an admission that the design needed one.
 
 ### 9.495 Turning the block
 

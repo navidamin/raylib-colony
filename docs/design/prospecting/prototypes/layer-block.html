@@ -506,6 +506,8 @@ let SURF = [], SPX = [], SPY = [];
 let LAYER_TOP_M = [0,12,34,68], LAYER_BOT_M = [12,34,68,120];
 let FULL_COLUMN_M = 120, PX_PER_M = 3.3, SURF_Y = 176, H = 880;
 const VW = 760, LBL_X = 6, GUT = 68;
+const HUD_H = 40;        // a band at the TOP OF THE WINDOW, outside the fit
+const TOP_PAD = 26;      // and the block's own small margin under it
 const STRIP_W = 104;
 let STRIP_X = 574, STRIP_CX = 626;
 let CLIP_TOP = 0, CLIP_BOT = 880;
@@ -792,15 +794,20 @@ function Reproject(){
       drop = Math.max(drop, SURF[botL][k] * PX_PER_M + off);
     }
   const RIG_SKY = P.bar ? 74 : 10;
-  SURF_Y = 26 + Math.max(rise, RIG_SKY);
+  SURF_Y = TOP_PAD + Math.max(rise, RIG_SKY);
   if (P.bar) drop = Math.max(drop, COLUMN_M * PX_PER_M + 30);
   const contentH = SURF_Y + drop + 46;
   // Shrink to fit, never grow: enlarging centres the design width on the
   // canvas and pushes the depth gutter off its left edge, taking the scale
   // the whole panel is read against with it.
-  FIT.s = clamp(Math.min(H / contentH, 1.0), 0.3, 1.0);
+  /* The delineation bar is a HEAD-UP row, not part of the block's layout: it
+     is pinned to the top of the window and the fit is given what is left. Laid
+     out with the content instead, it drifts down the canvas whenever the block
+     is short enough to be centred, which is the one place a status bar must
+     never be. */
+  FIT.s = clamp(Math.min((H - HUD_H) / contentH, 1.0), 0.3, 1.0);
   FIT.tx = 0;
-  FIT.ty = (H - contentH * FIT.s) * 0.5;
+  FIT.ty = HUD_H + (H - HUD_H - contentH * FIT.s) * 0.5;
   CLIP_TOP = -FIT.ty / FIT.s; CLIP_BOT = CLIP_TOP + H / FIT.s;
 
   SPX = []; SPY = [];
@@ -1986,28 +1993,65 @@ function DrawDock(){
   CTX.textAlign = "left";
 }
 
+/* The one thing a new player has to be told, told once. Every other control on
+   this panel is either labelled or discovered by dragging something; the dock
+   is the only one that does nothing until you know it is a tool you pick UP.
+   So it gets a tag, the tag is a hit target itself (a hint you have to aim
+   past is a worse hint), and the first time the drill is taken the tag is gone
+   for good -- a permanent tutorial is an admission that the design needs one. */
+let tookDrill = 0, hintBox = null;
+function DrawDockHint(){
+  hintBox = null;
+  if (tookDrill || !dockBox) return;
+  const cx = dockBox.x + dockBox.w * 0.5;
+  const txt = "CLICK TO TAKE";
+  CTX.font = "700 8px 'JetBrains Mono',monospace";
+  const w = CTX.measureText(txt).width + 16, h = 15;
+  const x = cx - w * 0.5, y = dockBox.y + dockBox.h + 16;
+  hintBox = { x, y, w, h };
+  const puls = 0.5 + 0.5 * Math.sin(st.t * 4.2);
+  CTX.fillStyle = rgb(AMBER, 0.5 + 0.5 * puls);
+  CTX.beginPath();                                   // a caret up at the dock
+  CTX.moveTo(cx, y - 5.5); CTX.lineTo(cx - 4.5, y + 0.5); CTX.lineTo(cx + 4.5, y + 0.5);
+  CTX.closePath(); CTX.fill();
+  CTX.fillStyle = OUT; CTX.fillRect(x - 1.5, y - 1.5, w + 3, h + 3);
+  CTX.fillStyle = "rgb(28,21,9)"; CTX.fillRect(x, y, w, h);
+  CTX.strokeStyle = rgb(AMBER, 0.35 + 0.55 * puls); CTX.lineWidth = 1.1;
+  CTX.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  CTX.fillStyle = rgb(AMBER, 0.72 + 0.28 * puls);
+  CTX.textAlign = "center"; CTX.fillText(txt, cx, y + 10.5);
+  CTX.textAlign = "left";
+}
+
 /* The progress of the survey, as one bar with the gate marked on it. The gate
    has to be VISIBLE before it bites, or a control that stops working reads as
    a bug rather than as a rule. */
 function DrawDelineation(){
-  const x = BLK_X + 66, y = 18, w = (BLK_X + BLK_W) - x, h = 13;
+  // Window space: x follows the panel below so the row lines up with it, y is
+  // absolute so the row stays at the top whatever the fit does.
+  const x0 = FIT.tx + 8 * FIT.s;
+  const x1 = FIT.tx + (P.bar ? STRIP_X + STRIP_W : BLK_X + BLK_W) * FIT.s;
+  const y = 7, h = 13;
   const v = Delineation(), on = v >= DELIN_GATE;
   const col = on ? AMBER : CY;
-  CTX.font = "700 8px 'JetBrains Mono',monospace";
+  CTX.font = "700 8.5px 'JetBrains Mono',monospace";
+  const tail = (v * 100).toFixed(1) + "%  ·  " + DelinTier();
+  const tw = CTX.measureText(tail).width;
   CTX.textAlign = "left"; CTX.fillStyle = rgb(DIMT, 0.95);
-  CTX.fillText("DELINEATION", x, y - 6);
+  CTX.fillText("DELINEATION", x0, y + 10.5);
   CTX.textAlign = "right"; CTX.fillStyle = rgb(col, 0.95);
-  CTX.fillText((v * 100).toFixed(1) + "%  ·  " + DelinTier(), x + w, y - 6);
+  CTX.fillText(tail, x1, y + 10.5);
   CTX.textAlign = "left";
 
-  CTX.fillStyle = OUT; CTX.fillRect(x - 1.5, y - 1.5, w + 3, h + 3);
-  CTX.fillStyle = "rgb(13,20,29)"; CTX.fillRect(x, y, w, h);
-  const fw = clamp(v, 0, 1) * w;
-  CTX.fillStyle = rgb(col, 0.26); CTX.fillRect(x, y, fw, h);
-  CTX.fillStyle = rgb(col, 0.92); CTX.fillRect(x, y, fw, 2.4);
-  if (fw > 2) CTX.fillStyle = rgb(col, 0.9), CTX.fillRect(x + fw - 1.8, y, 1.8, h);
+  const bx = x0 + 76, bw = Math.max(40, (x1 - tw - 14) - bx);
+  CTX.fillStyle = OUT; CTX.fillRect(bx - 1.5, y - 1.5, bw + 3, h + 3);
+  CTX.fillStyle = "rgb(13,20,29)"; CTX.fillRect(bx, y, bw, h);
+  const fw = clamp(v, 0, 1) * bw;
+  CTX.fillStyle = rgb(col, 0.26); CTX.fillRect(bx, y, fw, h);
+  CTX.fillStyle = rgb(col, 0.92); CTX.fillRect(bx, y, fw, 2.4);
+  if (fw > 2){ CTX.fillStyle = rgb(col, 0.9); CTX.fillRect(bx + fw - 1.8, y, 1.8, h); }
 
-  const gx = x + DELIN_GATE * w;
+  const gx = bx + DELIN_GATE * bw;
   const hot = lockFlash > 0 ? 0.5 + 0.5 * Math.sin(st.t * 34) : 0;
   CTX.fillStyle = on ? rgb(AMBER, 0.95) : rgb(lerp3(DIMT, AMBER, hot), 0.55 + 0.45 * hot);
   CTX.fillRect(gx - 0.7, y - 4, 1.6, h + 8);
@@ -2015,11 +2059,11 @@ function DrawDelineation(){
   // right, and a caption that runs off the end of its own gauge is worse than
   // no caption.
   CTX.font = "700 7px 'JetBrains Mono',monospace"; CTX.textAlign = "right";
-  CTX.fillText(on ? "MEASURED · LAYERS UNLOCKED" : "95% TO UNLOCK LAYERS", gx - 5, y + h + 10);
+  CTX.fillText(on ? "MEASURED · LAYERS UNLOCKED" : "95% TO UNLOCK LAYERS", gx - 5, y + h + 11);
   CTX.textAlign = "left";
   if (lockFlash > 0){
     CTX.strokeStyle = rgb(AMBER, 0.35 + 0.5 * hot); CTX.lineWidth = 1.6;
-    CTX.strokeRect(x - 2.5, y - 2.5, w + 5, h + 5);
+    CTX.strokeRect(bx - 2.5, y - 2.5, bw + 5, h + 5);
   }
 }
 const lerp3 = (a, b, t) => [lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t)];
@@ -2405,7 +2449,8 @@ function Frame(dt){
   DrawDepthScale();
   DrawDepthPicker();
   DrawDock();
-  DrawDelineation();
+  DrawDockHint();
+  CTX.save(); CTX.setTransform(2, 0, 0, 2, 0, 0); DrawDelineation(); CTX.restore();
   DrawReadout();
   if (!drill.armed) DrawCursors();
 }
@@ -2743,8 +2788,9 @@ CV.addEventListener("pointerup", e => {
   ClickAt((st.mx - FIT.tx) / FIT.s, (st.my - FIT.ty) / FIT.s);
 });
 function ClickAt(vx, vy){
-  if (dockBox && vx >= dockBox.x && vx <= dockBox.x + dockBox.w &&
-      vy >= dockBox.y && vy <= dockBox.y + dockBox.h){
+  const inBox = b => b && vx >= b.x && vx <= b.x + b.w && vy >= b.y && vy <= b.y + b.h;
+  if (inBox(dockBox) || inBox(hintBox)){
+    tookDrill = 1;
     if (drill.armed && drill.mode !== "aim"){ AbortDrill(); return; }
     drill.armed = drill.armed ? 0 : 1;
     drill.mode = "aim"; drill.spud = drill.sink = 0;
@@ -2837,6 +2883,7 @@ window.__L = () => ({ fit: { s: FIT.s, tx: FIT.tx, ty: FIT.ty },
   holes: holes.length, bores: bores.map(b => Math.round(b.m)),
   reveals: reveals.length, spatter: spatter.length });
 
+window.__hint = () => hintBox && { x: FIT.tx + hintBox.x*FIT.s, y: FIT.ty + hintBox.y*FIT.s, w: hintBox.w*FIT.s, h: hintBox.h*FIT.s };
 window.__setYaw = y => { P.yaw = y; SyncAll(); Changed(); };
 let last = performance.now();
 (function tick(now){
