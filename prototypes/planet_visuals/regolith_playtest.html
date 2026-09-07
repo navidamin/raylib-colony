@@ -449,6 +449,24 @@ function KeepFine(t){
   while (fineCache.length > FINE_KEEP) fineCache.shift();
 }
 
+// Get the rung on its way early. Nothing is drawn from it here -- the
+// refine picks it up already loaded.
+let prefetching = false;
+function PrefetchRung(){
+  if (!GPU || !Crisp() || st.super <= 0 || prefetching) return;
+  const v = GpuView(FineRes());
+  if (GPU.HaveRung(v.base) && st.rungEpoch === st.epoch) return;
+  prefetching = true;
+  const ep = st.epoch;
+  AskRung(v.base, (m) => {
+    prefetching = false;
+    if (m.stale || ep !== st.epoch) return;
+    GPU.SetRung(m.lum, m.res, m.spanKm, m.base);
+    st.rungEpoch = st.epoch;
+    ArmRefine();                 // it can draw the moment it is wanted
+  }, () => { prefetching = false; });
+}
+
 let fineTimer = null, fineAgain = false;
 function ArmRefine(){
   clearTimeout(fineTimer);
@@ -464,6 +482,10 @@ function ArmRefine(){
   }
   fineTimer = setTimeout(() => {
     if (!RefineWorth()) return;
+    // A prefetch already has the rung coming. Asking again would build
+    // it twice -- traced at startup, two requests and two replies.
+    // Its callback re-arms this.
+    if (prefetching) return;
     // One fine tile in flight at a time. It cannot be cancelled once the
     // worker starts -- the chain is a blocking loop -- but it must not
     // have a second queued behind it: measured on a zoom across a rung,
@@ -838,6 +860,13 @@ function BuildCache(then){
                   originLat: st.originLat, originLon: st.originLon };
     WORK.fast.postMessage(msg); EachFine(w => w.postMessage(msg));
     if (then) then();
+    // Start the rung NOW, alongside the coarse tile, instead of waiting
+    // for the coarse tile to land and then a settle timer on top. Traced
+    // at startup: the coarse tile came back at 1.85 s, the rung was not
+    // even ASKED for until 320 ms after that, and then took 3.3 s. Those
+    // are different workers and the two builds have nothing to say to
+    // each other, so they may as well overlap.
+    PrefetchRung();
     // The locator inset, behind the tile the eye is waiting for.
     WORK.fast.postMessage({ cmd: "mini", epoch: st.epoch,
                             res: WantedRes(), spanKm: 100.0 });
