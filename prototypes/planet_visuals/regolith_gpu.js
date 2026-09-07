@@ -265,18 +265,21 @@ void main(){
         float cellKm = diamKm / 0.55;
         uint salt = uint(0xC7A7E5 + b * 7919);
         int ci0 = int(floor(w.x / cellKm)), cj0 = int(floor(w.y / cellKm));
-        // The clustering varies over eleven cells, so it is the same to
-        // three decimals across the three-by-three neighbourhood. Taken
-        // once per band instead of nine times it saves eight value-noise
-        // lookups a band a pixel, which is most of what the density test
-        // costs.
-        float cluster = 0.5 + 0.5 * dnoise((float(ci0) + 0.5) * cellKm,
-                                           (float(cj0) + 0.5) * cellKm,
-                                           cellKm * 11.0, salt + 900u);
         float bowl = 0.0;
         for (int dj = -1; dj <= 1; dj++){
           for (int di = -1; di <= 1; di++){
             int ci = ci0 + di, cj = cj0 + dj;
+            // The clustering MUST be the crater's own cell's, not the
+            // pixel's. Taking it once per pixel to save eight noise
+            // lookups was 17% faster and drew straight lines across the
+            // ground: a crater near the density threshold was included
+            // for pixels in one cell and dropped in the next, so it got
+            // cut off along the lattice, which is axis-aligned. Reverted
+            // 2026-09-07. The speed is not worth it and no cheaper
+            // clustering can be per-pixel.
+            float cluster = 0.5 + 0.5 * dnoise((float(ci) + 0.5) * cellKm,
+                                               (float(cj) + 0.5) * cellKm,
+                                               cellKm * 11.0, salt + 900u);
             if (dhash(ci, cj, salt) > uSub.w * cluster) continue;
             float cu = (float(ci) + 0.12 + 0.76 * dhash(ci, cj, salt + 1u)) * cellKm;
             float cv = (float(cj) + 0.12 + 0.76 * dhash(ci, cj, salt + 2u)) * cellKm;
