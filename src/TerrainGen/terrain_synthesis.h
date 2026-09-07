@@ -235,6 +235,8 @@ struct TerrainTuning
     float lightWeight = 0.55f;  // cast-shadow contribution (absolute)
     float speckle = 1.0f;       // albedo mottling (x 0.04)
     float sCurve = 0.20f;       // shadow-deepening mix (absolute)
+    int octaves = 3;            // undulation octaves
+    float featureScale = 64.0f; // undulation base wavelength, px at res 300
 
     // --- the world-anchored sub-floor -------------------------------------
     //

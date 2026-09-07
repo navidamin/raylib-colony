@@ -449,14 +449,16 @@ static Field GrainNoise(int res, const NoiseFrame& frame)
     return g;
 }
 
-// Lambertian hillshade, sun from azimuth 315 (NW), altitude 35 deg.
+// Lambertian hillshade. The sun defaults to azimuth 315 (NW), altitude
+// 35 deg -- the light every constant in this file was chosen under.
 static Field Hillshade(const Field& height, int res, float zFactor,
-                       float smoothPx)
+                       float smoothPx,
+                       float sunAzDeg = 315.0f, float sunAltDeg = 35.0f)
 {
     Field h = height;
     GaussianBlur(h, res, res, smoothPx);
-    const float az = (float)((360.0 - 315.0 + 90.0) * DEG2RAD);
-    const float alt = 35.0f * DEG2RAD;
+    const float az = (float)((360.0 - sunAzDeg + 90.0) * DEG2RAD);
+    const float alt = sunAltDeg * (float)DEG2RAD;
     Field out((size_t)res * res);
     for (int y = 0; y < res; y++)
     {
@@ -483,12 +485,14 @@ static Field Hillshade(const Field& height, int res, float zFactor,
 // Horizon ray-march toward the sun: 1 = lit, 0 = blocked. Gives crater
 // floors and slope bases their soft cast shadows.
 static Field CastShadows(const Field& height, int res, float zFactor,
-                         float maxDistPx, float stepPx)
+                         float maxDistPx, float stepPx,
+                         float sunAzDeg = 315.0f, float sunAltDeg = 35.0f,
+                         float blurPx = 0.8f)
 {
-    const float az = (float)((360.0 - 315.0 + 90.0) * DEG2RAD);
+    const float az = (float)((360.0 - sunAzDeg + 90.0) * DEG2RAD);
     float sx = std::cos(az);
     float syImage = -std::sin(az);
-    float tanAlt = std::tan(35.0f * DEG2RAD);
+    float tanAlt = std::tan(sunAltDeg * (float)DEG2RAD);
 
     int nSteps = (int)(maxDistPx / stepPx);
     Field light((size_t)res * res);
@@ -512,7 +516,7 @@ static Field CastShadows(const Field& height, int res, float zFactor,
             light[y * res + x] = 1.0f - shadow;
         }
     }
-    GaussianBlur(light, res, res, 0.8f);
+    GaussianBlur(light, res, res, blurPx);
     for (float& v : light) v = std::clamp(v, 0.0f, 1.0f);
     return light;
 }
@@ -1410,7 +1414,9 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
     {
         Field grain = GrainNoise(res, frame);
         NoiseFrame undulFrame = frame; undulFrame.salt ^= NOISE_UNDULATION;
-        Field undul = Fbm(res, 3, (int)(64 * k), 0.5f, undulFrame);
+        Field undul = Fbm(res, tune.octaves,
+                          std::max(2, (int)(tune.featureScale * k)),
+                          0.5f, undulFrame);
         for (size_t i = 0; i < height.size(); i++)
         {
             float rough = 0.45f + 0.55f * density[i];
@@ -1455,9 +1461,19 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
     }
 
     const float z = 110.0f;
-    Field hs = Hillshade(height, res, z, 0.6f);
-    float flatRef = std::sin(35.0f * DEG2RAD);
-    Field light = CastShadows(height, res, z, 22.0f * k, 1.5f);
+    // crisp drops the softening steps that only make sense when the picture
+    // is going to be resampled anyway -- a tile drawn at its own resolution
+    // is blurred for nothing.
+    Field hs = Hillshade(height, res, z, tune.crisp ? 0.0f : 0.6f,
+                         tune.sunAz, tune.sunAlt);
+    float flatRef = std::sin(tune.sunAlt * (float)DEG2RAD);
+    // The march is the largest per-pixel cost in the chain and had no lever
+    // until now. Off means fully lit, not black: it is a measurement switch.
+    Field light;
+    if (tune.shadows == 0) light.assign((size_t)res * res, 1.0f);
+    else light = CastShadows(height, res, z, 22.0f * k, 1.5f,
+                             tune.sunAz, tune.sunAlt,
+                             tune.crisp ? 0.25f : 0.8f);
 
     NoiseFrame speckleFrame = frame; speckleFrame.salt ^= NOISE_SPECKLE;
     Field speckle = worldFloor ? SubFloorMottle(res, frame, spanKm, tune)
@@ -1468,14 +1484,21 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
     {
         float rel = std::clamp(hs[i] / flatRef, 0.0f, 1.6f);
         float rough = 0.45f + 0.55f * density[i];
-        float lum = macro[i] * (0.62f + 0.38f * rel)
-                    * (0.45f + 0.55f * light[i]);
+        // relWeight and lightWeight say how much of the picture is the
+        // shading and how much is the imagery's own tone. They were in
+        // TerrainTuning all along and nothing read them -- the numbers
+        // below were the defaults written out longhand, so every preset
+        // that set them (silky, dramatic) was quietly ignored.
+        float lum = macro[i] * ((1.0f - tune.relWeight) + tune.relWeight * rel)
+                    * ((1.0f - tune.lightWeight) + tune.lightWeight * light[i]);
         lum *= 1.0f + speckGain * std::min(amp, 1.6f)
                     * (speckle[i] - speckMid) * rough;
         lum = std::clamp(lum, 0.0f, 1.0f);
         // Gentle S-curve: deepen shadows, keep highlights
-        float s = lum * lum * (3.0f - 2.0f * lum);
-        macro[i] = std::clamp(s * 0.20f + lum * 0.80f, 0.0f, 1.0f);
+        float sc = lum * lum * (3.0f - 2.0f * lum);
+        float outv = std::clamp(sc * tune.sCurve + lum * (1.0f - tune.sCurve),
+                                0.0f, 1.0f);
+        macro[i] = outv;
     }
 }
 
