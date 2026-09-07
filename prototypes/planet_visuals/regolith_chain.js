@@ -1254,8 +1254,11 @@ function MakeLiveChain(o){
     return { base, lvl: base + (spanKm < LIVE_RUNGS[base] - 1e-9 ? 1 : 0) };
   }
 
-  function View(spanKm, offXKm, offYKm, force){
-    const t1 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  // Everything up to the point where the window has a macro and a
+  // frame, which is where the CPU and the GPU paths part company: the
+  // rung ladder and the crop stay here, the per-pixel synthesis is what
+  // regolith_gpu.js takes over.
+  function Prepare(spanKm, offXKm, offYKm, force){
     const ox = offXKm || 0, oy = offYKm || 0;
     const pick = PickLevel(spanKm, ox, oy);
     const base = force && force.base !== undefined ? force.base : pick.base;
@@ -1263,14 +1266,26 @@ function MakeLiveChain(o){
     EnsureRung(base);
     // Whether to crop is geometry, not level: a forced level must not be
     // able to decide that a narrower window is the whole rung.
-    const whole = spanKm >= rungs[base].spanKm - 1e-9;
-    let l = (whole && rungRes === res)
+    const rungKm = rungs[base].spanKm;
+    const lum = (spanKm >= rungKm - 1e-9 && rungRes === res)
       ? Float32Array.from(rungs[base].lum)
-      : CropRung(rungs[base].lum, res, rungs[base].spanKm, spanKm, ox, oy, o.tune.crisp, rungRes);
+      : CropRung(rungs[base].lum, res, rungKm, spanKm, ox, oy, o.tune.crisp, rungRes);
     // The frame belongs to the window, not to the cache, or the craters
     // would stay behind while the imagery moved.
     const vLat = o.lat - oy / MOON_KM_PER_DEG;
     const vLon = o.lon + ox / (MOON_KM_PER_DEG * Math.cos(vLat * DEG2RAD));
+    const frame = MakeNoiseFrame(vLat, vLon, spanKm, res,
+                                 Math.imul(0x9E3779B9, lvl) >>> 0);
+    return { lum, frame, lvl, base, spanKm, res, ox, oy, lat: vLat, lon: vLon,
+             fromRungKm: rungKm, kmPerPx: spanKm / res,
+             heightScaleM: 110.0 * (spanKm * 1000.0 / res) };
+  }
+
+  function View(spanKm, offXKm, offYKm, force){
+    const t1 = (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const pre = Prepare(spanKm, offXKm, offYKm, force);
+    const l = pre.lum, lvl = pre.lvl, ox = pre.ox, oy = pre.oy;
+    const vLat = pre.lat, vLon = pre.lon;
     const k = res / 300.0;
     const boulderBase = (spanKm <= 5.0 + 1e-3)
       ? Math.round(120 * k * k / 25.0 * spanKm * spanKm) : 0;
@@ -1278,9 +1293,7 @@ function MakeLiveChain(o){
       ? (h, r, fr) => CarveCraters(h, r, fr, o.craters, o.craterParams, spanKm,
                                    o.originLat, o.originLon)
       : null;
-    const f = TextureModulate(l, res,
-                              MakeNoiseFrame(vLat, vLon, spanKm, res,
-                                             Math.imul(0x9E3779B9, lvl) >>> 0),
+    const f = TextureModulate(l, res, pre.frame,
                               1.0 + 0.7 * lvl, o.tune, boulderBase, carve, true);
     const rgba = new Uint8ClampedArray(res * res * 4);
     for (let i = 0; i < res * res; i++) RampColor(l[i], rgba, i * 4);
@@ -1288,13 +1301,13 @@ function MakeLiveChain(o){
       spanKm, res, rgba, lum: l, height: f.height, light: f.light,
       offXKm: ox, offYKm: oy, lat: vLat, lon: vLon,
       craters: f.craters, popCraters: f.popCraters,
-      fromRungKm: rungs[base].spanKm,
+      fromRungKm: pre.fromRungKm,
       kmPerPx: spanKm / res,
       heightScaleM: 110.0 * (spanKm * 1000.0 / res),
       ms: (typeof performance !== "undefined" ? performance.now() : Date.now()) - t1
     };
   }
-  return { View, PickLevel, rungs, EnsureRung, buildMs, escaped: !!report.escaped,
+  return { View, Prepare, PickLevel, rungs, EnsureRung, buildMs, escaped: !!report.escaped,
            lat: o.lat, lon: o.lon, res };
 }
 

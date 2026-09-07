@@ -73,6 +73,23 @@ self.onmessage = (e) => {
     return;
   }
 
+  // The macro alone: the rung ladder and the crop, stopping where the
+  // GPU path takes over. This is the cheap half -- tens of milliseconds
+  // against seconds -- and it is still done here because the rungs live
+  // here.
+  if (m.cmd === "macro"){
+    if (!place || !block){ self.postMessage({ cmd: "macro", id: m.id, stale: true }); return; }
+    const t0 = performance.now();
+    const lc = ChainFor(m.res);
+    const pre = lc.Prepare(m.spanKm, m.offX, m.offY);
+    self.postMessage({ cmd: "macro", id: m.id, epoch: m.epoch, fine: !!m.fine,
+                       res: m.res, margin: m.margin, spanKm: m.spanKm,
+                       cxKm: m.cxKm, cyKm: m.cyKm, frame: pre.frame,
+                       kmPerPx: pre.kmPerPx, ms: performance.now() - t0,
+                       lum: pre.lum }, [pre.lum.buffer]);
+    return;
+  }
+
   if (m.cmd === "view"){
     if (!place || !block){ self.postMessage({ cmd: "view", id: m.id, stale: true }); return; }
 

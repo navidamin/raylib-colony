@@ -95,6 +95,9 @@ jobs:
         # The playtest builds its tiles in a worker, which needs a real
         # origin -- so this is the only place the refined picture exists.
         cp prototypes/planet_visuals/regolith_worker.js     deploy/regolith/
+        # ...and the shaders, which are where the tile is actually made
+        # on any machine with a GPU.
+        cp prototypes/planet_visuals/regolith_gpu.js        deploy/regolith/
 
     # One repo has one Pages site and every deploy replaces ALL of it. The
     # excavation branch serves /playtest/ and /extraction/; this step pulls

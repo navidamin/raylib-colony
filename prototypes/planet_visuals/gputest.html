@@ -1,0 +1,64 @@
+<meta charset="utf-8"><title>gpu vs cpu</title>
+<canvas id=out></canvas>
+<script src="regolith_blocks.js"></script>
+<script src="regolith_chain.js"></script>
+<script src="regolith_gpu.js"></script>
+<script>
+window.RUN = function(regionKey, spanKm, res){
+  return new Promise((resolve) => {
+    const TC = TerrainChain, R = WAC_BLOCKS.regions.find(r => r.key === regionKey);
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = c.height = WAC_BLOCKS.size;
+      const g = c.getContext("2d", { willReadFrequently: true });
+      g.drawImage(img, 0, 0);
+      const px = g.getImageData(0, 0, WAC_BLOCKS.size, WAC_BLOCKS.size).data;
+      const data = new Uint8Array(WAC_BLOCKS.size * WAC_BLOCKS.size);
+      for (let k = 0; k < data.length; k++) data[k] = px[k * 4];
+      const block = { data, w: WAC_BLOCKS.size, h: WAC_BLOCKS.size, x0: R.x0, y0: R.y0,
+                      wacW: WAC_BLOCKS.wacW, wacH: WAC_BLOCKS.wacH };
+      const K = TC.MOON_KM_PER_DEG, D2R = TC.DEG2RAD;
+      const oLat = R.lat - R.sKm / K, oLon = R.lon + R.eKm / (K * Math.cos(oLat * D2R));
+      const tune = Object.assign({}, TC.DEFAULT_TUNE, { crisp: 1 });
+      const lc = TC.MakeLiveChain({ block, lat: oLat, lon: oLon, res,
+        rungRes: Math.min(res, 1200), tune, craters: TC.CRATERS,
+        craterParams: TC.DEFAULT_CRATER, originLat: oLat, originLon: oLon });
+
+      const t0 = performance.now();
+      const v = lc.View(spanKm, 0, 0);
+      const cpuMs = performance.now() - t0;
+      const cpu = document.createElement("canvas"); cpu.width = cpu.height = res;
+      cpu.getContext("2d").putImageData(new ImageData(v.rgba, res, res), 0, 0);
+
+      const gpu = TerrainGPU.Create();
+      if (!gpu || gpu.error){ resolve({ error: gpu ? gpu.error : "no webgl2" }); return; }
+      const t1 = performance.now();
+      const pre = lc.Prepare(spanKm, 0, 0);
+      const prepMs = performance.now() - t1;
+      const t2 = performance.now();
+      const r = gpu.Render({ res, macro: pre.lum, frame: pre.frame, spanKm,
+        tune, craters: TC.CRATERS, craterParams: TC.DEFAULT_CRATER,
+        originLat: oLat, originLon: oLon });
+      const gpuMs = performance.now() - t2;
+
+      // Compare
+      const o = document.getElementById("out");
+      o.width = res * 2; o.height = res;
+      const oc = o.getContext("2d");
+      oc.drawImage(cpu, 0, 0);
+      oc.drawImage(r.canvas, res, 0);
+      const A = oc.getImageData(0, 0, res, res).data;
+      const B = oc.getImageData(res, 0, res, res).data;
+      let se = 0, n = 0, mx = 0;
+      for (let i = 0; i < A.length; i += 4){
+        const d = A[i] - B[i]; se += d * d; n++; if (Math.abs(d) > mx) mx = Math.abs(d);
+      }
+      resolve({ renderer: gpu.renderer, cpuMs: Math.round(cpuMs), prepMs: Math.round(prepMs),
+                gpuMs: Math.round(gpuMs), inner: Math.round(r.ms),
+                rms: +Math.sqrt(se / n).toFixed(2), max: mx, res });
+    };
+    img.src = "data:image/png;base64," + R.png;
+  });
+};
+</script>

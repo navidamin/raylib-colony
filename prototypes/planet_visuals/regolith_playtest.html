@@ -101,6 +101,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   <div><span class="k">tile</span> <span class="v" id="gen">—</span></div>
   <div><span class="k">craters</span> <span class="v" id="cr">—</span></div>
   <div><span class="k">fine</span> <span class="v" id="fine">—</span></div>
+  <div><span class="k">path</span> <span class="v" id="path">—</span></div>
 </div>
 
 <div id="regions"></div>
@@ -123,6 +124,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
 
 <script src="regolith_blocks.js"></script>
 <script src="regolith_chain.js"></script>
+<script src="regolith_gpu.js"></script>
 <script>
 "use strict";
 (function(){
@@ -162,7 +164,7 @@ const st = {
   style: 1, px: 3,
   drag: null, pinch: null, dirty: true, mini: null,
   // The refine pass and its supersample ratio. See SUPER_STEPS.
-  super: 1.6, base: null, epoch: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
+  super: 1.6, gpu: -1, base: null, epoch: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
 };
 
 /* --- the imagery ------------------------------------------------------ */
@@ -215,6 +217,60 @@ function LoadRegion(i, then){
    arrives. Five seconds costs nothing anybody can feel if the page
    never stops.
    -------------------------------------------------------------------- */
+/* --- the GPU path -----------------------------------------------------
+   The per-pixel half of the chain, as fragment shaders. Profiled, a
+   1498 px view is about four seconds of JavaScript and it is four
+   seconds of exactly what a GPU is for: octaves of value noise, a
+   crater field, a hillshade and a horizon march, none of it dependent
+   on its neighbours except through one height field. The game already
+   makes this move -- src/TerrainGen/terrain_gpu.cpp -- and picks the
+   GPU by timing it rather than by trusting it.
+
+   Same here, because trusting it would be wrong: a browser falling back
+   to a software rasteriser reports a working WebGL2 and then runs the
+   shader on the CPU, which measured here at roughly what the JavaScript
+   costs. So the probe renders a small tile and the GPU only gets the
+   work if the extrapolation beats what the workers were going to do.
+   -------------------------------------------------------------------- */
+let GPU = null, GPU_PROBE = 0, GPU_WHY = "not tried";
+const GPU_BUDGET_MS = 260;            // a tile the hand will not feel
+function StartGPU(){
+  if (typeof TerrainGPU === "undefined"){ GPU_WHY = "no module"; return; }
+  let g;
+  try { g = TerrainGPU.Create(); } catch (e){ GPU_WHY = "create threw"; return; }
+  if (!g){ GPU_WHY = "no webgl2 / no float targets"; return; }
+  if (g.error){ GPU_WHY = "shader: " + g.error.slice(0, 60); return; }
+  // A real render at a small size, over ground that exists, so the
+  // octave and crater loops run the number of times they really will.
+  const res = 320;
+  const probe = { res, macro: new Float32Array(res * res).fill(0.45),
+                  frame: TC.MakeNoiseFrame(26.13, 3.63, 1.0, res, 0), spanKm: 1.0,
+                  tune: Tune(), craters: TC.CRATERS,
+                  craterParams: TC.DEFAULT_CRATER, originLat: 26.13, originLon: 3.63 };
+  try { g.Render(probe); } catch (e){ GPU_WHY = "render threw"; return; }
+  const t0 = performance.now();
+  g.Render(probe);
+  GPU_PROBE = performance.now() - t0;
+  GPU = g;
+  GPU_WHY = g.renderer;
+}
+// Cost is per pixel, so the probe scales by area.
+function GpuEstimate(res){ return GPU_PROBE * (res * res) / (320 * 320); }
+// Crisp only. The shaders drop the softening steps the way `crisp`
+// does -- the grit blur, the hillshade smooth, the wide shadow blur --
+// so on Smooth they would draw a sharper picture than the CPU does, and
+// a path that changes the look is not a fallback. Smooth stays on the
+// workers.
+// g=1 in the hash overrides the probe, g=0 refuses the GPU outright.
+// The override earns its place twice over: it is the only way to
+// exercise this path where the probe is right to say no, and if the
+// probe is wrong on somebody's machine they can say so.
+function GpuWorth(){
+  if (st.gpu === 0) return false;
+  if (!GPU || !Crisp()) return false;
+  return st.gpu === 1 || GpuEstimate(FineRes()) <= GPU_BUDGET_MS;
+}
+
 let WORK = null;                      // { fast, fine[] } or null on file://
 // How many ways the fine tile is cut. Four pieces on four workers is
 // the shape that fits a laptop: nine would need nine cores to be worth
@@ -366,6 +422,19 @@ function Ask(w, res, fine, margin){
 // cell/10 solves pad >= 22*(cell + 2*pad)/300 with room over.
 let fineSet = null;
 function AskFine(){
+  // On the GPU the tile is one draw, so there is nothing to cut up: the
+  // worker is asked only for the macro, which is the rung ladder and the
+  // crop, and the shaders do the rest here.
+  if (GpuWorth()){
+    const id = ++st.reqId;
+    fineSet = { id, epoch: st.epoch, gpu: true, dead: false, t0: performance.now() };
+    WORK.fine[0].postMessage({ cmd: "macro", id, epoch: st.epoch, fine: true,
+                               res: FineRes(), margin: FINE_MARGIN,
+                               spanKm: Math.max(0.05, st.spanKm * FINE_MARGIN),
+                               offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
+                               cxKm: st.cxKm, cyKm: st.cyKm });
+    return;
+  }
   const n = SPLIT;
   const cell = Math.ceil(FineRes() / n), res = cell * n;
   const id = ++st.reqId;
@@ -416,6 +485,37 @@ function OnWorker(e){
     if (m.epoch === st.epoch){ st.mini = LumCanvas(m.lum, m.res, m.spanKm); st.dirty = true; }
     return;
   }
+  // The macro half is home; the shaders finish it.
+  if (m.cmd === "macro"){
+    if (!fineSet || m.id !== fineSet.id) return;
+    st.fining = false;
+    if (fineAgain){ fineAgain = false; ArmRefine(); }
+    const set = fineSet; fineSet = null;
+    if (m.stale || set.dead || m.epoch !== st.epoch){ Hud(); return; }
+    let out;
+    try {
+      out = GPU.Render({ res: m.res, macro: m.lum, frame: m.frame, spanKm: m.spanKm,
+                         tune: Tune(), craters: TC.CRATERS,
+                         craterParams: TC.DEFAULT_CRATER,
+                         originLat: st.originLat, originLon: st.originLon });
+    } catch (e){ GPU = null; GPU_WHY = "render threw"; Hud(); Regenerate(); return; }
+    // The GL canvas is reused by the next render, so the tile takes a
+    // copy of it rather than a reference.
+    const c = document.createElement("canvas");
+    c.width = c.height = m.res;
+    c.getContext("2d").drawImage(out.canvas, 0, 0);
+    const whole = { canvas: c, spanKm: m.spanKm, margin: m.margin,
+                    cxKm: m.cxKm, cyKm: m.cyKm, kmPerPx: m.kmPerPx,
+                    craters: 0, pop: 0 };
+    if (!StillFits(whole)){ Hud(); return; }
+    st.prev = st.tile; st.tile = whole; st.fade = st.prev ? 0 : 1;
+    st.dirty = true; KeepFine(whole);
+    st.fineMs = performance.now() - set.t0;
+    st.fineRes = m.res;
+    Hud(); WriteHash();
+    return;
+  }
+
   if (m.cmd !== "view") return;
 
   // A piece of a split tile: nothing is decided until the last one is
@@ -865,6 +965,12 @@ function Hud(){
   // wide screen at x2.5 they are not the same number.
   const got = FineRatio();
   const asked = st.super > 0 && got < st.super - 0.02 ? ` (of ×${st.super})` : "";
+  $("path").textContent = GpuWorth()
+    ? `gpu · ${GpuEstimate(FineRes()).toFixed(0)} ms est`
+      + (st.gpu === 1 ? " · forced" : "")
+    : (GPU ? `cpu · gpu too slow (${GpuEstimate(FineRes()).toFixed(0)} ms est)`
+           : `cpu · ${GPU_WHY}`);
+  $("path").style.color = GpuWorth() ? "var(--cy)" : "var(--dimmer)";
   $("fine").textContent = !WORK ? "no worker"
     : !st.super ? "off"
     : st.fining ? `×${got.toFixed(1)}${asked} · ${FineRes()}…`
@@ -1093,6 +1199,8 @@ function ReadHash(){
   if (px >= 2 && px <= 4) st.px = px;
   const sup = parseFloat(h.get("f"));
   if (SUPER_STEPS.indexOf(sup) >= 0) st.super = sup;
+  const gp = parseInt(h.get("g"), 10);
+  if (gp === 0 || gp === 1) st.gpu = gp;
   return { region: i < 0 ? 0 : i,
            span: parseFloat(h.get("s")) || null,
            x: parseFloat(h.get("x")) || 0,
@@ -1105,13 +1213,14 @@ function WriteHash(){
     const q = `r=${REGIONS[st.region].key}&s=${st.spanKm.toPrecision(4)}`
             + `&x=${st.cxKm.toFixed(3)}&y=${st.cyKm.toFixed(3)}`
             + `&d=${st.style}${st.style ? "&p=" + st.px : ""}`
-            + `&f=${st.super}`;
+            + `&f=${st.super}` + (st.gpu >= 0 ? `&g=${st.gpu}` : "");
     try { history.replaceState(null, "", "#" + q); } catch (e) {}
   }, 500);
 }
 
 Resize();
 StartWorkers();
+StartGPU();
 // A tile blown up much past 3x reads as mush whatever the synthesis does,
 // so the default follows the screen. The chip trades it back for speed.
 // A tile blown up much past 3x reads as mush whatever the synthesis
