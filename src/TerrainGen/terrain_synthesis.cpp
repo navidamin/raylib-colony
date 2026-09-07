@@ -1,4 +1,5 @@
 #include "terrain_synthesis.h"
+#include "detail_noise.h"
 
 #include <algorithm>
 #include <cmath>
@@ -742,6 +743,391 @@ static void SharpenAdaptive(Field& macro, int res)
     }
 }
 
+// ---------------------------------------------------------------------------
+// The world-anchored sub-floor.
+//
+// Ported from prototypes/planet_visuals/regolith_chain.js, which is where it
+// was designed and where every constant here was chosen against the real
+// mosaic. Read that file's comments for the reasoning; this is the same
+// arithmetic in C++.
+//
+// The idea in one line: the mosaic stops resolving at about 1.3 km/px, so
+// below that the ground is invented -- but invented in WORLD coordinates, at
+// wavelengths in kilometres and on populations pinned to a lattice on the
+// moon. That is the difference between zooming in and getting closer, and
+// zooming in and getting a different picture of the same size.
+// ---------------------------------------------------------------------------
+
+const double FLOOR_KM = 1.3325;      // one WAC texel at the equator
+const int SUB_MAX_OCTAVES = 16;
+
+// 0 where the mosaic still resolves this wavelength, 1 well below it.
+// Crossing over rather than switching is what keeps the invented detail from
+// fighting the real landforms it sits under.
+static float SubFade(double lambdaKm)
+{
+    return (float)std::clamp(std::log2(FLOOR_KM * 2.0 / lambdaKm) / 1.5, 0.0, 1.0);
+}
+
+// Every pixel's world position, once.
+//
+// u needs the cosine of ITS OWN row: taking one cosine for the whole window
+// makes the east-west scale depend on where the window is, which slid the
+// lattice by 7 px at the sect level when the shader did it that way. So
+// latitude and its cosine are per row, and longitude-in-km per column.
+struct WorldGrid
+{
+    std::vector<double> vRow, cosRow, lonKm;
+
+    WorldGrid(const NoiseFrame& frame, int res)
+        : vRow(res), cosRow(res), lonKm(res)
+    {
+        for (int y = 0; y < res; y++)
+        {
+            double lat = frame.lat0Deg + (y + 0.5) * frame.dLatPerPx;
+            vRow[y] = lat * MOON_KM_PER_DEG;
+            cosRow[y] = std::cos(lat * DEG2RAD);
+        }
+        for (int x = 0; x < res; x++)
+            lonKm[x] = (frame.lon0Deg + (x + 0.5) * frame.dLonPerPx) * MOON_KM_PER_DEG;
+    }
+};
+
+// The rim and its ejecta blanket, as a function of distance past the rim.
+static float RimRise(float t, float invW, float ejectaR)
+{
+    const float EJECTA_SHARE = 0.45f;
+    float g = std::exp(-t * t * invW);
+    if (t <= 0.0f || ejectaR <= 0.001f) return g;
+    float x = std::min(1.0f, t / ejectaR);
+    float sf = 1.0f - x * x * (3.0f - 2.0f * x);
+    return (1.0f - EJECTA_SHARE) * g + EJECTA_SHARE * sf;
+}
+
+// Bowl profile in units of the crater's own depth, r in radii.
+//
+// The parabola -(1 - r^2) is zero AT the rim but not FLAT at it: it arrives
+// with a slope of -2/(1-flat), so the bowl meets the plain in a crease. On a
+// bench drawn at one scale that is invisible; on a saturated population under
+// a hillshade every crater gets a drawn black circle around it, which is what
+// sent the bench's first deep-zoom renders wrong. The cosine dish has zero
+// slope at both ends -- flat at the floor, tangent at the rim -- and is the
+// profile lola_dem.cpp already uses for the same reason.
+static float CraterProfile(float r, float flat, int cosine)
+{
+    if (r >= 1.0f) return 0.0f;
+    if (r <= flat) return -1.0f;
+    float u = (r - flat) / std::max(1e-4f, 1.0f - flat);
+    return cosine ? -0.5f * (1.0f + std::cos((float)PI * u))
+                  : -(1.0f - u * u);
+}
+
+// The fractal residual: the ground's own roughness continued downward.
+// Relief at a wavelength is a FRACTION of that wavelength, which is what
+// makes it scale-free -- the same rule at 1 km and at 3 m. Metres, added.
+static void SubFloorNoise(Field& outM, int res, const WorldGrid& W,
+                          double kmPerPx, float roughFrac,
+                          const Field& roughMask)
+{
+    double lambda = FLOOR_KM * 2.0;
+    for (int o = 0; o < SUB_MAX_OCTAVES && lambda >= 3.0 * kmPerPx;
+         o++, lambda *= 0.5)
+    {
+        float w = SubFade(lambda);
+        if (w <= 0.001f) continue;
+        float ampM = (float)(w * roughFrac * lambda * 1000.0);
+        uint32_t salt = (uint32_t)(0x51u + (uint32_t)o * 2654435761u);
+        for (int y = 0; y < res; y++)
+        {
+            double v = W.vRow[y], c = W.cosRow[y];
+            size_t row = (size_t)y * res;
+            for (int x = 0; x < res; x++)
+            {
+                double u = W.lonKm[x] * c;
+                outM[row + x] += ampM * roughMask[row + x] *
+                                 DetailNoise(u, v, lambda, salt);
+            }
+        }
+    }
+}
+
+// The window's world bounds, from its four corners.
+static void FrameWorldBounds(const NoiseFrame& frame, int res,
+                             double* uMin, double* uMax,
+                             double* vMin, double* vMax)
+{
+    *uMin = *vMin = 1e300; *uMax = *vMax = -1e300;
+    const double cx[4] = {0.0, (double)res, 0.0, (double)res};
+    const double cy[4] = {0.0, 0.0, (double)res, (double)res};
+    for (int i = 0; i < 4; i++)
+    {
+        double u, v;
+        FrameWorldKm(frame, cx[i], cy[i], &u, &v);
+        *uMin = std::min(*uMin, u); *uMax = std::max(*uMax, u);
+        *vMin = std::min(*vMin, v); *vMax = std::max(*vMax, v);
+    }
+}
+
+// The impact population, band by band: sizes halving from the mosaic's
+// floor down to about three pixels, each band a jittered world lattice.
+//
+// Deepest-wins inside a band, which a saturated field needs -- summing
+// overlapping bowls digs runaway pits. Rims add, because ejecta does.
+// Returns how many craters landed in the window.
+static int CraterPopulation(Field& outM, int res, const NoiseFrame& frame,
+                            double spanKm, const TerrainTuning& P)
+{
+    double kmPerPx = spanKm / res;
+    double uMin, uMax, vMin, vMax;
+    FrameWorldBounds(frame, res, &uMin, &uMax, &vMin, &vMax);
+
+    Field bowl((size_t)res * res);
+    float rOuter = 1.0f + std::max(3.0f * P.rimWidth, P.ejecta);
+    int placed = 0;
+    double diamKm = FLOOR_KM * 1.4;
+    double bandFloor = P.popPx > 0.0f ? P.popPx : 2.5;
+    for (int b = 0; b < SUB_MAX_OCTAVES && diamKm >= bandFloor * kmPerPx;
+         b++, diamKm *= 0.5)
+    {
+        float w = SubFade(diamKm);
+        if (w <= 0.001f) continue;
+        double cellKm = diamKm / 0.55;
+        uint32_t salt = (uint32_t)(0xC7A7E5u + (uint32_t)b * 7919u);
+        int64_t i0 = (int64_t)std::floor(uMin / cellKm) - 1;
+        int64_t i1 = (int64_t)std::floor(uMax / cellKm) + 1;
+        int64_t j0 = (int64_t)std::floor(vMin / cellKm) - 1;
+        int64_t j1 = (int64_t)std::floor(vMax / cellKm) + 1;
+        std::fill(bowl.begin(), bowl.end(), 0.0f);
+        for (int64_t cj = j0; cj <= j1; cj++)
+        {
+            for (int64_t ci = i0; ci <= i1; ci++)
+            {
+                // Crater fields cluster: a slow density modulation leaves some
+                // patches busy and some nearly clean, instead of bubble wrap.
+                //
+                // Evaluated at the CELL, not at the pixel. Hoisting it to the
+                // pixel was 17% faster and drew straight lines across the
+                // ground: a crater near the density threshold was included in
+                // one lattice cell and dropped in the next, so it got cut off
+                // along an axis-aligned boundary. There is no per-pixel
+                // shortcut here -- the clustering has to be the crater's own.
+                float cluster = 0.5f + 0.5f *
+                    DetailNoise((ci + 0.5) * cellKm, (cj + 0.5) * cellKm,
+                                cellKm * 11.0, salt + 900u);
+                if (DetailHash01((int32_t)ci, (int32_t)cj, salt) >
+                    P.popDensity * cluster) continue;
+                double u = (ci + 0.12 + 0.76 * DetailHash01((int32_t)ci, (int32_t)cj, salt + 1u)) * cellKm;
+                double v = (cj + 0.12 + 0.76 * DetailHash01((int32_t)ci, (int32_t)cj, salt + 2u)) * cellKm;
+                double lat = v / MOON_KM_PER_DEG;
+                double cosLat = std::cos(lat * DEG2RAD);
+                if (std::fabs(cosLat) < 1e-6) continue;
+                double lon = u / (MOON_KM_PER_DEG * cosLat);
+                double py = (lat - frame.lat0Deg) / frame.dLatPerPx - 0.5;
+                double px = (lon - frame.lon0Deg) / frame.dLonPerPx - 0.5;
+                double dKm = cellKm * (0.30 + 0.70 * DetailHash01((int32_t)ci, (int32_t)cj, salt + 3u));
+                double R = (dKm * 0.5) / kmPerPx;
+                if (R < 0.9) continue;
+                int x0 = std::max(0, (int)std::floor(px - R * rOuter));
+                int x1 = std::min(res - 1, (int)std::ceil(px + R * rOuter));
+                int y0 = std::max(0, (int)std::floor(py - R * rOuter));
+                int y1 = std::min(res - 1, (int)std::ceil(py + R * rOuter));
+                if (x1 < x0 || y1 < y0) continue;
+                placed++;
+                // Most craters are ancient: age^3 keeps the fresh, sharp,
+                // rimmed ones rare, which is what a gardened surface looks like.
+                float age = DetailHash01((int32_t)ci, (int32_t)cj, salt + 4u);
+                float fresh = age * age * age;
+                float depthM = (float)(w * P.subCraters * dKm * 1000.0 *
+                                       (P.dMin + (P.dMax - P.dMin) * fresh));
+                float rimM = depthM * P.rim * fresh;
+                float invW = 1.0f / (2.0f * P.rimWidth * P.rimWidth);
+                for (int y = y0; y <= y1; y++)
+                {
+                    float dy = (float)((y - py) / R);
+                    size_t row = (size_t)y * res;
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        float dx = (float)((x - px) / R);
+                        float r = std::sqrt(dx * dx + dy * dy);
+                        if (r >= rOuter) continue;
+                        size_t k = row + x;
+                        if (r < 1.0f)
+                        {
+                            float bv = CraterProfile(r, P.floorFlat, P.cosineBowl) * depthM;
+                            if (bv < bowl[k]) bowl[k] = bv;
+                        }
+                        if (rimM > 0.001f)
+                            outM[k] += rimM * RimRise(r - 1.0f, invW, P.ejecta);
+                    }
+                }
+            }
+        }
+        for (size_t i = 0; i < outM.size(); i++) outM[i] += bowl[i];
+    }
+    return placed;
+}
+
+// Clasts: the scattered angular grit a regolith texture normally PAINTS as
+// little bright specks with a lit lower-right edge -- it has to paint them,
+// because a texture tile has no light of its own.
+//
+// Here they are RELIEF: small domes, so the same sun that shades the craters
+// gives each one its lit face and its shadow. And they are on the same world
+// lattice as everything else -- bands halving from a few tens of metres down
+// to the pixel -- so zooming turns a speck into a rock and finds new specks
+// under it. Returns how many landed.
+static int ClastBands(Field& outM, int res, const NoiseFrame& frame,
+                      double spanKm, const TerrainTuning& P)
+{
+    double kmPerPx = spanKm / res;
+    double uMin, uMax, vMin, vMax;
+    FrameWorldBounds(frame, res, &uMin, &uMax, &vMin, &vMax);
+
+    int placed = 0;
+    double diamKm = 0.045;                    // 45 m: a big rock, and rare
+    double clastFloor = P.clastPx > 0.0f ? P.clastPx : 2.2;
+    for (int b = 0; b < 12 && diamKm >= clastFloor * kmPerPx; b++, diamKm *= 0.5)
+    {
+        double cellKm = diamKm / 0.42;
+        uint32_t salt = (uint32_t)(0x5EED17u + (uint32_t)b * 26417u);
+        // Bigger rocks are rarer, by about the same power law the craters use.
+        float occ = std::min(0.9f, P.clastDensity * (0.35f + 0.65f * b / 4.0f));
+        int64_t i0 = (int64_t)std::floor(uMin / cellKm) - 1;
+        int64_t i1 = (int64_t)std::floor(uMax / cellKm) + 1;
+        int64_t j0 = (int64_t)std::floor(vMin / cellKm) - 1;
+        int64_t j1 = (int64_t)std::floor(vMax / cellKm) + 1;
+        for (int64_t cj = j0; cj <= j1; cj++)
+        {
+            for (int64_t ci = i0; ci <= i1; ci++)
+            {
+                if (DetailHash01((int32_t)ci, (int32_t)cj, salt) > occ) continue;
+                double u = (ci + 0.15 + 0.70 * DetailHash01((int32_t)ci, (int32_t)cj, salt + 1u)) * cellKm;
+                double v = (cj + 0.15 + 0.70 * DetailHash01((int32_t)ci, (int32_t)cj, salt + 2u)) * cellKm;
+                double lat = v / MOON_KM_PER_DEG;
+                double cosLat = std::cos(lat * DEG2RAD);
+                if (std::fabs(cosLat) < 1e-6) continue;
+                double lon = u / (MOON_KM_PER_DEG * cosLat);
+                double py = (lat - frame.lat0Deg) / frame.dLatPerPx - 0.5;
+                double px = (lon - frame.lon0Deg) / frame.dLonPerPx - 0.5;
+                double dKm = diamKm * (0.55 + 0.75 * DetailHash01((int32_t)ci, (int32_t)cj, salt + 3u));
+                double R = (dKm * 0.5) / kmPerPx;
+                if (R < 0.7) continue;
+                int x0 = std::max(0, (int)std::floor(px - R));
+                int x1 = std::min(res - 1, (int)std::ceil(px + R));
+                int y0 = std::max(0, (int)std::floor(py - R));
+                int y1 = std::min(res - 1, (int)std::ceil(py + R));
+                if (x1 < x0 || y1 < y0) continue;
+                placed++;
+                // A rock sits ON the ground: a third of its width proud of it.
+                float hM = (float)(P.clasts * dKm * 1000.0 * 0.33 *
+                                   (0.6 + 0.8 * DetailHash01((int32_t)ci, (int32_t)cj, salt + 4u)));
+                for (int y = y0; y <= y1; y++)
+                {
+                    float dy = (float)((y - py) / R);
+                    size_t row = (size_t)y * res;
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        float dx = (float)((x - px) / R);
+                        float q = 1.0f - dx * dx - dy * dy;
+                        if (q > 0.0f) outM[row + x] += hM * std::sqrt(q);
+                    }
+                }
+            }
+        }
+    }
+    return placed;
+}
+
+// Relief the mosaic cannot carry, in chain units, added to the height field
+// where the engine's pixel-anchored grain and undulation used to go.
+//
+// heightScaleM is the chain's own: the hillshade multiplies height by z = 110
+// and differences it per pixel, so one unit is 110 pixel-widths of rise.
+// Converting through it is what makes a 400 m crater 400 m deep at every
+// level instead of three different depths.
+static int SubFloorRelief(Field& height, int res, const NoiseFrame& frame,
+                          double spanKm, const TerrainTuning& tune,
+                          const Field& density)
+{
+    double kmPerPx = spanKm / res;
+    double heightScaleM = 110.0 * (spanKm * 1000.0 / res);
+    WorldGrid W(frame, res);
+    Field accM((size_t)res * res, 0.0f);
+    Field roughMask((size_t)res * res);
+    for (size_t i = 0; i < roughMask.size(); i++)
+        roughMask[i] = 0.45f + 0.55f * density[i];   // bright ground is rough ground
+
+    if (tune.subRough > 0.0f)
+        SubFloorNoise(accM, res, W, kmPerPx, tune.subRough, roughMask);
+    if (tune.clasts > 0.001f)
+        ClastBands(accM, res, frame, spanKm, tune);
+    int craters = 0;
+    if (tune.subCraters > 0.001f)
+        craters = CraterPopulation(accM, res, frame, spanKm, tune);
+
+    // The last octave is the pixel itself, and nothing world-anchored can
+    // live there: this is the grit the previous zoom could not show.
+    Field grit((size_t)res * res, 0.0f);
+    double cellKm = std::max(1e-12, kmPerPx);
+    if (tune.subGrit > 0.0f)
+    {
+        for (int y = 0; y < res; y++)
+        {
+            double v = W.vRow[y], c = W.cosRow[y];
+            size_t row = (size_t)y * res;
+            for (int x = 0; x < res; x++)
+                grit[row + x] = DetailHash01(
+                    (int32_t)std::floor(W.lonKm[x] * c / cellKm),
+                    (int32_t)std::floor(v / cellKm), 0x6A09E667u) - 0.5f;
+        }
+        // Crisp keeps the finest term at one pixel: blurring it is what makes
+        // a hard-pixel upscale look like blocky mush rather than like grain.
+        if (!tune.crisp) GaussianBlur(grit, res, res, 0.55f);
+    }
+    float gritM = (float)(tune.subGrit * 1.4 * kmPerPx * 1000.0);   // ~1.4 px of relief
+    for (size_t i = 0; i < height.size(); i++)
+        height[i] += (float)((accM[i] + gritM * grit[i] * roughMask[i]) / heightScaleM);
+    return craters;
+}
+
+// The regolith's own tone: broad mottled patches over fine grit, in world
+// wavelengths so it too only gains detail as you come down. ALBEDO only --
+// fed into the macro it would be read back as relief by formRelief.
+static Field SubFloorMottle(int res, const NoiseFrame& frame, double spanKm,
+                            const TerrainTuning& tune)
+{
+    double kmPerPx = spanKm / res;
+    WorldGrid W(frame, res);
+    Field out((size_t)res * res, 0.0f);
+    // Four octaves, not everything down to the pixel: mottling is a broad
+    // tone, its fine end is invisible under the grit, and measured at res 640
+    // the extra octaves cost more than the crater population does.
+    const int MOTTLE_OCTAVES = 4;
+    double lambda = FLOOR_KM * 0.7;
+    float amp = 1.0f, norm = 0.0f;
+    for (int o = 0; o < MOTTLE_OCTAVES && lambda >= 4.0 * kmPerPx;
+         o++, lambda *= 0.5)
+    {
+        float w = SubFade(lambda * 2.0) * amp;
+        norm += amp;
+        if (w > 0.001f)
+        {
+            uint32_t salt = (uint32_t)(0x2545F491u + (uint32_t)o * 40503u);
+            for (int y = 0; y < res; y++)
+            {
+                double v = W.vRow[y], c = W.cosRow[y];
+                size_t row = (size_t)y * res;
+                for (int x = 0; x < res; x++)
+                    out[row + x] += w * DetailNoise(W.lonKm[x] * c, v, lambda, salt);
+            }
+        }
+        amp *= 0.62f;
+    }
+    if (norm > 0.0f)
+        for (size_t i = 0; i < out.size(); i++) out[i] *= tune.subMottle / norm;
+    return out;
+}
+
 // Boulder speckle: tiny sharp bumps; the shared relighting gives each
 // one its lit face and cast-shadow pixel automatically.
 // One boulder per world cell, on a hashed pixel inside it -- the scheme
@@ -973,11 +1359,22 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
                             const TerrainSiteDisturbance* site = nullptr,
                             float pxPerKm = 0.0f,
                             Field* outHeight = nullptr,
-                            Field* outAlbedo = nullptr)
+                            Field* outAlbedo = nullptr,
+                            bool lastRung = false)
 {
     // Pixel-based sizes below are tuned at 300 px; k rescales them so
     // physical feature sizes stay fixed at other resolutions.
     float k = res / 300.0f;
+    // The world-anchored stack runs only on the rung being LOOKED at.
+    // Each rung's macro is the LIT output of the rung above, and
+    // formRelief reads that shading back as height -- so relief carved at
+    // rung after rung is shaded once per rung. Measured in the bench on a
+    // mare crater: peak luminance 196/255 carved at four rungs against 50
+    // carved once. The population is world-anchored and deterministic, so
+    // the deepest rung regenerates all of it anyway; only the compounding
+    // is lost, and the compounding was the bug.
+    const bool worldFloor = (tune.subFloor != 0) && lastRung;
+    const double spanKm = frame.kmPerPx * res;
     if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
         LevelSiteMacro(macro, res, pxPerKm, *site);
 
@@ -987,20 +1384,45 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
 
     // Height field: smoothed macro as relief proxy + grain + undulation
     Field height = macro;
-    GaussianBlur(height, res, res, 2.5f * k);
+    // Smoothed hard by default so the imagery's own noise does not become
+    // terrain; smoothed less when the picture will be shown at its own
+    // resolution and can afford the detail.
+    GaussianBlur(height, res, res, (tune.crisp ? 1.2f : 2.5f) * k);
     for (float& v : height) v = (v - 0.5f) * 0.13f * tune.formRelief;
 
-    Field grain = GrainNoise(res, frame);
-    NoiseFrame undulFrame = frame; undulFrame.salt ^= NOISE_UNDULATION;
-    Field undul = Fbm(res, 3, (int)(64 * k), 0.5f, undulFrame);
-    for (size_t i = 0; i < height.size(); i++)
+    if (worldFloor)
     {
-        float rough = 0.45f + 0.55f * density[i];
-        height[i] += 0.004f * amp * tune.grain * grain[i] * rough;
-        height[i] += 0.02f * amp * tune.undulation * (undul[i] - 0.5f) * rough;
+        SubFloorRelief(height, res, frame, spanKm, tune, density);
+    }
+    // Note what is NOT here: with the world stack on, an INTERMEDIATE rung
+    // gets neither. Not an oversight -- the rung below is a crop of this
+    // one's lit output, and formRelief reads that shading back as height, so
+    // pixel-anchored grain laid here would come back as terrain down there
+    // and compound rung after rung. The world stack is regenerated whole at
+    // whatever rung is being looked at, so nothing is lost by leaving the
+    // ones above it clean.
+    //
+    // Collapsing this into a plain else was the one bug the cross-port
+    // comparison caught: with subFloor on, levels the sub-floor never
+    // touches diverged from the bench by RMS 9.3, and the crop carried it
+    // down. With subFloor off both chains agree to RMS 0.71 everywhere.
+    else if (!tune.subFloor)
+    {
+        Field grain = GrainNoise(res, frame);
+        NoiseFrame undulFrame = frame; undulFrame.salt ^= NOISE_UNDULATION;
+        Field undul = Fbm(res, 3, (int)(64 * k), 0.5f, undulFrame);
+        for (size_t i = 0; i < height.size(); i++)
+        {
+            float rough = 0.45f + 0.55f * density[i];
+            height[i] += 0.004f * amp * tune.grain * grain[i] * rough;
+            height[i] += 0.02f * amp * tune.undulation * (undul[i] - 0.5f) * rough;
+        }
     }
 
-    if (boulderCount > 0)
+    // The clasts are the same idea done properly -- world-anchored rocks
+    // that grow as you come down -- so the pixel-anchored sprinkle stands
+    // down when they are running.
+    if (boulderCount > 0 && !worldFloor)
         SprinkleBoulders(height, res, frame,
                          (int)(boulderCount * tune.boulders),
                          0.010f * tune.boulderAmp);
@@ -1013,15 +1435,20 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
         // The speckle belongs to the albedo, not to the light, so it
         // comes across; the hillshade and the shadow march do not.
         NoiseFrame sf = frame; sf.salt ^= NOISE_SPECKLE;
-        Field speckle = Fbm(res, 2, 4, 0.5f, sf);
+        Field speckle = worldFloor ? SubFloorMottle(res, frame, spanKm, tune)
+                                   : Fbm(res, 2, 4, 0.5f, sf);
+        // The mottle is already signed and already scaled by subMottle; the
+        // fbm is 0..1 and takes the old gain. Same shape, two conventions.
+        float speckMid = worldFloor ? 0.0f : 0.5f;
+        float speckGain = worldFloor ? 1.0f : 0.04f * tune.speckle;
         *outHeight = height;
         outAlbedo->resize((size_t)res * res);
         for (size_t i = 0; i < macro.size(); i++)
         {
             float rough = 0.45f + 0.55f * density[i];
             (*outAlbedo)[i] = std::clamp(
-                macro[i] * (1.0f + 0.04f * std::min(amp, 1.6f)
-                                  * (speckle[i] - 0.5f) * rough),
+                macro[i] * (1.0f + speckGain * std::min(amp, 1.6f)
+                                  * (speckle[i] - speckMid) * rough),
                 0.0f, 1.0f);
         }
         return;
@@ -1033,15 +1460,18 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
     Field light = CastShadows(height, res, z, 22.0f * k, 1.5f);
 
     NoiseFrame speckleFrame = frame; speckleFrame.salt ^= NOISE_SPECKLE;
-    Field speckle = Fbm(res, 2, 4, 0.5f, speckleFrame);
+    Field speckle = worldFloor ? SubFloorMottle(res, frame, spanKm, tune)
+                               : Fbm(res, 2, 4, 0.5f, speckleFrame);
+    float speckMid = worldFloor ? 0.0f : 0.5f;
+    float speckGain = worldFloor ? 1.0f : 0.04f * tune.speckle;
     for (size_t i = 0; i < macro.size(); i++)
     {
         float rel = std::clamp(hs[i] / flatRef, 0.0f, 1.6f);
         float rough = 0.45f + 0.55f * density[i];
         float lum = macro[i] * (0.62f + 0.38f * rel)
                     * (0.45f + 0.55f * light[i]);
-        lum *= 1.0f + 0.04f * std::min(amp, 1.6f)
-                    * (speckle[i] - 0.5f) * rough;
+        lum *= 1.0f + speckGain * std::min(amp, 1.6f)
+                    * (speckle[i] - speckMid) * rough;
         lum = std::clamp(lum, 0.0f, 1.0f);
         // Gentle S-curve: deepen shadows, keep highlights
         float s = lum * lum * (3.0f - 2.0f * lum);
@@ -1306,7 +1736,8 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                     1.0f, tune, 0, siteForLevel[0],
                     (float)res / levelSpanKm[0],
                     (wantFields && levelCount == 1) ? outHeight : nullptr,
-                    (wantFields && levelCount == 1) ? outAlbedo : nullptr);
+                    (wantFields && levelCount == 1) ? outAlbedo : nullptr,
+                    levelCount == 1);
 
     auto emit = [&](int level)
     {
@@ -1367,7 +1798,8 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                         1.0f + 0.7f * lvl, tune, boulderBase,
                         siteForLevel[lvl], (float)res / levelSpanKm[lvl],
                         (wantFields && last) ? outHeight : nullptr,
-                        (wantFields && last) ? outAlbedo : nullptr);
+                        (wantFields && last) ? outAlbedo : nullptr,
+                        last);
         emit(lvl);
     }
 
@@ -1477,12 +1909,13 @@ TerrainChainSpans TerrainChainSpansForWindow(double spanKm)
 void GenerateTerrainChain(double latDeg, double lonDeg, int res,
                           Image outLevels[3],
                           const TerrainSiteDisturbance* site,
-                          const TerrainChainSpans* spans)
+                          const TerrainChainSpans* spans,
+                          const TerrainTuning* tune)
 {
     TerrainTuning defaults;
     TerrainChainSpans game;
-    GenerateChainInternal(latDeg, lonDeg, res, defaults, outLevels, 3, site,
-                          spans ? *spans : game);
+    GenerateChainInternal(latDeg, lonDeg, res, tune ? *tune : defaults,
+                          outLevels, 3, site, spans ? *spans : game);
 }
 
 bool GenerateTerrainFields(double latDeg, double lonDeg, int res,

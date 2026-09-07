@@ -623,6 +623,19 @@ static int RenderGameView(const PreviewOptions& options)
                 tune.boulders = 4.0f; tune.boulderAmp = 1.6f;
                 tune.speckle = 1.1f;
             }
+            // The world-anchored sub-floor, until it is the default. This is
+            // the one preset that changes what KIND of detail the ground has
+            // rather than how much: wavelengths in kilometres and populations
+            // on a lattice pinned to the moon, so zooming gets closer instead
+            // of swapping one texture for another.
+            else if (options.tune == "subfloor")
+            {
+                tune.subFloor = 1;
+            }
+            else if (options.tune == "subfloor-crisp")
+            {
+                tune.subFloor = 1; tune.crisp = 1;
+            }
             else if (options.tune == "dramatic")
             {
                 tune.grain = 1.4f; tune.undulation = 1.6f;

@@ -177,10 +177,18 @@ TerrainChainSpans TerrainChainSpansForWindow(double spanKm);
 bool TerrainWarmMosaic();
 
 // spans == nullptr walks the game's own 100 / 25 / 5.
+// Declared below, next to the levers it holds; named here because the
+// chain entry point takes an optional one.
+struct TerrainTuning;
+
+// tune == nullptr uses the defaults, which is what the game asks for.
+// Passing one is how an instrument renders a look the game does not ship
+// yet -- terrain_probe --subfloor, and the preview's named presets.
 void GenerateTerrainChain(double latDeg, double lonDeg, int res,
                           Image outLevels[3],
                           const TerrainSiteDisturbance* site = nullptr,
-                          const TerrainChainSpans* spans = nullptr);
+                          const TerrainChainSpans* spans = nullptr,
+                          const TerrainTuning* tune = nullptr);
 
 // Support for the GPU path (terrain_gpu.cpp), which runs the same chain
 // as fragment-shader passes. It needs two things the CPU keeps to
@@ -227,6 +235,49 @@ struct TerrainTuning
     float lightWeight = 0.55f;  // cast-shadow contribution (absolute)
     float speckle = 1.0f;       // albedo mottling (x 0.04)
     float sCurve = 0.20f;       // shadow-deepening mix (absolute)
+
+    // --- the world-anchored sub-floor -------------------------------------
+    //
+    // Everything above is anchored to the PIXEL: grain and undulation are
+    // noise fields indexed by the tile's own grid, so zooming in exchanges
+    // one set of detail for another at the same apparent size, and the
+    // ground never gets closer. Everything below is anchored to the MOON:
+    // wavelengths in kilometres, populations on a world lattice, so zooming
+    // ADDS detail -- a speck becomes a rock and new specks appear under it.
+    //
+    // subFloor = 0 is the chain exactly as it was, and is the default until
+    // the port is finished. The layers only run on the level actually being
+    // looked at (`lastRung`), for the reason on DEFAULT_CRATER.everyLevel in
+    // the bench: each rung's macro is the LIT output of the rung above and
+    // formRelief reads that shading back as height, so relief carved at rung
+    // after rung is shaded once per rung. The population is world-anchored
+    // and deterministic, so the deepest rung regenerates all of it anyway.
+    int subFloor = 0;           // 0 = shipped chain, 1 = world-anchored stack
+    float subRough = 0.045f;    // fractal residual, relief as a fraction of wavelength
+    float subGrit = 1.8f;       // the finest term, at the pixel (x 1.4 px)
+    float subCraters = 1.15f;   // impact population depth multiplier
+    float popDensity = 0.75f;   // impact population occupancy
+    float subMottle = 0.20f;    // regolith albedo mottling (world-anchored)
+    float clasts = 1.0f;        // scattered rocks, height multiplier
+    float clastDensity = 0.30f; // scattered rocks, occupancy
+    float popPx = 2.5f;         // smallest crater band, in pixels
+    float clastPx = 2.2f;       // smallest clast band, in pixels
+    // Crater shape, shared by the population and by anything that carves.
+    float dMin = 0.03f;         // depth/diameter, most degraded
+    float dMax = 0.20f;         // depth/diameter, freshest
+    float rim = 0.34f;          // rim height as a fraction of depth
+    float rimWidth = 0.16f;     // rim gaussian width, in radii
+    float ejecta = 0.55f;       // ejecta reach beyond the rim, in radii
+    float floorFlat = 0.30f;    // flat floor fraction of the radius
+    int cosineBowl = 1;         // 1 = cosine dish, 0 = parabola (see CraterProfile)
+
+    // --- levers the bench grew, for measuring rather than for taste --------
+    // crisp drops the softening steps that only make sense when a picture is
+    // going to be resampled anyway; shadows turns the march off entirely.
+    int crisp = 0;
+    int shadows = 1;
+    float sunAz = 315.0f;
+    float sunAlt = 35.0f;
 };
 
 // The chain's two fields at its last level, BEFORE it lights them.

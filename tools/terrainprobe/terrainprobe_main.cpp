@@ -81,6 +81,7 @@ int main(int argc, char** argv)
     std::string out = "build/terrain_probe";
     std::string path = "both";
     bool site = true;
+    int subFloor = -1, crisp = -1;
     for (int i = 1; i < argc; i++)
     {
         std::string a = argv[i];
@@ -91,9 +92,12 @@ int main(int argc, char** argv)
         else if (a == "--out" && next) out = argv[++i];
         else if (a == "--path" && next) path = argv[++i];
         else if (a == "--site" && next) site = std::atoi(argv[++i]) != 0;
+        else if (a == "--subfloor" && next) subFloor = std::atoi(argv[++i]);
+        else if (a == "--crisp" && next) crisp = std::atoi(argv[++i]);
         else
         {
             std::printf("usage: terrain_probe [--lat L] [--lon L] [--res N] "
+                        "[--subfloor 0|1] [--crisp 0|1] "
                         "[--out DIR] [--site 0|1] [--path cpu|gpu|both]\n");
             return (a == "--help" || a == "-h") ? 0 : 1;
         }
@@ -109,8 +113,14 @@ int main(int argc, char** argv)
 
     std::printf("path here: %s\n", GetTerrainPathName());
     if (res <= 0) res = GetTerrainPathResolution();
-    std::printf("location %.3f, %.3f  res %d  site %s  out %s/\n",
-                lat, lon, res, site ? "on" : "off", out.c_str());
+    // The tuning the chain will run with. -1 leaves a lever at its default,
+    // so the probe measures the shipped look unless it is told otherwise.
+    TerrainTuning tune;
+    if (subFloor >= 0) tune.subFloor = subFloor;
+    if (crisp >= 0) tune.crisp = crisp;
+    std::printf("location %.3f, %.3f  res %d  site %s  subFloor %d  crisp %d  out %s/\n",
+                lat, lon, res, site ? "on" : "off", tune.subFloor, tune.crisp,
+                out.c_str());
 
     Image gpu[3] = {}, cpu[3] = {};
     bool haveGpu = false, haveCpu = false;
@@ -138,7 +148,7 @@ int main(int argc, char** argv)
     if (path == "cpu" || path == "both")
     {
         double t0 = GetTime();
-        GenerateTerrainChain(lat, lon, res, cpu, sitePtr);
+        GenerateTerrainChain(lat, lon, res, cpu, sitePtr, nullptr, &tune);
         std::printf("CPU chain: %.1f ms\n", (GetTime() - t0) * 1000.0);
         haveCpu = true;
     }

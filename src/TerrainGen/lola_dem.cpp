@@ -1,6 +1,7 @@
 // Real lunar elevation from the LOLA LDEM_16 model. See lola_dem.h.
 
 #include "lola_dem.h"
+#include "detail_noise.h"
 
 #include <algorithm>
 #include <cmath>
@@ -754,35 +755,10 @@ LolaWindow LolaDem::WindowDegrees(double lat0, double lat1,
 // landforms stay the backbone and are never displaced, only textured.
 // ---------------------------------------------------------------------------
 
-static uint32_t DetailHash(int32_t x, int32_t y, uint32_t salt)
-{
-    uint32_t h = (uint32_t)x * 0x8da6b343u ^ (uint32_t)y * 0xd8163841u ^
-                 salt * 0xcb1ab31fu;
-    h ^= h >> 13; h *= 0x9e3779b1u; h ^= h >> 16;
-    return h;
-}
-
-static float DetailHash01(int32_t x, int32_t y, uint32_t salt)
-{
-    return (float)(DetailHash(x, y, salt) & 0xFFFFFF) / 16777215.0f;
-}
-
-// Single-octave value noise on a lattice of `waveKm`, smoothstepped.
-static float DetailNoise(double u, double v, double waveKm, uint32_t salt)
-{
-    double gu = u / waveKm, gv = v / waveKm;
-    int32_t x0 = (int32_t)std::floor(gu), y0 = (int32_t)std::floor(gv);
-    float fx = (float)(gu - x0), fy = (float)(gv - y0);
-    fx = fx * fx * (3.0f - 2.0f * fx);
-    fy = fy * fy * (3.0f - 2.0f * fy);
-    float n00 = DetailHash01(x0, y0, salt);
-    float n10 = DetailHash01(x0 + 1, y0, salt);
-    float n01 = DetailHash01(x0, y0 + 1, salt);
-    float n11 = DetailHash01(x0 + 1, y0 + 1, salt);
-    float top = n00 + (n10 - n00) * fx;
-    float bot = n01 + (n11 - n01) * fx;
-    return (top + (bot - top) * fy) * 2.0f - 1.0f;    // -1..1
-}
+// DetailHash / DetailHash01 / DetailNoise now live in detail_noise.h, so
+// terrain_synthesis.cpp's sub-floor stack quantises the same world point
+// into the same lattice cell this file does. They were identical by hand
+// before; now they are identical by construction.
 
 // Crater contribution at (u, v) from the jittered-grid population of
 // one size band (cells of `cellKm`). Degraded bowls: parabolic floor,
