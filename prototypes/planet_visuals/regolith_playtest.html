@@ -356,9 +356,20 @@ function FineRes(){
 function FineRatio(){          // what the cap actually left us with
   return FineRes() / (Math.max(CV.width, CV.height) * FINE_MARGIN);
 }
+// Worth refining unless what is on screen is ALREADY the right fine
+// tile for this view. Written as "is the fine tile bigger than the
+// current one" it said no whenever the current one happened to be a
+// stale fine tile of the same size -- and now that a coarse tile can be
+// skipped entirely, that was the difference between a stale view and no
+// view at all.
 function RefineWorth(){
-  return !!WORK && st.super > 0 && !Hard() && st.tile
-      && FineRes() > st.tile.canvas.width * 1.05;
+  if (!WORK || st.super <= 0 || Hard() || !st.tile) return false;
+  if (st.tile.fine && st.tile.canvas.width === FineRes() && StillFits(st.tile)) return false;
+  // And only if it would actually read the ground more finely than the
+  // coarse tile does; on a small window at x1.0 it does not.
+  const fineKm = (st.spanKm * FINE_MARGIN) / FineRes();
+  const coarseKm = (st.spanKm * TILE_MARGIN) / WantedRes();
+  return fineKm < coarseKm * 0.98;
 }
 
 // The last few fine tiles, kept. Trying a level, going back and trying
@@ -506,7 +517,7 @@ function OnWorker(e){
     c.getContext("2d").drawImage(out.canvas, 0, 0);
     const whole = { canvas: c, spanKm: m.spanKm, margin: m.margin,
                     cxKm: m.cxKm, cyKm: m.cyKm, kmPerPx: m.kmPerPx,
-                    craters: 0, pop: 0 };
+                    craters: 0, pop: 0, fine: true };
     if (!StillFits(whole)){ Hud(); return; }
     st.prev = st.tile; st.tile = whole; st.fade = st.prev ? 0 : 1;
     st.dirty = true; KeepFine(whole);
@@ -533,7 +544,7 @@ function OnWorker(e){
     if (set.dead || m.epoch !== st.epoch){ Hud(); return; }
     const whole = { canvas: set.canvas, spanKm: m.spanKm, margin: m.margin,
                     cxKm: m.cxKm, cyKm: m.cyKm, kmPerPx: m.kmPerPx,
-                    craters: set.craters, pop: set.pop };
+                    craters: set.craters, pop: set.pop, fine: true };
     if (!StillFits(whole)){ Hud(); return; }
     st.prev = st.tile; st.tile = whole; st.fade = st.prev ? 0 : 1;
     st.dirty = true; KeepFine(whole);
@@ -568,17 +579,56 @@ function OnWorker(e){
   Hud(); WriteHash();
 }
 
+/* --- what may replace what --------------------------------------------
+   The flicker this exists to stop: sitting on a supersampled tile,
+   zooming in, and watching the view go super -> sharp -> super. The
+   middle state is the COARSE tile arriving. It is newer, and it was
+   taking the screen for that reason alone, but it samples the ground
+   two or three times less finely than the stretched tile it replaced.
+   Newer is not better. Finer is better.
+
+   So a tile only takes the front if it reads the ground at least as
+   finely as what is already there. Otherwise it goes behind, as the
+   backdrop, and the stretched one stays in front until its own
+   replacement is ready.
+   -------------------------------------------------------------------- */
+// How much of the window a tile actually spans, along its worse axis.
+function CoverFrac(t){
+  if (!t) return 0;
+  const half = t.spanKm / 2;
+  const fx = (half - Math.abs(st.cxKm - t.cxKm)) / (st.spanKm / 2);
+  const fy = (half - Math.abs(st.cyKm - t.cyKm)) / (st.spanKm / 2);
+  return Math.max(0, Math.min(fx, fy));
+}
+// A stretched tile stops being worth keeping once it is a small window
+// onto better ground in the middle of coarser ground: that reads as a
+// patch, which is its own kind of flicker.
+const KEEP_COVER = 0.30;
+// Only a SUPERSAMPLED tile is held. Holding one coarse tile in front of
+// a newer coarse one is not the point and has no end: with Super off
+// there is no finer tile coming, so a zoom-out sat on stale ground
+// indefinitely -- measured, 4.61 m/px still on screen at a span that
+// wanted 13.6.
+function Finer(t){
+  return t && t.fine && t.kmPerPx && CoverFrac(t) >= KEEP_COVER;
+}
+
 function Install(m){
   const c = document.createElement("canvas");
   c.width = c.height = m.res;
   c.getContext("2d").putImageData(new ImageData(m.rgba, m.res, m.res), 0, 0);
+  const t = { canvas: c, spanKm: m.spanKm, cxKm: m.cxKm, cyKm: m.cyKm, margin: m.margin,
+              craters: m.craters, pop: m.popCraters, kmPerPx: m.kmPerPx, fine: !!m.fine };
+  // The coarse tile stays as a backdrop under whatever is in front,
+  // which is what lets the fine one be built barely wider than the
+  // window: a pan between tiles exposes soft ground instead of black.
+  if (!m.fine) st.base = t; else KeepFine(t);
+  if (!m.fine && Finer(st.tile) && m.kmPerPx > st.tile.kmPerPx * 1.02){
+    st.dirty = true;              // behind only; the front is still better
+    return;
+  }
   st.prev = st.tile;
-  st.tile = { canvas: c, spanKm: m.spanKm, cxKm: m.cxKm, cyKm: m.cyKm, margin: m.margin,
-              craters: m.craters, pop: m.popCraters, kmPerPx: m.kmPerPx };
-  // The coarse tile stays as a backdrop under the fine one, which is
-  // what lets the fine one be built barely wider than the window: a pan
-  // between tiles exposes soft ground instead of black.
-  if (!m.fine) st.base = st.tile; else KeepFine(st.tile);
+  st.tile = t;
   st.fade = st.prev ? 0 : 1;
   st.dirty = true;
 }
@@ -754,8 +804,23 @@ function MaybeRegenerate(){
   const drift = Math.abs(Math.log(st.spanKm * (st.tile.margin || TILE_MARGIN)
                                   / st.tile.spanKm));
   const moved = Math.hypot(st.cxKm - st.tile.cxKm, st.cyKm - st.tile.cyKm);
-  if (drift > 0.113 || moved > st.spanKm * 0.035) Schedule();
-  else ArmRefine();          // still where it was: sharpen it in place
+  if (drift <= 0.113 && moved <= st.spanKm * 0.035){
+    ArmRefine();             // still where it was: sharpen it in place
+    return;
+  }
+  // A coarse tile that would land coarser than what is on screen is not
+  // worth building -- it would cost worker time the fine tile needs, to
+  // put a worse picture in front of a better one -- but only when the
+  // tile on screen COVERS the window. Zooming out it does not, and
+  // skipping the coarse one there left black down both sides where the
+  // backdrop should have been: the coarse tile is still the thing that
+  // fills the frame, it just does it from behind now.
+  const wouldBe = (st.spanKm * TILE_MARGIN) / WantedRes();
+  if (RefineWorth() && CoverFrac(st.tile) >= 1.0
+      && wouldBe > st.tile.kmPerPx * 1.02){
+    ArmRefine(); return;         // a better one is coming; skip the worse one
+  }
+  Schedule();
 }
 
 // Generation is synchronous: a big tile freezes the page for as long as it
@@ -804,7 +869,42 @@ window.addEventListener("resize", Resize);
 
 function PxPerKm(){ return Math.max(CV.width, CV.height) / st.spanKm; }
 
-function DrawTile(t, alpha){
+/* --- feathering a held tile -------------------------------------------
+   A supersampled tile held over a coarse backdrop ends somewhere, and
+   on a zoom-out that end is a straight vertical line with sharper
+   ground on one side of it. Fading the tile's outer eighth into the
+   backdrop turns the line into a gradient nobody reads as an edge.
+   Only when it is actually needed: a tile that covers the window has no
+   edge on screen to hide.
+   -------------------------------------------------------------------- */
+let maskCv = null, scratch = null;
+function FeatherMask(){
+  if (maskCv) return maskCv;
+  const N = 128, e = Math.round(N * 0.13);
+  maskCv = document.createElement("canvas"); maskCv.width = maskCv.height = N;
+  const g = maskCv.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, N, N);
+  g.globalCompositeOperation = "destination-out";
+  const ramp = (x0, y0, x1, y1) => {
+    const gr = g.createLinearGradient(x0, y0, x1, y1);
+    gr.addColorStop(0, "rgba(0,0,0,1)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    return gr;
+  };
+  g.fillStyle = ramp(0, 0, e, 0);     g.fillRect(0, 0, e, N);
+  g.fillStyle = ramp(N, 0, N - e, 0); g.fillRect(N - e, 0, e, N);
+  g.fillStyle = ramp(0, 0, 0, e);     g.fillRect(0, 0, N, e);
+  g.fillStyle = ramp(0, N, 0, N - e); g.fillRect(0, N - e, N, e);
+  return maskCv;
+}
+function Scratch(){
+  if (!scratch) scratch = document.createElement("canvas");
+  if (scratch.width !== CV.width || scratch.height !== CV.height){
+    scratch.width = CV.width; scratch.height = CV.height;
+  }
+  return scratch;
+}
+
+function DrawTile(t, alpha, feather){
   if (!t) return;
   const p = PxPerKm();
   let size = t.spanKm * p;
@@ -831,7 +931,19 @@ function DrawTile(t, alpha){
   CTX.globalAlpha = alpha;
   CTX.imageSmoothingEnabled = !hard;
   CTX.imageSmoothingQuality = "high";
-  CTX.drawImage(t.canvas, dx, dy, size, size);
+  if (feather){
+    const sc = Scratch(), sx = sc.getContext("2d");
+    sx.clearRect(0, 0, sc.width, sc.height);
+    sx.imageSmoothingEnabled = !hard;
+    sx.imageSmoothingQuality = "high";
+    sx.drawImage(t.canvas, dx, dy, size, size);
+    sx.globalCompositeOperation = "destination-in";
+    sx.drawImage(FeatherMask(), dx, dy, size, size);
+    sx.globalCompositeOperation = "source-over";
+    CTX.drawImage(sc, 0, 0);
+  } else {
+    CTX.drawImage(t.canvas, dx, dy, size, size);
+  }
   CTX.globalAlpha = 1;
 }
 
@@ -898,9 +1010,12 @@ function Draw(){
     CTX.restore();
     return;
   }
-  if (st.base && st.base !== st.tile && st.base !== st.prev) DrawTile(st.base, 1);
-  DrawTile(st.prev, 1);
-  DrawTile(st.tile, st.fade);
+  // The backdrop goes down first; anything over it that does not reach
+  // the edges of the window is feathered into it.
+  const backed = st.base && st.base !== st.tile && st.base !== st.prev;
+  if (backed) DrawTile(st.base, 1, false);
+  DrawTile(st.prev, 1, backed && CoverFrac(st.prev) < 1.0);
+  DrawTile(st.tile, st.fade, backed && CoverFrac(st.tile) < 1.0);
   ScaleBar();
   MiniMap();
 }
@@ -943,7 +1058,11 @@ function SmoothLabel(){
   // which is the state this page exists to reach -- so it gets said, not
   // rounded away into "1:1".
   if (f < 0.94) return `${tag} · ×${(1 / f).toFixed(1)} super`;
-  return f <= 1.06 ? `${tag} · 1:1` : `${tag} · ${f.toFixed(1)}× up`;
+  if (f <= 1.06) return `${tag} · 1:1`;
+  // A supersampled tile being STRETCHED is still the supersampled tile,
+  // and saying only "1.6x up" read as though the coarse one had taken
+  // over -- which is exactly the swap this page now refuses to make.
+  return `${st.tile.fine ? "super held" : tag} · ${f.toFixed(1)}× up`;
 }
 
 function Hud(){
