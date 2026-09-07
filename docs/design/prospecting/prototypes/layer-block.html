@@ -449,8 +449,8 @@ const st = { sel: -1, hover: -1, cell: null, ground: null,
    an ornament on one.
    ===================================================================== */
 const drill = { armed: 0, mode: "aim", t: 0, phase: 0, i: 0, j: 0,
-                spud: 0, sink: 0, feed: 0, depthM: 0, curM: 0, cutT: 1,
-                spud0: 0, sink0: 0, curM0: 0 };
+                spud: 0, sink: 0, feed: 0, fade: 0, depthM: 0, curM: 0,
+                cutT: 1, sink0: 0 };
 const holes = [];              // {i, j, k} -- k is how far the scour has got
 const bores = [];              // {i, j, m} -- finished holes, and how deep
 const spatter = [];            // ejecta, in lattice units with a height in m
@@ -463,7 +463,7 @@ const HOLE_CELLS = 3.0;        // half-width of the band a hole lights up
 const HOLE_REACH = 13;         // how far back from a face a hole still speaks
 const HOLE_FADE = 0.55;        // how much it loses over that distance
 const REVEAL_TAIL_M = 8;       // how far under the hole its band fades out
-const SPUD_T = 0.85, OUT_T = 0.9;
+const SPUD_T = 0.85, OUT_T = 0.9, HOLD_T = 1.0, FADE_T = 0.3;
 
 /* =====================================================================
    4. THE GROUND ITSELF -- generated, not measured
@@ -1412,7 +1412,8 @@ function DrawReadout(){
               : drill.mode === "await" ? "COLLARED AT " + sm.toFixed(1) + " M  ·  SET DEPTH ON THE BAR"
               : drill.mode === "cut"   ? "DRILLING  ·  " + drill.curM.toFixed(0) + " / "
                                          + Math.round(drill.depthM) + " M"
-              : "TRIPPING OUT  ·  " + Math.round(drill.depthM) + " M";
+              : drill.mode === "out" ? "TRIPPING OUT  ·  " + Math.round(drill.depthM) + " M"
+              : "HOLE COMPLETE  ·  " + Math.round(drill.depthM) + " M";
     CTX.fillStyle = drill.mode === "await"
       ? rgb(AMBER, 0.55 + 0.45 * Math.sin(st.t * 6.3)) : rgb(CY, 0.95);
     CTX.fillText(msg, BLK_X, bot + 13);
@@ -1777,10 +1778,12 @@ function DrawSpatter(){
      spud  -> sink one bit length; the handle lands on the ground
      await -> planted. The bar is the input now
      cut   -> feed the tail down to the chosen depth
-     out   -> come back up, and leave the hole behind
+     out   -> draw the string back up THROUGH the handle, which does not move
+     hold  -> a beat, standing in the finished hole
+     fade  -> the rig goes, the core barrel is there instead
    ===================================================================== */
 function BeginOut(){
-  drill.spud0 = drill.spud; drill.sink0 = drill.sink; drill.curM0 = drill.curM;
+  drill.sink0 = drill.sink;
   drill.mode = "out"; drill.t = 0;
 }
 /* Backing out of a planted rig. It does NOT throw the hole away: the ground
@@ -1797,7 +1800,9 @@ function StepDrill(dt){
   const m = drill.mode;
   if (m === "aim"){ drill.phase += 2.2 * dt; return; }
   drill.t += dt;
-  drill.phase += (m === "spud" || m === "cut" ? 13.5 : 4.0) * dt;
+  // Spinning down: cutting, then tripping, then idling in the hole, then off.
+  drill.phase += (m === "spud" || m === "cut" ? 13.5
+                : m === "out" ? 5.0 : m === "hold" ? 0.7 : 0) * dt;
   const h = holes[holes.length - 1];
   const sm = SpudM();
   if (m === "spud"){
@@ -1815,19 +1820,38 @@ function StepDrill(dt){
     if (Math.random() < 0.5) SpawnSpatter(drill.i, drill.j, drill.curM, 1 + (Math.random() * 2 | 0));
     if (drill.t >= drill.cutT){ drill.sink = 1; BeginOut(); }
   } else if (m === "out"){
+    /* The handle does not come up with it. It is the collar: it stays on the
+       ground while the string is drawn back up THROUGH it, exactly the way it
+       went down -- so what rises is the tail, back to its full length. */
     const u = clamp(drill.t / OUT_T, 0, 1);
-    drill.spud = drill.spud0 * (1 - u);
     drill.sink = drill.sink0 * (1 - u);
-    drill.curM = drill.curM0 * (1 - u);
+    drill.curM = lerp(sm, drill.depthM, drill.sink);
+    drill.feed -= 40 * dt;
     if (drill.t >= OUT_T){
+      drill.sink = 0; drill.curM = sm;
       /* The column is real NOW, and only down to where the bit got. The
          string clearing the collar is the moment you know something: not
          when you aimed, and not one metre deeper than you drilled. */
       reveals.push({ i: drill.i, j: drill.j, m: drill.depthM });
-      bores.push({ i: drill.i, j: drill.j, m: drill.depthM });
       revealRev++; fogKey = "";
+      drill.mode = "hold"; drill.t = 0;
+    }
+  } else if (m === "hold"){
+    /* A beat, with the machine standing in the hole it just finished. The
+       column resolving and the rig disappearing are two separate events, and
+       run on the same frame neither of them registers. */
+    if (drill.t >= HOLD_T){
+      bores.push({ i: drill.i, j: drill.j, m: drill.depthM });
+      drill.mode = "fade"; drill.t = 0; drill.fade = 0;
+    }
+  } else if (m === "fade"){
+    // Fast, and a cross-fade rather than a cut: the barrel is what the rig
+    // leaves behind, so one has to be seen becoming the other.
+    drill.fade = clamp(drill.t / FADE_T, 0, 1);
+    if (drill.t >= FADE_T){
       drill.mode = "aim"; drill.t = 0;
-      drill.spud = drill.sink = drill.feed = 0; drill.curM = 0;
+      drill.spud = drill.sink = drill.feed = drill.fade = 0;
+      drill.curM = 0; st.depth = 0;
     }
   }
   StepSpatter(dt);
@@ -1902,12 +1926,19 @@ function DrawCrumbs(cx, cy, k){
    block accumulates a record of where you have been. Seeded per hole, so the
    grain is the same grain every frame instead of boiling. */
 function DrawHoleMouths(){
+  const live = holes[holes.length - 1];
   for (const h of holes){
     if (h.k < 0.05) continue;
     const k = h.j * STRIDE + h.i;
-    if (drill.mode !== "aim" && h === holes[holes.length - 1]) continue;
+    let a = 1;
+    if (drill.mode !== "aim" && h === live){
+      if (drill.mode !== "fade") continue;   // the rig is standing in it
+      a = drill.fade;                        // and now it is leaving
+    }
     grainSeed = 1 + h.i * 7919 + h.j * 104729;
+    CTX.save(); CTX.globalAlpha = a;
     DrawCrumbs(SPX[0][k], SPY[0][k] + 2, h.k);
+    CTX.restore();
   }
 }
 
@@ -1920,8 +1951,11 @@ function DrawHoleMouths(){
    is a survey you can read at a glance without a single label. */
 const BORE_RW = 5.4;
 function DrawBores(){
+  const last = bores[bores.length - 1];
   for (const b of bores){
     const k = b.j * STRIDE + b.i;
+    CTX.save();
+    if (drill.mode === "fade" && b === last) CTX.globalAlpha = drill.fade;
     const cx = SPX[0][k], gy = SPY[0][k] + 2;
     const deep = clamp(b.m / Math.max(COLUMN_M, 1), 0, 1);
     const top = gy - (16 + 23 * deep);
@@ -1944,6 +1978,7 @@ function DrawBores(){
     CTX.setLineDash([]); CTX.lineDashOffset = 0;
     CTX.fillStyle = rgb(CY, 0.16);
     CTX.beginPath(); CTX.ellipse(cx, top, rw, rh, 0, 0, 6.2832); CTX.fill();
+    CTX.restore();
   }
 }
 
@@ -1962,14 +1997,21 @@ function DrawDrillLive(){
   if (!drill.armed) return;
   if (drill.mode === "aim" && !drill.canPlace) return;
   const p = DrillPose();
-  if (p.live) DrawCollar(p.cx, p.collarY, 1);
-  CTX.save();
-  CTX.beginPath();
-  CTX.rect(p.cx - 46 * DRILL_S, CLIP_TOP, 92 * DRILL_S, p.collarY - CLIP_TOP);
-  CTX.clip();
-  DrawDrill(p.cx, p.tipY, DRILL_S, drill.phase, drill.mode !== "aim",
-            p.tail, drill.feed, p.head);
-  CTX.restore();
+  const paint = () => {
+    if (p.live) DrawCollar(p.cx, p.collarY, 1);
+    CTX.save();
+    CTX.beginPath();
+    CTX.rect(p.cx - 46 * DRILL_S, CLIP_TOP, 92 * DRILL_S, p.collarY - CLIP_TOP);
+    CTX.clip();
+    DrawDrill(p.cx, p.tipY, DRILL_S, drill.phase,
+              drill.mode === "spud" || drill.mode === "cut",
+              p.tail, drill.feed, p.head);
+    CTX.restore();
+  };
+  // Composited once, not faded fill by fill -- the same reason the peeled slab
+  // is: a rig faded part by part shows its own tail through its own head.
+  if (drill.mode === "fade") AsSeenThrough(1 - drill.fade, paint);
+  else paint();
 }
 
 /* =====================================================================

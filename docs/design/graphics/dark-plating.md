@@ -1258,6 +1258,17 @@ string clears the collar, not before: you do not know a hole until you have
 finished it. What stays behind is the bowl, the spoil, and a churned patch
 where the mouth was — the rig leaves, its work does not.
 
+**Coming out is not going in reversed.** The handle stays where it landed while
+the string is drawn back up *through* it — the collar does not lift off the
+ground just because the tool is finished — so what rises is the tail, back to
+its full length. Then give the end three beats instead of one frame: the string
+clears the collar and the column resolves; the machine **stands in the hole it
+just finished for about a second**; and only then does it cross-fade out and the
+marker in. Resolving the column and packing up the rig are two separate events,
+and run on the same frame neither of them registers. Fade the rig **composited
+as one object**, not fill by fill, or it shows its own tail through its own head
+on the way out.
+
 **A finished hole is not a hole.** The dark ellipse the live string stands in is
 right while the string is in it and wrong the moment it leaves: nothing else in
 a panel like this is a hole *through* the ground, so a black disc left on the
