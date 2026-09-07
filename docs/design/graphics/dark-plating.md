@@ -1176,7 +1176,7 @@ which come out as a pair of diagonals ruled across both cut faces: the edge of
 a shape you cannot see. Trace the two front edges instead. The same care
 applies to any capping face on a solid iso body.
 
-### 9.49 Drilling — making the collapse an action
+### 9.49 Drilling — making the collapse an action, and the depth a decision
 
 Clicking to collapse ground is a placeholder. The moment a rig does it, three
 graphics problems appear at once, and they are the whole of the effect:
@@ -1253,10 +1253,66 @@ The band a mid-block hole leaves is then *half*-resolved: bedding planes
 faintly legible, texture not. "Constrained, but not confirmed" is a real state
 in a survey, and it is worth a look of its own.
 
-**Retract, and leave the evidence.** The cycle is spin-up → cut → withdraw, and
-the column is established at the moment the string clears the collar, not
-before: you do not know a hole until you have finished it. What stays behind is
-the mouth, the bowl and the spoil — the rig leaves, its work does not.
+**Retract, and leave the evidence.** The column is established at the moment the
+string clears the collar, not before: you do not know a hole until you have
+finished it. What stays behind is the mouth, the bowl and the spoil — the rig
+leaves, its work does not.
+
+**Two decisions need two clicks.** *Where* to drill and *how deep* are separate
+judgements, and running both off the one click on the ground makes the second
+one disappear: the tool goes straight to some depth nobody chose. Split the
+cycle at the collar — one click **spuds in** (the bit sinks its own length, the
+handle comes to rest on the ground, which is exactly as far as a rig gets
+before anyone decides anything), and then the machine waits. Everything below
+follows from that pause existing.
+
+**Give the waiting tool a control, and let the control say it is waiting.** The
+depth belongs on the instrument already ruled in metres — here the borehole bar,
+which had been a readout since it was built. While the rig is planted, frame
+that instrument in a **flashing cadre** in the tool's own colour, with static
+corner ticks so it still reads at the dim end of the flash, and put a dashed
+target line and a metre tag under the pointer inside it. A control that has
+never been used has to say so; a readout being promoted to a control has to say
+so twice.
+
+**Hide the pointer only while the pointer IS the tool.** An armed tip-anchored
+cursor that stays hidden once the rig is planted leaves the player pointing an
+invisible mouse at the control you just told them to use. Draw the tool only
+where it can actually be placed (here: on the cap, nowhere else) and give the
+real pointer back everywhere else — which also stops the armed cursor covering
+the very instrument it is waiting for with a picture of a drill standing in a
+diagram.
+
+**The tail is the depth.** A bit that only shows what stands out below the
+handle can never go deeper than its own length. Draw the **string above the
+handle** — the rod every rig has, the one the bar has always run off the top of
+its strip — shorten what hangs below to about a third, and let the whole
+assembly descend, tail and all, until a stub of it is still standing out at the
+bottom of its travel. Collars marching down the rod are what make a
+constant-width bar read as being *fed* rather than merely translated.
+
+The travel is a **gesture, not a scale**: map the chosen depth onto the sky you
+have (a hundred-odd pixels), and let the bar carry the true metres. Both views
+then show one tool at one depth — drive the bar's own rig from the live drill
+while a hole is being cut, or the panel is running two clocks and reads as two
+machines.
+
+**Reveal only as deep as the bit got.** This is what makes choosing a depth mean
+anything at all: cut the established band off just under the hole with a short
+skirt, and a field of holes becomes a set of *depths* — readable at a glance,
+no labels — instead of a set of marks.
+
+**What is left in a finished hole has to be a wireframe, and it has to turn.**
+A solid stub at this size reads as a pebble and a still one reads as a scratch
+in the texture. Three dashed generatrices going round a pair of dashed rings,
+their brightness split front/back, with the dash offset crawling: it reads as a
+small cylinder turning in the ground from the first frame, and it costs nothing.
+Carry the hole's depth in its height and the marker doubles as the survey.
+
+**Leave a way out that costs a hole, not the session.** Backing out of a planted
+rig should keep the shallow column it did establish — the ground is broken and
+the spoil is on it either way. A control that can strand the panel in a state
+with no move available is worse than one that costs the player a bad hole.
 
 ### 9.5 The animation recipes
 
