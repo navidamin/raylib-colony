@@ -256,9 +256,11 @@ void main(){
 
   // The pixel's own grit: the one term that cannot be world-anchored,
   // because the pixel is where the world ends.
-  float cellKm = max(1e-12, uKmPerPx);
-  float grit = dhash(int(floor(w.x / cellKm)), int(floor(w.y / cellKm)), 0x6A09E667u) - 0.5;
-  if (uSub.y > 0.0) accM += uSub.y * 1.4 * uKmPerPx * 1000.0 * grit * rough;
+  if (uSub.y > 0.0){
+    float cellKm = max(1e-12, uKmPerPx);
+    float grit = dhash(int(floor(w.x / cellKm)), int(floor(w.y / cellKm)), 0x6A09E667u) - 0.5;
+    accM += uSub.y * 1.4 * uKmPerPx * 1000.0 * grit * rough;
+  }
 
   // The named craters, carved in metres like everything else.
   float rOuterN = 1.0 + max(3.0 * uPop.w, uPop2.x);
