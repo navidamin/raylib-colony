@@ -104,10 +104,13 @@ input[type=range]:focus-visible{outline:2px solid var(--cy);outline-offset:3px;b
     <b>borehole bar starts flashing, because it is the control now</b>: click a depth on it
     and the string is fed down to exactly there &mdash; the handle stays on the ground and the
     shaft runs through it, so what you watch is the <b>tail above the handle being used up</b>. It scours a bowl with a rim of spoil and throws grit the colour of the bed
-    it is cutting; then it trips out, leaving a turning wireframe core barrel standing in the
-    hole and a band of real section on the cut faces &mdash; <b>only as deep as you drilled</b>,
-    full near an edge, half&#8209;resolved out in the middle. <kbd>Esc</kbd> backs out of a
-    planted rig, keeping the shallow hole it did make.</p>
+    it is cutting, then trips out and leaves a turning wireframe core barrel in the hole.
+    <b>Every hole improves the whole model</b>, not a stripe of it: a great deal where it
+    stands, a little from the far corner of the block, nothing below the depth it reached
+    &mdash; and what you are shown is an <b>estimate</b>, so each hole visibly re&#8209;fits it.
+    Beds rise, dips shallow out, a level bed turns out to roll. At <b>5% fog the model is
+    called settled</b> and stops moving. <kbd>Esc</kbd> backs out of a planted rig, keeping
+    the shallow hole it did make.</p>
   </header>
 
   <div class="stage"><canvas id="cv" width="1520" height="1760" aria-label="Isometric block of four rock strata"></canvas></div>
@@ -459,10 +462,16 @@ const SCOUR_R = 3.1;          // scour radius, lattice cells
 const SCOUR_DEEP_M = 5.4;     // how far the bowl is driven down, metres
 const SCOUR_RIM_M = 2.3;      // how high the spoil rim stands, metres
 const EJECTA_G_PX = 300;      // ejecta gravity, screen px/s^2
-const HOLE_CELLS = 3.0;        // half-width of the band a hole lights up
-const HOLE_REACH = 13;         // how far back from a face a hole still speaks
-const HOLE_FADE = 0.55;        // how much it loses over that distance
-const REVEAL_TAIL_M = 8;       // how far under the hole its band fades out
+/* WHAT A HOLE IS WORTH, and how far. A borehole does not light a stripe: it
+   constrains the whole model, most where it stands and least far away, and
+   never nothing -- a hole in the far corner still says something about the
+   section you are looking at. */
+const K_NEAR = 0.68;           // what one hole settles right where it stands
+const K_FAR  = 0.15;           // and what it still says from anywhere at all
+const K_R    = 9.0;            // cells over which the near term falls away
+const K_BELOW = 0.20;          // how much it says about ground it never reached
+const K_SKIRT_M = 14;          // over what depth it drops to that
+const K_FULL = 0.95;           // fog at 5% is confidence 1: the model stops here
 const SPUD_T = 0.85, OUT_T = 0.9, HOLD_T = 1.0, FADE_T = 0.3;
 
 /* =====================================================================
@@ -476,7 +485,7 @@ const SPUD_T = 0.85, OUT_T = 0.9, HOLD_T = 1.0, FADE_T = 0.3;
    is ruled in -- so a lever never means one thing here and another
    there.
    ===================================================================== */
-const SEED_SHARED = 0x51ed, SEED_OWN = 0x9e37;
+const SEED_SHARED = 0x51ed, SEED_OWN = 0x9e37, PRI_SEED = 0x7a11;
 let N, STRIDE, TX, TY, PXM, BLK_X, BLK_W, BLK_CX;
 let TOPS = [0,12,34,68], COLUMN_M = 120, RELIEF_PX = 18;
 let SURF = [], SPX = [], SPY = [];
@@ -526,12 +535,23 @@ function BuildHeights(){
   // Anisotropy squashes the noise domain on one axis, so mottle becomes ridges.
   const ky = 1 - 0.85 * P.grain;
 
+  /* The PRIOR: the shape of a bed you have no holes on. Not flat -- an
+     interpolation from nothing is smooth, not level, and a perfect layer cake
+     would look like an answer rather than a guess. It gets its own gentle
+     undulation and its own wrong regional dip, from a fixed seed, so it is
+     wrong the same way every time and can be SEEN being corrected. */
+  const pa = az + 2.0, pca = Math.cos(pa), psa = Math.sin(pa);
+
   SURF = [];
   for (let L = 0; L <= 4; L++){
     const d = new Float32Array(STRIDE * STRIDE);
     const amp = P.relief * Math.pow(P.damp, L);
     const dip = P.dip * (1 + P.dipSpread * L);
     const cr  = CraterAmp(L);
+    // Interface 0 is the ground you are standing on and interface 4 is the
+    // bottom of the surveyed column -- a depth somebody chose, not a bed.
+    // Neither is in doubt, so neither moves.
+    const guess = L >= 1 && L <= 3;
     for (let j = 0; j <= N; j++)
       for (let i = 0; i <= N; i++){
         const u = i / N, v = j / N, vv = 0.5 + (v - 0.5) * ky;
@@ -540,7 +560,17 @@ function BuildHeights(){
         let h = amp * 2 * (P.conform * shared + (1 - P.conform) * own);
         h += dip * ((u - 0.5) * ca + (v - 0.5) * sa);
         if (cr !== 0) h += cr * Bowl(u, v);
-        d[j * STRIDE + i] = edge[L] - h;         // h is up-positive
+        let z = edge[L] - h;                     // h is up-positive
+        if (guess){
+          const pg = (Fbm(u, v, 2, 2, (PRI_SEED + L * 104729) >>> 0) - 0.5)
+                     * amp * 1.05
+                   + dip * 0.42 * ((u - 0.5) * pca + (v - 0.5) * psa);
+          const prior = edge[L] - pg;
+          // Every hole in the block has a say here, weighted by how far away
+          // it is and whether it went this deep.
+          z = lerp(prior, z, Confidence(KnowAt(i, j, edge[L])));
+        }
+        d[j * STRIDE + i] = z;
       }
     SURF.push(d);
   }
@@ -575,6 +605,23 @@ function BuildHeights(){
     const minTh = Math.max(0.4, (edge[L] - edge[L - 1]) * 0.12);
     for (let k = 0; k < here.length; k++) here[k] = Math.max(here[k], above[k] + minTh);
   }
+  SURF_TO = SURF.map(a => Float32Array.from(a));
+}
+
+/* THE MODEL MOVING. A new hole does not just thin the fog, it changes the
+   answer: interfaces rise and fall, dips shallow out, a bed that looked level
+   turns out to roll. Snapped on one frame that reads as a glitch; eased over
+   most of a second it reads as the thing it is, which is a model being
+   refitted to new data -- and it is the strongest signal in the panel that
+   what you are looking at is an estimate and not a map.
+
+   The heights are re-derived from noise only when something actually changes.
+   Through the ease itself, only the blend and the projection run. */
+let SURF_TO = [], SURF_FROM = null, morphT = 1;
+const MORPH_DUR = 0.85;
+function StartMorph(){
+  SURF_FROM = SURF.map(a => Float32Array.from(a));
+  morphT = 0;
 }
 
 /* Screen points, and a fit that keeps the whole body in frame whatever the
@@ -593,6 +640,22 @@ function Layout(){
   RELIEF_PX = Math.max(4, P.relief * PX_PER_M);
 
   BuildHeights();
+  Reproject();
+}
+
+function Reproject(){
+  // Blend the model being left behind into the model just fitted.
+  if (SURF_FROM && (SURF_FROM.length !== SURF_TO.length ||
+                    SURF_FROM[0].length !== SURF_TO[0].length)){
+    SURF_FROM = null; morphT = 1;                 // the lattice changed under it
+  }
+  const e = (!SURF_FROM || morphT >= 1) ? 1 : morphT * morphT * (3 - 2 * morphT);
+  for (let L = 0; L < SURF_TO.length; L++){
+    const to = SURF_TO[L], out = SURF[L];
+    if (e >= 1) out.set(to);
+    else { const fr = SURF_FROM[L];
+      for (let k = 0; k < to.length; k++) out[k] = fr[k] + (to[k] - fr[k]) * e; }
+  }
 
   // Where the body actually reaches, measured rather than assumed.
   let rise = 0, drop = 0;
@@ -671,44 +734,53 @@ const smoothstep = (a, b, x) => {
    space so it survives every change of tilt, lattice and depth scale. */
 const reveals = [];
 let revealRev = 0;      // the body cache is keyed on P; clicks are not in P
-/* What a hole has established, sampled on a cut face. A hole is a narrow
-   vertical cylinder at one lattice spot; a face is a section at the block's
-   edge; so what it lights up on a face is a BAND, no wider than the column
-   it cut. The two distances are not the same kind of distance, though, and
-   the first version treated them as one:
+/* KNOWLEDGE. One scalar field over the block, in the units everything else
+   here is decided in: how much of the truth is settled at (i, j) down to depth
+   m. Holes are the only thing that raises it.
 
-     ALONG the face   -- a hole to your left tells you nothing about the
-                         section to your right, so this cuts off hard, and
-                         that hard cut-off is what keeps the column narrow.
-     INTO the block   -- a hole four cells behind the face cut essentially
-                         the same section the face exposes. Sight-line, not
-                         ignorance. So this falls off slowly and never quite
-                         reaches zero: a hole out in the middle leaves its
-                         band half-resolved rather than blank, which reads
-                         as "constrained, not confirmed".
+   The band this replaced was wrong in the way a lit stripe is always wrong. A
+   borehole is not a lamp shining on a patch of wall; it is a constraint on a
+   model, and a model is one object. Drill anywhere and EVERY section you can
+   see gets better -- a great deal better nearby, very little far off, but the
+   far-off part is not zero, and a survey where the far corner does nothing is
+   not a survey. So each hole contributes a near term that dies over about
+   nine cells and a floor that does not die at all, and holes combine the way
+   independent evidence does:
 
-   Measuring both with one hypot() made every hole more than three cells in
-   from an edge invisible, and drilling near the middle -- which is where you
-   naturally aim -- appeared to do nothing at all. */
-function RevealK(sp, x, y){
-  if (!reveals.length || sp !== "face") return 0;
-  const onFirst = x < 0.5;
-  const idx = onFirst ? x * 2 * N : (x - 0.5) * 2 * N;
-  let k = 0;
+       miss = product of (1 - k_n)        known = 1 - miss
+
+   which is what makes three mediocre holes worth more than one good one, and
+   what stops any single hole ever settling the block on its own.
+
+   Depth is the one hard edge. A hole that stopped at 30 m has seen nothing at
+   100 m, so its weight decays to a fifth below its own bottom -- a fifth and
+   not zero, because beds continue, and that is an inference the panel is
+   entitled to make. */
+function KnowAt(i, j, m){
+  let miss = 1;
   for (let n = 0; n < reveals.length; n++){
     const h = reveals[n];
-    const along = onFirst ? Math.abs(idx - h.i) : Math.abs(idx - h.j);
-    const into  = onFirst ? (N - h.j) : (N - h.i);
-    const band = 1 - smoothstep(HOLE_CELLS * 0.55, HOLE_CELLS, along);
-    if (band <= 0) continue;
-    const reach = 1 - HOLE_FADE * smoothstep(0, HOLE_REACH, into);
-    // And only as deep as the bit got. This is what makes choosing a depth
-    // mean something: the band stops under the hole, with a short skirt, so
-    // a field of holes reads as a set of depths and not as a set of marks.
-    const under = 1 - smoothstep(h.m, h.m + REVEAL_TAIL_M, y * COLUMN_M);
-    k = Math.max(k, band * reach * under);
+    const dx = i - h.i, dy = j - h.j;
+    const u = (dx * dx + dy * dy) / (K_R * K_R);
+    const near = K_NEAR * Math.exp(-u * 0.72);
+    const dep = lerp(1, K_BELOW, smoothstep(h.m, h.m + K_SKIRT_M, m));
+    miss *= 1 - Math.min((near + K_FAR) * dep, 0.985);
   }
-  return clamp(k, 0, 1);
+  return 1 - miss;
+}
+/* Confidence is knowledge, rescaled so that the last 5% of fog is not worth
+   arguing about: once the fog is that thin the model is called settled and
+   stops moving. Without a ceiling the interfaces would keep creeping for ever
+   by amounts too small to see and too large to ignore. */
+const Confidence = k => clamp(k / K_FULL, 0, 1);
+/* The same field, sampled where a cut face actually is: `x` runs around the
+   visible perimeter, so the first half is the j = N edge and the second the
+   i = N edge. */
+function FaceKnow(x, y){
+  if (!reveals.length) return 0;
+  const first = x < 0.5;
+  const idx = first ? x * 2 * N : (x - 0.5) * 2 * N;
+  return clamp(KnowAt(first ? idx : N, first ? N : idx, y * COLUMN_M), 0, 1);
 }
 
 /* The whole law. `pp` runs 0..1 around the block's VISIBLE perimeter and `tt`
@@ -725,21 +797,28 @@ function FogNoise(u, v){
 }
 /* Returns the haze alpha, the tint noise, and -- the part fog of war needs --
    how much of the real column is ESTABLISHED here. */
-/* COLLAPSE, not coverage. The previous build gave the fog a shape of its own
-   -- a depth ramp, a noise field -- and then hid a finished column behind it,
-   which is still a picture with a curtain in front. Here the fog has no shape:
-   it is exactly the ground that has NOT collapsed yet, and the only thing that
-   collapses ground is a click.
+/* CONFIDENCE, not coverage. Two earlier passes were wrong here in the same
+   direction. The first gave the fog a shape of its own -- a depth ramp, a
+   noise field -- and hid a finished column behind it, which is a picture with
+   a curtain in front. The second made a hole light a narrow BAND of the face,
+   which is a lamp shining on a patch of wall: it left the rest of the block
+   exactly as ignorant as before, and a hole in the far corner did nothing at
+   all.
 
-       collapsed = 0  ->  no layers here. Not hidden ones: none.
-       collapsed = 1  ->  the column is determinate, and the fog is gone.
+   A borehole does not illuminate. It constrains a MODEL, and a model is one
+   object: drill anywhere and every section you can see gets better. So the
+   fog has no shape of its own at all --
 
-   The surface is the one thing collapsed for free, because you can see it.
-   Everything under it is undetermined until you go and look, and the five
-   levers now shape only how the fog LOOKS, never where it is. */
+       fog = 1 - known                 (see KnowAt)
+
+   -- and what it hides is not the truth but the current ESTIMATE of it, which
+   is a different picture again, and the one this panel is actually about. The
+   five levers shape how the fog LOOKS, never how much of it there is.
+
+   The surface is the one thing known for free, because you can see it. */
 function FogSample(sp, x, y){
   if (!P.fog) return { a: 0, n: 0.5, known: 1 };
-  const collapsed = sp === "top" ? 1 : RevealK(sp, x, y);
+  const collapsed = sp === "top" ? 1 : FaceKnow(x, y);
   const n = FogNoise(x, y);
   // Opacity is the fog's ceiling, thickness its floor: together they are the
   // difference between something wispy you can half-read and a solid blanket.
@@ -1832,7 +1911,8 @@ function StepDrill(dt){
       /* The column is real NOW, and only down to where the bit got. The
          string clearing the collar is the moment you know something: not
          when you aimed, and not one metre deeper than you drilled. */
-      reveals.push({ i: drill.i, j: drill.j, m: drill.depthM });
+      StartMorph();          // snapshot the model being left behind, then
+      reveals.push({ i: drill.i, j: drill.j, m: drill.depthM });   // re-fit it
       revealRev++; fogKey = "";
       drill.mode = "hold"; drill.t = 0;
     }
@@ -2029,7 +2109,7 @@ function ApplyFit(ctx){
 }
 const BODY = document.createElement("canvas"), BCTX = BODY.getContext("2d");
 const STRIPBG = document.createElement("canvas"), SBCTX = STRIPBG.getContext("2d");
-let bodyKey = "", stripKey = "", lastSpoilRev = 0;
+let bodyKey = "", stripKey = "", lastSpoilRev = 0, lastRevealRev = 0;
 function SizeLayers(){
   for (const c of [SCR, BODY, STRIPBG, REVEAL_CV, MASK_CV]){
     c.width = CV.width; c.height = CV.height; }
@@ -2044,7 +2124,8 @@ function OnLayer(target, draw){
    at 60 Hz, so the ground steps in about ten stages across a cut while the
    drill and its spatter run smooth on top. Quantising here is what buys that. */
 const SpoilRev = () => { let v = 0; for (const h of holes) v += Math.round(h.k * 10) * 31; return v; };
-const Sig = () => JSON.stringify(P) + "|" + st.sel + "|" + revealRev + "|" + SpoilRev();
+const Sig = () => JSON.stringify(P) + "|" + st.sel + "|" + revealRev + "|"
+                + SpoilRev() + "|" + Math.round(morphT * 40);
 function EnsureCaches(){
   const k = Sig();
   if (k !== bodyKey){ bodyKey = k; OnLayer(BCTX, DrawBody); }
@@ -2077,10 +2158,16 @@ function Frame(dt){
   const want = drill.canPlace ? "none" : "";
   if (CV.style.cursor !== want) CV.style.cursor = want;
   StepDrill(dt);
-  // The scour deforms the height field, so the geometry itself has to be
-  // rebuilt -- at the same ~ten steps the body cache uses, not every frame.
+  // The scour deforms the height field and a new hole re-fits the whole model,
+  // so the geometry itself has to be rebuilt -- at the same ~ten steps the
+  // body cache uses, not every frame. Through the re-fit's ease only the blend
+  // and the projection run, which is why the noise is not paid for again.
+  if (morphT < 1) morphT = Math.min(1, morphT + dt / MORPH_DUR);
   const sr = SpoilRev();
-  if (sr !== lastSpoilRev){ lastSpoilRev = sr; Layout(); }
+  let geo = false;
+  if (sr !== lastSpoilRev){ lastSpoilRev = sr; geo = true; }
+  if (revealRev !== lastRevealRev){ lastRevealRev = revealRev; geo = true; }
+  if (geo) Layout(); else if (morphT < 1) Reproject();
   EnsureCaches();
   Blit(BODY);
   if (P.bar){ Blit(STRIPBG); DrawStripLive(); }
@@ -2136,7 +2223,7 @@ const SCHEMA = [
       { k:"craterY",     lab:"Position Y", min:0, max:1,  step:0.01, fmt:pc }
     ] },
   { title: "Fog — what is not known",
-    note: "Fog IS the uncollapsed ground. Drilling collapses it: each hole leaves a band of real section on the faces, down to the depth you set on the bar. These five shape how the fog looks, not where it is.",
+    note: "Fog is confidence. Every hole thins it everywhere — most where it stands, least far off, never nothing — and the interfaces re-fit as it thins. At 5% fog the model is settled. These five shape how the fog looks, not how much of it there is.",
     items: [
       { k:"fog",        type:"toggle", lab:"Fog" },
       { k:"fogAmt",     lab:"Opacity",      min:0,    max:1,   step:0.01, fmt:pc },
@@ -2148,7 +2235,7 @@ const SCHEMA = [
         fmt:v => Math.round(v * 100) + "% of column" },
       { k:"fogThick",   lab:"Thickness",    min:0,    max:1,   step:0.01, fmt:pc },
       { type:"act", lab:"Cover it back up",
-        run:() => { reveals.length = 0; holes.length = 0; spatter.length = 0; bores.length = 0;
+        run:() => { reveals.length = 0; holes.length = 0; spatter.length = 0; bores.length = 0; SURF_FROM = null; morphT = 1;
                     revealRev++; fogKey = ""; } }
     ] },
   { title: "Strata", note: "Thickness in metres. The column is their sum.",
@@ -2455,6 +2542,8 @@ window.__L = () => ({ fit: { s: FIT.s, tx: FIT.tx, ty: FIT.ty },
   drill: { armed: drill.armed, mode: drill.mode, spud: +drill.spud.toFixed(2),
            sink: +drill.sink.toFixed(2), curM: +drill.curM.toFixed(1),
            depthM: +drill.depthM.toFixed(1) },
+  know: (i, j, m) => +KnowAt(i, j, m).toFixed(3),
+  morphT: +morphT.toFixed(2), surfAt: (L, i, j) => +SURF[L][j * STRIDE + i].toFixed(2),
   holes: holes.length, bores: bores.map(b => Math.round(b.m)),
   reveals: reveals.length, spatter: spatter.length });
 

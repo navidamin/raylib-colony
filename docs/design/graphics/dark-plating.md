@@ -1237,21 +1237,54 @@ grit rather than as fireworks. Colour each grain by the bed the bit is in *at
 the moment it is thrown*, and the first thing the player learns about a column
 is something they watched come out of it.
 
-**A borehole is a narrow column, and a cut face is a section — those are two
-different distances.** Measuring both with one `hypot()` is the obvious thing
-and it is wrong: a hole four cells in from an edge reveals nothing, so drilling
-anywhere but the very rim appears to do nothing at all. Split them:
+**A borehole constrains a model, it does not light a patch of wall.** The
+obvious implementation gives each hole a *band* on the face — measure how far
+along the section you are, cut off hard, done. It is wrong, and it is worth
+knowing why, because the shape of the mistake recurs: a lit band treats the
+picture as a wall and the hole as a lamp, so ground outside the beam stays
+exactly as ignorant as before and a hole in the far corner does *nothing at
+all*. That is not how a survey behaves. One hole anywhere improves every
+section you can see.
 
-- **along** the face — a hole to your left says nothing about the section to
-  your right. Cut off hard; that hard cut-off is what keeps the reveal reading
-  as a column rather than a spotlight.
-- **into** the block — a hole a few cells behind the face cut essentially the
-  same section the face exposes. That is sight-line, not ignorance. Fall off
-  slowly and never quite to zero (~55% over half the block).
+So define **one scalar field over the block** — how much of the truth is
+settled at (i, j) down to depth m — and let holes raise it:
 
-The band a mid-block hole leaves is then *half*-resolved: bedding planes
-faintly legible, texture not. "Constrained, but not confirmed" is a real state
-in a survey, and it is worth a look of its own.
+- a **near term** that dies over roughly a third of the block's width, plus a
+  **floor that never dies**. The floor is the whole point: it is what makes a
+  hole in the far corner mildly but visibly worth drilling.
+- combined as independent evidence, `known = 1 − Π(1 − kₙ)`, so three mediocre
+  holes beat one good one and no single hole ever settles the block alone.
+- **depth is the one hard edge.** A hole that stopped at 30 m has seen nothing
+  at 100 m. Decay its weight to about a fifth below its own bottom — a fifth
+  and not zero, because beds continue, and that inference is one the panel is
+  entitled to make.
+
+Then `fog = 1 − known` and nothing else. The fog has no shape of its own.
+
+**What the fog hides is the ESTIMATE, not the truth — so the estimate has to
+move.** This is the part that turns a reveal mechanic into a survey. Draw the
+interfaces as a blend between a **prior** and the truth, weighted by the
+confidence at each point, and every new hole visibly re-fits the model: beds
+rise and fall, dips shallow out, a bed that looked level turns out to roll.
+Nothing else in a panel like this says *this is an estimate* half so plainly —
+a static picture behind a thinning veil always reads as a finished answer being
+uncovered.
+
+- **The prior must not be flat.** An interpolation from no data is smooth, not
+  level, and a perfect layer cake reads as an answer rather than a guess. Give
+  it a gentle undulation of its own and a *wrong* regional dip, from a fixed
+  seed, so it is wrong the same way every time and can be seen being corrected.
+- **Some surfaces are not in doubt and must not move**: the ground you are
+  standing on, and the bottom of the surveyed column, which is a depth somebody
+  chose rather than a bed. Moving those wobbles the body's own silhouette, and
+  the object stops being an object.
+- **Ease it, don't snap it.** Most of a second, and re-derive the heights from
+  noise only when something actually changed — through the ease itself, only
+  the blend and the projection need to run.
+- **Cap the confidence.** Rescale so the last few percent of fog does not
+  count: past that the model is called settled and stops moving. Without a
+  ceiling the interfaces creep for ever by amounts too small to see and too
+  large to ignore.
 
 **Retract, and leave the evidence.** The column is established at the moment the
 string clears the collar, not before: you do not know a hole until you have
