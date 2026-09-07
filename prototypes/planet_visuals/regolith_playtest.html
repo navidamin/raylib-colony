@@ -120,7 +120,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center}
   <a class="btn" id="bench" href="#" title="The lever bench">Bench</a>
 </div>
 
-<div id="help">drag to move · wheel or pinch to zoom · +/&minus; &nbsp;arrows &nbsp;R</div>
+<div id="help">drag to move · wheel or pinch to zoom · +/&minus; &nbsp;arrows &nbsp;R &nbsp;G gpu</div>
 
 <script src="regolith_blocks.js"></script>
 <script src="regolith_chain.js"></script>
@@ -232,30 +232,42 @@ function LoadRegion(i, then){
    costs. So the probe renders a small tile and the GPU only gets the
    work if the extrapolation beats what the workers were going to do.
    -------------------------------------------------------------------- */
-let GPU = null, GPU_PROBE = 0, GPU_WHY = "not tried";
-const GPU_BUDGET_MS = 260;            // a tile the hand will not feel
+let GPU = null, GPU_WHY = "not tried";
+let GPU_FIXED = 0, GPU_PER_PX = 0;    // t = fixed + perPx * pixels
+// The question is not "is the GPU fast in the abstract", it is "is the
+// GPU faster than the workers". A first cut used an absolute 260 ms and
+// turned down a real card that estimated 623 ms against a CPU tile of
+// 2500 -- four times faster, refused. So: a ceiling only for tiles
+// nobody would wait for, and below that, whatever wins.
+const GPU_CEILING_MS = 1500;
+let CPU_FINE_MS = 0;                  // what the workers last actually took
 function StartGPU(){
   if (typeof TerrainGPU === "undefined"){ GPU_WHY = "no module"; return; }
   let g;
   try { g = TerrainGPU.Create(); } catch (e){ GPU_WHY = "create threw"; return; }
   if (!g){ GPU_WHY = "no webgl2 / no float targets"; return; }
   if (g.error){ GPU_WHY = "shader: " + g.error.slice(0, 60); return; }
-  // A real render at a small size, over ground that exists, so the
-  // octave and crater loops run the number of times they really will.
-  const res = 320;
-  const probe = { res, macro: new Float32Array(res * res).fill(0.45),
-                  frame: TC.MakeNoiseFrame(26.13, 3.63, 1.0, res, 0), spanKm: 1.0,
+  // Two sizes, so the fixed cost of a draw -- uploads, state, the
+  // readback that forces the pipeline to drain -- can be told apart from
+  // the cost per pixel. Scaling one small probe by area counts that
+  // fixed part once per pixel and over-estimates a big tile badly.
+  const mk = (res) => ({ res, macro: new Float32Array(res * res).fill(0.45),
+                  frame: TC.MakeNoiseFrame(26.13, 3.63, res * 0.0015, res, 0),
+                  spanKm: res * 0.0015,
                   tune: Tune(), craters: TC.CRATERS,
-                  craterParams: TC.DEFAULT_CRATER, originLat: 26.13, originLon: 3.63 };
-  try { g.Render(probe); } catch (e){ GPU_WHY = "render threw"; return; }
-  const t0 = performance.now();
-  g.Render(probe);
-  GPU_PROBE = performance.now() - t0;
+                  craterParams: TC.DEFAULT_CRATER, originLat: 26.13, originLon: 3.63 });
+  const time = (res) => { const p = mk(res); g.Render(p);
+                          const t = performance.now(); g.Render(p);
+                          return performance.now() - t; };
+  let tA, tB;
+  try { tA = time(256); tB = time(512); } catch (e){ GPU_WHY = "render threw"; return; }
+  const nA = 256 * 256, nB = 512 * 512;
+  GPU_PER_PX = Math.max(0, (tB - tA) / (nB - nA));
+  GPU_FIXED = Math.max(0, tA - GPU_PER_PX * nA);
   GPU = g;
   GPU_WHY = g.renderer;
 }
-// Cost is per pixel, so the probe scales by area.
-function GpuEstimate(res){ return GPU_PROBE * (res * res) / (320 * 320); }
+function GpuEstimate(res){ return GPU_FIXED + GPU_PER_PX * res * res; }
 // Crisp only. The shaders drop the softening steps the way `crisp`
 // does -- the grit blur, the hillshade smooth, the wide shadow blur --
 // so on Smooth they would draw a sharper picture than the CPU does, and
@@ -268,7 +280,13 @@ function GpuEstimate(res){ return GPU_PROBE * (res * res) / (320 * 320); }
 function GpuWorth(){
   if (st.gpu === 0) return false;
   if (!GPU || !Crisp()) return false;
-  return st.gpu === 1 || GpuEstimate(FineRes()) <= GPU_BUDGET_MS;
+  if (st.gpu === 1) return true;
+  const est = GpuEstimate(FineRes());
+  if (est > GPU_CEILING_MS) return false;
+  // Until the workers have been timed there is nothing to beat, so the
+  // GPU gets the benefit of the doubt at anything quick; after that it
+  // has to actually win.
+  return CPU_FINE_MS ? est < CPU_FINE_MS * 0.7 : est <= 400;
 }
 
 let WORK = null;                      // { fast, fine[] } or null on file://
@@ -550,6 +568,7 @@ function OnWorker(e){
     st.dirty = true; KeepFine(whole);
     // The wall time, not the slowest piece: what was actually waited.
     st.fineMs = performance.now() - set.t0;
+    CPU_FINE_MS = st.fineMs;         // the number the GPU has to beat
     st.fineRes = set.res;
     Hud(); WriteHash();
     return;
@@ -1086,8 +1105,10 @@ function Hud(){
   const asked = st.super > 0 && got < st.super - 0.02 ? ` (of ×${st.super})` : "";
   $("path").textContent = GpuWorth()
     ? `gpu · ${GpuEstimate(FineRes()).toFixed(0)} ms est`
-      + (st.gpu === 1 ? " · forced" : "")
-    : (GPU ? `cpu · gpu too slow (${GpuEstimate(FineRes()).toFixed(0)} ms est)`
+      + (st.gpu === 1 ? " · forced (G)" : "")
+    : (GPU ? `cpu · gpu ${GpuEstimate(FineRes()).toFixed(0)} ms est`
+             + (CPU_FINE_MS ? ` vs cpu ${(CPU_FINE_MS / 1000).toFixed(1)} s` : "")
+             + " · G to force"
            : `cpu · ${GPU_WHY}`);
   $("path").style.color = GpuWorth() ? "var(--cy)" : "var(--dimmer)";
   $("fine").textContent = !WORK ? "no worker"
@@ -1181,6 +1202,10 @@ window.addEventListener("keydown", e => {
   else if (e.key === "ArrowRight"){ st.cxKm += step; st.dirty = true; MaybeRegenerate(); }
   else if (e.key === "ArrowUp"){ st.cyKm -= step; st.dirty = true; MaybeRegenerate(); }
   else if (e.key === "ArrowDown"){ st.cyKm += step; st.dirty = true; MaybeRegenerate(); }
+  else if (e.key === "g" || e.key === "G"){
+    st.gpu = st.gpu === 1 ? 0 : 1;
+    st.fineRes = 0; SyncRefine(); WriteHash(); ArmRefine();
+  }
   else if (e.key === "r" || e.key === "R") GoRegion(st.region);
   else return;
   e.preventDefault();
