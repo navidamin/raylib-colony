@@ -85,12 +85,18 @@ self.onmessage = (e) => {
   if (m.cmd === "rung"){
     if (!place || !block){ self.postMessage({ cmd: "rung", id: m.id, stale: true }); return; }
     const t0 = performance.now();
-    const lc = ChainFor(RUNG_RES_CAP);
+    // The resolution is asked for, because a small rung arrives in a
+    // quarter of the time and the GPU makes all the sub-floor detail at
+    // full size regardless. The page asks for a cheap one first so the
+    // supersampled tile can beat the coarse tile to the screen, then for
+    // the full one.
+    const rres = Math.min(m.rungRes || RUNG_RES_CAP, RUNG_RES_CAP);
+    const lc = ChainFor(rres);
     lc.EnsureRung(m.base);
     // A copy: the cache keeps its own, and this one is given away.
     const lum = Float32Array.from(lc.rungs[m.base].lum);
     self.postMessage({ cmd: "rung", id: m.id, epoch: m.epoch, base: m.base,
-                       res: RUNG_RES_CAP, spanKm: lc.rungs[m.base].spanKm,
+                       res: rres, spanKm: lc.rungs[m.base].spanKm,
                        ms: performance.now() - t0, lum }, [lum.buffer]);
     return;
   }

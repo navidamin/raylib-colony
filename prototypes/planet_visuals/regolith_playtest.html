@@ -420,8 +420,15 @@ function FineRatio(){          // what the cap actually left us with
 // skipped entirely, that was the difference between a stale view and no
 // view at all.
 function RefineWorth(){
-  if (!WORK || st.super <= 0 || Hard() || !st.tile) return false;
-  if (st.tile.fine && st.tile.gen === st.tuneGen
+  if (!WORK || st.super <= 0 || Hard()) return false;
+  // The refine normally upgrades a tile that is already up, and waiting
+  // for the coarse one keeps a five second CPU build off an empty
+  // screen. The exception is the GPU holding the rung: that tile is one
+  // draw, so with nothing on screen there is nothing to wait for -- and
+  // at startup that is the whole difference between seeing the coarse
+  // tile first and not.
+  if (!st.tile && !RungHeld()) return false;
+  if (st.tile && st.tile.fine && st.tile.gen === st.tuneGen
       && st.tile.canvas.width === FineRes() && StillFits(st.tile)) return false;
   // And only if it would actually read the ground more finely than the
   // coarse tile does; on a small window at x1.0 it does not.
@@ -449,22 +456,65 @@ function KeepFine(t){
   while (fineCache.length > FINE_KEEP) fineCache.shift();
 }
 
-// Get the rung on its way early. Nothing is drawn from it here -- the
-// refine picks it up already loaded.
+/* --- the rung, small first ---------------------------------------------
+   At startup the coarse tile always won the race and sat on screen for
+   two and a half seconds: it is built at 640 in the fast worker while
+   the rung is built at 1200 in the other one, and 640 is a quarter of
+   the work. Nothing about ordering fixes that -- the coarse tile is
+   simply cheaper.
+
+   So make the first rung cheap too. The GPU invents every bit of
+   sub-floor detail at full size whatever the rung's resolution; the rung
+   only carries the mosaic's own landforms, which are coarse by
+   definition. A 600 rung arrives about four times sooner and measured
+   RMS 1.49-2.43 against a 1200 one at the spans the page spends its time
+   at. Good enough to be first, and the full one replaces it when it
+   lands.
+   -------------------------------------------------------------------- */
+const RUNG_FIRST = 600, RUNG_FULL = 1200;
+// Which rung this view comes off, without building the noise frame
+// GpuView would -- this is asked on every refine, and the frame is a
+// tile-sized allocation nobody reads.
+function ViewBase(){
+  return PickBase(Math.max(0.05, st.spanKm * FINE_MARGIN),
+                  st.cxKm - st.cacheCx, st.cyKm - st.cacheCy).base;
+}
+// Can a fine tile be drawn right now with no worker at all?
+function RungHeld(){
+  return !!GPU && GpuWorth() && GPU.HaveRung(ViewBase())
+         && st.rungEpoch === st.epoch;
+}
 let prefetching = false;
 function PrefetchRung(){
   if (!GPU || !Crisp() || st.super <= 0 || prefetching) return;
-  const v = GpuView(FineRes());
-  if (GPU.HaveRung(v.base) && st.rungEpoch === st.epoch) return;
-  prefetching = true;
+  const base = ViewBase();
+  if (GPU.HaveRung(base) && st.rungEpoch === st.epoch
+      && GPU.RungRes() >= RUNG_FULL) return;
   const ep = st.epoch;
-  AskRung(v.base, (m) => {
-    prefetching = false;
-    if (m.stale || ep !== st.epoch) return;
-    GPU.SetRung(m.lum, m.res, m.spanKm, m.base);
-    st.rungEpoch = st.epoch;
-    ArmRefine();                 // it can draw the moment it is wanted
-  }, () => { prefetching = false; });
+  const want = (GPU.HaveRung(base) && st.rungEpoch === st.epoch)
+    ? [RUNG_FULL] : [RUNG_FIRST, RUNG_FULL];
+  prefetching = true;
+  const step = (i) => {
+    if (i >= want.length){ prefetching = false; return; }
+    AskRung(base, want[i], (m) => {
+      if (m.stale || ep !== st.epoch){ prefetching = false; return; }
+      GPU.SetRung(m.lum, m.res, m.spanKm, m.base);
+      st.rungEpoch = st.epoch;
+      if (i === want.length - 1) prefetching = false;
+      // The full rung arriving under a supersampled tile is a redraw,
+      // not a refine: the refine would look at what is on screen, see
+      // the right tile at the right size, and decline. Everything else
+      // arms the refine -- ALWAYS one or the other, or a rung can land
+      // with nothing waiting on it and the view never improves.
+      if (GpuWorth() && st.tile && st.tile.fine && i > 0)
+        GpuDraw(GpuView(FineRes()), performance.now());
+      else ArmRefine();
+      step(i + 1);
+    // A refused rung must still leave the refine armed, or a stale
+    // reply is a view that never refines at all.
+    }, () => { prefetching = false; ArmRefine(); });
+  };
+  step(0);
 }
 
 let fineTimer = null, fineAgain = false;
@@ -485,7 +535,13 @@ function ArmRefine(){
     // A prefetch already has the rung coming. Asking again would build
     // it twice -- traced at startup, two requests and two replies.
     // Its callback re-arms this.
-    if (prefetching) return;
+    //
+    // Only while there is nothing to draw from. The small rung lands
+    // first and the full one is still in flight behind it; refusing the
+    // refine for the whole of that threw the small rung away and put the
+    // supersampled tile back where it was -- traced at startup, the 600
+    // rung home at +1.2 s and the tile not drawn until +4.7 s.
+    if (prefetching && !RungHeld()) return;
     // One fine tile in flight at a time. It cannot be cancelled once the
     // worker starts -- the chain is a blocking loop -- but it must not
     // have a second queued behind it: measured on a zoom across a rung,
@@ -572,7 +628,8 @@ function AskFine(){
     if (GPU.HaveRung(v.base) && st.rungEpoch === st.epoch){ GpuDraw(v, t0); return; }
     const id = ++st.reqId;
     fineSet = { id, epoch: st.epoch, gpu: true, dead: false, t0, view: v };
-    WORK.fine[0].postMessage({ cmd: "rung", id, epoch: st.epoch, base: v.base });
+    WORK.fine[0].postMessage({ cmd: "rung", id, epoch: st.epoch, base: v.base,
+                               rungRes: RUNG_FULL });
     return;
   }
   const n = SPLIT;
@@ -1473,7 +1530,7 @@ function TimeTile(over){
         resolve(performance.now() - t1);
       };
       if (GPU.HaveRung(v.base) && st.rungEpoch === st.epoch) return go();
-      AskRung(v.base, (m) => {
+      AskRung(v.base, RUNG_FULL, (m) => {
         GPU.SetRung(m.lum, m.res, m.spanKm, m.base);
         st.rungEpoch = st.epoch; go();
       }, reject);
@@ -1487,10 +1544,11 @@ function TimeTile(over){
 // because a measurement must not be dropped for no longer fitting.
 let probeId = 0;
 const probeWaiting = new Map();
-function AskRung(base, ok, bad){
+function AskRung(base, rungRes, ok, bad){
   const id = "p" + (++probeId);
   probeWaiting.set(id, { ok, bad });
-  WORK.fine[0].postMessage({ cmd: "rung", id, probe: true, epoch: st.epoch, base });
+  WORK.fine[0].postMessage({ cmd: "rung", id, probe: true, epoch: st.epoch,
+                             base, rungRes });
 }
 function AskTile(res, over, ok, bad){
   const id = "p" + (++probeId);

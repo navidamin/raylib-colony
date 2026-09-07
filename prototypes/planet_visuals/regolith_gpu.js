@@ -520,6 +520,7 @@ function Create(){
     rungSpanKm = spanKm; rungBase = base;
   }
   function HaveRung(base){ return rungTex !== null && rungBase === base; }
+  function RungRes(){ return rungTex ? rungRes : 0; }
   const U = (p, n) => gl.getUniformLocation(p, n);
   function Common(p, o, flip){
     gl.uniform1f(U(p, "uRes"), o.res);
@@ -671,7 +672,7 @@ function Create(){
     return { canvas, ms: performance.now() - t0 };
   }
 
-  return { Render, SetRung, HaveRung, gl, canvas,
+  return { Render, SetRung, HaveRung, RungRes, gl, canvas,
            renderer: (() => { const d = gl.getExtension("WEBGL_debug_renderer_info");
              return d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); })() };
 }
