@@ -73,6 +73,28 @@ self.onmessage = (e) => {
     return;
   }
 
+  // One cached rung, whole. The GPU path takes this instead of a freshly
+  // cropped macro: the crop is a bilinear resample and an unsharp mask,
+  // which is a millisecond of shader and was most of a second of
+  // JavaScript at tile size. Fetched once per LEVEL rather than once per
+  // view, so panning and zooming inside a rung cost no worker time at
+  // all.
+  //
+  // Always at 1200, the same resolution the rungs are capped to, so the
+  // cached rung does not change when the supersample ratio does.
+  if (m.cmd === "rung"){
+    if (!place || !block){ self.postMessage({ cmd: "rung", id: m.id, stale: true }); return; }
+    const t0 = performance.now();
+    const lc = ChainFor(RUNG_RES_CAP);
+    lc.EnsureRung(m.base);
+    // A copy: the cache keeps its own, and this one is given away.
+    const lum = Float32Array.from(lc.rungs[m.base].lum);
+    self.postMessage({ cmd: "rung", id: m.id, epoch: m.epoch, base: m.base,
+                       res: RUNG_RES_CAP, spanKm: lc.rungs[m.base].spanKm,
+                       ms: performance.now() - t0, lum }, [lum.buffer]);
+    return;
+  }
+
   // The macro alone: the rung ladder and the crop, stopping where the
   // GPU path takes over. This is the cheap half -- tens of milliseconds
   // against seconds -- and it is still done here because the rungs live

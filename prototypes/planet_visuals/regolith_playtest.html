@@ -204,7 +204,7 @@ const st = {
   style: 1, px: 3,
   drag: null, pinch: null, dirty: true, mini: null,
   // The refine pass and its supersample ratio. See SUPER_STEPS.
-  super: 1.6, gpu: -1, base: null, epoch: 0, tuneGen: 0,
+  super: 1.6, gpu: -1, base: null, epoch: 0, tuneGen: 0, rungEpoch: -1,
   fineShadeMs: 0, fineMacroMs: 0, reqId: 0, fineMs: 0, fineRes: 0, fining: false
 };
 
@@ -493,19 +493,66 @@ function Ask(w, res, fine, margin){
 // a pixel: the shadow march, 22*k where k is the PIECE's res over 300.
 // cell/10 solves pad >= 22*(cell + 2*pad)/300 with room over.
 let fineSet = null;
+// Which cached rung a window comes off, and what level it counts as --
+// the same arithmetic MakeLiveChain does, needed here because on the GPU
+// path the page decides what to ask the worker for.
+function PickBase(spanKm, ox, oy){
+  const reach = Math.max(Math.abs(ox), Math.abs(oy)) + spanKm / 2.0;
+  let base = 0;
+  for (let i = 0; i < TC.LIVE_RUNGS.length; i++)
+    if (TC.LIVE_RUNGS[i] / 2.0 >= reach - 1e-9) base = i;
+  return { base, lvl: base + (spanKm < TC.LIVE_RUNGS[base] - 1e-9 ? 1 : 0) };
+}
+
+// Everything the shaders need for the current window, worked out here.
+function GpuView(res){
+  const span = Math.max(0.05, st.spanKm * FINE_MARGIN);
+  const ox = st.cxKm - st.cacheCx, oy = st.cyKm - st.cacheCy;
+  const pick = PickBase(span, ox, oy);
+  const [lat, lon] = LatLonAt(st.cacheCx, st.cacheCy);
+  const vLat = lat - oy / KMDEG;
+  const vLon = lon + ox / (KMDEG * Math.cos(vLat * D2R));
+  return { res, spanKm: span, offXKm: ox, offYKm: oy, base: pick.base,
+           frame: TC.MakeNoiseFrame(vLat, vLon, span, res,
+                                    Math.imul(0x9E3779B9, pick.lvl) >>> 0) };
+}
+
+// Render from the held rung. No worker, no round trip, no tile-sized
+// array crossing a thread boundary -- the crop is a shader now.
+function GpuDraw(v, t0){
+  const out = GPU.Render({ res: v.res, spanKm: v.spanKm, frame: v.frame,
+                           offXKm: v.offXKm, offYKm: v.offYKm,
+                           tune: Tune(), craters: TC.CRATERS,
+                           craterParams: TC.DEFAULT_CRATER,
+                           originLat: st.originLat, originLon: st.originLon });
+  const c = document.createElement("canvas");
+  c.width = c.height = v.res;
+  c.getContext("2d").drawImage(out.canvas, 0, 0);
+  const whole = { canvas: c, spanKm: v.spanKm, margin: FINE_MARGIN,
+                  cxKm: st.cxKm, cyKm: st.cyKm, kmPerPx: v.spanKm / v.res,
+                  craters: 0, pop: 0, fine: true, gen: st.tuneGen };
+  st.fining = false;
+  if (fineAgain){ fineAgain = false; ArmRefine(); }
+  st.prev = st.tile; st.tile = whole; st.fade = st.prev ? 0 : 1;
+  st.dirty = true; KeepFine(whole);
+  st.fineMs = performance.now() - t0;
+  st.fineShadeMs = out.ms;
+  st.fineMacroMs = st.fineMs - out.ms;
+  st.fineRes = v.res;
+  Hud(); WriteHash();
+}
+
 function AskFine(){
-  // On the GPU the tile is one draw, so there is nothing to cut up: the
-  // worker is asked only for the macro, which is the rung ladder and the
-  // crop, and the shaders do the rest here.
+  // On the GPU the tile is one draw, so there is nothing to cut up. The
+  // worker is asked only for the RUNG, once per level; every view inside
+  // that rung is cropped and shaded here without touching it again.
   if (GpuWorth()){
+    const v = GpuView(FineRes());
+    const t0 = performance.now();
+    if (GPU.HaveRung(v.base) && st.rungEpoch === st.epoch){ GpuDraw(v, t0); return; }
     const id = ++st.reqId;
-    fineSet = { id, epoch: st.epoch, gpu: true, dead: false, t0: performance.now() };
-    WORK.fine[0].postMessage({ cmd: "macro", id, epoch: st.epoch, fine: true,
-                               gen: st.tuneGen,
-                               res: FineRes(), margin: FINE_MARGIN,
-                               spanKm: Math.max(0.05, st.spanKm * FINE_MARGIN),
-                               offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
-                               cxKm: st.cxKm, cyKm: st.cyKm });
+    fineSet = { id, epoch: st.epoch, gpu: true, dead: false, t0, view: v };
+    WORK.fine[0].postMessage({ cmd: "rung", id, epoch: st.epoch, base: v.base });
     return;
   }
   const n = SPLIT;
@@ -565,6 +612,22 @@ function OnWorker(e){
     if (m.epoch === st.epoch){ st.mini = LumCanvas(m.lum, m.res, m.spanKm); st.dirty = true; }
     return;
   }
+  // The rung is home. It is held on the GPU until the level changes, so
+  // this happens once per level rather than once per view.
+  if (m.cmd === "rung"){
+    if (!fineSet || m.id !== fineSet.id) return;
+    const set = fineSet; fineSet = null;
+    if (m.stale || set.dead || m.epoch !== st.epoch){ st.fining = false; Hud(); return; }
+    try {
+      GPU.SetRung(m.lum, m.res, m.spanKm, m.base);
+      st.rungEpoch = st.epoch;
+      GpuDraw(set.view, set.t0);
+    } catch (e){
+      GPU = null; GPU_WHY = "render threw"; st.fining = false; Hud(); Regenerate();
+    }
+    return;
+  }
+
   // The macro half is home; the shaders finish it.
   if (m.cmd === "macro"){
     if (!fineSet || m.id !== fineSet.id) return;
@@ -1369,36 +1432,38 @@ function TimeTile(over){
     const res = FineRes();
     const t0 = performance.now();
     if (GpuWorth()){
-      // The macro is the same for every run, so it is fetched once and
-      // only the shading is re-timed -- which is the part the layers are.
-      const done = (lum, frame) => {
+      // The rung is held on the GPU, so every run after the first is
+      // shader time and nothing else -- which is exactly the part the
+      // layers are.
+      const v = GpuView(res);
+      const go = () => {
         const t1 = performance.now();
-        GPU.Render({ res, macro: lum, frame, spanKm: st.spanKm * FINE_MARGIN,
+        GPU.Render({ res, spanKm: v.spanKm, frame: v.frame,
+                     offXKm: v.offXKm, offYKm: v.offYKm,
                      tune: Object.assign({}, Tune(), over || {}),
                      craters: TC.CRATERS, craterParams: TC.DEFAULT_CRATER,
                      originLat: st.originLat, originLon: st.originLon });
         resolve(performance.now() - t1);
       };
-      if (measureMacro) return done(measureMacro.lum, measureMacro.frame);
-      AskMacro(res, (m) => { measureMacro = { lum: m.lum, frame: m.frame }; done(m.lum, m.frame); }, reject);
+      if (GPU.HaveRung(v.base) && st.rungEpoch === st.epoch) return go();
+      AskRung(v.base, (m) => {
+        GPU.SetRung(m.lum, m.res, m.spanKm, m.base);
+        st.rungEpoch = st.epoch; go();
+      }, reject);
       return;
     }
     AskTile(res, over, () => resolve(performance.now() - t0), reject);
   });
 }
-let measureMacro = null;
 
 // The workers, asked directly rather than through the refine machinery,
 // because a measurement must not be dropped for no longer fitting.
 let probeId = 0;
 const probeWaiting = new Map();
-function AskMacro(res, ok, bad){
+function AskRung(base, ok, bad){
   const id = "p" + (++probeId);
   probeWaiting.set(id, { ok, bad });
-  WORK.fine[0].postMessage({ cmd: "macro", id, probe: true, epoch: st.epoch, res,
-                             margin: FINE_MARGIN, spanKm: st.spanKm * FINE_MARGIN,
-                             offX: st.cxKm - st.cacheCx, offY: st.cyKm - st.cacheCy,
-                             cxKm: st.cxKm, cyKm: st.cyKm });
+  WORK.fine[0].postMessage({ cmd: "rung", id, probe: true, epoch: st.epoch, base });
 }
 function AskTile(res, over, ok, bad){
   const id = "p" + (++probeId);
@@ -1413,7 +1478,6 @@ async function Measure(){
   if (!WORK){ $("dnote").textContent = "needs a worker"; return; }
   const btn = $("dmeasure");
   btn.disabled = true;
-  measureMacro = null;
   try {
     // A throwaway run first. The first tile at a resolution also builds
     // that worker's rung ladder, and without this every layer was
@@ -1454,7 +1518,6 @@ async function Measure(){
     $("dnote").textContent = "measure failed";
   }
   btn.disabled = false;
-  measureMacro = null;
   DrawTable();
   ReRender();
 }

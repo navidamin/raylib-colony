@@ -112,6 +112,49 @@ void main(){
   outC = vec4(s / w);
 }`;
 
+// CropRung's first half: the piece of the rung you are looking at,
+// bilinear, at the tile's own resolution. Same arithmetic as the CPU's,
+// which is why the two paths land on the same ground.
+const FS_CROP = COMMON + `
+uniform sampler2D uRung;
+uniform float uRungRes;
+uniform vec4 uCrop;           // fromSpanKm, toSpanKm, offXKm, offYKm
+void main(){
+  vec2 p = ipix();
+  float src = uRungRes;
+  float frac = uCrop.y / uCrop.x;
+  float half_ = frac * src * 0.5;
+  vec2 off = vec2(uCrop.z, uCrop.w) / uCrop.x * src;
+  vec2 lo = vec2(src * 0.5 - half_) + off;
+  float step = 2.0 * half_ / uRes;
+  vec2 sp = lo + (p + 0.5) * step - 0.5;
+  // Bilinear by hand, because the rung is sampled NEAREST: a filtered
+  // float texture is not something every device will give us.
+  vec2 f = fract(sp), i0 = floor(sp);
+  vec2 a = clamp(i0, vec2(0.0), vec2(src - 1.0));
+  vec2 b = clamp(i0 + 1.0, vec2(0.0), vec2(src - 1.0));
+  float s00 = texture(uRung, (vec2(a.x, a.y) + 0.5) / src).r;
+  float s10 = texture(uRung, (vec2(b.x, a.y) + 0.5) / src).r;
+  float s01 = texture(uRung, (vec2(a.x, b.y) + 0.5) / src).r;
+  float s11 = texture(uRung, (vec2(b.x, b.y) + 0.5) / src).r;
+  outC = vec4(mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y));
+}`;
+
+// CropRung's second half: the unsharp mask that undoes what stretching
+// costs. The wide blur is taken at a quarter resolution -- a sigma of
+// forty pixels is smooth enough that nothing survives the difference,
+// and at full size it would be two hundred and forty taps a pixel.
+const FS_SHARPEN = COMMON + `
+uniform sampler2D uCropTex;
+uniform sampler2D uBlurTex;
+uniform float uAmount;
+void main(){
+  vec2 p = ipix();
+  float c = texture(uCropTex, uvOf(p)).r;
+  float b = texture(uBlurTex, uvOf(p)).r;   // smaller, so this filters up
+  outC = vec4(clamp(c + uAmount * (c - b), 0.0, 1.0));
+}`;
+
 // The height field, in chain units: the blurred macro as a relief proxy,
 // plus everything the mosaic cannot carry.
 const FS_HEIGHT = COMMON + `
@@ -397,11 +440,19 @@ function Create(){
   // Float render targets are the whole design: the height field has to
   // survive from one pass to the next with more than eight bits.
   if (!gl || !gl.getExtension("EXT_color_buffer_float")) return null;
+  // Sampling a float texture with LINEAR needs this ENABLED, not merely
+  // present. Without the call the texture is incomplete and reads as
+  // zero -- which showed up as the unsharp mask's blur being black, so
+  // the macro came out at exactly 1.40x its proper brightness. A silent
+  // zero is a nasty failure mode; the fallback is NEAREST, which is
+  // slightly blockier and correct.
+  const FLOAT_LINEAR = !!gl.getExtension("OES_texture_float_linear");
 
   let progs;
   try {
     progs = { blur: Program(gl, FS_BLUR), height: Program(gl, FS_HEIGHT),
-              shade: Program(gl, FS_SHADE) };
+              shade: Program(gl, FS_SHADE), crop: Program(gl, FS_CROP),
+              sharpen: Program(gl, FS_SHARPEN) };
   } catch (e){ return { error: String(e) }; }
 
   const quad = gl.createBuffer();
@@ -412,6 +463,10 @@ function Create(){
 
   const fbo = gl.createFramebuffer();
   let tex = {}, texRes = 0;
+  // The rung, uploaded once per level and cropped from on every view.
+  let rungTex = null, rungRes = 0, rungSpanKm = 0, rungBase = -1;
+  // Quarter-size scratch for the wide blur.
+  let qTex = {}, qRes = 0;
   function Ensure(res){
     if (texRes === res) return;
     for (const k in tex) gl.deleteTexture(tex[k]);
@@ -428,6 +483,35 @@ function Create(){
     }
     texRes = res;
   }
+  function MakeTex(res, filter){
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, res, res);
+    for (const pn of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER])
+      gl.texParameteri(gl.TEXTURE_2D, pn, filter);
+    for (const pn of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T])
+      gl.texParameteri(gl.TEXTURE_2D, pn, gl.CLAMP_TO_EDGE);
+    return t;
+  }
+  function EnsureQuarter(res){
+    if (qRes === res) return;
+    for (const k in qTex) gl.deleteTexture(qTex[k]);
+    qTex = {};
+    // LINEAR, because the sharpen pass reads it back at full size.
+    for (const k of ["a", "b"])
+      qTex[k] = MakeTex(res, FLOAT_LINEAR ? gl.LINEAR : gl.NEAREST);
+    qRes = res;
+  }
+
+  // The rung the crop reads from. Held until the level changes.
+  function SetRung(lum, res, spanKm, base){
+    if (rungTex && rungRes !== res){ gl.deleteTexture(rungTex); rungTex = null; }
+    if (!rungTex){ rungTex = MakeTex(res, gl.NEAREST); rungRes = res; }
+    gl.bindTexture(gl.TEXTURE_2D, rungTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, res, res, gl.RED, gl.FLOAT, lum);
+    rungSpanKm = spanKm; rungBase = base;
+  }
+  function HaveRung(base){ return rungTex !== null && rungBase === base; }
   const U = (p, n) => gl.getUniformLocation(p, n);
   function Common(p, o, flip){
     gl.uniform1f(U(p, "uRes"), o.res);
@@ -486,8 +570,42 @@ function Create(){
     canvas.width = canvas.height = res;
     gl.viewport(0, 0, res, res);
 
-    gl.bindTexture(gl.TEXTURE_2D, tex.macro);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, res, res, gl.RED, gl.FLOAT, o.macro);
+    if (o.macro){
+      gl.bindTexture(gl.TEXTURE_2D, tex.macro);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, res, res, gl.RED, gl.FLOAT, o.macro);
+    } else {
+      // Cut the window out of the rung and sharpen it, here, instead of
+      // being handed a macro the CPU cropped at tile size.
+      gl.useProgram(progs.crop); Common(progs.crop, o);
+      gl.uniform1f(U(progs.crop, "uRungRes"), rungRes);
+      gl.uniform4f(U(progs.crop, "uCrop"), rungSpanKm, o.spanKm,
+                   o.offXKm || 0, o.offYKm || 0);
+      Bind(progs.crop, "uRung", rungTex, 0);
+      Draw(tex.a);
+
+      // Full resolution while the kernel still fits the blur shader's
+      // reach; only the very wide ones go to a quarter, where the taps
+      // are affordable.
+      const sig = 5.0 * k;
+      const q = sig * 3.0 <= 46.0 ? res : Math.max(64, Math.round(res / 4));
+      EnsureQuarter(q);
+      gl.viewport(0, 0, q, q);
+      gl.useProgram(progs.blur);
+      gl.uniform1f(U(progs.blur, "uRes"), q);
+      gl.uniform1f(U(progs.blur, "uFlipY"), 0);
+      gl.uniform1f(U(progs.blur, "uSigma"), sig / (res / q));
+      gl.uniform2f(U(progs.blur, "uDir"), 1, 0);
+      Bind(progs.blur, "uSrc", tex.a, 0); Draw(qTex.a);
+      gl.uniform2f(U(progs.blur, "uDir"), 0, 1);
+      Bind(progs.blur, "uSrc", qTex.a, 0); Draw(qTex.b);
+      gl.viewport(0, 0, res, res);
+
+      gl.useProgram(progs.sharpen); Common(progs.sharpen, o);
+      gl.uniform1f(U(progs.sharpen, "uAmount"), 0.40);
+      Bind(progs.sharpen, "uCropTex", tex.a, 0);
+      Bind(progs.sharpen, "uBlurTex", qTex.b, 1);
+      Draw(tex.macro);
+    }
 
     // The relief proxy: the macro, smoothed, so the imagery's own noise
     // does not become terrain.
@@ -544,7 +662,7 @@ function Create(){
     return { canvas, ms: performance.now() - t0 };
   }
 
-  return { Render, gl, canvas,
+  return { Render, SetRung, HaveRung, gl, canvas,
            renderer: (() => { const d = gl.getExtension("WEBGL_debug_renderer_info");
              return d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER); })() };
 }

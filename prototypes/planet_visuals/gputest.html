@@ -47,11 +47,17 @@ window.RUN = function(regionKey, spanKm, res){
 
       const gpu = TerrainGPU.Create();
       if (!gpu || gpu.error){ resolve({ error: gpu ? gpu.error : "no webgl2" }); return; }
+      // The GPU crops from the rung itself now, so the CPU hands over one
+      // step earlier: the rung, not a macro cropped at tile size.
+      const pick = lc.PickLevel(spanKm, 0, 0);
+      lc.EnsureRung(pick.base);
       const t1 = performance.now();
       const pre = lc.Prepare(spanKm, 0, 0);
       const prepMs = performance.now() - t1;
+      gpu.SetRung(Float32Array.from(lc.rungs[pick.base].lum),
+                  Math.min(res, 1200), lc.rungs[pick.base].spanKm, pick.base);
       const t2 = performance.now();
-      const r = gpu.Render({ res, macro: pre.lum, frame: pre.frame, spanKm,
+      const r = gpu.Render({ res, frame: pre.frame, spanKm, offXKm: 0, offYKm: 0,
         tune, craters: TC.CRATERS, craterParams: TC.DEFAULT_CRATER,
         originLat: oLat, originLon: oLon });
       const gpuMs = performance.now() - t2;
