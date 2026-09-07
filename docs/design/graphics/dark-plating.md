@@ -1159,12 +1159,39 @@ half of the column became the loudest thing on screen. `{66,78,95}` over
 not lit. Cap the alpha short of opaque: a trace under the haze says there *is*
 ground there, merely unestablished.
 
-**Rasterise small and let the GPU blur it.** ~112×176 per face, drawn through
-the face's own affine with `imageSmoothingEnabled` — the same transform the
-rock texture already uses. Parameterise by distance around the block's
-**visible perimeter** rather than per face, so one continuous field covers both
-cut faces and meets itself exactly at the corner they share. Cache on the fog
-levers alone, so a light or texture slider never pays for a fog raster.
+**Rasterise coarse where it is expensive, fine where it shows.** Parameterise by
+distance around the block's **visible perimeter** rather than per face, so one
+continuous field covers both cut faces and meets itself exactly at the corner
+they share, and draw it through the face's own affine with
+`imageSmoothingEnabled` — the same transform the rock texture already uses.
+
+Run the raster at roughly **1:1 with the face as drawn**. Half that and every
+grain is smoothed into another soft blob, which is the whole problem. It is
+affordable because the two costly terms — the knowledge field, which walks
+every hole, and the fbm — go on a **coarse grid and get interpolated**, while
+only the cheap one, a single hash per texel, runs at full resolution. Four
+times the texels for less work than before: detail you can see per pixel,
+structure you cannot, per five.
+
+**fbm alone is a wash, and octaves do not fix it.** Every value sits near the
+middle of the range and every edge is a long gradient — adding octaves adds
+detail to a shape that is smooth by construction. Two separate controls earn
+their place:
+
+- **Roughness** folds the field at its mid-line (`1 − |2n − 1|`), which turns
+  that mid-line into a *crease*, so the fog gets edges and not only slopes, and
+  mixes in a faster second layer to put structure between the big blobs. Raise
+  contrast with it: a rough field still living near 0.5 is a rough field nobody
+  can see.
+- **Granularity** is one hash per texel, applied to the alpha, to the tint, and
+  to what the fog lets through — dust in the fog, in its tone, and in its
+  edge. Fog with no tooth reads as an airbrush, and an airbrush reads as a
+  graphic laid over the picture rather than as air in front of it.
+
+Check the result against the panel with a **measurement, not an impression**:
+the mean luminance must not move (fog stays plainly lighter than the rock and
+plainly unlit) while the standard deviation goes up. Texture that also
+brightens is a tone change wearing a texture's clothes.
 
 **Redraw the body's outline on top.** Where the column *goes* is not in doubt
 even where its contents are. Without it the block dissolves into the background

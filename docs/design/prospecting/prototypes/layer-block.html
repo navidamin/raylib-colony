@@ -434,7 +434,8 @@ const P = {
   shade: 1.0, lightAz: 29, faceL: 0.64, faceR: 0.84,
   texAmt: 1.0, texScale: 2.0, seam: 0.95, lip: 0.55,
   bar: 1, running: 0, grid: 0, lips: 1, solo: 0,
-  fog: 1, fogAmt: 1.0, fogGrain: 3, fogSpreadH: 0.35, fogSpreadV: 0.45, fogThick: 0.80
+  fog: 1, fogAmt: 1.0, fogGrain: 3, fogSpreadH: 0.35, fogSpreadV: 0.45, fogThick: 0.80,
+  fogGrit: 0.55, fogRough: 0.50
 };
 const DEFAULTS = Object.assign({}, P);
 
@@ -788,12 +789,27 @@ function FaceKnow(x, y){
    cut faces and meets itself exactly at the corner they share. */
 function FogNoise(u, v){
   // fbm spends most of its life near the middle of its range, so used raw it
-  // gives a wash: granularity and spread were being moved with nothing
-  // visibly happening. Expanding around 0.5 makes the field tunable.
-  const n = Fbm(u / Math.max(P.fogSpreadH, 0.04),
-                v / Math.max(P.fogSpreadV, 0.04),
-                2, Math.max(1, Math.round(P.fogGrain)), FOG_SEED);
-  return clamp((n - 0.5) * 1.9 + 0.5, 0, 1);
+  // gives a wash: the shape controls were being moved with nothing visibly
+  // happening. Expanding around 0.5 makes the field tunable.
+  const sh = Math.max(P.fogSpreadH, 0.04), sv = Math.max(P.fogSpreadV, 0.04);
+  const oct = Math.max(1, Math.round(P.fogGrain));
+  const n = Fbm(u / sh, v / sv, 2, oct, FOG_SEED);
+  /* ROUGHNESS. fbm alone is a wash of soft blobs -- every value near the
+     middle, every edge a long gradient -- and no amount of octaves fixes that,
+     because octaves add detail to a shape that is smooth by construction.
+     Two things break it up:
+       a ridged fold, 1 - |2n - 1|, which turns the field's mid-line into a
+         CREASE, so the fog gets edges instead of only slopes; and
+       a faster second layer, which puts structure between the big blobs.
+     Contrast rises with it, because a rough field that still spends its life
+     near 0.5 is a rough field you cannot see. */
+  const r = 1 - Math.abs(n * 2 - 1);
+  const rough = clamp(P.fogRough, 0, 1);
+  let q = lerp(n, r, rough * 0.85);
+  if (rough > 0.01)
+    q += (Fbm(u / sh * 3.1, v / sv * 3.1, 3, 2, (FOG_SEED + 13) >>> 0) - 0.5)
+         * rough * 0.6;
+  return clamp((q - 0.5) * (1.9 + rough * 1.7) + 0.5, 0, 1);
 }
 /* Returns the haze alpha, the tint noise, and -- the part fog of war needs --
    how much of the real column is ESTABLISHED here. */
@@ -816,15 +832,17 @@ function FogNoise(u, v){
    five levers shape how the fog LOOKS, never how much of it there is.
 
    The surface is the one thing known for free, because you can see it. */
-function FogSample(sp, x, y){
-  if (!P.fog) return { a: 0, n: 0.5, known: 1 };
-  const collapsed = sp === "top" ? 1 : FaceKnow(x, y);
-  const n = FogNoise(x, y);
+function FogLaw(known, n, grit){
+  if (!P.fog) return { a: 0, lift: 1, known: 1 };
   // Opacity is the fog's ceiling, thickness its floor: together they are the
   // difference between something wispy you can half-read and a solid blanket.
   const floorA = 0.30 + 0.65 * clamp(P.fogThick, 0, 1);
-  const a = P.fogAmt * lerp(floorA, 1, n) * (1 - collapsed);
-  return { a: Math.min(a, FOG_MAX_A), n, known: collapsed };
+  const gr = grit * clamp(P.fogGrit, 0, 1);
+  let a = P.fogAmt * lerp(floorA, 1, n) * (1 - known);
+  a *= 1 + gr * 1.5;                    // dust in the fog itself,
+  return { a: clamp(a, 0, FOG_MAX_A),
+           lift: 0.82 + 0.42 * n + gr * 0.55,          // in its tone,
+           known: clamp(known + gr * 0.16, 0, 1) };    // and in what it lets past
 }
 
 /* Rasterised small and blown up with smoothing -- which is what makes it read
@@ -832,42 +850,63 @@ function FogSample(sp, x, y){
    the rock texture already uses. Haze and mask come out of ONE pass, because
    they are two readings of the same number and must not drift. */
 const FOG_MARGIN_M = 8;
-const FOG_W = 112, FOG_H = 176;
+/* Roughly 1:1 with the face as drawn, so grain lands at pixel scale instead of
+   being smoothed into more soft blobs. That is 4x the texels of the old raster
+   and it costs LESS, because the two expensive terms -- knowledge, which walks
+   every hole, and the fbm -- are evaluated on a coarse grid and interpolated,
+   while only the cheap one, a single hash per texel, runs at full resolution.
+   Detail you can see per pixel; structure you cannot, per five. */
+const FOG_W = 224, FOG_H = 352, FOG_CO = 4;
+const GRIT_SEED = 0x51c7;
 let fogKey = "", fogFace = [null, null], mskFace = [null, null];
 
-function MakePair(w, h, sample){
-  const fc = document.createElement("canvas"), mc = document.createElement("canvas");
-  fc.width = mc.width = w; fc.height = mc.height = h;
-  const fx = fc.getContext("2d"), mx = mc.getContext("2d");
-  const fi = fx.createImageData(w, h), mi = mx.createImageData(w, h);
-  for (let y = 0; y < h; y++)
-    for (let x = 0; x < w; x++){
-      const r = sample(x, y), k = (y * w + x) * 4;
-      const lift = 0.82 + 0.42 * r.n;      // the noise tints as well as hides,
-      fi.data[k]     = clamp(FOG_COL[0] * lift, 0, 255);   // so even full fog
-      fi.data[k + 1] = clamp(FOG_COL[1] * lift, 0, 255);   // keeps a vague
-      fi.data[k + 2] = clamp(FOG_COL[2] * lift, 0, 255);   // texture
-      fi.data[k + 3] = r.a * 255;
-      mi.data[k] = mi.data[k + 1] = mi.data[k + 2] = 255;
-      mi.data[k + 3] = clamp(r.known, 0, 1) * 255;
+function BuildFogSide(side){
+  const cw = Math.ceil(FOG_W / FOG_CO) + 1, ch = Math.ceil(FOG_H / FOG_CO) + 1;
+  const KG = new Float32Array(cw * ch), NG = new Float32Array(cw * ch);
+  const span = COLUMN_M + 2 * FOG_MARGIN_M;
+  for (let cy = 0; cy < ch; cy++)
+    for (let cx = 0; cx < cw; cx++){
+      const x = Math.min(cx * FOG_CO, FOG_W - 1), y = Math.min(cy * FOG_CO, FOG_H - 1);
+      const pp = (side === 0 ? 0 : 0.5) + x / (FOG_W - 1) * 0.5;
+      const tt = (-FOG_MARGIN_M + y / (FOG_H - 1) * span) / Math.max(COLUMN_M, 1);
+      KG[cy * cw + cx] = FaceKnow(pp, tt);
+      NG[cy * cw + cx] = FogNoise(pp, tt);
     }
+  const fc = document.createElement("canvas"), mc = document.createElement("canvas");
+  fc.width = mc.width = FOG_W; fc.height = mc.height = FOG_H;
+  const fx = fc.getContext("2d"), mx = mc.getContext("2d");
+  const fi = fx.createImageData(FOG_W, FOG_H), mi = mx.createImageData(FOG_W, FOG_H);
+  for (let y = 0; y < FOG_H; y++){
+    const fy = y / FOG_CO; let y0 = fy | 0; if (y0 > ch - 2) y0 = ch - 2;
+    const ty = fy - y0, r0 = y0 * cw, r1 = r0 + cw;
+    for (let x = 0; x < FOG_W; x++){
+      const fxp = x / FOG_CO; let x0 = fxp | 0; if (x0 > cw - 2) x0 = cw - 2;
+      const tx = fxp - x0;
+      const bil = A => {
+        const t = A[r0 + x0] + (A[r0 + x0 + 1] - A[r0 + x0]) * tx;
+        const b = A[r1 + x0] + (A[r1 + x0 + 1] - A[r1 + x0]) * tx;
+        return t + (b - t) * ty;
+      };
+      const g = Hash2(x, y, GRIT_SEED) - 0.5;
+      const r = FogLaw(bil(KG), bil(NG), g), k = (y * FOG_W + x) * 4;
+      fi.data[k]     = clamp(FOG_COL[0] * r.lift, 0, 255);   // the noise tints
+      fi.data[k + 1] = clamp(FOG_COL[1] * r.lift, 0, 255);   // as well as hides,
+      fi.data[k + 2] = clamp(FOG_COL[2] * r.lift, 0, 255);   // so even full fog
+      fi.data[k + 3] = r.a * 255;                            // keeps a texture
+      mi.data[k] = mi.data[k + 1] = mi.data[k + 2] = 255;
+      mi.data[k + 3] = r.known * 255;
+    }
+  }
   fx.putImageData(fi, 0, 0); mx.putImageData(mi, 0, 0);
-  return [fc, mc];
+  fogFace[side] = fc; mskFace[side] = mc;
 }
 function EnsureFog(topB){
   const k = [P.fog, P.fogAmt, P.fogGrain, P.fogSpreadH, P.fogSpreadV, P.fogThick,
+             P.fogGrit, P.fogRough,
              COLUMN_M, TOPS.join(","), topB, N, revealRev].join("|");
   if (k === fogKey) return;
   fogKey = k;
-  const span = COLUMN_M + 2 * FOG_MARGIN_M;
-  for (const side of [0, 1]){
-    const pair = MakePair(FOG_W, FOG_H, (x, y) => {
-      const pp = (side === 0 ? 0 : 0.5) + x / (FOG_W - 1) * 0.5;
-      const tt = (-FOG_MARGIN_M + y / (FOG_H - 1) * span) / Math.max(COLUMN_M, 1);
-      return FogSample("face", pp, tt);
-    });
-    fogFace[side] = pair[0]; mskFace[side] = pair[1];
-  }
+  BuildFogSide(0); BuildFogSide(1);
 }
 
 /* The face path across a RANGE of interfaces, so the unknown body, the haze
@@ -2223,11 +2262,13 @@ const SCHEMA = [
       { k:"craterY",     lab:"Position Y", min:0, max:1,  step:0.01, fmt:pc }
     ] },
   { title: "Fog — what is not known",
-    note: "Fog is confidence. Every hole thins it everywhere — most where it stands, least far off, never nothing — and the interfaces re-fit as it thins. At 5% fog the model is settled. These five shape how the fog looks, not how much of it there is.",
+    note: "Fog is confidence. Every hole thins it everywhere — most where it stands, least far off, never nothing — and the interfaces re-fit as it thins. At 5% fog the model is settled. Granularity is the dust in it, roughness the clumping. These shape how the fog looks, not how much of it there is.",
     items: [
       { k:"fog",        type:"toggle", lab:"Fog" },
       { k:"fogAmt",     lab:"Opacity",      min:0,    max:1,   step:0.01, fmt:pc },
-      { k:"fogGrain",   lab:"Granularity",  min:1,    max:5,   step:1,
+      { k:"fogGrit",    lab:"Granularity",  min:0,    max:1,   step:0.01, fmt:pc },
+      { k:"fogRough",   lab:"Roughness",    min:0,    max:1,   step:0.01, fmt:pc },
+      { k:"fogGrain",   lab:"Detail",       min:1,    max:5,   step:1,
         fmt:v => v === 1 ? "smooth" : v + " octaves" },
       { k:"fogSpreadH", lab:"Spread across",min:0.05, max:1.4, step:0.01,
         fmt:v => Math.round(v * 100) + "% of face" },
