@@ -1,4 +1,18 @@
-<meta charset="utf-8"><title>gpu vs cpu</title>
+<meta charset="utf-8"><title>GPU against CPU — regolith chain</title>
+<!--
+  The A/B that says whether regolith_gpu.js still draws what
+  regolith_chain.js draws. Serve this directory over http and call
+  RUN(region, spanKm, res) from the console or from a driver; it builds
+  the same view both ways, puts them side by side on the canvas, and
+  returns the timings with the RMS between them.
+
+    await RUN('hadley', 2.6, 1000)
+    -> { cpuMs, prepMs, gpuMs, rms, max, renderer }
+
+  Run it after touching either synthesizer. `renderer` is the thing to
+  read first: on a software rasteriser the timings mean nothing, and
+  only the RMS and the picture do.
+-->
 <canvas id=out></canvas>
 <script src="regolith_blocks.js"></script>
 <script src="regolith_chain.js"></script>
