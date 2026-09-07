@@ -1297,10 +1297,23 @@ Nothing else in a panel like this says *this is an estimate* half so plainly —
 a static picture behind a thinning veil always reads as a finished answer being
 uncovered.
 
-- **The prior must not be flat.** An interpolation from no data is smooth, not
-  level, and a perfect layer cake reads as an answer rather than a guess. Give
-  it a gentle undulation of its own and a *wrong* regional dip, from a fixed
-  seed, so it is wrong the same way every time and can be seen being corrected.
+- **Write it as truth plus error, not as a blend toward a prior.**
+  `shown = truth + error × (1 − confidence)`. Blending between two fixed
+  smooth fields looks like what it is: one nearly straight plane sliding
+  toward another, barely moving. An error field is a whole *wrong horizon* in
+  its own right and carries all three of the things you do not actually know
+  about a bed — its **depth** (a bulk offset: that there is an interface is
+  not the same as knowing where it is), its **dip** (wrong way, wrong amount),
+  and its **roll** (ups and downs, at two scales, in the wrong places). Scale
+  each by the thinner of the two beds it separates, so a thin bed is never
+  given an error that would swallow it, and draw all of it from a fixed hash
+  per interface so the block is wrong the same way every time it loads.
+- **The error being pinned by confidence is the whole trick.** Because
+  confidence is high at a hole and low away from it, the error goes to nothing
+  where you drilled and stays free between — so the beds bend *toward* the
+  boreholes instead of sliding about as one plate. That is how an interpolated
+  horizon behaves, and it is what makes the picture legible as a fit rather
+  than as an animation.
 - **Some surfaces are not in doubt and must not move**: the ground you are
   standing on, and the bottom of the surveyed column, which is a depth somebody
   chose rather than a bed. Moving those wobbles the body's own silhouette, and

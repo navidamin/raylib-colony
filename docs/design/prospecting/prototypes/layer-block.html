@@ -435,7 +435,7 @@ const P = {
   texAmt: 1.0, texScale: 2.0, seam: 0.95, lip: 0.55,
   bar: 1, running: 0, grid: 0, lips: 1, solo: 0,
   fog: 1, fogAmt: 1.0, fogGrain: 3, fogSpreadH: 0.35, fogSpreadV: 0.45, fogThick: 0.80,
-  fogGrit: 0.55, fogRough: 0.50
+  fogGrit: 0.22, fogRough: 0.50
 };
 const DEFAULTS = Object.assign({}, P);
 
@@ -486,7 +486,7 @@ const SPUD_T = 0.85, OUT_T = 0.9, HOLD_T = 1.0, FADE_T = 0.3;
    is ruled in -- so a lever never means one thing here and another
    there.
    ===================================================================== */
-const SEED_SHARED = 0x51ed, SEED_OWN = 0x9e37, PRI_SEED = 0x7a11;
+const SEED_SHARED = 0x51ed, SEED_OWN = 0x9e37;
 let N, STRIDE, TX, TY, PXM, BLK_X, BLK_W, BLK_CX;
 let TOPS = [0,12,34,68], COLUMN_M = 120, RELIEF_PX = 18;
 let SURF = [], SPX = [], SPY = [];
@@ -522,6 +522,25 @@ function CraterAmp(L){
   return P.craterDepth * Math.pow(P.craterInfill, k - L);
 }
 
+/* How wrong one interface is allowed to be, before any of it is known. Scaled
+   by the thinner of the two beds it separates, so a thin bed is never given an
+   error that would swallow it, and drawn from a fixed hash so the wrongness is
+   a property of this block rather than of this frame. */
+const ERR_SEED = 0x3c9d;
+function ErrParams(L, edge){
+  const span = Math.max(2, Math.min(edge[L] - edge[L - 1], edge[L + 1] - edge[L]));
+  const h = k => Hash2(L * 37 + k, 11, ERR_SEED);
+  const ta = h(2) * 6.2832;
+  return {
+    bulk: (h(1) - 0.5) * 2 * 0.30 * span,          // sits too shallow or deep
+    tilt: (0.15 + h(3) * 0.45) * span,             // dips the wrong way,
+    tca: Math.cos(ta), tsa: Math.sin(ta),          // and in the wrong direction
+    amp: (0.22 + h(4) * 0.30) * span,              // rolls in the wrong places
+    p1: 2 + Math.round(h(5) * 2), p2: 5 + Math.round(h(6) * 4),
+    s1: (ERR_SEED + L * 7919) >>> 0, s2: (ERR_SEED + L * 104729 + 17) >>> 0
+  };
+}
+
 function BuildHeights(){
   TOPS = [0, P.t0, P.t0 + P.t1, P.t0 + P.t1 + P.t2];
   COLUMN_M = TOPS[3] + P.t3;
@@ -536,12 +555,27 @@ function BuildHeights(){
   // Anisotropy squashes the noise domain on one axis, so mottle becomes ridges.
   const ky = 1 - 0.85 * P.grain;
 
-  /* The PRIOR: the shape of a bed you have no holes on. Not flat -- an
-     interpolation from nothing is smooth, not level, and a perfect layer cake
-     would look like an answer rather than a guess. It gets its own gentle
-     undulation and its own wrong regional dip, from a fixed seed, so it is
-     wrong the same way every time and can be SEEN being corrected. */
-  const pa = az + 2.0, pca = Math.cos(pa), psa = Math.sin(pa);
+  /* THE ERROR. The interfaces are not drawn from a prior that gets blended
+     toward the truth -- that was one fixed smooth shape sliding toward another
+     fixed shape, which comes out as an almost straight plane that barely moves.
+     What is drawn instead is
+
+         shown = truth + error x (1 - confidence)
+
+     and the error is a whole wrong horizon in its own right, with all three
+     of the things you actually do not know about a bed:
+
+       BULK   -- it sits too shallow or too deep. The DEPTH of an interface is
+                 not given; only that there is one.
+       TILT   -- it dips the wrong way, by the wrong amount.
+       ROLL   -- it has ups and downs, at two scales, in the wrong places.
+
+     All three from a fixed seed per interface, so the block is wrong the same
+     way every time it is loaded and can be watched being corrected. And since
+     confidence is high at a hole and low away from it, the error is pinned to
+     nothing where you drilled and free between -- which is how an interpolated
+     horizon actually behaves, and is why the beds now bend toward the holes
+     rather than sliding about as one plate. */
 
   SURF = [];
   for (let L = 0; L <= 4; L++){
@@ -551,8 +585,8 @@ function BuildHeights(){
     const cr  = CraterAmp(L);
     // Interface 0 is the ground you are standing on and interface 4 is the
     // bottom of the surveyed column -- a depth somebody chose, not a bed.
-    // Neither is in doubt, so neither moves.
-    const guess = L >= 1 && L <= 3;
+    // Neither is in doubt, so neither carries an error.
+    const ep = (L >= 1 && L <= 3) ? ErrParams(L, edge) : null;
     for (let j = 0; j <= N; j++)
       for (let i = 0; i <= N; i++){
         const u = i / N, v = j / N, vv = 0.5 + (v - 0.5) * ky;
@@ -562,14 +596,14 @@ function BuildHeights(){
         h += dip * ((u - 0.5) * ca + (v - 0.5) * sa);
         if (cr !== 0) h += cr * Bowl(u, v);
         let z = edge[L] - h;                     // h is up-positive
-        if (guess){
-          const pg = (Fbm(u, v, 2, 2, (PRI_SEED + L * 104729) >>> 0) - 0.5)
-                     * amp * 1.05
-                   + dip * 0.42 * ((u - 0.5) * pca + (v - 0.5) * psa);
-          const prior = edge[L] - pg;
+        if (ep){
+          const e = ep.bulk
+                  + ep.tilt * ((u - 0.5) * ep.tca + (v - 0.5) * ep.tsa)
+                  + ep.amp * ((Fbm(u, v, ep.p1, 2, ep.s1) - 0.5) * 1.30
+                            + (Fbm(u, v, ep.p2, 2, ep.s2) - 0.5) * 0.70);
           // Every hole in the block has a say here, weighted by how far away
           // it is and whether it went this deep.
-          z = lerp(prior, z, Confidence(KnowAt(i, j, edge[L])));
+          z += e * (1 - Confidence(KnowAt(i, j, edge[L])));
         }
         d[j * STRIDE + i] = z;
       }
