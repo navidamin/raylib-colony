@@ -690,7 +690,8 @@ function CraterPopulation(outM, res, frame, spanKm, P){
   const rOuter = 1.0 + Math.max(3.0 * P.rimWidth, P.ejecta);
   let placed = 0;
   let diamKm = FLOOR_KM * 1.4;
-  for (let b = 0; b < SUB_MAX_OCTAVES && diamKm >= 2.5 * kmPerPx; b++, diamKm *= 0.5){
+  const bandFloor = P.popPx || 2.5;
+  for (let b = 0; b < SUB_MAX_OCTAVES && diamKm >= bandFloor * kmPerPx; b++, diamKm *= 0.5){
     const w = SubFade(diamKm);
     if (w <= 0.001) continue;
     const cellKm = diamKm / 0.55;
@@ -771,7 +772,8 @@ function ClastBands(outM, res, frame, spanKm, P){
   }
   let placed = 0;
   let diamKm = 0.045;                       // 45 m: a big rock, and rare
-  for (let b = 0; b < 12 && diamKm >= 2.2 * kmPerPx; b++, diamKm *= 0.5){
+  const clastFloor = P.clastPx || 2.2;
+  for (let b = 0; b < 12 && diamKm >= clastFloor * kmPerPx; b++, diamKm *= 0.5){
     const cellKm = diamKm / 0.42;
     const salt = (0x5EED17 + b * 26417) | 0;
     // Bigger rocks are rarer, by about the same power law the craters use.
@@ -832,7 +834,8 @@ function SubFloorRelief(height, res, frame, spanKm, tune, density){
     craters = CraterPopulation(accM, res, frame, spanKm, {
       popDensity: tune.popDensity, popDepth: tune.subCraters,
       dMin: tune.dMin, dMax: tune.dMax, rim: tune.rim,
-      rimWidth: tune.rimWidth, ejecta: tune.ejecta, floorFlat: tune.floorFlat
+      rimWidth: tune.rimWidth, ejecta: tune.ejecta, floorFlat: tune.floorFlat,
+      popPx: tune.popPx, cosineBowl: tune.cosineBowl
     });
   // The last octave is the pixel itself, and nothing world-anchored can
   // live there: this is the grit the previous zoom could not show.
@@ -1357,7 +1360,7 @@ const DEFAULT_TUNE = {
   // Both off: the chain behaves exactly as it did. crisp drops the
   // softening steps that only make sense when a picture is going to be
   // resampled anyway; bands quantises the tone.
-  crisp: 0, bands: 0, shadows: 1,
+  crisp: 0, bands: 0, shadows: 1, popPx: 2.5, clastPx: 2.2,
   subFloor: 1, subRough: 0.045, subGrit: 1.8, subCraters: 1.15,
   popDensity: 0.75, subMottle: 0.20, cosineBowl: 1,
   clasts: 1.0, clastDensity: 0.30,

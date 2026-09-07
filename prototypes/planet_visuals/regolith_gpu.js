@@ -166,7 +166,7 @@ uniform float uFormRelief;
 uniform vec4 uSub;            // subRough, subGrit, subCraters, popDensity
 uniform vec4 uPop;            // dMin, dMax, rim, rimWidth
 uniform vec4 uPop2;           // ejecta, floorFlat, cosineBowl, popDepth
-uniform vec2 uClast;          // clasts, clastDensity
+uniform vec4 uClast;          // clasts, clastDensity, clastPx, popPx
 uniform vec4 uNamedA[8];      // px, py, R, depthM
 uniform vec4 uNamedB[8];      // rimM, 0, 0, 0
 uniform int  uNamedN;
@@ -225,7 +225,7 @@ void main(){
   if (uClast.x > 0.001){
     float diamKm = 0.045;
     for (int b = 0; b < 12; b++){
-      if (diamKm < 2.2 * uKmPerPx) break;
+      if (diamKm < uClast.z * uKmPerPx) break;
       float cellKm = diamKm / 0.42;
       uint salt = uint(0x5EED17 + b * 26417);
       float occ = min(0.9, uClast.y * (0.35 + 0.65 * float(b) / 4.0));
@@ -259,19 +259,24 @@ void main(){
     float invW = 1.0 / (2.0 * uPop.w * uPop.w);
     float diamKm = FLOOR_KM * 1.4;
     for (int b = 0; b < 16; b++){
-      if (diamKm < 2.5 * uKmPerPx) break;
+      if (diamKm < uClast.w * uKmPerPx) break;
       float fw = subfade(diamKm);
       if (fw > 0.001){
         float cellKm = diamKm / 0.55;
         uint salt = uint(0xC7A7E5 + b * 7919);
         int ci0 = int(floor(w.x / cellKm)), cj0 = int(floor(w.y / cellKm));
+        // The clustering varies over eleven cells, so it is the same to
+        // three decimals across the three-by-three neighbourhood. Taken
+        // once per band instead of nine times it saves eight value-noise
+        // lookups a band a pixel, which is most of what the density test
+        // costs.
+        float cluster = 0.5 + 0.5 * dnoise((float(ci0) + 0.5) * cellKm,
+                                           (float(cj0) + 0.5) * cellKm,
+                                           cellKm * 11.0, salt + 900u);
         float bowl = 0.0;
         for (int dj = -1; dj <= 1; dj++){
           for (int di = -1; di <= 1; di++){
             int ci = ci0 + di, cj = cj0 + dj;
-            float cluster = 0.5 + 0.5 * dnoise((float(ci) + 0.5) * cellKm,
-                                               (float(cj) + 0.5) * cellKm,
-                                               cellKm * 11.0, salt + 900u);
             if (dhash(ci, cj, salt) > uSub.w * cluster) continue;
             float cu = (float(ci) + 0.12 + 0.76 * dhash(ci, cj, salt + 1u)) * cellKm;
             float cv = (float(cj) + 0.12 + 0.76 * dhash(ci, cj, salt + 2u)) * cellKm;
@@ -627,7 +632,8 @@ function Create(){
     gl.uniform4f(U(progs.height, "uSub"), T.subRough, T.subGrit, T.subCraters, T.popDensity);
     gl.uniform4f(U(progs.height, "uPop"), T.dMin, T.dMax, T.rim, T.rimWidth);
     gl.uniform4f(U(progs.height, "uPop2"), T.ejecta, T.floorFlat, T.cosineBowl, T.subCraters);
-    gl.uniform2f(U(progs.height, "uClast"), T.clasts, T.clastDensity);
+    gl.uniform4f(U(progs.height, "uClast"), T.clasts, T.clastDensity,
+                 T.clastPx || 2.2, T.popPx || 2.5);
     gl.uniform4fv(U(progs.height, "uNamedA"), nm.A);
     gl.uniform4fv(U(progs.height, "uNamedB"), nm.B);
     gl.uniform1i(U(progs.height, "uNamedN"), nm.n);
