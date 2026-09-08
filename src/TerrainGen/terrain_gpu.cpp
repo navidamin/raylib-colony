@@ -58,7 +58,10 @@ const char* PREFIX_330 =
     "in vec2 fragTexCoord;\n"
     "out vec4 finalColor;\n"
     "#define TEX(s, uv) texture(s, uv)\n"
-    "#define OUT finalColor\n";
+    "#define OUT finalColor\n"
+    // detail_noise.h's hash is a 32-bit integer chain. GLSL ES 1.00 has no
+    // uint, so only this profile can reproduce it exactly.
+    "#define DHASH_UINT 1\n";
 
 const char* PREFIX_100 =
     "#version 100\n"
@@ -366,17 +369,17 @@ float boulderAt(vec2 pix)
 // 0.6 px before differencing, which takes the grain's gradient from
 // 0.80 to 0.46 while this lattice's sits at 0.74; the same ratio, the
 // same shading.
-float heightAt(vec2 pix, float tone, float hmean, float grainAmp)
+// Everything in the height field that is NOT the pixel-anchored grain and
+// undulation: the imagery's own form as relief, the boulders, and the site
+// work. The world stack replaces those two terms, so it needs this half on
+// its own -- which is also why the two paths cannot drift apart.
+float heightCommon(vec2 pix, float tone, float hmean, float grainAmp,
+                   float extra)
 {
     float w = siteW(pix);
     float m = toneAt(pix, w, tone);
     float rough = roughAt(m);
-    float h = reliefAt(pix, w, tone);
-    h += 0.02 * uAmp * uTune.y
-         * (fbm(world(pix), 64.0 * uK, 0.5, 3, uSeedU) - 0.5) * rough;
-    if (grainAmp > 0.0)
-        h += 0.004 * uAmp * uTune.x * grain(world(pix), uSeedG)
-             * rough * grainAmp;
+    float h = reliefAt(pix, w, tone) + extra;
     h += boulderAt(pix);
     if (w > 0.0)
     {
@@ -405,6 +408,248 @@ float heightAt(vec2 pix, float tone, float hmean, float grainAmp)
         h += spotH;
     }
     return h;
+}
+// The shipped chain's height: grain and undulation anchored to the pixel.
+float heightAt(vec2 pix, float tone, float hmean, float grainAmp)
+{
+    float w = siteW(pix);
+    float rough = roughAt(toneAt(pix, w, tone));
+    float extra = 0.02 * uAmp * uTune.y
+                * (fbm(world(pix), 64.0 * uK, 0.5, 3, uSeedU) - 0.5) * rough;
+    if (grainAmp > 0.0)
+        extra += 0.004 * uAmp * uTune.x * grain(world(pix), uSeedG)
+               * rough * grainAmp;
+    return heightCommon(pix, tone, hmean, grainAmp, extra);
+}
+)GLSL";
+
+// ---------------------------------------------------------------------------
+// The world-anchored sub-floor, as a per-pixel GATHER.
+//
+// terrain_synthesis.cpp builds these layers by SCATTER: loop over the craters,
+// splat each into the pixels it covers. A fragment shader cannot scatter, so
+// every loop here is inverted -- for this pixel, which lattice cells could
+// reach it? A crater or clast reaches at most about three quarters of its own
+// cell, so the 3x3 neighbourhood is the whole search, and that inversion is
+// what makes the port possible at all.
+//
+// This is far too expensive to sit inside heightAt(), which the fused pass
+// calls up to 69 times per pixel (5 hillshade taps + 64 march steps). It runs
+// ONCE per pixel into a packed height target, and the fused pass reads that
+// texture instead. Same reason the bench's WebGL path is two-pass.
+const char* SUBFLOOR = R"GLSL(
+uniform float uSubOn;         // 0 = the shipped chain, nothing below runs
+uniform float uKmPerPxSub;
+uniform float uHeightScaleM;
+uniform vec4 uSub;            // subRough, subGrit, subCraters, popDensity
+uniform vec4 uPop;            // dMin, dMax, rim, rimWidth
+uniform vec4 uPop2;           // ejecta, floorFlat, cosineBowl, (unused)
+uniform vec4 uClast;          // clasts, clastDensity, clastPx, popPx
+
+const float FLOOR_KM = 1.3325;      // one WAC texel at the equator
+
+// detail_noise.h, in GLSL. The 32-bit integer chain needs `uint`, which
+// GLSL ES 1.00 does not have -- so the web path gets a float hash of the
+// same statistics instead, and its craters land in different places than
+// the CPU's. That is a real difference and terrain_probe measures it; it
+// is invisible to a player, who only ever sees one path.
+// GLSL ES 1.00 has no uint, and its highp int is only guaranteed to 2^16 --
+// far too small for these lattice indices, which run to millions at the sect
+// level. So the whole stack is compiled out there and the C++ side sends such
+// a device down the CPU path instead (see GetTerrainPath). A wrong-but-fast
+// second look is worse than one slow correct one.
+float dhash(int x, int y, uint salt)
+{
+    uint h = uint(x) * 0x8da6b343u ^ uint(y) * 0xd8163841u ^ salt * 0xcb1ab31fu;
+    h ^= h >> 13; h *= 0x9e3779b1u; h ^= h >> 16;
+    return float(h & 0xFFFFFFu) / 16777215.0;
+}
+// The salts, exactly as detail_noise.h's callers spell them. SubFloorNoise's
+// stride wraps a uint32 deliberately -- it is a hash seed, not a number -- so
+// it has to be computed in uint, not cast in from a float that cannot hold it.
+#define SALT_ROUGH(o)   (0x51u + uint(o) * 2654435761u)
+#define SALT_CLAST(b,i) uint(0x5EED17 + (b) * 26417 + (i))
+#define SALT_POP(b,i)   uint(0xC7A7E5 + (b) * 7919 + (i))
+#define SALT_GRIT       0x6A09E667u
+#define SALTT uint
+
+float dnoise(float u, float v, float waveKm, SALTT salt)
+{
+    float gu = u / waveKm, gv = v / waveKm;
+    float fx0 = floor(gu), fy0 = floor(gv);
+    int x0 = int(fx0), y0 = int(fy0);
+    float fx = gu - fx0, fy = gv - fy0;
+    fx = fx * fx * (3.0 - 2.0 * fx);
+    fy = fy * fy * (3.0 - 2.0 * fy);
+    float n00 = dhash(x0, y0, salt), n10 = dhash(x0 + 1, y0, salt);
+    float n01 = dhash(x0, y0 + 1, salt), n11 = dhash(x0 + 1, y0 + 1, salt);
+    float top = n00 + (n10 - n00) * fx, bot = n01 + (n11 - n01) * fx;
+    return (top + (bot - top) * fy) * 2.0 - 1.0;
+}
+
+float subfade(float lambdaKm)
+{
+    return clamp(log2(FLOOR_KM * 2.0 / lambdaKm) / 1.5, 0.0, 1.0);
+}
+
+float bowlProf(float r, float flatR, float cosine)
+{
+    if (r >= 1.0) return 0.0;
+    if (r <= flatR) return -1.0;
+    float u = (r - flatR) / max(1e-4, 1.0 - flatR);
+    return cosine > 0.5 ? -0.5 * (1.0 + cos(3.14159265358979 * u))
+                        : -(1.0 - u * u);
+}
+float rimRise(float t, float invW, float ejectaR)
+{
+    float g = exp(-t * t * invW);
+    if (t <= 0.0 || ejectaR <= 0.001) return g;
+    float x = min(1.0, t / ejectaR);
+    float sf = 1.0 - x * x * (3.0 - 2.0 * x);
+    return 0.55 * g + 0.45 * sf;
+}
+
+// The world position of a pixel in KILOMETRES -- world() divides by
+// kmPerPx, and every lattice here is in km.
+vec2 worldKm(vec2 pix)
+{
+    float lat = uFrame.x + (pix.y + 0.5) * uFrame.y;
+    float lon = uFrame.z + (pix.x + 0.5) * uFrame.w;
+    return vec2(lon * MOON_KM_DEG * cos(radians(lat)), lat * MOON_KM_DEG);
+}
+// Its inverse: the gather loops work from a lattice cell back to a pixel.
+vec2 pixOfWorldKm(vec2 w)
+{
+    float lat = w.y / MOON_KM_DEG;
+    float c = cos(radians(lat));
+    float lon = w.x / (MOON_KM_DEG * (abs(c) < 1e-6 ? 1e-6 : c));
+    return vec2((lon - uFrame.z) / uFrame.w - 0.5,
+                (lat - uFrame.x) / uFrame.y - 0.5);
+}
+
+// Everything the mosaic cannot carry, in METRES at this pixel.
+float subFloorM(vec2 p, float rough)
+{
+    vec2 w = worldKm(p);
+    float accM = 0.0;
+
+    // The fractal residual: relief at a wavelength is a fraction of that
+    // wavelength, which is what makes it scale-free.
+    if (uSub.x > 0.0)
+    {
+        float lambda = FLOOR_KM * 2.0;
+        for (int o = 0; o < 16; o++)
+        {
+            if (lambda < 3.0 * uKmPerPxSub) break;
+            float fw = subfade(lambda);
+            if (fw > 0.001)
+                accM += fw * uSub.x * lambda * 1000.0 * rough
+                      * dnoise(w.x, w.y, lambda, SALT_ROUGH(o));
+            lambda *= 0.5;
+        }
+    }
+
+    // Clasts: little domes on a world lattice, so zooming turns a speck
+    // into a rock and finds new specks under it.
+    if (uClast.x > 0.001)
+    {
+        float diamKm = 0.045;
+        for (int b = 0; b < 12; b++)
+        {
+            if (diamKm < uClast.z * uKmPerPxSub) break;
+            float cellKm = diamKm / 0.42;
+            float occ = min(0.9, uClast.y * (0.35 + 0.65 * float(b) / 4.0));
+            int ci0 = int(floor(w.x / cellKm)), cj0 = int(floor(w.y / cellKm));
+            for (int dj = -1; dj <= 1; dj++)
+            {
+                for (int di = -1; di <= 1; di++)
+                {
+                    int ci = ci0 + di, cj = cj0 + dj;
+                    if (dhash(ci, cj, SALT_CLAST(b, 0)) > occ) continue;
+                    float cu = (float(ci) + 0.15 + 0.70 * dhash(ci, cj, SALT_CLAST(b, 1))) * cellKm;
+                    float cv = (float(cj) + 0.15 + 0.70 * dhash(ci, cj, SALT_CLAST(b, 2))) * cellKm;
+                    float dKm = diamKm * (0.55 + 0.75 * dhash(ci, cj, SALT_CLAST(b, 3)));
+                    float R = (dKm * 0.5) / uKmPerPxSub;
+                    if (R < 0.7) continue;
+                    vec2 d = (p - pixOfWorldKm(vec2(cu, cv))) / R;
+                    float q = 1.0 - dot(d, d);
+                    if (q > 0.0)
+                        accM += uClast.x * dKm * 1000.0 * 0.33
+                              * (0.6 + 0.8 * dhash(ci, cj, SALT_CLAST(b, 4)))
+                              * sqrt(q);
+                }
+            }
+            diamKm *= 0.5;
+        }
+    }
+
+    // The impact population. Deepest bowl wins WITHIN a band, rims add
+    // across all of them -- without that rule a saturated field digs
+    // runaway pits.
+    if (uSub.z > 0.001)
+    {
+        float rOuter = 1.0 + max(3.0 * uPop.w, uPop2.x);
+        float invW = 1.0 / (2.0 * uPop.w * uPop.w);
+        float diamKm = FLOOR_KM * 1.4;
+        for (int b = 0; b < 16; b++)
+        {
+            if (diamKm < uClast.w * uKmPerPxSub) break;
+            float fw = subfade(diamKm);
+            if (fw > 0.001)
+            {
+                float cellKm = diamKm / 0.55;
+                int ci0 = int(floor(w.x / cellKm)), cj0 = int(floor(w.y / cellKm));
+                float bowl = 0.0;
+                for (int dj = -1; dj <= 1; dj++)
+                {
+                    for (int di = -1; di <= 1; di++)
+                    {
+                        int ci = ci0 + di, cj = cj0 + dj;
+                        // The clustering is the CRATER'S cell's, never the
+                        // pixel's. Hoisting it to the pixel was 17% faster
+                        // and drew straight lines across the ground: a
+                        // crater near the density threshold was kept in one
+                        // lattice cell and dropped in the next, so it got
+                        // cut off along an axis-aligned boundary.
+                        float cluster = 0.5 + 0.5 *
+                            dnoise((float(ci) + 0.5) * cellKm,
+                                   (float(cj) + 0.5) * cellKm,
+                                   cellKm * 11.0, SALT_POP(b, 900));
+                        if (dhash(ci, cj, SALT_POP(b, 0)) > uSub.w * cluster) continue;
+                        float cu = (float(ci) + 0.12 + 0.76 * dhash(ci, cj, SALT_POP(b, 1))) * cellKm;
+                        float cv = (float(cj) + 0.12 + 0.76 * dhash(ci, cj, SALT_POP(b, 2))) * cellKm;
+                        float dKm = cellKm * (0.30 + 0.70 * dhash(ci, cj, SALT_POP(b, 3)));
+                        float R = (dKm * 0.5) / uKmPerPxSub;
+                        if (R < 0.9) continue;
+                        float r = length(p - pixOfWorldKm(vec2(cu, cv))) / R;
+                        if (r >= rOuter) continue;
+                        float age = dhash(ci, cj, SALT_POP(b, 4));
+                        float fresh = age * age * age;
+                        float depthM = fw * uSub.z * dKm * 1000.0
+                                     * (uPop.x + (uPop.y - uPop.x) * fresh);
+                        float rimM = depthM * uPop.z * fresh;
+                        if (r < 1.0)
+                            bowl = min(bowl, bowlProf(r, uPop2.y, uPop2.z) * depthM);
+                        if (rimM > 0.001) accM += rimM * rimRise(r - 1.0, invW, uPop2.x);
+                    }
+                }
+                accM += bowl;
+            }
+            diamKm *= 0.5;
+        }
+    }
+
+    // The last octave is the pixel itself, and nothing world-anchored can
+    // live there: this is the grit the previous zoom could not show.
+    if (uSub.y > 0.0)
+    {
+        float cellKm = max(1e-12, uKmPerPxSub);
+        float g = dhash(int(floor(w.x / cellKm)), int(floor(w.y / cellKm)),
+                        SALT_GRIT) - 0.5;
+        accM += uSub.y * 1.4 * uKmPerPxSub * 1000.0 * g * rough;
+    }
+
+    return accM;
 }
 )GLSL";
 
@@ -456,10 +701,76 @@ void main()
 
 // The fused relight: TextureModulate's hillshade, cast shadows, speckle
 // and S-curve in one pass, on a height field that is never stored.
+// The full height field, once, into a packed 16-bit target.
+//
+// The fused pass below calls its height function up to 69 times per pixel
+// (5 hillshade taps + 64 march steps), which is affordable for a couple of
+// noise octaves and ruinous for the sub-floor's gather loops. So when the
+// world stack is on, the height is built here ONCE and the fused pass reads
+// it back. Same packing FS_FIELDS already uses: h + 0.5 across R and G.
+const char* FS_HEIGHTPACK = R"GLSL(
+uniform sampler2D uMeans;
+vec2 unpackMeansH()
+{
+    vec4 m = TEX(uMeans, vec2(0.5, 0.5));
+    float tone = (floor(m.r * 255.0 + 0.5) * 256.0 + floor(m.g * 255.0 + 0.5)) / 65535.0;
+    float hm = (floor(m.b * 255.0 + 0.5) * 256.0 + floor(m.a * 255.0 + 0.5)) / 65535.0;
+    return vec2(tone, hm * 2.0 - 1.0);
+}
+void main()
+{
+    vec2 pix = fragTexCoord * uRes;
+    vec2 mm = unpackMeansH();
+    float w = siteW(pix);
+    float m = toneAt(pix, w, mm.x);
+    // heightAt with grain and undulation left out -- the world stack
+    // replaces both -- and the stack handed in as `extra`, NOT added after.
+    // Order matters: the CPU adds the sub-floor to the height and then runs
+    // ApplySiteDisturbance over the result, so the settlement levels the
+    // invented ground along with the real. Added afterwards the stack
+    // escapes that levelling entirely, and the sect view came back at std
+    // 0.032 against the CPU's 0.012.
+    float h = heightCommon(pix, mm.x, mm.y, 1.0,
+                           subFloorM(pix, roughAt(m)) / uHeightScaleM);
+    float q = clamp(h + 0.5, 0.0, 1.0) * 65535.0;
+    float hi = floor(q / 256.0);
+    OUT = vec4(hi / 255.0, floor(q - hi * 256.0) / 255.0, 0.0, 1.0);
+}
+)GLSL";
+
 const char* FS_FUSED = R"GLSL(
 uniform sampler2D uMeans;
 uniform float uShadowSteps;
 uniform vec2 uSeedS;
+uniform sampler2D uHeightTex;
+// One height lookup, from wherever this run keeps it. With the world stack
+// on it is a texture read of the pass above; otherwise it is the shipped
+// chain's per-pixel evaluation, unchanged.
+float texH(vec2 pix)
+{
+    vec4 t = TEX(uHeightTex, rtuv(pix));
+    return (floor(t.r * 255.0 + 0.5) * 256.0
+          + floor(t.g * 255.0 + 0.5)) / 65535.0 - 0.5;
+}
+float H(vec2 pix, float tone, float hmean, float grainAmp)
+{
+    if (uSubOn > 0.5)
+    {
+        // The CPU blurs its height by 0.6 px before differencing it for the
+        // hillshade, and reads it raw for the march. The grainAmp weighting
+        // below was this shader's way of imitating that blur while the height
+        // was rebuilt per tap; with the height in a texture the blur can just
+        // be done, as a cross whose weights are a sigma-0.6 gaussian. Left
+        // out, the GPU shaded visibly harder than the CPU -- sect std 0.035
+        // against 0.012.
+        if (grainAmp > 0.0 && grainAmp < 1.0)
+            return 0.52 * texH(pix)
+                 + 0.12 * (texH(pix - vec2(1.0, 0.0)) + texH(pix + vec2(1.0, 0.0))
+                         + texH(pix - vec2(0.0, 1.0)) + texH(pix + vec2(0.0, 1.0)));
+        return texH(pix);
+    }
+    return heightAt(pix, tone, hmean, grainAmp);
+}
 vec2 unpackMeans()
 {
     vec4 m = TEX(uMeans, vec2(0.5, 0.5));
@@ -480,11 +791,11 @@ void main()
     // Lambertian hillshade from central differences, sun NW at 35 deg.
     const float z = 110.0;
     const float HS_GRAIN = 0.62;
-    float hHere = heightAt(pix, tone, hmean, 1.0);
-    float hL = heightAt(pix - vec2(1.0, 0.0), tone, hmean, HS_GRAIN);
-    float hR = heightAt(pix + vec2(1.0, 0.0), tone, hmean, HS_GRAIN);
-    float hU = heightAt(pix - vec2(0.0, 1.0), tone, hmean, HS_GRAIN);
-    float hD = heightAt(pix + vec2(0.0, 1.0), tone, hmean, HS_GRAIN);
+    float hHere = H(pix, tone, hmean, 1.0);
+    float hL = H(pix - vec2(1.0, 0.0), tone, hmean, HS_GRAIN);
+    float hR = H(pix + vec2(1.0, 0.0), tone, hmean, HS_GRAIN);
+    float hU = H(pix - vec2(0.0, 1.0), tone, hmean, HS_GRAIN);
+    float hD = H(pix + vec2(0.0, 1.0), tone, hmean, HS_GRAIN);
     float dy = (hD - hU) * z * 0.5;
     float dx = (hR - hL) * z * 0.5;
     float slope = atan(length(vec2(dx, dy)));
@@ -506,7 +817,7 @@ void main()
         if (float(s) > uShadowSteps) break;
         float dist = float(s) * 1.5;
         vec2 q = clamp(pix + sdir * dist, vec2(0.0), vec2(uRes - 1.0));
-        float hb = heightAt(q, tone, hmean, (s <= 3) ? 1.0 : 0.0) * z;
+        float hb = H(q, tone, hmean, (s <= 3) ? 1.0 : 0.0) * z;
         maxBlock = max(maxBlock, (hb - hz) / dist);
     }
     float light = 1.0 - clamp((maxBlock - tanAlt) / (tanAlt * 0.35), 0.0, 1.0);
@@ -551,7 +862,12 @@ void main()
     float m = toneAt(pix, w, tone);
     float rough = roughAt(m);
 
-    float h = heightAt(pix, tone, hmean, 1.0);
+    // One height call per pixel here -- no hillshade taps, no march -- so
+    // the world stack goes straight in rather than through a target.
+    float h = (uSubOn > 0.5)
+        ? heightCommon(pix, tone, hmean, 1.0,
+                       subFloorM(pix, rough) / uHeightScaleM)
+        : heightAt(pix, tone, hmean, 1.0);
     float speckle = fbm(world(pix), 4.0, 0.5, 2, uSeedS);
     float alb = clamp(m * (1.0 + 0.04 * min(uAmp, 1.6)
                                * (speckle - 0.5) * rough), 0.0, 1.0);
@@ -595,11 +911,12 @@ struct Gpu
     bool ok = false;
     Shader macroSh = {}, cropSh = {}, downSh = {}, blurSh = {};
     Shader sharpenSh = {}, meansSh = {}, fusedSh = {}, rampSh = {};
-    Shader fieldsSh = {};
+    Shader fieldsSh = {}, hpackSh = {};
     int res = 0;
     // Full-resolution scratch: macro, blur temp, sharpened macro, blur
     // destination, and the two luminance targets the levels ping-pong.
     RenderTexture2D A = {}, B = {}, C = {}, D = {}, L0 = {}, L1 = {};
+    RenderTexture2D H = {};       // the packed height, when the world stack is on
     SmallSet small[3];
     RenderTexture2D means = {};
     Texture2D cropTex = {};
@@ -717,23 +1034,25 @@ bool InitGpu()
     const char* down[] = {COMMON, FS_DOWN};
     const char* blur[] = {COMMON, FS_BLUR};
     const char* sharpen[] = {COMMON, FS_SHARPEN};
-    const char* means[] = {COMMON, NOISE, HEIGHT, FS_MEANS};
-    const char* fused[] = {COMMON, NOISE, HEIGHT, FS_FUSED};
-    const char* fields[] = {COMMON, NOISE, HEIGHT, FS_FIELDS};
+    const char* means[] = {COMMON, NOISE, HEIGHT, SUBFLOOR, FS_MEANS};
+    const char* fused[] = {COMMON, NOISE, HEIGHT, SUBFLOOR, FS_FUSED};
+    const char* fields[] = {COMMON, NOISE, HEIGHT, SUBFLOOR, FS_FIELDS};
+    const char* hpack[] = {COMMON, NOISE, HEIGHT, SUBFLOOR, FS_HEIGHTPACK};
     const char* ramp[] = {COMMON, FS_RAMP};
     G.macroSh = Build(macro, 2);
     G.cropSh = Build(crop, 2);
     G.downSh = Build(down, 2);
     G.blurSh = Build(blur, 2);
     G.sharpenSh = Build(sharpen, 2);
-    G.meansSh = Build(means, 4);
-    G.fusedSh = Build(fused, 4);
-    G.fieldsSh = Build(fields, 4);
+    G.meansSh = Build(means, 5);
+    G.fusedSh = Build(fused, 5);
+    G.fieldsSh = Build(fields, 5);
+    G.hpackSh = Build(hpack, 5);
     G.rampSh = Build(ramp, 2);
     G.ok = ShaderOk(G.macroSh) && ShaderOk(G.cropSh) && ShaderOk(G.downSh)
         && ShaderOk(G.blurSh) && ShaderOk(G.sharpenSh) && ShaderOk(G.meansSh)
         && ShaderOk(G.fusedSh) && ShaderOk(G.rampSh)
-        && ShaderOk(G.fieldsSh);
+        && ShaderOk(G.fieldsSh) && ShaderOk(G.hpackSh);
     if (!G.ok)
     {
         TraceLog(LOG_WARNING, "TERRAIN: GPU shaders failed to build, CPU path");
@@ -750,7 +1069,7 @@ bool EnsureScratch(int res)
 {
     if (G.res == res) return true;
     FreeTarget(G.A); FreeTarget(G.B); FreeTarget(G.C);
-    FreeTarget(G.D); FreeTarget(G.L0); FreeTarget(G.L1);
+    FreeTarget(G.D); FreeTarget(G.L0); FreeTarget(G.L1); FreeTarget(G.H);
     for (auto& s : G.small) { for (auto& r : s.rt) FreeTarget(r); s.size = 0; }
     G.A = MakeTarget(res, res, true);
     G.B = MakeTarget(res, res, true);
@@ -758,6 +1077,7 @@ bool EnsureScratch(int res)
     G.D = MakeTarget(res, res, true);
     G.L0 = MakeTarget(res, res, true);
     G.L1 = MakeTarget(res, res, true);
+    G.H = MakeTarget(res, res, true);
     G.res = res;
     return G.A.id != 0 && G.L1.id != 0;
 }
@@ -956,8 +1276,22 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
     SetF(sh, "uAmp", amp);
     SetF(sh, "uK", k);
     TerrainTuning tune;
+    // The GPU path takes no tuning of its own, so the global switch is how
+    // the world stack reaches it -- the same switch the CPU chain reads.
+    tune.subFloor = IsSubFloorEnabled() ? 1 : 0;
     float t[4] = {tune.grain, tune.undulation, tune.formRelief, 0.0f};
     SetV4(sh, "uTune", t);
+    SetF(sh, "uSubOn", tune.subFloor ? 1.0f : 0.0f);
+    SetF(sh, "uKmPerPxSub", kmPerPx);
+    SetF(sh, "uHeightScaleM", 110.0f * kmPerPx * 1000.0f);
+    float sub[4] = {tune.subRough, tune.subGrit, tune.subCraters, tune.popDensity};
+    SetV4(sh, "uSub", sub);
+    float pop[4] = {tune.dMin, tune.dMax, tune.rim, tune.rimWidth};
+    SetV4(sh, "uPop", pop);
+    float pop2[4] = {tune.ejecta, tune.floorFlat, (float)tune.cosineBowl, 0.0f};
+    SetV4(sh, "uPop2", pop2);
+    float cl[4] = {tune.clasts, tune.clastDensity, tune.clastPx, tune.popPx};
+    SetV4(sh, "uClast", cl);
     SetV4(sh, "uSite", su.site);
     SetV4(sh, "uSiteAmp", su.amp);
     SetV4Array(sh, "uSpots", su.spots, 9);
@@ -1017,6 +1351,18 @@ double ProbeMs()
 TerrainPath GetTerrainPath()
 {
     if (g_path >= 0) return (TerrainPath)g_path;
+
+    // The world-anchored sub-floor needs uint and 32-bit lattice indices,
+    // which GLSL ES 1.00 does not have -- its highp int is only guaranteed
+    // to 2^16 and these indices run to millions at the sect level. Rather
+    // than draw a different, wrong-but-fast ground there, such a device
+    // takes the CPU path and gets the same ground everyone else sees.
+    if (IsSubFloorEnabled() && UseEs100())
+    {
+        g_path = TERRAIN_PATH_CPU;
+        g_pathWhy = "sub-floor needs GLSL 330 / ES 3.0";
+        return (TerrainPath)g_path;
+    }
 
     const char* env = std::getenv("COLONY_TERRAIN");
     if (env && (std::strcmp(env, "cpu") == 0 || std::strcmp(env, "CPU") == 0))
@@ -1321,10 +1667,23 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
             break;
         }
 
+        // The height field, once, when the world stack is on. The fused
+        // pass reads it instead of rebuilding the height 69 times a pixel.
+        if (IsSubFloorEnabled())
+        {
+            Pass(G.hpackSh, G.H, [&]() {
+                BindHeight(G.hpackSh, G.C, relief, amp, k, su,
+                           boulderCell, boulderAmp, lvlSalt,
+                           frame, kmPerPx);
+                SetTex(G.hpackSh, "uMeans", G.means.texture);
+            });
+        }
+
         Pass(G.fusedSh, *lumCur, [&]() {
             BindHeight(G.fusedSh, G.C, relief, amp, k, su,
                        boulderCell, boulderAmp, lvlSalt,
                        frame, kmPerPx);
+            SetTex(G.fusedSh, "uHeightTex", G.H.texture);
             SetTex(G.fusedSh, "uMeans", G.means.texture);
             SetF(G.fusedSh, "uShadowSteps", (float)(int)(22.0f * k / 1.5f));
             float v[2];
@@ -1396,7 +1755,7 @@ void UnloadTerrainGpu()
         UnloadShader(G.macroSh); UnloadShader(G.cropSh); UnloadShader(G.downSh);
         UnloadShader(G.blurSh); UnloadShader(G.sharpenSh); UnloadShader(G.meansSh);
         UnloadShader(G.fusedSh); UnloadShader(G.rampSh);
-    UnloadShader(G.fieldsSh);
+    UnloadShader(G.fieldsSh); UnloadShader(G.hpackSh);
     }
     G.locs.clear();
     G.res = 0;

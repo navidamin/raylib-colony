@@ -116,7 +116,9 @@ int main(int argc, char** argv)
     // The tuning the chain will run with. -1 leaves a lever at its default,
     // so the probe measures the shipped look unless it is told otherwise.
     TerrainTuning tune;
-    if (subFloor >= 0) tune.subFloor = subFloor;
+    // The GPU path has no tuning parameter -- it reads the global switch --
+    // so --subfloor has to set both or the two paths are not comparable.
+    if (subFloor >= 0) { tune.subFloor = subFloor; SetSubFloorEnabled(subFloor != 0); }
     if (crisp >= 0) tune.crisp = crisp;
     std::printf("location %.3f, %.3f  res %d  site %s  subFloor %d  crisp %d  out %s/\n",
                 lat, lon, res, site ? "on" : "off", tune.subFloor, tune.crisp,

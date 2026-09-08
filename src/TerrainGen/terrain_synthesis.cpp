@@ -16,11 +16,12 @@ bool IsSiteDisturbanceEnabled() { return g_siteDisturbEnabled; }
 // same reason: the game's callers do not pass a tuning, so this is how an
 // instrument renders the whole game both ways without the default moving.
 //
-// OFF while only the CPU chain can draw it. Turning it on now would make
-// the ground depend on which path GetTerrainPath() picked -- the new look
-// on a software rasteriser, the old one on a real GPU -- and a look that
-// changes with the hardware is worse than a look that has not landed yet.
-static bool g_subFloorEnabled = false;
+// ON. Both chains draw it now and terrain_probe puts them at 3.4 / 7.8 /
+// 3.4 out of 255 across the three levels -- the same order of agreement
+// the base chain has always had (2.8 / 6.4 / 3.8). The one device that
+// cannot is GLSL ES 1.00, and GetTerrainPath sends that to the CPU rather
+// than let it draw a different ground.
+static bool g_subFloorEnabled = true;
 void SetSubFloorEnabled(bool e) { g_subFloorEnabled = e; }
 bool IsSubFloorEnabled() { return g_subFloorEnabled; }
 
