@@ -115,7 +115,12 @@ int main(int argc, char** argv)
     if (res <= 0) res = GetTerrainPathResolution();
     // The tuning the chain will run with. -1 leaves a lever at its default,
     // so the probe measures the shipped look unless it is told otherwise.
+    // Start from what the GAME would do, not from a default-constructed
+    // struct: TerrainTuning::subFloor is 0, the global switch is what says
+    // otherwise, and a probe that quietly measures the un-shipped look is
+    // worse than no probe.
     TerrainTuning tune;
+    tune.subFloor = IsSubFloorEnabled() ? 1 : 0;
     // The GPU path has no tuning parameter -- it reads the global switch --
     // so --subfloor has to set both or the two paths are not comparable.
     if (subFloor >= 0) { tune.subFloor = subFloor; SetSubFloorEnabled(subFloor != 0); }
