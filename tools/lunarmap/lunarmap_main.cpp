@@ -1127,7 +1127,14 @@ static std::vector<ChainCacheEntry> g_chainCache;
 // doing. The GPU makes fields now, so the measured answer is the right
 // one: a real GPU gets 1024 and its finer texture back, a software
 // rasteriser stays at 512, and COLONY_TERRAIN_RES still overrides.
-static int ChainLayerRes() { return GetTerrainPathResolution(); }
+// COLONY_CHAIN_RES overrides, for measuring what building the chain at the
+// window's own resolution costs instead of at 512 and stretching it up.
+static int ChainLayerRes()
+{
+    const char* env = std::getenv("COLONY_CHAIN_RES");
+    if (env) { int r = std::atoi(env); if (r >= 128 && r <= 4096) return r; }
+    return GetTerrainPathResolution();
+}
 
 static void ResampleField(const std::vector<float>& src, int sw,
                           std::vector<float>& dst, int dw)
