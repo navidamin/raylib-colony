@@ -455,9 +455,18 @@ const float FLOOR_KM = 1.3325;      // one WAC texel at the equator
 // is invisible to a player, who only ever sees one path.
 // GLSL ES 1.00 has no uint, and its highp int is only guaranteed to 2^16 --
 // far too small for these lattice indices, which run to millions at the sect
-// level. So the whole stack is compiled out there and the C++ side sends such
-// a device down the CPU path instead (see GetTerrainPath). A wrong-but-fast
-// second look is worse than one slow correct one.
+// level. So the whole stack compiles to a stub there and GetTerrainPath sends
+// such a device down the CPU path instead. A wrong-but-fast second look is
+// worse than one slow correct one.
+//
+// A stub rather than a compile error on purpose: the shaders have to BUILD so
+// that the startup probe can still run and decide the chain resolution and
+// whether the site layer is affordable. Letting them fail skipped all of that
+// and left the site layer on unmeasured, which on a slow phone is exactly the
+// case the probe exists to catch.
+#ifndef DHASH_UINT
+float subFloorM(vec2 p, float rough) { return 0.0; }
+#else
 float dhash(int x, int y, uint salt)
 {
     uint h = uint(x) * 0x8da6b343u ^ uint(y) * 0xd8163841u ^ salt * 0xcb1ab31fu;
@@ -651,6 +660,7 @@ float subFloorM(vec2 p, float rough)
 
     return accM;
 }
+#endif
 )GLSL";
 
 // The site's weighted means of tone and height over a 64x64 grid, into
@@ -1352,18 +1362,6 @@ TerrainPath GetTerrainPath()
 {
     if (g_path >= 0) return (TerrainPath)g_path;
 
-    // The world-anchored sub-floor needs uint and 32-bit lattice indices,
-    // which GLSL ES 1.00 does not have -- its highp int is only guaranteed
-    // to 2^16 and these indices run to millions at the sect level. Rather
-    // than draw a different, wrong-but-fast ground there, such a device
-    // takes the CPU path and gets the same ground everyone else sees.
-    if (IsSubFloorEnabled() && UseEs100())
-    {
-        g_path = TERRAIN_PATH_CPU;
-        g_pathWhy = "sub-floor needs GLSL 330 / ES 3.0";
-        return (TerrainPath)g_path;
-    }
-
     const char* env = std::getenv("COLONY_TERRAIN");
     if (env && (std::strcmp(env, "cpu") == 0 || std::strcmp(env, "CPU") == 0))
     {
@@ -1441,6 +1439,15 @@ TerrainPath GetTerrainPath()
     {
         g_layerOk = 1;
         g_layerWhy = "not probed (COLONY_TERRAIN override)";
+    }
+    // Last word: the world stack needs uint and 32-bit lattice indices, which
+    // GLSL ES 1.00 has not got. Such a device draws the ground on the CPU
+    // rather than a different ground quickly. After the probe, not before, so
+    // the resolution tier and the site-layer decision are still made.
+    if (IsSubFloorEnabled() && UseEs100() && g_path == TERRAIN_PATH_GPU)
+    {
+        g_path = TERRAIN_PATH_CPU;
+        g_pathWhy = "sub-floor needs GLSL 330 / ES 3.0; " + g_pathWhy;
     }
     TraceLog(LOG_INFO, "TERRAIN: %s path (%s), %d px; site layer %s (%s)",
              GetTerrainPathName(), g_pathWhy.c_str(),
