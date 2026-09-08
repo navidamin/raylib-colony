@@ -189,7 +189,18 @@ struct MapOptions
     // exaggerates exactly the low-frequency shapes, which reads as
     // "melted". Raise it deliberately for map-scale legibility.
     float exaggeration = 1.0f;     // vertical scale multiplier
-    float detail = 1.0f;           // sub-floor synthesis strength (0 = off)
+    // Parked. lola_dem's own sub-floor synthesis and the chain's were both
+    // running, each adding its full relief below the same data floor --
+    // measured, and independent: what --detail added on top of --chain was
+    // the same as what it added to raw ground. Two inventions of the same
+    // thing, summed.
+    //
+    // The chain's is the one kept: it carries the crater population with
+    // clustering and age, the clast bands and the grit, and it is shared
+    // with the game's imagery chain, so there is one synthesis to improve
+    // rather than two to keep in step. --detail 1 still turns the old one
+    // back on for comparison.
+    float detail = 0.0f;           // sub-floor synthesis strength (0 = off)
     std::string interp = "catrom"; // catrom | bspline | lanczos | fractal
     std::string texture = "noise"; // noise | craters
     bool despeckle = false;        // --despeckle to enable
