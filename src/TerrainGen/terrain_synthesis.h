@@ -267,6 +267,11 @@ struct TerrainTuning
     float subMottle = 0.20f;    // regolith albedo mottling (world-anchored)
     float clasts = 1.0f;        // scattered rocks, height multiplier
     float clastDensity = 0.30f; // scattered rocks, occupancy
+    // Where the data this sits under stops resolving, in km. Everything
+    // coarser is the data's own job; inventing there is inventing landforms
+    // it already measures. Default is one WAC texel, which is the game's
+    // imagery chain; lunar_map passes its LOLA window's native resolution.
+    float subFloorKm = 1.3325f;
     float popPx = 2.5f;         // smallest crater band, in pixels
     float clastPx = 2.2f;       // smallest clast band, in pixels
     // Crater shape, shared by the population and by anything that carves.
@@ -323,9 +328,15 @@ struct TerrainChainFields
 
 // spanKm is the window the fields cover; the chain walks 100 km down to
 // it exactly as GenerateTerrainChain does.
+// dataFloorKm: where the data this will be laid under stops resolving.
+// 0 keeps the chain's own floor (one WAC texel), which is right when the
+// chain IS the ground; a consumer amplifying something coarser passes that
+// thing's resolution, so the synthesis starts below it instead of arguing
+// with landforms it already has.
 bool GenerateTerrainFields(double latDeg, double lonDeg, int res,
                            double spanKm, TerrainChainFields* out,
-                           const TerrainSiteDisturbance* site = nullptr);
+                           const TerrainSiteDisturbance* site = nullptr,
+                           double dataFloorKm = 0.0);
 
 // Generate the SECT view ground for a location: a res x res RGB image
 // of the 5 km cell, amplified through the real-imagery chain

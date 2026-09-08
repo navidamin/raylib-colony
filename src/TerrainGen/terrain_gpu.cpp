@@ -446,7 +446,7 @@ uniform vec4 uPop;            // dMin, dMax, rim, rimWidth
 uniform vec4 uPop2;           // ejecta, floorFlat, cosineBowl, (unused)
 uniform vec4 uClast;          // clasts, clastDensity, clastPx, popPx
 
-const float FLOOR_KM = 1.3325;      // one WAC texel at the equator
+uniform float uSubFloorKm;   // where the data under this stops resolving
 
 // detail_noise.h, in GLSL. The 32-bit integer chain needs `uint`, which
 // GLSL ES 1.00 does not have -- so the web path gets a float hash of the
@@ -498,7 +498,7 @@ float dnoise(float u, float v, float waveKm, SALTT salt)
 
 float subfade(float lambdaKm)
 {
-    return clamp(log2(FLOOR_KM * 2.0 / lambdaKm) / 1.5, 0.0, 1.0);
+    return clamp(log2(uSubFloorKm * 2.0 / lambdaKm) / 1.5, 0.0, 1.0);
 }
 
 float bowlProf(float r, float flatR, float cosine)
@@ -546,7 +546,7 @@ float subFloorM(vec2 p, float rough)
     // wavelength, which is what makes it scale-free.
     if (uSub.x > 0.0)
     {
-        float lambda = FLOOR_KM * 2.0;
+        float lambda = uSubFloorKm * 2.0;
         for (int o = 0; o < 16; o++)
         {
             if (lambda < 3.0 * uKmPerPxSub) break;
@@ -599,7 +599,7 @@ float subFloorM(vec2 p, float rough)
     {
         float rOuter = 1.0 + max(3.0 * uPop.w, uPop2.x);
         float invW = 1.0 / (2.0 * uPop.w * uPop.w);
-        float diamKm = FLOOR_KM * 1.4;
+        float diamKm = uSubFloorKm * 1.4;
         for (int b = 0; b < 16; b++)
         {
             if (diamKm < uClast.w * uKmPerPxSub) break;
@@ -935,6 +935,11 @@ struct Gpu
 };
 
 Gpu G;
+
+// Set for the length of one fields run: the GPU path builds its tuning
+// locally in BindHeight, so this is how a caller's data floor reaches the
+// shader without threading a parameter through every pass.
+double g_dataFloorKm = 0.0;
 
 bool UseEs100()
 {
@@ -1289,9 +1294,11 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
     // The GPU path takes no tuning of its own, so the global switch is how
     // the world stack reaches it -- the same switch the CPU chain reads.
     tune.subFloor = IsSubFloorEnabled() ? 1 : 0;
+    if (g_dataFloorKm > 0.0) tune.subFloorKm = (float)g_dataFloorKm;
     float t[4] = {tune.grain, tune.undulation, tune.formRelief, 0.0f};
     SetV4(sh, "uTune", t);
     SetF(sh, "uSubOn", tune.subFloor ? 1.0f : 0.0f);
+    SetF(sh, "uSubFloorKm", tune.subFloorKm);
     SetF(sh, "uKmPerPxSub", kmPerPx);
     SetF(sh, "uHeightScaleM", 110.0f * kmPerPx * 1000.0f);
     float sub[4] = {tune.subRough, tune.subGrit, tune.subCraters, tune.popDensity};
@@ -1713,12 +1720,15 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
 
 bool GenerateTerrainFieldsGPU(double latDeg, double lonDeg, int res,
                               double spanKm, TerrainChainFields* out,
-                              const TerrainSiteDisturbance* site)
+                              const TerrainSiteDisturbance* site,
+                              double dataFloorKm)
 {
     if (!out || res < 8 || spanKm <= 0.0) return false;
     TerrainChainSpans ladder = TerrainChainSpansForWindow(spanKm);
     TerrainGpuChain chain = {};
+    g_dataFloorKm = dataFloorKm;
     bool ok = RunChainGPU(latDeg, lonDeg, res, &chain, site, &ladder, out);
+    g_dataFloorKm = 0.0;
     UnloadTerrainGpuChain(&chain);
     if (!ok || out->height.empty()) return false;
     out->res = res;

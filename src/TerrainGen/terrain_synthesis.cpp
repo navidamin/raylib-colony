@@ -789,15 +789,19 @@ static void SharpenAdaptive(Field& macro, int res)
 // zooming in and getting a different picture of the same size.
 // ---------------------------------------------------------------------------
 
-const double FLOOR_KM = 1.3325;      // one WAC texel at the equator
+// The default floor: one WAC texel at the equator, which is what the game's
+// imagery chain sits under. A consumer amplifying different data says so --
+// lunar_map hands in the LOLA window's own native resolution, because
+// inventing above ITS floor is inventing landforms the data already measures.
+const double FLOOR_KM = 1.3325;
 const int SUB_MAX_OCTAVES = 16;
 
 // 0 where the mosaic still resolves this wavelength, 1 well below it.
 // Crossing over rather than switching is what keeps the invented detail from
 // fighting the real landforms it sits under.
-static float SubFade(double lambdaKm)
+static float SubFade(double lambdaKm, double floorKm)
 {
-    return (float)std::clamp(std::log2(FLOOR_KM * 2.0 / lambdaKm) / 1.5, 0.0, 1.0);
+    return (float)std::clamp(std::log2(floorKm * 2.0 / lambdaKm) / 1.5, 0.0, 1.0);
 }
 
 // Every pixel's world position, once.
@@ -858,13 +862,13 @@ static float CraterProfile(float r, float flat, int cosine)
 // makes it scale-free -- the same rule at 1 km and at 3 m. Metres, added.
 static void SubFloorNoise(Field& outM, int res, const WorldGrid& W,
                           double kmPerPx, float roughFrac,
-                          const Field& roughMask)
+                          const Field& roughMask, double floorKm)
 {
-    double lambda = FLOOR_KM * 2.0;
+    double lambda = floorKm * 2.0;
     for (int o = 0; o < SUB_MAX_OCTAVES && lambda >= 3.0 * kmPerPx;
          o++, lambda *= 0.5)
     {
-        float w = SubFade(lambda);
+        float w = SubFade(lambda, floorKm);
         if (w <= 0.001f) continue;
         float ampM = (float)(w * roughFrac * lambda * 1000.0);
         uint32_t salt = (uint32_t)(0x51u + (uint32_t)o * 2654435761u);
@@ -915,12 +919,12 @@ static int CraterPopulation(Field& outM, int res, const NoiseFrame& frame,
     Field bowl((size_t)res * res);
     float rOuter = 1.0f + std::max(3.0f * P.rimWidth, P.ejecta);
     int placed = 0;
-    double diamKm = FLOOR_KM * 1.4;
+    double diamKm = P.subFloorKm * 1.4;
     double bandFloor = P.popPx > 0.0f ? P.popPx : 2.5;
     for (int b = 0; b < SUB_MAX_OCTAVES && diamKm >= bandFloor * kmPerPx;
          b++, diamKm *= 0.5)
     {
-        float w = SubFade(diamKm);
+        float w = SubFade(diamKm, P.subFloorKm);
         if (w <= 0.001f) continue;
         double cellKm = diamKm / 0.55;
         uint32_t salt = (uint32_t)(0xC7A7E5u + (uint32_t)b * 7919u);
@@ -1089,7 +1093,8 @@ static int SubFloorRelief(Field& height, int res, const NoiseFrame& frame,
         roughMask[i] = 0.45f + 0.55f * density[i];   // bright ground is rough ground
 
     if (tune.subRough > 0.0f)
-        SubFloorNoise(accM, res, W, kmPerPx, tune.subRough, roughMask);
+        SubFloorNoise(accM, res, W, kmPerPx, tune.subRough, roughMask,
+                      tune.subFloorKm);
     if (tune.clasts > 0.001f)
         ClastBands(accM, res, frame, spanKm, tune);
     int craters = 0;
@@ -1134,12 +1139,12 @@ static Field SubFloorMottle(int res, const NoiseFrame& frame, double spanKm,
     // tone, its fine end is invisible under the grit, and measured at res 640
     // the extra octaves cost more than the crater population does.
     const int MOTTLE_OCTAVES = 4;
-    double lambda = FLOOR_KM * 0.7;
+    double lambda = tune.subFloorKm * 0.7;
     float amp = 1.0f, norm = 0.0f;
     for (int o = 0; o < MOTTLE_OCTAVES && lambda >= 4.0 * kmPerPx;
          o++, lambda *= 0.5)
     {
-        float w = SubFade(lambda * 2.0) * amp;
+        float w = SubFade(lambda * 2.0, tune.subFloorKm) * amp;
         norm += amp;
         if (w > 0.001f)
         {
@@ -2012,11 +2017,13 @@ void GenerateTerrainChain(double latDeg, double lonDeg, int res,
 
 bool GenerateTerrainFields(double latDeg, double lonDeg, int res,
                            double spanKm, TerrainChainFields* out,
-                           const TerrainSiteDisturbance* site)
+                           const TerrainSiteDisturbance* site,
+                           double dataFloorKm)
 {
     if (!out || res < 8 || spanKm <= 0.0) return false;
     TerrainTuning defaults;
     defaults.subFloor = g_subFloorEnabled ? 1 : 0;
+    if (dataFloorKm > 0.0) defaults.subFloorKm = (float)dataFloorKm;
     TerrainChainSpans ladder = TerrainChainSpansForWindow(spanKm);
     Field height, albedo;
     GenerateChainInternal(latDeg, lonDeg, res, defaults, nullptr, 0, site,

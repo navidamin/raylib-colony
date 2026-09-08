@@ -1197,9 +1197,17 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
     // site level does, and until now a machine with a GPU still paid the
     // CPU for it.
     TerrainChainFields fields;
+    // nativeKm is where LOLA stops resolving in this window. Handing it in
+    // is what keeps the synthesis BELOW the data instead of arguing with it:
+    // without it the chain assumes a 1.3 km floor -- one WAC texel, right for
+    // the game's imagery but far finer than the elevation model -- and at the
+    // 200 km rung it invented half- to two-kilometre craters on top of ones
+    // LOLA already measures.
     bool onGpu = allowGpu && (GetTerrainPath() == TERRAIN_PATH_GPU)
-              && GenerateTerrainFieldsGPU(lat, lon, R, spanKm, &fields);
-    if (!onGpu && !GenerateTerrainFields(lat, lon, R, spanKm, &fields))
+              && GenerateTerrainFieldsGPU(lat, lon, R, spanKm, &fields,
+                                          nullptr, nativeKm);
+    if (!onGpu && !GenerateTerrainFields(lat, lon, R, spanKm, &fields,
+                                         nullptr, nativeKm))
         return false;
 
     // Band-limit to what the elevation data cannot resolve. The chain's
@@ -1484,12 +1492,17 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
                          TerrainLayerWhy());
         }
     }
-    // The site rung only. A window wider than the chain's own 100 km
-    // macro has nothing above it to crop from, so the layer stops being
-    // detail below the data floor and becomes a second opinion about
-    // landforms the DEM already resolves.
-    if (options.chain && !options.nearside && options.spanKm <= 100.0
-        && TerrainLayerAffordable())
+    // Every km window, not just the site rung. The old gate stopped at
+    // 100 km because a wider window has nothing above it to crop from --
+    // true, but not the real objection. The real one is that a window
+    // wider than the chain's own floor makes the synthesis a second
+    // opinion about landforms the DEM already resolves, and that is fixed
+    // by telling it where the data's floor actually is (see the tuning's
+    // subFloorKm), not by refusing to run.
+    //
+    // The near side is still excluded: it is the globe, drawn as a
+    // projection, and nothing below the data floor is visible there.
+    if (options.chain && !options.nearside && TerrainLayerAffordable())
     {
         scene.chainSpanKm = scene.worldWidthKm;
         bool built = false;

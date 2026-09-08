@@ -75,7 +75,8 @@ void UnloadTerrainGpuChain(TerrainGpuChain* chain);
 // way the CPU fills it.
 bool GenerateTerrainFieldsGPU(double latDeg, double lonDeg, int res,
                               double spanKm, TerrainChainFields* out,
-                              const TerrainSiteDisturbance* site = nullptr);
+                              const TerrainSiteDisturbance* site = nullptr,
+                              double dataFloorKm = 0.0);
 
 // Shaders and scratch targets. Call once at shutdown.
 void UnloadTerrainGpu();
