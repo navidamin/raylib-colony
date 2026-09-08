@@ -1463,6 +1463,51 @@ dock is the only control that does nothing until you know it is a tool you pick
 to aim past is a worse hint), and delete it for good the first time the tool is
 taken. A tutorial that stays is an admission that the design needed one.
 
+### 9.494 Giving the block a size
+
+A block diagram whose numbers are decorative is a picture; one anchored to real
+ground is an instrument, and the difference is a handful of constants. Anchor
+it and every lever, every depth read, every borehole acquires a size somebody
+could stand next to. Reference:
+`../prospecting/prototypes/layer-block.html` (6 km across, 2 km down, centred
+on a 1 km sect).
+
+**Put a known object in it, at its real size.** One structure at true diameter
+does what no label can: it makes the block's width self-evident and gives the
+eye a ruler it already trusts. Take the diameter from the code that owns it,
+and when the design and the code disagree, say so rather than silently picking
+one.
+
+**A circle on the ground is an ellipse at every yaw.** Rotation is a symmetry
+of a circle, so its projection has semi-axes `(R·√2·TX, R·√2·TY)` whatever the
+camera is doing — a footprint needs no per-frame fitting, and neither does the
+ring that marks it.
+
+**Exaggerate the vertical, compute the factor, print it.** 6 km against 2 km
+drawn true is a sheet of paper; every real block diagram stretches the depth
+and states the stretch. Derive the number from the geometry (`px per metre
+down ÷ px per metre across`) rather than choosing it, so it stays honest when
+the levers move — and put it in the readout. An unstated exaggeration is a lie
+about the ground.
+
+**Do not exaggerate the buildings.** The ground is stretched because it must be
+to be read; a structure is a thing you could walk up to, and stretching it to
+match makes the one object with a known real shape the wrong shape. Take its
+height from its own screen width instead.
+
+**Re-tune everything measured in metres, and check what stops making sense.**
+Scaling the numbers is the easy half. The hard half is that some things were
+sized to be *visible* at the old scale and become absurd at the new one: a
+borehole scour that had to read as a landform at 120 m becomes, at 6 km, a
+crater the size of the settlement, and the scale the known object just
+established is the first casualty. Tools and marks stay symbols at fixed pixel
+sizes — but a symbol that towers over the real object undoes the anchor, so
+size them against it.
+
+**Version the saved settings.** A lever set stored before the block had a size
+is measured in the wrong units throughout; loaded silently it looks like a
+corrupt panel, not an old one.
+
 ### 9.495 Turning the block
 
 An iso block that cannot be turned shows you two of its four walls for ever, and
