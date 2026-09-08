@@ -1440,24 +1440,6 @@ TerrainPath GetTerrainPath()
         g_layerOk = 1;
         g_layerWhy = "not probed (COLONY_TERRAIN override)";
     }
-    // Last word: the world stack needs uint and 32-bit lattice indices, which
-    // GLSL ES 1.00 has not got. Such a device draws the ground on the CPU
-    // rather than a different ground quickly. After the probe, not before, so
-    // the resolution tier is still measured.
-    //
-    // The site layer has to be reconsidered with it. It was decided a few
-    // lines up on the strength of a GPU path, and "GPU path" was the whole
-    // reason it could be afforded; a browser has no worker thread to hide a
-    // CPU chain on, so there the layer would block the page.
-    if (IsSubFloorEnabled() && UseEs100() && g_path == TERRAIN_PATH_GPU)
-    {
-        g_path = TERRAIN_PATH_CPU;
-        g_pathWhy = "sub-floor needs GLSL 330 / ES 3.0; " + g_pathWhy;
-#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
-        g_layerOk = 0;
-        g_layerWhy = "CPU chain on a browser with no worker thread";
-#endif
-    }
     TraceLog(LOG_INFO, "TERRAIN: %s path (%s), %d px; site layer %s (%s)",
              GetTerrainPathName(), g_pathWhy.c_str(),
              GetTerrainPathResolution(),

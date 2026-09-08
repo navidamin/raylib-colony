@@ -16,12 +16,26 @@ bool IsSiteDisturbanceEnabled() { return g_siteDisturbEnabled; }
 // same reason: the game's callers do not pass a tuning, so this is how an
 // instrument renders the whole game both ways without the default moving.
 //
-// ON. Both chains draw it now and terrain_probe puts them at 3.4 / 7.8 /
-// 3.4 out of 255 across the three levels -- the same order of agreement
-// the base chain has always had (2.8 / 6.4 / 3.8). The one device that
-// cannot is GLSL ES 1.00, and GetTerrainPath sends that to the CPU rather
-// than let it draw a different ground.
+// ON everywhere the shaders can draw it, which is everywhere but the web:
+// raylib's Emscripten build is WebGL1, and GLSL ES 1.00 has no uint and a
+// highp int guaranteed only to 2^16, where these lattice indices reach
+// millions at the sect level.
+//
+// Off for the WHOLE web build rather than per path. The first attempt
+// pushed such a device to the CPU instead, which cost lunar_map its chain
+// layer entirely -- TerrainLayerAffordable had granted it on the strength
+// of a GPU path, and flipping the path underneath revoked it. A browser
+// keeping the shipped chain is a much smaller loss than a browser with no
+// chain layer at all. Compile-time, so every web device agrees.
+//
+// On desktop, terrain_probe puts the two chains at 3.4 / 7.8 / 3.4 out of
+// 255 across the three levels -- the order the base chain has always had
+// (2.8 / 6.4 / 3.8). Making the web build WebGL2 would lift this.
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+static bool g_subFloorEnabled = false;
+#else
 static bool g_subFloorEnabled = true;
+#endif
 void SetSubFloorEnabled(bool e) { g_subFloorEnabled = e; }
 bool IsSubFloorEnabled() { return g_subFloorEnabled; }
 
