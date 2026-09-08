@@ -1127,13 +1127,35 @@ static std::vector<ChainCacheEntry> g_chainCache;
 // doing. The GPU makes fields now, so the measured answer is the right
 // one: a real GPU gets 1024 and its finer texture back, a software
 // rasteriser stays at 512, and COLONY_TERRAIN_RES still overrides.
-// COLONY_CHAIN_RES overrides, for measuring what building the chain at the
-// window's own resolution costs instead of at 512 and stretching it up.
+// The site rung's texture resolution: never more texels than the screen can
+// show, with 1.15 of headroom for the shader's normal differencing.
+static int SiteFullRes()
+{
+    return std::clamp(
+        (int)std::lround(1.15 * std::max(GetScreenWidth(), GetScreenHeight())),
+        512, 2048);
+}
+
+// The chain is built at a fraction of that and resampled onto it.
+//
+// It was a flat 512 -- barely a third of a 1380 px window -- so inside the
+// descent the synthesis was only ever seen soft, stretched 2.7x. Rendered at
+// 0.37 / 0.8 / 0.9 / 1.0 of the window and looked at side by side, the whole
+// visible gain is in the first step: 0.8 turns mush into ground, and 0.9 and
+// 1.0 add fine speckle that is hard to tell apart at any zoom the site rung
+// uses. The cost is not free -- 158 ms at 512, 1203 at 0.8, 1848 at 1.0 on a
+// CPU with no GPU behind it -- so 0.8 is where the picture stops improving
+// faster than the wait grows.
+static const double CHAIN_RES_RATIO = 0.8;
+
+// COLONY_CHAIN_RES overrides, for measuring the ratio again if the shape of
+// the synthesis changes.
 static int ChainLayerRes()
 {
     const char* env = std::getenv("COLONY_CHAIN_RES");
     if (env) { int r = std::atoi(env); if (r >= 128 && r <= 4096) return r; }
-    return GetTerrainPathResolution();
+    return std::clamp((int)std::lround(CHAIN_RES_RATIO * SiteFullRes()),
+                      256, 2048);
 }
 
 static void ResampleField(const std::vector<float>& src, int sw,
@@ -3629,9 +3651,7 @@ static void BuildSiteScene(AppState& app)
     // 1.15 being headroom for the shader's normal differencing. A fixed
     // 2048 was 1.46x oversampled on a 1400 px laptop and 2.4x on a
     // phone -- work spent on detail no display could resolve.
-    int fullRes = std::clamp(
-        (int)std::lround(1.15 * std::max(GetScreenWidth(),
-                                         GetScreenHeight())), 512, 2048);
+    int fullRes = SiteFullRes();
     const int SITE_RES_RUNGS = 3;
     const int SITE_RES_LADDER[] = { fullRes / 4, fullRes / 2, fullRes };
     int rung = std::clamp(app.sceneStage, 0, SITE_RES_RUNGS - 1);
