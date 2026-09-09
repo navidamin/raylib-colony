@@ -1645,6 +1645,45 @@ lamp. The double-square handles are the only lit thing on the machine, so they
 became the running indicator — better than the lamp was, because the state is
 now on the part the eye already goes to.
 
+### 9.49446 An icon rail whose frames open
+
+A vertical rack of tool buttons where hovering opens the frame sideways to
+show the name. Four things decide whether it reads as a mechanism or as a
+tooltip:
+
+**Pin the edge the icon is on.** The button never changes size; the frame's
+far edge travels and the near edge stays. The icon does not move, so there is
+nothing for the eye to track, and the row does not appear to jump when a
+neighbour opens.
+
+**Set the label against the icon and clip it to the frame.** Right-aligned at
+the icon's edge, clipped to the opening, the label is *uncovered* by the
+travelling edge. Left-align it and it slides in behind the edge instead — a
+label that slides is a label arriving; a label that is uncovered was always
+there. Only one of those is a drawer.
+
+**The hit target is the button, never the opened frame.** A frame that grows
+under the pointer and then stays open *because* it is under the pointer is a
+control you cannot leave without crossing it.
+
+**Ease the frame, round the edges.** A drawer is a mechanism, not a sprite, so
+it may ease (~55 ms to 1/e); but round the travelling edge to a whole pixel
+before drawing or the border breathes between one and two pixels wide.
+
+**Say the cost of the gutter out loud.** The frame opens into empty
+background, and that background has to be *reserved* — it cannot overlap
+anything, because the label appears exactly where the pointer is not looking.
+Here it was 88 px of a 760 px canvas: 80 came from slack at the opposite edge
+and the rest off the widest element. Write the trade into the constant's
+comment; the next person will otherwise reclaim the gutter and break the one
+thing the rail does.
+
+**Encode the type in the glyph, not only in the label.** These five tools are
+point tools and line tools; point tools stand in the dashed ring the cursor
+already has, line tools stand on a dashed traverse whose dashes travel. The
+subtitle then confirms what the icon already said, instead of being the only
+place it is said.
+
 ### 9.4945 Real ground, and where it runs out
 
 A block diagram can be built on measured ground rather than invented ground —

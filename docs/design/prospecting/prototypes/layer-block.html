@@ -635,7 +635,23 @@ let SURF = [], SPX = [], SPY = [];
 /* The rig block reads these names. */
 let LAYER_TOP_M = [0,12,34,68], LAYER_BOT_M = [12,34,68,120];
 let FULL_COLUMN_M = 120, PX_PER_M = 3.3, SURF_Y = 176, H = 880;
-const VW = 760, LBL_X = 6, GUT = 68;
+/* THE LEFT GUTTER, and what had to be paid for it.
+   Reading right to left: the block, the depth ruler and its leader dots, the
+   tool buttons, and then an empty strip the buttons' frames open into. That
+   last one is the whole cost of the rail: 80 px of background that is doing
+   nothing until something is hovered. 80 px was free at the right edge of the
+   760, and the remaining ~70 came off the block, which is the only element
+   here with any slack in it -- a 6 km square seen in iso does not need 484 px
+   to be read. Stated rather than tuned, so the next person can see the trade.
+
+   TOOL_BTN stays 64. It is what the cursor was sized against ("the same
+   object, a tenth larger"), and shrinking the button would quietly break
+   that. */
+const TOOL_BTN = 64;               // = GLY_W + 4, declared far below
+const TOOL_LABEL_W = 88;           // the most a frame ever opens
+const TOOL_X = 4 + TOOL_LABEL_W;   // the buttons' own left edge
+const TOOL_GAP = 8, TOOL_Y0 = 10;
+const VW = 760, LBL_X = TOOL_X + TOOL_BTN + 8, GUT = 68;
 /* =====================================================================
    THE SCALE -- what a block of this is, in metres
    ---------------------------------------------------------------------
@@ -977,7 +993,7 @@ function Layout(){
   N = Math.max(4, Math.round(P.lattice));
   STRIDE = N + 1;
   P.bar = P.bar ? 1 : 0;
-  BLK_X = 78; BLK_W = P.bar ? 484 : 600;
+  BLK_X = LBL_X + 68; BLK_W = P.bar ? 406 : 514;
   BLK_CX = BLK_X + BLK_W * 0.5;
   STRIP_X = BLK_X + BLK_W + 14; STRIP_CX = STRIP_X + STRIP_W * 0.5;
   TX = BLK_W * 0.5 / N;
@@ -2200,6 +2216,43 @@ const BIT_ROWS = [
   "mLLLLLmmm.."
 ];
 const BIT_AX = 4;                              // the axis column in that grid
+
+/* THE OTHER FOUR TOOLS, on the same grid, in the same two tones, read bottom
+   up: r0 is the row that touches the ground and the last row is the one the
+   marker box sits over. Each has to say what it DOES from its silhouette
+   alone at 22 px wide, so each keeps exactly one idea:
+
+     seismic       a mass over a plate -- a thing that hits the ground
+     rover         a body on wheels -- a thing that drives across it
+     penetrometer  a needle with a load collar -- a thing pushed into it
+     gpr           a sled with a radiating face -- a thing towed over it
+
+   All four end in the same three-cell stem so the lead line meets a shaft
+   rather than a corner, exactly as the drill does. */
+const SEIS_ROWS = [
+  "mmmmmmmmm..", "mLLLLLLLm..", "...mLm.....", "...mLm.....",
+  ".mmmmmmm...", "mLLLLLLLm..", "mLLLLLLLm..", "mLLLLLLLm..",
+  ".mmmmmmm...", "...mLm.....", "...mLm.....", "...mLm.....",
+  "...mLm....."
+];
+const ROVER_ROWS = [
+  "mm.mmm.mm..", "LL.LLL.LL..", "mmmmmmmmm..", "mLLLLLLLm..",
+  "mLLLLLLLm..", ".mmLLLmm...", "..mLLLm....", "..mLLLm....",
+  "...mLm.....", "...mLm.....", "...mLm.....", "...mLm.....",
+  "...mLm....."
+];
+const PEN_ROWS = [
+  "....L......", "...mLm.....", "...mLm.....", "..mLLm.....",
+  "..mLLm.....", "..mLLm.....", "..mLLm.....", ".mLLLm.....",
+  "mmLLLmm....", "mLLLLLmm...", "mmLLLmm....", "..mLLm.....",
+  "..mLLm....."
+];
+const GPR_ROWS = [
+  "L.L.L.L.L..", "mmmmmmmmm..", "mLLLLLLLm..", "mLLLLLLLm..",
+  ".mmmmmmm...", "...mLm.....", "...mLm.....", "..mLLLm....",
+  "..mLLLm....", "...mLm.....", "...mLm.....", "...mLm.....",
+  "...mLm....."
+];
 /* The sprite's own top row IS a cross-section of the string: mid, light, mid,
    three cells across. So the rig's shaft is not a second drawing of a rod --
    it is this row, continued upward for as far as there is string. */
@@ -2213,10 +2266,11 @@ const SHAFT_ROW = BIT_ROWS[0];
    time, leftwards. Shifting the sprite itself would slide the tool sideways;
    shifting the shading inside a fixed outline is a helix turning under a
    stationary flute, which is the thing being drawn. */
-function DrawBitSprite(X, Y, shift){
+function DrawBitSprite(X, Y, shift, rows){
   const h = GLY_H;
-  for (let r = 0; r < BIT_ROWS.length; r++){
-    const row = BIT_ROWS[r], y = Y - (r + 1) * h;
+  rows = rows || BIT_ROWS;
+  for (let r = 0; r < rows.length; r++){
+    const row = rows[r], y = Y - (r + 1) * h;
     const at = [];
     for (let c = 0; c < row.length; c++) if (row.charAt(c) !== ".") at.push(c);
     if (!at.length) continue;
@@ -2295,9 +2349,30 @@ function DrawGlyphRing(X, Y, spin, col, u){
                  Math.round(dw), Math.round(dh));
   }
 }
-function DrawDrillGlyph(cx, tipY, mode, t){
+/* THE TRAVERSE. What a LINE tool stands on, where a point tool stands in a
+   ring. Same dashes, same unit, same colour; a straight run instead of a
+   closed one, thinning toward both ends so it reads as going somewhere rather
+   than as a fence. The dashes travel along it, which is the whole difference
+   between a tool you put down and a tool you drag. */
+function DrawGlyphTrack(X, Y, phase, col, u){
+  const half = 7 * u, step = 2 * u;
+  const off = (((phase * step) % step) + step) % step;
+  CTX.fillStyle = col;
+  for (let px = X - half + off; px <= X + half; px += step){
+    const d = Math.abs(px - X);
+    if (d < u * 1.2) continue;                           // under the tool
+    const hgt = Math.max(2, Math.round(u * (0.4 + 0.6 * (1 - d / half))));
+    CTX.fillRect(Math.round(px - u * 0.5), Math.round(Y - hgt * 0.5), u, hgt);
+  }
+}
+/* One glyph for every tool. `spec` names the sprite and which ground mark it
+   stands on; leave it out and it is the drill, which is what every existing
+   call site means. */
+const GLYPH_DRILL = { rows: BIT_ROWS, mark: "ring" };
+function DrawDrillGlyph(cx, tipY, mode, t, spec){
   const u = GLY_U, h = GLY_H;
   const run = t >= 0;
+  spec = spec || GLYPH_DRILL;
   /* One three-beat cycle: upper dot, lower dot, box. Quantised to whole
      pixels -- the swell is 0 or 2 px, never 1.37. */
   const CYC = 0.85;
@@ -2315,12 +2390,14 @@ function DrawDrillGlyph(cx, tipY, mode, t){
   CTX.save();
   if (lit){ CTX.shadowColor = rgb(CY, 0.75); CTX.shadowBlur = 9; }
 
-  DrawGlyphRing(X, Y, run ? -t * 1.9 : 0, rgb(bad ? G_BADDIM : CY, 0.95), u);
+  const markCol = rgb(bad ? G_BADDIM : CY, 0.95);
+  if (spec.mark === "line") DrawGlyphTrack(X, Y, run ? t * 1.1 : 0, markCol, u);
+  else DrawGlyphRing(X, Y, run ? -t * 1.9 : 0, markCol, u);
 
-  // The bit. Absent when the spot is refused -- the reference shows no tool at
-  // all on an invalid position, which says "not here" far faster than a tool
-  // wearing a warning colour.
-  if (!bad) DrawBitSprite(X, Y, run ? Math.floor(t * 9) : 0);
+  // The business end. Absent when the spot is refused -- the reference shows
+  // no tool at all on an invalid position, which says "not here" far faster
+  // than a tool wearing a warning colour.
+  if (!bad) DrawBitSprite(X, Y, run ? Math.floor(t * 9) : 0, spec.rows);
 
   // The marker: a hollow box, or an X where the ground is refused.
   const boxS = grow(3 * u, 0.20, beat === GLY_DASHES);
@@ -2456,58 +2533,143 @@ function DrawDrill(cx, tipY, s, phase, lit, tail, feed, headBotY){
   CTX.restore();
 }
 
-/* The dock. Its icon is the glyph itself, still and unlit while the tool is
-   stowed and running the moment it is taken -- so the button does not merely
-   depict the drill, it IS the drill, standing in its rack. */
-let dockBox = null;
-function DrawDock(){
-  const w = GLY_W + 4, h = GLY_W + 4, x = BLK_X, yy = 10;   // 64 px
-  dockBox = { x, y: yy, w, h };
-  const on = drill.armed;
-  CTX.fillStyle = on ? "rgba(80,225,255,.10)" : "rgb(14,21,38)";
-  CTX.fillRect(x, yy, w, h);
-  CTX.strokeStyle = on ? rgb(CY, 0.95) : "rgb(51,102,119)";
-  CTX.lineWidth = 1.1; CTX.strokeRect(x + 0.5, yy + 0.5, w - 1, h - 1);
-  CTX.save();
-  CTX.beginPath(); CTX.rect(x + 1, yy + 1, w - 2, h - 2); CTX.clip();
-  // Centred on the glyph's visible extent -- box top to ring bottom -- not on
-  // the tip, or the icon sits low in its own button.
-  DrawDrillGlyph(x + w * 0.5, yy + h * 0.5 + 3.375 * GLY_U,
-                 on ? "hover" : "idle", on ? st.t : -1);
-  CTX.restore();
-  CTX.font = "700 7px 'JetBrains Mono',monospace";
-  CTX.fillStyle = on ? rgb(CY) : rgb(DIMT);
-  CTX.textAlign = "center"; CTX.fillText("DRILL", x + w * 0.5, yy + h + 10);
-  CTX.textAlign = "left";
+/* =====================================================================
+   THE TOOL RAIL
+   ---------------------------------------------------------------------
+   Five prospecting tools down the left edge, each one the glyph itself
+   standing in its own button -- so the rack does not depict the tools,
+   it holds them.
+
+   The button is 64 px and never changes size. What changes is the FRAME
+   around it: hovering opens it leftward into the empty gutter until it
+   has room for the tool's name. The right edge is pinned, so the icon
+   never moves and the eye has nothing to track; the label is set
+   right-aligned against the icon and clipped to the frame, so it is
+   WIPED in by the opening edge rather than sliding in behind it. A label
+   that slides is a label arriving; a label that is uncovered was always
+   there, which is what a drawer does.
+
+   The opening eases (a drawer is a mechanism, not a sprite) but every
+   edge is rounded to a whole pixel before it is drawn, so the border
+   stays one pixel wide the whole way.
+
+   Only the drill is built. The other four wear this panel's own
+   locked-not-gone dress -- present, plainly there, plainly unavailable,
+   dashed like the layer chips are before delineation -- because a rack
+   of five identical-looking tools where one works is a lie told by the
+   UI, and hiding the four teaches nothing about what prospecting is
+   going to be.
+   ===================================================================== */
+const TOOLS = [
+  { key: "drill", name: "DRILL",          kind: "POINT",
+    spec: { rows: BIT_ROWS,   mark: "ring" }, ready: 1, ease: 0 },
+  { key: "seis",  name: "ACTIVE SEISMIC", kind: "LINE",
+    spec: { rows: SEIS_ROWS,  mark: "line" }, ready: 0, ease: 0 },
+  { key: "rover", name: "ROVER TRAVERSE", kind: "LINE",
+    spec: { rows: ROVER_ROWS, mark: "line" }, ready: 0, ease: 0 },
+  { key: "pen",   name: "PENETROMETER",   kind: "POINT",
+    spec: { rows: PEN_ROWS,   mark: "ring" }, ready: 0, ease: 0 },
+  { key: "gpr",   name: "GPR LINE",       kind: "LINE",
+    spec: { rows: GPR_ROWS,   mark: "line" }, ready: 0, ease: 0 }
+];
+const TOOL_PITCH = TOOL_BTN + TOOL_GAP;
+const TOOL_EASE_TAU = 0.055;           // seconds to 1/e -- a drawer, not a slide
+let toolBoxes = [], dockBox = null, hoverTool = -1;
+
+const ToolY = i => TOOL_Y0 + i * TOOL_PITCH;
+/* How wide this tool's frame opens: its own name, never more than the gutter
+   the layout actually reserved. Measured, so a longer name cannot silently
+   run off the left edge of the canvas. */
+function ToolLabelW(T){
+  CTX.font = "700 8px 'JetBrains Mono',monospace";
+  return Math.min(TOOL_LABEL_W, Math.round(CTX.measureText(T.name).width) + 18);
+}
+function StepToolRail(dt){
+  const k = 1 - Math.exp(-dt / TOOL_EASE_TAU);
+  for (let i = 0; i < TOOLS.length; i++){
+    const want = (hoverTool === i) ? 1 : 0;
+    TOOLS[i].ease += (want - TOOLS[i].ease) * k;
+    if (Math.abs(TOOLS[i].ease - want) < 0.004) TOOLS[i].ease = want;
+  }
+}
+function DrawToolRail(){
+  toolBoxes = [];
+  for (let i = 0; i < TOOLS.length; i++){
+    const T = TOOLS[i], y = ToolY(i);
+    const on = T.ready && drill.armed;
+    const open = Math.round(T.ease * ToolLabelW(T));
+    const x = TOOL_X - open, w = TOOL_BTN + open;
+    // The hit target is the button alone. A frame that grows under the
+    // pointer and then keeps itself open by being under the pointer is a
+    // control that cannot be left.
+    toolBoxes.push({ x: TOOL_X, y, w: TOOL_BTN, h: TOOL_BTN, i });
+
+    CTX.fillStyle = on ? "rgba(80,225,255,.10)" : "rgb(14,21,38)";
+    CTX.fillRect(x, y, w, TOOL_BTN);
+    CTX.lineWidth = 1.1;
+    CTX.setLineDash(T.ready ? [] : [3, 3]);
+    CTX.strokeStyle = on ? rgb(CY, 0.95)
+                    : T.ready ? "rgb(51,102,119)" : "rgb(52,66,84)";
+    CTX.strokeRect(x + 0.5, y + 0.5, w - 1, TOOL_BTN - 1);
+    CTX.setLineDash([]);
+
+    if (open > 6){
+      CTX.save();
+      CTX.beginPath(); CTX.rect(x + 1, y + 1, open - 1, TOOL_BTN - 2); CTX.clip();
+      CTX.textAlign = "right";
+      CTX.font = "700 8px 'JetBrains Mono',monospace";
+      CTX.fillStyle = rgb(T.ready ? CY : DIMT, T.ready ? 0.95 : 0.75);
+      CTX.fillText(T.name, TOOL_X - 9, y + TOOL_BTN * 0.5 - 1);
+      CTX.font = "700 6.5px 'JetBrains Mono',monospace";
+      CTX.fillStyle = rgb(DIMT, 0.9);
+      CTX.fillText(T.ready ? T.kind : T.kind + " \u00b7 SOON",
+                   TOOL_X - 9, y + TOOL_BTN * 0.5 + 10);
+      CTX.textAlign = "left";
+      CTX.restore();
+    }
+
+    CTX.save();
+    CTX.beginPath(); CTX.rect(TOOL_X + 1, y + 1, TOOL_BTN - 2, TOOL_BTN - 2);
+    CTX.clip();
+    if (!T.ready) CTX.globalAlpha = 0.42;
+    // Centred on the glyph's visible extent -- box top to mark bottom -- not
+    // on the tip, or the icon sits low in its own button.
+    DrawDrillGlyph(TOOL_X + TOOL_BTN * 0.5, y + TOOL_BTN * 0.5 + 3.375 * GLY_U,
+                   on ? "hover" : "idle",
+                   (on || hoverTool === i) ? st.t : -1, T.spec);
+    CTX.restore();
+  }
+  // The drill's button is still the dock every other part of the panel asks
+  // about, so it keeps the name.
+  dockBox = { x: TOOL_X, y: ToolY(0), w: TOOL_BTN, h: TOOL_BTN };
 }
 
 /* The one thing a new player has to be told, told once. Every other control on
-   this panel is either labelled or discovered by dragging something; the dock
-   is the only one that does nothing until you know it is a tool you pick UP.
-   So it gets a tag, the tag is a hit target itself (a hint you have to aim
+   this panel is either labelled or discovered by dragging something; the rack
+   is the only one that does nothing until you know it holds a tool you pick
+   UP. So it gets a tag, the tag is a hit target itself (a hint you have to aim
    past is a worse hint), and the first time the drill is taken the tag is gone
    for good -- a permanent tutorial is an admission that the design needs one. */
 let tookDrill = 0, hintBox = null;
 function DrawDockHint(){
   hintBox = null;
   if (tookDrill || !dockBox) return;
-  const cx = dockBox.x + dockBox.w * 0.5;
   const txt = "CLICK TO TAKE";
   CTX.font = "700 8px 'JetBrains Mono',monospace";
   const w = CTX.measureText(txt).width + 16, h = 15;
-  const x = cx - w * 0.5, y = dockBox.y + dockBox.h + 16;
+  const x = dockBox.x + dockBox.w + 12, y = dockBox.y + dockBox.h * 0.5 - h * 0.5;
   hintBox = { x, y, w, h };
   const puls = 0.5 + 0.5 * Math.sin(st.t * 4.2);
   CTX.fillStyle = rgb(AMBER, 0.5 + 0.5 * puls);
-  CTX.beginPath();                                   // a caret up at the dock
-  CTX.moveTo(cx, y - 5.5); CTX.lineTo(cx - 4.5, y + 0.5); CTX.lineTo(cx + 4.5, y + 0.5);
-  CTX.closePath(); CTX.fill();
+  CTX.beginPath();                                   // a caret back at the rack
+  CTX.moveTo(x - 5.5, y + h * 0.5); CTX.lineTo(x + 0.5, y + h * 0.5 - 4.5);
+  CTX.lineTo(x + 0.5, y + h * 0.5 + 4.5); CTX.closePath(); CTX.fill();
   CTX.fillStyle = OUT; CTX.fillRect(x - 1.5, y - 1.5, w + 3, h + 3);
   CTX.fillStyle = "rgb(28,21,9)"; CTX.fillRect(x, y, w, h);
   CTX.strokeStyle = rgb(AMBER, 0.35 + 0.55 * puls); CTX.lineWidth = 1.1;
   CTX.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   CTX.fillStyle = rgb(AMBER, 0.72 + 0.28 * puls);
-  CTX.textAlign = "center"; CTX.fillText(txt, cx, y + 10.5);
+  CTX.textAlign = "center"; CTX.fillText(txt, x + w * 0.5, y + 10.5);
   CTX.textAlign = "left";
 }
 
@@ -3027,13 +3189,19 @@ function Frame(dt){
   ApplyFit(CTX);
   UpdatePick();                                  // pick, then draw
   drill.canPlace = drill.armed && drill.mode === "aim" && CanPlace();
+  // Which tool the pointer is over, from the button alone -- see DrawToolRail
+  // on why the opened frame is not part of its own hit target.
+  hoverTool = -1;
+  if (st.mx >= 0)
+    for (const b of toolBoxes)
+      if (st.vx >= b.x - 3 && st.vx <= b.x + b.w + 3
+       && st.vy >= b.y - 3 && st.vy <= b.y + b.h + 3){ hoverTool = b.i; break; }
+  StepToolRail(dt);
   // The glyph stands in for the pointer over the block, refused spots
   // included -- but never over the bar, which is a control you must be able
-  // to point at, nor over the dock you would put the tool back in.
+  // to point at, nor over the rack you would put the tool back in.
   drill.onCanvas = drill.armed && drill.mode === "aim" && st.mx >= 0
-    && !InStrip(st.vx, st.vy)
-    && !(dockBox && st.vx >= dockBox.x - 4 && st.vx <= dockBox.x + dockBox.w + 4
-                 && st.vy >= dockBox.y - 4 && st.vy <= dockBox.y + dockBox.h + 4);
+    && !InStrip(st.vx, st.vy) && hoverTool < 0;
   const want = drill.onCanvas ? "none" : "";
   if (CV.style.cursor !== want) CV.style.cursor = want;
   StepDrill(dt);
@@ -3058,7 +3226,7 @@ function Frame(dt){
   DrawSpatter();
   DrawDepthScale();
   DrawDepthPicker();
-  DrawDock();
+  DrawToolRail();
   DrawDockHint();
   CTX.save(); CTX.setTransform(2, 0, 0, 2, 0, 0); DrawDelineation(); CTX.restore();
   DrawReadout();
@@ -3528,6 +3696,10 @@ CV.addEventListener("pointerup", e => {
 });
 function ClickAt(vx, vy){
   const inBox = b => b && vx >= b.x && vx <= b.x + b.w && vy >= b.y && vy <= b.y + b.h;
+  // A tool that is not built yet refuses with the same flash every other gate
+  // in this panel uses, so the refusal points at its own reason.
+  for (const b of toolBoxes)
+    if (b.i > 0 && inBox(b)){ if (!TOOLS[b.i].ready) lockFlash = 1.0; return; }
   if (inBox(dockBox) || inBox(hintBox)){
     tookDrill = 1;
     if (drill.armed && drill.mode !== "aim"){ AbortDrill(); return; }
