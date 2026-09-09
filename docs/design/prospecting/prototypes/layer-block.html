@@ -2240,9 +2240,37 @@ const BIT_ROWS = [
 ];
 const BIT_AX = 4;                              // the axis column in that grid
 
-/* mode: "idle" | "hover" | "bad". Everything lands on whole pixels. */
-function DrawDrillGlyph(cx, tipY, mode){
+/* THE GLYPH RUNNING. Three motions, and all three are quantised to whole
+   pixels or whole cells -- a pixel sprite that eases through fractions is a
+   smooth sprite with a pixel texture, which is the failure this style cannot
+   survive. So the pulses step, the shading steps, and the ring steps.
+
+     lead        the dots swell in turn, top down, and the marker box last:
+                 energy running DOWN the line into the tool
+     shading     the bit's tones cycle left through the sprite while its
+                 silhouette stays put -- a helix turning, not a shape moving
+     ring        dashes travel round the full ellipse and vanish into the gap
+                 behind the bit, which is what sells it as a ring and not an arc
+
+   All three run anticlockwise, and they run whenever the tool is out.
+
+   `t` is the animation clock; pass a negative number for the still version.
+
+   mode: "idle" | "hover" | "bad". Everything lands on whole pixels. */
+const GLY_DASHES = 2;      // the live states in the reference show two, not the
+                           // five on the spec sheet -- and two is what keeps the
+                           // cursor within a tenth of the button it came out of
+function DrawDrillGlyph(cx, tipY, mode, t){
   const u = GLY_U, h = GLY_H;
+  const run = t >= 0;
+  /* One three-beat cycle: upper dot, lower dot, box. Quantised to whole
+     pixels -- the swell is 0 or 2 px, never 1.37. */
+  const CYC = 0.85;
+  const ph = run ? (t % CYC) / CYC : -1;
+  const beat = ph < 0 ? -1 : Math.floor(ph * (GLY_DASHES + 1));
+  const swell = ph < 0 ? 0 : Math.sin((ph * (GLY_DASHES + 1) - beat) * Math.PI);
+  const grow = (base, amt, on) =>
+    base + (on ? Math.round(swell * amt * base * 0.5) * 2 : 0);
   const bad = mode === "bad", lit = mode === "hover";
   const col = bad ? G_BAD : CY;
   const X = Math.round(cx), Y = Math.round(tipY);
@@ -2266,12 +2294,20 @@ function DrawDrillGlyph(cx, tipY, mode){
   // The gap is 70 degrees, not 120: measured off the artwork, whose topmost
   // ring dashes sit about 31 degrees either side of the top.
   const rx = 7 * u, ry = 3.2 * u;
-  const a0 = -55 * Math.PI / 180, a1 = 235 * Math.PI / 180;
+  const GAP = 35 * Math.PI / 180;              // half the opening, measured
   const ringCol = rgb(bad ? G_BADDIM : CY, 0.95);
-  for (let k = 0; k < 14; k++){
-    const t = a0 + (a1 - a0) * (k + 0.5) / 14;
-    const px = X + rx * Math.cos(t), py = Y + ry * Math.sin(t);
-    const tx = -rx * Math.sin(t), ty = ry * Math.cos(t);
+  /* Round the WHOLE ellipse, skipping whatever falls in the gap. Rotating an
+     arc would slide its two ends about; rotating a full ring and letting the
+     dashes disappear behind the bit is what a turning ring actually does.
+     Anticlockwise on screen is DECREASING canvas angle, y being down. */
+  const spin = run ? -t * 1.9 : 0;
+  const NR = 16;
+  for (let k = 0; k < NR; k++){
+    let a = (k / NR) * 6.2832 + spin;
+    a = ((a + Math.PI) % 6.2832 + 6.2832) % 6.2832 - Math.PI;   // to (-pi, pi]
+    if (Math.abs(a + Math.PI / 2) < GAP) continue;              // behind the bit
+    const px = X + rx * Math.cos(a), py = Y + ry * Math.sin(a);
+    const tx = -rx * Math.sin(a), ty = ry * Math.cos(a);
     const m = Math.max(Math.hypot(tx, ty), 1e-6), len = u * 1.5;
     const dw = Math.max(u, Math.abs(tx) / m * len);
     const dh = Math.max(u, Math.abs(ty) / m * len);
@@ -2281,18 +2317,27 @@ function DrawDrillGlyph(cx, tipY, mode){
   // The bit, cell by cell. Absent when the spot is refused -- the reference
   // shows no tool at all on an invalid position, which says "not here" far
   // faster than a tool wearing a warning colour.
-  if (!bad)
+  /* The bit. Its SILHOUETTE never moves; only the tones cycle through it,
+     one cell at a time, leftwards. Shifting the sprite itself would slide the
+     tool sideways; shifting the shading inside a fixed outline is a helix
+     turning under a stationary flute, which is the thing being drawn. */
+  if (!bad){
+    const shift = run ? Math.floor(t * 9) : 0;
     for (let r = 0; r < BIT_ROWS.length; r++){
       const row = BIT_ROWS[r], y = Y - (r + 1) * h;
-      for (let c = 0; c < row.length; c++){
-        const ch = row.charAt(c);
-        if (ch === ".") continue;
-        R(X + (c - BIT_AX) * h, y, h, h, ch === "L" ? G_LIGHT : G_MID);
+      const at = [];
+      for (let c = 0; c < row.length; c++) if (row.charAt(c) !== ".") at.push(c);
+      if (!at.length) continue;
+      for (let n = 0; n < at.length; n++){
+        const src = row.charAt(at[(n + shift % at.length + at.length) % at.length]);
+        R(X + (at[n] - BIT_AX) * h, y, h, h, src === "L" ? G_LIGHT : G_MID);
       }
     }
+  }
 
   // The marker: a hollow box, or an X where the ground is refused.
-  const bx = X - 1.5 * u, by = Y - 10.25 * u;
+  const boxS = grow(3 * u, 0.20, beat === GLY_DASHES);
+  const bx = X - boxS * 0.5, by = Y - 10.25 * u - (boxS - 3 * u) * 0.5;
   if (bad){
     CTX.strokeStyle = rgb(G_BAD, 1); CTX.lineWidth = u; CTX.lineCap = "butt";
     CTX.beginPath();
@@ -2300,16 +2345,19 @@ function DrawDrillGlyph(cx, tipY, mode){
     CTX.moveTo(bx + u * 2.5, by + u * 0.5); CTX.lineTo(bx + u * 0.5, by + u * 2.5);
     CTX.stroke();
   } else {
-    R(bx, by, 3 * u, u, rgb(col));
-    R(bx, by + 2 * u, 3 * u, u, rgb(col));
-    R(bx, by + u, u, u, rgb(col));
-    R(bx + 2 * u, by + u, u, u, rgb(col));
+    const st2 = Math.round(boxS / 3), hole = boxS - 2 * st2;
+    R(bx, by, boxS, st2, rgb(col));
+    R(bx, by + st2 + hole, boxS, st2, rgb(col));
+    R(bx, by + st2, st2, hole, rgb(col));
+    R(bx + st2 + hole, by + st2, st2, hole, rgb(col));
   }
 
-  // The lead line: five dashes on a 2u pitch. Refused, it runs the whole way
-  // down instead -- there is no bit for it to stop at.
-  for (let k = 0; k < 5; k++)
-    R(X - h, Y - (12 + 2 * k) * u, u, u, rgb(col));
+  /* The lead line. The swell runs top down and finishes on the box, so the
+     line reads as feeding the tool rather than as decoration. */
+  for (let k = 0; k < GLY_DASHES; k++){
+    const d = grow(u, 0.40, beat === GLY_DASHES - 1 - k);
+    R(X - d * 0.5, Y - (12 + 2 * k) * u - (d - u) * 0.5, d, d, rgb(col));
+  }
   if (bad)
     for (let k = 0; k < 3; k++)
       R(X - h, Y - (2.2 + 1.7 * k) * u, u, u, rgb(G_BAD, 0.9));
@@ -2331,7 +2379,8 @@ function DrawDock(){
   CTX.beginPath(); CTX.rect(x + 1, yy + 1, w - 2, h - 2); CTX.clip();
   // Centred on the glyph's visible extent -- box top to ring bottom -- not on
   // the tip, or the icon sits low in its own button.
-  DrawDrillGlyph(x + w * 0.5, yy + h * 0.5 + 3.375 * GLY_U, on ? "hover" : "idle");
+  DrawDrillGlyph(x + w * 0.5, yy + h * 0.5 + 3.375 * GLY_U,
+                 on ? "hover" : "idle", on ? st.t : -1);
   CTX.restore();
   CTX.font = "700 7px 'JetBrains Mono',monospace";
   CTX.fillStyle = on ? rgb(CY) : rgb(DIMT);
@@ -2798,7 +2847,7 @@ function DrawDrillLive(){
     // The cursor is the glyph, at the icon's own size, and a spot that will
     // be refused says so with the glyph rather than by vanishing.
     if (!drill.onCanvas) return;
-    DrawDrillGlyph(st.vx, st.vy, drill.canPlace ? "hover" : "bad");
+    DrawDrillGlyph(st.vx, st.vy, drill.canPlace ? "hover" : "bad", st.t);
     return;
   }
   const p = DrillPose();

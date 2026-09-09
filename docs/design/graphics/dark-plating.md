@@ -1555,6 +1555,34 @@ that looked right — the artwork's topmost dashes sit about 31° either side of
 the top. Openings, offsets and margins carry as much of a glyph's character as
 its marks.
 
+**Animating pixel art: step it, never ease it.** A sprite that eases through
+fractional sizes and sub-pixel offsets is a smooth sprite wearing a pixel
+texture — the one failure this style cannot survive. Quantise every motion:
+
+- **Pulses grow in whole pixels.** `base + round(swell·amount·base/2)·2` — the
+  mark is 4 px or 6 px, never 5.4, and the ×2 keeps it centred on its own axis.
+- **Shift the shading, not the shape.** To turn a helix inside a fixed flute,
+  cycle the *tones* through the sprite's filled cells while the silhouette
+  stays exactly where it is. Collect each row's occupied indices, rotate the
+  characters among them, redraw. Shifting the sprite itself just slides the
+  tool sideways.
+- **Rotate a whole ring, not an arc.** An arc with a gap in it rotates by
+  sliding both its ends around, which reads as stretching. Place the dashes
+  around the *full* ellipse and skip the ones that fall in the gap — they
+  travel round and vanish behind whatever the gap is for, which is what a
+  turning ring does. Even angular spacing bunches the dashes toward the left
+  and right extremes, and that is correct: it is what the projection of a
+  rotating circle does, and it sells the rotation.
+- **Give a multi-part pulse a direction.** Running the swell down the lead line
+  and finishing on the marker makes the line read as *feeding* the tool.
+  The same beats in a random order read as decoration.
+
+**A live cursor's size is set against the control it came out of.** Trim the
+part that costs the most and is worth the least — here the lead line, five
+dashes on the spec sheet but only two in the reference's own live states, which
+takes the cursor from 95 px to 71 px against a 64 px button: near enough the
+same object, without touching the unit that keeps it crisp.
+
 ### 9.4945 Real ground, and where it runs out
 
 A block diagram can be built on measured ground rather than invented ground —
