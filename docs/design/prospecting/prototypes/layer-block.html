@@ -2085,6 +2085,14 @@ function UpdatePick(){
 const GLY_U = 4, GLY_H = GLY_U * 0.5;
 const GLY_W = 15 * GLY_U;                      // the ring, and so the icon
 const G_LIGHT = "#fafafa", G_MID = "#8595ac", G_DARK = "#4a566b";
+/* The tool's standby colour: the cyan's own sibling, hue swung from 192 to
+   150 with the saturation and lightness held (100%, 66%), so a rig that is
+   standing and a rig that is cutting read as one machine in two states rather
+   than as two colours borrowed from elsewhere. Deliberately NOT the panel's
+   amber: amber here means "this control wants you", and it is the borehole
+   bar that wants you while the rig waits -- a rig wearing it too would be two
+   things asking at once. */
+const G_STANDBY = [82, 255, 168];
 const G_BAD = [226, 96, 78], G_BADDIM = [138, 78, 68];
 const BIT_ROWS = [
   "...mLm.....", "...mLm.....", "..mmLm.....", "..LLLmmm...",
@@ -2329,11 +2337,12 @@ function DrawDrill(cx, tipY, s, phase, lit, tail, feed, headBotY){
   }
 
   /* THE HANDLE IS THE MARKER BOX. Hollow, so the string is seen running
-     through it, which is the thing the rig actually does. Cyan while it cuts
-     and amber while it stands still -- the same amber the borehole bar's cadre
-     is flashing at you at that moment, because it is this that is waiting for
-     it. Amber is a signal in this panel, never a livery. */
-  const col = lit ? CY : AMBER;
+     through it, which is the thing the rig actually does. It carries the one
+     piece of state the tool has: green standing, cyan cutting -- two points on
+     the same neon, so it reads as one machine changing state. It leaves the
+     amber to the borehole bar, which is the thing actually asking for an
+     input while the rig stands there. */
+  const col = lit ? CY : G_STANDBY;
   const bx = mid - HEAD_PX * 0.5, by = boxTop;
   const th = Math.round(HEAD_PX / 3), hole = HEAD_PX - 2 * th;
   CTX.save();
