@@ -1606,6 +1606,45 @@ painted in the attention colour is saying "attend to me" even while it is
 busy, which spends the colour that the one control that really is waiting
 needs.
 
+### 9.49445 Converting a rendered machine to the neon language
+
+The borehole bar's rig was the honest article: a cut steel helicoid, four
+shaded faces per segment, a chrome chuck at the mouth, an amber powerhead —
+`ProsRig`'s grammar from §6, at full detail, as a reference specimen. Bringing
+it into the same language as the pixel drill was not a repaint. What the pass
+taught:
+
+**Keep the geometry, change the paint.** The helix still walks the same pitch
+at the same crest radius and still splits front from back, so it climbs at the
+true rate and turns on the same phase. Only the fill changed: four shaded
+polygons per segment became a stroked line. A flight is a pump — it is there
+to lift cuttings — and a band of light is not, so the *look* may change
+completely while the *motion* must not.
+
+**Build a glow out of the line, not out of a shadow.** Three round-capped
+passes, widest and faintest first, then a bright core, and a dark halo pass
+underneath so it reads against chrome as well as against rock. A `shadowBlur`
+on three hundred short segments costs the frame; four `stroke()` calls over one
+path do not. Measured: unchanged at 16.6 ms.
+
+**A coarser step is affordable once you stroke.** Shaded faces have to be
+small enough to hide their facets; a round-capped stroke joins itself. Twice
+the helix at three-quarters the segments.
+
+**Deleting a part exposes what it was hiding.** The chrome chuck went because
+the new head has a clamp and a bearing standing in the same place — two
+machines claiming one joint. Underneath it were a tool-joint collar and a
+step in the string that had never been seen, and both then read as debris
+poking out of the ground. Whenever a covering part is removed, render the
+frame where the thing it covered is at its most exposed — here, the bit still
+at the surface, where the spiral does not exist yet and the collar for it was
+being drawn anyway.
+
+**The lit part carries the state.** With the amber powerhead gone there was no
+lamp. The double-square handles are the only lit thing on the machine, so they
+became the running indicator — better than the lamp was, because the state is
+now on the part the eye already goes to.
+
 ### 9.4945 Real ground, and where it runs out
 
 A block diagram can be built on measured ground rather than invented ground —

@@ -1630,9 +1630,12 @@ function DrawRealBody(){
    at full strength: this strip stays the reference specimen.
    ===================================================================== */
 const OUTB = "#101820";
-const HAND = -1, R = 15.0, RS = 8.6, RS_BOT = 7.2, ROD_TOP = 11.5, PITCH = 19.0;
+const HAND = -1, R = 15.0, RS = 8.6, RS_BOT = 7.2, ROD_TOP = 13.0, PITCH = 19.0;
 const TILT = 1.7, TH_T = 5.0, TH_C = 1.9;
-const TAPER_PX = PITCH * 1.5, CONE_LEN = 18.0, THREAD_LEN = PITCH * 6.2;
+/* The spiral runs far further up the string than the cut flight did: a
+   flight is a pump and only needs to reach the cuttings, a band of light is
+   the string being driven and reads wrong stopping half way. */
+const TAPER_PX = PITCH * 1.5, CONE_LEN = 18.0, THREAD_LEN = PITCH * 11.0;
 
 function steel(sh, heat){
   const b = [lerp(96,238,sh), lerp(104,244,sh), lerp(118,252,sh)];
@@ -1663,12 +1666,20 @@ function steelBands(x0, x1, heat, tones, id){
 const bitY     = () => YOf(st.depth);
 const coneApex = () => bitY();
 const coneTop  = () => coneApex() - CONE_LEN;
-const threadTop= () => Math.max(Math.min(bitY() - THREAD_LEN, coneTop() - 3 * PITCH), SURF_Y + 10);
+const threadTop= () => Math.max(Math.min(bitY() - THREAD_LEN, coneTop() - 3 * PITCH), SURF_Y + 2);
+/* The string in segments. The chuck that used to sit at the mouth is gone:
+   the head's own clamp and bearing stand exactly there now, and a chrome
+   collar under a black clamp was two machines claiming the same joint. What
+   is left is the step from the jacket above to the drill string below, and
+   the head covers the step itself. */
 function shaftSegs(){
-  const tY = threadTop(), cT = SURF_Y - 14;
-  const cB = Math.min(SURF_Y + 24, Math.max(cT + 13, tY - 10));
-  const segs = [{y0:-60, y1:cT, r:ROD_TOP, kind:"rod"},
-                {y0:cT, y1:cB, r:ROD_TOP + 5.2, kind:"chuck"}];
+  const tY = threadTop();
+  const cB = Math.min(SURF_Y + 24, Math.max(SURF_Y + 2, tY - 10));
+  // The jacket above, the drill string below, and the step between them lands
+  // under the bearing, which is the piece that makes the joint.
+  const step = SURF_Y - 4;
+  const segs = [{y0:-60, y1:step, r:ROD_TOP, kind:"rod"},
+                {y0:step, y1:cB, r:RS + 1.2, kind:"rod"}];
   const run = Math.max(0, tY - cB), n = run > 190 ? 3 : (run > 60 ? 2 : (run > 8 ? 1 : 0));
   for (let i = 0; i < n; i++) segs.push({y0: cB + run * i / n, y1: cB + run * (i + 1) / n,
     r: lerp(ROD_TOP, RS + 0.5, Math.pow((i + 1) / n, 0.85)), kind:"rod"});
@@ -1690,7 +1701,10 @@ function crestAt(y){
 function threadSegs(front){
   const tY = threadTop(), cT = coneTop(), span = cT - tY;
   if (span <= 6) return [];
-  const out = [], step = 0.09, thMax = (span / PITCH) * 2 * Math.PI;
+  // A coarser step than the flight needed: that was four shaded faces a
+  // segment and had to be smooth; this is a round-capped stroke, which joins
+  // itself. Twice the helix at three-quarters the segments.
+  const out = [], step = 0.13, thMax = (span / PITCH) * 2 * Math.PI;
   for (let th = 0; th < thMax; th += step){
     const a0 = th + st.phase, a1 = th + step + st.phase;
     const c0 = Math.cos(a0), c1 = Math.cos(a1), cm = (c0 + c1) / 2;
@@ -1705,41 +1719,40 @@ function threadSegs(front){
   }
   out.sort((p, q) => p.c - q.c); return out;
 }
+/* THE SPIRAL. It was a cut steel flight -- a helicoid with four shaded faces
+   per segment, which is what an auger has. It is now a band of light running
+   down the string, because this rig does not lift cuttings on a screw: the
+   flight was the only part of the machine still explaining itself in 20th
+   century terms.
+
+   The helix geometry is unchanged -- `threadSegs` still walks the same pitch
+   at the same crest radius and still splits front from back -- so the spiral
+   climbs at the true rate and turns with `st.phase` exactly as the flight did.
+   Only the paint changed: three passes, widest and faintest first, so the
+   glow is built out of the line itself rather than dropped on top of it with
+   a shadow (a shadowBlur on 300 short segments is the one thing this panel
+   cannot afford at 60 Hz). The back half is a single dim pass, cool and
+   desaturated, and it is drawn before the shaft so the string occludes it. */
+const SPIRAL_DIM = [46, 120, 150];
 function drawThread(front){
   const segs = threadSegs(front); if (!segs.length) return;
-  const M = 1.5;
-  CTX.fillStyle = front ? OUT : OUTB;
-  for (const s of segs){ CTX.beginPath();
-    CTX.moveTo(s.xr0,s.yr0-M);CTX.lineTo(s.xe0,s.yc0-M);CTX.lineTo(s.xe1,s.yc1-M);CTX.lineTo(s.xr1,s.yr1-M);
-    CTX.lineTo(s.xr1,s.yr1+TH_T+M);CTX.lineTo(s.xe1,s.yc1+TH_C+M);CTX.lineTo(s.xe0,s.yc0+TH_C+M);CTX.lineTo(s.xr0,s.yr0+TH_T+M);
-    CTX.closePath();CTX.fill(); }
-  const band = v => Math.round(clamp(v,0,1)*7)/7, dim = v => front ? v : 0.15 + v*0.44;
-  for (const s of segs){
-    const c = Math.max(0, s.c), lt = (1 - s.s) * 0.5;
-    const shB=dim(band(0.40+0.30*c+0.18*lt)), shU=dim(band(0.10+0.16*c));
-    const shR=dim(band(0.38+0.34*c+0.22*lt)), shF=dim(band(0.33+0.46*c+0.14*lt));
-    CTX.beginPath();
-    CTX.moveTo(s.xr0,s.yr0);CTX.lineTo(s.xc0,s.yc0);CTX.lineTo(s.xc1,s.yc1);CTX.lineTo(s.xr1,s.yr1);
-    CTX.lineTo(s.xr1,s.yr1+TH_T);CTX.lineTo(s.xc1,s.yc1+TH_C);CTX.lineTo(s.xc0,s.yc0+TH_C);CTX.lineTo(s.xr0,s.yr0+TH_T);
-    CTX.closePath();CTX.fillStyle=steel(shB,0);CTX.fill();
-    const u = TH_T*0.55, uC = TH_C*0.55;
-    CTX.beginPath();
-    CTX.moveTo(s.xr0,s.yr0+u);CTX.lineTo(s.xc0,s.yc0+uC);CTX.lineTo(s.xc1,s.yc1+uC);CTX.lineTo(s.xr1,s.yr1+u);
-    CTX.lineTo(s.xr1,s.yr1+TH_T);CTX.lineTo(s.xc1,s.yc1+TH_C);CTX.lineTo(s.xc0,s.yc0+TH_C);CTX.lineTo(s.xr0,s.yr0+TH_T);
-    CTX.closePath();CTX.fillStyle=steel(shU,0);CTX.fill();
-    CTX.beginPath();
-    CTX.moveTo(s.xc0,s.yc0);CTX.lineTo(s.xc1,s.yc1);CTX.lineTo(s.xc1,s.yc1+TH_C);CTX.lineTo(s.xc0,s.yc0+TH_C);
-    CTX.closePath();CTX.fillStyle=steel(shR,0);CTX.fill();
-    CTX.beginPath();
-    CTX.moveTo(s.xr0,s.yr0);CTX.lineTo(s.xc0,s.yc0);CTX.lineTo(s.xc1,s.yc1);CTX.lineTo(s.xr1,s.yr1);
-    CTX.closePath();CTX.fillStyle=steel(shF,0);CTX.fill();
+  const lit = P.running ? 1 : 0.62;
+  CTX.save();
+  CTX.lineCap = "round"; CTX.lineJoin = "round";
+  const path = () => { CTX.beginPath();
+    for (const sg of segs){ CTX.moveTo(sg.xc0, sg.yc0); CTX.lineTo(sg.xc1, sg.yc1); }
+    CTX.stroke(); };
+  if (front){
+    // a dark halo first, so the line reads against a chrome shaft as well as
+    // against the rock
+    CTX.lineWidth = 8.4; CTX.strokeStyle = "rgba(4,10,16,.55)"; path();
+    for (const [w, a] of [[6.6, 0.14 * lit], [4.4, 0.30 * lit], [2.4, 0.95 * lit]]){
+      CTX.lineWidth = w; CTX.strokeStyle = rgb(CY, a); path();
+    }
+  } else {
+    CTX.lineWidth = 3.0; CTX.strokeStyle = rgb(SPIRAL_DIM, 0.55 * lit); path();
   }
-  if (front){ CTX.lineWidth = 1.2; CTX.lineCap = "round";
-    for (const s of segs){
-      const g = Math.round(clamp(0.54 + 0.30*Math.max(0,s.c) + 0.06,0,1)*3)/3;
-      CTX.strokeStyle = steel(g, 0);
-      CTX.beginPath();CTX.moveTo(s.xc0,s.yc0+0.8);CTX.lineTo(s.xc1,s.yc1+0.8);CTX.stroke(); }
-    CTX.lineCap = "butt"; }
+  CTX.restore();
 }
 function drawJoint(y, r, big){
   const hh = big ? 6 : 5, w = r + (big ? 4 : 3);
@@ -1750,51 +1763,137 @@ function drawJoint(y, r, big){
   CTX.fillStyle="rgba(255,255,255,.34)";CTX.fillRect(STRIP_CX-w,y-hh,w*2,1.6);
   CTX.fillStyle="rgba(0,0,0,.45)";CTX.fillRect(STRIP_CX-w,y+hh-2,w*2,2);
 }
-function drawChuck(y0, y1, r){
-  CTX.fillStyle=OUT;CTX.fillRect(STRIP_CX-r-2.5,y0-2.5,(r+2.5)*2,y1-y0+5);
-  CTX.fillStyle=steelBands(STRIP_CX-r,STRIP_CX+r,0,
-    [[0.17,0.06],[0.16,0.62],[0.22,0.34],[0.26,0.18],[0.19,0.04]], "chuck");
-  CTX.fillRect(STRIP_CX-r,y0,r*2,y1-y0);
-  CTX.fillStyle="rgba(255,255,255,.24)";CTX.fillRect(STRIP_CX-r,y0,r*2,2.4);
-  CTX.fillStyle="rgba(0,0,0,.40)";CTX.fillRect(STRIP_CX-r,y1-3,r*2,3);
-}
+/* Where the string is cut off at the top. It used to run off the frame, which
+   said "there is always more of it"; the rig now ends in a machined cap with
+   its schematic floating above, and a tool with a top reads as a tool rather
+   than as a section through one. */
+const RIG_TOP = () => SURF_Y - 118;
 function drawShaft(){
-  const cA = coneApex(), tY = threadTop(), top = -40;
+  const cA = coneApex(), tY = threadTop(), top = RIG_TOP();
   CTX.fillStyle = OUT;
   for (let y = top; y < cA; y += 1.4){ const w = rodHalfAt(y) + 2; CTX.fillRect(STRIP_CX-w,y,w*2,2.2); }
   for (let y = top; y < cA - 1; y += 1.4){ const w = rodHalfAt(y); if (w < 0.7) continue;
     CTX.fillStyle = steelBands(STRIP_CX-w, STRIP_CX+w, 0,
-      [[0.15,0.11],[0.17,0.98],[0.21,0.58],[0.27,0.30],[0.20,0.07]], "rod");
+      [[0.13,0.15],[0.15,1.00],[0.19,0.74],[0.29,0.42],[0.24,0.10]], "rod");
     CTX.fillRect(STRIP_CX-w, y, w*2, 1.9); }
   const segs = shaftSegs();
-  for (let i = 0; i < segs.length; i++){ const s = segs[i];
-    if (s.kind === "chuck"){ drawChuck(s.y0, s.y1, s.r); continue; }
-    if (i > 0 && segs[i-1].kind !== "chuck") drawJoint(s.y0, Math.max(segs[i-1].r, s.r)); }
-  drawJoint(tY, RS + 1, true);
+  // from 2: the first boundary is the jacket/string step, and the head's
+  // bearing is already standing on it
+  for (let i = 2; i < segs.length; i++)
+    drawJoint(segs[i].y0, Math.max(segs[i-1].r, segs[i].r));
+  // The collar at the top of the spiral belongs to the spiral. With the bit
+  // still at the surface there is no spiral, and the collar used to sit in
+  // the mouth of the hole on its own -- invisible while a chrome chuck stood
+  // over it, and a chrome brick poking out of the ground once that went.
+  if (coneTop() - tY > 6) drawJoint(tY, RS + 1, true);
   const sh = cA - CONE_LEN + 1.5, cw = RS_BOT * 0.9;
   for (const [a, b, t] of [[-1,-0.34,0.90],[-0.34,0.28,0.52],[0.28,1,0.22]]){
     CTX.beginPath();CTX.moveTo(STRIP_CX+cw*a,sh);CTX.lineTo(STRIP_CX+cw*b,sh);CTX.lineTo(STRIP_CX,cA-1.5);
     CTX.closePath();CTX.fillStyle=steel(t,0);CTX.fill(); }
   CTX.fillStyle="rgba(0,0,0,.45)";CTX.fillRect(STRIP_CX-cw-1,sh-1.4,(cw+1)*2,1.6);
+  // the cap: a bright lip and a hard shoulder, so the top reads as turned
+  CTX.fillStyle = OUT; CTX.fillRect(STRIP_CX-ROD_TOP-2, top-3, (ROD_TOP+2)*2, 3);
+  CTX.fillStyle = "rgba(255,255,255,.72)"; CTX.fillRect(STRIP_CX-ROD_TOP, top, ROD_TOP*2, 2.6);
+  CTX.fillStyle = "rgba(255,255,255,.22)"; CTX.fillRect(STRIP_CX-ROD_TOP, top+2.6, ROD_TOP*2, 1.4);
 }
+/* THE HEAD. The amber powerhead is gone; what stands on the hole now is the
+   machine the reference draws, part for part:
+
+     schematic   three dots over a hollow square, floating above the cap --
+                 the cursor glyph's own lead line and marker, so the rig in
+                 the strip and the tool in your hand carry the same mark
+     guides      two lit rails either side of the upper string
+     casing      dark steel, louvred, stepped light: top-left lit, bottom-
+                 right shadowed, which is the panel's key light
+     handles     an arm out to each side carrying a double square of light --
+                 the only lit part of the machine, so they are what tells you
+                 whether it is running
+     clamp       black composite, over the jacket
+     bearing     black, with its balls catching the light, joining the jacket
+                 to the drill string below it
+
+   Everything is drawn from `top`, which is the casing's own top edge, so the
+   stack can be re-proportioned by moving one number. */
 function drawHead(){
   const hx = STRIP_CX, top = SURF_Y - 56;
-  function box(x, y, w, h, fill, bev){
-    CTX.fillStyle=OUT;CTX.fillRect(x-2.5,y-2.5,w+5,h+5);
-    CTX.fillStyle=fill;CTX.fillRect(x,y,w,h);
-    if (bev){ CTX.fillStyle="rgba(255,255,255,.30)";CTX.fillRect(x,y,w,3);
-      CTX.fillStyle="rgba(255,255,255,.14)";CTX.fillRect(x,y,3,h);
-      CTX.fillStyle="rgba(0,0,0,.30)";CTX.fillRect(x,y+h-3,w,3);
-      CTX.fillStyle="rgba(0,0,0,.22)";CTX.fillRect(x+w-3,y,3,h); } }
-  box(hx-5, top-8, 10, 8, "#39424e", false);
-  box(hx-27, top, 54, 34, "#d9962f", true);
-  for (let i = 0; i < 3; i++){ CTX.fillStyle="#7a5115";CTX.fillRect(hx-16,top+8+i*8,32,4);
-    CTX.fillStyle="rgba(0,0,0,.5)";CTX.fillRect(hx-16,top+8+i*8+2.7,32,1.3); }
-  box(hx+27, top+7, 20, 17, "#39424e", true);
-  CTX.fillStyle = P.running ? "#ffc84d" : "#50e1ff";
-  CTX.fillRect(hx+32, top+12, 4, 4);
-  box(hx-12, top+34, 24, 10, "#4a545f", true);
-  box(hx-8, top+44, 16, 10, "#39424e", true);
+  const D_OUT = "#0b1017", D_BODY = "#3d4655", D_DARK = "#232b36", D_BLACK = "#12171e";
+  const F = (x, y, w, h, c) => { CTX.fillStyle = c; CTX.fillRect(x, y, w, h); };
+  /* A stepped bevel, never a gradient: two lit edges up-left, two shadowed
+     down-right. It is the same light the rock and the domes are lit by. */
+  const plate = (x, y, w, h, body, lip) => {
+    F(x - 2, y - 2, w + 4, h + 4, D_OUT);
+    F(x, y, w, h, body);
+    F(x, y, w, lip, "rgba(255,255,255,.26)");
+    F(x, y, lip, h, "rgba(255,255,255,.13)");
+    F(x, y + h - lip, w, lip, "rgba(0,0,0,.38)");
+    F(x + w - lip, y, lip, h, "rgba(0,0,0,.26)");
+  };
+
+  /* THE SCHEMATIC. Three dots and a hollow square, on the glyph's own unit
+     and in the glyph's own colour -- it is literally the cursor's lead line,
+     stood up above the rig. */
+  const u = GLY_U, sqTop = top - 76, dotX = hx - u * 0.5;
+  if (sqTop - 3 * 2 * u > CLIP_TOP + 4){
+    const th = u, hole = 3 * u - 2 * th;
+    F(hx - 1.5 * u, sqTop, 3 * u, th, rgb(CY));
+    F(hx - 1.5 * u, sqTop + th + hole, 3 * u, th, rgb(CY));
+    F(hx - 1.5 * u, sqTop + th, th, hole, rgb(CY));
+    F(hx + 1.5 * u - th, sqTop + th, th, hole, rgb(CY));
+    for (let k = 0; k < 3; k++) F(dotX, sqTop - (2 + k * 2) * u, u, u, rgb(CY));
+  }
+
+  /* THE GUIDES. Two lit rails against the upper string. They stop short of
+     the casing at both ends, because a line that touches what it flanks
+     reads as part of it. */
+  const gTop = RIG_TOP() + 26, gBot = top - 10;
+  if (gBot > gTop){
+    F(hx - 27, gTop, 2, gBot - gTop, rgb(CY, 0.9));
+    F(hx + 25, gTop, 2, gBot - gTop, rgb(CY, 0.9));
+  }
+
+  /* THE HANDLES. Arm out, then down, then the grip -- and the grip is the
+     only lit thing on the machine, so it is what carries the running state.
+     Mirrored, and every rectangle is placed off `side` so the two cannot
+     drift apart. */
+  const on = P.running;
+  for (const side of [-1, 1]){
+    const ax = hx + side * 27, bx = hx + side * 46;
+    F(Math.min(ax, bx), top + 4, Math.abs(bx - ax), 3, D_DARK);        // the arm out
+    F(bx - (side < 0 ? 0 : 3), top + 4, 3, 12, D_DARK);                // and down
+    const gx = hx + side * 48 - (side < 0 ? 0 : 17), gy = top + 13;
+    plate(gx, gy, 17, 23, D_DARK, 2);
+    // the double square: upper outboard, lower inboard, as the reference has
+    for (const [k, dx, dy] of [[0, side < 0 ? 2 : 8, 3], [1, side < 0 ? 8 : 2, 13]]){
+      const a = on ? 1 : 0.42;
+      F(gx + dx - 1, gy + dy - 1, 9, 9, D_OUT);
+      F(gx + dx, gy + dy, 7, 7, rgb(CY, a));
+      F(gx + dx, gy + dy, 7, 2, rgb([190, 245, 255], a));              // a lit face
+      if (on){ CTX.save(); CTX.shadowColor = rgb(CY, 0.85); CTX.shadowBlur = 8;
+               F(gx + dx, gy + dy, 7, 7, rgb(CY, 0.9)); CTX.restore(); }
+    }
+  }
+
+  // THE CASING, louvred. The slots are cut, so each gets a lit lower lip.
+  plate(hx - 27, top, 54, 34, D_BODY, 3);
+  for (let i = 0; i < 3; i++){
+    const sy = top + 8 + i * 8;
+    F(hx - 17, sy, 34, 4, D_BLACK);
+    F(hx - 17, sy + 4, 34, 1.2, "rgba(255,255,255,.20)");
+  }
+
+  // THE CLAMP -- black composite over the jacket, with steel ears.
+  plate(hx - 21, top + 34, 42, 12, D_BLACK, 2);
+  F(hx - 21, top + 37, 4, 6, D_BODY); F(hx + 17, top + 37, 4, 6, D_BODY);
+
+  /* THE BEARING. Black, and it is the balls that say what it is: a row of
+     small chrome faces down its middle, each with its own lit top. */
+  plate(hx - 14, top + 46, 28, 13, D_BLACK, 2);
+  for (let i = 0; i < 5; i++){
+    const bxx = hx - 11 + i * 4.6;
+    F(bxx, top + 50.5, 3.2, 3.6, "#7e8ea3");
+    F(bxx, top + 50.5, 3.2, 1.2, "#cfdae7");
+    F(bxx, top + 53.3, 3.2, 0.8, "rgba(0,0,0,.5)");
+  }
 }
 let grainSeed = 1;
 function rnd(){ grainSeed = (grainSeed * 16807) % 2147483647; return grainSeed / 2147483647; }
