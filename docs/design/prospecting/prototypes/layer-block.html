@@ -2251,29 +2251,37 @@ function DrawDrillGlyph(cx, tipY, mode, t){
    the world's vertical axis IS screen vertical, so a vertical drill is a
    vertical drawing.
 
-   It is drawn out of the CURSOR'S OWN PARTS. The bit is the same sprite,
-   on the same shading cycle; the string is the sprite's top row -- mid,
-   light, mid -- continued upward; the ground ring is the same ring,
-   turning the same way. Only the handle is new, and it is built from the
-   same two steels on the same half-unit grid. The machine you pick up
-   and the machine that goes in the ground have to be one machine: a rig
-   that changes into something else the moment it lands teaches the
-   player that the tool in their hand was only a picture.
+   IT IS THE CURSOR, PLANTED. Not a rig drawn in the cursor's spirit --
+   the same bit sprite on the same shading cycle, the same three-cell
+   string, the same marker box, the same turning ring, at the same size.
+   Nothing is redrawn, so nothing can drift.
+
+   That matters most where there is no pointer at all. On a touch screen
+   there is no hover: the aim cursor exists for the instant a finger is
+   down and is hidden under that finger, so the only drill a phone player
+   ever really sees is this one. A planted rig that is a different, bigger
+   machine does not read as "the tool went in" -- it reads as the thing in
+   your hand having been a picture of a tool.
+
+   The only part that changes size is the tail, because the tail is the
+   string still to go in, and watching it be used up is the point.
    ===================================================================== */
-/* The anatomy, all of it in the glyph's units so nothing can drift.
-   What stands out below the handle is ONE BITE of ground -- the sprite's
-   own height, no more. Everything deeper than that bite is bought with the
-   tail, the string above the handle, which is what the machine actually
-   feeds down and what the drill bar has always shown. */
-const BIT_PX  = BIT_ROWS.length * GLY_H;   // 26 -- handle bottom to the tip
-const HEAD_PX = 5 * GLY_U;                 // 20 -- the handle block itself
-const HEAD_HW = 3.5 * GLY_U;               // 14 -- and half its width
-const TAIL_PX = 92;            // string above the handle -- the depth budget
-const TAIL_STUB = 15;          // and what is still standing out at the bottom
-/* How far the BIT travels while the handle stands still. The handle is the
-   collar: a powerhead sits ON the ground and the string is fed THROUGH it, so
-   the depth is bought entirely out of the tail, and the tail is exactly as
-   long as the travel plus what is left standing at the end of it. */
+/* The anatomy, all of it in the glyph's units, because the planted rig IS the
+   glyph: the same bit, the same string, the same marker box, the same ring.
+   Nothing here is a second drawing of anything the cursor already has.
+
+   What stands out below the box is ONE BITE of ground -- the sprite's own
+   height and a little. Everything deeper is bought with the tail, the string
+   above the box, which is what the machine actually feeds down and what the
+   drill bar has always shown. */
+const BIT_PX  = 7.25 * GLY_U;   // 29 -- tip to the marker box's underside
+const HEAD_PX = 3 * GLY_U;      // 12 -- the marker box, which is the handle
+const TAIL_PX = 5 * 2 * GLY_U;  // 40 -- five dashes' worth of string to feed
+const TAIL_STUB = 2 * GLY_U;    // and one dash still standing at the bottom
+/* How far the BIT travels while the box stands still. The box is the collar:
+   it sits ON the ground and the string is fed THROUGH it, so the depth is
+   bought entirely out of the tail, and the tail is exactly as long as the
+   travel plus what is left standing at the end of it. */
 const SINK_MAX = TAIL_PX - TAIL_STUB;
 /* The depth one bite reaches. In metres, because the bar is ruled in metres
    and the two have to agree about where the bit is. */
@@ -2281,7 +2289,7 @@ const SpudM = () => BIT_PX / Math.max(PX_PER_M, 0.01);
 
 /* tipY is the point of the bit. Everything is measured up from it, so the tip
    can be put anywhere -- on the cursor, or sinking into the ground -- and
-   `tail` is how much string is standing above the handle.
+   `tail` is how much string is standing above the box.
 
    `s` and `phase` are carried for the call site's sake and no longer used:
    the sprite has one size, being pixel art, and it turns on the panel clock
@@ -2292,53 +2300,52 @@ function DrawDrill(cx, tipY, s, phase, lit, tail, feed, headBotY){
   const mid = X + h * 0.5;                    // the string's own centre line
   const R = (x, y, w, ht, f) => { CTX.fillStyle = f;
     CTX.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(ht)); };
-  // The handle is not carried by the bit. Once the rig is collared it stays
-  // on the ground while the string runs down through it, so its position is
-  // an argument, not something measured up from the tip.
-  const hb = Math.round(headBotY === undefined ? TIP - BIT_PX : headBotY);
-  const hy0 = hb - HEAD_PX;
+  // The box is not carried by the bit. Once the rig is collared it stays on
+  // the ground while the string runs down through it, so its position is an
+  // argument, not something measured up from the tip.
+  const boxBot = Math.round(headBotY === undefined ? TIP - BIT_PX : headBotY);
+  const boxTop = boxBot - HEAD_PX;
 
   // The bit, on the cursor's shading cycle -- stepped, and only while it cuts.
   DrawBitSprite(X, TIP, lit ? Math.floor(st.t * 9) : 0);
-  // The string that has gone down through the handle. Underground and clipped
+  // The string that has gone down through the box. Underground and clipped
   // away in practice, but the rig is not allowed to be drawn in pieces.
-  DrawShaft(X, hy0, TIP - BIT_PX);
+  DrawShaft(X, boxTop, TIP - BIT_ROWS.length * h);
 
-  /* THE TAIL. The same rod the borehole bar runs off the top of its strip,
-     drawn here as a finite length so it can be watched: it is the string
-     still to go in. Its collars march DOWN it while cutting, which is the
-     only way a rod of constant width can show that it is being fed. They land
-     on whole cells, like everything else here. Drawn before the head so the
-     head's outline caps it. */
+  /* THE TAIL. The string still to go in, and the one part of the tool that
+     changes size. Its collars are the glyph's own lead dashes, marching DOWN
+     it while cutting -- which is the only way a rod of constant width can show
+     that it is being fed, and it is the lead line of the icon doing it. */
   const tl = tail || 0;
   if (tl > 1){
-    const ty0 = Math.round(hy0 - tl), ty1 = hy0 + h;
-    DrawShaft(X, ty0, ty1);
-    R(X - h, ty0, h * 3, h, G_LIGHT);                  // a bright top to the string
-    const step = 6 * u, off = (((feed || 0) % step) + step) % step;
-    for (let yy = ty0 + off; yy < ty1 - 3 * h; yy += step){
-      const y = Math.round((yy - ty0) / h) * h + ty0;
-      R(X - 2 * h - 1, y - 1, 5 * h + 2, 2 * h + 2, OUT);
-      R(X - 2 * h, y,     5 * h, h, G_LIGHT);
-      R(X - 2 * h, y + h, 5 * h, h, G_DARK);
+    const ty0 = Math.round(boxTop - tl);
+    DrawShaft(X, ty0, boxTop);
+    const step = 2 * u, off = (((feed || 0) % step) + step) % step;
+    for (let yy = ty0 + off; yy < boxTop - u * 0.5; yy += step){
+      const y = Math.round(yy);
+      R(mid - u * 0.5 - 1, y - 1, u + 2, u + 2, OUT);
+      R(mid - u * 0.5, y, u, u, rgb(CY));
     }
   }
 
-  /* THE HANDLE. Steel, not the amber block it used to be: the amber is a
-     signal in this panel, not a livery, and a machine painted in the colour
-     that means "waiting for you" says it even while it is cutting. So the
-     body joins the rest of the tool and the signal moves to one lamp --
-     amber whenever the rig is standing still, which is exactly when the
-     borehole bar's cadre is flashing the same amber at you. */
-  R(mid - HEAD_HW - 2, hy0 - 2, HEAD_HW * 2 + 4, HEAD_PX + 4, OUT);
-  R(mid - HEAD_HW, hy0, HEAD_HW * 2, HEAD_PX, G_MID);
-  R(mid - HEAD_HW, hy0, HEAD_HW * 2, h, G_LIGHT);                  // lit top edge
-  R(mid - HEAD_HW, hy0 + HEAD_PX - h, HEAD_HW * 2, h, G_DARK);     // shadowed foot
-  for (let k = 0; k < 2; k++)                                      // banding
-    R(mid - HEAD_HW + h, hy0 + (2 + k * 3) * h, HEAD_HW * 2 - 2 * h, h, G_DARK);
-  const lx = mid + HEAD_HW - 3 * h, ly = hy0 + HEAD_PX - 3 * h;
-  R(lx - 1, ly - 1, 2 * h + 2, 2 * h + 2, OUT);
-  R(lx, ly, 2 * h, 2 * h, lit ? rgb(CY) : rgb(AMBER));
+  /* THE HANDLE IS THE MARKER BOX. Hollow, so the string is seen running
+     through it, which is the thing the rig actually does. Cyan while it cuts
+     and amber while it stands still -- the same amber the borehole bar's cadre
+     is flashing at you at that moment, because it is this that is waiting for
+     it. Amber is a signal in this panel, never a livery. */
+  const col = lit ? CY : AMBER;
+  const bx = mid - HEAD_PX * 0.5, by = boxTop;
+  const th = Math.round(HEAD_PX / 3), hole = HEAD_PX - 2 * th;
+  CTX.save();
+  // The glow is the box's alone. Bloomed over the whole rig it eats the
+  // sprite's cells, and a pixel tool with soft edges is not a pixel tool.
+  CTX.shadowColor = rgb(col, 0.7); CTX.shadowBlur = 7;
+  R(bx - 1, by - 1, HEAD_PX + 2, HEAD_PX + 2, OUT);
+  R(bx, by, HEAD_PX, th, rgb(col));
+  R(bx, by + th + hole, HEAD_PX, th, rgb(col));
+  R(bx, by + th, th, hole, rgb(col));
+  R(bx + th + hole, by + th, th, hole, rgb(col));
+  CTX.restore();
 }
 
 /* The dock. Its icon is the glyph itself, still and unlit while the tool is
