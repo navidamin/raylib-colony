@@ -1862,8 +1862,8 @@ function drawHead(){
     F(bx - (side < 0 ? 0 : 3), top + 4, 3, 12, D_DARK);                // and down
     const gx = hx + side * 48 - (side < 0 ? 0 : 17), gy = top + 13;
     plate(gx, gy, 17, 23, D_DARK, 2);
-    // the double square: upper outboard, lower inboard, as the reference has
-    for (const [k, dx, dy] of [[0, side < 0 ? 2 : 8, 3], [1, side < 0 ? 8 : 2, 13]]){
+    // the double square: one directly above the other, centred in the grip
+    for (const [k, dx, dy] of [[0, 5, 3], [1, 5, 13]]){
       const a = on ? 1 : 0.42;
       F(gx + dx - 1, gy + dy - 1, 9, 9, D_OUT);
       F(gx + dx, gy + dy, 7, 7, rgb(CY, a));
