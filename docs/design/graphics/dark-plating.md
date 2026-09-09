@@ -1508,6 +1508,67 @@ size them against it.
 is measured in the wrong units throughout; loaded silently it looks like a
 corrupt panel, not an old one.
 
+### 9.4945 Real ground, and where it runs out
+
+A block diagram can be built on measured ground rather than invented ground —
+but only down to the data's resolution, and the interesting design work is all
+at that boundary. Reference: `../prospecting/prototypes/layer-block.html`,
+built on the LOLA LDEM_16 the game already ships (16 px/°, **1,895 m/px**).
+
+**Measure the resolution against your window before designing anything.** At
+1.9 km/px a 5 km block is **2.6 pixels** across and a 10 km block is 5.3.
+There is no terrain in that to read, and no interpolation invents any. What
+there *is* — and what is worth having — is the real large-scale form: the
+site's true elevation, its true regional tilt, and the real curvature of the
+ground. On Tycho's ejecta blanket that tilt is 310 m across 6 km; on the
+highland plain south of it, 1,138 m; the panel had previously *assumed* 67 m.
+Being an order of magnitude wrong about the ground is worth more than any
+amount of invented texture.
+
+**Draw the split at the floor and say where it is.** Above the sampling
+interval the surface is measured; below it the surface is invented. Feed the
+real heights in as the *shared* term the generator already had — the one every
+bed follows in proportion to a conformity lever and forgets with depth — and
+every control that shaped the invented ground still shapes the real one, while
+the per-bed invented term keeps living below the floor where it belongs. Then
+put the floor in the readout. A panel that showed synthetic bumps and called
+them Tycho would be worse than one that showed no terrain at all.
+
+**Interpolate with a cubic, not bilinear.** Over three samples bilinear is
+three flat facets with creases between them, and the creases read as terrain
+that is not there. Catmull-Rom gives the smooth curvature a real surface has at
+this scale without pretending to detail.
+
+**Topography is a surface fact; the base is not a bed.** Let the beds inherit
+some of the terrain near the top and less with depth, and let the bottom
+inherit *none* — it is a cut at a chosen depth, and terrain warping it turns
+the block into a bent plate with no readable bottom. That is the difference
+between a block diagram and a drape.
+
+**Some real ground will not fit, so clamp it and report the clamp.** Tycho's
+central peak swings 1.5 km across 6 km against a 2 km column; at full strength
+the cap runs off the body. Cap the swing at a fraction of the column and print
+the factor. A picture quietly flattened is worse than one that says it had to
+flatten.
+
+**Show the footprint on the real map.** A panel that says "Tycho" without
+showing *where* on Tycho asks to be taken on trust. Hillshade the patch from
+the same numbers the block is built from, mark the block's window on it at true
+size, and the resolution problem becomes self-evident: the footprint is three
+pixels wide, and you can see that it is.
+
+Two traps, both paid for here:
+
+- **Know what your extractor already corrected.** A window cut *square in
+  kilometres* has had the cos(latitude) longitude widening applied for you;
+  applying it again downstream double-counts it.
+- **Rebuild before you re-sync.** Statistics computed during the geometry
+  rebuild are one interaction stale if the UI re-syncs first — which looks
+  exactly like a decoding bug, and costs an hour proving the decoder right.
+  Verify a port against the source implementation numerically: matching
+  Mare Serenitatis at −2,567 m and a 5 m tilt is the check that ends the
+  argument.
+
 ### 9.495 Turning the block
 
 An iso block that cannot be turned shows you two of its four walls for ever, and
