@@ -413,6 +413,12 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         else if (arg == "--webshader") { options.webShader = true; }
         else if (arg == "--nolabels") { options.noLabels = true; }
         else if (arg == "--chain") { options.chain = true; }
+        // The world-anchored regolith lives INSIDE the chain, in
+        // TextureModulate -- it is not a separate layer on top of it. This
+        // switches it off so the chain can be seen without it, which is the
+        // only way to show what the port actually contributed.
+        else if (arg == "--subfloor" && hasNext)
+        { SetSubFloorEnabled(std::atoi(argv[++i]) != 0); }
         else if (arg == "--chain-strength" && hasNext)
         { options.chain = true; options.chainStrength = (float)std::atof(argv[++i]); }
         else if (arg == "--globe" && hasNext)
