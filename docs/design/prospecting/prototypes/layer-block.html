@@ -561,10 +561,10 @@ for (let L = 0; L < 5; L++){          // 0-3 the strata, 4 the unknown ground
 const P = {
   relief: 93, feature: 3.4, detail: 3, conform: 0.72, damp: 0.55,
   dip: 67, dipAz: 205, dipSpread: 0.35, grain: 0.25,
-  crater: 1, craterDepth: 150, craterR: 0.24, craterRim: 0.35,
-  craterLayer: 1, craterInfill: 0.45, craterX: 0.38, craterY: 0.44,
+  crater: 1, craterDepth: 90, craterN: 3, craterSize: 1.0, craterRim: 0.35,
+  craterLayer: 0, craterInfill: 0.45,
   t0: 200, t1: 400, t2: 550, t3: 850,
-  real: 1, site: 0, siteX: 0.5, siteY: 0.78, demAmt: 1.0,
+  real: 0, site: 0, siteX: 0.5, siteY: 0.78, demAmt: 1.0,
   yaw: 0, tilt: 0.42, lattice: 28, depthScale: 0.20,
   shade: 1.0, lightAz: 29, faceL: 0.64, faceR: 0.84,
   texAmt: 1.0, texScale: 2.0, seam: 0.95, lip: 0.55,
@@ -657,7 +657,7 @@ const VW = 760, LBL_X = 6, GUT = 68;
 const BLOCK_M = 6000;          // the block's edge, in metres
 const DOME_M = 1000;           // the sect's central dome, across
 const NO_DRILL_M = DOME_M * 0.68;   // built ground: dome plus its apron
-const SCALE_VER = 2;           // saved lever sets from before this are void
+const SCALE_VER = 3;           // saved lever sets from before this are void
 const HUD_H = 40;        // a band at the TOP OF THE WINDOW, outside the fit
 const TOP_PAD = 26;      // and the block's own small margin under it
 const STRIP_W = 104;
@@ -744,15 +744,44 @@ const FaceK = (f, t) => { const c = FACES[f].at(t); return c[1] * STRIDE + c[0];
 const DepthAtY = y => clamp((y - SURF_Y) / PX_PER_M, 0, FULL_COLUMN_M);
 const layerOfM = m => { for (let L = 3; L >= 0; L--) if (m >= LAYER_TOP_M[L]) return L; return 0; };
 
-/* An impact bowl: parabolic floor inside the radius, a raised rim ring on
-   it. Returns 0 far away, -1 at the centre -- negative is down, so the
-   interface is excavated rather than lifted. */
+/* A FEW SMALL craters, scattered -- not one big one parked in the middle.
+   A single bowl centred on the block reads as a design decision rather than
+   as ground: it is always the same size, always in the same place, and it
+   lands exactly where the sect stands. Real ground of this size has several
+   small ones and no reason to centre any of them.
+
+   Deterministic from a fixed hash, so the block is pockmarked the same way
+   every time it loads, and each is nudged off the middle -- a crater under
+   the base is not a crater, it is a mistake. */
+const CRATER_SEED = 0x6d2b;
+const CRATERS = [];
+function BuildCraters(){
+  CRATERS.length = 0;
+  const n = Math.round(clamp(P.craterN, 0, 6));
+  for (let k = 0; k < n; k++){
+    const h = i => Hash2(k * 31 + i, 3, CRATER_SEED);
+    let x = 0, y = 0;
+    for (let t = 0; t < 14; t++){
+      x = 0.10 + h(1 + t * 5) * 0.80;
+      y = 0.10 + h(2 + t * 5) * 0.80;
+      if (Math.hypot(x - 0.5, y - 0.5) > 0.17) break;
+    }
+    CRATERS.push({ x, y,
+      r: (0.028 + h(3) * 0.042) * clamp(P.craterSize, 0.2, 3),
+      d: 0.55 + h(4) * 0.9 });
+  }
+}
+/* Summed, so two that overlap merge the way two that overlap would. */
 function Bowl(u, v){
-  const dx = u - P.craterX, dy = v - P.craterY;
-  const r = Math.hypot(dx, dy) / Math.max(P.craterR, 0.02);
-  const floor = r < 1 ? -(1 - r * r) : 0;
-  const rim = P.craterRim * Math.exp(-((r - 1) * (r - 1)) / (2 * 0.18 * 0.18));
-  return floor + rim;
+  let s = 0;
+  for (const c of CRATERS){
+    const r = Math.hypot(u - c.x, v - c.y) / Math.max(c.r, 0.006);
+    if (r > 2.0) continue;
+    const floor = r < 1 ? -(1 - r * r) : 0;
+    const rim = P.craterRim * Math.exp(-((r - 1) * (r - 1)) / (2 * 0.20 * 0.20));
+    s += (floor + rim) * c.d;
+  }
+  return s;
 }
 /* Which interfaces the crater reaches. It was cut into interface k, so
    everything below is undisturbed and everything above it is the same
@@ -784,6 +813,7 @@ function ErrParams(L, edge){
 }
 
 function BuildHeights(){
+  BuildCraters();
   TOPS = [0, P.t0, P.t0 + P.t1, P.t0 + P.t1 + P.t2];
   COLUMN_M = TOPS[3] + P.t3;
   LAYER_TOP_M = TOPS.slice();
@@ -2178,11 +2208,119 @@ function DrawDrill(cx, tipY, s, phase, lit, tail, feed, headBotY){
   CTX.fillRect(cx + hw + 4 * s, hy0 + 8.5 * s, 3 * s, 3 * s);
 }
 
+/* =====================================================================
+   THE DRILL GLYPH -- the dock icon and the cursor, one sprite
+   ---------------------------------------------------------------------
+   Transcribed from the reference rather than approximated. The bit was
+   sampled off the artwork at HALF-UNIT resolution and is stored as the
+   character grid below -- `L` light steel, `m` mid steel, `.` nothing --
+   so the shape is the artwork's shape and not my reading of it. The rest
+   of the glyph is measured off the same image in whole units:
+
+     tip           the anchor, and the centre of the ground ring
+     ring          15u x 7u ellipse, dashed, open across the top 120 deg
+     bit           6.5u tall, three tapering screw bands, from the grid
+     marker box    3u square, 1u stroke, bottom 7.25u above the tip
+     dashes        five, 1u, on a 2u pitch, from 11u to 20u
+
+   The unit must stay a whole number of pixels or the cells land on
+   fractions and the pixel art turns to mush, which is the one thing this
+   style cannot survive. u = 4 fixes the glyph at 60 px wide -- and that,
+   not a percentage, is what sets the dock size below.
+   ===================================================================== */
+const GLY_U = 4, GLY_H = GLY_U * 0.5;
+const GLY_W = 15 * GLY_U;                      // the ring, and so the icon
+const G_LIGHT = "#fafafa", G_MID = "#8595ac";
+const G_BAD = [226, 96, 78], G_BADDIM = [138, 78, 68];
+const BIT_ROWS = [
+  "...mLm.....", "...mLm.....", "..mmLm.....", "..LLLmmm...",
+  "..LLLLmm...", "...mm......", ".mmmLm.....", "mLLLLmmmm..",
+  ".LLLLLmm...", "..mmmm.....", ".mmmmmm....", "mLLLLLmmm..",
+  "mLLLLLmmm.."
+];
+const BIT_AX = 4;                              // the axis column in that grid
+
+/* mode: "idle" | "hover" | "bad". Everything lands on whole pixels. */
+function DrawDrillGlyph(cx, tipY, mode){
+  const u = GLY_U, h = GLY_H;
+  const bad = mode === "bad", lit = mode === "hover";
+  const col = bad ? G_BAD : CY;
+  const X = Math.round(cx), Y = Math.round(tipY);
+  const R = (x, y, w, ht, f) => { CTX.fillStyle = f;
+    CTX.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(ht)); };
+
+  CTX.save();
+  if (lit){ CTX.shadowColor = rgb(CY, 0.75); CTX.shadowBlur = 9; }
+
+  /* The ground ring. Open across the top, where the bit stands: the
+     reference leaves 120 degrees clear there, and that gap is what stops the
+     ring reading as a plate the bit is stuck through.
+
+     Drawn as separate AXIS-ALIGNED rectangles, not as a dashed stroke. A
+     dashed ellipse gives segments rotated to the tangent, and rotated
+     segments are the one thing pixel art never has -- they read as smooth
+     vector art wearing a pixel costume. Each dash instead takes its width
+     and height from the local tangent, so it comes out wide and flat where
+     the curve runs horizontal and tall where it runs vertical, exactly as
+     the artwork does it. */
+  // The gap is 70 degrees, not 120: measured off the artwork, whose topmost
+  // ring dashes sit about 31 degrees either side of the top.
+  const rx = 7 * u, ry = 3.2 * u;
+  const a0 = -55 * Math.PI / 180, a1 = 235 * Math.PI / 180;
+  const ringCol = rgb(bad ? G_BADDIM : CY, 0.95);
+  for (let k = 0; k < 14; k++){
+    const t = a0 + (a1 - a0) * (k + 0.5) / 14;
+    const px = X + rx * Math.cos(t), py = Y + ry * Math.sin(t);
+    const tx = -rx * Math.sin(t), ty = ry * Math.cos(t);
+    const m = Math.max(Math.hypot(tx, ty), 1e-6), len = u * 1.5;
+    const dw = Math.max(u, Math.abs(tx) / m * len);
+    const dh = Math.max(u, Math.abs(ty) / m * len);
+    R(px - dw * 0.5, py - dh * 0.5, dw, dh, ringCol);
+  }
+
+  // The bit, cell by cell. Absent when the spot is refused -- the reference
+  // shows no tool at all on an invalid position, which says "not here" far
+  // faster than a tool wearing a warning colour.
+  if (!bad)
+    for (let r = 0; r < BIT_ROWS.length; r++){
+      const row = BIT_ROWS[r], y = Y - (r + 1) * h;
+      for (let c = 0; c < row.length; c++){
+        const ch = row.charAt(c);
+        if (ch === ".") continue;
+        R(X + (c - BIT_AX) * h, y, h, h, ch === "L" ? G_LIGHT : G_MID);
+      }
+    }
+
+  // The marker: a hollow box, or an X where the ground is refused.
+  const bx = X - 1.5 * u, by = Y - 10.25 * u;
+  if (bad){
+    CTX.strokeStyle = rgb(G_BAD, 1); CTX.lineWidth = u; CTX.lineCap = "butt";
+    CTX.beginPath();
+    CTX.moveTo(bx + u * 0.5, by + u * 0.5); CTX.lineTo(bx + u * 2.5, by + u * 2.5);
+    CTX.moveTo(bx + u * 2.5, by + u * 0.5); CTX.lineTo(bx + u * 0.5, by + u * 2.5);
+    CTX.stroke();
+  } else {
+    R(bx, by, 3 * u, u, rgb(col));
+    R(bx, by + 2 * u, 3 * u, u, rgb(col));
+    R(bx, by + u, u, u, rgb(col));
+    R(bx + 2 * u, by + u, u, u, rgb(col));
+  }
+
+  // The lead line: five dashes on a 2u pitch. Refused, it runs the whole way
+  // down instead -- there is no bit for it to stop at.
+  for (let k = 0; k < 5; k++)
+    R(X - h, Y - (12 + 2 * k) * u, u, u, rgb(col));
+  if (bad)
+    for (let k = 0; k < 3; k++)
+      R(X - h, Y - (2.2 + 1.7 * k) * u, u, u, rgb(G_BAD, 0.9));
+  CTX.restore();
+}
+
 /* The dock. Its icon is the rig at rest -- a short tail drawn up into the
    head, so the idle state reads as "stowed" rather than as a small drill. */
 let dockBox = null;
 function DrawDock(){
-  const w = 46, h = 46, x = BLK_X, yy = 10;
+  const w = GLY_W + 4, h = GLY_W + 4, x = BLK_X, yy = 10;   // 64 px
   dockBox = { x, y: yy, w, h };
   const on = drill.armed;
   CTX.fillStyle = on ? "rgba(80,225,255,.10)" : "rgb(14,21,38)";
@@ -2191,7 +2329,9 @@ function DrawDock(){
   CTX.lineWidth = 1.1; CTX.strokeRect(x + 0.5, yy + 0.5, w - 1, h - 1);
   CTX.save();
   CTX.beginPath(); CTX.rect(x + 1, yy + 1, w - 2, h - 2); CTX.clip();
-  DrawDrill(x + w * 0.5, yy + h - 9, 0.52, drill.armed ? drill.phase : 0.7, on, 13, 0);
+  // Centred on the glyph's visible extent -- box top to ring bottom -- not on
+  // the tip, or the icon sits low in its own button.
+  DrawDrillGlyph(x + w * 0.5, yy + h * 0.5 + 3.375 * GLY_U, on ? "hover" : "idle");
   CTX.restore();
   CTX.font = "700 7px 'JetBrains Mono',monospace";
   CTX.fillStyle = on ? rgb(CY) : rgb(DIMT);
@@ -2654,7 +2794,13 @@ function CanPlace(){
 }
 function DrawDrillLive(){
   if (!drill.armed) return;
-  if (drill.mode === "aim" && !drill.canPlace) return;
+  if (drill.mode === "aim"){
+    // The cursor is the glyph, at the icon's own size, and a spot that will
+    // be refused says so with the glyph rather than by vanishing.
+    if (!drill.onCanvas) return;
+    DrawDrillGlyph(st.vx, st.vy, drill.canPlace ? "hover" : "bad");
+    return;
+  }
   const p = DrillPose();
   const paint = () => {
     if (p.live) DrawCollar(p.cx, p.collarY, 1);
@@ -2732,9 +2878,14 @@ function Frame(dt){
   ApplyFit(CTX);
   UpdatePick();                                  // pick, then draw
   drill.canPlace = drill.armed && drill.mode === "aim" && CanPlace();
-  // The pointer is hidden only while it IS the tool. Planted, the panel needs
-  // it back: the depth is set by pointing at the bar.
-  const want = drill.canPlace ? "none" : "";
+  // The glyph stands in for the pointer over the block, refused spots
+  // included -- but never over the bar, which is a control you must be able
+  // to point at, nor over the dock you would put the tool back in.
+  drill.onCanvas = drill.armed && drill.mode === "aim" && st.mx >= 0
+    && !InStrip(st.vx, st.vy)
+    && !(dockBox && st.vx >= dockBox.x - 4 && st.vx <= dockBox.x + dockBox.w + 4
+                 && st.vy >= dockBox.y - 4 && st.vy <= dockBox.y + dockBox.h + 4);
+  const want = drill.onCanvas ? "none" : "";
   if (CV.style.cursor !== want) CV.style.cursor = want;
   StepDrill(dt);
   // The scour deforms the height field and a new hole re-fits the whole model,
@@ -2797,18 +2948,18 @@ const SCHEMA = [
       { k:"dipSpread", lab:"Dip fan",       min:0,   max:1.2, step:0.01, fmt:pc },
       { k:"grain",     lab:"Grain",         min:0,   max:1,   step:0.01, fmt:pc }
     ] },
-  { title: "Impact bowl", note: "A crater cut into one interface, then buried.",
+  { title: "Impact craters", note: "A few small ones, scattered and never on the sect, cut into one interface and then buried.",
     items: [
       { k:"crater",      type:"toggle", lab:"Crater" },
       { k:"craterLayer", type:"seg", lab:"Cut into",
         opts:[[0,"L0"],[1,"L1"],[2,"L2"],[3,"L3"]] },
-      { k:"craterDepth", lab:"Depth",  min:0,    max:900, step:5,   fmt:mk },
-      { k:"craterR",     lab:"Radius", min:0.04, max:0.6, step:0.005,
-        fmt:v => Math.round(v * 200) + "% of block" },
+      { k:"craterN",     lab:"How many", min:0, max:6, step:1,
+        fmt:v => Math.round(v) === 1 ? "1 crater" : Math.round(v) + " craters" },
+      { k:"craterSize",  lab:"Size",   min:0.2,  max:3,   step:0.02,
+        fmt:v => Math.round(v * (0.028 + 0.021) * 2 * BLOCK_M) + " m across" },
+      { k:"craterDepth", lab:"Depth",  min:0,    max:300, step:2,   fmt:mk },
       { k:"craterRim",   lab:"Rim",    min:0,    max:1.2, step:0.01, fmt:pc },
-      { k:"craterInfill",lab:"Reaches up", min:0, max:1,  step:0.01, fmt:pc },
-      { k:"craterX",     lab:"Position X", min:0, max:1,  step:0.01, fmt:pc },
-      { k:"craterY",     lab:"Position Y", min:0, max:1,  step:0.01, fmt:pc }
+      { k:"craterInfill",lab:"Reaches up", min:0, max:1,  step:0.01, fmt:pc }
     ] },
   { title: "Fog — what is not known",
     note: "Fog is confidence. Every hole thins it everywhere — most where it stands, least far off, never nothing — and the interfaces re-fit as it thins. At 5% fog the model is settled. Granularity is the dust in it, roughness the clumping. These shape how the fog looks, not how much of it there is.",

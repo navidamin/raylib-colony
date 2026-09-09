@@ -1508,6 +1508,53 @@ size them against it.
 is measured in the wrong units throughout; loaded silently it looks like a
 corrupt panel, not an old one.
 
+### 9.4944 Reproducing a pixel-art reference exactly
+
+When someone hands you a reference and says *this one, precisely*, eyeballing
+it is the wrong tool. Pixel art in particular fails in a specific way: get the
+unit or the alignment slightly wrong and it stops being pixel art and becomes
+vector art wearing a pixel costume, which is worse than an honest redraw.
+
+**Find the unit before you draw anything.** Scan a run of the artwork — a
+dashed line is ideal — and read the run lengths. Five dashes measuring
+9,8,8,9,9 px with 10,11,10,10 px gaps is a 1-unit dash on a 2-unit pitch, and
+the unit is ~9.4 px. Every other measurement then goes in units, and the whole
+thing becomes a small integer table instead of a pile of magic numbers.
+
+**Transcribe the irregular parts, don't approximate them.** A tapering
+three-band screw bit is not worth re-deriving as a procedural helix — sample
+the artwork on the unit grid (half-units if the shape needs it), classify each
+cell into the two or three tones, and store the result as a character grid:
+
+```js
+const BIT_ROWS = ["...mLm.....", "..LLLmmm...", "mLLLLmmmm..", …];
+```
+
+The shape is then *the artwork's* shape rather than your reading of it, it is
+legible in the source, and it costs one nested loop to draw.
+
+**Keep the unit a whole number of pixels — and let it set the sizes.** Cells
+on fractional boundaries turn the art to mush under rounding. That constraint
+propagates: if the icon is 15 units wide and the unit must be integral, the
+button is 60 px or 64 px and nothing in between, so size the container from the
+glyph rather than negotiating the glyph into a container.
+
+**Sample the palette, don't guess it.** Reading light `#fafafa` and mid
+`#8595ac` off the file takes a minute and removes an entire category of "close
+but not right".
+
+**Dashes on a curve must stay axis-aligned.** A dashed ellipse stroke gives
+segments rotated to the tangent — the one thing pixel art never has. Place each
+dash as a rectangle whose width and height come from the local tangent instead:
+wide and flat where the curve runs horizontal, tall where it runs vertical.
+That is what the artwork does, and it is what makes the ring read as drawn
+rather than as stroked.
+
+**Measure the negative space too.** The gap in that ring is 70°, not the 120°
+that looked right — the artwork's topmost dashes sit about 31° either side of
+the top. Openings, offsets and margins carry as much of a glyph's character as
+its marks.
+
 ### 9.4945 Real ground, and where it runs out
 
 A block diagram can be built on measured ground rather than invented ground —
