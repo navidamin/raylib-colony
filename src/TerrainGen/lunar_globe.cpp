@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <string>
 
 namespace
@@ -173,15 +174,62 @@ bool LoadAlbedo()
         TraceLog(LOG_WARNING, "GLOBE: src/assets/planet/wac_global.jpg not found");
         return false;
     }
-    // The moon is grey and the shader reads one channel: dropping to
-    // 8-bit luminance before upload is a third of the memory for an
-    // identical picture.
-    ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_GRAYSCALE);
-    if (img.width > ALBEDO_MAX_WIDTH)
+    // The moon is grey and the shader reads one channel, so this wants to
+    // be 8-bit luminance at ALBEDO_MAX_WIDTH. Doing that with raylib's
+    // ImageFormat + ImageResize costs 536 MB on this mosaic: both convert
+    // the WHOLE image through a normalised Vector4 intermediate, sixteen
+    // bytes a pixel, and 8192 x 4096 x 16 is exactly the 512 MB jump the
+    // web heap probe caught here. emscripten's heap never shrinks, so that
+    // peak became the tab's permanent footprint and put the page over what
+    // iOS Safari allows -- which is why lunar_map showed a black screen on
+    // an iPad and nothing else.
+    //
+    // Box-averaged straight from the decoded bytes instead: the only
+    // allocation is the small destination.
+    if (img.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8
+        || img.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
     {
-        int w = ALBEDO_MAX_WIDTH;
-        int h = std::max(1, img.height * ALBEDO_MAX_WIDTH / img.width);
-        ImageResize(&img, w, h);
+        const int ch = (img.format == PIXELFORMAT_UNCOMPRESSED_R8G8B8) ? 3 : 4;
+        const int dw = std::min(img.width, ALBEDO_MAX_WIDTH);
+        const int dh = std::max(1, img.height * dw / img.width);
+        const unsigned char* src = (const unsigned char*)img.data;
+        unsigned char* dst = (unsigned char*)RL_MALLOC((size_t)dw * dh);
+        for (int y = 0; y < dh; y++)
+        {
+            int y0 = (int)((int64_t)y * img.height / dh);
+            int y1 = std::max(y0 + 1, (int)((int64_t)(y + 1) * img.height / dh));
+            for (int x = 0; x < dw; x++)
+            {
+                int x0 = (int)((int64_t)x * img.width / dw);
+                int x1 = std::max(x0 + 1, (int)((int64_t)(x + 1) * img.width / dw));
+                unsigned int sum = 0, n = 0;
+                for (int j = y0; j < y1; j++)
+                {
+                    const unsigned char* row = src + ((size_t)j * img.width) * ch;
+                    for (int i = x0; i < x1; i++)
+                    {
+                        const unsigned char* px = row + (size_t)i * ch;
+                        // The mosaic is grey; one channel is the picture.
+                        sum += px[0];
+                        n++;
+                    }
+                }
+                dst[(size_t)y * dw + x] = (unsigned char)(sum / (n ? n : 1));
+            }
+        }
+        RL_FREE(img.data);
+        img.data = dst;
+        img.width = dw;
+        img.height = dh;
+        img.mipmaps = 1;
+        img.format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE;
+    }
+    else
+    {
+        ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_GRAYSCALE);
+        if (img.width > ALBEDO_MAX_WIDTH)
+            ImageResize(&img, ALBEDO_MAX_WIDTH,
+                        std::max(1, img.height * ALBEDO_MAX_WIDTH / img.width));
     }
     g.albedo = LoadTextureFromImage(img);
     int w = img.width, h = img.height;
