@@ -1220,7 +1220,14 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
     // the game's imagery but far finer than the elevation model -- and at the
     // 200 km rung it invented half- to two-kilometre craters on top of ones
     // LOLA already measures.
-    bool onGpu = allowGpu && (GetTerrainPath() == TERRAIN_PATH_GPU)
+    // On WebGL1 the shaders compile the regolith to a stub, so taking the
+    // GPU there would trade every crater for a few hundred milliseconds.
+    // The CPU builds the same fields, wasm included; it is the slower half
+    // of a one-off per level, and the level is cached afterwards.
+    const bool gpuKeepsTheRegolith =
+        !IsSubFloorEnabled() || TerrainGpuCanSubFloor();
+    bool onGpu = allowGpu && gpuKeepsTheRegolith
+              && (GetTerrainPath() == TERRAIN_PATH_GPU)
               && GenerateTerrainFieldsGPU(lat, lon, R, spanKm, &fields,
                                           nullptr, nativeKm);
     if (!onGpu && !GenerateTerrainFields(lat, lon, R, spanKm, &fields,

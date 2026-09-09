@@ -24,6 +24,10 @@ enum TerrainPath
 
 // Needs a live GL context on the first call. Cached afterwards.
 TerrainPath GetTerrainPath();
+
+// True when this device's shaders can run the world-anchored regolith.
+// False on GLSL ES 1.00 (WebGL1), where the CPU path must be used instead.
+bool TerrainGpuCanSubFloor();
 const char* GetTerrainPathName();
 
 // The chain resolution each path can afford: 512 on the CPU (the

@@ -1293,7 +1293,9 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
     TerrainTuning tune;
     // The GPU path takes no tuning of its own, so the global switch is how
     // the world stack reaches it -- the same switch the CPU chain reads.
-    tune.subFloor = IsSubFloorEnabled() ? 1 : 0;
+    // Never claim the world stack on a profile whose shaders compile it to
+    // a stub -- that would draw ground silently missing every crater.
+    tune.subFloor = (IsSubFloorEnabled() && TerrainGpuCanSubFloor()) ? 1 : 0;
     if (g_dataFloorKm > 0.0) tune.subFloorKm = (float)g_dataFloorKm;
     float t[4] = {tune.grain, tune.undulation, tune.formRelief, 0.0f};
     SetV4(sh, "uTune", t);
@@ -1364,6 +1366,13 @@ double ProbeMs()
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+// Whether this device's shaders can run the world-anchored regolith. GLSL
+// ES 1.00 cannot: no uint, no bitwise operators, and a highp int only
+// guaranteed to 2^16 where the lattice indices reach millions. The CPU
+// path has no such limit, so a caller that needs the regolith asks this
+// and stays off the GPU rather than doing without.
+bool TerrainGpuCanSubFloor() { return !UseEs100(); }
 
 TerrainPath GetTerrainPath()
 {
