@@ -1583,6 +1583,29 @@ dashes on the spec sheet but only two in the reference's own live states, which
 takes the cursor from 95 px to 71 px against a 64 px button: near enough the
 same object, without touching the unit that keeps it crisp.
 
+**A tool is one object in every state it has.** Restyling the icon and the
+cursor and leaving the *placed* machine as it was is the failure this rule
+exists to catch: the player picks up a pixel drill, clicks, and a completely
+different machine appears in the ground. It reads as the thing in their hand
+having been only a picture of a tool. The fix is not to redraw the working
+version in the same spirit — it is to build it out of the icon's own parts:
+
+- the same sprite for the business end, on the same shading cycle;
+- the sprite's own top row, continued, for anything long — a three-cell
+  `mLm` cross-section extended upward *is* the string, so there is no second
+  drawing of a rod that can drift from the first;
+- the same ring on the ground, turning the same way, which is the single
+  clearest tie between the carried tool and the planted one;
+- and for the parts the icon has no answer for, the same two steels on the
+  same half-unit grid.
+
+Where the old art carried a colour that was doing a *signalling* job — an
+amber powerhead, in a panel where amber means "waiting for you" — move the
+signal to a lamp and let the body join the rest of the tool. A machine
+painted in the attention colour is saying "attend to me" even while it is
+busy, which spends the colour that the one control that really is waiting
+needs.
+
 ### 9.4945 Real ground, and where it runs out
 
 A block diagram can be built on measured ground rather than invented ground —
