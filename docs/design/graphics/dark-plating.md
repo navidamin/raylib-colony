@@ -1831,34 +1831,43 @@ on different clocks read as two apps; on one clock they read as one machine.
 
 ---
 
-## 10b. A second palette is being proposed — read this before you follow it
+## 10b. The console — a second palette, and where it stops
 
-**Status: OPEN QUESTION, not yet a rule.** The prospecting module has a new
-look on the table — a **navy-and-cyan holographic console** rather than this
-document's near-black-and-amber machinery. See
+**Status: DECIDED 2026-09-11.** The prospecting module has a second look — a
+**navy-and-cyan holographic console** rather than this document's
+near-black-and-amber machinery. See
 [`../prospecting/survey-dashboard-design.md`](../prospecting/survey-dashboard-design.md)
 and its reference render.
 
-Nothing in this document changes yet, and **nothing outside prospecting should
-adopt the console palette** until the question below is settled. Two answers
-are possible and they lead to very different projects:
+### The boundary
 
-1. **The console is in-fiction glass.** A holographic instrument the crew is
-   looking *at*, sitting inside a near-black world. Dark Plating stays the art
-   direction; it gains a chapter for glass, alongside §4 metal and §5 rock; the
-   sect view, the terrain and the other thirty-nine module panels do not move.
-2. **The console is the new art direction.** Everything follows, over time.
+| | |
+|---|---|
+| **The console look applies to** | the layered block and the modules that read it — **prospecting and excavation** |
+| **The rack look applies to** | any tool rack, in any module. Its *contents* change; its style does not |
+| **Everything else** | stays Dark Plating. The sect view, the terrain, and the other module panels do not move |
 
-The recommendation on record is (1), because it costs one chapter rather than
-forty panels, and because the two palettes already have a natural boundary: the
-machinery is metal and the readout is light. But it is a decision for the
-project, not for whoever writes that chapter, and until it is made this section
-is the only place in this document that mentions cyan.
+This is not a staging post on the way to repainting the game. It is a real
+boundary, chosen because the two palettes already have a natural seam:
+**the machinery is metal and the readout is light.** A console is something the
+crew looks *at*, and it can be made of light inside a world that is made of
+metal.
 
-One thing is already settled either way: **the drill does not change.** The
-pixel glyph, the cursor, the planted rig and the borehole rig are the same
-object in both palettes, and §9.4944's rule — *a tool is one object in every
-state it has* — outranks any restyle.
+The boundary has to be *held*. Every new panel is a chance for cyan to leak;
+the test is simple — is this thing a readout of measured ground, or is it
+machinery? If it is machinery, it is Dark Plating.
+
+### What does not change
+
+**The drill.** The pixel glyph, the cursor, the planted rig and the
+borehole-bar rig are the same object in both palettes. They are a machine drawn
+as a machine, standing inside a holographic readout, and that contrast is
+deliberate — it is the same contrast the steel rack makes against the glass
+panels behind it. §9.4944's rule — *a tool is one object in every state it has*
+— outranks any restyle, and it outranks this one.
+
+If the rig ever reads badly against navy, the fix is the ground behind it,
+never the rig.
 
 ---
 

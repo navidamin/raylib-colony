@@ -1,6 +1,9 @@
 # Survey Dashboard — the prospecting module's new look
 
 **Status:** DESIGN — plan of record for the module's *presentation*.
+**All seven open decisions are settled** (§8). Nothing here is waiting on an
+answer; §8 is now a record of what was decided and what each decision commits
+the implementation to.
 **Sources:** [`prototypes/dashboard/dashboard.html`](prototypes/dashboard/dashboard.html),
 [`prototypes/dashboard/holo3d.js`](prototypes/dashboard/holo3d.js),
 [`prototypes/dashboard/layers-block-3d.html`](prototypes/dashboard/layers-block-3d.html)
@@ -159,13 +162,26 @@ Geometry, from `ToolRack.G` (rack-local units, rack ≈ 370 × 842):
 | unpowered | `boxInOff` steel, dim icon | `nameOff` grey | short grey pill |
 | **empty bay** | dark box with a blank plate | blank tag | short grey pill |
 
-The fifth bay is **empty**, not "coming soon" — a rack with a visible hole in
-it says *there is a slot here and nothing in it* far better than a greyed
-tile does.
+The empty-bay dress stays in the renderer even though nothing uses it now: the
+rack is five bays and the tool list is data, so the day a tool is removed or a
+sixth is planned, the hole draws itself.
 
-**Contents** (`DASH.rack.tools`): DRILL (Point), SEISMIC (Line), ROVER (Line),
-SONAR (Area), empty. Each carries a `stats: [power, time, crew]` triple that
-feeds TOOL STATS.
+**Contents.** All five bays are filled, and the tools are the survey set, not
+`DASH.rack`'s placeholder four:
+
+| Bay | Tool | Geometry |
+|---|---|---|
+| 1 | DRILL | Point |
+| 2 | ACTIVE SEISMIC | Line |
+| 3 | ROVER TRAVERSE | Line |
+| 4 | PENETROMETER | Point |
+| 5 | GPR | Line |
+
+Each carries a `stats: [power, time, crew]` triple that feeds TOOL STATS.
+
+`DASH.rack`'s SONAR (Area) is **not** in the set, so **Area is an unused
+geometry class**. The renderer should still understand it — it is one string in
+a data table, and an area tool is an obvious thing for this module to grow.
 
 **Interaction.** Tap a bay to power it; the last bay switched on becomes the
 selected one; keys 1–5 do the same. State changes **crossfade over 260 ms** —
@@ -222,11 +238,11 @@ symmetrically about the middle bed rather than lifting off the top. Everything
 but the selected bed drops to alpha 0.28. Tap a bed to isolate it, tap it
 again or the background to collapse; keys 1–5.
 
-> **The blurb promises two verbs and `Holo3D` implements one.** "Take off
-> everything above a layer and see through what is left" is *peel*; "One layer
-> only lifts the chosen bed out on its own" is *isolate*. `Holo3D` has isolate.
-> Peel — which the current prototype does have — must be added. See §8
-> decision 3.
+> **Isolate is the only verb.** The dashboard's blurb offers two — "take off
+> everything above a layer" (*peel*) and "one layer only lifts the chosen bed
+> out on its own" (*isolate*). Peel is **cut** (§8 decision 3). `Holo3D`'s
+> explode-and-isolate is exactly right and needs nothing added; the current
+> prototype's peel is retired, and the blurb becomes one line about isolating.
 
 **HUD** (`Holo3D.drawHud`), all of it *projected*, so it turns with the block:
 
@@ -291,6 +307,49 @@ cells ramping to red. Then a full-width `DRILL RUNNING` status button.
 This panel is **new information** — the module has never shown rig telemetry.
 §8 decision 5 is where it comes from.
 
+### 4.7 The module bar — horizontal, along the top
+
+The unit's module selector (Prospecting · Excavation · Beneficiation ·
+Operations · Directives) **moves out of the left column and becomes a
+horizontal bar across the top of the console**. Prospecting is one of five
+modules and the console is what one of them looks like; the bar is how you
+leave it.
+
+It sits above the five panels, spanning the full 1536, in the console's own
+chrome — a row of tabs in the bracket idiom, the active one carrying the
+accent rule. It is the only element that belongs to the *unit* rather than to
+prospecting, and it is the same bar every other module will eventually hang
+under, which is why it runs the full width rather than sitting inside a panel.
+
+The five panel rects in §2 shift down by the bar's height; nothing else moves.
+
+### 4.8 The phone
+
+The console is 3:2 and a phone is not. The answer is **not** a reflow of five
+panels into one column — it is that on a phone **the block is the app** and
+everything else is summoned.
+
+| | Phone |
+|---|---|
+| **block** | full-bleed, the whole first screen. Drag to turn, tap a bed to isolate, tap the ground to drill. Confidence bar under it |
+| **module bar** | stays at the top, horizontal, scrolled with the page |
+| **survey tools rack** | **closed by default.** A labelled button opens it as a drawer over the block; picking a tool closes it |
+| **drill bar** | **appears on top when there is drilling to do** — it opens over the block the moment the rig is collared, because that is when it stops being a readout and becomes the depth control, and it closes when the hole is finished |
+| **survey log** | **below the block**, reached by scrolling down. Not an overlay: it is the thing you read between holes |
+| **tool stats / drill stats** | fold into the drawer and the drill-bar overlay respectively |
+
+Two consequences for the implementation, and they are why this decision had to
+be made before any code:
+
+1. **Panel rects are a function, not constants.** A `Layout(width)` returns the
+   five regions for the current breakpoint. Nothing may hard-code 1536 × 1024
+   geometry, including the rack's internal `G` table, which is already scaled
+   in `DASH.layout` and must stay that way.
+2. **Two panels become transient.** The rack and the drill bar need an
+   open/closed state with an animation, on desktop as well as phone, or the
+   phone build forks from the desktop one. One codebase, one state, two
+   layouts.
+
 ---
 
 ## 5. What is kept: the drill
@@ -308,10 +367,17 @@ The rack's DRILL icon in the reference render **is already our glyph** — a
 marker square over a striped bit inside a dashed ellipse. The other three rack
 icons are the dashboard's own thin neon line art, and those we adopt.
 
-The drill's palette is the one thing that needs a look: the rig is white/steel
-with cyan and green accents on a near-black ground, and the console is navy.
-It should sit on the new ground without retint — but that is a thing to
-**render and look at**, not to assert.
+**The drill keeps its own design inside the new one.** It is not restyled to
+the console, not redrawn in line art, not re-proportioned to the hologram. It
+is a machine, drawn as a machine, standing in a holographic readout — and that
+contrast is the same one the rack makes against the panels. Its geometry, its
+pixel grid, its two steels and its green/cyan state colours all come across
+unchanged.
+
+The only thing to check is that the rig reads against navy as well as it read
+against near-black, and that is a thing to **render and look at**, not to
+assert. If it does not, the fix is the console's ground behind it, never the
+rig.
 
 ---
 
@@ -325,19 +391,19 @@ column changes; only its address does.
 | four strata as one cut body | the `Holo3D` block, unchanged in meaning |
 | procedural interfaces (fbm, conformity, dip, dip fan, 28 × 28 lattice) | **stays ours.** `Holo3D`'s six measured profiles are a *look*, not a model — our height fields feed `model.pts` instead |
 | truth + error, the estimate that re-fits with each hole | unchanged; the block simply redraws |
-| fog of war (unknown body, haze, `destination-in` mask) | **needs re-expression.** §8 decision 2 |
+| fog of war (unknown body, haze, `destination-in` mask) | **re-expressed as unresolved wireframe** — §8 decision 2. The mechanic is unchanged; the painting technique is retired |
 | knowledge field `KnowAt(i,j,m)`, per-hole near term + floor | unchanged, no UI |
 | delineation (mean confidence, INFERRED/INDICATED/MEASURED) | the **CONFIDENCE** bar under the block |
-| the 95% gate on layer controls | gates *peel and isolate*; the rack and the drill stay live |
-| peel (click a layer, everything above comes off) | LAYERS, blurb line 1 — **to be added to `Holo3D`** |
-| solo / one-layer-only | LAYERS, blurb line 2 — `Holo3D`'s isolate |
+| the 95% gate on layer controls | gates **isolate**; the rack and the drill stay live |
+| peel (click a layer, everything above comes off) | **CUT** — §8 decision 3. Owes a graveyard record when it goes |
+| solo / one-layer-only | LAYERS — `Holo3D`'s explode-and-isolate, the module's only take-it-apart verb |
 | the borehole bar as depth readout **and** depth control | DRILL BAR, unchanged |
 | arm → spud → set depth → cut → trip out → bore marker | unchanged; the cursor and rig live over the block |
 | scour bowl, spoil rim, ejecta | unchanged, on the block's top surface |
 | craters, the sect dome, built ground | unchanged, on the top surface |
-| real LOLA ground + the site card | **no home in the console.** §8 decision 6 |
-| the ~30-lever bench + Copy values | **no home in the console.** §8 decision 6 |
-| the tool rail (5 buttons, frames that open left) | **replaced** by the rack. Its four non-drill sprites may not survive — §8 decision 1 |
+| real LOLA ground + the site card | the bench overlay, `?bench=1` — §8 decision 6 |
+| the 37-lever board + Copy values / Roll ground / Reset | the bench overlay, `?bench=1` — §8 decision 6 |
+| the tool rail (5 buttons, frames that open left) | **replaced** by the rack, which holds the same five tools. Its four non-drill pixel sprites are replaced by the rack's line art and owe a graveyard record |
 | depth scale down the left of the block | the ruler right of the block |
 | the readout line (block size, column, lattice, V.E.) | **needs a home.** Suggest: a footer line under the LAYERS panel, small and dim |
 
@@ -359,54 +425,117 @@ rediscover the hard way.
    readout of the ground. That is a defensible thing for an in-fiction console
    to be, but it is a different claim and the copy should stop making the old
    one.
-3. **The 3:2 field costs the phone.** §2.
-4. **Two palettes now live in the project.** Dark Plating (near-black, amber,
-   the rest of the game) and this (navy, cyan). Either the console is an
-   exception with a stated boundary, or Dark Plating gains a chapter and the
-   game follows. §8 decision 7.
+3. **Peel is gone.** Looking *down into* the block to a chosen depth was a
+   real reading of the ground and it is being traded for one clean verb. If
+   the module later wants a depth-slice view, it comes back as its own thing,
+   not as a second meaning for tapping a bed.
+4. **The phone build is a second layout, not a narrower one.** §4.8 — two
+   panels become transient, and that has to be in the code from the first
+   commit rather than retrofitted.
+5. **Two palettes now live in the project,** with a boundary: prospecting and
+   excavation are the console; everything else stays Dark Plating. §8
+   decision 7. The boundary has to be *held* — each new panel is a chance to
+   leak cyan into the rest of the game.
 
 ---
 
-## 8. Decisions still open
+## 8. Decisions — settled
 
-Each of these blocks a specific implementation stage; none blocks starting.
+All seven, with what each one commits the implementation to. **Decided
+2026-09-11.**
 
-1. **Which five tools?** The mind-map named Drill · Active seismic · Rover
-   traverse · Penetrometer · GPR line. `DASH.rack` holds Drill · Seismic ·
-   Rover · Sonar · empty. *Recommendation:* take the rack's four plus the
-   empty bay — the empty bay is a better statement than a fifth greyed tile,
-   and "Sonar (Area)" introduces the third geometry class the tag system
-   already has room for.
-2. **What does fog look like in a line-art block?** The current fog is a
-   painted haze over an unknown body. In a hologram the natural reading is
-   the opposite: **the known part is drawn and the unknown is a bare
-   wireframe** — no fill, no bed colours, just the grid and a noise crawl.
-   That is a better fit for the idiom *and* for the fiction (a console draws
-   what it has measured), but it is a redesign of the module's most-worked
-   visual and needs its own render-and-look pass before it is committed to.
-3. **Peel, isolate, or both?** The blurb promises both. Recommendation: both,
-   with peel on the depth ruler (click a depth → everything above comes off)
-   and isolate on the block (tap a bed), so the two verbs have two different
-   controls and cannot be confused.
-4. **What happens on a phone?** Options: (a) reflow to one column and scroll;
-   (b) a tab bar with one panel at a time; (c) keep the block full-bleed and
-   put the rack and bar in drawers. Recommendation: (c) — the block is the
-   game, the rest is chrome.
-5. **Where does the drill telemetry come from?** Rotary speed, load,
-   temperature, bit wear, vibration are five values the model does not have.
-   Either invent them as real state (they would give the rig a maintenance
-   loop it does not have) or drive them off what exists — depth, rate,
-   the bed being cut. Recommendation: derive them; do not add a mechanic to
-   fill a panel.
-6. **Where do the bench and the real-ground card go?** They are development
-   instruments, not game UI. Recommendation: keep both, behind one `?bench=1`
-   toggle, off by default, drawn over the console.
-7. **Is this the game's new look, or this module's?** Everything outside
-   prospecting is Dark Plating. Recommendation: treat the console as
-   *in-fiction glass* — a holographic instrument the crew looks at — which is
-   a legitimate sub-idiom of a near-black art direction, and give Dark Plating
-   a chapter for it rather than replacing it. That keeps the sect view, the
-   terrain and the other 39 module panels where they are.
+### 1. Which five tools → all five, the survey set
+
+DRILL (Point) · ACTIVE SEISMIC (Line) · ROVER TRAVERSE (Line) ·
+PENETROMETER (Point) · GPR (Line). Five bays, five tools, no empty bay.
+
+*Entails:* four icons beyond the drill's, in the rack's thin line-art style,
+not the pixel sprites built for the old rail — those four are replaced and owe
+a graveyard record. **Area** is left as an understood-but-unused geometry
+class; SONAR is not in the set.
+
+### 2. Fog → the console draws only what it has measured
+
+**Known volume** gets its bed colours, fills and mesh. **Unknown volume** gets
+no fill and no boundaries at all — bare grid on the panel ground, carrying a
+faint noise crawl so it reads as *live but unresolved* rather than *not
+loaded*. Boundaries appear where knowledge crosses the threshold, and a bed's
+colour arrives with them.
+
+*Entails:* the mechanic is untouched — fog is still exactly `1 − KnowAt`, and
+under it the ground still has no type and no boundaries. What is retired is the
+*painting*: the haze raster, the coarse/fine split, `destination-in` masking,
+and the `fogGrit` / `fogRough` levers. It should come out **cheaper** than
+today, because the unknown case draws less rather than more. The one thing to
+watch is the first impression at zero holes, which is now a wire box.
+
+*Later experiment, not in scope:* drawing beds everywhere with their boundaries
+as **error envelopes** — thin where confident, a wide band where not — which
+would render the truth+error model directly. It contradicts "no layers under
+fog", so it is a separate decision if it is ever wanted.
+
+### 3. Peel or isolate → isolate only
+
+Tapping a bed explodes the stack and leaves that bed solid with the others
+ghosted. Tapping again or the background collapses it. No peel.
+
+*Entails:* `Holo3D` needs nothing added. The current prototype's peel
+(`st.sel` with `solo` off, drawing beds L…4) is **removed** and owes a
+graveyard record. The 95% delineation gate now gates one verb. The LAYERS
+blurb becomes one line.
+
+### 4. The phone → the block is the app
+
+Full-bleed block; module bar at the top; the rack behind a labelled button;
+the drill bar opening over the block when there is drilling to do; the log
+below, on scroll. Spelled out in §4.8.
+
+*Entails:* panel rects become a `Layout(width)` function from the first
+commit, and the rack and drill bar get an open/closed state with an animation
+on **both** layouts so the builds do not fork.
+
+### 5. Drill telemetry → derived now, wired properly as the rig grows
+
+Rotary speed, load, temperature, bit wear and vibration are **derived from
+what already exists** — rate of penetration against the bed being cut, string
+length against depth, time under load — and nothing is invented to fill the
+panel. They are wired to real rig state as that state comes into being; the
+panel is built so that swapping a derived value for a real one is one line.
+
+*Entails:* no new mechanic now, and no fake numbers either. Five small
+functions returning 0–1, mapped to the `g/y/o/r` letter code, each with a
+comment naming what it is standing in for.
+
+*And, restated because it governs everything:* **the drill's own geometry is
+the design already built on this branch** — the pixel glyph, the cursor, the
+planted rig and the borehole-bar rig. It is *implemented and integrated into*
+the console while keeping its own design. See §5.
+
+### 6. The bench → kept, behind `?bench=1`, off by default
+
+This page is now **the game view**, not a tuning bench, so the instruments go
+behind a flag rather than into a panel. Glossary, since these are prototype
+artefacts rather than design:
+
+| Instrument | What it is |
+|---|---|
+| **the 37 levers** | The slider rail in `layer-block.html`, in 8 groups — *Interface shape* (relief, feature size, detail, conformity, depth damping, dip, dip direction, dip fan, grain), *Impact craters* (how many, size, depth, rim, reaches up), *Fog* (opacity, granularity, roughness, detail, spread across, spread down), *Strata* (each bed's thickness), *Body* (rotate, tilt, lattice, depth scale), *Light & line*, *Real ground*, *Layer*. They drive the **generator** — they are how the block's look was tuned. A player never sets "Dip fan" |
+| **Copy values** | A button that dumps the whole lever set as text, so a setting worth keeping can be pasted back into the code as the new defaults. Siblings: *Roll ground* (re-seed) and *Reset* |
+| **the LOLA site card** | The *Real ground* card. Reads NASA's LOLA LDEM_16 — the elevation model the game already ships, 1.9 km/px — from two baked 182 km patches (Tycho and Mare Serenitatis), shows a hillshaded locator you can click to move the block, and drives the block's large-scale shape from **measured** elevation instead of the generator. Off by default, because at 6 km across the DEM is only about three samples wide |
+
+*Entails:* one overlay, one query flag, no panel space, and the generator keeps
+its lever-driven seam so the bench still works.
+
+### 7. Scope of the look → prospecting and excavation, and no further yet
+
+The console is the look for **the block and the modules that read it** —
+prospecting and excavation. The **rack's style is shared** wherever a rack
+appears, though its contents change per module. Nothing else adopts it yet:
+the sect view, the terrain, and the other module panels stay Dark Plating.
+
+*Entails:* Dark Plating gains a scoped chapter rather than being replaced, and
+the boundary is a rule someone has to hold — see
+[`../graphics/dark-plating.md` §10b](../graphics/dark-plating.md).
 
 ---
 
