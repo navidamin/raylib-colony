@@ -8,6 +8,8 @@
 #include "excavation_constants.h"
 #include "block_pick.h"
 #include "survey_block.h"
+#include "survey_layout.h"
+#include "survey_chrome.h"
 #include "rock_texture.h"
 #include <algorithm>
 #include <iostream>
@@ -3334,6 +3336,18 @@ static void ExtDrawWireframeUnit(Rectangle area, Color c, const std::string& uni
 
 // ============================================================================
 
+/* Which modules the survey console owns. Prospecting today; excavation when
+   its panel is ported, because the two share the block and must not disagree
+   about the ground. Everything else keeps the three-column unit view. */
+static bool SurveyConsoleModule(Unit* unit)
+{
+    if (!unit || !unit->IsInModuleView()) return false;
+    const auto& modules = unit->GetModules();
+    const int idx = unit->GetSelectedModuleIndex();
+    if (idx < 0 || idx >= static_cast<int>(modules.size())) return false;
+    return modules[idx].moduleType == "PROSPECTING" && unit->HasProspectingSystem();
+}
+
 void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
 {
     // Full dark background
@@ -3341,6 +3355,25 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
 
     DrawUnitTopBar(unit, timeManager);
     DrawUnitBottomBar(unit);
+
+    /* THE SURVEY CONSOLE TAKES THE WHOLE SCREEN between the two bars.
+       It is not a centre panel with chrome either side of it: the module
+       selector moves into its own bar along the top and the control panel's
+       actions move there with it, which is what pays for the block being
+       twice the size it was. Scoped to prospecting (and, when it is ported,
+       excavation) by the design's own decision 7 -- the look does not
+       propagate to the other modules yet, so every other module still draws
+       the three-column view underneath. */
+    if (SurveyConsoleModule(unit))
+    {
+        Rectangle region = { 0.0f, static_cast<float>(EXT_TOP_BAR_H),
+                             static_cast<float>(screenWidth),
+                             static_cast<float>(screenHeight - EXT_TOP_BAR_H - EXT_BOTTOM_BAR_H) };
+        DrawProspectingPanel(unit, static_cast<int>(region.x), static_cast<int>(region.y),
+                             static_cast<int>(region.width), static_cast<int>(region.height));
+        return;
+    }
+
     DrawUnitModuleList(unit);
     DrawUnitModuleCenter(unit);
     DrawUnitControlPanel(unit);
@@ -5757,6 +5790,395 @@ static void ProsDrawTraceBlock(ProspectingSystem* ps, const BlockModelGeom& g,
 }
 
 
+
+/* =====================================================================
+   THE MODULE BAR -- horizontal, along the top of the console
+   ---------------------------------------------------------------------
+   The unit's module selector moves out of the left column and becomes a
+   row of tabs across the top. Prospecting is one of five modules and the
+   console is what one of them looks like; the bar is how you leave it.
+   It is the only element up here that belongs to the UNIT rather than to
+   prospecting, which is why it runs the full width rather than sitting
+   inside a panel.
+
+   IT ALSO CARRIES THE UNIT'S ACTIONS, and that is a decision the design
+   did not have to make. The browser prototype had no tier, no upgrade
+   and no power switch, because it was not inside a game. The game's
+   CONTROL PANEL held them, and the console takes that column's space --
+   so they come here, right-aligned, for the same reason the tabs are
+   here: they are the unit speaking, not the instrument.
+   ===================================================================== */
+void RenderManager::DrawSurveyModuleBar(Unit* unit, Rectangle bar)
+{
+    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
+    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
+    const float sp = 1.0f;
+    const Vector2 mouse = ColonyGetMousePosition();
+
+    DrawRectangleRounded(bar, 0.35f, 6, SC_PANEL);
+    DrawRectangleRoundedLinesEx(bar, 0.35f, 6, 1.5f, SC_LINE);
+
+    // The way back to the unit, first and smallest: a chip, not a tab, so it
+    // never reads as a sixth module.
+    Rectangle back = { bar.x + 6.0f, bar.y + 5.0f, 30.0f, bar.height - 10.0f };
+    bool backHover = CheckCollisionPointRec(mouse, back);
+    DrawRectangleRounded(back, 0.3f, 4, backHover ? SC_BOX_FILL : SC_PANEL);
+    DrawRectangleRoundedLinesEx(back, 0.3f, 4, 1.0f, SC_LINE);
+    ExtDrawIcon(ExtIcon::OVERVIEW, back.x + 15.0f, back.y + back.height * 0.5f, 7.0f,
+                backHover ? SC_ACCENT : SC_DIM);
+    if (backHover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        unit->SetIsInModuleView(false);
+        unit->SetShowingStats(false);
+    }
+
+    // ---- the unit's own cluster, right-aligned ----
+    const auto& modules = unit->GetModules();
+    const int idx = unit->GetSelectedModuleIndex();
+    float rightX = bar.x + bar.width - 8.0f;
+    if (idx >= 0 && idx < static_cast<int>(modules.size()))
+    {
+        const auto& mod = modules[idx];
+        if (mod.isBuilt && mod.tier < 3)
+        {
+            const char* label = TextFormat("UPGRADE T%d", mod.tier + 1);
+            const float lw = MeasureTextEx(headerFont, label, ExtFS(10.0f), sp).x;
+            Rectangle btn = { rightX - lw - 20.0f, bar.y + 6.0f, lw + 20.0f, bar.height - 12.0f };
+            const bool can = unit->PublicCanUpgradeModule(idx);
+            const bool hov = CheckCollisionPointRec(mouse, btn);
+            DrawRectangleRounded(btn, 0.3f, 4, can ? (hov ? Color{20, 56, 96, 255}
+                                                          : Color{14, 40, 70, 255})
+                                                   : Color{16, 22, 38, 255});
+            DrawRectangleRoundedLinesEx(btn, 0.3f, 4, 1.0f, can ? SC_ACCENT : Fade(SC_DIM, 0.6f));
+            SurveyChrome::LabelCentre(headerFont, label, btn.x + btn.width * 0.5f,
+                                      btn.y + btn.height * 0.5f - ExtFS(10.0f) * 0.5f,
+                                      ExtFS(10.0f), can ? WHITE : SC_DIM);
+            if (hov && can && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) unit->UpgradeModuleTier(idx);
+            rightX = btn.x - 12.0f;
+        }
+        // tier pips, then the module's own state, so the bar answers "what am
+        // I looking at and how good is it" without a panel
+        DrawTierIndicator(rightX - 46.0f, bar.y + bar.height * 0.5f - 3.0f,
+                          mod.isBuilt ? mod.tier : -1);
+        rightX -= 58.0f;
+        const char* state = !mod.isBuilt ? "NOT BUILT" : (mod.isActive ? "ACTIVE" : "INACTIVE");
+        SurveyChrome::LabelRight(bodyFont, state, rightX,
+                                 bar.y + bar.height * 0.5f - ExtFS(9.0f) * 0.5f, ExtFS(9.0f),
+                                 !mod.isBuilt ? Fade(SC_DIM, 0.8f)
+                                              : (mod.isActive ? SC_GOOD : SC_WARN));
+        rightX -= MeasureTextEx(bodyFont, state, ExtFS(9.0f), sp).x + 16.0f;
+    }
+
+    // ---- the tabs ----
+    const float tabsX = back.x + back.width + 8.0f;
+    const float tabsW = std::max(60.0f, rightX - tabsX);
+    const int count = std::max(1, static_cast<int>(modules.size()));
+    const float tabW = tabsW / count;
+    for (int i = 0; i < count; i++)
+    {
+        const auto& mod = modules[i];
+        Rectangle tab = { tabsX + i * tabW, bar.y + 4.0f, tabW - 4.0f, bar.height - 8.0f };
+        const bool selected = unit->IsInModuleView() && idx == i;
+        const bool hov = CheckCollisionPointRec(mouse, tab);
+        if (selected)
+        {
+            DrawRectangleRounded(tab, 0.3f, 4, SC_BOX_FILL);
+            DrawRectangleRoundedLinesEx(tab, 0.3f, 4, 1.5f, SC_ACCENT);
+        }
+        else if (hov)
+        {
+            DrawRectangleRounded(tab, 0.3f, 4, Fade(SC_BOX_FILL, 0.6f));
+        }
+        std::string name = mod.name;
+        for (auto& ch : name) ch = static_cast<char>(toupper(ch));
+        const Color col = !mod.isBuilt ? Fade(SC_DIM, 0.7f)
+                        : (selected ? SC_ACCENT : SC_LABEL);
+        // Measured, then trimmed: five module names in a bar this wide will
+        // not all fit at every font scale, and a clipped name is worse than
+        // a short one.
+        float size = ExtFS(10.0f);
+        while (size > 6.0f && MeasureTextEx(headerFont, name.c_str(), size, sp).x > tab.width - 10.0f)
+            size -= 0.5f;
+        SurveyChrome::LabelCentre(headerFont, name.c_str(), tab.x + tab.width * 0.5f,
+                                  tab.y + tab.height * 0.5f - size * 0.5f, size, col);
+        if (hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !selected)
+        {
+            unit->SetSelectedModuleIndex(i);
+            unit->SetIsInModuleView(true);
+        }
+    }
+}
+
+static void ProsDrawRail(Unit* unit, ProspectingSystem* ps, ProspectingGrid& grid,
+                         int gridSize, ResourceType shown, Rectangle r,
+                         const Font& headerFont, const Font& bodyFont, float sp,
+                         Vector2 mouse, const DockGeom& dock)
+{
+/* THE CONTROL RAIL, now a panel rather than a column beside the block.
+   It carries every instrument prospecting already had -- the resource
+   statement, the surface sweep, the auger and the readout for the spot
+   under the rig -- and it is handed a rectangle instead of deriving one
+   from the borehole dock it used to stand next to. The console frame
+   decides where it goes; the rail only decides what is in it. */
+    int focusDepth = static_cast<int>(ps->selectedDepth);
+    float ctrlX = r.x;
+    float ctrlY = r.y;
+    float ctrlW = r.width;
+
+    bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
+                         ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
+
+    // --- Resource statement: the number the whole loop is trying to grow ---
+    DrawTextEx(headerFont, "RESOURCE", {ctrlX, ctrlY}, ExtFS(11.0f), sp, EXT_HEADER_COLOR);
+    ctrlY += 18.0f;
+    {
+        ClassSplit split = GetClassSplit(grid, ps->GetTray(), shown, grid.GetTier());
+        const ResourceClass rows[3] = { ResourceClass::MEASURED,
+                                        ResourceClass::INDICATED,
+                                        ResourceClass::INFERRED };
+        for (int k = 0; k < 3; k++)
+        {
+            float v = split.Get(rows[k]);
+            Color c = ExtClassColor(rows[k]);
+            DrawRectangleRounded({ctrlX, ctrlY + 3.0f, 7.0f, 7.0f}, 0.3f, 4,
+                                 v > 0.0f ? c : Fade(c, 0.3f));
+            DrawTextEx(bodyFont, ResourceClassName(rows[k]), {ctrlX + 12.0f, ctrlY},
+                       ExtFS(9.5f), sp, v > 0.0f ? EXT_TEXT : Fade(EXT_DIM_TEXT, 0.6f));
+            const char* amount = v > 0.0f ? TextFormat("%.0f", v) : "-";
+            float aw = MeasureTextEx(bodyFont, amount, ExtFS(9.5f), sp).x;
+            DrawTextEx(bodyFont, amount, {ctrlX + ctrlW - 12.0f - aw, ctrlY},
+                       ExtFS(9.5f), sp, v > 0.0f ? EXT_TEXT : Fade(EXT_DIM_TEXT, 0.6f));
+            ctrlY += 13.0f;
+        }
+        ctrlY += 3.0f;
+        DrawLineEx({ctrlX, ctrlY}, {ctrlX + ctrlW - 12.0f, ctrlY}, 1.0f, EXT_PANEL_BORDER);
+        ctrlY += 6.0f;
+        DrawTextEx(bodyFont, "Committable", {ctrlX, ctrlY}, ExtFS(9.5f), sp, EXT_DIM_TEXT);
+        const char* cm = TextFormat("%.0f", split.Committable());
+        float cmw = MeasureTextEx(headerFont, cm, ExtFS(13.0f), sp).x;
+        DrawTextEx(headerFont, cm, {ctrlX + ctrlW - 12.0f - cmw, ctrlY - 3.0f},
+                   ExtFS(13.0f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 20.0f;
+    }
+
+    // --- Wide survey: one instrument, one button ---------------------------
+    // LIBS reads SURFACE chemistry -- element by element, fast and cheap, and
+    // blind to everything below the regolith. It shapes where you drill; it
+    // never classifies, because you cannot put tonnage in a statement on the
+    // strength of a surface reading.
+    DrawTextEx(headerFont, "SURFACE SWEEP", {ctrlX, ctrlY}, ExtFS(11.0f), sp, EXT_HEADER_COLOR);
+    ctrlY += 17.0f;
+    {
+        bool sweptAlready = grid.HasSweptFrequency(0);
+        bool affordable = ProsCanAfford(unit, SWEEP_ENERGY_COST[0]);
+        bool canSweep = ps->GetSweep().CanSweep(grid, 0) && affordable;
+        Rectangle btn = {ctrlX, ctrlY, ctrlW - 12.0f, 26.0f};
+        bool hover = CheckCollisionPointRec(mouse, btn);
+
+        DrawRectangleRounded(btn, 0.3f, 4, canSweep && hover ? Color{16, 40, 60, 255}
+                                                             : EXT_PANEL_BG2);
+        DrawRectangleRoundedLinesEx(btn, 0.3f, 4, 1.0f,
+                                    canSweep ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
+        const char* label = sweptAlready ? "LIBS  -  SWEPT" : "LIBS ROVER SWEEP";
+        Vector2 ls = MeasureTextEx(headerFont, label, ExtFS(10.5f), sp);
+        DrawTextEx(headerFont, label,
+                   {btn.x + (btn.width - ls.x) / 2.0f, btn.y + (26.0f - ls.y) / 2.0f},
+                   ExtFS(10.5f), sp,
+                   sweptAlready ? EXT_ACCENT_GREEN
+                                : (canSweep ? EXT_ACCENT_CYAN : PROS_BTN_DISABLED));
+        // Caption BELOW the button. Inside it, the two lines collided.
+        DrawTextEx(bodyFont, TextFormat("%.0f E   surface chemistry only, never classifies",
+                                        SWEEP_ENERGY_COST[0]),
+                   {btn.x + 1.0f, btn.y + 28.0f}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+
+        if (hover && canSweep && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            float cost = ps->GetSweep().GetSweepCost(0);
+            if (unit->ConsumeResource(ResourceType::ENERGY, cost))
+            {
+                ps->GetSweep().ExecuteSweep(grid, 0, ps->gameTime);
+                unit->PublicShowMessage("LIBS sweep complete - surface chemistry mapped");
+            }
+        }
+        ctrlY += 44.0f;
+    }
+
+    // --- Drill: the line, its cost, its progress ---------------------------
+    DrawTextEx(headerFont, "DRILL - AUGER", {ctrlX, ctrlY}, ExtFS(11.0f), sp, EXT_HEADER_COLOR);
+    ctrlY += 17.0f;
+
+    const LineHole& lh = ps->lineHole;
+    if (lh.state == LineHoleState::AIMING && lh.targetLayer > 0)
+    {
+        float lineCost = DrillEnergyToDepthMetres(lh.endM);
+        bool affordable = ProsCanAfford(unit, lineCost);
+        static const char* layerNames[4] = {"REGOLITH", "MEGAREGOLITH", "FRACTURED", "BASALT"};
+        DrawTextEx(bodyFont, TextFormat("line to %.0f m (%s) - %.0f E",
+                                        lh.endM, layerNames[lh.targetLayer], lineCost),
+                   {ctrlX, ctrlY}, ExtFS(9.5f), sp,
+                   affordable ? EXT_ACCENT_CYAN : EXT_ACCENT_GOLD);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "click to drill - the collar block cancels",
+                   {ctrlX, ctrlY}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else if (lh.state == LineHoleState::DRILLING && lh.tripping)
+    {
+        DrawTextEx(bodyFont, TextFormat("bit fractured at %.0f m - tripping  %.0f / %.0f s",
+                                        lh.depthM, lh.tripT, lh.tripDur),
+                   {ctrlX, ctrlY}, ExtFS(9.5f), sp, EXT_ACCENT_RED);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "out rod by rod, and back - depth is the price",
+                   {ctrlX, ctrlY}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else if (lh.state == LineHoleState::DRILLING)
+    {
+        DrawTextEx(bodyFont, TextFormat("string down  %.0f / %.0f m%s",
+                                        lh.depthM, lh.endM,
+                                        lh.dwelling ? "  -  COOLING" : ""),
+                   {ctrlX, ctrlY}, ExtFS(9.5f), sp,
+                   lh.dwelling ? EXT_ACCENT_GOLD : EXT_TEXT);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "click the borehole to drive the string",
+                   {ctrlX, ctrlY}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 15.0f;
+        DrawTextEx(bodyFont, "SPINDLE", {ctrlX, ctrlY + 1.0f}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f,
+                      lh.rpm / DRILL_RPM_MAX,
+                      lh.rpm > 0.9f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN);
+        ctrlY += 15.0f;
+    }
+    else if (lh.state == LineHoleState::RETRACTING)
+    {
+        DrawTextEx(bodyFont, TextFormat("line complete - hoisting  %.0f m",
+                                        ProsShownDepthM(lh)),
+                   {ctrlX, ctrlY}, ExtFS(9.5f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "the string comes out; the hole and its log stay",
+                   {ctrlX, ctrlY}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else if (lh.state == LineHoleState::DONE)
+    {
+        DrawTextEx(bodyFont, TextFormat("line complete - %.0f m cored", lh.endM),
+                   {ctrlX, ctrlY}, ExtFS(9.5f), sp, EXT_ACCENT_GREEN);
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, "string racked - click a block to line the next",
+                   {ctrlX, ctrlY}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+    else
+    {
+        DrawTextEx(bodyFont, "click the ground to collar, then a bed",
+                   {ctrlX, ctrlY}, ExtFS(9.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 12.0f;
+        DrawTextEx(bodyFont, "for the depth - drag the block to turn it",
+                   {ctrlX, ctrlY}, ExtFS(9.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 16.0f;
+    }
+
+    // Bit temperature: the price hard rock charges in time (auto-peck at max)
+    if (lh.state == LineHoleState::DRILLING || lh.heat > 0.03f)
+    {
+        DrawTextEx(bodyFont, "BIT TEMP", {ctrlX, ctrlY + 1.0f}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+        Color hc = lh.heat > 0.8f ? EXT_ACCENT_RED
+                 : lh.heat > 0.5f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.heat, hc);
+        ctrlY += 15.0f;
+    }
+    // Bit wear: time-at-temperature plus metres cut. At full it fractures,
+    // and a fracture buys a TRIP -- time scaled by depth, never the run.
+    if (lh.state == LineHoleState::DRILLING || lh.wear > 0.02f)
+    {
+        DrawTextEx(bodyFont, "BIT WEAR", {ctrlX, ctrlY + 1.0f}, ExtFS(8.0f), sp, EXT_DIM_TEXT);
+        Color wc = lh.wear > 0.8f ? EXT_ACCENT_RED
+                 : lh.wear > 0.55f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
+        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.wear, wc);
+        ctrlY += 17.0f;
+    }
+    ctrlY += 6.0f;
+
+    // --- What is known about the selected spot -----------------------------
+    if (hasSelection)
+    {
+        DrawLineEx({ctrlX, ctrlY - 6.0f}, {ctrlX + ctrlW - 12.0f, ctrlY - 6.0f},
+                   1.0f, EXT_PANEL_BORDER);
+
+        const SubCell& selCell = grid.GetSubCell(ps->selectedCellX, ps->selectedCellY);
+        float selConf = GetDepthConfidence(grid, ps->GetTray(),
+                                           ps->selectedCellX, ps->selectedCellY,
+                                           ps->selectedDepth);
+        ResourceClass selClass = GetResourceClass(selConf);
+
+        DrawTextEx(headerFont, ResourceClassName(selClass), {ctrlX, ctrlY},
+                   ExtFS(11.0f), sp, ExtClassColor(selClass));
+        if (!IsCommittable(selClass))
+        {
+            float nw = MeasureTextEx(headerFont, ResourceClassName(selClass), ExtFS(11.0f), sp).x;
+            DrawTextEx(bodyFont, "not minable", {ctrlX + nw + 8.0f, ctrlY + 1.0f},
+                       ExtFS(8.5f), sp, Fade(EXT_DIM_TEXT, 0.85f));
+        }
+        ctrlY += 17.0f;
+
+        {
+            bool known = selCell.HasCore(static_cast<int>(ps->selectedDepth)) ||
+                         selCell.HasBeenDug(static_cast<int>(ps->selectedDepth));
+            DrawTextEx(bodyFont, TextFormat("%s %s  %.0f",
+                                            ResourceTypeToString(shown),
+                                            known ? "assay" : "estimate",
+                                            GetEstimatedYield(grid, ps->selectedCellX,
+                                                              ps->selectedCellY,
+                                                              ps->selectedDepth, shown)),
+                       {ctrlX, ctrlY}, ExtFS(9.0f), sp,
+                       known ? EXT_TEXT : EXT_DIM_TEXT);
+        }
+        ctrlY += 13.0f;
+        DrawTextEx(bodyFont, TextFormat("cores here  %d",
+                                        static_cast<int>(selCell.sampleIds.size())),
+                   {ctrlX, ctrlY}, ExtFS(9.0f), sp, EXT_DIM_TEXT);
+        ctrlY += 13.0f;
+
+        // Class per depth. Confidence is per depth, so a spot can be Measured
+        // at the surface and Unclassified below it -- which is exactly what
+        // decides whether a deep dig is a plan or a gamble.
+        DrawTextEx(bodyFont, "CLASS BY DEPTH", {ctrlX, ctrlY}, ExtFS(8.0f), sp,
+                   Fade(EXT_DIM_TEXT, 0.8f));
+        ctrlY += 12.0f;
+        for (int d = 0; d < 4; d++)
+        {
+            Rectangle chip = {ctrlX + d * 26.0f, ctrlY, 22.0f, 14.0f};
+            if (false)
+            {
+                DrawRectangleRounded(chip, 0.3f, 4, Color{18, 22, 34, 255});
+                DrawRectangleRoundedLinesEx(chip, 0.3f, 4, 1.0f, Color{34, 40, 58, 255});
+                continue;
+            }
+            float c = GetDepthConfidence(grid, ps->GetTray(), ps->selectedCellX,
+                                         ps->selectedCellY, static_cast<DepthLayer>(d));
+            Color col = ExtClassColor(GetResourceClass(c));
+            DrawRectangleRounded(chip, 0.3f, 4, Fade(col, 0.22f));
+            DrawRectangleRoundedLinesEx(chip, 0.3f, 4, d == focusDepth ? 1.6f : 1.0f, col);
+            const char* initial = (d == 0) ? "S" : (d == 1) ? "H" : (d == 2) ? "M" : "D";
+            float iw = MeasureTextEx(bodyFont, initial, ExtFS(8.5f), sp).x;
+            DrawTextEx(bodyFont, initial, {chip.x + (22.0f - iw) / 2.0f, chip.y + 2.5f},
+                       ExtFS(8.5f), sp, col);
+        }
+        ctrlY += 20.0f;
+
+        int dugLayers = 0;
+        for (int d = 0; d < 4; d++) if (selCell.HasBeenDug(d)) dugLayers++;
+        if (dugLayers > 0)
+        {
+            DrawTextEx(bodyFont, TextFormat("Excavated: %d/4 layers", dugLayers),
+                       {ctrlX, ctrlY}, ExtFS(9.0f), sp, Color{228, 164, 74, 255});
+        }
+    }
+
+
+    // (Survey progress summary now lives in the shared bottom status bar.)
+}
+
 void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 {
     const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
@@ -5781,29 +6203,51 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     }
     Vector2 mouse = ColonyGetMousePosition();
 
-    // --- Header: icon + title, calibration gauge on the right ---
-    float yPos = static_cast<float>(y + padding);
-    ExtDrawIcon(ExtIcon::RADAR, px + 10.0f, yPos + 10.0f, 10.0f, EXT_ACCENT_CYAN);
-    DrawTextEx(headerFont, "PROSPECTING", {px + 28.0f, yPos + 1.0f}, FS(15.0f), sp, EXT_TEXT);
+    /* =====================================================================
+       THE CONSOLE'S FRAME
+       ---------------------------------------------------------------------
+       Three columns, five panels and the unit's module bar along the top.
+       Every rectangle comes out of ComputeSurveyLayout and nothing here is
+       a constant, because the console has to survive being re-proportioned
+       -- and it already has been: the design is 1536 x 1024 and the game
+       renders 1280 x 720 between a top bar and a bottom bar, so what moves
+       across is the design's COLUMN RATIOS, not its pixels.
+       ===================================================================== */
+    const SurveyLayout LO = ComputeSurveyLayout({static_cast<float>(x), static_cast<float>(y),
+                                                 static_cast<float>(w), static_cast<float>(h)});
+    DrawRectangle(x, y, w, h, SC_BG);
+    DrawSurveyModuleBar(unit, LO.bar);
 
+    SurveyChrome::Panel(LO.survey);
+    SurveyChrome::Connector(LO.leftBranchX, LO.survey.y + LO.survey.height, LO.stats.y);
+    SurveyChrome::Panel(LO.stats);
+    SurveyChrome::Panel(LO.layers);
+    SurveyChrome::Panel(LO.drill);
+    SurveyChrome::Connector(LO.rightBranchX, LO.drill.y + LO.drill.height, LO.dstats.y);
+    SurveyChrome::Panel(LO.dstats);
+
+    SurveyChrome::Title(headerFont, "SURVEY TOOLS", LO.survey.x + 14.0f, LO.survey.y + 12.0f, FS(12.0f));
+    SurveyChrome::Title(headerFont, "TOOL STATS", LO.stats.x + 14.0f, LO.stats.y + 10.0f, FS(11.0f));
+    SurveyChrome::Title(headerFont, "LAYERS", LO.layers.x + 14.0f, LO.layers.y + 12.0f, FS(12.0f));
+    SurveyChrome::Title(headerFont, "DRILL BAR", LO.drill.x + 12.0f, LO.drill.y + 12.0f, FS(11.0f));
+    SurveyChrome::Title(headerFont, "DRILL STATS", LO.dstats.x + 12.0f, LO.dstats.y + 10.0f, FS(11.0f));
+
+    // The calibration gauge belongs to the instrument, so it sits with the
+    // tools rather than in a title bar the console no longer has.
     float calQHeader = ps->GetSweep().GetCalibrationQuality();
-    const char* calValue = TextFormat("%.0f%%", calQHeader * 100.0f);
-    float calValueW = MeasureTextEx(headerFont, calValue, FS(12.0f), sp).x;
-    float gaugeW = 90.0f;
-    float gaugeX = px + pw - calValueW - gaugeW - 10.0f;
-    const char* calLabel = "CALIBRATION";
-    float calLabelW = MeasureTextEx(bodyFont, calLabel, FS(10.0f), sp).x;
-    DrawTextEx(bodyFont, calLabel, {gaugeX - calLabelW - 10.0f, yPos + 5.0f},
-               FS(10.0f), sp, EXT_DIM_TEXT);
-    ExtDrawSegBar(gaugeX, yPos + 3.0f, gaugeW, 14.0f, calQHeader,
-                  calQHeader >= 0.8f ? EXT_ACCENT_CYAN : EXT_ACCENT_GOLD);
-    DrawTextEx(headerFont, calValue, {gaugeX + gaugeW + 10.0f, yPos + 2.0f},
-               FS(12.0f), sp, EXT_TEXT);
-    yPos += 32.0f;
+    {
+        const float gy = LO.survey.y + 34.0f;
+        DrawTextEx(bodyFont, "CALIBRATION", {LO.survey.x + 14.0f, gy}, FS(9.0f), sp, SC_DIM);
+        const char* calValue = TextFormat("%.0f%%", calQHeader * 100.0f);
+        SurveyChrome::LabelRight(bodyFont, calValue, LO.survey.x + LO.survey.width - 14.0f,
+                                 gy, FS(9.0f), SC_BRIGHT);
+        SurveyChrome::SegBar({LO.survey.x + 14.0f, gy + 13.0f, LO.survey.width - 28.0f, 7.0f},
+                             calQHeader, calQHeader >= 0.8f ? SC_METER_ON : SC_WARN, 14);
+    }
 
-    // --- Content area ---
-    float contentY = yPos;
-    float contentH = static_cast<float>(y + h - padding) - yPos;
+    const Rectangle railRect = { LO.survey.x + 14.0f, LO.survey.y + 60.0f,
+                                 LO.survey.width - 28.0f, LO.survey.height - 72.0f };
+    float contentY = LO.block.y;
 
     auto& grid = ps->GetGrid();
     int gridSize = grid.GetGridSize();
@@ -5824,11 +6268,11 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // surface, or drill a spot. See docs/design/prospecting/block-model-design.md
     // =======================================================================
 
-    float dockW = 104.0f;
-    float modelW = pw * 0.60f - dockW;
-    float modelH = contentH - 30.0f;
-    float gridX = px;
-    float gridY = contentY;
+    float dockW = LO.drill.width - 16.0f;
+    float modelW = LO.block.width;
+    float modelH = LO.block.height;
+    float gridX = LO.block.x;
+    float gridY = LO.block.y;
 
     // Which element the relief is showing. Confidence -- and so the class
     // envelopes -- are the same for every element, because one core is assayed
@@ -5844,58 +6288,49 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         }
     }
 
-    BlockModelGeom geom = MakeBlockGeom(gridSize, gridX, gridY, modelW, modelH);
-    DockGeom dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
-
-    // The powerhead needs sky. If the stack starts too close to the panel
-    // top (it did on the playtest layout, and the head was scissored away),
-    // push it down and rebuild -- the strip's bands are derived from the
-    // plate slots, so both move together and stay aligned.
+    /* The dock lives in the DRILL BAR panel now, so its depth axis is derived
+       from that panel rather than from the block beside it. `geom` survives
+       only as the thing DockFromBlock measures against: the plates it used to
+       place are gone (see the graveyard record), and it is built here purely
+       to give the dock a slot height per bed. */
+    BlockModelGeom geom = MakeBlockGeom(gridSize, LO.drill.x + 8.0f, LO.drill.y + 56.0f,
+                                        dockW, LO.drill.height - 68.0f);
+    DockGeom dock = DockFromBlock(geom, LO.drill.x + 8.0f, dockW);
+    /* FIT THE DEPTH AXIS TO ITS PANEL, in two passes. The bands are derived
+       from plate slots whose spacing MakeBlockGeom decides, so asking for a
+       height does not get you one -- the first attempt ran a quarter of the
+       column out through the bottom of the panel and straight across DRILL
+       STATS. Measure what the first pass produced, scale the request by the
+       ratio, and re-derive. The powerhead needs sky above the collar too, or
+       it is scissored off at the panel's top edge. */
     {
-        float sky = dock.bandTop[0] - contentY;
-        if (sky < 64.0f)
+        const float top = LO.drill.y + 50.0f;          // sky for the powerhead
+        const float bottom = LO.drill.y + LO.drill.height - 28.0f;
+        for (int pass = 0; pass < 2; pass++)
         {
-            float push = 64.0f - sky;
-            geom = MakeBlockGeom(gridSize, gridX, gridY + push, modelW, modelH - push);
-            dock = DockFromBlock(geom, gridX + modelW + 6.0f, dockW);
+            const float produced = dock.bandTop[4] - dock.bandTop[0];
+            const float wanted = bottom - top;
+            if (produced <= 1.0f) break;
+            const float h = (LO.drill.height - 68.0f) * (wanted / produced);
+            geom = MakeBlockGeom(gridSize, LO.drill.x + 8.0f, LO.drill.y + 56.0f, dockW, h);
+            dock = DockFromBlock(geom, LO.drill.x + 8.0f, dockW);
+            const float drop = top - dock.bandTop[0];
+            geom = MakeBlockGeom(gridSize, LO.drill.x + 8.0f, LO.drill.y + 56.0f + drop, dockW, h);
+            dock = DockFromBlock(geom, LO.drill.x + 8.0f, dockW);
         }
     }
 
-    // One ground, both panels (Dark Plating section 9.1): the strata bands run
-    // dim under the whole stack and full-strength inside the dock, and the
-    // boundary rules cross unbroken through the explosion gaps. Same rock as
-    // the dock wears, same tiling, just quieter -- these bands are the ground
-    // the plates float in, and the plates have to stay the loudest thing in
-    // their own half of the panel.
+    /* THE DIM STRATA BANDS UNDER THE STACK ARE GONE with the stack. They were
+       "one ground, both panels" (Dark Plating 9.1): the dock's rock run
+       quietly across the block's half of the panel so the plates looked like
+       they floated IN the ground rather than over it. The solid block IS the
+       ground, and it is in a different panel from the dock now, so a band
+       stretched between them would cross the gutter and tie together two
+       things the frame deliberately separates. The idea survives where it
+       still applies: the dock draws its own bands full-strength, and the
+       block carries the same beds in the same order.
+       (Covered by docs/design/graveyard/prospecting-exploded-plates.md.) */
     if (!strataLoaded) LoadStrataTextures();
-    for (int L = 0; L < 4; L++)
-    {
-        Rectangle band = {gridX, dock.bandTop[L], dock.x - gridX,
-                          dock.bandTop[L + 1] - dock.bandTop[L]};
-        if (strataLoaded && strataTex[L].id != 0)
-        {
-            float k = static_cast<float>(RockTexture::SIZE) / DP_ROCK_TEX_PX;
-            Color tint = { static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].r * 2)),
-                           static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].g * 2)),
-                           static_cast<unsigned char>(std::min(255, DP_ROCK_COL[L].b * 2)),
-                           255 };
-            // Far dimmer than a RESTING plate, not just dimmer than a lit
-            // one: at 0.34 this camouflaged the plates it was supposed to sit
-            // behind -- the dim plates rest at 0.38-0.50 of full, so the
-            // ground behind them has to be a fraction of THAT, or the panel
-            // reads as one texture with diamonds faintly in it.
-            DrawTexturePro(strataTex[L], {0.0f, L * 41.0f, band.width * k, band.height * k},
-                           band, {0.0f, 0.0f}, 0.0f, Fade(tint, 0.20f));
-        }
-        else
-        {
-            DrawRectangleRec(band, Fade(DP_ROCK_COL[L], 0.18f));
-        }
-        DrawRectangleRec({gridX, dock.bandTop[L], dock.x - gridX, 1.6f},
-                         Fade(DP_ROCK_EDGE[L], 0.85f));
-    }
-    DrawRectangleRec({gridX, dock.bandTop[4] - 1.0f, dock.x - gridX, 1.6f},
-                     Fade(DP_ROCK_EDGE[3], 0.85f));
 
     // Build all four layers first so one grade scale covers the stack --
     // per-layer normalisation would make a barren layer look as rich as the
@@ -6206,7 +6641,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         DrawCircleV(mouse, 3.4f, Fade(DP_OUT, 0.30f));
         DrawCircleV(mouse, 2.0f, Fade(Color{198, 232, 250, 255}, 0.60f));
     }
-    ProsDrawBoreholeDock(unit, ps, dock, contentY, dock.bandTop[4] + 18.0f,
+    ProsDrawBoreholeDock(unit, ps, dock, LO.drill.y + 34.0f, dock.bandTop[4] + 10.0f,
                          hoverM, hoverU, groundHover ? 0.55f : 1.0f,
                          bodyFont, sp, FS(7.5f),
                          strataLoaded ? strataTex : nullptr);
@@ -6231,297 +6666,64 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     }
 
     // --- Legend, two rows so the element line and the swatches cannot collide
-    float legendY = gridY + modelH + 2.0f;
-    /* The legend went with the plates it described. Height was grade and
-       colour was class; on the solid block height is DEPTH and colour is the
-       bed -- and what the panel is really claiming is how much of it has been
-       established, which is the delineation reading. */
-    DrawTextEx(bodyFont, TextFormat("%s   4 beds, %.1f km of column   %s  %.0f%%",
-                                    ResourceTypeToString(shown),
-                                    console.Ground().ColumnM() / 1000.0f,
-                                    console.Tier(), console.Delineation() * 100.0f),
-               {gridX, legendY}, FS(8.5f), sp, EXT_DIM_TEXT);
+    /* UNDER THE BLOCK: what it is, how well it is known, and the log.
+       The legend went with the plates it described -- height was grade and
+       colour was class. On the solid block height is DEPTH and colour is the
+       bed, and the claim worth printing is how much of it has been
+       established: the delineation reading, and the CONFIDENCE bar below it.
+       The class swatches and the LATTICE figure went with the same plates;
+       the swatches live on in the resource statement, which is the one place
+       a resource class still means something. */
     {
-        float swX = gridX;
-        float swY = legendY + 12.0f;
-        const ResourceClass legendCls[3] = { ResourceClass::MEASURED,
-                                             ResourceClass::INDICATED,
-                                             ResourceClass::INFERRED };
-        for (int k = 0; k < 3; k++)
-        {
-            DrawRectangleRounded({swX, swY + 1.0f, 7.0f, 7.0f}, 0.3f, 4,
-                                 ExtClassColor(legendCls[k]));
-            const char* nm = ResourceClassName(legendCls[k]);
-            DrawTextEx(bodyFont, nm, {swX + 10.0f, swY - 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
-            swX += 10.0f + MeasureTextEx(bodyFont, nm, FS(8.0f), sp).x + 10.0f;
-        }
-        // LATTICE, not REACH. Prospecting's reach ring was deleted -- the
-        // whole lattice is open at every tier -- so this figure is the size
-        // of the ground, not a limit on it. Excavation still HAS a reach that
-        // grows with tier, and labels it REACH in amber; one word meaning two
-        // things across twin panels is how a real constraint gets read as
-        // decoration, and a fixed fact gets read as a wall.
-        DrawTextEx(bodyFont, TextFormat("LATTICE %dx%d", grid.GetReach(), grid.GetReach()),
-                   {swX + 4.0f, swY - 1.0f}, FS(8.0f), sp, Fade(EXT_DIM_TEXT, 0.7f));
+        const float legendY = LO.block.y + LO.block.height - 12.0f;
+        DrawTextEx(bodyFont, TextFormat("%s   4 beds   %.1f km of column   %d x %d lattice",
+                                        ResourceTypeToString(shown),
+                                        console.Ground().ColumnM() / 1000.0f,
+                                        console.Ground().Lattice(), console.Ground().Lattice()),
+                   {LO.block.x + 4.0f, legendY}, FS(8.0f), sp, Fade(SC_DIM, 0.85f));
+
+        const float delin = console.Delineation();
+        const char* tier = console.Tier();
+        DrawTextEx(bodyFont, "CONFIDENCE", {LO.confidence.x, LO.confidence.y + 2.0f},
+                   FS(9.0f), sp, SC_TITLE);
+        const float labelW = MeasureTextEx(bodyFont, "CONFIDENCE", FS(9.0f), sp).x + 10.0f;
+        const float tierW = MeasureTextEx(bodyFont, tier, FS(9.0f), sp).x + 10.0f;
+        SurveyChrome::SegBar({LO.confidence.x + labelW, LO.confidence.y,
+                              LO.confidence.width - labelW - tierW - 44.0f, LO.confidence.height},
+                             delin, SurveyChrome::Health(delin));
+        SurveyChrome::LabelRight(bodyFont, TextFormat("%.0f%%", delin * 100.0f),
+                                 LO.confidence.x + LO.confidence.width - tierW,
+                                 LO.confidence.y + 2.0f, FS(9.0f), SC_BRIGHT);
+        SurveyChrome::LabelRight(bodyFont, tier, LO.confidence.x + LO.confidence.width,
+                                 LO.confidence.y + 2.0f, FS(9.0f), SurveyChrome::Health(delin));
     }
 
-    // =========================== the control rail ===========================
-    float ctrlX = dock.x + dock.w + 15.0f;
-    float ctrlY = contentY;
-    float ctrlW = px + pw - ctrlX;
+    /* THE SURVEY LOG is a box inside LAYERS rather than a panel of its own:
+       it is what you read between holes, and it belongs to the block it is
+       reporting on. What goes in it -- the discovery messages, in the order
+       they arrived -- is the telemetry stage of this port. */
+    SurveyChrome::Box(LO.log);
+    SurveyChrome::Title(bodyFont, "SURVEY LOG", LO.log.x + 12.0f, LO.log.y + 8.0f, FS(9.0f));
+    SurveyChrome::LabelCentre(bodyFont, "the log arrives with the telemetry stage",
+                              LO.log.x + LO.log.width * 0.5f,
+                              LO.log.y + LO.log.height * 0.6f, FS(8.5f), Fade(SC_DIM, 0.65f));
 
-    bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
-                         ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
+    // An empty panel should name what is missing rather than pretend to be
+    // finished.
+    SurveyChrome::LabelCentre(bodyFont, "derived telemetry", LO.stats.x + LO.stats.width * 0.5f,
+                              LO.stats.y + LO.stats.height * 0.55f, FS(8.5f), Fade(SC_DIM, 0.6f));
+    SurveyChrome::LabelCentre(bodyFont, "rig telemetry", LO.dstats.x + LO.dstats.width * 0.5f,
+                              LO.dstats.y + LO.dstats.height * 0.55f, FS(8.5f), Fade(SC_DIM, 0.6f));
 
-    // --- Resource statement: the number the whole loop is trying to grow ---
-    DrawTextEx(headerFont, "RESOURCE", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
-    ctrlY += 18.0f;
-    {
-        ClassSplit split = GetClassSplit(grid, ps->GetTray(), shown, grid.GetTier());
-        const ResourceClass rows[3] = { ResourceClass::MEASURED,
-                                        ResourceClass::INDICATED,
-                                        ResourceClass::INFERRED };
-        for (int k = 0; k < 3; k++)
-        {
-            float v = split.Get(rows[k]);
-            Color c = ExtClassColor(rows[k]);
-            DrawRectangleRounded({ctrlX, ctrlY + 3.0f, 7.0f, 7.0f}, 0.3f, 4,
-                                 v > 0.0f ? c : Fade(c, 0.3f));
-            DrawTextEx(bodyFont, ResourceClassName(rows[k]), {ctrlX + 12.0f, ctrlY},
-                       FS(9.5f), sp, v > 0.0f ? EXT_TEXT : Fade(EXT_DIM_TEXT, 0.6f));
-            const char* amount = v > 0.0f ? TextFormat("%.0f", v) : "-";
-            float aw = MeasureTextEx(bodyFont, amount, FS(9.5f), sp).x;
-            DrawTextEx(bodyFont, amount, {ctrlX + ctrlW - 12.0f - aw, ctrlY},
-                       FS(9.5f), sp, v > 0.0f ? EXT_TEXT : Fade(EXT_DIM_TEXT, 0.6f));
-            ctrlY += 13.0f;
-        }
-        ctrlY += 3.0f;
-        DrawLineEx({ctrlX, ctrlY}, {ctrlX + ctrlW - 12.0f, ctrlY}, 1.0f, EXT_PANEL_BORDER);
-        ctrlY += 6.0f;
-        DrawTextEx(bodyFont, "Committable", {ctrlX, ctrlY}, FS(9.5f), sp, EXT_DIM_TEXT);
-        const char* cm = TextFormat("%.0f", split.Committable());
-        float cmw = MeasureTextEx(headerFont, cm, FS(13.0f), sp).x;
-        DrawTextEx(headerFont, cm, {ctrlX + ctrlW - 12.0f - cmw, ctrlY - 3.0f},
-                   FS(13.0f), sp, EXT_ACCENT_GREEN);
-        ctrlY += 20.0f;
-    }
-
-    // --- Wide survey: one instrument, one button ---------------------------
-    // LIBS reads SURFACE chemistry -- element by element, fast and cheap, and
-    // blind to everything below the regolith. It shapes where you drill; it
-    // never classifies, because you cannot put tonnage in a statement on the
-    // strength of a surface reading.
-    DrawTextEx(headerFont, "SURFACE SWEEP", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
-    ctrlY += 17.0f;
-    {
-        bool sweptAlready = grid.HasSweptFrequency(0);
-        bool affordable = ProsCanAfford(unit, SWEEP_ENERGY_COST[0]);
-        bool canSweep = ps->GetSweep().CanSweep(grid, 0) && affordable;
-        Rectangle btn = {ctrlX, ctrlY, ctrlW - 12.0f, 26.0f};
-        bool hover = CheckCollisionPointRec(mouse, btn);
-
-        DrawRectangleRounded(btn, 0.3f, 4, canSweep && hover ? Color{16, 40, 60, 255}
-                                                             : EXT_PANEL_BG2);
-        DrawRectangleRoundedLinesEx(btn, 0.3f, 4, 1.0f,
-                                    canSweep ? PROS_TAB_ACTIVE_BDR : PROS_BTN_DISABLED);
-        const char* label = sweptAlready ? "LIBS  -  SWEPT" : "LIBS ROVER SWEEP";
-        Vector2 ls = MeasureTextEx(headerFont, label, FS(10.5f), sp);
-        DrawTextEx(headerFont, label,
-                   {btn.x + (btn.width - ls.x) / 2.0f, btn.y + (26.0f - ls.y) / 2.0f},
-                   FS(10.5f), sp,
-                   sweptAlready ? EXT_ACCENT_GREEN
-                                : (canSweep ? EXT_ACCENT_CYAN : PROS_BTN_DISABLED));
-        // Caption BELOW the button. Inside it, the two lines collided.
-        DrawTextEx(bodyFont, TextFormat("%.0f E   surface chemistry only, never classifies",
-                                        SWEEP_ENERGY_COST[0]),
-                   {btn.x + 1.0f, btn.y + 28.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
-
-        if (hover && canSweep && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            float cost = ps->GetSweep().GetSweepCost(0);
-            if (unit->ConsumeResource(ResourceType::ENERGY, cost))
-            {
-                ps->GetSweep().ExecuteSweep(grid, 0, ps->gameTime);
-                unit->PublicShowMessage("LIBS sweep complete - surface chemistry mapped");
-            }
-        }
-        ctrlY += 44.0f;
-    }
-
-    // --- Drill: the line, its cost, its progress ---------------------------
-    DrawTextEx(headerFont, "DRILL - AUGER", {ctrlX, ctrlY}, FS(11.0f), sp, EXT_HEADER_COLOR);
-    ctrlY += 17.0f;
-
-    const LineHole& lh = ps->lineHole;
-    if (lh.state == LineHoleState::AIMING && lh.targetLayer > 0)
-    {
-        float lineCost = DrillEnergyToDepthMetres(lh.endM);
-        bool affordable = ProsCanAfford(unit, lineCost);
-        static const char* layerNames[4] = {"REGOLITH", "MEGAREGOLITH", "FRACTURED", "BASALT"};
-        DrawTextEx(bodyFont, TextFormat("line to %.0f m (%s) - %.0f E",
-                                        lh.endM, layerNames[lh.targetLayer], lineCost),
-                   {ctrlX, ctrlY}, FS(9.5f), sp,
-                   affordable ? EXT_ACCENT_CYAN : EXT_ACCENT_GOLD);
-        ctrlY += 13.0f;
-        DrawTextEx(bodyFont, "click to drill - the collar block cancels",
-                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
-        ctrlY += 16.0f;
-    }
-    else if (lh.state == LineHoleState::DRILLING && lh.tripping)
-    {
-        DrawTextEx(bodyFont, TextFormat("bit fractured at %.0f m - tripping  %.0f / %.0f s",
-                                        lh.depthM, lh.tripT, lh.tripDur),
-                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_RED);
-        ctrlY += 13.0f;
-        DrawTextEx(bodyFont, "out rod by rod, and back - depth is the price",
-                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
-        ctrlY += 16.0f;
-    }
-    else if (lh.state == LineHoleState::DRILLING)
-    {
-        DrawTextEx(bodyFont, TextFormat("string down  %.0f / %.0f m%s",
-                                        lh.depthM, lh.endM,
-                                        lh.dwelling ? "  -  COOLING" : ""),
-                   {ctrlX, ctrlY}, FS(9.5f), sp,
-                   lh.dwelling ? EXT_ACCENT_GOLD : EXT_TEXT);
-        ctrlY += 13.0f;
-        DrawTextEx(bodyFont, "click the borehole to drive the string",
-                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
-        ctrlY += 15.0f;
-        DrawTextEx(bodyFont, "SPINDLE", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
-        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f,
-                      lh.rpm / DRILL_RPM_MAX,
-                      lh.rpm > 0.9f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN);
-        ctrlY += 15.0f;
-    }
-    else if (lh.state == LineHoleState::RETRACTING)
-    {
-        DrawTextEx(bodyFont, TextFormat("line complete - hoisting  %.0f m",
-                                        ProsShownDepthM(lh)),
-                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GREEN);
-        ctrlY += 13.0f;
-        DrawTextEx(bodyFont, "the string comes out; the hole and its log stay",
-                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
-        ctrlY += 16.0f;
-    }
-    else if (lh.state == LineHoleState::DONE)
-    {
-        DrawTextEx(bodyFont, TextFormat("line complete - %.0f m cored", lh.endM),
-                   {ctrlX, ctrlY}, FS(9.5f), sp, EXT_ACCENT_GREEN);
-        ctrlY += 13.0f;
-        DrawTextEx(bodyFont, "string racked - click a block to line the next",
-                   {ctrlX, ctrlY}, FS(8.0f), sp, EXT_DIM_TEXT);
-        ctrlY += 16.0f;
-    }
-    else
-    {
-        DrawTextEx(bodyFont, "click the ground to collar, then a bed",
-                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
-        ctrlY += 12.0f;
-        DrawTextEx(bodyFont, "for the depth - drag the block to turn it",
-                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
-        ctrlY += 16.0f;
-    }
-
-    // Bit temperature: the price hard rock charges in time (auto-peck at max)
-    if (lh.state == LineHoleState::DRILLING || lh.heat > 0.03f)
-    {
-        DrawTextEx(bodyFont, "BIT TEMP", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
-        Color hc = lh.heat > 0.8f ? EXT_ACCENT_RED
-                 : lh.heat > 0.5f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
-        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.heat, hc);
-        ctrlY += 15.0f;
-    }
-    // Bit wear: time-at-temperature plus metres cut. At full it fractures,
-    // and a fracture buys a TRIP -- time scaled by depth, never the run.
-    if (lh.state == LineHoleState::DRILLING || lh.wear > 0.02f)
-    {
-        DrawTextEx(bodyFont, "BIT WEAR", {ctrlX, ctrlY + 1.0f}, FS(8.0f), sp, EXT_DIM_TEXT);
-        Color wc = lh.wear > 0.8f ? EXT_ACCENT_RED
-                 : lh.wear > 0.55f ? EXT_ACCENT_GOLD : EXT_ACCENT_CYAN;
-        ExtDrawSegBar(ctrlX + 54.0f, ctrlY, ctrlW - 66.0f, 10.0f, lh.wear, wc);
-        ctrlY += 17.0f;
-    }
-    ctrlY += 6.0f;
-
-    // --- What is known about the selected spot -----------------------------
-    if (hasSelection)
-    {
-        DrawLineEx({ctrlX, ctrlY - 6.0f}, {ctrlX + ctrlW - 12.0f, ctrlY - 6.0f},
-                   1.0f, EXT_PANEL_BORDER);
-
-        const SubCell& selCell = grid.GetSubCell(ps->selectedCellX, ps->selectedCellY);
-        float selConf = GetDepthConfidence(grid, ps->GetTray(),
-                                           ps->selectedCellX, ps->selectedCellY,
-                                           ps->selectedDepth);
-        ResourceClass selClass = GetResourceClass(selConf);
-
-        DrawTextEx(headerFont, ResourceClassName(selClass), {ctrlX, ctrlY},
-                   FS(11.0f), sp, ExtClassColor(selClass));
-        if (!IsCommittable(selClass))
-        {
-            float nw = MeasureTextEx(headerFont, ResourceClassName(selClass), FS(11.0f), sp).x;
-            DrawTextEx(bodyFont, "not minable", {ctrlX + nw + 8.0f, ctrlY + 1.0f},
-                       FS(8.5f), sp, Fade(EXT_DIM_TEXT, 0.85f));
-        }
-        ctrlY += 17.0f;
-
-        {
-            bool known = selCell.HasCore(static_cast<int>(ps->selectedDepth)) ||
-                         selCell.HasBeenDug(static_cast<int>(ps->selectedDepth));
-            DrawTextEx(bodyFont, TextFormat("%s %s  %.0f",
-                                            ResourceTypeToString(shown),
-                                            known ? "assay" : "estimate",
-                                            GetEstimatedYield(grid, ps->selectedCellX,
-                                                              ps->selectedCellY,
-                                                              ps->selectedDepth, shown)),
-                       {ctrlX, ctrlY}, FS(9.0f), sp,
-                       known ? EXT_TEXT : EXT_DIM_TEXT);
-        }
-        ctrlY += 13.0f;
-        DrawTextEx(bodyFont, TextFormat("cores here  %d",
-                                        static_cast<int>(selCell.sampleIds.size())),
-                   {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
-        ctrlY += 13.0f;
-
-        // Class per depth. Confidence is per depth, so a spot can be Measured
-        // at the surface and Unclassified below it -- which is exactly what
-        // decides whether a deep dig is a plan or a gamble.
-        DrawTextEx(bodyFont, "CLASS BY DEPTH", {ctrlX, ctrlY}, FS(8.0f), sp,
-                   Fade(EXT_DIM_TEXT, 0.8f));
-        ctrlY += 12.0f;
-        for (int d = 0; d < 4; d++)
-        {
-            Rectangle chip = {ctrlX + d * 26.0f, ctrlY, 22.0f, 14.0f};
-            if (false)
-            {
-                DrawRectangleRounded(chip, 0.3f, 4, Color{18, 22, 34, 255});
-                DrawRectangleRoundedLinesEx(chip, 0.3f, 4, 1.0f, Color{34, 40, 58, 255});
-                continue;
-            }
-            float c = GetDepthConfidence(grid, ps->GetTray(), ps->selectedCellX,
-                                         ps->selectedCellY, static_cast<DepthLayer>(d));
-            Color col = ExtClassColor(GetResourceClass(c));
-            DrawRectangleRounded(chip, 0.3f, 4, Fade(col, 0.22f));
-            DrawRectangleRoundedLinesEx(chip, 0.3f, 4, d == focusDepth ? 1.6f : 1.0f, col);
-            const char* initial = (d == 0) ? "S" : (d == 1) ? "H" : (d == 2) ? "M" : "D";
-            float iw = MeasureTextEx(bodyFont, initial, FS(8.5f), sp).x;
-            DrawTextEx(bodyFont, initial, {chip.x + (22.0f - iw) / 2.0f, chip.y + 2.5f},
-                       FS(8.5f), sp, col);
-        }
-        ctrlY += 20.0f;
-
-        int dugLayers = 0;
-        for (int d = 0; d < 4; d++) if (selCell.HasBeenDug(d)) dugLayers++;
-        if (dugLayers > 0)
-        {
-            DrawTextEx(bodyFont, TextFormat("Excavated: %d/4 layers", dugLayers),
-                       {ctrlX, ctrlY}, FS(9.0f), sp, Color{228, 164, 74, 255});
-        }
-    }
-
-
-    // (Survey progress summary now lives in the shared bottom status bar.)
+    /* Clipped to its panel. The rail is a running column of sections whose
+       height depends on what the module has found, so on a short panel it
+       will run past the bottom -- and a control drawn outside its panel is
+       both ugly and clickable, which is worse. */
+    BeginScissorMode(static_cast<int>(railRect.x), static_cast<int>(railRect.y),
+                     static_cast<int>(railRect.width), static_cast<int>(railRect.height));
+    ProsDrawRail(unit, ps, grid, gridSize, shown, railRect,
+                 headerFont, bodyFont, sp, mouse, dock);
+    EndScissorMode();
 }
 
 

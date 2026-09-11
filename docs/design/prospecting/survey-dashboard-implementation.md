@@ -498,7 +498,7 @@ wiring, which the game can render as fast as a browser can.
 | | What lands | State |
 |---|---|---|
 | **C1** | `src/Survey/` — the ground, the knowledge field, the camera, the bed painter and the wire cage, drawn in `DrawProspectingPanel` in place of the four exploded plates | **done** |
-| **C2** | the console frame: `Layout()` at two breakpoints, the five panels, the horizontal module bar, the existing controls rehoused | |
+| **C2** | the console frame: `ComputeSurveyLayout`, the five panels, the horizontal module bar, the existing controls rehoused | **done** |
 | **C3** | the drill — glyph, cursor, planted rig, cycle, spatter, bore markers — on the block's own camera | |
 | **C4** | the tool rack, five bays | |
 | **C5** | the ruler, the CONFIDENCE bar, isolate gated at 95%, and the ghost compositing the flat per-bed alpha stands in for | |
@@ -545,3 +545,51 @@ documented fallback (C5).
 --holes 0|1|3|9` — a new flag, because a block drawn only where it has been
 measured is a wire cage until something drills it, which is correct and
 useless for judging the beds.
+
+### C2 — as built
+
+The console takes **the whole screen** between the game's top and bottom bars.
+It is not a centre panel with chrome either side: the module selector moves
+into its own bar along the top, the control panel's actions move there with it,
+and that is what pays for the block being twice the size it was.
+`SurveyConsoleModule(unit)` decides, so every other module still draws the
+three-column unit view underneath — the design's decision 7, enforced in one
+predicate.
+
+**The module bar carries the unit's actions, and the design did not say to do
+that.** The browser prototype had no tier, no upgrade and no power state,
+because it was not inside a game; the game's CONTROL PANEL held them, and the
+console takes that column's space. They belong on the bar for the same reason
+the tabs do: that row is the unit speaking, not the instrument.
+
+**The phone breakpoint is NOT here, and the layout function says why.** In the
+browser the page reflows and a breakpoint means something. The game renders one
+fixed 1280 × 720 frame and scales the canvas, so `GetScreenWidth()` says 1280
+on a phone and on a desktop alike, and a breakpoint would be a lie. The phone
+problem is real — a 12 px label scaled to a 400 px screen is unreadable — and
+the design's answer (the block is the app, the rack and the bar are summoned)
+is still right. It needs the game to learn its **display** size, which is a
+web-shell change, not a layout change. `ComputeSurveyLayout` returns one
+arrangement and is shaped so the second one is cheap.
+
+**Where the existing controls went:** SURVEY TOOLS takes the whole control rail
+(calibration, the resource statement, the surface sweep, the auger and the
+readout for the spot under the rig) — extracted into `ProsDrawRail`, which now
+takes a *rectangle* instead of deriving one from the dock it used to stand
+beside. DRILL BAR takes the borehole dock. LAYERS takes the block, the
+CONFIDENCE bar (delineation, live, on the health ramp) and the log box. The two
+stats panels name the stage that fills them.
+
+**Two fits worth recording.** The dock's depth axis is derived from plate slots
+whose spacing `MakeBlockGeom` decides, so *asking* for a height does not get
+you one: the first pass ran a quarter of the column out through the bottom of
+the panel and across DRILL STATS. It is fitted in two passes — measure what
+pass one produced, scale the request by the ratio, re-derive. And the rail is
+scissored to its panel, because it is a running column whose height depends on
+what the module has found, and a control drawn outside its panel is still
+clickable.
+
+**Retired with the plates:** the dim strata bands that ran under the stack
+("one ground, both panels"). The solid block *is* the ground and it is in a
+different panel from the dock now, so a band between them would cross the
+gutter the frame deliberately puts there.

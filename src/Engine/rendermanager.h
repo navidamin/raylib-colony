@@ -147,6 +147,7 @@ private:
 
     // Module-specific center panels (Extraction)
     void DrawProspectingPanel(Unit* unit, int x, int y, int w, int h);
+    void DrawSurveyModuleBar(Unit* unit, Rectangle bar);
     void DrawExcavationPanel(Unit* unit, int x, int y, int w, int h);
     void DrawBeneficiationPanel(Unit* unit, int x, int y, int w, int h);
     void DrawOperationsPanel(Unit* unit, int x, int y, int w, int h);

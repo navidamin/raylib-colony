@@ -108,3 +108,33 @@ constexpr int   SURVEY_CAGE_STEP   = 4;      // lattice nodes between column lin
 constexpr float SURVEY_CAGE_RING_M = 250.0f; // metres between depth rings
 constexpr float SURVEY_CAGE_ALPHA  = 0.30f;
 constexpr float SURVEY_CRAWL_HZ    = 6.0f;   // stepped, not run: data arriving, not judder
+
+/* ---- the console's chrome palette ---------------------------------------
+   From the dashboard design (survey-dashboard-design.md section 3). This is
+   deliberately NOT the extraction UI's near-black and amber: the console is a
+   readout of measured ground. Dark Plating still owns the machinery drawn on
+   top of it -- the drill -- and section 10b of that guide is where the
+   boundary runs. */
+constexpr Color SC_BG        = {  2,  11,  19, 255 };   // page ground
+constexpr Color SC_PANEL     = {  3,  18,  29, 255 };   // panel fill
+constexpr Color SC_LINE      = { 26,  74,  92, 255 };   // the dim rounded outline
+constexpr Color SC_ACCENT    = { 53, 216, 238, 255 };   // brackets, connectors, active rules
+constexpr Color SC_ACCENT_DIM= { 28, 127, 149, 255 };   // connector stems
+constexpr Color SC_TITLE     = { 98, 179, 245, 255 };
+constexpr Color SC_UNDERLINE = { 33, 227, 240, 255 };
+constexpr Color SC_BODY      = {111, 143, 176, 255 };   // prose
+constexpr Color SC_LABEL     = {163, 184, 204, 255 };
+constexpr Color SC_BRIGHT    = {188, 210, 230, 255 };
+constexpr Color SC_DIM       = { 95, 122, 150, 255 };
+constexpr Color SC_METER_ON  = { 36, 220, 242, 255 };
+constexpr Color SC_METER_OFF = { 21,  55,  71, 255 };
+constexpr Color SC_BAR_EDGE  = { 28, 100, 122, 255 };
+constexpr Color SC_HEX       = { 31,  90, 110, 255 };   // the block's vignette
+constexpr Color SC_BOX_FILL  = {  5,  24,  37, 255 };   // a box nested inside a panel
+
+// The health ramp: confidence, wear, heat -- anything that is better high and
+// worse low reads on these four and nothing else.
+constexpr Color SC_GOOD  = { 63, 227, 110, 255 };
+constexpr Color SC_FAIR  = {233, 227,  75, 255 };
+constexpr Color SC_WARN  = {255, 164,  65, 255 };
+constexpr Color SC_BAD   = {255,  90,  90, 255 };
