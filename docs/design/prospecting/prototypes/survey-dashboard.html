@@ -894,6 +894,27 @@ function BuildHeights(){
       }
     SURF.push(d);
   }
+  /* Denudation. The scour is not a decal on the surface, it is the surface:
+     a bowl driven into interface 0 with the spoil heaped in a ring outside it.
+     Because it deforms the height field the block already draws, the shading,
+     the silhouette and the walls all pick it up for free. */
+  if (holes.length){
+    const d0 = SURF[0];
+    for (const h of holes){
+      if (h.k <= 0.001) continue;
+      for (let j = 0; j <= N; j++)
+        for (let i = 0; i <= N; i++){
+          const dd = Math.hypot(i - h.i, j - h.j);
+          if (dd > SCOUR_R * 2.1) continue;
+          const u = dd / SCOUR_R;
+          const bowl = u < 1 ? (1 - u * u) * (1 - u * u) : 0;
+          const sg = (dd - SCOUR_R * 1.25) / (SCOUR_R * 0.62);
+          const ring = Math.exp(-sg * sg * 0.5);
+          d0[j * STRIDE + i] += (bowl * SCOUR_DEEP_M - ring * SCOUR_RIM_M) * h.k;
+        }
+    }
+  }
+
   /* No interface may pass through the one below it. A deep crater bottoming
      out on a harder unit is the interesting case this keeps legal: the floor
      flattens against the bed beneath instead of turning the block inside out. */
@@ -947,7 +968,15 @@ function BuildModel(){
     const a = lerp(at(i0, j0), at(i0 + 1, j0), tx), b = lerp(at(i0, j0 + 1), at(i0 + 1, j0 + 1), tx);
     return lerp(a, b, tz) / COLUMN_M;
   });
+  /* The camera and the explode offsets are stamped onto the model by
+     Holo3D.render, and the ground is rebuilt mid-cut as the scour deepens. A
+     rebuild that dropped them would leave every projection in the drill
+     without a camera for one frame -- so they are carried across. */
+  const prev = model;
   model = { W: MODEL_W, D: MODEL_D, NX: N, NZ: N, pts, fields, layers: BEDS, hits: [], seed: 11 };
+  if (prev) { model.cam = prev.cam; model.offY = prev.offY; model.alphaOf = prev.alphaOf;
+              model.bounds = prev.bounds; model.hull = prev.hull; }
+  else { model.offY = () => 0; model.alphaOf = () => 1; }
   return model;
 }
 
@@ -1022,11 +1051,862 @@ function DrawBaseRing(ctx, view) {
   }
   ctx.restore();
 }
+/* One object, not a fresh one per call: Holo3D.render stamps `centerY` onto
+   the view the first time it sees it, and the inverse projection needs to read
+   the same value back. */
+let VIEW = null, viewKey = '';
 function BlockView() {
-  const b = LT.block;
-  return { cx: b.cx, cy: b.cy, zoom: b.zoom };
+  const b = LT.block, k = [b.cx, b.cy, b.zoom].join(',');
+  if (k !== viewKey) { viewKey = k; VIEW = { cx: b.cx, cy: b.cy, zoom: b.zoom }; }
+  return VIEW;
 }
 function DrawBlock(ctx) { Holo3D.render(ctx, model, blockCtl.state, BlockView()); }
+
+/* =====================================================================
+   10. THE DRILL
+   ---------------------------------------------------------------------
+   Ported from layer-block.html and KEPT: the glyph, the cursor, the
+   planted rig, the cycle, the spatter, the bore markers. The design is
+   settled (design doc section 5) and this stage does not restyle any of
+   it -- it makes it work on a camera that can pitch.
+
+   THE ONE THING THAT MATTERED, settled by arithmetic before any of it
+   was written. The drill is not a 3D object; it is a 2D drawing that
+   stands vertically in screen space at a projected point. That was safe
+   under a fixed isometric camera because world-vertical landed on
+   screen-vertical. Under Holo3D's camera:
+
+       h       = p.x*f0 + p.z*f1
+       screenX = (p.x*r0 + p.z*r1) * zoom + cx          <- no p.y term
+       screenY = (-(p.y - centerY)*cp - h*sp) * zoom + cy
+
+   Two points differing only in world height share `h`, so they share
+   screenX exactly, and their screenY differs by -dy*cos(pitch)*zoom. A
+   vertical world segment projects to a vertical screen segment at every
+   yaw and every pitch. THE RIG STAYS UPRIGHT AND IS NOT REDRAWN. It only
+   foreshortens.
+
+   So what this stage actually is:
+
+     * PX_PER_M stops being a lever and becomes a reading of the camera,
+       recomputed each frame. Every consumer -- SpudM, the sink travel,
+       the spatter's unit split -- is untouched, because it stays a
+       variable rather than becoming a function call.
+     * The rig's SIZE does not follow pitch, only its travel. It is
+       pixel art on a whole-pixel grid and cos(pitch) would mush it.
+     * Placing a hole is an inverse projection onto the top surface,
+       where it used to be a lattice hit in a fixed iso.
+   ===================================================================== */
+
+/* The names the ported drill expects, supplied rather than rewritten.
+   Its dark outline is Dark Plating's near-black; on the console's navy it
+   still reads as an outline, which is all it was ever doing. */
+const OUT = "#0a0e14";
+const CY = [80, 225, 255], AMBER = [244, 198, 106];   // G_STANDBY comes with the glyph
+const rgb = (c, a) => a === undefined ? `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`
+                                      : `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+const scalec = (c, f) => [Math.min(255, c[0] * f), Math.min(255, c[1] * f), Math.min(255, c[2] * f)];
+const hex2rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const st = { t: 0, vx: -1, vy: -1, mx: -1, my: -1, depth: 0, sel: -1 };
+const drill = { armed: 0, mode: "aim", t: 0, phase: 0, i: 0, j: 0,
+                spud: 0, sink: 0, feed: 0, fade: 0, depthM: 0, curM: 0,
+                cutT: 1, sink0: 0, canPlace: 0, onCanvas: 0 };
+const holes = [];              // {i, j, k} -- k is how far the scour has got
+const bores = [];              // {i, j, m} -- finished holes, and how deep
+const spatter = [];            // ejecta, in lattice units with a height in m
+/* The rig is an instrument symbol, not a scale model -- at 6 km across, a
+   drill drawn true would be invisible. But it must not tower over the block
+   either, or it takes the scale away again. */
+const DRILL_S = 0.78;
+const SCOUR_R = 1.5;          // scour radius, lattice cells -- about 320 m
+const SCOUR_DEEP_M = 45;      // how far the bowl is driven down, metres
+const SCOUR_RIM_M = 18;       // how high the spoil rim stands, metres
+const EJECTA_G_PX = 300;      // ejecta gravity, screen px/s^2
+const SPUD_T = 0.85, OUT_T = 0.9, HOLD_T = 1.0, FADE_T = 0.3;
+const reveals = [];            // {i, j, m} -- what stage 3 re-fits the model on
+let revealRev = 0, grainSeed = 1, lockFlash = 0;
+
+/* PIXELS PER METRE OF DEPTH, read off the camera.
+   A point at depth m sits at model y = -(m/COLUMN_M)*D, and screenY carries
+   -y*cos(pitch)*zoom, so d(screenY)/dm is exactly this. It was a slider; it
+   is now a consequence, and it changes every time the camera does. */
+let PX_PER_M = 0.2, TX = 6;
+function ReadCamera() {
+  const cam = model && model.cam; if (!cam) return;
+  PX_PER_M = MODEL_D * cam.cp * cam.zoom / Math.max(COLUMN_M, 1);
+  TX = MODEL_W / N * cam.zoom;          // one lattice cell across, in screen px
+}
+/* A lattice node at a depth, projected. The drill asks for this the way it
+   used to ask SPX/SPY, so every call site is unchanged. */
+function Proj(i, j, m) {
+  return model.cam.project([(i / N - 0.5) * MODEL_W,
+                            -(m / COLUMN_M) * MODEL_D + model.offY(0),
+                            (j / N - 0.5) * MODEL_W]);
+}
+function BedColour(m) {
+  let k = 0; const e = [TOPS[1], TOPS[2], TOPS[3]];
+  while (k < 3 && m > e[k]) k++;
+  return hex2rgb(model.layers[k].neon);
+}
+const CLIP_TOP = () => LT.block.canvas[1] - 40;
+/* The ported crumbs and the spatter want the rock's own colour and the old
+   panel's texture gain and grain PRNG. On the console the beds ARE the
+   palette, so the surface bed's neon stands in for the regolith tone, the
+   gain is 1 (there is no texture lever to read) and the PRNG comes across
+   verbatim so a hole's grain is the same grain every frame rather than
+   boiling. */
+const ROCK_COL = [hex2rgb(Holo3D.LAYERS[0].neon)];
+const TexGain = () => 1;
+const P_TEX = 0;
+function rnd(){ grainSeed = (grainSeed * 16807) % 2147483647; return grainSeed / 2147483647; }
+
+/* WHERE THE POINTER IS ON THE GROUND -- a ray march, not an iteration.
+   ---------------------------------------------------------------------
+   Screen x and y give two equations and the unknown third is the surface's
+   own height, which depends on where you land. The obvious answer -- guess a
+   height, solve, resample, repeat -- WORKS AT STEEP PITCH AND DIVERGES AT
+   SHALLOW, and it took a render to notice because it fails silently by
+   clamping to the block's edge. The amplification per pass is cot(pitch):
+   0.36 at pitch 1.2, 2.1 at 0.45, 4.9 at 0.2. Above about 45 degrees the
+   iteration contracts; below it, it runs away.
+
+   So the honest thing, which has no such regime. Every world point that
+   projects to (sx, sy) lies on one line. Writing `a` for the across-screen
+   coordinate and `h` for depth along the view axis, both fixed by the
+   projection:
+
+       a = (sx - cx)/zoom = x*r0 + z*r1          -- constant along the ray
+       y*cp + h*sp = -(sy - cy)/zoom             -- so y is a function of h
+
+   and [r, f] is orthonormal (r = [f1, -f0]), so (x, z) comes straight back
+   from (a, h) by the transpose. March h from near to far, find the first
+   place the ray crosses the height field, bisect it. First crossing, not
+   nearest: at a grazing camera a ray really can cross the terrain more than
+   once, and the one you mean is the one in front. */
+function PickGround(sx, sy) {
+  const cam = model.cam; if (!cam) return null;
+  const v = BlockView(), cy0 = v.centerY == null ? -MODEL_D / 2 : v.centerY;
+  const a = (sx - v.cx) / v.zoom, B = -(sy - v.cy) / v.zoom;
+  const off = model.offY(0), R = MODEL_W * 0.78;      // the block's half-diagonal, generously
+  const at = h => {
+    const x =  a * cam.f[1] + h * cam.f[0];
+    const z = -a * cam.f[0] + h * cam.f[1];
+    const u = x / MODEL_W + 0.5, w = z / MODEL_W + 0.5;
+    const inside = u >= -1e-9 && u <= 1 + 1e-9 && w >= -1e-9 && w <= 1 + 1e-9;
+    if (!inside) return { u, w, inside };
+    const yRay = (B - h * cam.sp) / cam.cp;
+    const ySurf = -model.fields[0](u, w) * MODEL_D + off - cy0;
+    return { u, w, inside, d: yRay - ySurf };
+  };
+  const STEPS = 80;
+  let prev = null, lo = null, hi = null;
+  for (let k = 0; k <= STEPS; k++) {
+    const h = -R + 2 * R * k / STEPS, q = at(h);
+    if (!q.inside) { prev = null; continue; }
+    if (Math.abs(q.d) < 1e-9) { lo = hi = h; break; }
+    if (prev && (prev.q.d < 0) !== (q.d < 0)) { lo = prev.h; hi = h; break; }
+    prev = { h, q };
+  }
+  if (lo === null) {
+    // the ray never meets the cap: off the block, or looking at it edge-on
+    const q = at(0);
+    return { i: clamp(Math.round(q.u * N), 0, N), j: clamp(Math.round(q.w * N), 0, N),
+             u: q.u, w: q.w, on: false };
+  }
+  for (let k = 0; k < 22; k++) {                     // bisect to well under a cell
+    const m = (lo + hi) / 2, q = at(m);
+    if (!q.inside) break;
+    const s0 = at(lo);
+    if ((s0.d < 0) !== (q.d < 0)) hi = m; else lo = m;
+  }
+  const q = at((lo + hi) / 2);
+  return { i: clamp(Math.round(q.u * N), 0, N), j: clamp(Math.round(q.w * N), 0, N),
+           u: q.u, w: q.w, on: !!q.inside };
+}
+/* Can the rig stand where the pointer is? On the cap, with the stack closed:
+   a bed held out on its own is a reading posture, and drilling into an
+   exploded model would be drilling into a diagram of the ground rather than
+   the ground. */
+function CanPlace() {
+  if (st.mx < 0 || !InBlock([st.vx, st.vy])) return false;
+  if (blockCtl.state.selected >= 0) return false;
+  const c = PickGround(st.vx, st.vy);
+  return !!c && c.on;
+}
+
+/* =====================================================================
+   THE DRILL GLYPH -- the dock icon and the cursor, one sprite
+   ---------------------------------------------------------------------
+   Transcribed from the reference rather than approximated. The bit was
+   sampled off the artwork at HALF-UNIT resolution and is stored as the
+   character grid below -- `L` light steel, `m` mid steel, `.` nothing --
+   so the shape is the artwork's shape and not my reading of it. The rest
+   of the glyph is measured off the same image in whole units:
+
+     tip           the anchor, and the centre of the ground ring
+     ring          15u x 7u ellipse, dashed, open across the top 120 deg
+     bit           6.5u tall, three tapering screw bands, from the grid
+     marker box    3u square, 1u stroke, bottom 7.25u above the tip
+     dashes        five, 1u, on a 2u pitch, from 11u to 20u
+
+   The unit must stay a whole number of pixels or the cells land on
+   fractions and the pixel art turns to mush, which is the one thing this
+   style cannot survive. u = 4 fixes the glyph at 60 px wide -- and that,
+   not a percentage, is what sets the dock size below.
+   ===================================================================== */
+const GLY_U = 4, GLY_H = GLY_U * 0.5;
+const GLY_W = 15 * GLY_U;                      // the ring, and so the icon
+const G_LIGHT = "#fafafa", G_MID = "#8595ac", G_DARK = "#4a566b";
+/* The tool's standby colour: the cyan's own sibling, hue swung from 192 to
+   150 with the saturation and lightness held (100%, 66%), so a rig that is
+   standing and a rig that is cutting read as one machine in two states rather
+   than as two colours borrowed from elsewhere. Deliberately NOT the panel's
+   amber: amber here means "this control wants you", and it is the borehole
+   bar that wants you while the rig waits -- a rig wearing it too would be two
+   things asking at once. */
+const G_STANDBY = [82, 255, 168];
+const G_BAD = [226, 96, 78], G_BADDIM = [138, 78, 68];
+const BIT_ROWS = [
+  "...mLm.....", "...mLm.....", "..mmLm.....", "..LLLmmm...",
+  "..LLLLmm...", "...mm......", ".mmmLm.....", "mLLLLmmmm..",
+  ".LLLLLmm...", "..mmmm.....", ".mmmmmm....", "mLLLLLmmm..",
+  "mLLLLLmmm.."
+];
+const BIT_AX = 4;                              // the axis column in that grid
+
+/* THE OTHER FOUR TOOLS, on the same grid, in the same two tones, read bottom
+   up: r0 is the row that touches the ground and the last row is the one the
+   marker box sits over. Each has to say what it DOES from its silhouette
+   alone at 22 px wide, so each keeps exactly one idea:
+
+     seismic       a mass over a plate -- a thing that hits the ground
+     rover         a body on wheels -- a thing that drives across it
+     penetrometer  a needle with a load collar -- a thing pushed into it
+     gpr           a sled with a radiating face -- a thing towed over it
+
+   All four end in the same three-cell stem so the lead line meets a shaft
+   rather than a corner, exactly as the drill does. */
+const SEIS_ROWS = [
+  "mmmmmmmmm..", "mLLLLLLLm..", "...mLm.....", "...mLm.....",
+  ".mmmmmmm...", "mLLLLLLLm..", "mLLLLLLLm..", "mLLLLLLLm..",
+  ".mmmmmmm...", "...mLm.....", "...mLm.....", "...mLm.....",
+  "...mLm....."
+];
+const ROVER_ROWS = [
+  "mm.mmm.mm..", "LL.LLL.LL..", "mmmmmmmmm..", "mLLLLLLLm..",
+  "mLLLLLLLm..", ".mmLLLmm...", "..mLLLm....", "..mLLLm....",
+  "...mLm.....", "...mLm.....", "...mLm.....", "...mLm.....",
+  "...mLm....."
+];
+const PEN_ROWS = [
+  "....L......", "...mLm.....", "...mLm.....", "..mLLm.....",
+  "..mLLm.....", "..mLLm.....", "..mLLm.....", ".mLLLm.....",
+  "mmLLLmm....", "mLLLLLmm...", "mmLLLmm....", "..mLLm.....",
+  "..mLLm....."
+];
+const GPR_ROWS = [
+  "L.L.L.L.L..", "mmmmmmmmm..", "mLLLLLLLm..", "mLLLLLLLm..",
+  ".mmmmmmm...", "...mLm.....", "...mLm.....", "..mLLLm....",
+  "..mLLLm....", "...mLm.....", "...mLm.....", "...mLm.....",
+  "...mLm....."
+];
+/* The sprite's own top row IS a cross-section of the string: mid, light, mid,
+   three cells across. So the rig's shaft is not a second drawing of a rod --
+   it is this row, continued upward for as far as there is string. */
+const SHAFT_ROW = BIT_ROWS[0];
+
+/* The bit itself, cell by cell, tip at (X, Y) and growing upward. Shared: the
+   dock icon, the cursor and the planted rig all draw THIS, which is the whole
+   point -- the machine you pick up has to be the machine that goes in.
+
+   Its SILHOUETTE never moves; only the tones cycle through it, one cell at a
+   time, leftwards. Shifting the sprite itself would slide the tool sideways;
+   shifting the shading inside a fixed outline is a helix turning under a
+   stationary flute, which is the thing being drawn. */
+function DrawBitSprite(X, Y, shift, rows){
+  const h = GLY_H;
+  rows = rows || BIT_ROWS;
+  for (let r = 0; r < rows.length; r++){
+    const row = rows[r], y = Y - (r + 1) * h;
+    const at = [];
+    for (let c = 0; c < row.length; c++) if (row.charAt(c) !== ".") at.push(c);
+    if (!at.length) continue;
+    for (let n = 0; n < at.length; n++){
+      const src = row.charAt(at[(n + shift % at.length + at.length) % at.length]);
+      CTX.fillStyle = src === "L" ? G_LIGHT : G_MID;
+      CTX.fillRect(Math.round(X + (at[n] - BIT_AX) * h), Math.round(y), h, h);
+    }
+  }
+}
+/* One length of string, in the sprite's own three columns. */
+function DrawShaft(X, y0, y1){
+  if (y1 - y0 < 1) return;
+  const h = GLY_H, top = Math.round(y0), ht = Math.round(y1) - top;
+  CTX.fillStyle = OUT;
+  CTX.fillRect(Math.round(X - h) - 1, top, h * 3 + 2, ht);
+  for (let c = 0; c < SHAFT_ROW.length; c++){
+    const ch = SHAFT_ROW.charAt(c);
+    if (ch === ".") continue;
+    CTX.fillStyle = ch === "L" ? G_LIGHT : G_MID;
+    CTX.fillRect(Math.round(X + (c - BIT_AX) * h), top, h, ht);
+  }
+}
+
+/* THE GLYPH RUNNING. Three motions, and all three are quantised to whole
+   pixels or whole cells -- a pixel sprite that eases through fractions is a
+   smooth sprite with a pixel texture, which is the failure this style cannot
+   survive. So the pulses step, the shading steps, and the ring steps.
+
+     lead        the dots swell in turn, top down, and the marker box last:
+                 energy running DOWN the line into the tool
+     shading     the bit's tones cycle left through the sprite while its
+                 silhouette stays put -- a helix turning, not a shape moving
+     ring        dashes travel round the full ellipse and vanish into the gap
+                 behind the bit, which is what sells it as a ring and not an arc
+
+   All three run anticlockwise, and they run whenever the tool is out.
+
+   `t` is the animation clock; pass a negative number for the still version.
+
+   mode: "idle" | "hover" | "bad". Everything lands on whole pixels. */
+const GLY_DASHES = 2;      // the live states in the reference show two, not the
+                           // five on the spec sheet -- and two is what keeps the
+                           // cursor within a tenth of the button it came out of
+/* THE GROUND RING. Open across the top, where the bit stands: the reference
+   leaves a gap there, and that gap is what stops the ring reading as a plate
+   the bit is stuck through. Measured at 70 degrees, not the 120 it looks --
+   the artwork's topmost dashes sit about 31 degrees either side of the top.
+
+   Drawn as separate AXIS-ALIGNED rectangles, not as a dashed stroke. A dashed
+   ellipse gives segments rotated to the tangent, and rotated segments are the
+   one thing pixel art never has -- they read as smooth vector art wearing a
+   pixel costume. Each dash instead takes its width and height from the local
+   tangent, so it comes out wide and flat where the curve runs horizontal and
+   tall where it runs vertical, exactly as the artwork does it.
+
+   Round the WHOLE ellipse, skipping whatever falls in the gap. Rotating an arc
+   would slide its two ends about; rotating a full ring and letting the dashes
+   disappear behind the bit is what a turning ring actually does. Anticlockwise
+   on screen is DECREASING canvas angle, y being down.
+
+   Shared with the planted rig, which stands in one of these too. */
+function DrawGlyphRing(X, Y, spin, col, u){
+  const rx = 7 * u, ry = 3.2 * u, GAP = 35 * Math.PI / 180, NR = 16;
+  CTX.fillStyle = col;
+  for (let k = 0; k < NR; k++){
+    let a = (k / NR) * 6.2832 + spin;
+    a = ((a + Math.PI) % 6.2832 + 6.2832) % 6.2832 - Math.PI;   // to (-pi, pi]
+    if (Math.abs(a + Math.PI / 2) < GAP) continue;              // behind the bit
+    const px = X + rx * Math.cos(a), py = Y + ry * Math.sin(a);
+    const tx = -rx * Math.sin(a), ty = ry * Math.cos(a);
+    const m = Math.max(Math.hypot(tx, ty), 1e-6), len = u * 1.5;
+    const dw = Math.max(u, Math.abs(tx) / m * len);
+    const dh = Math.max(u, Math.abs(ty) / m * len);
+    CTX.fillRect(Math.round(px - dw * 0.5), Math.round(py - dh * 0.5),
+                 Math.round(dw), Math.round(dh));
+  }
+}
+/* THE TRAVERSE. What a LINE tool stands on, where a point tool stands in a
+   ring. Same dashes, same unit, same colour; a straight run instead of a
+   closed one, thinning toward both ends so it reads as going somewhere rather
+   than as a fence. The dashes travel along it, which is the whole difference
+   between a tool you put down and a tool you drag. */
+function DrawGlyphTrack(X, Y, phase, col, u){
+  const half = 7 * u, step = 2 * u;
+  const off = (((phase * step) % step) + step) % step;
+  CTX.fillStyle = col;
+  for (let px = X - half + off; px <= X + half; px += step){
+    const d = Math.abs(px - X);
+    if (d < u * 1.2) continue;                           // under the tool
+    const hgt = Math.max(2, Math.round(u * (0.4 + 0.6 * (1 - d / half))));
+    CTX.fillRect(Math.round(px - u * 0.5), Math.round(Y - hgt * 0.5), u, hgt);
+  }
+}
+/* One glyph for every tool. `spec` names the sprite and which ground mark it
+   stands on; leave it out and it is the drill, which is what every existing
+   call site means. */
+const GLYPH_DRILL = { rows: BIT_ROWS, mark: "ring" };
+function DrawDrillGlyph(cx, tipY, mode, t, spec){
+  const u = GLY_U, h = GLY_H;
+  const run = t >= 0;
+  spec = spec || GLYPH_DRILL;
+  /* One three-beat cycle: upper dot, lower dot, box. Quantised to whole
+     pixels -- the swell is 0 or 2 px, never 1.37. */
+  const CYC = 0.85;
+  const ph = run ? (t % CYC) / CYC : -1;
+  const beat = ph < 0 ? -1 : Math.floor(ph * (GLY_DASHES + 1));
+  const swell = ph < 0 ? 0 : Math.sin((ph * (GLY_DASHES + 1) - beat) * Math.PI);
+  const grow = (base, amt, on) =>
+    base + (on ? Math.round(swell * amt * base * 0.5) * 2 : 0);
+  const bad = mode === "bad", lit = mode === "hover";
+  const col = bad ? G_BAD : CY;
+  const X = Math.round(cx), Y = Math.round(tipY);
+  const R = (x, y, w, ht, f) => { CTX.fillStyle = f;
+    CTX.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(ht)); };
+
+  CTX.save();
+  if (lit){ CTX.shadowColor = rgb(CY, 0.75); CTX.shadowBlur = 9; }
+
+  const markCol = rgb(bad ? G_BADDIM : CY, 0.95);
+  if (spec.mark === "line") DrawGlyphTrack(X, Y, run ? t * 1.1 : 0, markCol, u);
+  else DrawGlyphRing(X, Y, run ? -t * 1.9 : 0, markCol, u);
+
+  // The business end. Absent when the spot is refused -- the reference shows
+  // no tool at all on an invalid position, which says "not here" far faster
+  // than a tool wearing a warning colour.
+  if (!bad) DrawBitSprite(X, Y, run ? Math.floor(t * 9) : 0, spec.rows);
+
+  // The marker: a hollow box, or an X where the ground is refused.
+  const boxS = grow(3 * u, 0.20, beat === GLY_DASHES);
+  const bx = X - boxS * 0.5, by = Y - 10.25 * u - (boxS - 3 * u) * 0.5;
+  if (bad){
+    CTX.strokeStyle = rgb(G_BAD, 1); CTX.lineWidth = u; CTX.lineCap = "butt";
+    CTX.beginPath();
+    CTX.moveTo(bx + u * 0.5, by + u * 0.5); CTX.lineTo(bx + u * 2.5, by + u * 2.5);
+    CTX.moveTo(bx + u * 2.5, by + u * 0.5); CTX.lineTo(bx + u * 0.5, by + u * 2.5);
+    CTX.stroke();
+  } else {
+    const st2 = Math.round(boxS / 3), hole = boxS - 2 * st2;
+    R(bx, by, boxS, st2, rgb(col));
+    R(bx, by + st2 + hole, boxS, st2, rgb(col));
+    R(bx, by + st2, st2, hole, rgb(col));
+    R(bx + st2 + hole, by + st2, st2, hole, rgb(col));
+  }
+
+  /* The lead line. The swell runs top down and finishes on the box, so the
+     line reads as feeding the tool rather than as decoration. */
+  for (let k = 0; k < GLY_DASHES; k++){
+    const d = grow(u, 0.40, beat === GLY_DASHES - 1 - k);
+    R(X - d * 0.5, Y - (12 + 2 * k) * u - (d - u) * 0.5, d, d, rgb(col));
+  }
+  if (bad)
+    for (let k = 0; k < 3; k++)
+      R(X - h, Y - (2.2 + 1.7 * k) * u, u, u, rgb(G_BAD, 0.9));
+  CTX.restore();
+}
+
+/* =====================================================================
+   9b. THE DRILL RIG, THE DOCK, AND THE SPATTER
+   ---------------------------------------------------------------------
+   The rig is drawn side-on in screen space, not projected: in this iso
+   the world's vertical axis IS screen vertical, so a vertical drill is a
+   vertical drawing.
+
+   IT IS THE CURSOR, PLANTED. Not a rig drawn in the cursor's spirit --
+   the same bit sprite on the same shading cycle, the same three-cell
+   string, the same marker box, the same turning ring, at the same size.
+   Nothing is redrawn, so nothing can drift.
+
+   That matters most where there is no pointer at all. On a touch screen
+   there is no hover: the aim cursor exists for the instant a finger is
+   down and is hidden under that finger, so the only drill a phone player
+   ever really sees is this one. A planted rig that is a different, bigger
+   machine does not read as "the tool went in" -- it reads as the thing in
+   your hand having been a picture of a tool.
+
+   The only part that changes size is the tail, because the tail is the
+   string still to go in, and watching it be used up is the point.
+   ===================================================================== */
+/* The anatomy, all of it in the glyph's units, because the planted rig IS the
+   glyph: the same bit, the same string, the same marker box, the same ring.
+   Nothing here is a second drawing of anything the cursor already has.
+
+   What stands out below the box is ONE BITE of ground -- the sprite's own
+   height and a little. Everything deeper is bought with the tail, the string
+   above the box, which is what the machine actually feeds down and what the
+   drill bar has always shown. */
+const BIT_PX  = 7.25 * GLY_U;   // 29 -- tip to the marker box's underside
+const HEAD_PX = 3 * GLY_U;      // 12 -- the marker box, which is the handle
+const TAIL_PX = 5 * 2 * GLY_U;  // 40 -- five dashes' worth of string to feed
+const TAIL_STUB = 2 * GLY_U;    // and one dash still standing at the bottom
+/* How far the BIT travels while the box stands still. The box is the collar:
+   it sits ON the ground and the string is fed THROUGH it, so the depth is
+   bought entirely out of the tail, and the tail is exactly as long as the
+   travel plus what is left standing at the end of it. */
+const SINK_MAX = TAIL_PX - TAIL_STUB;
+/* The depth one bite reaches. In metres, because the bar is ruled in metres
+   and the two have to agree about where the bit is. */
+const SpudM = () => BIT_PX / Math.max(PX_PER_M, 0.01);
+
+/* tipY is the point of the bit. Everything is measured up from it, so the tip
+   can be put anywhere -- on the cursor, or sinking into the ground -- and
+   `tail` is how much string is standing above the box.
+
+   `s` and `phase` are carried for the call site's sake and no longer used:
+   the sprite has one size, being pixel art, and it turns on the panel clock
+   the cursor turns on. */
+function DrawDrill(cx, tipY, s, phase, lit, tail, feed, headBotY){
+  const h = GLY_H, u = GLY_U;
+  const X = Math.round(cx), TIP = Math.round(tipY);
+  const mid = X + h * 0.5;                    // the string's own centre line
+  const R = (x, y, w, ht, f) => { CTX.fillStyle = f;
+    CTX.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(ht)); };
+  // The box is not carried by the bit. Once the rig is collared it stays on
+  // the ground while the string runs down through it, so its position is an
+  // argument, not something measured up from the tip.
+  const boxBot = Math.round(headBotY === undefined ? TIP - BIT_PX : headBotY);
+  const boxTop = boxBot - HEAD_PX;
+
+  // The bit, on the cursor's shading cycle -- stepped, and only while it cuts.
+  DrawBitSprite(X, TIP, lit ? Math.floor(st.t * 9) : 0);
+  // The string that has gone down through the box. Underground and clipped
+  // away in practice, but the rig is not allowed to be drawn in pieces.
+  DrawShaft(X, boxTop, TIP - BIT_ROWS.length * h);
+
+  /* THE TAIL. The string still to go in, and the one part of the tool that
+     changes size. Its collars are the glyph's own lead dashes, marching DOWN
+     it while cutting -- which is the only way a rod of constant width can show
+     that it is being fed, and it is the lead line of the icon doing it. */
+  const tl = tail || 0;
+  if (tl > 1){
+    const ty0 = Math.round(boxTop - tl);
+    DrawShaft(X, ty0, boxTop);
+    const step = 2 * u, off = (((feed || 0) % step) + step) % step;
+    for (let yy = ty0 + off; yy < boxTop - u * 0.5; yy += step){
+      const y = Math.round(yy);
+      R(mid - u * 0.5 - 1, y - 1, u + 2, u + 2, OUT);
+      R(mid - u * 0.5, y, u, u, rgb(CY));
+    }
+  }
+
+  /* THE HANDLE IS THE MARKER BOX. Hollow, so the string is seen running
+     through it, which is the thing the rig actually does. It carries the one
+     piece of state the tool has: green standing, cyan cutting -- two points on
+     the same neon, so it reads as one machine changing state. It leaves the
+     amber to the borehole bar, which is the thing actually asking for an
+     input while the rig stands there. */
+  const col = lit ? CY : G_STANDBY;
+  const bx = mid - HEAD_PX * 0.5, by = boxTop;
+  const th = Math.round(HEAD_PX / 3), hole = HEAD_PX - 2 * th;
+  CTX.save();
+  // The glow is the box's alone. Bloomed over the whole rig it eats the
+  // sprite's cells, and a pixel tool with soft edges is not a pixel tool.
+  CTX.shadowColor = rgb(col, 0.7); CTX.shadowBlur = 7;
+  R(bx - 1, by - 1, HEAD_PX + 2, HEAD_PX + 2, OUT);
+  R(bx, by, HEAD_PX, th, rgb(col));
+  R(bx, by + th + hole, HEAD_PX, th, rgb(col));
+  R(bx, by + th, th, hole, rgb(col));
+  R(bx + th + hole, by + th, th, hole, rgb(col));
+  CTX.restore();
+}
+
+/* Spatter. Ejecta leaves the collar on a ballistic arc, in lattice units so
+   it lands on the ground it came out of, and it wears the colour of the bed
+   the bit is in RIGHT NOW -- which makes the first thing you learn about the
+   column a thing you see thrown out of it. */
+function SpawnSpatter(i, j, m, n){
+  const col = BedColour(clamp(m, 0, COLUMN_M - 0.01));
+  for (let k = 0; k < n; k++){
+    /* A cone, not a fountain. The launch speed is chosen in SCREEN pixels
+       and only then converted into the two very different units the block
+       actually moves things in -- lattice cells across, metres of depth up
+       -- because it is the picture that has to read as a spray, and those
+       two units are scaled by TX and PX_PER_M by wildly different amounts. */
+    const az = Math.random() * 6.2832;
+    const el = 0.72 + Math.random() * 0.46;           // 41 deg .. 68 deg
+    const S  = 78 + Math.random() * 74;               // px/s along the throw
+    const up = S * Math.sin(el), out = S * Math.cos(el);
+    spatter.push({ i, j, z: 0.6,
+      vi: Math.cos(az) * out / TX, vj: Math.sin(az) * out / TX,
+      vz: up / PX_PER_M, g: EJECTA_G_PX / PX_PER_M,
+      col, sz: 1.8 + Math.random() * 2.4 });
+  }
+}
+function StepSpatter(dt){
+  for (let k = spatter.length - 1; k >= 0; k--){
+    const p = spatter[k];
+    p.i += p.vi * dt; p.j += p.vj * dt;
+    p.vz -= p.g * dt; p.z += p.vz * dt;
+    if (p.z <= 0 || p.i < -1 || p.j < -1 || p.i > N + 1 || p.j > N + 1) spatter.splice(k, 1);
+  }
+  if (spatter.length > 420) spatter.splice(0, spatter.length - 420);
+}
+function DrawSpatter(){
+  for (const p of spatter){
+    const i = clamp(p.i, 0, N), j = clamp(p.j, 0, N);
+    const k = Math.round(j) * STRIDE + Math.round(i);
+    const q = Proj(p.i, p.j, SURF[0][k] - p.z);
+    const x = q[0], yv = q[1];
+    CTX.fillStyle = rgb(scalec(p.col, p.z > 3 ? 1.9 : 1.3));
+    CTX.fillRect(x, yv, p.sz, p.sz * 0.8);
+  }
+}
+
+/* =====================================================================
+   THE CYCLE -- and why it is in two halves
+   ---------------------------------------------------------------------
+   Placing a rig and choosing how deep to go are two different decisions,
+   and running them off one click made the second one disappear. So the
+   click on the ground only SPUDS the hole: the bit sinks its own length
+   and the handle comes to rest on the ground, which is exactly as far as
+   a rig can go before anybody decides anything. Then the machine waits,
+   the borehole bar takes over as the control -- flashing, because a
+   control that has never been used has to say so -- and the depth you
+   pick there is what the string is fed down to.
+
+     aim   -> follow the pointer, tip anchored on it
+     spud  -> sink one bit length; the handle lands on the ground
+     await -> planted. The bar is the input now
+     cut   -> feed the tail down to the chosen depth
+     out   -> draw the string back up THROUGH the handle, which does not move
+     hold  -> a beat, standing in the finished hole
+     fade  -> the rig goes, the core barrel is there instead
+   ===================================================================== */
+function BeginOut(){
+  drill.sink0 = drill.sink;
+  drill.mode = "out"; drill.t = 0;
+}
+/* Backing out of a planted rig. It does NOT throw the hole away: the ground
+   is already broken and the spoil is already on it, so the shallow column it
+   did establish is what you keep. A control that can leave the panel in a
+   state with no way forward is worse than one that costs you a bad hole. */
+function AbortDrill(){
+  if (drill.mode === "await" || drill.mode === "spud"){
+    drill.depthM = SpudM() * Math.max(drill.spud, 0.35);
+    BeginOut();
+  }
+}
+function StepDrill(dt){
+  const m = drill.mode;
+  if (m === "aim"){ drill.phase += 2.2 * dt; return; }
+  drill.t += dt;
+  // Spinning down: cutting, then tripping, then idling in the hole, then off.
+  drill.phase += (m === "spud" || m === "cut" ? 13.5
+                : m === "out" ? 5.0 : m === "hold" ? 0.7 : 0) * dt;
+  const h = holes[holes.length - 1];
+  const sm = SpudM();
+  if (m === "spud"){
+    drill.spud = clamp(drill.t / SPUD_T, 0, 1);
+    drill.curM = sm * drill.spud;
+    if (h) h.k = 0.55 * drill.spud;
+    if (Math.random() < 0.9) SpawnSpatter(drill.i, drill.j, drill.curM, 2 + (Math.random() * 3 | 0));
+    if (drill.t >= SPUD_T){ drill.spud = 1; drill.curM = sm; drill.mode = "await"; drill.t = 0; }
+  } else if (m === "cut"){
+    drill.sink = clamp(drill.t / drill.cutT, 0, 1);
+    drill.curM = lerp(sm, drill.depthM, drill.sink);
+    drill.feed += 40 * dt;
+    // A deeper hole leaves a bigger scar: the spoil is what came out of it.
+    if (h) h.k = 0.55 + 0.45 * clamp(drill.depthM / Math.max(COLUMN_M, 1), 0, 1) * drill.sink;
+    if (Math.random() < 0.5) SpawnSpatter(drill.i, drill.j, drill.curM, 1 + (Math.random() * 2 | 0));
+    if (drill.t >= drill.cutT){ drill.sink = 1; BeginOut(); }
+  } else if (m === "out"){
+    /* The handle does not come up with it. It is the collar: it stays on the
+       ground while the string is drawn back up THROUGH it, exactly the way it
+       went down -- so what rises is the tail, back to its full length. */
+    const u = clamp(drill.t / OUT_T, 0, 1);
+    drill.sink = drill.sink0 * (1 - u);
+    drill.curM = lerp(sm, drill.depthM, drill.sink);
+    drill.feed -= 40 * dt;
+    if (drill.t >= OUT_T){
+      drill.sink = 0; drill.curM = sm;
+      /* The column is real NOW, and only down to where the bit got. The
+         string clearing the collar is the moment you know something: not
+         when you aimed, and not one metre deeper than you drilled. */
+      reveals.push({ i: drill.i, j: drill.j, m: drill.depthM });
+      revealRev++;                      // stage 3 re-fits the model on this
+      drill.mode = "hold"; drill.t = 0;
+    }
+  } else if (m === "hold"){
+    /* A beat, with the machine standing in the hole it just finished. The
+       column resolving and the rig disappearing are two separate events, and
+       run on the same frame neither of them registers. */
+    if (drill.t >= HOLD_T){
+      bores.push({ i: drill.i, j: drill.j, m: drill.depthM });
+      drill.mode = "fade"; drill.t = 0; drill.fade = 0;
+    }
+  } else if (m === "fade"){
+    // Fast, and a cross-fade rather than a cut: the barrel is what the rig
+    // leaves behind, so one has to be seen becoming the other.
+    drill.fade = clamp(drill.t / FADE_T, 0, 1);
+    if (drill.t >= FADE_T){
+      drill.mode = "aim"; drill.t = 0;
+      drill.spud = drill.sink = drill.feed = drill.fade = 0;
+      drill.curM = 0; st.depth = 0;
+    }
+  }
+  StepSpatter(dt);
+}
+/* Where the tip is, and where the collar it is standing in is. The whole
+   assembly descends by `sink`: the tail keeps its length and goes down with
+   the handle, which is what buys the depth. At the bottom of its travel a
+   stub of tail is still standing out of the ground, and that stub is what
+   the bore marker replaces when the rig leaves. */
+function DrillPose(){
+  if (drill.mode === "aim")
+    return { cx: st.vx, tipY: st.vy, collarY: st.vy + 6, live: false,
+             head: undefined, tail: TAIL_PX };
+  const g = Proj(drill.i, drill.j, SURF[0][drill.j * STRIDE + drill.i]);
+  const gx = g[0], gy = g[1];
+  const sink = drill.sink * SINK_MAX;
+  return { cx: gx, tipY: gy + drill.spud * BIT_PX + sink, collarY: gy + 2, live: true,
+           // Spudding in, the handle rides down with the bit until it lands.
+           // After that it stays put and the string runs through it.
+           head: gy + (drill.spud - 1) * BIT_PX,
+           tail: Math.max(TAIL_PX - sink, TAIL_STUB) };
+}
+
+/* The mouth. Dark, with a lit lip on the near side and a hair of shadow on
+   the far one -- the same implied upper-left key the rest of the panel uses,
+   which is what makes a flat ellipse read as a hole rather than a sticker. */
+function DrawCollar(cx, cy, k){
+  const rw = 10.5 * DRILL_S * (0.55 + 0.45 * k), rh = rw * 0.38;
+  CTX.fillStyle = "rgb(10,9,7)";
+  CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 0, 6.2832); CTX.fill();
+  CTX.strokeStyle = "rgba(190,205,220,.22)"; CTX.lineWidth = 1.2;
+  CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 3.34, 6.08); CTX.stroke();
+  CTX.strokeStyle = "rgba(0,0,0,.45)"; CTX.lineWidth = 1.4;
+  CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 0.2, 2.94); CTX.stroke();
+}
+/* A FINISHED hole is not a hole. Once the string is out, what is at the
+   surface is a collapsed, churned patch of the soil that came out of it --
+   loose grain over a mouth that closed on itself. Left as the black ellipse
+   the live rig stands in, a finished hole reads as a puncture in the picture:
+   nothing else in this panel is a hole through the ground, so the eye takes it
+   for a missing pixel rather than for a place.
+
+   Flat, deliberately: no rim, no lip, no shadow. The rim already exists a few
+   cells out, where the spoil is, and putting a second raised thing at the
+   centre of it turns one landform into two competing ones. This is only
+   texture -- freshly broken regolith is brighter and coarser than the ground
+   it came from, so it is drawn as a scatter of chips lighter and darker than
+   the local rock, with the shading underneath left to show through. */
+function DrawCrumbs(cx, cy, k){
+  const rw = 11.5 * DRILL_S * (0.62 + 0.38 * k), rh = rw * 0.42;
+  const base = ROCK_COL[0], g = TexGain();
+  // Barely a fill. The patch must not read as a disc laid ON the ground -- an
+  // ellipse of any solidity is just the black hole in another colour -- so the
+  // ground keeps its own tone and shading, and the grain does the talking.
+  CTX.fillStyle = rgb(scalec(base, 1.04 * g), 0.22);
+  CTX.beginPath(); CTX.ellipse(cx, cy, rw, rh, 0, 0, 6.2832); CTX.fill();
+  const n = 22 + Math.round(26 * k);
+  for (let i = 0; i < n; i++){
+    // Density thins outward and a few chips land beyond the mouth, so the
+    // edge of the churn is ragged rather than drawn.
+    const r = Math.pow(rnd(), 0.62) * 1.22, t = rnd() * 6.2832;
+    if (r > 1 && rnd() > 0.45) continue;
+    const x = cx + rw * r * Math.cos(t), y = cy + rh * r * Math.sin(t);
+    const tone = rnd();
+    const c = tone > 0.74 ? scalec(base, 1.52 * g)
+            : tone > 0.34 ? scalec(base, 1.12 * g) : scalec(base, 0.55 * g);
+    const w = 1.1 + rnd() * 1.6;
+    CTX.fillStyle = rgb(c, 0.8);
+    CTX.fillRect(x - w * 0.5, y - w * 0.4, w, w * 0.85);
+  }
+}
+/* Holes that have been finished keep their scar, drawn with the ground so the
+   block accumulates a record of where you have been. Seeded per hole, so the
+   grain is the same grain every frame instead of boiling. */
+function DrawHoleMouths(){
+  const live = holes[holes.length - 1];
+  for (const h of holes){
+    if (h.k < 0.05) continue;
+    let a = 1;
+    if (drill.mode !== "aim" && h === live){
+      if (drill.mode !== "fade") continue;   // the rig is standing in it
+      a = drill.fade;                        // and now it is leaving
+    }
+    grainSeed = 1 + h.i * 7919 + h.j * 104729;
+    CTX.save(); CTX.globalAlpha = a;
+    const g = Proj(h.i, h.j, SURF[0][h.j * STRIDE + h.i]);
+    DrawCrumbs(g[0], g[1] + 2, h.k);
+    CTX.restore();
+  }
+}
+
+const BORE_RW = 4.4;
+function DrawBores(){
+  const last = bores[bores.length - 1];
+  for (const b of bores){
+    CTX.save();
+    if (drill.mode === "fade" && b === last) CTX.globalAlpha = drill.fade;
+    const g = Proj(b.i, b.j, SURF[0][b.j * STRIDE + b.i]);
+    const cx = g[0], gy = g[1] + 2;
+    const deep = clamp(b.m / Math.max(COLUMN_M, 1), 0, 1);
+    const top = gy - (16 + 23 * deep);
+    const rw = BORE_RW, rh = rw * 0.40;
+    const ph = st.t * 2.4 + b.i * 0.7 + b.j * 0.31;
+    CTX.setLineDash([3.4, 2.9]);
+    for (let g = 0; g < 3; g++){
+      const a = ph + g * 2.0944, x = cx + rw * Math.sin(a), c = Math.cos(a);
+      CTX.lineDashOffset = -st.t * 15;
+      CTX.strokeStyle = rgb(CY, c > 0 ? 0.80 : 0.24);
+      CTX.lineWidth = c > 0 ? 1.5 : 1.1;
+      CTX.beginPath();
+      CTX.moveTo(x, top + rh * c); CTX.lineTo(x, gy + rh * c); CTX.stroke();
+    }
+    CTX.lineDashOffset = st.t * 11;
+    CTX.strokeStyle = rgb(CY, 0.62); CTX.lineWidth = 1.3;
+    CTX.beginPath(); CTX.ellipse(cx, top, rw, rh, 0, 0, 6.2832); CTX.stroke();
+    CTX.strokeStyle = rgb(CY, 0.28); CTX.lineWidth = 1.1;
+    CTX.beginPath(); CTX.ellipse(cx, gy, rw, rh, 0, 0, 6.2832); CTX.stroke();
+    CTX.setLineDash([]); CTX.lineDashOffset = 0;
+    CTX.fillStyle = rgb(CY, 0.16);
+    CTX.beginPath(); CTX.ellipse(cx, top, rw, rh, 0, 0, 6.2832); CTX.fill();
+    CTX.restore();
+  }
+}
+
+
+function DrawDrillLive(){
+  if (!drill.armed) return;
+  if (drill.mode === "aim"){
+    // The cursor is the glyph, at the icon's own size, and a spot that will
+    // be refused says so with the glyph rather than by vanishing.
+    if (!drill.onCanvas) return;
+    DrawDrillGlyph(st.vx, st.vy, drill.canPlace ? "hover" : "bad", st.t);
+    return;
+  }
+  const p = DrillPose();
+  const paint = () => {
+    if (p.live){
+      DrawCollar(p.cx, p.collarY, 1);
+      // The cursor's ring, still round the tool it was carried by, still
+      // turning the same way. It is the clearest thing tying the planted
+      // machine to the one that was in hand a moment ago.
+      DrawGlyphRing(Math.round(p.cx), Math.round(p.collarY),
+                    -st.t * 1.9, rgb(CY, 0.7), GLY_U);
+    }
+    CTX.save();
+    CTX.beginPath();
+    CTX.rect(p.cx - 46 * DRILL_S, CLIP_TOP(), 92 * DRILL_S, p.collarY - CLIP_TOP());
+    CTX.clip();
+    DrawDrill(p.cx, p.tipY, DRILL_S, drill.phase,
+              drill.mode === "spud" || drill.mode === "cut",
+              p.tail, drill.feed, p.head);
+    CTX.restore();
+  };
+  // Composited once, not faded fill by fill -- the same reason the peeled slab
+  // is: a rig faded part by part shows its own tail through its own head.
+  if (drill.mode === "fade") AsSeenThrough(1 - drill.fade, paint);
+  else paint();
+}
+
+
+/* The rig fades through one composite rather than fill by fill -- a rig faded
+   part by part shows its own tail through its own head. Sized to the block's
+   region, and only ever used during the 0.3 s fade. */
+const SCR = document.createElement('canvas'), SCTX = SCR.getContext('2d');
+function AsSeenThrough(alpha, draw) {
+  const c = LT.block.canvas;
+  const w = Math.ceil((c[2] - c[0]) * dpr), h = Math.ceil((c[3] - c[1]) * dpr);
+  if (SCR.width !== w || SCR.height !== h) { SCR.width = w; SCR.height = h; }
+  SCTX.setTransform(1, 0, 0, 1, 0, 0); SCTX.clearRect(0, 0, w, h);
+  SCTX.setTransform(dpr, 0, 0, dpr, -c[0] * dpr, -c[1] * dpr);
+  const main = CTX; CTX = SCTX; draw(); CTX = main;
+  CTX.save(); CTX.setTransform(1, 0, 0, 1, 0, 0);
+  CTX.globalAlpha = alpha; CTX.drawImage(SCR, Math.round(c[0] * dpr), Math.round(c[1] * dpr));
+  CTX.restore();
+}
+
+/* The scour deepens continuously but the ground is far too expensive to
+   rebuild at 60 Hz, so it steps in about ten stages across a cut while the
+   drill and its spatter run smooth on top. */
+const SpoilRev = () => { let v = 0; for (const h of holes) v += Math.round(h.k * 10) * 31; return v; };
+let lastSpoil = 0;
+function StepGround() {
+  const r = SpoilRev();
+  if (r !== lastSpoil) { lastSpoil = r; BuildModel(); }
+}
 
 /* =====================================================================
    6. THE TWO CANVASES
@@ -1035,7 +1915,12 @@ function DrawBlock(ctx) { Holo3D.render(ctx, model, blockCtl.state, BlockView())
    only the transient panels are drawn every frame. Same pattern the
    dashboard uses, and the same one the block will use in stage 1.
    ===================================================================== */
-const CV = document.getElementById('cv'), CTX = CV.getContext('2d');
+const CV = document.getElementById('cv');
+/* `let`, not `const`: the drill's fade swaps CTX for an offscreen context so
+   the rig composites once instead of fill by fill (AsSeenThrough). Every
+   ported drawing function reaches CTX by name, which is the whole reason that
+   works -- and the reason this has to be reassignable. */
+let CTX = CV.getContext('2d');
 const CACHE = document.createElement('canvas'), CCTX = CACHE.getContext('2d');
 let staticKey = '';
 
@@ -1066,14 +1951,26 @@ let last = performance.now(), frameKey = '';
 /* Everything the live layer's appearance depends on. If none of it moved,
    the canvas already holds the right pixels and the frame is skipped. */
 function FrameKey() {
-  const st = blockCtl.state;
-  return [staticKey, st.yaw.toFixed(4), st.pitch.toFixed(4), st.explode.toFixed(3),
-          st.selected, st.fast, ui.rack.t.toFixed(3), ui.sheet.t.toFixed(3)].join('|');
+  const b = blockCtl.state;
+  // Anything moving keeps the frame alive: the armed cursor follows the
+  // pointer, the rig animates, spatter falls, a bore marker turns.
+  const live = drill.armed || spatter.length || bores.length || lockFlash > 0;
+  return [staticKey, b.yaw.toFixed(4), b.pitch.toFixed(4), b.explode.toFixed(3),
+          b.selected, b.fast, ui.rack.t.toFixed(3), ui.sheet.t.toFixed(3),
+          live ? st.t.toFixed(3) : 'still'].join('|');
 }
 function Frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  st.t = now / 1000;
   StepUi(dt);
   blockCtl.tick(now);
+  ReadCamera();
+  StepDrill(dt);
+  StepGround();
+  if (lockFlash > 0) lockFlash = Math.max(0, lockFlash - dt);
+  drill.canPlace = drill.armed && drill.mode === 'aim' && CanPlace();
+  drill.onCanvas = drill.canPlace || (drill.armed && drill.mode === 'aim'
+                                      && st.mx >= 0 && InBlock([st.vx, st.vy]));
   EnsureStatic();
   const fk = FrameKey();
   if (fk === frameKey) { requestAnimationFrame(Frame); return; }
@@ -1100,6 +1997,10 @@ function Frame(now) {
   CTX.drawImage(CACHE, D0[0], D0[1], D0[2], D0[3], D0[0], D0[1], D0[2], D0[3]);
   CTX.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (!window.__blockOff) DrawBlock(CTX);   // __blockOff: the harness's A/B for what the block costs
+  DrawHoleMouths();
+  DrawBores();
+  DrawDrillLive();
+  DrawSpatter();
   // brackets and the base ring only: the reticle belongs to the drill (stage 2)
   // and the callouts to the ruler (stage 5)
   const view = BlockView();
@@ -1117,6 +2018,13 @@ function At(e) {
   const r = CV.getBoundingClientRect();
   return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H];
 }
+CV.addEventListener('pointermove', e => {
+  const r = CV.getBoundingClientRect();
+  st.mx = (e.clientX - r.left) / r.width * W;
+  st.my = (e.clientY - r.top) / r.height * H;
+  st.vx = st.mx; st.vy = st.my;             // design space IS the drawing space here
+});
+CV.addEventListener('pointerleave', () => { st.mx = st.my = -1; });
 const InBlock = p => {
   const g = LT.block.grab;
   return p[0] >= g[0] && p[0] <= g[2] && p[1] >= g[1] && p[1] <= g[3]
@@ -1124,7 +2032,11 @@ const InBlock = p => {
 };
 CV.addEventListener('pointerdown', e => {
   const [x, y] = At(e);
-  if (InBlock([x, y])) return;                 // Holo3D's own listener has it
+  st.mx = x; st.my = y; st.vx = x; st.vy = y;
+  if (InBlock([x, y])) {
+    if (drill.armed) { e.preventDefault(); DrillClick(x, y); return; }
+    return;                                    // otherwise Holo3D's listener has it
+  }
   const b = LT.bar;
   if (inBox(b, x, y)) {
     const i = Math.floor((x - b.x) / (b.w / LT.MODULES.length));
@@ -1140,6 +2052,42 @@ CV.addEventListener('pointerdown', e => {
   // a tap on the dimmed ground closes whatever is open
   if (LT.mode === 'phone' && (ui.rack.open || ui.sheet.open)) { ui.rack.open = 0; ui.sheet.open = 0; }
 });
+/* A click on the block while the rig is out. Two decisions, as they have
+   always been: where it stands, then how deep it goes.
+
+   THE DEPTH CONTROL IS PROVISIONAL. It belongs to the borehole bar, which is
+   stage 6; until then a second click cuts the full column, so the feed, the
+   tail, the scour and the trip-out can all be watched. */
+function DrillClick(x, y) {
+  if (drill.mode === 'await') {
+    drill.depthM = COLUMN_M;
+    drill.cutT = 0.7 + 2.3 * (drill.depthM - SpudM()) / Math.max(COLUMN_M - SpudM(), 1);
+    drill.mode = 'cut'; drill.t = 0; drill.sink = 0; drill.feed = 0;
+    return;
+  }
+  if (drill.mode !== 'aim') return;             // one hole at a time
+  if (!CanPlace()) { lockFlash = 1.0; return; }
+  const c = PickGround(x, y);
+  drill.i = c.i; drill.j = c.j;
+  drill.mode = 'spud'; drill.t = 0; drill.spud = 0; drill.sink = 0; drill.feed = 0;
+  drill.depthM = SpudM();
+  holes.push({ i: c.i, j: c.j, k: 0 });
+  if (holes.length > 40) holes.shift();
+}
+window.__drill = () => ({ armed: drill.armed, mode: drill.mode, i: drill.i, j: drill.j,
+  spud: +drill.spud.toFixed(2), sink: +drill.sink.toFixed(2), curM: Math.round(drill.curM),
+  depthM: Math.round(drill.depthM), holes: holes.length, bores: bores.length,
+  spatter: spatter.length, pxPerM: +PX_PER_M.toFixed(4), tx: +TX.toFixed(2) });
+window.__arm = v => { drill.armed = v ? 1 : 0; if (!v) drill.mode = 'aim'; return drill.armed; };
+window.__reset = () => { holes.length = 0; bores.length = 0; spatter.length = 0; reveals.length = 0;
+  drill.mode = 'aim'; drill.spud = drill.sink = drill.feed = drill.fade = 0; BuildModel(); };
+window.__pick = (x, y) => PickGround(x, y);
+window.__surf = (i, j) => SURF[0][j * STRIDE + i];
+window.__probe = () => ({ mx: Math.round(st.mx), vx: Math.round(st.vx), vy: Math.round(st.vy),
+  inBlock: InBlock([st.vx, st.vy]), sel: blockCtl.state.selected, canPlace: CanPlace(),
+  grab: LT.block.grab });
+window.__col = () => COLUMN_M;
+window.__hole = (i, j, k) => { holes.push({ i, j, k }); BuildModel(); return holes.length; };
 window.addEventListener('resize', Resize);
 
 /* the harness reads this rather than guessing at geometry */
@@ -1183,7 +2131,12 @@ Holo3D.setCanvasFactory((w, h) => { const c = document.createElement('canvas'); 
 blockCtl = Holo3D.attach(CV, {
   get width(){ return W; }, get height(){ return H; },   // the design size moves with the breakpoint
   inside: InBlock, keys: false,
-  hit: p => Holo3D.hit(model, p[0], p[1]),
+  /* A tap picks a bed -- unless the rig is out, in which case the tap is the
+     rig's and selecting a bed under it would both steal the click and refuse
+     the next one (CanPlace will not drill an exploded model). Dragging still
+     turns the block with the tool in hand, which is how the old prototype
+     behaved and how you aim. */
+  hit: p => (drill.armed ? -1 : Holo3D.hit(model, p[0], p[1])),
   // Still until it is touched. The upstream demo idles by turning the block
   // slowly, which is charming on a demo page and wrong on an instrument: it
   // spends a fifth of the frame budget, forever, saying nothing.
