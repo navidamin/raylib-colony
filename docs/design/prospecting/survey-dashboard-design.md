@@ -518,6 +518,17 @@ and the `fogGrit` / `fogRough` levers. It should come out **cheaper** than
 today, because the unknown case draws less rather than more. The one thing to
 watch is the first impression at zero holes, which is now a wire box.
 
+*As built (stage 3).* Two things the paragraph above did not say, and both
+matter. **The surface is known for free, because you can see it** — so an
+undrilled block is not a wire box, it is the real terrain skin standing on a
+wire volume, which is a much better first impression than the risk register
+feared. And the grid under the unknown is the *instrument's* grid, not the
+ground's: column lines every fourth lattice node and a depth ring every 250 m,
+at `1 − confidence`, so it retreats from the parts that have been drilled and
+is gone by the time the block is MEASURED. The crawl is stepped at **6 Hz**
+rather than run at 60: on an instrument that reads as data arriving rather than
+as judder, and it means a console nobody is touching still costs nothing.
+
 *Later experiment, not in scope:* drawing beds everywhere with their boundaries
 as **error envelopes** — thin where confident, a wide band where not — which
 would render the truth+error model directly. It contradicts "no layers under

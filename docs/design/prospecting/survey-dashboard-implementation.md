@@ -1,8 +1,12 @@
 # Survey Dashboard — implementation plan
 
 Companion to [`survey-dashboard-design.md`](survey-dashboard-design.md).
-**Nothing here has been built.** This is the order of work, what each step
-touches, and how each one is proved before the next begins.
+This is the order of work, what each step touches, and how each one is proved
+before the next begins.
+
+**Built so far: stages 0, 1, 2 and 3.** Each stage carries an *As built* note
+where what happened differed from what was planned; where there is no note,
+the stage went as written.
 
 **All seven design decisions are settled** (design doc §8), so no stage is
 waiting on an answer. Three of them changed this plan: the phone layout moved
@@ -229,6 +233,54 @@ page that failed to load.
 
 **Risk:** medium. The mechanism is clear; the judgement calls are the threshold
 and the fade width, and both are render-and-look, not arithmetic.
+
+**As built.** Three things.
+
+*The bed painter is ours now.* Fog has to live inside the per-bed painter, and
+that painter was inside the vendored `Holo3D.render`. Rather than fork a file
+whose whole value is that re-vendoring it is a copy, `RenderBlock` was written
+in our section, derived from its `render` and stamping the same things onto the
+model (`cam`, `hits`, `bounds`, `hull`, `offY`, `alphaOf`) so `hit` and
+`drawHud` cannot tell the difference. Holo3D keeps the camera, the hit test and
+the HUD, byte for byte.
+
+*A fogged wall is drawn in strips, one per lattice column.* Not by choice —
+the per-column alpha ramp cannot be a gradient (the wall's fill gradient is
+already spoken for: vertical, neon→mid→deep) and it cannot be an erase either.
+`destination-out` on the console canvas would punch through the panel behind
+the block, and on a ghost buffer it would erase the beds already painted into
+it. A wall that is known the whole way across still takes the single-polygon
+path and draws exactly what it drew before. Two translucent quads that abut
+exactly leave a hairline, so fogged quads are grown a third of a pixel about
+their own centre; rendered at four cameras, no seams.
+
+*The wire cage was the pleasant surprise.* The risk register worried that a
+bare wireframe would read as a broken page. It does not, because **the surface
+is known for free** — an undrilled block is the real terrain standing on a wire
+volume, and it reads immediately as unmeasured ground. No floor was needed.
+
+**Measured.** Median frame interval, 1536 × 1044, dpr 1.5, 28 × 28 lattice:
+
+| | still | dragging |
+|---|---|---|
+| 0 holes (all cage) | 16.7 | 16.7 |
+| 1 hole | — | 21.5 |
+| 3 holes | — | 23.9 |
+| 9 holes (MEASURED) | 16.6 | 22.5 |
+
+The prediction was half right. The unknown end **is** cheaper — an undrilled
+block is the vsync floor whether or not you are dragging it. The worst case is
+not nine holes and not zero but **three**, where nothing is uniform enough to
+take the single-polygon path and every wall is drawn in strips: 23.9 ms, about
+4 ms over stage 2's dragging number. Still is still free at every hole count,
+which is what the console mostly is.
+
+**Verified.** 0 / 1 / 2 / 3 / 9 holes at four cameras each; isolate with fog on
+it (the focus solid, the other four ghosted uniformly, the cage faded out with
+explode); the full drill cycle end to end, pointer to reveal, with delineation
+going 0 → 0.396 and the beds visibly re-fitting; the stage-0, 1 and 2
+regressions and the phone layout, all clean. Harness:
+`prototypes/survey-fog-shots.js`.
 
 ---
 

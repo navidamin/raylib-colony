@@ -21,12 +21,19 @@
 </style>
 </head>
 <body>
-<header><b>survey console</b><span>stage 0 &mdash; the frame</span><span>&middot;</span>
+<header><b>survey console</b><span>stages 0&ndash;3 &mdash; frame, block, drill, fog</span><span>&middot;</span>
   <span>narrow the window to cross the breakpoint &middot; tap TOOLS / DRILL on the phone layout</span></header>
 <main><div id="wrap"><canvas id="cv" aria-label="Survey console"></canvas></div></main>
 <!-- Holo3D, verbatim from prototypes/dashboard/holo3d.js (rev 2026-09-11).
      Kept as its own script block and UNMODIFIED, so re-vendoring an upstream
-     revision is a file copy rather than a merge. Everything ours is below. -->
+     revision is a file copy rather than a merge. Everything ours is below.
+
+     WHAT WE STILL USE: camera, hit, drawHud, attach, LAYERS. `build` went
+     when the ground became ours (stage 1) and `render` went when knowledge
+     did (stage 3) -- fog is a field the passes have to read per column, and
+     that loop is RenderBlock, in section 9b. They are left here rather than
+     deleted, because a vendored file with pieces cut out of it is no longer
+     a copy of anything. -->
 <script>
 /* Holo3D — rotatable, explodable holographic layered block (software 3D on Canvas 2D)
  *   const model = Holo3D.build();                       // geometry (height fields per bed boundary)
@@ -736,10 +743,10 @@ function Sheet(ctx, t, r, draw) {
    the base of the surveyed column, which is a depth somebody chose rather
    than a bed.
 
-   Not here yet, and deliberately: the error model (stage 3 turns it on with
-   fog), holes and scour (stage 2), and the real LOLA ground (the bench,
-   stage 8). Confidence() returns 1 for now, which switches the error off
-   without removing the arithmetic that will carry it.
+   Not here yet, and deliberately: the real LOLA ground (the bench, stage 8).
+   The error model IS here -- each interface carries a wrongness that shrinks
+   as the confidence at that node rises, which is what makes the beds re-fit
+   visibly as holes are drilled.
    ===================================================================== */
 const P = {
   lattice: 28,
@@ -752,6 +759,7 @@ const P = {
 const SEED_SHARED = 0x51ed, SEED_OWN = 0x9e37;
 let N = P.lattice, STRIDE = N + 1;
 let SURF = [], TOPS = [0, 0, 0, 0], COLUMN_M = 2000;
+let EDGE = [0, 0, 0, 0, 2000];   // the five interface depths, in metres
 
 function Mix(a){
   a = a >>> 0;
@@ -833,8 +841,9 @@ function CraterAmp(L){
 /* How wrong an interface is allowed to be before any of it is known. Scaled by
    the thinner of the two beds it separates, so a thin bed is never given an
    error that would swallow it, and drawn from a fixed hash so the wrongness is
-   a property of this block rather than of this frame. Inert until stage 3
-   gives Confidence() something to say. */
+   a property of this block rather than of this frame. Scaled at build time by
+   1 - confidence, so an interface is drawn where the drilling says it is and
+   drifts back toward its own wrongness wherever the drilling has not reached. */
 const ERR_SEED = 0x3c9d;
 function ErrParams(L, edge){
   const span = Math.max(2, Math.min(edge[L] - edge[L - 1], edge[L + 1] - edge[L]));
@@ -849,7 +858,95 @@ function ErrParams(L, edge){
     s1: (ERR_SEED + L * 7919) >>> 0, s2: (ERR_SEED + L * 104729 + 17) >>> 0
   };
 }
-const Confidence = () => 1;                    // stage 3 replaces this
+/* =====================================================================
+   8b. WHAT THE CONSOLE KNOWS
+   ---------------------------------------------------------------------
+   Ported whole from layer-block.html, which is where the argument was
+   had. A borehole does not light a stripe and it does not illuminate: it
+   constrains a MODEL, and a model is one object, so drilling anywhere
+   makes every section you can see better. The fog therefore has no shape
+   of its own at all --
+
+       fog = 1 - known                 (see KnowAt)
+
+   -- and what it hides is not the truth but the current ESTIMATE of it.
+
+   The surface is the one thing known for free, because you can see it.
+   ===================================================================== */
+const K_NEAR = 0.68;           // what one hole settles right where it stands
+const K_FAR  = 0.15;           // and what it still says from anywhere at all
+const K_R    = 9.0;            // cells over which the near term falls away
+const K_BELOW = 0.20;          // how much it says about ground it never reached
+const K_SKIRT_M = 230;         // over what depth it drops to that
+const K_FULL = 0.95;           // fog at 5% is confidence 1: the model stops here
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a || 1e-6), 0, 1); return t * t * (3 - 2 * t); };
+
+/* Holes multiply their MISSES, not their hits:
+
+       miss = product of (1 - k_n)        known = 1 - miss
+
+   which is what makes three mediocre holes worth more than one good one,
+   and what stops any single hole ever settling the block on its own.
+
+   Depth is the one hard edge. A hole that stopped at 300 m has seen
+   nothing at 1 km, so its weight decays to a fifth below its own bottom
+   -- a fifth and not zero, because beds continue, and that is an
+   inference the panel is entitled to make. */
+function KnowAt(i, j, m){
+  let miss = 1;
+  for (let n = 0; n < reveals.length; n++){
+    const h = reveals[n];
+    const dx = i - h.i, dy = j - h.j;
+    const u = (dx * dx + dy * dy) / (K_R * K_R);
+    const near = K_NEAR * Math.exp(-u * 0.72);
+    const dep = lerp(1, K_BELOW, smoothstep(h.m, h.m + K_SKIRT_M, m));
+    miss *= 1 - Math.min((near + K_FAR) * dep, 0.985);
+  }
+  return 1 - miss;
+}
+/* Confidence is knowledge, rescaled so that the last 5% of fog is not worth
+   arguing about: once the fog is that thin the model is called settled and
+   stops moving. Without a ceiling the interfaces would keep creeping for ever
+   by amounts too small to see and too large to ignore. */
+const Confidence = k => clamp(k / K_FULL, 0, 1);
+
+/* DELINEATION -- the one number for "how well is this block known". Mean
+   confidence over the block's VOLUME, on a coarse grid, in exactly the units
+   the fog is drawn from, so the bar and the picture can never disagree.
+
+   The tiers are the industry's own and worth borrowing whole: a resource is
+   INFERRED while its shape is a guess, INDICATED once drilling constrains it,
+   and MEASURED only when the drilling is dense enough to bet on. About seven
+   well-spread full-depth holes clear 95%; a 3x3 grid reaches 99.8%; shallow
+   holes alone plateau, which is correct, since nothing has been established
+   about the bottom half of the column.
+
+   The gate it feeds -- isolate, which is a MEASURED-only act -- is stage 5.
+   What it does HERE is tell the frame whether the cage is still crawling. */
+const DELIN_GATE = 0.95;
+let DELIN = 0, delinRev = -1;
+function Delineation(){
+  if (delinRev === revealRev) return DELIN;
+  delinRev = revealRev;
+  if (!reveals.length){ DELIN = 0; return 0; }
+  let sum = 0, n = 0;
+  for (let a = 0; a <= 8; a++)
+    for (let b = 0; b <= 8; b++)
+      for (let d = 0; d < 7; d++){
+        sum += Confidence(KnowAt(a / 8 * N, b / 8 * N, (d + 0.5) / 7 * COLUMN_M));
+        n++;
+      }
+  DELIN = sum / n;
+  return DELIN;
+}
+const DelinTier = () => DELIN >= DELIN_GATE ? 'MEASURED'
+                      : DELIN >= 0.40 ? 'INDICATED' : 'INFERRED';
+
+/* The two readings the renderer actually takes, each at the depth the thing
+   being drawn is a picture of: an interface at its own depth, a bed's wall at
+   the middle of the bed. Interface 0 is the ground you are standing on. */
+const IfaceKnow = (k, i, j) => k === 0 ? 1 : Confidence(KnowAt(i, j, EDGE[k]));
+const BedKnow = (k, i, j) => Confidence(KnowAt(i, j, (EDGE[k] + EDGE[k + 1]) * 0.5));
 
 function BuildHeights(){
   N = Math.max(4, Math.round(P.lattice)); STRIDE = N + 1;
@@ -857,6 +954,7 @@ function BuildHeights(){
   TOPS = [0, P.t0, P.t0 + P.t1, P.t0 + P.t1 + P.t2];
   COLUMN_M = TOPS[3] + P.t3;
   const edge = [TOPS[0], TOPS[1], TOPS[2], TOPS[3], COLUMN_M];
+  EDGE = edge;
 
   const az = P.dipAz * Math.PI / 180, ca = Math.cos(az), sa = Math.sin(az);
   const period = Math.max(1, Math.round(P.feature));
@@ -888,7 +986,7 @@ function BuildHeights(){
                   + ep.tilt * ((u - 0.5) * ep.tca + (v - 0.5) * ep.tsa)
                   + ep.amp * ((Fbm(u, v, ep.p1, 2, ep.s1) - 0.5) * 1.30
                             + (Fbm(u, v, ep.p2, 2, ep.s2) - 0.5) * 0.70);
-          z += e * (1 - Confidence());
+          z += e * (1 - Confidence(KnowAt(i, j, edge[L])));
         }
         d[j * STRIDE + i] = z;
       }
@@ -969,9 +1067,10 @@ function BuildModel(){
     return lerp(a, b, tz) / COLUMN_M;
   });
   /* The camera and the explode offsets are stamped onto the model by
-     Holo3D.render, and the ground is rebuilt mid-cut as the scour deepens. A
+     the renderer, and the ground is rebuilt mid-cut as the scour deepens. A
      rebuild that dropped them would leave every projection in the drill
      without a camera for one frame -- so they are carried across. */
+  lastReveal = revealRev;
   const prev = model;
   model = { W: MODEL_W, D: MODEL_D, NX: N, NZ: N, pts, fields, layers: BEDS, hits: [], seed: 11 };
   if (prev) { model.cam = prev.cam; model.offY = prev.offY; model.alphaOf = prev.alphaOf;
@@ -1051,16 +1150,355 @@ function DrawBaseRing(ctx, view) {
   }
   ctx.restore();
 }
-/* One object, not a fresh one per call: Holo3D.render stamps `centerY` onto
-   the view the first time it sees it, and the inverse projection needs to read
-   the same value back. */
+/* One object, not a fresh one per call, and it carries its own centreline:
+   the renderer stamps `centerY` onto a view that has none, the inverse
+   projection reads it back, and the cage has to be built on the same camera
+   the beds are. Set here, it is the same number for all three from frame one. */
 let VIEW = null, viewKey = '';
 function BlockView() {
   const b = LT.block, k = [b.cx, b.cy, b.zoom].join(',');
-  if (k !== viewKey) { viewKey = k; VIEW = { cx: b.cx, cy: b.cy, zoom: b.zoom }; }
+  if (k !== viewKey) { viewKey = k; VIEW = { cx: b.cx, cy: b.cy, zoom: b.zoom, centerY: -MODEL_D / 2 }; }
   return VIEW;
 }
-function DrawBlock(ctx) { Holo3D.render(ctx, model, blockCtl.state, BlockView()); }
+/* =====================================================================
+   9b. THE BED PAINTER IS OURS NOW
+   ---------------------------------------------------------------------
+   Holo3D.render paints a bed whole: one polygon per wall, one fill, one
+   mesh. Knowledge is not whole -- it is a field over (i, j, m) -- and the
+   console draws only what it has measured, so the passes have to read
+   that field per column and per cell. That loop is this function.
+
+   Everything else of Holo3D's is still Holo3D's and still byte-for-byte
+   vendored: the camera, the hit test, the HUD. This is derived from its
+   `render` and stamps the same things onto the model (cam, hits, bounds,
+   hull, offY, alphaOf), so `hit` and `drawHud` cannot tell the difference.
+
+   THE RULE THIS FUNCTION EXISTS TO KEEP: fog lives INSIDE the per-bed
+   painter. Drawn anywhere else it would land on the on-screen block and
+   not inside the ghost buffers, so an isolated view would show unfogged
+   ghosts -- a bug that looks like a fog bug and is not one.
+
+   WHAT FOG COSTS, and why it is strips and not a mask. A per-column alpha
+   ramp cannot be a gradient, because the wall's fill gradient is already
+   spoken for (vertical: neon, mid, deep). It cannot be an erase either --
+   `destination-out` on the console canvas would punch through the panel
+   behind the block, and on a ghost buffer it would erase the beds already
+   painted into it. So a fogged wall is drawn as one quad per lattice
+   column, each at its own alpha. A wall that is fully known takes the old
+   single-polygon path and is identical to what it drew before.
+   ===================================================================== */
+const bhex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+const bmix = (a, b, t) => { const A = bhex(a), B = bhex(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(',')})`; };
+const bshade = (c, f) => { const A = bhex(c); return `rgb(${A.map(v => Math.round(Math.min(255, v * f))).join(',')})`; };
+const bhash = (a, b, c) => { let h = (a * 73856093) ^ (b * 19349663) ^ (c * 83492791); h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+function BHull(points) {   // monotone chain, as upstream
+  const P = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const p of P) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+  for (const p of P.reverse()) { while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+/* Two translucent quads that share an edge exactly leave a hairline: the
+   antialiasing on each side covers about half the seam pixel, and half plus
+   half is not one. Grown a third of a pixel about their own centre they
+   overlap instead, which is invisible. Only fogged quads pay for it. */
+const Grow = (q, d) => {
+  let cx = 0, cy = 0;
+  for (const p of q) { cx += p[0]; cy += p[1]; }
+  cx /= q.length; cy /= q.length;
+  return q.map(p => { const dx = p[0] - cx, dy = p[1] - cy, L = Math.hypot(dx, dy) || 1;
+                      return [p[0] + dx / L * d, p[1] + dy / L * d]; });
+};
+const KN_MIN = 0.012;        // below this a quad is not worth a draw call
+const KN_SOLID = 0.995;      // above this the whole wall takes the fast path
+
+/* The four walls, each as a node walk: t runs along the wall and returns the
+   lattice node it lands on, so the same index gives geometry AND knowledge.
+   The order and direction are upstream's, so nothing downstream shifts. */
+function BlockWalls(NX, NZ) {
+  return [
+    ['A', [0, 0, -1], NX, t => [t, 0]],
+    ['B', [1, 0, 0], NZ, t => [NX, t]],
+    ['C', [0, 0, 1], NX, t => [t, NZ]],
+    ['D', [-1, 0, 0], NZ, t => [0, t]],
+  ];
+}
+
+function RenderBlock(ctx, model, state, view) {
+  const { W, D, NX, NZ, pts, layers } = model;
+  const cam = Holo3D.camera(state, view), fast = !!state.fast;
+  const e = state.explode || 0, sel = state.selected ?? -1, gap = D * 0.16 * e;
+  if (view.centerY == null) view.centerY = -D / 2;
+  const alphaOf = k => (sel < 0 || k === sel ? 1 : 0.3);
+  const offY = k => (2 - k) * gap;
+  model.hits = [];
+  const proj = (p, dy) => cam.project([p[0], p[1] + dy, p[2]]);
+  const WALLS = BlockWalls(NX, NZ);
+  const lit = n => 0.62 + 0.38 * Math.max(0, n[0] * cam.light[0] + n[1] * cam.light[1] + n[2] * cam.light[2]);
+  const allPts = [];
+  const GHOST = 0.3;
+
+  // paint one bed, fully opaque where it is known, into any context
+  const paintLayer = (ctx, k) => {
+    const path = pts2 => { ctx.beginPath(); pts2.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
+    const ly = layers[k], dy = offY(k), showTop = k === 0 || e > 0.02;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+    // ---- walls ----
+    WALLS.forEach(([name, n, NT, node]) => {
+      const top = [], bot = [], kn = [];
+      for (let t = 0; t <= NT; t++) {
+        const [i, j] = node(t);
+        top.push(proj(pts[k][i][j], dy));
+        bot.push(proj(pts[k + 1][i][j], dy));
+        kn.push(BedKnow(k, i, j));
+      }
+      top.forEach(p => allPts.push(p));
+      if (k === layers.length - 1) bot.forEach(p => allPts.push(p));
+      if (!cam.facing(n)) return;
+      const f = lit(n);
+      const ys = top.concat(bot).map(p => p[1]), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const g = ctx.createLinearGradient(0, y0, 0, y1);
+      g.addColorStop(0, bshade(ly.neon, f)); g.addColorStop(0.2, bshade(ly.mid, f));
+      g.addColorStop(0.75, bshade(ly.deep, f)); g.addColorStop(1, bshade(ly.deep, f));
+      const rows = Math.max(2, Math.round((y1 - y0) / 26));
+      /* A bed you cannot see is a bed you cannot lift out. The hit polygon
+         goes in only where there is something on the wall to tap. */
+      let best = 0; for (const v of kn) if (v > best) best = v;
+      if (best > 0.25) model.hits.push({ k, poly: [...top, ...bot.slice().reverse()] });
+      if (best <= KN_MIN) return;
+
+      /* The mesh over a span of columns: verticals, rows, and the scatter,
+         each batched into ONE path for the span. Upstream clips all of this
+         to the wall; it does not need to, because every point it draws is a
+         convex combination of the span's own top and bottom samples. */
+      const mesh = (t0, t1, vFrom, vTo) => {
+        ctx.strokeStyle = `rgba(${ly.mesh},${0.22 * f})`; ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let t = vFrom; t <= vTo; t++) { ctx.moveTo(top[t][0], top[t][1]); ctx.lineTo(bot[t][0], bot[t][1]); }
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(${ly.mesh},${0.14 * f})`;
+        ctx.beginPath();
+        for (let m = 1; m < rows; m++) {
+          const q = m / rows;
+          for (let t = t0; t <= t1; t++) {
+            const x = top[t][0] + (bot[t][0] - top[t][0]) * q, y = top[t][1] + (bot[t][1] - top[t][1]) * q;
+            t === t0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          }
+        }
+        ctx.stroke();
+        if (fast) return;
+        const dark = [], pale = [];
+        for (let t = t0; t < t1; t++) for (let m = 0; m < rows; m++) {
+          const h = bhash(t + 1, m + 7, k * 4 + name.charCodeAt(0)); if (h > 0.18) continue;
+          const a0 = (m + 0.35) / rows, a1 = (m + 0.65) / rows;
+          const Pt = (idx, q) => [top[idx][0] + (bot[idx][0] - top[idx][0]) * q, top[idx][1] + (bot[idx][1] - top[idx][1]) * q];
+          const l0 = Pt(t, a0), l1 = Pt(t + 1, a0), l2 = Pt(t + 1, a1), l3 = Pt(t, a1), s0 = 0.3, s1 = 0.7;
+          const Q = (u, pa, pb) => [pa[0] + (pb[0] - pa[0]) * u, pa[1] + (pb[1] - pa[1]) * u];
+          (h < 0.14 ? dark : pale).push([Q(s0, l0, l1), Q(s1, l0, l1), Q(s1, l3, l2), Q(s0, l3, l2)]);
+        }
+        [[dark, 'rgba(0,8,20,0.32)'], [pale, 'rgba(200,235,255,0.14)']].forEach(([qs, col]) => {
+          if (!qs.length) return;
+          ctx.beginPath();
+          qs.forEach(q => { q.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); });
+          ctx.fillStyle = col; ctx.fill();
+        });
+      };
+
+      if (kn.every(v => v >= KN_SOLID)) {
+        path([...top, ...bot.slice().reverse()]); ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+        mesh(0, NT, 1, NT - 1);
+      } else {
+        for (let t = 0; t < NT; t++) {
+          const a = (kn[t] + kn[t + 1]) * 0.5;
+          if (a <= KN_MIN) continue;
+          ctx.globalAlpha = Math.min(1, a);
+          path(Grow([top[t], top[t + 1], bot[t + 1], bot[t]], 0.35)); ctx.closePath();
+          ctx.fillStyle = g; ctx.fill();
+          mesh(t, t + 1, Math.max(1, Math.min(NT - 1, t)), Math.max(1, Math.min(NT - 1, t)));
+        }
+        ctx.globalAlpha = 1;
+      }
+    });
+
+    // ---- top surface (slope-shaded cells) ----
+    const Pj = pts[k].map(col => col.map(p => proj(p, dy)));
+    if (showTop) {
+      const kAt = (i, j) => IfaceKnow(k, i, j);
+      for (let i = 0; i < NX; i++) for (let j = 0; j < NZ; j++) {
+        const a = k === 0 ? 1 : (kAt(i, j) + kAt(i + 1, j) + kAt(i + 1, j + 1) + kAt(i, j + 1)) * 0.25;
+        if (a <= KN_MIN) continue;
+        const p0 = pts[k][i][j], p1 = pts[k][i + 1][j], p2 = pts[k][i + 1][j + 1], p3 = pts[k][i][j + 1];
+        const ex = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]], ez = [p3[0] - p0[0], p3[1] - p0[1], p3[2] - p0[2]];
+        const n = [ez[1] * ex[2] - ez[2] * ex[1], ez[2] * ex[0] - ez[0] * ex[2], ez[0] * ex[1] - ez[1] * ex[0]];
+        const len = Math.hypot(...n) || 1, f = 0.45 + 0.55 * Math.max(0, (n[0] * cam.light[0] + n[1] * cam.light[1] + n[2] * cam.light[2]) / len);
+        const shadeK = k === 0 ? bmix('#123f6e', '#3f92d0', f) : bmix(ly.deep, ly.neon, f * 0.85);
+        const quad = [Pj[i][j], Pj[i + 1][j], Pj[i + 1][j + 1], Pj[i][j + 1]];
+        if (a < KN_SOLID) ctx.globalAlpha = a;
+        path(a < KN_SOLID ? Grow(quad, 0.35) : quad); ctx.closePath(); ctx.fillStyle = shadeK; ctx.fill();
+        if (!fast && bhash(i + 3, j + 5, 99 + k) < 0.12) {
+          ctx.fillStyle = 'rgba(0,10,30,0.28)';
+          const m = (u, pa, pb) => [pa[0] + (pb[0] - pa[0]) * u, pa[1] + (pb[1] - pa[1]) * u];
+          const q0 = m(0.3, Pj[i][j], Pj[i + 1][j]), q1 = m(0.7, Pj[i][j], Pj[i + 1][j]);
+          const q2 = m(0.7, Pj[i][j + 1], Pj[i + 1][j + 1]), q3 = m(0.3, Pj[i][j + 1], Pj[i + 1][j + 1]);
+          path([m(0.3, q0, q3), m(0.3, q1, q2), m(0.7, q1, q2), m(0.7, q0, q3)]); ctx.closePath(); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+      if (k === 0 || kAt(0, 0) > KN_MIN) {
+        ctx.strokeStyle = `rgba(${ly.mesh},0.3)`; ctx.lineWidth = 1;
+        for (let i = 1; i < NX; i++) { path(Pj[i]); ctx.stroke(); }
+        for (let j = 1; j < NZ; j++) { path(Pj.map(col => col[j])); ctx.stroke(); }
+      }
+      const outline = [...Pj.map(c => c[0]), ...Pj[NX].slice(1), ...Pj.map(c => c[NZ]).reverse().slice(1), ...Pj[0].slice().reverse().slice(1)];
+      if (k === 0 || kAt(NX >> 1, NZ >> 1) > 0.25) model.hits.push({ k, poly: outline });
+    }
+
+    // ---- edges ----
+    /* A BOUNDARY IS A CLAIM, and an unmeasured one is not drawn. Each segment
+       carries the lesser of its two ends' confidence and fades in across it
+       rather than popping; a boundary that is established the whole way round
+       takes the single-polyline path, bloom and all. */
+    const stroke = (pts2, color, w, blur) => { path(pts2); ctx.shadowColor = '#6fd8ff'; ctx.shadowBlur = fast ? 0 : blur; ctx.strokeStyle = color; ctx.lineWidth = w; ctx.stroke(); ctx.shadowBlur = 0; };
+    const edgeRun = (kk, NT, node, dy2, color, w, blur) => {
+      const kv = [], pj = [];
+      for (let t = 0; t <= NT; t++) { const [i, j] = node(t); kv.push(IfaceKnow(kk, i, j)); pj.push(proj(pts[kk][i][j], dy2)); }
+      if (kv.every(v => v >= KN_SOLID)) { stroke(pj, color, w, blur); return; }
+      for (let t = 0; t < NT; t++) {
+        const a = Math.min(kv[t], kv[t + 1]);
+        if (a <= 0.02) continue;
+        ctx.globalAlpha = a;
+        stroke([pj[t], pj[t + 1]], color, w, a > 0.6 ? blur : 0);
+      }
+      ctx.globalAlpha = 1;
+    };
+    WALLS.forEach(([name, n, NT, node]) => {
+      const vis = cam.facing(n);
+      if (vis) edgeRun(k, NT, node, dy, k === 0 ? '#e6ffff' : ly.line, k === 0 ? 2.2 : 1.5, k === 0 ? 16 : 10);
+      else if (showTop) edgeRun(k, NT, node, dy, `rgba(${ly.mesh},0.45)`, 1, 0);
+      if (k === layers.length - 1 && vis) edgeRun(k + 1, NT, node, dy, 'rgba(160,190,215,0.6)', 1.1, 3);
+    });
+    // vertical corner edges: bright where two visible walls meet, dim on the silhouette
+    const corners = [[0, 0, ['A', 'D']], [NX, 0, ['A', 'B']], [NX, NZ, ['B', 'C']], [0, NZ, ['C', 'D']]];
+    corners.forEach(([i, j, walls]) => {
+      const v = walls.map(w => cam.facing(WALLS.find(x => x[0] === w)[1]));
+      if (!v[0] && !v[1]) return;
+      const a = BedKnow(k, i, j);
+      if (a <= 0.02) return;
+      ctx.globalAlpha = a;
+      stroke([proj(pts[k][i][j], dy), proj(pts[k + 1][i][j], dy)],
+             v[0] && v[1] ? '#e6ffff' : 'rgba(180,215,240,0.55)', v[0] && v[1] ? 2.2 : 1.1, v[0] && v[1] ? 14 : 2);
+      ctx.globalAlpha = 1;
+    });
+  };
+
+  ctx.save();
+  if (sel < 0) {
+    for (let k = layers.length - 1; k >= 0; k--) paintLayer(ctx, k);
+  } else {
+    // ghost groups are rendered opaque off-screen and composited ONCE at ghost
+    // alpha, so stacked ghosts never accumulate; beds above the focus stay
+    // above it (true 3D order) yet the focus shows through them.
+    const below = [], above = [];
+    for (let k = layers.length - 1; k > sel; k--) below.push(k);
+    for (let k = sel - 1; k >= 0; k--) above.push(k);
+    const buf = GhostBuffers(model, ctx);
+    const group = (ks, slot) => {
+      if (!ks.length) return;
+      if (!buf) { ctx.globalAlpha = GHOST; ks.forEach(k => paintLayer(ctx, k)); ctx.globalAlpha = 1; return; }
+      const g = buf[slot];
+      g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, g.canvas.width, g.canvas.height); g.restore();
+      ks.forEach(k => paintLayer(g, k));
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = GHOST; ctx.drawImage(g.canvas, 0, 0); ctx.restore();
+    };
+    group(below, 0);
+    paintLayer(ctx, sel);
+    group(above, 1);
+  }
+  ctx.globalAlpha = 1;
+  model.bounds = allPts.reduce((b, p) => [Math.min(b[0], p[0]), Math.min(b[1], p[1]), Math.max(b[2], p[0]), Math.max(b[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
+  model.hull = BHull(allPts);
+  model.cam = cam; model.offY = offY; model.alphaOf = alphaOf;
+  ctx.restore();
+}
+function GhostBuffers(model, ctx) {
+  const w = ctx.canvas.width, h = ctx.canvas.height;
+  if (!model._buf || model._buf[0].canvas.width !== w || model._buf[0].canvas.height !== h) {
+    const mk2 = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c.getContext('2d'); };
+    model._buf = [mk2(), mk2()];
+  }
+  const t = ctx.getTransform ? ctx.getTransform() : null;
+  model._buf.forEach(g => { if (t) g.setTransform(t.a, t.b, t.c, t.d, t.e, t.f); else g.setTransform(1, 0, 0, 1, 0, 0); });
+  return model._buf;
+}
+
+/* =====================================================================
+   9c. THE WIRE CAGE -- what is drawn where nothing has been measured
+   ---------------------------------------------------------------------
+   Unknown volume gets no fill and no boundaries. What is left is the grid
+   the instrument works ON: a column line every few lattice nodes, a depth
+   ring every 250 m, and a slow crawl through the rings, so an undrilled
+   block reads as LIVE BUT UNRESOLVED rather than as a page that failed to
+   load. The surface stays where it is, because you can see the ground.
+
+   Its alpha is exactly 1 - confidence, so it retreats from the parts of
+   the block that have been drilled and is gone by the time the block is
+   called MEASURED. And it fades out with explode: the cage is the shape
+   of one solid volume, and a block taken apart is not one.
+   ===================================================================== */
+const CAGE_STEP = 4;         // lattice nodes between column lines
+const CAGE_RING_M = 250;     // metres between depth rings
+const CAGE_A = 0.30;
+let crawlT = 0;
+function DrawCage(ctx, cam) {
+  const e = blockCtl.state.explode || 0;
+  const fade = 1 - Math.min(1, e * 1.6);
+  if (fade <= 0.01 || !model) return;
+  const { NX, NZ, pts } = model;
+  const WALLS = BlockWalls(NX, NZ);
+  const yOf = m => -(m / COLUMN_M) * MODEL_D;
+  const proj = p => cam.project(p);
+  const ticks = [];
+  for (let t = 0; t <= NX; t += CAGE_STEP) ticks.push(t);
+  if (ticks[ticks.length - 1] !== NX) ticks.push(NX);
+  ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = 1;
+  WALLS.forEach(([name, n, NT, node]) => {
+    if (!cam.facing(n)) return;
+    const tk = ticks.filter(t => t <= NT);
+    if (tk[tk.length - 1] !== NT) tk.push(NT);
+    // columns: from the ground you can see down to the base of the survey
+    for (const t of tk) {
+      const [i, j] = node(t), p = pts[0][i][j];
+      const a = CAGE_A * fade * (1 - Confidence(KnowAt(i, j, COLUMN_M * 0.5)));
+      if (a <= 0.006) continue;
+      const b = proj([p[0], yOf(COLUMN_M), p[2]]);
+      ctx.strokeStyle = `rgba(110,190,225,${a})`;
+      ctx.beginPath(); const q = proj(p); ctx.moveTo(q[0], q[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+    // rings: one crawling wave of depth, the cheapest honest sign of life
+    for (let m = CAGE_RING_M; m <= COLUMN_M + 1; m += CAGE_RING_M) {
+      const y = yOf(Math.min(m, COLUMN_M));
+      const w = 0.55 + 0.45 * Math.sin(m / 170 - crawlT * 1.6);
+      for (let s = 0; s < tk.length - 1; s++) {
+        const [i0, j0] = node(tk[s]), [i1, j1] = node(tk[s + 1]);
+        const a = CAGE_A * fade * w * (1 - Confidence(KnowAt((i0 + i1) / 2, (j0 + j1) / 2, m)));
+        if (a <= 0.006) continue;
+        const p = proj([pts[0][i0][j0][0], y, pts[0][i0][j0][2]]);
+        const q = proj([pts[0][i1][j1][0], y, pts[0][i1][j1][2]]);
+        ctx.strokeStyle = `rgba(110,190,225,${a})`;
+        ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+      }
+    }
+  });
+  ctx.restore();
+}
+
+function DrawBlock(ctx) {
+  const view = BlockView(), cam = Holo3D.camera(blockCtl.state, view);
+  DrawCage(ctx, cam);                // behind the beds: it is what they are drawn ON
+  RenderBlock(ctx, model, blockCtl.state, view);
+}
 
 /* =====================================================================
    10. THE DRILL
@@ -1902,10 +2340,14 @@ function AsSeenThrough(alpha, draw) {
    rebuild at 60 Hz, so it steps in about ten stages across a cut while the
    drill and its spatter run smooth on top. */
 const SpoilRev = () => { let v = 0; for (const h of holes) v += Math.round(h.k * 10) * 31; return v; };
-let lastSpoil = 0;
+let lastSpoil = 0, lastReveal = -1;
 function StepGround() {
   const r = SpoilRev();
-  if (r !== lastSpoil) { lastSpoil = r; BuildModel(); }
+  /* A finished hole moves the interfaces -- the error each one carries is
+     scaled by 1 - confidence, and confidence has just gone up. The beds
+     re-fitting is the whole point of drilling, so it happens on the frame
+     the column clears the collar. */
+  if (r !== lastSpoil || revealRev !== lastReveal) { lastSpoil = r; BuildModel(); }
 }
 
 /* =====================================================================
@@ -1955,13 +2397,20 @@ function FrameKey() {
   // Anything moving keeps the frame alive: the armed cursor follows the
   // pointer, the rig animates, spatter falls, a bore marker turns.
   const live = drill.armed || spatter.length || bores.length || lockFlash > 0;
+  /* The cage crawls, and a crawl at 60 Hz would mean redrawing the block 60
+     times a second to move a few faint lines. It is stepped at 6 Hz instead --
+     which on an instrument reads as data arriving rather than as judder -- and
+     it stops entirely once the block is MEASURED and there is no cage left. */
+  const cage = Delineation() < 0.999 ? crawlT.toFixed(3) : 'settled';
   return [staticKey, b.yaw.toFixed(4), b.pitch.toFixed(4), b.explode.toFixed(3),
           b.selected, b.fast, ui.rack.t.toFixed(3), ui.sheet.t.toFixed(3),
+          revealRev, cage,
           live ? st.t.toFixed(3) : 'still'].join('|');
 }
 function Frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   st.t = now / 1000;
+  crawlT = Math.floor(st.t * 6) / 6;
   StepUi(dt);
   blockCtl.tick(now);
   ReadCamera();
@@ -2079,7 +2528,7 @@ window.__drill = () => ({ armed: drill.armed, mode: drill.mode, i: drill.i, j: d
   depthM: Math.round(drill.depthM), holes: holes.length, bores: bores.length,
   spatter: spatter.length, pxPerM: +PX_PER_M.toFixed(4), tx: +TX.toFixed(2) });
 window.__arm = v => { drill.armed = v ? 1 : 0; if (!v) drill.mode = 'aim'; return drill.armed; };
-window.__reset = () => { holes.length = 0; bores.length = 0; spatter.length = 0; reveals.length = 0;
+window.__reset = () => { holes.length = 0; bores.length = 0; spatter.length = 0; reveals.length = 0; revealRev++;
   drill.mode = 'aim'; drill.spud = drill.sink = drill.feed = drill.fade = 0; BuildModel(); };
 window.__pick = (x, y) => PickGround(x, y);
 window.__surf = (i, j) => SURF[0][j * STRIDE + i];
@@ -2103,7 +2552,13 @@ window.__L = () => ({ mode: LT.mode, W, H, dpr, module: ui.module,
   tabs: LT.tabs || [] });
 window.__blk = () => blockCtl.state;
 window.__lattice = n => { P.lattice = n; BuildModel(); return N; };
-window.__model = () => model; window.__view = () => BlockView(); window.__render = Holo3D.render;
+window.__model = () => model; window.__view = () => BlockView(); window.__render = RenderBlock;
+/* what the console knows, as the renderer reads it */
+window.__know = (i, j, m) => +KnowAt(i, j, m).toFixed(4);
+window.__delin = () => ({ delin: +Delineation().toFixed(4), tier: DelinTier(),
+                          reveals: reveals.length, rev: revealRev });
+window.__reveal = (i, j, m) => { reveals.push({ i, j, m: m === undefined ? COLUMN_M : m });
+                                 revealRev++; BuildModel(); return reveals.length; };
 /* profiling seams -- each step of the frame, callable on its own */
 window.__renderInto = () => DrawBlock(CTX);
 window.__blitCache = () => { const c = LT.block.canvas;
