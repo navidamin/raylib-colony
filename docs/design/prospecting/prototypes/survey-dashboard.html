@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Survey console &middot; frame</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;background:#020b13;color:#4d6f8a;
+    font:500 12px "JetBrains Mono",ui-monospace,Menlo,monospace;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;flex-direction:column}
+  header{padding:7px 14px;border-bottom:1px solid #12303f;color:#4d6f8a;
+    display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}
+  header b{color:#62b3f5;font-weight:700}
+  main{flex:1;display:flex;justify-content:center;padding:8px}
+  #wrap{width:100%;max-width:1536px}
+  canvas{display:block;width:100%;height:auto;touch-action:manipulation;
+    -webkit-tap-highlight-color:transparent}
+</style>
+</head>
+<body>
+<header><b>survey console</b><span>stage 0 &mdash; the frame</span><span>&middot;</span>
+  <span>narrow the window to cross the breakpoint &middot; tap TOOLS / DRILL on the phone layout</span></header>
+<main><div id="wrap"><canvas id="cv" aria-label="Survey console"></canvas></div></main>
+<script>
+"use strict";
+(function(){
+/* =====================================================================
+   SURVEY CONSOLE -- stage 0: the frame, and the layout function
+   ---------------------------------------------------------------------
+   Design of record: ../survey-dashboard-design.md
+   Build plan:       ../survey-dashboard-implementation.md
+   Source of the chrome: prototypes/dashboard/dashboard.html (rev 2026-09-11)
+
+   What is here: the ground, the module bar, five bracketed panels, the
+   two branch connectors, the titles -- at BOTH breakpoints, with the
+   rack and the drill bar able to open and close.
+
+   What is NOT here, on purpose: the block, the rack's internals, the
+   drill, the log's entries, every meter. Those are stages 1-7. An empty
+   console first, so the frame can be checked against the reference
+   render before anything is built on it.
+
+   THE ONE RULE THIS STAGE EXISTS TO ESTABLISH: no geometry is a
+   constant. Every rectangle on screen comes out of Layout(), which
+   takes the container's width and returns the whole arrangement. The
+   phone is not a narrower desktop -- it is a different arrangement of
+   the same panels -- and retrofitting that later is a rewrite.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. PALETTE -- verbatim from dashboard.html's Dashboard module
+   ------------------------------------------------------------------ */
+const C = {
+  bg: '#03121d', bgEdge: '#020b13',
+  line: '#1a4a5c', accent: '#35d8ee', accentDim: '#1c7f95',
+  title: '#62b3f5', underline: '#21e3f0', body: '#6f8fb0', label: '#a3b8cc', bright: '#bcd2e6', dim: '#5f7a96',
+  logText: '#a8bdd2', logTime: '#6b86a3', sep: '#10303f',
+  tagFill: '#0a2431', tagEdge: '#2c7d95', tagText: '#86e3f4',
+  chipFill: '#091a27', power: '#f2c94c', water: '#58a8ff', propellant: '#a98cff', farming: '#4fe57a', life: '#ff6262', construction: '#9fb6cc',
+  barOn: '#24dcf2', barOff: '#0a2230', barEdge: '#153747',
+  g: '#3fe36e', y: '#e9e34b', o: '#ffa441', r: '#ff5a5a',
+  depth: '#8fbfe6', hex: '#1f5a6e', dots: '#35d8ee',
+  strata: ['#7a5230', '#9fb8cf', '#365269', '#2c5f9e', '#1d2731'],
+  strataDark: ['#5a3a20', '#7f98ae', '#25394c', '#1f4676', '#141b23'],
+  boxFill: '#051826', boxEdge: '#1f4d60', track: '#0a2230', thumb: '#24dcf2',
+  btnEdge: '#245a6c', btnText: '#4d9cb4',
+};
+const MONO = '"JetBrains Mono","IBM Plex Mono","Roboto Mono",ui-monospace,Menlo,Consolas,monospace';
+const SANS = '"Inter",system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
+const TAU = Math.PI * 2;
+
+/* ---------------------------------------------------------------------
+   2. PRIMITIVES -- also verbatim, because the frame has to match the
+   reference render pixel for pixel and a re-derivation would not.
+   ------------------------------------------------------------------ */
+function rpoly(ctx, pts, dx = 0, dy = 0) {
+  ctx.beginPath();
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const [x, y, r] = pts[i];
+    if (!r) { i ? ctx.lineTo(x + dx, y + dy) : ctx.moveTo(x + dx, y + dy); continue; }
+    const [px, py] = pts[(i - 1 + n) % n], [nx, ny] = pts[(i + 1) % n];
+    const l1 = Math.hypot(px - x, py - y), l2 = Math.hypot(nx - x, ny - y);
+    const t1x = x + (px - x) / l1 * r + dx, t1y = y + (py - y) / l1 * r + dy;
+    const t2x = x + (nx - x) / l2 * r + dx, t2y = y + (ny - y) / l2 * r + dy;
+    i ? ctx.lineTo(t1x, t1y) : ctx.moveTo(t1x, t1y);
+    ctx.quadraticCurveTo(x + dx, y + dy, t2x, t2y);
+  }
+  ctx.closePath();
+}
+function rrect(ctx, x, y, w, h, r) {
+  rpoly(ctx, [[x, y, r], [x + w, y, r], [x + w, y + h, r], [x, y + h, r]]);
+}
+function text(ctx, str, x, y, o) {
+  ctx.font = `${o.weight || 500} ${o.size}px ${o.font}`;
+  ctx.fillStyle = o.color; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  const sp = o.spacing || 0;
+  if (!sp) { ctx.fillText(str, x, y); return; }
+  let cx = x;
+  for (const ch of str) { ctx.fillText(ch, cx, y); cx += ctx.measureText(ch).width + sp; }
+}
+function condensed(ctx, str, x, y, o) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(o.sx || 1, 1);
+  text(ctx, str, 0, 0, o);
+  ctx.restore();
+}
+function font(ctx, size, weight = 500, fam = MONO) { ctx.font = `${weight} ${size}px ${fam}`; }
+function label(ctx, str, x, y, size, color, o = {}) {
+  font(ctx, size, o.weight || 500, o.sans ? SANS : MONO);
+  ctx.fillStyle = color; ctx.textAlign = o.align || 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(str, x, y); return ctx.measureText(str).width;
+}
+function title(ctx, str, x, y, o = {}) {
+  const size = o.size || 26;
+  condensed(ctx, str, x, y, { size, sx: 0.9, font: MONO, weight: 700, color: C.title });
+  if (o.underline !== false) { ctx.fillStyle = C.underline; ctx.fillRect(x, y + 10, o.underline || 40, 3.5); }
+}
+/* Bracket panel: dim rounded outline + bright corner brackets with a small
+   gap punched in the outline just past each leg, so the bracket reads as ON
+   TOP of the frame rather than as part of it. */
+function panel(ctx, x, y, w, h, o = {}) {
+  const r = o.r ?? 12, leg = o.leg ?? 26;
+  if (o.fill) { rrect(ctx, x, y, w, h, r); ctx.fillStyle = o.fill; ctx.fill(); }
+  rrect(ctx, x, y, w, h, r); ctx.strokeStyle = C.line; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.strokeStyle = o.accent || C.accent; ctx.lineWidth = 2; ctx.lineCap = 'butt';
+  const L = pts => { ctx.beginPath(); pts.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py))); ctx.stroke(); };
+  L([[x, y + leg], [x, y + r], [x + r * 0.3, y + r * 0.3], [x + r, y], [x + leg, y]]);
+  L([[x + w - leg, y], [x + w - r, y], [x + w - r * 0.3, y + r * 0.3], [x + w, y + r], [x + w, y + leg]]);
+  L([[x, y + h - leg], [x, y + h - r], [x + r * 0.3, y + h - r * 0.3], [x + r, y + h], [x + leg, y + h]]);
+  L([[x + w - leg, y + h], [x + w - r, y + h], [x + w - r * 0.3, y + h - r * 0.3], [x + w, y + h - r], [x + w, y + h - leg]]);
+  ctx.fillStyle = o.gap || C.bg;
+  [[x + leg, y], [x + w - leg - 5, y], [x + leg, y + h], [x + w - leg - 5, y + h]].forEach(([gx, gy]) => ctx.fillRect(gx, gy - 2, 5, 4));
+  [[x, y + leg], [x, y + h - leg - 5], [x + w, y + leg], [x + w, y + h - leg - 5]].forEach(([gx, gy]) => ctx.fillRect(gx - 2, gy, 4, 5));
+}
+/* A vertical branch from a parent panel's bottom edge to a child's top edge:
+   the only hierarchy the frame expresses, and what stops five panels reading
+   as five unrelated windows. */
+function connector(ctx, x, y0, y1) {
+  ctx.fillStyle = C.bg; ctx.fillRect(x - 5, y0 - 2, 10, 4); ctx.fillRect(x - 5, y1 - 2, 10, 4);
+  ctx.strokeStyle = C.accentDim; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y0 - 2); ctx.lineTo(x, y1 + 2); ctx.stroke();
+  ctx.fillStyle = C.accent; ctx.fillRect(x - 3, y0 - 1, 6, 3); ctx.fillRect(x - 3, y1 - 2, 6, 3);
+}
+function segBar(ctx, x, y, n, fills, o = {}) {
+  const w = o.w ?? 15, h = o.h ?? 15, gap = o.gap ?? 3;
+  for (let i = 0; i < n; i++) {
+    const sx = x + i * (w + gap), c = fills[i];
+    rrect(ctx, sx, y, w, h, 2); ctx.fillStyle = c || C.barOff; ctx.fill();
+    ctx.strokeStyle = c ? 'rgba(0,0,0,0.35)' : C.barEdge; ctx.lineWidth = 1; ctx.stroke();
+    if (c) { ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(sx + 2, y + 2, w - 4, 2); }
+  }
+  return n * (w + gap) - gap;
+}
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* =====================================================================
+   3. LAYOUT -- the whole arrangement, as a function of one number
+   ---------------------------------------------------------------------
+   Returns design-space rectangles. `W`/`H` are the design size the canvas
+   is set to; everything else is inside it.
+
+   DESKTOP is dashboard.html's DASH.layout, shifted down by the module bar
+   -- which is new, belongs to the unit rather than to prospecting, and so
+   runs the full width instead of sitting inside a panel.
+
+   PHONE is a different arrangement, not a narrower one: the block is the
+   app, the rack and the drill bar are summoned over it, and the log is
+   below the fold. `drawer` and `sheet` are the transient panels' rects at
+   full open; the open fraction slides them off their own edge.
+   ===================================================================== */
+const BREAK = 1180;                  // container CSS px below which the phone arrangement is used
+const MODULES = ['PROSPECTING', 'EXCAVATION', 'BENEFICIATION', 'OPERATIONS', 'DIRECTIVES'];
+
+function Layout(cssW) {
+  return cssW >= BREAK ? deskLayout() : phoneLayout();
+}
+function deskLayout() {
+  const bar = { x: 40, y: 14, w: 1456, h: 42 }, dy = 78;
+  const layers = { x: 400, y: dy, w: 740, h: 944 };
+  const survey = { x: 40, y: dy, w: 338, h: 676 };
+  const drill  = { x: 1164, y: dy, w: 328, h: 668 };
+  return {
+    mode: 'desk', W: 1536, H: 1044, tabSize: 13, bar, MODULES,
+    survey,
+    stats:  { x: 40, y: 780, w: 338, h: 242, branchX: 207, branchFrom: survey.y + survey.h },
+    layers,
+    // sub-regions of the LAYERS panel, from dashboard.html's drawLayersTop / drawMiddle
+    block:  { cx: layers.x + 370, cy: layers.y + 353, r: 236 },
+    spine:  { x: layers.x + 530, y0: layers.y + 194, y1: layers.y + 497 },
+    conf:   { x: layers.x + 33, y: layers.y + 603, barX: layers.x + 152, w: 496, h: 16 },
+    log:    { x: layers.x + 16, y: layers.y + 646, w: layers.w - 32, h: 270, nested: true },
+    drill,
+    dstats: { x: 1164, y: 762, w: 328, h: 260, branchX: 1328, branchFrom: drill.y + drill.h },
+    drawer: null, sheet: null, tabs: null,
+  };
+}
+function phoneLayout() {
+  /* The block owns the first screen. Under it, in order: the confidence bar,
+     then a row of two buttons that summon the rack and the drill bar, then
+     the log below the fold.
+
+     The button row sits BELOW everything the sheets cover, and is drawn last,
+     so a sheet can never bury its own toggle -- and it is at the bottom of
+     the first screen, where a thumb is, not at the top where the title is. */
+  const W = 430, M = 12;
+  const bar = { x: M, y: 10, w: W - 2 * M, h: 34 };
+  const layers = { x: M, y: 54, w: W - 2 * M, h: 490 };
+  const L = layers.y, sheetH = 386;
+  const log = { x: M, y: 560, w: W - 2 * M, h: 392, nested: false };
+  return {
+    mode: 'phone', W, H: log.y + log.h + 14, tabSize: 9, bar, MODULES,
+    layers,
+    block: { cx: layers.x + layers.w * 0.5, cy: L + 222, r: 172 },
+    spine: null,                                  // the ruler folds into the block's own callouts here
+    conf:  { x: layers.x + 16, y: L + 412, barX: layers.x + 110, w: 240, h: 14 },
+    log,
+    // transient: the rack slides in from the left, the drill bar drops from the top
+    drawer: { x: M, y: L, w: 300, h: sheetH, from: 'left' },
+    survey: { x: M, y: L, w: 300, h: 250 },       // inside the drawer
+    stats:  { x: M, y: L + 264, w: 300, h: 122, branchX: M + 150, branchFrom: L + 250 },
+    sheet:  { x: M, y: L, w: W - 2 * M, h: sheetH, from: 'top' },
+    drill:  { x: M, y: L, w: W - 2 * M, h: 250 },
+    dstats: { x: M, y: L + 264, w: W - 2 * M, h: 122, branchX: W * 0.5, branchFrom: L + 250 },
+    tabs: [
+      { key: 'rack',  name: 'TOOLS', x: M + 6, y: L + 446, w: 110, h: 28 },
+      { key: 'sheet', name: 'DRILL', x: W - M - 116, y: L + 446, w: 110, h: 28 },
+    ],
+  };
+}
+
+/* =====================================================================
+   4. STATE
+   ---------------------------------------------------------------------
+   The two transient panels carry an `open` flag and an eased position on
+   BOTH layouts. On the desktop they happen to be pinned open; the state
+   exists anyway, so the phone build never forks from the desktop one.
+   ===================================================================== */
+const ui = {
+  module: 0,
+  rack:  { open: 1, t: 1 },
+  sheet: { open: 1, t: 1 },
+};
+const OPEN_TAU = 0.085;                         // seconds to 1/e -- a panel, not a sprite
+let LT = deskLayout(), dpr = 1, W = 1536, H = 1044;
+
+function StepUi(dt) {
+  const k = 1 - Math.exp(-dt / OPEN_TAU);
+  for (const p of [ui.rack, ui.sheet]) {
+    const want = LT.mode === 'desk' ? 1 : p.open;
+    p.t += (want - p.t) * k;
+    if (Math.abs(p.t - want) < 0.002) p.t = want;
+  }
+}
+
+/* =====================================================================
+   5. THE FRAME
+   ===================================================================== */
+function DrawModuleBar(ctx) {
+  const b = LT.bar, n = LT.MODULES.length, tw = b.w / n;
+  panel(ctx, b.x, b.y, b.w, b.h, { r: 8, leg: 18 });
+  for (let i = 0; i < n; i++) {
+    const x = b.x + i * tw, on = i === ui.module;
+    if (on) {
+      rrect(ctx, x + 3, b.y + 3, tw - 6, b.h - 6, 6);
+      ctx.fillStyle = 'rgba(53,216,238,0.09)'; ctx.fill();
+      ctx.strokeStyle = C.accent; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+    // condensed to fit its own share of the bar, so five full names survive
+    // the phone width instead of being abbreviated into initials
+    font(ctx, LT.tabSize, on ? 700 : 500);
+    const wide = ctx.measureText(LT.MODULES[i]).width;
+    const sx = Math.min(1, (tw - 16) / wide);
+    condensed(ctx, LT.MODULES[i], x + tw * 0.5 - wide * sx * 0.5, b.y + b.h * 0.5 + LT.tabSize * 0.36,
+              { size: LT.tabSize, sx, font: MONO, weight: on ? 700 : 500, color: on ? C.accent : C.dim });
+    if (i) { ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, b.y + 9); ctx.lineTo(x, b.y + b.h - 9); ctx.stroke(); }
+  }
+}
+/* A panel with its title, and nothing in it yet. `hint` names what will be
+   here, in the dimmest ink the palette has -- an empty console should say
+   which console it is, not pretend to be finished. */
+function Shell(ctx, r, name, o = {}) {
+  if (!r) return;
+  panel(ctx, r.x, r.y, r.w, r.h, o);
+  if (name) title(ctx, name, r.x + (o.pad ?? 33), r.y + (o.ty ?? 38), { size: o.size || 27, underline: o.underline || 46 });
+  if (o.hint) {
+    ctx.textAlign = 'center';
+    label(ctx, o.hint, r.x + r.w * 0.5, r.y + r.h * 0.5, 12, 'rgba(95,122,150,0.55)');
+    ctx.textAlign = 'left';
+  }
+}
+function DrawStatic(ctx) {
+  ctx.fillStyle = C.bgEdge; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = C.bg;
+  rrect(ctx, 6, 6, W - 12, H - 12, 16); ctx.fill();
+  DrawModuleBar(ctx);
+
+  // the middle column is on both layouts and is never transient
+  Shell(ctx, LT.layers, 'LAYERS', LT.mode === 'desk'
+    ? { hint: 'stage 1 — the block' }
+    : { pad: 18, ty: 32, size: 20, underline: 34, hint: 'stage 1 — the block' });
+  if (LT.mode === 'desk') {
+    const L = LT.layers;
+    // One verb, one line. The dashboard's mock offered two -- peel and
+    // isolate -- and peel was cut (design doc, decision 3).
+    label(ctx, 'Tap a bed to lift it out of the stack; everything else ghosts.',
+          L.x + 33, L.y + 90, 16, C.body, { sans: true });
+    // the hexagon vignette that frames the block without boxing it
+    const h = LT.block, hex = Array.from({ length: 6 }, (_, k) => {
+      const a = -Math.PI / 2 + k * Math.PI / 3; return [h.cx + Math.cos(a) * h.r, h.cy + Math.sin(a) * h.r]; });
+    rpoly(ctx, hex); ctx.strokeStyle = C.hex; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  LogBox(ctx, LT.log);
+  ConfidenceRow(ctx);
+
+  if (LT.mode === 'desk') {
+    Shell(ctx, LT.survey, 'SURVEY TOOLS', { hint: 'stage 4 — the rack' });
+    connector(ctx, LT.stats.branchX, LT.stats.branchFrom, LT.stats.y);
+    Shell(ctx, LT.stats, 'TOOL STATS', { ty: 34, size: 22, underline: 38, hint: 'stage 7' });
+    Shell(ctx, LT.drill, 'DRILL BAR', { hint: 'stage 6 — the rig' });
+    connector(ctx, LT.dstats.branchX, LT.dstats.branchFrom, LT.dstats.y);
+    Shell(ctx, LT.dstats, 'DRILL STATS', { ty: 34, size: 22, underline: 38, hint: 'stage 7' });
+  }
+}
+function LogBox(ctx, r) {
+  if (!r) return;
+  if (r.nested) {
+    rrect(ctx, r.x, r.y, r.w, r.h, 10); ctx.fillStyle = C.boxFill; ctx.fill();
+    ctx.strokeStyle = C.boxEdge; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 2;
+    [[r.x, r.y, 1, 1], [r.x + r.w, r.y, -1, 1], [r.x, r.y + r.h, 1, -1], [r.x + r.w, r.y + r.h, -1, -1]]
+      .forEach(([cx, cy, dx, dy]) => { ctx.beginPath(); ctx.moveTo(cx, cy + dy * 18); ctx.lineTo(cx, cy + dy * 9); ctx.moveTo(cx + dx * 9, cy); ctx.lineTo(cx + dx * 18, cy); ctx.stroke(); });
+  } else {
+    Shell(ctx, r, 'SURVEY LOG', { ty: 32, size: 20, underline: 34 });
+  }
+  ctx.textAlign = 'center';
+  label(ctx, 'stage 7 — the log', r.x + r.w * 0.5, r.y + r.h * 0.5, 12, 'rgba(95,122,150,0.55)');
+  ctx.textAlign = 'left';
+}
+function ConfidenceRow(ctx) {
+  const c = LT.conf; if (!c) return;
+  label(ctx, 'CONFIDENCE', c.x, c.y + 14, LT.mode === 'desk' ? 17 : 13, C.title, { weight: 700 });
+  // an empty track for now: the value is Delineation(), and it arrives in stage 5
+  rrect(ctx, c.barX, c.y, c.w, c.h, 3); ctx.fillStyle = C.track; ctx.fill();
+  ctx.strokeStyle = C.barEdge; ctx.lineWidth = 1; ctx.stroke();
+  label(ctx, '—', c.barX + c.w + 18, c.y + 14, LT.mode === 'desk' ? 18 : 14, C.depth);
+}
+
+/* The two transient panels, drawn live because they move. Each slides off
+   its own edge by its open fraction and dims what is behind it. */
+function DrawTransient(ctx) {
+  if (LT.mode === 'desk') return;
+  Sheet(ctx, ui.rack.t, LT.drawer, () => {
+    Shell(ctx, LT.survey, 'SURVEY TOOLS', { ty: 32, size: 20, underline: 34, hint: 'stage 4 — the rack', fill: C.bg });
+    connector(ctx, LT.stats.branchX, LT.stats.branchFrom, LT.stats.y);
+    Shell(ctx, LT.stats, 'TOOL STATS', { ty: 28, size: 17, underline: 30, hint: 'stage 7', fill: C.bg });
+  });
+  Sheet(ctx, ui.sheet.t, LT.sheet, () => {
+    Shell(ctx, LT.drill, 'DRILL BAR', { ty: 32, size: 20, underline: 34, hint: 'stage 6 — the rig', fill: C.bg });
+    connector(ctx, LT.dstats.branchX, LT.dstats.branchFrom, LT.dstats.y);
+    Shell(ctx, LT.dstats, 'DRILL STATS', { ty: 28, size: 17, underline: 30, hint: 'stage 7', fill: C.bg });
+  });
+  // last, so a sheet can never bury its own toggle
+  for (const tb of LT.tabs || []) {
+    const on = ui[tb.key].open;
+    rrect(ctx, tb.x, tb.y, tb.w, tb.h, 6);
+    ctx.fillStyle = on ? 'rgba(53,216,238,0.16)' : 'rgba(5,24,38,0.92)'; ctx.fill();
+    ctx.strokeStyle = on ? C.accent : C.btnEdge; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.textAlign = 'center';
+    label(ctx, on ? 'CLOSE' : tb.name, tb.x + tb.w * 0.5, tb.y + tb.h * 0.5 + 4, 11,
+          on ? C.accent : C.btnText, { weight: 700 });
+    ctx.textAlign = 'left';
+  }
+}
+function Sheet(ctx, t, r, draw) {
+  if (!r || t <= 0.002) return;
+  const dx = r.from === 'left' ? -(r.x + r.w) * (1 - t) : 0;
+  const dy = r.from === 'top' ? -(r.y + r.h) * (1 - t) : 0;
+  ctx.save();
+  ctx.fillStyle = `rgba(2,11,19,${0.62 * t})`; ctx.fillRect(0, 0, W, H);   // everything behind it dims
+  ctx.translate(dx, dy);
+  draw();
+  ctx.restore();
+}
+
+/* =====================================================================
+   6. THE TWO CANVASES
+   ---------------------------------------------------------------------
+   The frame is static between layout and module changes and is cached;
+   only the transient panels are drawn every frame. Same pattern the
+   dashboard uses, and the same one the block will use in stage 1.
+   ===================================================================== */
+const CV = document.getElementById('cv'), CTX = CV.getContext('2d');
+const CACHE = document.createElement('canvas'), CCTX = CACHE.getContext('2d');
+let staticKey = '';
+
+function Resize() {
+  const cssW = document.getElementById('wrap').clientWidth || 1536;
+  const next = Layout(cssW);
+  const changed = next.mode !== LT.mode;
+  LT = next; W = LT.W; H = LT.H;
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  for (const c of [CV, CACHE]) { c.width = Math.round(W * dpr); c.height = Math.round(H * dpr); }
+  if (changed) {
+    const pinned = LT.mode === 'desk' ? 1 : 0;
+    ui.rack.open = ui.rack.t = pinned;
+    ui.sheet.open = ui.sheet.t = pinned;
+  }
+  staticKey = '';
+}
+function EnsureStatic() {
+  const key = [LT.mode, W, H, ui.module].join('|');
+  if (key === staticKey) return;
+  staticKey = key;
+  CCTX.setTransform(dpr, 0, 0, dpr, 0, 0);
+  CCTX.clearRect(0, 0, W, H);
+  DrawStatic(CCTX);
+}
+let last = performance.now();
+function Frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  StepUi(dt);
+  EnsureStatic();
+  CTX.setTransform(1, 0, 0, 1, 0, 0);
+  CTX.clearRect(0, 0, CV.width, CV.height);
+  CTX.drawImage(CACHE, 0, 0);
+  CTX.setTransform(dpr, 0, 0, dpr, 0, 0);
+  DrawTransient(CTX);
+  requestAnimationFrame(Frame);
+}
+
+/* =====================================================================
+   7. INPUT
+   ===================================================================== */
+const inBox = (b, x, y) => b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+function At(e) {
+  const r = CV.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H];
+}
+CV.addEventListener('pointerdown', e => {
+  const [x, y] = At(e);
+  const b = LT.bar;
+  if (inBox(b, x, y)) {
+    const i = Math.floor((x - b.x) / (b.w / LT.MODULES.length));
+    if (i >= 0 && i < LT.MODULES.length) { ui.module = i; staticKey = ''; }
+    return;
+  }
+  for (const tb of LT.tabs || []) if (inBox(tb, x, y)) {
+    const p = ui[tb.key];
+    p.open = p.open ? 0 : 1;
+    if (p.open) for (const k of ['rack', 'sheet']) if (k !== tb.key) ui[k].open = 0;   // one at a time
+    return;
+  }
+  // a tap on the dimmed ground closes whatever is open
+  if (LT.mode === 'phone' && (ui.rack.open || ui.sheet.open)) { ui.rack.open = 0; ui.sheet.open = 0; }
+});
+window.addEventListener('resize', Resize);
+
+/* the harness reads this rather than guessing at geometry */
+window.__L = () => ({ mode: LT.mode, W, H, dpr, module: ui.module,
+  rack: { open: ui.rack.open, t: +ui.rack.t.toFixed(3) },
+  sheet: { open: ui.sheet.open, t: +ui.sheet.t.toFixed(3) },
+  rects: { bar: LT.bar, survey: LT.survey, stats: LT.stats, layers: LT.layers,
+           log: LT.log, drill: LT.drill, dstats: LT.dstats, drawer: LT.drawer, sheetR: LT.sheet },
+  tabs: LT.tabs || [] });
+
+Resize();
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(() => { staticKey = ''; requestAnimationFrame(Frame); });
+})();
+</script>
+</body>
+</html>
