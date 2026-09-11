@@ -67,7 +67,7 @@
     const { W, D, NX, NZ, pts, layers } = model, cam = camera(state, view), t = state.time || 0, fast = !!state.fast;
     const e = state.explode || 0, sel = state.selected ?? -1, gap = D * 0.16 * e;
     if (view.centerY == null) view.centerY = -D / 2;
-    const alphaOf = k => (sel < 0 || k === sel ? 1 : 0.28);
+    const alphaOf = k => (sel < 0 || k === sel ? 1 : 0.3);
     const offY = k => (2 - k) * gap;
     model.hits = [];
     const path = pts2 => { ctx.beginPath(); pts2.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };
@@ -82,12 +82,12 @@
     const lit = n => 0.62 + 0.38 * Math.max(0, n[0] * cam.light[0] + n[1] * cam.light[1] + n[2] * cam.light[2]);
     const allPts = [];
 
-    ctx.save(); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    // paint order: ghost beds bottom→top, then the selected bed last so nothing overlays its full colour
-    const order = []; for (let k = layers.length - 1; k >= 0; k--) if (k !== sel) order.push(k); if (sel >= 0 && sel < layers.length) order.push(sel);
-    for (const k of order) {
-      const ly = layers[k], dy = offY(k), alpha = alphaOf(k), showTop = k === 0 || e > 0.02;
-      ctx.globalAlpha = alpha;
+    const GHOST = 0.3, outer = ctx;
+    // paint one bed, fully opaque, into any context (walls, top surface, mesh, edges)
+    const paintLayer = (ctx, k) => {
+      const path = pts2 => { ctx.beginPath(); pts2.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); };   // bound to THIS context
+      const ly = layers[k], dy = offY(k), showTop = k === 0 || e > 0.02;
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       // ---- walls ----
       WALLS.forEach(([name, n, edge]) => {
         const top = edge(k).map(p => proj(p, dy)), bot = edge(k + 1).map(p => proj(p, dy));
@@ -149,6 +149,29 @@
         const a = proj(pts[k][i][j], dy), b = proj(pts[k + 1][i][j], dy);
         stroke([a, b], v[0] && v[1] ? '#e6ffff' : 'rgba(180,215,240,0.55)', v[0] && v[1] ? 2.2 : 1.1, v[0] && v[1] ? 14 : 2);
       });
+    };
+
+    ctx.save();
+    if (sel < 0) {
+      for (let k = layers.length - 1; k >= 0; k--) paintLayer(ctx, k);
+    } else {
+      // ghost groups are rendered opaque off-screen and composited ONCE at ghost alpha, so stacked ghosts never accumulate;
+      // beds above the focus stay above it (true 3D order) yet the focus shows through them.
+      const below = [], above = [];
+      for (let k = layers.length - 1; k > sel; k--) below.push(k);
+      for (let k = sel - 1; k >= 0; k--) above.push(k);
+      const buf = getBuffer(model, ctx);
+      const group = (ks, slot) => {
+        if (!ks.length) return;
+        if (!buf) { ctx.globalAlpha = GHOST; ks.forEach(k => paintLayer(ctx, k)); ctx.globalAlpha = 1; return; }   // fallback: per-bed alpha
+        const g = buf[slot];
+        g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, g.canvas.width, g.canvas.height); g.restore();
+        ks.forEach(k => paintLayer(g, k));
+        ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = GHOST; ctx.drawImage(g.canvas, 0, 0); ctx.restore();
+      };
+      group(below, 0);
+      paintLayer(ctx, sel);
+      group(above, 1);
     }
     ctx.globalAlpha = 1;
     model.bounds = allPts.reduce((b, p) => [Math.min(b[0], p[0]), Math.min(b[1], p[1]), Math.max(b[2], p[0]), Math.max(b[3], p[1])], [1e9, 1e9, -1e9, -1e9]);
@@ -157,6 +180,17 @@
     ctx.restore();
   }
 
+  let makeCanvas = (w, h) => { if (typeof document === 'undefined') return null; const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+  function getBuffer(model, ctx) {
+    const w = ctx.canvas.width, h = ctx.canvas.height;
+    if (!model._buf || model._buf[0].canvas.width !== w || model._buf[0].canvas.height !== h) {
+      const a = makeCanvas(w, h), b = makeCanvas(w, h); if (!a || !b) return null;
+      model._buf = [a.getContext('2d'), b.getContext('2d')];
+    }
+    const t = ctx.getTransform ? ctx.getTransform() : null;
+    model._buf.forEach(g => { if (t) g.setTransform(t.a, t.b, t.c, t.d, t.e, t.f); else g.setTransform(1, 0, 0, 1, 0, 0); });
+    return model._buf;
+  }
   function hull(points) {   // monotone chain convex hull
     const P = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
@@ -186,51 +220,6 @@
     const proj = (p, dy = 0) => cam.project([p[0], p[1] + dy, p[2]]);
     const [bx0, by0, bx1, by1] = model.bounds;
     ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.font = `500 ${fs}px ${FONT}`; ctx.textBaseline = 'alphabetic';
-    // scan: a wavefront that crosses the top surface from the far corner, spills over the two near edges and slides down the walls
-    if (hud.scan !== false) {
-      const S = (t * 0.24) % 1.8;                                  // 0→1 across the top; from 0.5 the walls descend (done at 1.5); then a pause
-      const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
-      const depthOf = ([x, z]) => cam.project([(x - 0.5) * W, 0, (z - 0.5) * W])[2];
-      const Fc = corners.reduce((m, c) => (depthOf(c) < depthOf(m) ? c : m)), Tc = [1 - Fc[0], 1 - Fc[1]];
-      const pOf = (x, z) => ((x - Tc[0]) * (Fc[0] - Tc[0]) + (z - Tc[1]) * (Fc[1] - Tc[1])) / 2;     // 0 at the far corner → 1 at the near corner
-      const bedAt = (x, z, d) => { const hs = fields.map(f => f(x, z)); const y = Math.max(hs[0], d); let k = 0; while (k < 4 && y > hs[k + 1]) k++; return [k, y]; };
-      const onTop = (x, z) => proj([(x - 0.5) * W, -fields[0](x, z) * D, (z - 0.5) * W], model.offY(0));
-      const onWall = (x, z, d) => { const [k, y] = bedAt(x, z, d); const p = proj([(x - 0.5) * W, -y * D, (z - 0.5) * W], model.offY(k)); p.k = k; return p; };
-      const glowLine = (pts2, tail) => {
-        if (pts2.length < 2) return;
-        ctx.shadowColor = cyan; ctx.shadowBlur = 14 * tail; ctx.strokeStyle = `rgba(120,245,255,${0.35 * tail})`; ctx.lineWidth = 9 * s * tail; path(pts2); ctx.stroke();
-        ctx.shadowBlur = 0; ctx.strokeStyle = `rgba(225,255,255,${0.95 * tail})`; ctx.lineWidth = 1.6; path(pts2); ctx.stroke();
-      };
-      const front = (Sx, tail) => {
-        // top surface: the line pOf = Sx, sampled along the L–R diagonal direction
-        if (Sx <= 1) {
-          const pts2 = [];
-          for (let i = 0; i <= 40; i++) {
-            const q = i / 40 - 0.5;                                  // coordinate along the diagonal perpendicular to T→F
-            const x = Tc[0] + (Fc[0] - Tc[0]) * Sx + (Fc[1] - Tc[1]) * q, z = Tc[1] + (Fc[1] - Tc[1]) * Sx - (Fc[0] - Tc[0]) * q;
-            if (x < -1e-6 || x > 1 + 1e-6 || z < -1e-6 || z > 1 + 1e-6) continue;
-            pts2.push(onTop(Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, z))));
-          }
-          glowLine(pts2, tail);
-        }
-        // the two walls adjacent to the near corner: once the front reaches the side corners (Sx = 0.5),
-        // a horizontal line descends each wall at constant depth d
-        const d = Sx - 0.5;
-        if (d >= 0 && d <= 1) [[true, Fc[1]], [false, Fc[0]]].forEach(([alongX, fixed]) => {
-          let pts2 = [];
-          for (let i = 0; i <= 60; i++) {
-            const u = i / 60, x = alongX ? u : fixed, z = alongX ? fixed : u;
-            if (d < fields[0](x, z)) { if (pts2.length > 1) glowLine(pts2, tail); pts2 = []; continue; }   // above the wall's top edge here
-            const p = onWall(x, z, d);
-            if (pts2.length && pts2[pts2.length - 1].k !== p.k) { if (pts2.length > 1) glowLine(pts2, tail); pts2 = []; }   // break at explode gaps
-            pts2.push(p);
-          }
-          glowLine(pts2, tail);
-        });
-      };
-      if (S <= 1.55) { front(S - 0.07, 0.25); front(S - 0.035, 0.5); front(S, 1); }
-      if (!small && S <= 1.55) { ctx.fillStyle = cyan; ctx.font = `500 ${fs * 0.85}px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText(`SCAN ${Math.min(100, S / 1.5 * 100).toFixed(0).padStart(3, '0')}%  ${S <= 0.5 ? 'SURFACE' : Math.round(Math.min(1, S - 0.5) * 2000) + ' m'}`, bx1 + 26 * s, by0 + 40 * s); }
-    }
     if (hud.brackets !== false) {
       const m = 26 * s, x0 = bx0 - m, x1 = bx1 + m, y0 = by0 - m, y1 = by1 + m, leg = 42 * s;
       ctx.strokeStyle = cyan; ctx.lineWidth = 2 * s; ctx.shadowColor = cyan; ctx.shadowBlur = 8;
@@ -334,5 +323,5 @@
     return { state, tick };
   }
 
-  return { build, render, drawHud, hit, attach, camera, LAYERS, PROFILES };
+  return { build, render, drawHud, hit, attach, camera, LAYERS, PROFILES, setCanvasFactory(f) { makeCanvas = f; } };
 });

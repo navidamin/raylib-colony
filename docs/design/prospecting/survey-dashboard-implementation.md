@@ -8,6 +8,11 @@ touches, and how each one is proved before the next begins.
 waiting on an answer. Three of them changed this plan: the phone layout moved
 work *into* Stage 0, fog is now specified rather than open, and peel is cut.
 
+**Source revision 2026-09-11.** `Holo3D` changed in two ways and the vendored
+copies are updated: the **scan wavefront is removed**, and **bed isolation is
+fixed** by compositing ghost groups through offscreen buffers. The second one
+reaches into Stages 1, 3 and 5 and into the risk register — see below.
+
 ---
 
 ## 0. The shape of the job
@@ -117,6 +122,19 @@ LAYERS panel, rotatable by drag.
   not, render the *surface* at a decimated grid while the *model* stays at 28.
 - Keep our `BuildHeights`, morph blend and `Reproject` intact: they produce
   the field, `Holo3D` consumes it.
+- **Honour `paintLayer`'s contract from the first line of this stage.** As of
+  the 2026-09-11 revision every bed is painted by `paintLayer(ctx, k)` into a
+  context it is *handed* — the on-screen one, or one of two offscreen ghost
+  buffers. Anything drawn per bed therefore takes its context as an argument
+  and never closes over one. Our own prototype does the opposite: `CTX` is a
+  module-level `let` that `OnLayer` swaps around. That pattern is *compatible*
+  but it is the single easiest way to break the ghosting without seeing it
+  break — a stray draw into the wrong buffer lands off-screen and silently
+  vanishes. Port the layered drawing to explicit-context functions here, not
+  later.
+- Call `Holo3D.setCanvasFactory` so the buffers come from wherever this build
+  gets canvases — that seam is also what the C++ port will use for render
+  targets.
 
 **Verify.** Drag through a full turn and a full pitch sweep; the beds must stay
 registered (no bed crossing another). Frame time at 28 × 28 and at 16 × 13.

@@ -7,8 +7,13 @@ the implementation to.
 **Sources:** [`prototypes/dashboard/dashboard.html`](prototypes/dashboard/dashboard.html),
 [`prototypes/dashboard/holo3d.js`](prototypes/dashboard/holo3d.js),
 [`prototypes/dashboard/layers-block-3d.html`](prototypes/dashboard/layers-block-3d.html)
-(vendored verbatim as received) · reference render:
+(vendored verbatim as received, **rev. 2026-09-11**) · reference render:
 [`prototypes/dashboard/dashboard.png`](prototypes/dashboard/dashboard.png)
+
+> **Revision 2026-09-11** changed two things in `Holo3D`, and nothing else —
+> the same two edits appear in `dashboard.html`'s embedded copy. The **scan
+> wavefront is removed** (§4.3), and **bed isolation is fixed** (§4.3, and the
+> technique is worth reading before Stage 1). Both are carried below.
 
 **Supersedes** the panel chrome, layout and interaction surface of
 [#9 block-model-design](block-model-design.md) and of
@@ -234,9 +239,40 @@ downstream and are worth stating plainly:
    ghost; vertical corner edges bright only where two visible walls meet.
 
 **Explode and isolate.** `offY(k) = (2 − k) · gap` — the stack opens
-symmetrically about the middle bed rather than lifting off the top. Everything
-but the selected bed drops to alpha 0.28. Tap a bed to isolate it, tap it
-again or the background to collapse; keys 1–5.
+symmetrically about the middle bed rather than lifting off the top. Tap a bed
+to isolate it, tap it again or the background to collapse; keys 1–5.
+
+**How the ghosting is done, and why it has to be done that way** (fixed in
+rev. 2026-09-11). The obvious implementation — paint every bed in depth order
+with `globalAlpha = 0.3` on the unselected ones — is wrong in two compounding
+ways: stacked ghosts **accumulate**, so four translucent beds behind each other
+come out nearly opaque and the "ghost" is only really transparent at the edges;
+and painting the focus bed last to keep it solid breaks the 3D order, so beds
+that are genuinely in front of it appear behind.
+
+The fix, which the implementation must carry across:
+
+1. `paintLayer(ctx, k)` paints one bed **fully opaque** into *any* context.
+2. The beds split into two groups: **below** the focus (painted first) and
+   **above** it (painted last). Each group is rendered opaque into an
+   **offscreen buffer** and composited **once** at `GHOST = 0.3`.
+3. The focus bed is painted opaque straight to the target, between the two
+   composites.
+
+So ghosts never accumulate — a group is one flat 30% image however many beds
+are in it — and the true paint order survives: beds above the focus really are
+above it, and you see the focus *through* them.
+
+Two details that matter downstream:
+
+- **`paintLayer` binds its `path` helper to the context it was handed.** The
+  pre-revision code closed over the outer context, which is exactly why
+  drawing into a buffer was not possible before. Anything we add to this
+  renderer — fog above all — must take its context as an argument and never
+  close over one.
+- **`setCanvasFactory(f)`** is exported so a host without `document` can supply
+  the buffers. That is the seam the eventual C++ port uses for render targets,
+  and the one a headless harness uses.
 
 > **Isolate is the only verb.** The dashboard's blurb offers two — "take off
 > everything above a layer" (*peel*) and "one layer only lifts the chosen bed
@@ -244,13 +280,9 @@ again or the background to collapse; keys 1–5.
 > explode-and-isolate is exactly right and needs nothing added; the current
 > prototype's peel is retired, and the blurb becomes one line about isolating.
 
-**HUD** (`Holo3D.drawHud`), all of it *projected*, so it turns with the block:
+**HUD** (`Holo3D.drawHud`) — four elements, all *projected*, so they turn with
+the block:
 
-- **Scan wavefront.** A glowing line that crosses the top surface from the far
-  corner to the near one over ~4 s, then spills over the two near edges and
-  slides down the walls at constant depth, breaking at explode gaps. Three
-  passes with decaying tails give it a comet trail. Prints
-  `SCAN nnn%  <depth>`.
 - **Brackets.** Four corner brackets around the block's screen bounds.
 - **Base ring.** A dashed circle with 36 ticks on the ground plane beneath the
   stack, clipped to *outside* the block's convex hull so it never draws over it.
@@ -264,6 +296,15 @@ again or the background to collapse; keys 1–5.
 In the dashboard these callouts are **not** drawn — the depth ruler to the
 right of the block does that job instead, with leader dots and dashes at each
 boundary. Both exist; the ruler is what the reference render shows.
+
+> **The scan wavefront is gone** (rev. 2026-09-11). It was a glowing line that
+> crossed the top surface from the far corner, spilled over the near edges and
+> slid down the walls — handsome, and constantly moving whether or not anything
+> was happening, which is the problem with idle animation on an instrument: it
+> spends the eye's attention on nothing. Do not port it back as decoration. A
+> travelling wavefront is, however, exactly the right shape for a *survey event*
+> — a shot fired, a pass completed — and if the module ever wants one, it comes
+> back attached to something that happened.
 
 **CONFIDENCE.** A 28-cell segment bar under the block running the health ramp
 red → orange → yellow → green, with the percentage at its right.
@@ -432,7 +473,15 @@ rediscover the hard way.
 4. **The phone build is a second layout, not a narrower one.** §4.8 — two
    panels become transient, and that has to be in the code from the first
    commit rather than retrofitted.
-5. **Two palettes now live in the project,** with a boundary: prospecting and
+5. **Isolation costs two full-size offscreen canvases.** They are allocated
+   lazily on the first isolate, cached on the model, and rebuilt whenever the
+   target canvas resizes. At 1536 x 1024 and dpr 1.5 that is about 28 MB of
+   backing store, which is nothing on a desktop and not nothing on a phone.
+   Two mitigations are available and neither is in the source yet: size the
+   buffers to the **block's region** rather than the whole canvas, and reuse
+   **one** buffer for both groups by compositing it twice. Measure before
+   choosing.
+6. **Two palettes now live in the project,** with a boundary: prospecting and
    excavation are the console; everything else stays Dark Plating. §8
    decision 7. The boundary has to be *held* — each new panel is a chance to
    leak cyan into the rest of the game.
