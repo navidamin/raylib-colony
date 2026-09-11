@@ -22,6 +22,10 @@ set(COLONY_CORE_SOURCES
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
     Prospecting/rock_texture.cpp
+    Survey/survey_knowledge.cpp
+    Survey/survey_ground.cpp
+    Survey/survey_block.cpp
+    Survey/survey_console.cpp
     TerrainGen/terrain_synthesis.cpp
     Excavation/site_view.cpp
     Excavation/estimate_engine.cpp
@@ -44,6 +48,7 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/GameTypes"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Survey"
     "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/Excavation"
 )

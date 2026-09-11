@@ -6,6 +6,7 @@
 #include "sampling_engine.h"
 #include "lab_engine.h"
 #include "survey_progress_engine.h"
+#include "survey_console.h"
 
 enum class ProspectingTab { SWEEP, SAMPLES, LAB };
 
@@ -111,6 +112,13 @@ public:
     // treats this layer as hovered. Only the preview sets it.
     int previewHoverLayer = -1;
 
+    // ---- The survey console ---------------------------------------------
+    // The block, the ground it is a picture of, and what is known about it.
+    // Shared with excavation: the two modules must never disagree about the
+    // rock. See src/Survey/ and docs/design/prospecting/survey-dashboard-design.md
+    SurveyConsole& Survey() { return survey; }
+    const SurveyConsole& Survey() const { return survey; }
+
     // UI state
     ProspectingTab activeTab = ProspectingTab::SWEEP;
     int selectedCellX = -1;
@@ -127,6 +135,8 @@ public:
     float lastLabActionTime = -100.0f;
 
 private:
+    SurveyConsole survey;
+
     int tier;
     ResourceManager& resourceManager;
 

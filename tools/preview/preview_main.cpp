@@ -52,6 +52,7 @@ struct PreviewOptions
     float energy = -1.0f;   // <0 = leave the unit's default
     int bench = 0;
     int hover = -1;
+    int holes = 0;               // survey block: finished holes to seed
     int mouseX = -1, mouseY = -1;          // >0 = time this many frames, print ms/frame
     std::string outPath = "preview.png";
 
@@ -141,6 +142,13 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--tier" && hasNext)
         {
             options.tier = TextToInteger(argv[++i]);
+        }
+        // The survey block is drawn only where it has been measured, so an
+        // undrilled one is a wire cage -- correct, and useless for judging
+        // the beds. This seeds finished holes on a spread grid.
+        else if (arg == "--holes" && hasNext)
+        {
+            options.holes = TextToInteger(argv[++i]);
         }
         else if (arg == "--sprite-size" && hasNext)
         {
@@ -966,6 +974,28 @@ int main(int argc, char** argv)
             // Headless: there is no pointer to put on a plate, so the hover
             // is handed to the panel directly.
             system->previewHoverLayer = options.hover;
+
+            // Finished holes, spread over the block, so the fog can be
+            // judged at something other than zero.
+            if (options.holes > 0)
+            {
+                SurveyConsole& console = system->Survey();
+                const int n = console.Ground().Lattice();
+                const int side = options.holes <= 1 ? 1
+                               : (options.holes <= 4 ? 2 : 3);
+                int placed = 0;
+                for (int a = 0; a < side && placed < options.holes; a++)
+                {
+                    for (int b = 0; b < side && placed < options.holes; b++)
+                    {
+                        const float fi = (a + 0.5f) / side * n;
+                        const float fj = (b + 0.5f) / side * n;
+                        console.RecordHole(fi, fj, console.Ground().ColumnM());
+                        placed++;
+                    }
+                }
+                console.Step(0.0f);
+            }
 
             // Select a cell inside instrument reach, so the cell readout shows
             // real data rather than an out-of-range cell.

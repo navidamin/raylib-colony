@@ -7,6 +7,7 @@
 #include "survey_progress_engine.h"
 #include "excavation_constants.h"
 #include "block_pick.h"
+#include "survey_block.h"
 #include "rock_texture.h"
 #include <algorithm>
 #include <iostream>
@@ -5982,69 +5983,129 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     // tile is only ~3.9 px tall, so a flat inversion picked several rows off
     // the block under the cursor, and the x1.5 relief pass widened that.
     // See src/Prospecting/block_pick.h; the round trip is under test.
-    BlockPickGeom pick;
-    pick.originX = geom.originX; pick.originY = geom.originY;
-    pick.tileX = geom.tileX;     pick.tileY = geom.tileY;
-    pick.gap = geom.gap;         pick.size = gridSize;
+    /* =====================================================================
+       THE BLOCK IS ONE SOLID BODY NOW, not four exploded plates.
 
-    auto LiftAt = [&](int L, int i, int j) {
-        // The same height the surface is drawn at (the one lift law).
-        return BlockCellLift(layers[L], gridSize, maxGrade, geom.relief, i, j);
-    };
-    int hovL = -1, hovX = -1, hovY = -1;
-    for (int L = 0; L < 4 && hovL < 0; L++)
+       Four beds cut into one volume, turned in yaw and pitch by dragging
+       it, and -- the part that matters -- DRAWN ONLY WHERE IT HAS BEEN
+       MEASURED. Where nothing has been measured there is no fill and no
+       boundary: what is left is the instrument's own wire grid, which
+       retreats as the block is drilled. The surface is the one thing known
+       for free, because you can see it, so an undrilled block is the real
+       terrain standing on a wire volume rather than an empty box.
+
+       The renderer lives in src/Survey/ and is shared with excavation: the
+       two modules dig the same rock and must never disagree about it. The
+       look was settled in docs/design/prospecting/prototypes/survey-dashboard.html
+       against docs/design/prospecting/survey-dashboard-design.md.
+       ===================================================================== */
+    SurveyConsole& console = ps->Survey();
+    console.Step(GetFrameTime());
+    SurveyBlockState& blockState = console.Block();
+    const SurveyGround& blockGround = console.Ground();
+    const int blockN = blockGround.Lattice();
+
+    Rectangle blockRect = { gridX, gridY, modelW, modelH };
+    SurveyBlockPlacement place;
+    place.cx = gridX + modelW * 0.5f;
+    place.cy = gridY + modelH * 0.52f;
+    /* Sized to fit the BASE RING, not the block: the ring is a circle of
+       radius 0.78 W with ticks outside it, so it is wider than the body it
+       sits under, and fitting the body alone hangs it off the panel. */
+    place.zoom = std::min(modelW / (SURVEY_MODEL_W * 1.82f),
+                          modelH / (SURVEY_MODEL_D * 1.66f));
+    SurveyCamera blockCam = SurveyBlock::MakeCamera(blockState, place);
+
+    /* Drag to turn. The threshold is what separates a turn from a tap, and
+       it is measured in pixels rather than frames so a slow deliberate drag
+       still counts as one. */
+    bool overBlock = CheckCollisionPointRec(mouse, blockRect);
+    /* A tap is a RELEASE that never became a drag. Acting on the press
+       instead would collar a hole every time the block was turned, which is
+       the one input bug this geometry makes easy. */
+    bool blockTap = false;
+    if (overBlock && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && !console.dragging)
     {
-        int pi = 0, pj = 0;
-        // The plate is drawn plateDrop lower than its slot, so the pointer has
-        // to be read in the plate's own frame -- otherwise picking answers for
-        // where the plate would have been.
-        if (!BlockPickCell(pick, L, mouse.x, mouse.y - geom.plateDrop[L],
-                           [&](int i, int j) { return LiftAt(L, i, j); }, pi, pj)) continue;
-        hovL = L; hovX = pi; hovY = pj;
+        console.dragging = true; console.dragMoved = false;
+        console.dragFrom = mouse;
+        console.dragYaw = blockState.yaw; console.dragPitch = blockState.pitch;
+    }
+    if (console.dragging)
+    {
+        float dx = mouse.x - console.dragFrom.x, dy = mouse.y - console.dragFrom.y;
+        if (std::hypot(dx, dy) > 6.0f) console.dragMoved = true;
+        if (console.dragMoved)
+        {
+            blockState.yaw = console.dragYaw + dx * 0.012f;
+            blockState.pitch = std::clamp(console.dragPitch + dy * 0.009f, 0.18f, 1.25f);
+            blockCam = SurveyBlock::MakeCamera(blockState, place);
+        }
+        blockState.fast = console.dragMoved;
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+        {
+            blockTap = !console.dragMoved;
+            console.dragging = false; blockState.fast = false;
+        }
+    }
+
+    SurveyBlock::DrawCage(blockGround, console.Knowledge(), blockState, blockCam);
+    SurveyBlock::DrawBeds(blockGround, console.Knowledge(), blockState, blockCam);
+    SurveyBlock::DrawBaseRing(blockState, blockCam, blockGround);
+
+    /* THE POINTER, in the terms the rest of the panel still speaks. Over the
+       cap it is a place on the ground -- a ray march onto the surface, which
+       is the only inverse that holds at a grazing camera. Over a wall it is a
+       DEPTH and nothing else, because a wall shows you a bed, not a spot: the
+       target cell stays the collar's, so the hole is vertical. Deviated holes
+       belonged to the old plates, where you could point at four planes at
+       once; the console gives depth back on the borehole bar. */
+    int hovL = -1, hovX = -1, hovY = -1;
+    float pickI = 0.0f, pickJ = 0.0f;
+    bool onCap = overBlock && SurveyBlock::PickGround(blockGround, blockState, blockCam,
+                                                     mouse, pickI, pickJ);
+    auto ToGrid = [&](float v) {
+        return std::clamp(static_cast<int>(v / blockN * gridSize), 0, gridSize - 1);
+    };
+    if (onCap)
+    {
+        hovL = 0; hovX = ToGrid(pickI); hovY = ToGrid(pickJ);
+    }
+    else if (overBlock)
+    {
+        int bed = SurveyBlock::HitBed(blockState, mouse);
+        if (bed >= 0)
+        {
+            hovL = bed;
+            hovX = ps->lineHole.collarX; hovY = ps->lineHole.collarY;
+        }
     }
     if (hovL < 0 && ps->previewHoverLayer >= 0)
     {
         hovL = std::clamp(ps->previewHoverLayer, 0, 3);
         hovX = gridSize / 2; hovY = gridSize / 2;
     }
-    // Four plates of data is more than anyone reads at once: the surface
-    // stays lit, the three below rest dim and the one under the pointer comes
-    // up. Eased on the facade, which is where state that outlives a frame
-    // belongs (prospecting_constants.h has the table).
     ps->UpdatePlateLight(hovL, rimLayer, GetFrameTime());
 
-    for (int L = 0; L < 4; L++)
+    // The reticle sits ON the ground, at the fractional cell the ray march
+    // found -- half of a twin cursor (Dark Plating 9.3) whose other half is
+    // in the borehole strip at the same depth.
+    if (onCap && !console.dragMoved)
     {
-        // The stratum's own rock -- four textures for four layers, not one
-        // world tile reused; the strip's band at this depth wears the same.
-        const Texture2D* tile = (strataLoaded && strataTex[L].id != 0)
-                              ? &strataTex[L] : nullptr;
-        DrawBlockLayer(geom, layers[L], L, maxGrade, ps->plateLight[L],
-                           bodyFont, sp,
-                           depthLabels[L], levelLabels[L], nullptr, nullptr,
-                           tile, L == rimLayer ? rimPulse : 0.0f);
-    }
-
-    // The hovered cell's outline and its cursor DOT, drawn after the plates so
-    // they sit on top of the one they mark rather than under the plate below.
-    // The dot is half of a twin cursor (Dark Plating 9.3): its other half sits
-    // in the borehole strip at the same depth, and the two move together --
-    // which is what says "this point on this plane IS that point in the rock".
-    if (hovL >= 0)
-    {
-        float lift = LiftAt(hovL, hovX, hovY);
-        Vector2 dot = geom.Iso(hovX + 0.5f, hovY + 0.5f, hovL, lift);
-        Vector2 q0 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY), hovL, lift);
-        Vector2 q1 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY), hovL, lift);
-        Vector2 q2 = geom.Iso(static_cast<float>(hovX + 1), static_cast<float>(hovY + 1), hovL, lift);
-        Vector2 q3 = geom.Iso(static_cast<float>(hovX), static_cast<float>(hovY + 1), hovL, lift);
-        DrawLineEx(q0, q1, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
-        DrawLineEx(q1, q2, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
-        DrawLineEx(q2, q3, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
-        DrawLineEx(q3, q0, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
-        DrawCircleV(dot, 3.4f, Fade(DP_OUT, 0.85f));
-        DrawCircleV(dot, 2.0f, EXT_ACCENT_CYAN);
-
+        Vector2 c = SurveyBlock::ProjectSurface(blockGround, blockCam, blockState, pickI, pickJ);
+        Vector2 r0 = SurveyBlock::ProjectSurface(blockGround, blockCam, blockState,
+                                                 std::floor(pickI), std::floor(pickJ));
+        Vector2 r1 = SurveyBlock::ProjectSurface(blockGround, blockCam, blockState,
+                                                 std::floor(pickI) + 1.0f, std::floor(pickJ));
+        Vector2 r2 = SurveyBlock::ProjectSurface(blockGround, blockCam, blockState,
+                                                 std::floor(pickI) + 1.0f, std::floor(pickJ) + 1.0f);
+        Vector2 r3 = SurveyBlock::ProjectSurface(blockGround, blockCam, blockState,
+                                                 std::floor(pickI), std::floor(pickJ) + 1.0f);
+        DrawLineEx(r0, r1, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(r1, r2, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(r2, r3, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawLineEx(r3, r0, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
+        DrawCircleV(c, 3.4f, Fade(DP_OUT, 0.85f));
+        DrawCircleV(c, 2.0f, EXT_ACCENT_CYAN);
     }
 
     // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
@@ -6057,7 +6118,7 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     if (aiming && hovL > 0) ps->AimAt(hovL, hovX, hovY);   // preview tracks the pointer
 
-    if (hovL >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    if (hovL >= 0 && blockTap)
     {
         if (aiming && hovL == 0 &&
             hovX == ps->lineHole.collarX && hovY == ps->lineHole.collarY)
@@ -6106,7 +6167,14 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     // the line over the stack, after the plates so it reads as through them
     BlockPlateLift plateLift; plateLift.layers = &layers; plateLift.maxGrade = maxGrade;
-    ProsDrawTraceBlock(ps, geom, dock, plateLift);
+    /* The prescribed line over the block is NOT drawn here any more. It was
+       projected through the old plates' iso frame (geom.Iso), and that frame
+       went with the plates -- drawn against the solid body it would float in
+       front of ground it has nothing to do with. The hole is still fully
+       readable in the borehole dock beside it, which is where the record of
+       it always lived; putting it back on the block is the drill stage of
+       this port, on the block's own camera.
+       ProsDrawTraceBlock(ps, geom, dock, plateLift);  */
     // ONE depth for the whole plane. Moving across a plate slides the strip's
     // cursor sideways, never up or down -- depth is the axis between plates.
     float hoverM = (hovL >= 0) ? PlatePlaneM(hovL) : -1.0f;
@@ -6164,8 +6232,14 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 
     // --- Legend, two rows so the element line and the swatches cannot collide
     float legendY = gridY + modelH + 2.0f;
-    DrawTextEx(bodyFont, TextFormat("%s   height = grade   colour = class",
-                                    ResourceTypeToString(shown)),
+    /* The legend went with the plates it described. Height was grade and
+       colour was class; on the solid block height is DEPTH and colour is the
+       bed -- and what the panel is really claiming is how much of it has been
+       established, which is the delineation reading. */
+    DrawTextEx(bodyFont, TextFormat("%s   4 beds, %.1f km of column   %s  %.0f%%",
+                                    ResourceTypeToString(shown),
+                                    console.Ground().ColumnM() / 1000.0f,
+                                    console.Tier(), console.Delineation() * 100.0f),
                {gridX, legendY}, FS(8.5f), sp, EXT_DIM_TEXT);
     {
         float swX = gridX;
@@ -6341,10 +6415,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     }
     else
     {
-        DrawTextEx(bodyFont, "click a surface block, then a block on",
+        DrawTextEx(bodyFont, "click the ground to collar, then a bed",
                    {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
         ctrlY += 12.0f;
-        DrawTextEx(bodyFont, "the layer the hole should reach",
+        DrawTextEx(bodyFont, "for the depth - drag the block to turn it",
                    {ctrlX, ctrlY}, FS(9.0f), sp, EXT_DIM_TEXT);
         ctrlY += 16.0f;
     }

@@ -38,8 +38,11 @@ self-contained page, built alongside `layer-block.html`, which is left intact
 until the new page does everything it does. Two prototypes for a while is the
 cheap way to do this; deleting the old one early is the expensive way.
 
-The game port (`DrawProspectingPanel` in `src/Engine/rendermanager.cpp`) is
-**not in this plan**. It comes after the prototype is settled, as its own pass.
+The game port has its own plan, in §7 below. The prototype stages 0-3 are
+done and **the port has started from them**: the deliverable is raylib C++ in
+`src/`, and the HTML is a bench for settling the look cheaply, never the
+product. Stages 4-9 of the prototype are now superseded by the port's own
+stages -- the remaining panels are built directly in C++.
 
 ### The rule for every stage
 
@@ -480,3 +483,65 @@ All of them: `NODE_PATH=/opt/node22/lib/node_modules` and
   a slot that is powered rather than by a dashed tile.
 - Propagating the console's look beyond prospecting and excavation.
 - Any change to the drill.
+
+---
+
+## 7. The game port — the deliverable
+
+**The prototype is not the product.** The module ships as raylib C++ in `src/`
+like the rest of the game; the HTML console exists because a look costs five
+seconds to iterate there and a rebuild here. Stages 0-3 of the prototype are
+settled, so the port runs from them, and stages 4-9 are built **directly in
+C++** rather than prototyped first — the questions they answer are layout and
+wiring, which the game can render as fast as a browser can.
+
+| | What lands | State |
+|---|---|---|
+| **C1** | `src/Survey/` — the ground, the knowledge field, the camera, the bed painter and the wire cage, drawn in `DrawProspectingPanel` in place of the four exploded plates | **done** |
+| **C2** | the console frame: `Layout()` at two breakpoints, the five panels, the horizontal module bar, the existing controls rehoused | |
+| **C3** | the drill — glyph, cursor, planted rig, cycle, spatter, bore markers — on the block's own camera | |
+| **C4** | the tool rack, five bays | |
+| **C5** | the ruler, the CONFIDENCE bar, isolate gated at 95%, and the ghost compositing the flat per-bed alpha stands in for | |
+| **C6** | the borehole bar, and the depth control it owns | |
+| **C7** | derived telemetry and the log; retire the old panel and the prototypes, with their graveyard records | |
+
+### C1 — as built
+
+`src/Survey/` is shared by prospecting and excavation, because the two dig the
+same rock and must never disagree about it: `survey_ground` (the height fields
+and the error model), `survey_knowledge` (`KnowAt`, confidence, delineation),
+`survey_camera` (the projection identity the drill will stand on),
+`survey_block` (the painter and the cage) and `survey_console` (the facade that
+rebuilds the ground when a hole lands or a scour deepens).
+
+**The translation gained something.** Canvas 2D cannot put an alpha ramp along
+a wall that already carries a colour gradient, so the prototype draws a fogged
+wall as one quad per lattice column at a flat alpha, grown a third of a pixel
+to hide the seams. `rlgl` takes a colour **per vertex**, so here the knowledge
+ramp and the neon-to-deep gradient are the same interpolation: no strips, no
+seams, and no hack to explain.
+
+**The bug worth writing down.** rlgl *queues* vertices and draws them at the
+next flush, but `rlDisableBackfaceCulling` sets GL state immediately. Disabling
+culling, queueing the block and re-enabling it therefore draws the whole block
+with culling **on** — which silently ate every wall quad whose winding came out
+the wrong way round, while the cap, wound the other way, rendered perfectly.
+The geometry, the mesh and the boundary lines were all in the right place and
+only the fills were missing. Found by rendering and looking, not by reading.
+The fix is to flush the batch on both sides of the state change.
+
+**Interaction.** Collar by ray-marching the pointer onto the cap; choose the
+depth by tapping a bed; drag to turn. A tap is a release that never became a
+drag — acting on the press would collar a hole every time the block was
+turned, which is the one input bug this geometry makes easy.
+
+**Not yet, and named so:** the drill rig on the block (C3), the prescribed
+line over it (it was projected through the plates' iso frame, which went with
+the plates), the console chrome (C2), and ghost compositing through buffers —
+isolate currently ghosts with flat per-bed alpha, which is the prototype's own
+documented fallback (C5).
+
+**Verified by render:** `tools/preview/preview.sh --module prospecting
+--holes 0|1|3|9` — a new flag, because a block drawn only where it has been
+measured is a wire cage until something drills it, which is correct and
+useless for judging the beds.
