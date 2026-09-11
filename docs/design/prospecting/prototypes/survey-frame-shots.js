@@ -19,6 +19,7 @@ const OUT='/tmp/claude-0/-home-user-raylib-colony/187272cf-7754-578f-9233-064508
   await p.goto(F); await p.waitForTimeout(1200);
   console.log('desk', JSON.stringify(await p.evaluate(()=>{const l=window.__L();return {mode:l.mode,W:l.W,H:l.H,rack:l.rack,sheet:l.sheet};})));
   console.log('desk rects', JSON.stringify(await p.evaluate(()=>window.__L().rects)));
+  await p.waitForTimeout(1500);
   await p.locator('#cv').screenshot({ path: OUT+'f_desk.png' });
   // module tab switch
   await p.evaluate(()=>{ const l=window.__L(), b=l.rects.bar; const r=document.getElementById('cv').getBoundingClientRect();
@@ -34,6 +35,7 @@ const OUT='/tmp/claude-0/-home-user-raylib-colony/187272cf-7754-578f-9233-064508
   await q.goto(F); await q.waitForTimeout(1200);
   const L = await q.evaluate(()=>window.__L());
   console.log('phone', JSON.stringify({mode:L.mode,W:L.W,H:L.H,rack:L.rack,sheet:L.sheet,tabs:L.tabs.map(t=>t.name)}));
+  await q.waitForTimeout(1500);   // many frames in: the dirty-rect blit must not have eaten the rest
   await q.locator('#cv').screenshot({ path: OUT+'f_phone.png' });
   const tap = async (name) => { const l=await q.evaluate(()=>window.__L());
     const tb=l.tabs.find(t=>t.name===name); const r=await q.locator('#cv').boundingBox();
