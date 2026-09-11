@@ -207,6 +207,10 @@ Shape of the work:
 - Knowledge becomes a **per-cell and per-boundary-vertex** quantity the
   renderer reads, rather than a raster it paints. `Holo3D`'s passes already
   walk cells and edge samples, so each one gains one lookup and a branch.
+- **All of it lives inside `paintLayer`**, taking its context as an argument.
+  Fog drawn outside that function would appear on the on-screen block but not
+  inside the ghost buffers, so an isolated view would show unfogged ghosts —
+  a bug that looks like a fog bug and is not one.
 - A boundary segment draws only where both its endpoints are above threshold,
   and **fades in** across it rather than popping.
 - The noise crawl is one cheap scrolling pattern over the unknown grid, not a
@@ -269,8 +273,14 @@ under it; isolate working and gated at 95%.
 - Ruler: five boundaries, label + name, dashed leader to a dot on the block's
   right edge. The dot's position is projected, so it follows the rotation.
 - CONFIDENCE: `segBar` over `Delineation()`, on the health ramp.
-- Isolate is `Holo3D`'s existing explode-and-ghost, wired to our `st.sel` and
-  refusing below 95% with the existing `lockFlash`.
+- Isolate is `Holo3D`'s existing explode-and-ghost — **as revised**: ghost
+  groups composited once through offscreen buffers, the focus bed painted
+  opaque between them. Wired to our `st.sel`, refusing below 95% with the
+  existing `lockFlash`.
+- **Size the buffers here.** They arrive full-canvas; measure, and if the
+  phone build minds, either cut them to the block's region or reuse one buffer
+  twice. This is the stage that first allocates them, so it is the stage that
+  owns the decision.
 - **Peel is removed**, not ported: the `botB = P.solo ? topB + 1 : 4` branch
   in `layer-block.html` goes, along with the solo lever, since isolate is now
   the only behaviour. Graveyard record in the same commit.
@@ -357,6 +367,13 @@ the threshold and the fade width, and those are render-and-look. The one thing
 to get right is the zero-hole read: a wire box must say *unmeasured ground*,
 not *page failed to load*.
 
+**Ghosting through buffers** — settled by the revision, and verified by render:
+with a bed isolated, the other four ghost at a uniform 0.3 with no
+accumulation, and beds above the focus keep their true 3D order while the focus
+shows through them. What is left is a memory question, not a correctness one.
+The trap is context discipline — anything drawn per bed must take its context,
+never close over one.
+
 **Grid cost** — 28 × 28 × 5 beds through per-cell shading, plus walls, plus
 fog, plus the HUD, at 60 Hz. The mock gets away with 16 × 13 and no fog. Two
 levers if it is too slow: decimate the drawn surface below the model's
@@ -375,7 +392,7 @@ moving at all.
 | `drill3d.js` | 2 | the full cycle at three pitches × four yaws |
 | `fog3d.js` | 3 | 0 / 3 / 9 holes at two yaws |
 | `rack.js` | 4 | three states, empty bay, mid-crossfade |
-| `isolate.js` | 5 | five isolates, collapse, the gate |
+| `isolate.js` | 5 | five isolates, collapse, the gate, and **ghost uniformity** — sample the same screen point behind two, three and four stacked ghosts; the values must match, because a group is one flat composite however many beds are in it |
 | `phone.js` | 0, 4, 6 | 390 x 844: block full-bleed, rack drawer, drill-bar overlay, log below the fold |
 | `bar.js` | 6 | four rig states |
 | `gate.js` | every stage | 9 holes → 95% → gate opens → isolate works |
@@ -392,6 +409,8 @@ All of them: `NODE_PATH=/opt/node22/lib/node_modules` and
 |---|---|---|
 | the rig looks wrong at extreme pitch | medium | clamp pitch while armed |
 | 28 × 28 too slow through per-cell shading | medium-high | decimate the drawn surface; widen `fast` |
+| the ghost buffers cost too much memory on a phone | medium | cut them to the block's region, or reuse one buffer for both groups with two composites |
+| a stray per-bed draw closes over the wrong context | medium, and it is invisible | every per-bed function takes its context as an argument; the isolate harness catches it by sampling ghosts |
 | a block of bare wireframe reads as a broken page | medium | raise the floor: a trace of bed tint under the unknown, or start the block with a shallow band already known |
 | the phone layout is honoured at the breakpoint but not in the hand | medium | stage 8's device pass exists for exactly this; do not skip it |
 | the drill's palette fights the navy ground | low | render and look; if it does, change the console's ground behind it, never the rig |
