@@ -35,6 +35,15 @@ typedef struct C2DSurface {
 C2DSurface c2d_surface_create(int design_w, int design_h);
 void       c2d_surface_destroy(C2DSurface *s);
 
+/* SUPERSAMPLING. Canvas antialiases every stroke by pixel-area coverage;
+ * raylib's rasteriser is a binary inside/outside test at the pixel centre,
+ * so 1px lines come out hard. Set this before creating any surface, group
+ * or cache and every offscreen target is allocated N times larger and every
+ * draw scaled to match, so the letterbox blit resolves the coverage. Costs
+ * N^2 fill rate. 1 disables it. See docs/design/prospecting/holo3d-inventory.md. */
+void c2d_set_supersample(int n);
+int  c2d_supersample(void);
+
 void c2d_begin(C2DSurface *s, Color clear);
 void c2d_end(void);
 
@@ -129,6 +138,9 @@ void c2d_clip_end(void);
 /* CPU segment clip, for the base-ring-vs-hull case. Writes the pieces
  * of [a,b] that fall OUTSIDE poly. Returns count written.            */
 int  c2d_clip_segment_outside(Vector2 a, Vector2 b,
+                              const Vector2 *poly, int n,
+                              Vector2 *out_pairs, int max_pairs);
+int  c2d_clip_segment_inside (Vector2 a, Vector2 b,
                               const Vector2 *poly, int n,
                               Vector2 *out_pairs, int max_pairs);
 

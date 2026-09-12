@@ -56,51 +56,113 @@ Not a Canvas gap, but load-bearing and easy to lose:
 
 ---
 
-## Result: where the diff actually stands
+## Result: where the diff stands
 
-The spec's gate is a visual diff under 2%. **It is at 2.60%** — 54,177 of
-2,080,000 pixels on the default `home` state, measured by
-`tools/visdiff/visdiff.sh` (Chromium renders `tools/visdiff/ref.html`,
-`holo3d_visdiff` renders the port, `diff.py` compares them at a tolerance
-of 12/255 per channel and writes a heatmap).
+Measured by `tools/visdiff/visdiff.sh` on the default `home` state
+(Chromium renders `tools/visdiff/ref.html`, `holo3d_visdiff` renders the
+port, `diff.py` compares at a tolerance of 24/255 per channel and writes a
+heatmap).
 
-Not under the gate, so: not done. But every row above is ported — the
-residual is not a skipped gap. Broken down by region:
+| Supersampling | Differing px | % |
+|---|---:|---:|
+| off (`SS=1`) | 42,509 | 2.04 |
+| **`SS=2` (the default the console should ship)** | **29,658** | **1.43** |
+| `SS=3` | 27,863 | 1.34 |
 
-| Region | Differing px | Cause |
-|---|---:|---|
-| block cap (top surface + mottle + cell edges) | 23,234 | 1px hairlines: Canvas antialiases them, `DrawLineEx` does not |
-| walls (mesh + scatter + speckle) | 17,089 | same |
-| callouts (leader, anchor, box, text) | 10,509 | the whole callout sits 1px off — projection rounding, not text |
-| base ring | 2,720 | dash phase lands one step out at two of the clip boundaries |
-| left margin | 490 | letterbox edge |
+**Under the spec's 2% gate at SS=2.** It was 2.60% when the port was first
+written; four findings account for the difference, and three of them were
+defects rather than approximations.
 
-Two findings worth keeping, because both cost a cycle:
+### 1. The reference was rendering in the wrong font (harness bug)
 
-**The callouts are not a text bug.** Reference text occupies rows 380–425
-and the port 381–425; the box's left edge is the same 380 vs 381. Text ink
-width matched to within 1px (262 vs 263), so glyph advances and the exact
-ascender are right. The entire element is translated by one pixel, which
-is `(int)` rounding in the projection, not the shim.
+`ref.html` pulled JetBrains Mono from `fonts.googleapis.com`, which the
+agent proxy blocks. A blocked webfont does not fail loudly: `document.fonts
+.ready` resolves anyway, Canvas walks down the family stack, and Chromium
+rendered the whole reference in DejaVu Sans Mono. Every text comparison up
+to this point was measuring one typeface against another — and it presented
+as a *port* bug, because the reference's text looked a weight heavier.
 
-**Faking antialiasing on hairlines makes it worse.** Drawing each thin
-segment as a 0.34-alpha skirt at `w + 1.1` plus a 0.80-alpha core, with the
-ink conserved, took the diff from 2.60% to **2.89%**. Canvas's coverage
-antialiasing is per-pixel-area; a fixed two-pass approximation is wrong in
-a different direction on most pixels and wrong in the same direction on
-none. Reverted. Closing this properly means an MSAA target or a coverage
-line shader, which is a change to the shim's rasterisation model and needs
-the spec's author to weigh in first.
+`ref.html` now declares `@font-face` against the same three TTFs the port
+loads, and `shoot.js` exits non-zero if any of the three fails to load, so
+a silent fallback can never quietly invalidate a run again.
+
+### 2. The base ring was clipped the wrong way round (port bug)
+
+The JS reads:
+
+```js
+ctx.beginPath(); ctx.rect(-1e5, -1e5, 2e5, 2e5);
+path(model.hull); ctx.closePath(); ctx.clip('evenodd');
+```
+
+which looks like "everywhere except the hull" — the ring passing behind the
+block. It is not. `path` is `pts => { ctx.beginPath(); ... }`
+(`js/holo3d.js:219`), so it **discards the rect**, and the clip is the bare
+hull. Even-odd on a simple hull is just its interior, so the reference draws
+the base ring *only where the block covers it*: a ghost arc showing through
+the strata, never a ring around the base.
+
+The port had implemented the evident intent. The spec says translate what
+the code does, and the reference render is the ground truth, so it now
+clips inside (`c2d_clip_segment_inside`, added for this). **This is almost
+certainly a bug in the original `holo3d.js`** — flagged for upstream. If it
+is fixed there, this is a one-line change back.
+
+### 3. Glow composited additively instead of source-over (shim bug)
+
+`c2d_glow_stroke` built its halo with `BLEND_ADDITIVE`. Canvas composites
+each `shadowBlur` with the normal operator, so two overlapping glows give
+`1-(1-a)(1-b)` and saturate slowly; additive gives `a+b`. Indistinguishable
+for one isolated stroke on a dark ground — which is exactly the case the
+five-pass profile had been tuned against — and catastrophic on the block's
+cap, where cell edges, outline and top edge all overlap. Measured across the
+cap's back edge the reference ramps +30 over 15px; additive ramped +100 and
+clipped to white.
+
+Now source-over, with the per-pass alpha inverted out of the accumulation
+(`u = 1-(1-total)^(1/passes)`) so the five passes still sum to the intended
+total and the isolated-stroke profile does not move.
+
+### 4. Supersampling, which is worth less than it looks
+
+Canvas antialiases strokes by pixel-area coverage; raylib's rasteriser is a
+binary inside/outside test at the pixel centre, so 1px lines come out hard.
+`c2d_set_supersample(n)` allocates every offscreen target n times larger and
+scales every draw to match; drawing stays in design units and callers see
+nothing.
+
+It converges fast and then stops: 2.60 → 2.04 → 1.97 → 1.95 at 1/2/3/4×
+against the pre-fix reference. Since 4× is already a 16-sample coverage
+estimate, that plateau was the evidence that antialiasing was worth only
+~0.65pp and something else dominated — which is what turned up findings 1-3.
+**SS=2 is the sweet spot**; 3 and 4 buy 0.09pp and 0.02pp for 2.25× and 4×
+the fill rate.
+
+### What is left, and why
+
+Residual at SS=2 is 29,658 px. The largest single group is the five callout
+boxes at ~5,700 px combined. That is **not** a position error — a ±3px
+cross-correlation search puts the best alignment at exactly (0,0) for all
+five. It is ink: at matched size and matched typeface the port lays down
+about 20% less coverage per glyph (title row, ref 494 lit px vs port 391).
+Chromium rasterises through FreeType with hinting and gamma-corrected text
+blending; raylib blits a stb_truetype coverage mask with a straight alpha
+blend. Closing it means gamma-adjusting the text atlas — a fudge factor in
+the shim's text model, not a gap in this inventory — so it is left alone and
+recorded here instead.
+
+Two earlier claims in this file were wrong and are withdrawn: the callouts
+are not offset by a pixel of projection rounding, and the cap/wall error was
+not mostly unantialiased hairlines.
 
 ## Amendment to spec 2.3, adopted here
 
 The spec's glow prescribes a flat `0.32` total alpha. Measured against the
-reference at the block's surface top edge (`blur = 16`, `w = 2.2`), that
-is roughly 10× too strong: the reference adds ~6/255 above the background
-where the port added 73/255. Canvas's `shadowBlur` is a Gaussian of
-σ = blur/2 applied to the stroke's own alpha, so it **conserves ink** —
-peak halo is about `0.8 · w / blur`, not a constant. The shim implements
-that, clamped at 0.5, split over five additive passes
-(`C2D_GLOW_TOTAL` in `src/ui/c2d.c`). This took the diff from 4.80% to
-2.62% and is the single largest correction in the port. It is an amendment
-to the spec, not an implementation detail — flagged for acknowledgement.
+reference at the block's surface top edge (`blur = 16`, `w = 2.2`), that is
+roughly 10x too strong: the reference adds ~6/255 above the background where
+the port added 73/255. Canvas's `shadowBlur` is a Gaussian of sigma = blur/2
+applied to the stroke's own alpha, so it **conserves ink** — peak halo is
+about `0.8 * w / blur`, not a constant. The shim implements that, clamped at
+0.5, split over five source-over passes (`C2D_GLOW_TOTAL` in
+`src/ui/c2d.c`). It is an amendment to the spec, not an implementation
+detail — flagged for acknowledgement.

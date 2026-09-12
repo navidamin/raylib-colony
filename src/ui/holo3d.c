@@ -606,9 +606,22 @@ void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3D
     }
 
     /* base ring: a circle on the ground plane under the (possibly exploded)
-     * stack, clipped even-odd against the block's hull so it disappears
-     * behind it. Spec 2.4 case 2 -- the segments are clipped on the CPU and
-     * only the outside pieces are drawn. */
+     * stack, clipped against the block's hull. Spec 2.4 case 2 -- the
+     * segments are clipped on the CPU and only the kept pieces drawn.
+     *
+     * INSIDE, not outside, and that is not a typo. The JS reads
+     *
+     *   ctx.beginPath(); ctx.rect(-1e5,-1e5,2e5,2e5);
+     *   path(model.hull); ctx.closePath(); ctx.clip('evenodd');
+     *
+     * which looks like "everything except the hull" -- but `path` is
+     * `pts => { ctx.beginPath(); ... }` (holo3d.js:219), so it throws the
+     * rect away and the clip is the bare hull. Even-odd on a simple hull is
+     * just its interior, so the reference draws the ring ONLY where the
+     * block covers it: a ghost arc showing through the strata, never a ring
+     * around the base. Almost certainly not what the author meant, but the
+     * spec says translate what the code does, and the reference render is
+     * the ground truth. Flagged in the inventory for upstream. */
     if (hud->base)
     {
         const float yb = -m->D + h3d_offY(m, m->layerCount - 1) - 40.0f;
@@ -651,8 +664,8 @@ void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3D
                         const Vector2 d0 = {a.x + ux * done, a.y + uy * done};
                         const Vector2 d1 = {a.x + ux * (done + step), a.y + uy * (done + step)};
                         Vector2 pieces[8];
-                        const int np = c2d_clip_segment_outside(d0, d1, m->hull,
-                                                                m->hullCount, pieces, 4);
+                        const int np = c2d_clip_segment_inside(d0, d1, m->hull,
+                                                               m->hullCount, pieces, 4);
                         for (int p = 0; p < np; p++)
                             c2d_polyline(&pieces[p * 2], 2, (Color){95, 240, 255, 89}, 1.2f);
                     }
@@ -667,7 +680,7 @@ void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3D
             const Vector2 p = h3d_project(m, (V3){cosf(a) * r, yb, sinf(a) * r});
             const Vector2 q = h3d_project(m, (V3){cosf(a) * r * r1, yb, sinf(a) * r * r1});
             Vector2 pieces[8];
-            const int np = c2d_clip_segment_outside(p, q, m->hull, m->hullCount, pieces, 4);
+            const int np = c2d_clip_segment_inside(p, q, m->hull, m->hullCount, pieces, 4);
             for (int i = 0; i < np; i++)
                 c2d_polyline(&pieces[i * 2], 2, (Color){95, 240, 255, 128}, 1.0f);
         }

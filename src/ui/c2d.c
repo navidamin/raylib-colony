@@ -30,12 +30,36 @@
  * returns to the WINDOW, not to whatever framebuffer was bound before. */
 static C2DSurface *g_surface = NULL;
 
+/* Supersampling. Every offscreen target is allocated g_ss times larger and
+ * every draw scaled by g_ss, so the resolve at present() time averages the
+ * subpixels into the coverage Canvas computes analytically. Drawing stays
+ * in design units throughout -- callers never see this. */
+static int g_ss = 1;
+
+void c2d_set_supersample(int n) { g_ss = (n < 1) ? 1 : (n > 4 ? 4 : n); }
+int  c2d_supersample(void)      { return g_ss; }
+
+/* BeginTextureMode loads an identity modelview, so the scale has to be
+ * pushed after it and popped before the matching End -- every bind in this
+ * file goes through these two. */
+static void c2d_bind(RenderTexture2D rt)
+{
+    BeginTextureMode(rt);
+    if (g_ss > 1) { rlPushMatrix(); rlScalef((float)g_ss, (float)g_ss, 1.0f); }
+}
+
+static void c2d_unbind(void)
+{
+    if (g_ss > 1) { rlDrawRenderBatchActive(); rlPopMatrix(); }
+    EndTextureMode();
+}
+
 C2DSurface c2d_surface_create(int design_w, int design_h)
 {
     C2DSurface s;
     s.w = design_w;
     s.h = design_h;
-    s.tex = LoadRenderTexture(design_w, design_h);
+    s.tex = LoadRenderTexture(design_w * g_ss, design_h * g_ss);
     /* The downscale onto a tablet would alias every 1px hairline without
      * this (spec 1). */
     SetTextureFilter(s.tex.texture, TEXTURE_FILTER_BILINEAR);
@@ -53,13 +77,13 @@ void c2d_surface_destroy(C2DSurface *s)
 void c2d_begin(C2DSurface *s, Color clear)
 {
     g_surface = s;
-    BeginTextureMode(s->tex);
+    c2d_bind(s->tex);
     ClearBackground(clear);
 }
 
 void c2d_end(void)
 {
-    EndTextureMode();
+    c2d_unbind();
     g_surface = NULL;
 }
 
@@ -78,7 +102,8 @@ void c2d_present(C2DSurface *s)
     /* A RenderTexture comes back Y-flipped. Source height MUST be negative
      * (spec 1) -- forget this and the console renders upside down, which is
      * obvious, or the letterbox maths is off by the bar height, which is not. */
-    const Rectangle src = {0.0f, 0.0f, (float)s->w, -(float)s->h};
+    const Rectangle src = {0.0f, 0.0f, (float)s->tex.texture.width,
+                           -(float)s->tex.texture.height};
     DrawTexturePro(s->tex.texture, src, s->dst, (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
 }
 
@@ -406,15 +431,28 @@ void c2d_glow_stroke(const Vector2 *pts, int n, Color c, float w, float blur)
     if (blur > 0.0f)
     {
         const Color tc = c2d_tint(c);
-        const float unit = C2D_GLOW_TOTAL(w, blur) / (float)C2D_GLOW_PASSES * (tc.a / 255.0f);
-        BeginBlendMode(BLEND_ADDITIVE);
+        const float total = C2D_GLOW_TOTAL(w, blur) * (tc.a / 255.0f);
+        /* SOURCE-OVER, not additive, and this is the whole difference between
+         * a halo and a smear. Canvas composites each shadow with the normal
+         * operator, so two overlapping glows give 1-(1-a)(1-b) -- they
+         * saturate slowly. Additive gives a+b, which is close enough for one
+         * isolated stroke over a dark ground and catastrophic where the top
+         * surface's cell edges, its outline and its top edge all overlap:
+         * measured at the cap's back edge the reference ramps +30 over 15px
+         * and additive ramped +100, clipping to white.
+         *
+         * Within this one call the five passes must still SUM to `total`, so
+         * invert the source-over accumulation: after k passes the coverage is
+         * 1-(1-u)^k, hence u = 1-(1-total)^(1/passes). For small totals that
+         * is within a percent of total/passes, so the isolated-stroke profile
+         * this was tuned against does not move. */
+        const float unit = 1.0f - powf(1.0f - total, 1.0f / (float)C2D_GLOW_PASSES);
         for (int i = 0; i < C2D_GLOW_PASSES; i++)
         {
-            /* widest first, so each narrower pass adds on top of the last */
+            /* widest first, so each narrower pass lands on top of the last */
             const float t = 1.0f - (float)i / (float)C2D_GLOW_PASSES;
             c2d_stroke_raw(pts, n, Fade(tc, unit), w + blur * 1.6f * t, false);
         }
-        EndBlendMode();
     }
     c2d_polyline(pts, n, c, w);
 }
@@ -488,25 +526,26 @@ static bool g_clip_evenodd = false;
 
 static void c2d_rebind_surface(void)
 {
-    if (g_surface) BeginTextureMode(g_surface->tex);
+    if (g_surface) c2d_bind(g_surface->tex);
 }
 
 void c2d_clip_poly_begin(const Vector2 *pts, int n, bool even_odd)
 {
     if (g_clip_open || !g_surface || n < 3 || n > C2D_POLY_MAX) return;
     if (g_clip_rt.id == 0 ||
-        g_clip_rt.texture.width != g_surface->w || g_clip_rt.texture.height != g_surface->h)
+        g_clip_rt.texture.width != g_surface->w * g_ss ||
+        g_clip_rt.texture.height != g_surface->h * g_ss)
     {
         if (g_clip_rt.id != 0) UnloadRenderTexture(g_clip_rt);
-        g_clip_rt = LoadRenderTexture(g_surface->w, g_surface->h);
+        g_clip_rt = LoadRenderTexture(g_surface->w * g_ss, g_surface->h * g_ss);
         SetTextureFilter(g_clip_rt.texture, TEXTURE_FILTER_BILINEAR);
     }
     memcpy(g_clip_poly, pts, sizeof(Vector2) * (size_t)n);
     g_clip_n = n;
     g_clip_evenodd = even_odd;
     g_clip_open = true;
-    EndTextureMode();
-    BeginTextureMode(g_clip_rt);
+    c2d_unbind();
+    c2d_bind(g_clip_rt);
     ClearBackground(BLANK);
 }
 
@@ -530,17 +569,17 @@ void c2d_clip_end(void)
         c2d_fill_poly(g_clip_poly, g_clip_n, WHITE);
     }
     EndBlendMode();
-    EndTextureMode();
+    c2d_unbind();
     c2d_rebind_surface();
     const Rectangle src = {0.0f, 0.0f, (float)g_clip_rt.texture.width,
                            -(float)g_clip_rt.texture.height};
-    DrawTextureRec(g_clip_rt.texture, src, (Vector2){0.0f, 0.0f}, WHITE);
+    const Rectangle dst = {0.0f, 0.0f, (float)g_surface->w, (float)g_surface->h};
+    DrawTexturePro(g_clip_rt.texture, src, dst, (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
     g_clip_open = false;
 }
 
-/* Writes the pieces of [a,b] that fall OUTSIDE poly, as consecutive point
- * pairs. Used for the base ring, which the JS clips even-odd against the
- * block's convex hull so it disappears behind the block (spec 2.4 case 2). */
+/* Writes the pieces of [a,b] that fall outside (or inside) poly, as
+ * consecutive point pairs. Spec 2.4 case 2. */
 static bool c2d_inside_poly(Vector2 p, const Vector2 *poly, int n)
 {
     bool in = false;
@@ -555,8 +594,8 @@ static bool c2d_inside_poly(Vector2 p, const Vector2 *poly, int n)
     return in;
 }
 
-int c2d_clip_segment_outside(Vector2 a, Vector2 b, const Vector2 *poly, int n,
-                             Vector2 *out_pairs, int max_pairs)
+static int c2d_clip_segment(Vector2 a, Vector2 b, const Vector2 *poly, int n,
+                            Vector2 *out_pairs, int max_pairs, bool keep_inside)
 {
     /* Sampled rather than solved: the ring is already a 72-segment polyline,
      * so a segment spans a few pixels and 12 samples resolve the crossing to
@@ -570,7 +609,7 @@ int c2d_clip_segment_outside(Vector2 a, Vector2 b, const Vector2 *poly, int n,
     {
         const float t = (float)s / SAMPLES;
         const Vector2 p = {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t};
-        const bool out = !c2d_inside_poly(p, poly, n);
+        const bool out = c2d_inside_poly(p, poly, n) == keep_inside;
         if (out && !runOpen) { runOpen = true; runStart = (s == 0) ? p : prev; }
         else if (!out && runOpen)
         {
@@ -584,6 +623,18 @@ int c2d_clip_segment_outside(Vector2 a, Vector2 b, const Vector2 *poly, int n,
         out_pairs[written * 2] = runStart; out_pairs[written * 2 + 1] = b; written++;
     }
     return written;
+}
+
+int c2d_clip_segment_outside(Vector2 a, Vector2 b, const Vector2 *poly, int n,
+                             Vector2 *out_pairs, int max_pairs)
+{
+    return c2d_clip_segment(a, b, poly, n, out_pairs, max_pairs, false);
+}
+
+int c2d_clip_segment_inside(Vector2 a, Vector2 b, const Vector2 *poly, int n,
+                            Vector2 *out_pairs, int max_pairs)
+{
+    return c2d_clip_segment(a, b, poly, n, out_pairs, max_pairs, true);
 }
 
 /* ================================================================== */
@@ -820,7 +871,7 @@ C2DGroup *c2d_group_create(int w, int h)
 {
     C2DGroup *g = (C2DGroup *)calloc(1, sizeof(C2DGroup));
     if (!g) return NULL;
-    g->rt = LoadRenderTexture(w, h);
+    g->rt = LoadRenderTexture(w * g_ss, h * g_ss);
     SetTextureFilter(g->rt.texture, TEXTURE_FILTER_BILINEAR);
     g->w = w; g->h = h;
     return g;
@@ -836,14 +887,14 @@ void c2d_group_destroy(C2DGroup *g)
 void c2d_group_begin(C2DGroup *g)
 {
     if (!g) return;
-    if (g_surface) EndTextureMode();
-    BeginTextureMode(g->rt);
+    if (g_surface) c2d_unbind();
+    c2d_bind(g->rt);
     ClearBackground(BLANK);
 }
 
 void c2d_group_end(void)
 {
-    EndTextureMode();
+    c2d_unbind();
     c2d_rebind_surface();
 }
 
@@ -852,8 +903,10 @@ void c2d_group_end(void)
 void c2d_group_composite(C2DGroup *g, float alpha)
 {
     if (!g) return;
-    const Rectangle src = {0.0f, 0.0f, (float)g->w, -(float)g->h};
-    DrawTextureRec(g->rt.texture, src, (Vector2){0.0f, 0.0f},
+    const Rectangle src = {0.0f, 0.0f, (float)g->rt.texture.width,
+                           -(float)g->rt.texture.height};
+    const Rectangle dst = {0.0f, 0.0f, (float)g->w, (float)g->h};
+    DrawTexturePro(g->rt.texture, src, dst, (Vector2){0.0f, 0.0f}, 0.0f,
                    Fade(WHITE, alpha * c2d_alpha()));
 }
 
@@ -861,7 +914,7 @@ C2DCache *c2d_cache_create(int w, int h)
 {
     C2DCache *c = (C2DCache *)calloc(1, sizeof(C2DCache));
     if (!c) return NULL;
-    c->rt = LoadRenderTexture(w, h);
+    c->rt = LoadRenderTexture(w * g_ss, h * g_ss);
     SetTextureFilter(c->rt.texture, TEXTURE_FILTER_BILINEAR);
     c->w = w; c->h = h; c->valid = false;
     return c;
@@ -880,15 +933,15 @@ bool c2d_cache_begin(C2DCache *c)
 {
     if (!c || c->valid) return false;
     g_cache_filling = c;
-    if (g_surface) EndTextureMode();
-    BeginTextureMode(c->rt);
+    if (g_surface) c2d_unbind();
+    c2d_bind(c->rt);
     ClearBackground(BLANK);
     return true;
 }
 
 void c2d_cache_end(void)
 {
-    EndTextureMode();
+    c2d_unbind();
     c2d_rebind_surface();
     if (g_cache_filling) { g_cache_filling->valid = true; g_cache_filling = NULL; }
 }
@@ -896,8 +949,10 @@ void c2d_cache_end(void)
 void c2d_cache_blit(C2DCache *c)
 {
     if (!c) return;
-    const Rectangle src = {0.0f, 0.0f, (float)c->w, -(float)c->h};
-    DrawTextureRec(c->rt.texture, src, (Vector2){0.0f, 0.0f}, c2d_tint(WHITE));
+    const Rectangle src = {0.0f, 0.0f, (float)c->rt.texture.width,
+                           -(float)c->rt.texture.height};
+    const Rectangle dst = {0.0f, 0.0f, (float)c->w, (float)c->h};
+    DrawTexturePro(c->rt.texture, src, dst, (Vector2){0.0f, 0.0f}, 0.0f, c2d_tint(WHITE));
 }
 
 void c2d_cache_invalidate(C2DCache *c) { if (c) c->valid = false; }

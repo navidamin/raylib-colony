@@ -28,6 +28,9 @@ int main(int argc, char **argv)
     c2d_fonts_load("src/assets/fonts/JetBrainsMono-Medium.ttf",
                    "src/assets/fonts/JetBrainsMono-SemiBold.ttf",
                    "src/assets/fonts/JetBrainsMono-Bold.ttf");
+
+    const int ss = (int)argf(argc, argv, "--ss", 1.0f);
+    c2d_set_supersample(ss);
     C2DSurface surf = c2d_surface_create(W, H);
 
     H3DBuildOpts opts = {0};
@@ -61,6 +64,34 @@ int main(int argc, char **argv)
 
     Image img = LoadImageFromTexture(surf.tex.texture);
     ImageFlipVertical(&img);
+    /* Resolve. A plain N x N box average, which is what the GPU's bilinear
+     * minification does at an exact integer reduction -- so the PNG is what
+     * c2d_present would put on the screen, not a sharper stand-in. */
+    if (c2d_supersample() > 1)
+    {
+        const int n = c2d_supersample();
+        Color *src = LoadImageColors(img);
+        Image out = GenImageColor(W, H, BLANK);
+        Color *dst = LoadImageColors(out);
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                int r = 0, g = 0, b = 0, a = 0;
+                for (int sy = 0; sy < n; sy++)
+                    for (int sx = 0; sx < n; sx++)
+                    {
+                        const Color c = src[(y * n + sy) * (W * n) + (x * n + sx)];
+                        r += c.r; g += c.g; b += c.b; a += c.a;
+                    }
+                const int k = n * n;
+                dst[y * W + x] = (Color){(unsigned char)(r / k), (unsigned char)(g / k),
+                                         (unsigned char)(b / k), (unsigned char)(a / k)};
+            }
+        UnloadImageColors(src);
+        UnloadImage(out);
+        UnloadImage(img);
+        img = (Image){dst, W, H, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    }
     ExportImage(img, args(argc, argv, "--out", "/tmp/port.png"));
     printf("port -> %s\n", args(argc, argv, "--out", "/tmp/port.png"));
     UnloadImage(img);
