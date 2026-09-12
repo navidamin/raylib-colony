@@ -636,18 +636,36 @@ glyph's now, and two markers on one point is one too many.
 
 `src/Survey/survey_sprites.{h,cpp}` and `survey_rack.{h,cpp}`.
 
-**The rack is the one thing in this console that is not a hologram.** The
-block, the ruler, the confidence bar and the log are readouts of measured
-ground; the rack is a physical object sitting on top of them — steel bodies,
-an inset well per bay, studs, a highlight along the top edge and a shadow along
-the bottom, and a slot light that is the only cyan on it. It keeps its own
-greys rather than borrowing the console's navy, because that contrast is the
-point.
+**The rack is the one thing in this console that is not a hologram**, and the
+first attempt at it was wrong in exactly the way that matters: it followed the
+*description* of the rack instead of the reference render. Five horizontal bars
+with a sprite in a box is not a rack, it is a list with metal paint on it.
 
-**One sprite set, shared with the rig.** The five grids live in
+Redrawn against `prototypes/dashboard/dashboard.png` part by part, and every
+part is one a machinist would recognise:
+
+| | |
+|---|---|
+| the backplate | a steel sheet with a border and four corner bolts |
+| the spine | a raised rail down its left edge, bolted top and bottom, with a hinge plate at the head |
+| the tiles | square bezels, four bolts each, a dark inset well, the tool's glyph standing in it |
+| the slot light | a cyan **capsule** on the spine beside each bay — a fitting, not an LED stuck on |
+| the name plate | a plate cantilevered off the tile and **chamfered** at its far end, with a second lozenge on it |
+
+Every one of them is lit from the upper left, where the rest of this UI's light
+comes from: a highlight along each top edge and a shadow along each bottom one.
+Two lines are the whole difference between a rectangle and a machined face.
+And an empty bay is not a hidden bay — the reference keeps the mount, the bolts
+and the dark square where the tool would clip in, and shortens the name plate
+to a blank stub. That is far quieter than the word EMPTY five times.
+
+**One sprite set, shared with the rig — in two tones.** The five grids live in
 `survey_sprites` and both the rack and the drill draw from them: the machine
 you pick out of the rack has to be the machine that goes into the ground, and
-two drawings of one tool is two tools.
+two drawings of one tool is two tools. The tones are arguments, because in the
+rack it is an ICON of the tool and is drawn in the console's cyan, while out on
+the block it IS the tool and is drawn in steel. It stands on the same mark in
+both places: a ring for a POINT tool, a traverse for a LINE one.
 
 **The fifth tool is SURFACE SWEEP, not ROVER TRAVERSE.** The design's set was
 written against a prototype with no game behind it; this game *has* a working

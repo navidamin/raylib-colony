@@ -43,5 +43,11 @@ const SurveyToolInfo& SurveyToolOf(SurveyTool tool);
    -- shifting the sprite itself would slide the tool sideways, while shifting
    the shading inside a fixed outline is a helix turning under a stationary
    flute, which is the thing being drawn. */
-void DrawSurveyToolSprite(SurveyTool tool, float X, float Y, int shift, float unit);
+/* The two tones are arguments because the same sprite is an ICON in the rack
+   and a MACHINE on the block: in the rack it is drawn in the console's cyan,
+   out on the ground it is drawn in steel. One silhouette, two readings --
+   which is the opposite of two drawings. Defaults to the steel. */
+void DrawSurveyToolSprite(SurveyTool tool, float X, float Y, int shift, float unit,
+                          Color light = {250, 250, 250, 255},
+                          Color mid = {133, 149, 172, 255});
 int  SurveyToolSpriteRows();

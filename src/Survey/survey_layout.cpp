@@ -11,7 +11,7 @@ namespace
     // The design's own proportions, at 1536 x 1024:
     //   columns 338 : 740 : 328   rows 676 : 242
     constexpr float COL_L = 0.238f, COL_M = 0.526f;
-    constexpr float ROW_TOP = 0.700f;
+    constexpr float ROW_TOP = 0.665f;
     constexpr float ROW_GAP = 10.0f;
 }
 

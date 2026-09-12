@@ -53,7 +53,8 @@ const SurveyToolInfo& SurveyToolOf(SurveyTool tool)
 
 int SurveyToolSpriteRows() { return ROWS; }
 
-void DrawSurveyToolSprite(SurveyTool tool, float X, float Y, int shift, float unit)
+void DrawSurveyToolSprite(SurveyTool tool, float X, float Y, int shift, float unit,
+                          Color light, Color mid)
 {
     const float h = unit * 0.5f;
     const char* const* rows = GRID[static_cast<int>(tool)];
@@ -70,7 +71,7 @@ void DrawSurveyToolSprite(SurveyTool tool, float X, float Y, int shift, float un
             DrawRectangle(static_cast<int>(std::lround(X + (at[k] - AXIS) * h)),
                           static_cast<int>(std::lround(y)),
                           static_cast<int>(std::lround(h)), static_cast<int>(std::lround(h)),
-                          row[at[src]] == 'L' ? LIGHT : MID);
+                          row[at[src]] == 'L' ? light : mid);
         }
     }
 }
