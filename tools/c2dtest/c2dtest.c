@@ -172,8 +172,15 @@ int main(int argc, char **argv)
 
     printf("\n== 3. ear clipping, and the winding it has to survive ==\n");
     {
+        /* BOTH windings. The first version of this test used one polygon,
+           it happened to wind the way raylib wanted, and the winding bug it
+           was supposed to catch went straight through into the port -- where
+           it culled every cell of the block's cap. */
+        for (int rev = 0; rev < 2; rev++) {
         Vector2 poly[64]; int n = 0;
         SawtoothWall(poly, &n);
+        if (rev) for (int i = 0; i < n / 2; i++)
+                 { Vector2 t2 = poly[i]; poly[i] = poly[n-1-i]; poly[n-1-i] = t2; }
         RenderTexture2D rt = LoadRenderTexture(560, 400);
         BeginTextureMode(rt); ClearBackground(BLACK);
         c2d_fill_poly(poly, n, WHITE);
@@ -189,10 +196,12 @@ int main(int argc, char **argv)
                 if (!inside_poly((Vector2){x + 0.5f, y + 0.5f}, poly, n)) outside++;
             }
         const float want = area_poly(poly, n);
-        printf("    filled %ld px, polygon area %.0f, spill outside %ld px\n", lit, want, outside);
+        printf("    winding %s: filled %ld px, area %.0f, spill %ld px\n",
+               rev ? "reversed" : "as given", lit, want, outside);
         CHECK(lit > want * 0.92f, "the concave polygon is actually filled (not culled)");
         CHECK(outside < want * 0.02f, "no triangle spills outside -- a fan would");
         UnloadImage(img); UnloadRenderTexture(rt);
+        }
     }
 
     printf("\n== 4. gradient: smooth, not banded ==\n");

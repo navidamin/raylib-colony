@@ -352,6 +352,11 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Prospecting/lab_engine.cpp
         Prospecting/survey_progress_engine.cpp
         Prospecting/prospecting_system.cpp
+        Survey/survey_knowledge.cpp
+        Survey/survey_ground.cpp
+        Survey/survey_block.cpp
+        Survey/survey_console.cpp
+        Survey/survey_rig.cpp
         Excavation/site_view.cpp
         Excavation/estimate_engine.cpp
         Excavation/dig_engine.cpp
@@ -520,7 +525,7 @@ endif()
 # call raylib directly -- see docs/CANVAS2D_PORT_SPEC.md. The shim is C; the
 # header carries extern "C" guards so the C++ game can call it.
 # ---------------------------------------------------------------------------
-add_library(colony_c2d STATIC ui/c2d.c)
+add_library(colony_c2d STATIC ui/c2d.c ui/holo3d.c)
 target_include_directories(colony_c2d PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui")
 target_link_libraries(colony_c2d PUBLIC raylib)
 set_target_properties(colony_c2d PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
@@ -532,4 +537,13 @@ set_target_properties(c2dtest PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools")
 if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
     target_link_libraries(c2dtest PRIVATE m)
+endif()
+
+add_executable(holo3d_visdiff "${CMAKE_CURRENT_SOURCE_DIR}/../tools/visdiff/port_main.c")
+target_link_libraries(holo3d_visdiff PRIVATE colony_c2d raylib)
+set_target_properties(holo3d_visdiff PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED ON
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools")
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(holo3d_visdiff PRIVATE m)
 endif()

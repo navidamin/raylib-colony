@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>html,body{margin:0;background:#010910}canvas{display:block}</style></head><body>
+<canvas id="c" width="1600" height="1300"></canvas>
+<script src="../../js/holo3d.js"></script>
+<script>
+/* The reference half of the visual diff (spec 5). One frame, FIXED state --
+   several elements pulse on sin(t*3), so time is pinned, not sampled. dpr is
+   forced to 1 so the PNG is exactly the design size. */
+const q = new URLSearchParams(location.search);
+const num = (k, d) => q.has(k) ? parseFloat(q.get(k)) : d;
+const W = 1600, H = 1300;
+const ctx = document.getElementById('c').getContext('2d');
+const model = Holo3D.build();
+const view = { cx: num('cx', 640), cy: num('cy', 650), zoom: num('zoom', 0.9) };
+const state = { yaw: num('yaw', -0.1), pitch: num('pitch', 0.42),
+                explode: num('explode', 0), selected: num('sel', -1),
+                time: num('t', 3.0), fast: q.get('fast') === '1' };
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#010910'; ctx.fillRect(0, 0, W, H);
+  Holo3D.render(ctx, model, state, view);
+  if (q.get('hud') !== '0') Holo3D.drawHud(ctx, model, state, view);
+  window.__ready = true;
+}
+(document.fonts ? document.fonts.ready : Promise.resolve()).then(draw);
+</script></body></html>

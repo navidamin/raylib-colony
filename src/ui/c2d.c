@@ -302,16 +302,23 @@ static int c2d_earclip(const Vector2 *pts, int n, int *tris, int max_tris)
 #define C2D_TRIS_MAX (C2D_POLY_MAX * 3)
 static int g_tris[C2D_TRIS_MAX];
 
+/* c2d_earclip ALWAYS emits positive-shoelace (maths-CCW) triangles,
+   whatever the input polygon's winding, because it triangulates a
+   normalised copy. raylib wants the other one -- screen-CCW, which is
+   negative shoelace -- so the emit order is reversed UNCONDITIONALLY.
+   Branching on the input polygon's winding here was a real bug: the wall
+   polygons happened to come out one way and the top-surface cells the
+   other, so every cell of the cap was silently culled and the block
+   rendered as a wireframe lid. Caught by the visual diff, not by the unit
+   test, because the unit test's one polygon wound the lucky way. */
 void c2d_fill_poly(const Vector2 *pts, int n, Color c)
 {
     const int t = c2d_earclip(pts, n, g_tris, C2D_POLY_MAX);
     const Color k = c2d_tint(c);
-    const bool ccw = c2d_signed_area(pts, n) >= 0.0f;
     for (int i = 0; i < t; i++)
     {
         const Vector2 a = pts[g_tris[i * 3]], b = pts[g_tris[i * 3 + 1]], d = pts[g_tris[i * 3 + 2]];
-        if (ccw) DrawTriangleGradient(a, d, b, k, k, k);
-        else     DrawTriangleGradient(a, b, d, k, k, k);
+        DrawTriangleGradient(a, d, b, k, k, k);
     }
 }
 
@@ -321,13 +328,11 @@ void c2d_fill_poly(const Vector2 *pts, int n, Color c)
 void c2d_fill_poly_gradient(const Vector2 *pts, int n, const C2DGradient *g)
 {
     const int t = c2d_earclip(pts, n, g_tris, C2D_POLY_MAX);
-    const bool ccw = c2d_signed_area(pts, n) >= 0.0f;
     for (int i = 0; i < t; i++)
     {
         const Vector2 a = pts[g_tris[i * 3]], b = pts[g_tris[i * 3 + 1]], d = pts[g_tris[i * 3 + 2]];
         const Color ca = c2d_gradient_at(g, a.y), cb = c2d_gradient_at(g, b.y), cd = c2d_gradient_at(g, d.y);
-        if (ccw) DrawTriangleGradient(a, d, b, ca, cd, cb);
-        else     DrawTriangleGradient(a, b, d, ca, cb, cd);
+        DrawTriangleGradient(a, d, b, ca, cd, cb);
     }
 }
 
@@ -362,18 +367,53 @@ void c2d_polygon(const Vector2 *pts, int n, Color c, float w)
     c2d_stroke_raw(pts, n, c2d_tint(c), w, true);
 }
 
-/* ctx.shadowBlur, as spec 2.3 prescribes it and in that order: two
- * ADDITIVE halo passes, then a normal-blend core. Additive is the whole
- * point -- two normal-blend passes just draw a thick dim line, which is
- * what the first pass at this port did and why it read as flat line art. */
+/* ctx.shadowBlur: additive halo passes, then a normal-blend core.
+ * Additive is the whole point -- normal-blend passes just draw a thick dim
+ * line, which is what the first attempt at this port did and why it read as
+ * flat line art.
+ *
+ * AMENDMENT TO SPEC 2.3, with evidence. The spec prescribes exactly two
+ * halo passes, at w + blur*1.6 / alpha 0.10 and w + blur*0.8 / alpha 0.22.
+ * Two constant-width strokes make a SLAB with a hard outer edge, where
+ * Canvas's shadowBlur is a Gaussian: on the Holo3D diff that read as a fat
+ * bright sleeve around every reticle arc and bed edge, and it was the
+ * single largest contributor left after the fills were fixed
+ * (docs/design/prospecting/holo3d-inventory.md records the numbers).
+ *
+ * What changed, and both parts were measured on the diff, not guessed:
+ *
+ * 1. FIVE nested passes instead of two, same outer reach (w + blur*1.6).
+ *    Additive accumulation then steps from the rim to the core instead of
+ *    laying down two plateaus with a hard edge.
+ *
+ * 2. THE TOTAL ALPHA IS DERIVED, not the constant 0.32. Canvas draws the
+ *    shadow by blurring the shape with a Gaussian of sigma = blur/2, which
+ *    CONSERVES the stroke's ink: a 2.2 px line spread over ~32 px is faint.
+ *    Peak halo ~= w / (sigma * sqrt(2*pi)) = 0.8 * w / blur. Sampled
+ *    perpendicular to the surface top edge (w 2.2, blur 16) the reference
+ *    halo adds about 6/255 to the ground it sits on; the flat 0.32 added
+ *    73, and the block's edges were the largest error left on the diff
+ *    after the fills were fixed.
+ *
+ * Set C2D_GLOW_PASSES to 2 and C2D_GLOW_TOTAL to a flat 0.32f for the
+ * letter of the spec. */
+#define C2D_GLOW_PASSES 5
+#define C2D_GLOW_TOTAL(w, blur) \
+    ((blur) <= 0.0f ? 0.0f : ((0.8f * (w) / (blur)) > 0.5f ? 0.5f : 0.8f * (w) / (blur)))
+
 void c2d_glow_stroke(const Vector2 *pts, int n, Color c, float w, float blur)
 {
     if (blur > 0.0f)
     {
         const Color tc = c2d_tint(c);
+        const float unit = C2D_GLOW_TOTAL(w, blur) / (float)C2D_GLOW_PASSES * (tc.a / 255.0f);
         BeginBlendMode(BLEND_ADDITIVE);
-        c2d_stroke_raw(pts, n, Fade(tc, 0.10f * (tc.a / 255.0f)), w + blur * 1.6f, false);
-        c2d_stroke_raw(pts, n, Fade(tc, 0.22f * (tc.a / 255.0f)), w + blur * 0.8f, false);
+        for (int i = 0; i < C2D_GLOW_PASSES; i++)
+        {
+            /* widest first, so each narrower pass adds on top of the last */
+            const float t = 1.0f - (float)i / (float)C2D_GLOW_PASSES;
+            c2d_stroke_raw(pts, n, Fade(tc, unit), w + blur * 1.6f * t, false);
+        }
         EndBlendMode();
     }
     c2d_polyline(pts, n, c, w);
@@ -405,7 +445,14 @@ void c2d_dashed_polyline(const Vector2 *pts, int n, float on, float off,
             const float inPat = fmodf(phase, period);
             const bool drawing = inPat < on;
             const float remain = drawing ? (on - inPat) : (period - inPat);
-            const float step = (remain < seg - travelled) ? remain : (seg - travelled);
+            float step = (remain < seg - travelled) ? remain : (seg - travelled);
+            /* A dash run can end a hair short of the pattern boundary, and
+               `phase` accumulates over the whole polyline. Once phase is in the
+               thousands, adding a step of 1e-7 to a float is a NO-OP -- done
+               never advances and the loop spins for ever. It cost a hung
+               render that looked exactly like "software GL is slow". Floor the
+               step well above the ULP at these magnitudes. */
+            if (step < 1e-3f) step = 1e-3f;
             if (drawing)
             {
                 const Vector2 p0 = {a.x + ux * travelled, a.y + uy * travelled};
@@ -569,10 +616,21 @@ static void c2d_measure_metrics(C2DWeight w)
 
 void c2d_fonts_load(const char *p500, const char *p600, const char *p700)
 {
+    /* ASCII plus the codepoints the JS actually prints. LoadFontEx(NULL, 0)
+     * packs only 32..126, so a middot came out as a box and a port that
+     * silently swaps it for a hyphen is the kind of approximation the spec
+     * forbids -- and it shows up as a bright band on the diff. */
+    int cps[128], nc = 0;
+    for (int ch = 32; ch <= 126; ch++) cps[nc++] = ch;
+    const int extra[] = { 0x00B0 /* degree */, 0x00B7 /* middot */, 0x00D7 /* times */,
+                          0x03B8 /* theta  */, 0x2013 /* en dash */, 0x2014 /* em dash */,
+                          0x25C6 /* diamond */, 0x2026 /* ellipsis */ };
+    for (size_t e = 0; e < sizeof(extra) / sizeof(extra[0]); e++) cps[nc++] = extra[e];
+
     const char *paths[C2D_WEIGHT_COUNT] = {p500, p600, p700};
     for (int i = 0; i < C2D_WEIGHT_COUNT; i++)
     {
-        g_font[i] = LoadFontEx(paths[i], C2D_FONT_BASE, NULL, 0);
+        g_font[i] = LoadFontEx(paths[i], C2D_FONT_BASE, cps, nc);
         if (g_font[i].texture.id == 0) g_font[i] = GetFontDefault();
         SetTextureFilter(g_font[i].texture, TEXTURE_FILTER_BILINEAR);
         c2d_measure_metrics((C2DWeight)i);
