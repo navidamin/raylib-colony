@@ -293,10 +293,30 @@ UI modules are ported from procedural Canvas 2D JS in `js/`. This is a
   touching anything in `src/ui/`.
 - All drawing goes through [`src/ui/c2d.h`](src/ui/c2d.h). Do not call raylib
   draw functions directly from a UI module.
-- Design space is fixed per module. Never re-derive layout from window size.
-  Never hit-test in screen space.
+- Design space is **1536x1024** for every survey-console module
+  (`docs/PORT_PROMPTS.md`, and `ToolRack.SCENE` in `js/dashboard.html`).
+  Never re-derive layout from window size. Never hit-test in screen space.
+- A console module therefore takes the **whole 1280x720 window**, not the
+  unit view's panel region: 1536x1024 fit-contain into the full window gives
+  1080x720 with 100px side bars, where fitting it into the panel region
+  would give 906x604 with 187px bars. `c2d_present` does the letterboxing
+  and `c2d_to_design` inverts it -- that pair is the only place window size
+  is allowed to appear.
 - Before porting, produce the gap inventory table required by the spec.
-- A port is not done until the visual diff is under 2%.
+- A port is not done until the visual diff is under 2%. Run it with
+  `SS=2 tools/visdiff/visdiff.sh` -- `c2d_set_supersample(2)` is what the
+  console ships with, and the gate is measured in the same configuration.
+
+Two corrections to the spec's own S3.5 count table, verified by grepping all
+four modules (7 of its 10 rows, and every total, match exactly):
+
+- The `ellipse` row splits 4/1/0/0 across ToolRack/HoloBlock/Holo3D/Dashboard.
+  Actual is 2/1/0/2 -- two Dashboard sites are attributed to ToolRack. The
+  total of 5 is right.
+- The glow and `globalAlpha` rows count **code sites**, not textual
+  occurrences: Holo3D's block stroke is one site called with five blur
+  values. Grep counts will read high against those two rows and that is
+  expected, not a sign you over-grepped.
 
 The shim's own acceptance tests are `tools/c2dtest/c2dtest.sh` — run them
 after any change to `c2d.c`. What each of the twelve gaps costs when it is
