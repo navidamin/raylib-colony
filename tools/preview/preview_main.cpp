@@ -54,6 +54,8 @@ struct PreviewOptions
     int hover = -1;
     int holes = 0;               // survey block: finished holes to seed
     std::string rig;             // survey rig: which state to park it in
+    std::string tool;            // survey rack: which bay is selected
+    bool resourceOverlay = false;
     int mouseX = -1, mouseY = -1;          // >0 = time this many frames, print ms/frame
     std::string outPath = "preview.png";
 
@@ -156,6 +158,15 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--rig" && hasNext)
         {
             options.rig = argv[++i];
+        }
+        // drill | sweep | seismic | pen | gpr
+        else if (arg == "--tool" && hasNext)
+        {
+            options.tool = argv[++i];
+        }
+        else if (arg == "--overlay")
+        {
+            options.resourceOverlay = true;
         }
         else if (arg == "--sprite-size" && hasNext)
         {
@@ -1003,6 +1014,18 @@ int main(int argc, char** argv)
                 }
                 console.Step(0.0f);
             }
+
+            if (!options.tool.empty())
+            {
+                const std::string& t = options.tool;
+                SurveyTool pick = SurveyTool::DRILL;
+                if (t == "sweep") pick = SurveyTool::SWEEP;
+                else if (t == "seismic") pick = SurveyTool::SEISMIC;
+                else if (t == "pen") pick = SurveyTool::PENETROMETER;
+                else if (t == "gpr") pick = SurveyTool::GPR;
+                system->Survey().SelectTool(pick);
+            }
+            system->Survey().resourceOverlay = options.resourceOverlay;
 
             if (!options.rig.empty())
             {

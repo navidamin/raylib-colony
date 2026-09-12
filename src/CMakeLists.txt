@@ -29,6 +29,8 @@ set(COLONY_CORE_SOURCES
     Survey/survey_layout.cpp
     Survey/survey_chrome.cpp
     Survey/survey_rig.cpp
+    Survey/survey_sprites.cpp
+    Survey/survey_rack.cpp
     TerrainGen/terrain_synthesis.cpp
     Excavation/site_view.cpp
     Excavation/estimate_engine.cpp

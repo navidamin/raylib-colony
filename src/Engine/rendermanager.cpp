@@ -11,6 +11,7 @@
 #include "survey_layout.h"
 #include "survey_chrome.h"
 #include "survey_rig.h"
+#include "survey_rack.h"
 #include "rock_texture.h"
 #include <algorithm>
 #include <iostream>
@@ -5910,17 +5911,18 @@ void RenderManager::DrawSurveyModuleBar(Unit* unit, Rectangle bar)
     }
 }
 
-static void ProsDrawRail(Unit* unit, ProspectingSystem* ps, ProspectingGrid& grid,
-                         int gridSize, ResourceType shown, Rectangle r,
-                         const Font& headerFont, const Font& bodyFont, float sp,
-                         Vector2 mouse, const DockGeom& dock)
+static void ProsDrawResourceStatement(Unit* unit, ProspectingSystem* ps, ProspectingGrid& grid,
+     int gridSize, ResourceType shown, Rectangle r,
+     const Font& headerFont, const Font& bodyFont, float sp,
+     Vector2 mouse, const DockGeom& dock)
 {
-/* THE CONTROL RAIL, now a panel rather than a column beside the block.
-   It carries every instrument prospecting already had -- the resource
-   statement, the surface sweep, the auger and the readout for the spot
-   under the rig -- and it is handed a rectangle instead of deriving one
-   from the borehole dock it used to stand next to. The console frame
-   decides where it goes; the rail only decides what is in it. */
+    (void)unit; (void)grid; (void)gridSize; (void)shown; (void)mouse; (void)dock;
+/* THE RESOURCE STATEMENT -- the number the whole loop is trying to grow.
+   Folded behind a button on the LAYERS footer and shown as an overlay: it is
+   the module's SCORE, read between decisions rather than during one, and at
+   four lines it was the largest thing in a panel that now has to hold five
+   tool bays. A score you consult is a better fit for an overlay than for a
+   permanent column. */
     int focusDepth = static_cast<int>(ps->selectedDepth);
     float ctrlX = r.x;
     float ctrlY = r.y;
@@ -5961,13 +5963,32 @@ static void ProsDrawRail(Unit* unit, ProspectingSystem* ps, ProspectingGrid& gri
                    ExtFS(13.0f), sp, EXT_ACCENT_GREEN);
         ctrlY += 20.0f;
     }
+}
+
+static void ProsDrawSweepInstrument(Unit* unit, ProspectingSystem* ps, ProspectingGrid& grid,
+     int gridSize, ResourceType shown, Rectangle r,
+     const Font& headerFont, const Font& bodyFont, float sp,
+     Vector2 mouse, const DockGeom& dock)
+{
+    (void)unit; (void)grid; (void)gridSize; (void)shown; (void)mouse; (void)dock;
+/* THE SURFACE SWEEP, as the selected tool's own controls. One instrument,
+   one button -- which is why it belongs in TOOL STATS under the bay that
+   selects it rather than in a rail of its own. */
+    int focusDepth = static_cast<int>(ps->selectedDepth);
+    float ctrlX = r.x;
+    float ctrlY = r.y;
+    float ctrlW = r.width;
+
+    bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
+                         ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
 
     // --- Wide survey: one instrument, one button ---------------------------
     // LIBS reads SURFACE chemistry -- element by element, fast and cheap, and
     // blind to everything below the regolith. It shapes where you drill; it
     // never classifies, because you cannot put tonnage in a statement on the
     // strength of a surface reading.
-    DrawTextEx(headerFont, "SURFACE SWEEP", {ctrlX, ctrlY}, ExtFS(11.0f), sp, EXT_HEADER_COLOR);
+    // (The panel's caption already names the tool -- a header above a caption
+    // is a header nobody reads.)
     ctrlY += 17.0f;
     {
         bool sweptAlready = grid.HasSweptFrequency(0);
@@ -6003,6 +6024,25 @@ static void ProsDrawRail(Unit* unit, ProspectingSystem* ps, ProspectingGrid& gri
         }
         ctrlY += 44.0f;
     }
+}
+
+static void ProsDrawDrillTelemetry(Unit* unit, ProspectingSystem* ps, ProspectingGrid& grid,
+     int gridSize, ResourceType shown, Rectangle r,
+     const Font& headerFont, const Font& bodyFont, float sp,
+     Vector2 mouse, const DockGeom& dock)
+{
+    (void)unit; (void)grid; (void)gridSize; (void)shown; (void)mouse; (void)dock;
+/* THE DRILL LINE'S TELEMETRY: what it costs, how far down it is, how hot the
+   bit is and how worn. This is DRILL STATS by any reading -- it is the rig
+   reporting on itself, and it belongs under the borehole bar that shows the
+   same hole. */
+    int focusDepth = static_cast<int>(ps->selectedDepth);
+    float ctrlX = r.x;
+    float ctrlY = r.y;
+    float ctrlW = r.width;
+
+    bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
+                         ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
 
     // --- Drill: the line, its cost, its progress ---------------------------
     DrawTextEx(headerFont, "DRILL - AUGER", {ctrlX, ctrlY}, ExtFS(11.0f), sp, EXT_HEADER_COLOR);
@@ -6099,6 +6139,24 @@ static void ProsDrawRail(Unit* unit, ProspectingSystem* ps, ProspectingGrid& gri
         ctrlY += 17.0f;
     }
     ctrlY += 6.0f;
+}
+
+static void ProsDrawSpotReadout(Unit* unit, ProspectingSystem* ps, ProspectingGrid& grid,
+     int gridSize, ResourceType shown, Rectangle r,
+     const Font& headerFont, const Font& bodyFont, float sp,
+     Vector2 mouse, const DockGeom& dock)
+{
+    (void)unit; (void)grid; (void)gridSize; (void)shown; (void)mouse; (void)dock;
+/* WHAT IS KNOWN ABOUT THE SELECTED SPOT: its class, its estimate, how many
+   cores stand there and what each depth is called. It is a reading taken BY
+   the instruments, so it sits with them in TOOL STATS. */
+    int focusDepth = static_cast<int>(ps->selectedDepth);
+    float ctrlX = r.x;
+    float ctrlY = r.y;
+    float ctrlW = r.width;
+
+    bool hasSelection = (ps->selectedCellX >= 0 && ps->selectedCellX < gridSize &&
+                         ps->selectedCellY >= 0 && ps->selectedCellY < gridSize);
 
     // --- What is known about the selected spot -----------------------------
     if (hasSelection)
@@ -6180,6 +6238,7 @@ static void ProsDrawRail(Unit* unit, ProspectingSystem* ps, ProspectingGrid& gri
     // (Survey progress summary now lives in the shared bottom status bar.)
 }
 
+
 void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
 {
     const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
@@ -6203,6 +6262,12 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         unit->PublicShowMessage("Line complete - every layer it crossed is cored");
     }
     Vector2 mouse = ColonyGetMousePosition();
+
+    /* The console's own state, taken once: the frame, the rack and the block
+       all read it, and the ground is stepped before anything is measured
+       against it. */
+    SurveyConsole& console = ps->Survey();
+    console.Step(GetFrameTime());
 
     /* =====================================================================
        THE CONSOLE'S FRAME
@@ -6233,21 +6298,24 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
     SurveyChrome::Title(headerFont, "DRILL BAR", LO.drill.x + 12.0f, LO.drill.y + 12.0f, FS(11.0f));
     SurveyChrome::Title(headerFont, "DRILL STATS", LO.dstats.x + 12.0f, LO.dstats.y + 10.0f, FS(11.0f));
 
-    // The calibration gauge belongs to the instrument, so it sits with the
-    // tools rather than in a title bar the console no longer has.
+    /* The calibration gauge belongs to the instruments, so it sits at the head
+       of the rack rather than in a title bar the console no longer has. */
     float calQHeader = ps->GetSweep().GetCalibrationQuality();
     {
-        const float gy = LO.survey.y + 34.0f;
+        const float gy = LO.survey.y + 38.0f;
         DrawTextEx(bodyFont, "CALIBRATION", {LO.survey.x + 14.0f, gy}, FS(9.0f), sp, SC_DIM);
-        const char* calValue = TextFormat("%.0f%%", calQHeader * 100.0f);
-        SurveyChrome::LabelRight(bodyFont, calValue, LO.survey.x + LO.survey.width - 14.0f,
-                                 gy, FS(9.0f), SC_BRIGHT);
-        SurveyChrome::SegBar({LO.survey.x + 14.0f, gy + 13.0f, LO.survey.width - 28.0f, 7.0f},
+        SurveyChrome::LabelRight(bodyFont, TextFormat("%.0f%%", calQHeader * 100.0f),
+                                 LO.survey.x + LO.survey.width - 14.0f, gy, FS(9.0f), SC_BRIGHT);
+        SurveyChrome::SegBar({LO.survey.x + 14.0f, gy + 13.0f, LO.survey.width - 28.0f, 6.0f},
                              calQHeader, calQHeader >= 0.8f ? SC_METER_ON : SC_WARN, 14);
     }
 
-    const Rectangle railRect = { LO.survey.x + 14.0f, LO.survey.y + 60.0f,
-                                 LO.survey.width - 28.0f, LO.survey.height - 72.0f };
+    /* THE RACK. Five bays, and the one thing in this console that is not a
+       hologram -- a physical object sitting on top of the readouts, which is
+       why it keeps its own greys. Two of the five work and it says so. */
+    SurveyRack::Draw(console, { LO.survey.x + 12.0f, LO.survey.y + 64.0f,
+                                LO.survey.width - 24.0f, LO.survey.height - 76.0f },
+                     mouse, headerFont, bodyFont);
     float contentY = LO.block.y;
 
     auto& grid = ps->GetGrid();
@@ -6435,8 +6503,6 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
        look was settled in docs/design/prospecting/prototypes/survey-dashboard.html
        against docs/design/prospecting/survey-dashboard-design.md.
        ===================================================================== */
-    SurveyConsole& console = ps->Survey();
-    console.Step(GetFrameTime());
     SurveyBlockState& blockState = console.Block();
     const SurveyGround& blockGround = console.Ground();
     const int blockN = blockGround.Lattice();
@@ -6742,6 +6808,30 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                                         console.Ground().Lattice(), console.Ground().Lattice()),
                    {LO.block.x + 4.0f, legendY}, FS(8.0f), sp, Fade(SC_DIM, 0.85f));
 
+        /* THE RESOURCE STATEMENT, FOLDED. It is the module's score -- the
+           number the whole loop is trying to grow -- and a score is read
+           BETWEEN decisions, not during one. At four lines it was the largest
+           thing in the left column, and the rack needed that column. So it
+           becomes one chip that carries the committable figure, and the full
+           statement opens over the console when you ask for it. */
+        {
+            const ClassSplit split = GetClassSplit(grid, ps->GetTray(), shown, grid.GetTier());
+            const char* label = TextFormat("RESOURCE  %.0f", split.Committable());
+            const float lw = MeasureTextEx(bodyFont, label, FS(8.5f), sp).x;
+            Rectangle chip = { LO.block.x + LO.block.width - lw - 26.0f, legendY - 3.0f,
+                               lw + 22.0f, 15.0f };
+            const bool hov = CheckCollisionPointRec(mouse, chip);
+            DrawRectangleRounded(chip, 0.4f, 4, hov ? SC_BOX_FILL : Fade(SC_BOX_FILL, 0.7f));
+            DrawRectangleRoundedLinesEx(chip, 0.4f, 4, 1.0f,
+                                        console.resourceOverlay ? SC_ACCENT : SC_BAR_EDGE);
+            DrawTextEx(bodyFont, label, {chip.x + 8.0f, chip.y + 3.0f}, FS(8.5f), sp,
+                       hov || console.resourceOverlay ? SC_ACCENT : SC_LABEL);
+            ExtDrawChevrons(chip.x + chip.width - 8.0f, chip.y + chip.height * 0.5f, 3.5f,
+                            Fade(SC_ACCENT, 0.8f));
+            if (hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                console.resourceOverlay = !console.resourceOverlay;
+        }
+
         const float delin = console.Delineation();
         const char* tier = console.Tier();
         DrawTextEx(bodyFont, "CONFIDENCE", {LO.confidence.x, LO.confidence.y + 2.0f},
@@ -6768,22 +6858,88 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
                               LO.log.x + LO.log.width * 0.5f,
                               LO.log.y + LO.log.height * 0.6f, FS(8.5f), Fade(SC_DIM, 0.65f));
 
-    // An empty panel should name what is missing rather than pretend to be
-    // finished.
-    SurveyChrome::LabelCentre(bodyFont, "derived telemetry", LO.stats.x + LO.stats.width * 0.5f,
-                              LO.stats.y + LO.stats.height * 0.55f, FS(8.5f), Fade(SC_DIM, 0.6f));
-    SurveyChrome::LabelCentre(bodyFont, "rig telemetry", LO.dstats.x + LO.dstats.width * 0.5f,
-                              LO.dstats.y + LO.dstats.height * 0.55f, FS(8.5f), Fade(SC_DIM, 0.6f));
 
-    /* Clipped to its panel. The rail is a running column of sections whose
-       height depends on what the module has found, so on a short panel it
-       will run past the bottom -- and a control drawn outside its panel is
-       both ugly and clickable, which is worse. */
-    BeginScissorMode(static_cast<int>(railRect.x), static_cast<int>(railRect.y),
-                     static_cast<int>(railRect.width), static_cast<int>(railRect.height));
-    ProsDrawRail(unit, ps, grid, gridSize, shown, railRect,
-                 headerFont, bodyFont, sp, mouse, dock);
-    EndScissorMode();
+    /* THE RAIL IS FOUR PANELS NOW. It was one running column beside the
+       block, and the console has four places for it: the rack takes SURVEY
+       TOOLS, so the sweep's own controls and the spot readout go under it in
+       TOOL STATS, the drill line's telemetry goes under the borehole bar in
+       DRILL STATS, and the resource statement -- the module's score, read
+       between decisions rather than during one -- folds behind a button.
+
+       Each is clipped to its panel. They are running columns whose height
+       depends on what the module has found, so on a short panel they will run
+       past the bottom, and a control drawn outside its panel is both ugly and
+       still clickable. */
+    auto InPanel = [&](Rectangle box, auto&& draw) {
+        BeginScissorMode(static_cast<int>(box.x), static_cast<int>(box.y),
+                         static_cast<int>(box.width), static_cast<int>(box.height));
+        draw(box);
+        EndScissorMode();
+    };
+    // Below the title AND its underline: the underline is drawn 5 px under the
+    // baseline, and content placed at the title's own height lands on it.
+    const Rectangle toolStats = { LO.stats.x + 12.0f, LO.stats.y + 36.0f,
+                                  LO.stats.width - 24.0f, LO.stats.height - 46.0f };
+    const Rectangle drillStats = { LO.dstats.x + 12.0f, LO.dstats.y + 36.0f,
+                                   LO.dstats.width - 24.0f, LO.dstats.height - 46.0f };
+    InPanel(toolStats, [&](Rectangle box) {
+        /* The selected tool names itself here, with the one line that says
+           what it is for. In the rack that line would be five paragraphs; here
+           it is a caption on the bay you picked. */
+        const SurveyToolInfo& sel = SurveyToolOf(SurveyRack::Selected(console));
+        DrawTextEx(headerFont, sel.name, {box.x, box.y}, FS(10.0f), sp, SC_ACCENT);
+        DrawTextEx(bodyFont, sel.blurb, {box.x, box.y + 13.0f}, FS(8.0f), sp,
+                   Fade(SC_DIM, 0.85f));
+        // Clear of the caption AND of the rule the readout draws at its top.
+        const float y = box.y + 34.0f;
+        const Rectangle inner = { box.x, y, box.width, box.height - 34.0f };
+        if (SurveyRack::Selected(console) == SurveyTool::SWEEP)
+        {
+            ProsDrawSweepInstrument(unit, ps, grid, gridSize, shown, inner,
+                                    headerFont, bodyFont, sp, mouse, dock);
+        }
+        else if (sel.mark == SurveyToolMark::POINT)
+        {
+            /* The spot readout goes with a POINT tool and not with a line
+               one. A tool you put down asks "what is at this spot" and the
+               answer belongs beside it; a tool you drag across the ground is
+               not asking about a spot at all. It is also the only way both
+               fit: the panel holds one of them, not both. */
+            ProsDrawSpotReadout(unit, ps, grid, gridSize, shown, inner,
+                                headerFont, bodyFont, sp, mouse, dock);
+        }
+    });
+    InPanel(drillStats, [&](Rectangle box) {
+        ProsDrawDrillTelemetry(unit, ps, grid, gridSize, shown, box,
+                               headerFont, bodyFont, sp, mouse, dock);
+    });
+
+    /* THE RESOURCE OVERLAY, drawn last so nothing can be on top of it, and
+       dimming what is behind it so it reads as a sheet over the console rather
+       than as a sixth panel. A tap anywhere outside closes it -- an overlay
+       whose only way out is a small X is an overlay people leave open. */
+    if (console.resourceOverlay)
+    {
+        DrawRectangle(x, y, w, h, Fade(SC_BG, 0.72f));
+        const float ow = std::min(300.0f, LO.layers.width * 0.62f), oh = 130.0f;
+        Rectangle sheet = { LO.layers.x + (LO.layers.width - ow) * 0.5f,
+                            LO.layers.y + (LO.layers.height - oh) * 0.42f, ow, oh };
+        SurveyChrome::Panel(sheet, SC_PANEL, SC_BG);
+        // The statement writes its own RESOURCE header, so the sheet does not
+        // write a second one -- a title above a title is a title nobody reads.
+        SurveyChrome::LabelRight(bodyFont, "tap anywhere to close",
+                                 sheet.x + sheet.width - 16.0f, sheet.y + 16.0f,
+                                 FS(8.0f), Fade(SC_DIM, 0.75f));
+        ProsDrawResourceStatement(unit, ps, grid, gridSize, shown,
+                                  { sheet.x + 16.0f, sheet.y + 14.0f,
+                                    sheet.width - 32.0f, sheet.height - 26.0f },
+                                  headerFont, bodyFont, sp, mouse, dock);
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+            !CheckCollisionPointRec(mouse, sheet))
+        {
+            console.resourceOverlay = false;
+        }
+    }
 }
 
 

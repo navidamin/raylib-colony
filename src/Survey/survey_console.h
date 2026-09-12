@@ -4,6 +4,7 @@
 #include "survey_ground.h"
 #include "survey_knowledge.h"
 #include "survey_rig.h"
+#include "survey_sprites.h"
 
 #include <vector>
 
@@ -40,6 +41,16 @@ public:
     int  AddScour(float i, float j);
     void Clear();
 
+    // Which bay of the rack is selected. The rack picks it; TOOL STATS shows
+    // that tool's controls; nothing else in the console cares.
+    /* The resource statement is the module's SCORE -- read between decisions
+       rather than during one -- so it folds behind a button and opens as an
+       overlay. That is what freed the left column for the rack. */
+    bool resourceOverlay = false;
+
+    SurveyTool SelectedTool() const { return selectedTool; }
+    void SelectTool(SurveyTool t) { selectedTool = t; }
+
     SurveyRig&       Rig() { return rig; }
     const SurveyRig& Rig() const { return rig; }
 
@@ -69,6 +80,7 @@ private:
     SurveyKnowledge knowledge;
     SurveyBlockState block;
     SurveyRig rig;
+    SurveyTool selectedTool = SurveyTool::DRILL;
     std::vector<SurveyScour> scours;
 
     int builtKnowledgeRevision = -1;

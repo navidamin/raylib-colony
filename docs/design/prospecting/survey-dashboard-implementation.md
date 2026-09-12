@@ -500,7 +500,7 @@ wiring, which the game can render as fast as a browser can.
 | **C1** | `src/Survey/` — the ground, the knowledge field, the camera, the bed painter and the wire cage, drawn in `DrawProspectingPanel` in place of the four exploded plates | **done** |
 | **C2** | the console frame: `ComputeSurveyLayout`, the five panels, the horizontal module bar, the existing controls rehoused | **done** |
 | **C3** | the drill — glyph, cursor, planted rig, cycle, spatter, bore markers — on the block's own camera | **done** |
-| **C4** | the tool rack, five bays | |
+| **C4** | the tool rack, five bays; the resource statement folded behind a button | **done** |
 | **C5** | the ruler, the CONFIDENCE bar, isolate gated at 95%, and the ghost compositing the flat per-bed alpha stands in for | |
 | **C6** | the borehole bar, and the depth control it owns | |
 | **C7** | derived telemetry and the log; retire the old panel and the prototypes, with their graveyard records | |
@@ -631,3 +631,54 @@ the first time a hole finishes and not before.
 **Replaced in place:** the twin-cursor dot on the hovered cell. The cell
 outline stays — it marks the cell the hole will core — but the dot's job is the
 glyph's now, and two markers on one point is one too many.
+
+### C4 — as built
+
+`src/Survey/survey_sprites.{h,cpp}` and `survey_rack.{h,cpp}`.
+
+**The rack is the one thing in this console that is not a hologram.** The
+block, the ruler, the confidence bar and the log are readouts of measured
+ground; the rack is a physical object sitting on top of them — steel bodies,
+an inset well per bay, studs, a highlight along the top edge and a shadow along
+the bottom, and a slot light that is the only cyan on it. It keeps its own
+greys rather than borrowing the console's navy, because that contrast is the
+point.
+
+**One sprite set, shared with the rig.** The five grids live in
+`survey_sprites` and both the rack and the drill draw from them: the machine
+you pick out of the rack has to be the machine that goes into the ground, and
+two drawings of one tool is two tools.
+
+**The fifth tool is SURFACE SWEEP, not ROVER TRAVERSE.** The design's set was
+written against a prototype with no game behind it; this game *has* a working
+surface sweep (LIBS), and a rack that did not hold it would hide a working tool
+behind a design that predates it. It takes the rover's sprite — "a body on
+wheels, a thing that drives across the ground" is exactly what a surface sweep
+is — and the traverse idea survives in the LINE mode tag it carries.
+
+**Two of five work, and the rack says so** rather than hiding it: an unbuilt
+bay has a dark slot light, a dimmed body and an empty mount where the tool
+would clip in. A rack that pretends to hold five working tools is a menu of
+lies; one that holds two and three empty mounts is a machine you can see the
+future of.
+
+**Where the room came from.** The resource statement — the module's score —
+folded behind a chip on the LAYERS footer that carries the committable figure,
+and opens as an overlay over the console. A score is read *between* decisions,
+not during one, and at four lines it was the largest thing in the column the
+rack needed. Tapping anywhere outside closes it; an overlay whose only exit is
+a small X is an overlay people leave open.
+
+**And the rail became four panels.** `ProsDrawRail` split into
+`ProsDrawResourceStatement` (the overlay), `ProsDrawSweepInstrument` (TOOL
+STATS, under the bay that selects it), `ProsDrawDrillTelemetry` (DRILL STATS,
+under the bar showing the same hole) and `ProsDrawSpotReadout` (TOOL STATS).
+
+**One rule that fell out of the fitting, and is worth keeping.** The spot
+readout shows for a POINT tool and not for a LINE one. A tool you put down asks
+"what is at this spot" and the answer belongs beside it; a tool you drag across
+the ground is not asking about a spot at all. It is also the only way both the
+sweep's controls and the readout fit — the panel holds one of them, not both.
+
+`--tool drill|sweep|seismic|pen|gpr` and `--overlay` on the preview. Rendered
+with each bay selected and with the overlay open; excavation re-checked.
