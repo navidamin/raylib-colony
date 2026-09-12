@@ -53,6 +53,7 @@ struct PreviewOptions
     int bench = 0;
     int hover = -1;
     int holes = 0;               // survey block: finished holes to seed
+    std::string rig;             // survey rig: which state to park it in
     int mouseX = -1, mouseY = -1;          // >0 = time this many frames, print ms/frame
     std::string outPath = "preview.png";
 
@@ -149,6 +150,12 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--holes" && hasNext)
         {
             options.holes = TextToInteger(argv[++i]);
+        }
+        // The rig has seven states and no pointer to drive them with here.
+        //   aim | spud | await | cut | out | hold | fade
+        else if (arg == "--rig" && hasNext)
+        {
+            options.rig = argv[++i];
         }
         else if (arg == "--sprite-size" && hasNext)
         {
@@ -994,6 +1001,37 @@ int main(int argc, char** argv)
                         placed++;
                     }
                 }
+                console.Step(0.0f);
+            }
+
+            if (!options.rig.empty())
+            {
+                SurveyConsole& console = system->Survey();
+                SurveyRig& rig = console.Rig();
+                rig.previewDriven = true;
+                rig.armed = true;
+                const int n = console.Ground().Lattice();
+                rig.i = n / 2; rig.j = n / 2;
+                rig.depthM = console.Ground().ColumnM();
+                const std::string& m = options.rig;
+                if (m == "aim")   { rig.mode = RigMode::AIM; }
+                else if (m == "spud")  { rig.mode = RigMode::SPUD;  rig.spud = 0.6f; }
+                else if (m == "await") { rig.mode = RigMode::AWAIT; rig.spud = 1.0f; }
+                else if (m == "cut")   { rig.mode = RigMode::CUT;   rig.spud = 1.0f;
+                                         rig.sink = 0.55f; rig.externalCut = 0.55f; }
+                else if (m == "out")   { rig.mode = RigMode::OUT;   rig.spud = 1.0f;
+                                         rig.sink = 0.45f; rig.sink0 = 0.9f; }
+                else if (m == "hold")  { rig.mode = RigMode::HOLD;  rig.spud = 1.0f; }
+                else if (m == "fade")  { rig.mode = RigMode::FADE;  rig.spud = 1.0f;
+                                         rig.fade = 0.5f;
+                                         rig.bores.push_back({ static_cast<float>(rig.i),
+                                                               static_cast<float>(rig.j),
+                                                               rig.depthM }); }
+                if (rig.mode != RigMode::AIM)
+                    rig.liveScour = console.AddScour(static_cast<float>(rig.i),
+                                                     static_cast<float>(rig.j));
+                console.SetScour(rig.liveScour, static_cast<float>(rig.i),
+                                 static_cast<float>(rig.j), 0.8f);
                 console.Step(0.0f);
             }
 

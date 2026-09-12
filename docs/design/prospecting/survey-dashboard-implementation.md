@@ -499,7 +499,7 @@ wiring, which the game can render as fast as a browser can.
 |---|---|---|
 | **C1** | `src/Survey/` — the ground, the knowledge field, the camera, the bed painter and the wire cage, drawn in `DrawProspectingPanel` in place of the four exploded plates | **done** |
 | **C2** | the console frame: `ComputeSurveyLayout`, the five panels, the horizontal module bar, the existing controls rehoused | **done** |
-| **C3** | the drill — glyph, cursor, planted rig, cycle, spatter, bore markers — on the block's own camera | |
+| **C3** | the drill — glyph, cursor, planted rig, cycle, spatter, bore markers — on the block's own camera | **done** |
 | **C4** | the tool rack, five bays | |
 | **C5** | the ruler, the CONFIDENCE bar, isolate gated at 95%, and the ghost compositing the flat per-bed alpha stands in for | |
 | **C6** | the borehole bar, and the depth control it owns | |
@@ -593,3 +593,41 @@ clickable.
 ("one ground, both panels"). The solid block *is* the ground and it is in a
 different panel from the dock now, so a band between them would cross the
 gutter the frame deliberately puts there.
+
+### C3 — as built
+
+`src/Survey/survey_rig.{h,cpp}`. The sprite grid, the unit, the ring, the
+marker box, the tail, the cycle timings and the spatter's launch law came
+across as the numbers the prototype settled; none was re-derived. The
+arithmetic held again: the camera has no `p.y` term in `screenX`, so the rig is
+a 2D pixel drawing standing upright at a projected point and it stays upright
+at every yaw and pitch. Only its *travel* foreshortens, never its size.
+
+**The one architectural decision, and it is the reason this is not a straight
+port.** The prototype's rig runs its own cycle because there is nothing behind
+it. In the game there *is*: `ProspectingSystem::lineHole` costs energy, cores
+every bed it crosses and advances over **game** time, which is far slower than
+any animation. Two clocks running the same machine desync inside one hole, and
+then the dock and the block disagree about where the bit is. So **the rig is a
+readout**: it owns the short movements either side of the cut (the spud, the
+trip-out, the beat, the fade) and while it is CUTTING its travel is driven from
+the real hole's depth (`externalCut`). Collaring is one act with two records —
+the mechanic's aim, and the rig spudding in where the pointer was.
+
+**A bug caught by reading the flag's lifetime, not by rendering.**
+`dragMoved` was reset on the next *press*, so one drag would suppress the drill
+cursor for the rest of the session — everything that asks "is the pointer being
+used to turn the block" reads that flag. Reset on release.
+
+`--rig aim|spud|await|cut|out|hold|fade` on the preview: the rig has seven
+states and the harness has no pointer to drive them with, and "render every
+state and look at the PNGs" is the rule this style is held to. Same escape
+hatch `previewHoverLayer` already is, for the same reason. All seven rendered.
+
+**The fade is a real composite**, through a `RenderTexture2D` sized to the
+block: a rig faded fill by fill shows its own tail through its own head. Built
+the first time a hole finishes and not before.
+
+**Replaced in place:** the twin-cursor dot on the hovered cell. The cell
+outline stays — it marks the cell the hole will core — but the dot's job is the
+glyph's now, and two markers on one point is one too many.

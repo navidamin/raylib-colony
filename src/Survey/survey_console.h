@@ -3,6 +3,7 @@
 #include "survey_block.h"
 #include "survey_ground.h"
 #include "survey_knowledge.h"
+#include "survey_rig.h"
 
 #include <vector>
 
@@ -39,10 +40,15 @@ public:
     int  AddScour(float i, float j);
     void Clear();
 
+    SurveyRig&       Rig() { return rig; }
+    const SurveyRig& Rig() const { return rig; }
+
     const SurveyGround&    Ground() const { return ground; }
     const SurveyKnowledge& Knowledge() const { return knowledge; }
     SurveyBlockState&      Block() { return block; }
     const SurveyBlockState& Block() const { return block; }
+
+    const std::vector<SurveyScour>& Scours() const { return scours; }
 
     float Delineation() const { return knowledge.Delineation(ground.Lattice(), ground.ColumnM()); }
     const char* Tier() const { return knowledge.Tier(ground.Lattice(), ground.ColumnM()); }
@@ -62,6 +68,7 @@ private:
     SurveyGround ground;
     SurveyKnowledge knowledge;
     SurveyBlockState block;
+    SurveyRig rig;
     std::vector<SurveyScour> scours;
 
     int builtKnowledgeRevision = -1;

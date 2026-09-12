@@ -10,6 +10,7 @@
 #include "survey_block.h"
 #include "survey_layout.h"
 #include "survey_chrome.h"
+#include "survey_rig.h"
 #include "rock_texture.h"
 #include <algorithm>
 #include <iostream>
@@ -6479,13 +6480,53 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         {
             blockTap = !console.dragMoved;
-            console.dragging = false; blockState.fast = false;
+            /* Reset on release, not on the next press. Left set, one drag
+               would suppress the cursor for the rest of the session, because
+               everything that asks "is the pointer being used to turn the
+               block" reads this flag. */
+            console.dragging = false; console.dragMoved = false; blockState.fast = false;
         }
     }
 
     SurveyBlock::DrawCage(blockGround, console.Knowledge(), blockState, blockCam);
     SurveyBlock::DrawBeds(blockGround, console.Knowledge(), blockState, blockCam);
     SurveyBlock::DrawBaseRing(blockState, blockCam, blockGround);
+
+    /* THE RIG IS A READOUT OF THE REAL HOLE, not a second simulation of one.
+       What actually exists is ProspectingSystem::lineHole -- it costs energy,
+       it cores every bed it crosses and it advances over GAME time, which is
+       far slower than any animation. So the rig owns only the short movements
+       either side of that -- the spud, the trip-out, the beat, the fade --
+       and while it is CUTTING its travel is driven from the real hole's
+       depth. Two clocks running the same machine would desync inside one
+       hole, and the dock and the block would then disagree about where the
+       bit is. */
+    {
+        SurveyRig& rig = console.Rig();
+        const LineHole& lh = ps->lineHole;
+        rig.armed = true;
+        rig.pointer = rig.previewDriven
+                    ? Vector2{ LO.block.x + LO.block.width * 0.5f,
+                               LO.block.y + LO.block.height * 0.46f }
+                    : mouse;
+        if (rig.previewDriven) { /* the preview drives the mode itself */ }
+        else if (rig.mode == RigMode::AWAIT && lh.state == LineHoleState::DRILLING)
+            SurveyRigDraw::BeginCut(console, blockCam, lh.endM);
+        if (rig.mode == RigMode::CUT && !rig.previewDriven)
+        {
+            rig.externalCut = lh.endM > 1.0f
+                            ? std::clamp(lh.depthM / lh.endM, 0.0f, 1.0f) : 1.0f;
+            if (lh.state != LineHoleState::DRILLING)
+            {
+                rig.externalCut = 1.0f;
+                SurveyRigDraw::BeginOut(console);
+            }
+        }
+        else
+        {
+            rig.externalCut = -1.0f;
+        }
+    }
 
     /* THE POINTER, in the terms the rest of the panel still speaks. Over the
        cap it is a place on the ground -- a ray march onto the surface, which
@@ -6539,8 +6580,24 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         DrawLineEx(r1, r2, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(r2, r3, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
         DrawLineEx(r3, r0, 1.2f, Fade(PROS_HOVER_BORDER, 0.9f));
-        DrawCircleV(c, 3.4f, Fade(DP_OUT, 0.85f));
-        DrawCircleV(c, 2.0f, EXT_ACCENT_CYAN);
+        (void)c;   // the dot's job is the rig's glyph now
+    }
+
+    /* THE RIG, on the block's own camera. Stepped after the pointer is known
+       and drawn after the block, so the tool stands ON the ground rather than
+       inside it. Its `canPlace` is the same test the prototype settled: on the
+       cap, with the stack closed, and no hole already in progress -- a bed
+       held out on its own is a reading posture, and drilling into an exploded
+       model would be drilling into a diagram of the ground. */
+    {
+        SurveyRig& rig = console.Rig();
+        rig.onCanvas = rig.previewDriven || (overBlock && !console.dragMoved);
+        rig.canPlace = rig.previewDriven
+                    || (onCap && blockState.selected < 0 && !console.dragMoved
+                        && (ps->lineHole.state == LineHoleState::NONE ||
+                            ps->lineHole.state == LineHoleState::DONE));
+        SurveyRigDraw::Step(console, blockCam, GetFrameTime());
+        SurveyRigDraw::Draw(console, blockCam, LO.block);
     }
 
     // ---- The line is drawn with two CLICKS, not a drag: click a SURFACE
@@ -6562,7 +6619,10 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
         }
         else if (hovL == 0 && !stringDown)
         {
+            // Collaring is one act with two records: the mechanic's aim, and
+            // the rig spudding in where the pointer was.
             ps->StartAim(hovX, hovY);
+            SurveyRigDraw::Click(console, blockCam, mouse);
             ps->selectedCellX = hovX; ps->selectedCellY = hovY;
             ps->selectedDepth = DepthLayer::SURFACE;
         }
