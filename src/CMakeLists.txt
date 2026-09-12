@@ -512,3 +512,24 @@ if("${PLATFORM}" STREQUAL "Web")
     set(vt_link_flags "${vt_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
     set_target_properties(colony_viewtest PROPERTIES LINK_FLAGS "${vt_link_flags}")
 endif()
+
+# ---------------------------------------------------------------------------
+# The Canvas 2D shim, and its phase-1 acceptance tests.
+#
+# UI modules ported from the JS reference draw through src/ui/c2d.h and never
+# call raylib directly -- see docs/CANVAS2D_PORT_SPEC.md. The shim is C; the
+# header carries extern "C" guards so the C++ game can call it.
+# ---------------------------------------------------------------------------
+add_library(colony_c2d STATIC ui/c2d.c)
+target_include_directories(colony_c2d PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui")
+target_link_libraries(colony_c2d PUBLIC raylib)
+set_target_properties(colony_c2d PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+
+add_executable(c2dtest "${CMAKE_CURRENT_SOURCE_DIR}/../tools/c2dtest/c2dtest.c")
+target_link_libraries(c2dtest PRIVATE colony_c2d raylib)
+set_target_properties(c2dtest PROPERTIES
+    C_STANDARD 99 C_STANDARD_REQUIRED ON
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools")
+if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
+    target_link_libraries(c2dtest PRIVATE m)
+endif()

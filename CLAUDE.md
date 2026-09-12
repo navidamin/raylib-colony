@@ -284,6 +284,29 @@ xvfb-run -a ...` (the scripts apply it). `colony_viewtest` also deploys
 to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
 `tools/viewtest/README.md`.
 
+## UI porting
+
+UI modules are ported from procedural Canvas 2D JS in `js/`. This is a
+1:1 API translation, never a redesign.
+
+- Read [`docs/CANVAS2D_PORT_SPEC.md`](docs/CANVAS2D_PORT_SPEC.md) before
+  touching anything in `src/ui/`.
+- All drawing goes through [`src/ui/c2d.h`](src/ui/c2d.h). Do not call raylib
+  draw functions directly from a UI module.
+- Design space is fixed per module. Never re-derive layout from window size.
+  Never hit-test in screen space.
+- Before porting, produce the gap inventory table required by the spec.
+- A port is not done until the visual diff is under 2%.
+
+The shim's own acceptance tests are `tools/c2dtest/c2dtest.sh` — run them
+after any change to `c2d.c`. What each of the twelve gaps costs when it is
+skipped is written up, with the evidence, in
+[`docs/design/prospecting/port-audit.md`](docs/design/prospecting/port-audit.md):
+the first pass at the survey console skipped nine of them and the result
+read as flat line art, exactly as the spec predicts.
+
+---
+
 ## Coding Conventions
 
 **Critical: Follow CONVENTIONS.md strictly.** This project uses C-style naming conventions:
