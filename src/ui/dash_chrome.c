@@ -335,37 +335,308 @@ static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
 }
 
 /* ---- the live rig -----------------------------------------------------
- * The reference's roughDrill (1544) is a static pose: fixed strata bands and a
- * bit parked near the top. It is replaced here by the rig from
- * docs/design/subsurface/prototypes/redline.html, driven by DrillSim -- the
- * strata are that prototype's, the steel takes its heat glow, the shaft turns
- * on the spindle phase and throws chips, and the motor pod's lamp reads the
- * contact-pressure band. Clicking the face is what drives it. */
+ * The reference's roughDrill (dashboard.html:1544) is a static pose. It is
+ * replaced by the auger from docs/design/subsurface/prototypes/redline.html
+ * -- its "drill geometry (pass 6)" block and drawShaft/drawThread -- driven
+ * by DrillSim. Clicking the face is what turns it.
+ *
+ * The thread is a real helix: it is sampled in angle, each turn split into
+ * front-facing and back-facing ribbons that are drawn back first, so the
+ * shaft occludes the far side of the flight and the whole thing reads as
+ * round rather than as a stripe painted on a rod. */
+
+/* drill geometry (redline.html:247) */
+#define RIG_HAND      (-1.0f)
+#define RIG_R          17.0f      /* flight crest radius   */
+#define RIG_RS          9.6f      /* rod at the thread top */
+#define RIG_RS_BOT      8.0f      /* rod at the cone       */
+#define RIG_ROD_TOP    13.0f
+#define RIG_PITCH      21.5f
+#define RIG_TILT        1.9f
+#define RIG_TH_T        5.6f      /* flight thickness at the root  */
+#define RIG_TH_C        2.1f      /* ... and at the crest          */
+#define RIG_TAPER_PX   (RIG_PITCH * 1.5f)
+#define RIG_CONE_LEN   21.0f
+#define RIG_THREAD_LEN (RIG_PITCH * 6.2f)
+
+static const Color RIG_OUT  = RGB(0x0a, 0x0e, 0x14);
+static const Color RIG_OUTB = RGB(0x10, 0x18, 0x20);
+
+typedef struct DcRig { float cx, surfY, bitY, heat, phase; } DcRig;
 
 /* steel(shade, heat) (redline.html:292): cold steel lerped toward an orange
  * glow as the bit heats. */
 static Color DcSteel(float shade, float heat)
 {
-    const float base[3] = {96.0f + (238.0f - 96.0f) * shade,
-                           104.0f + (244.0f - 104.0f) * shade,
-                           118.0f + (252.0f - 118.0f) * shade};
-    const float glow[3] = {255.0f, 55.0f + (165.0f - 55.0f) * shade, 25.0f};
-    const float t = heat * 1.15f > 1.0f ? 1.0f : heat * 1.15f;
+    const float base[3] = {96.0f + 142.0f * shade, 104.0f + 140.0f * shade,
+                           118.0f + 134.0f * shade};
+    const float glow[3] = {255.0f, 55.0f + 110.0f * shade, 25.0f};
+    const float t = Clampf01(heat * 1.15f);
     return (Color){(unsigned char)(base[0] + (glow[0] - base[0]) * t),
                    (unsigned char)(base[1] + (glow[1] - base[1]) * t),
                    (unsigned char)(base[2] + (glow[2] - base[2]) * t), 255};
 }
 
-/* heatAt (redline.html:288): the glow is local to the bit and falls off up
- * the string, so the steel is hottest at the face. */
-static float DcHeatAt(float y, float bitY, float heat)
+/* heatAt (288): the glow is local to the bit and falls off up the string. */
+static float DcHeatAt(const DcRig *g, float y)
 {
-    const float d = fabsf(y - bitY);
-    return heat * expf(-(d * d) / (2.0f * 110.0f * 110.0f));
+    const float d = fabsf(y - g->bitY);
+    return g->heat * expf(-(d * d) / (2.0f * 110.0f * 110.0f));
 }
 
-/* A small deterministic RNG so the chip stream and the grain do not need
- * per-frame allocation and do not flicker between frames at rest. */
+/* steelBands (300) is a gradient whose stops come in equal-coloured PAIRS --
+ * so it is really n flat stripes across the rod, and drawing them as rects is
+ * both exact and cheaper than a gradient with more stops than C2D_MAX_STOPS
+ * allows. */
+static void DcSteelBands(float x0, float x1, float y, float h, float heat,
+                         const float tones[][2], int n)
+{
+    float t = 0.0f;
+    for (int i = 0; i < n; i++)
+    {
+        const float t1 = fminf(1.0f, t + tones[i][0]);
+        c2d_rect(x0 + (x1 - x0) * t, y, (x1 - x0) * (t1 - t), h,
+                 DcSteel(tones[i][1], heat));
+        t = t1;
+    }
+}
+
+/* ---- the string's silhouette, top to bit (305-337) ------------------- */
+static float DcConeApex(const DcRig *g) { return g->bitY + 21.0f; }
+static float DcConeTop (const DcRig *g) { return DcConeApex(g) - RIG_CONE_LEN; }
+
+static float DcThreadTop(const DcRig *g)
+{
+    const float a = fminf(g->bitY - RIG_THREAD_LEN, DcConeTop(g) - 3.0f * RIG_PITCH);
+    return fmaxf(a, g->surfY + 18.0f);
+}
+
+typedef struct DcSeg { float y0, y1, r; int chuck; } DcSeg;
+
+static int DcShaftSegs(const DcRig *g, DcSeg *out)
+{
+    const float tY = DcThreadTop(g), cTop = g->surfY - 14.0f;
+    const float cBot = fminf(g->surfY + 26.0f, fmaxf(cTop + 14.0f, tY - 10.0f));
+    int n = 0;
+    out[n++] = (DcSeg){g->surfY - 260.0f, cTop, RIG_ROD_TOP, 0};
+    out[n++] = (DcSeg){cTop, cBot, RIG_ROD_TOP + 5.6f, 1};
+    const float run = fmaxf(0.0f, tY - cBot);
+    const int k = run > 195.0f ? 3 : (run > 62.0f ? 2 : (run > 8.0f ? 1 : 0));
+    for (int i = 0; i < k; i++)
+    {
+        const float f = powf((float)(i + 1) / (float)k, 0.85f);
+        out[n++] = (DcSeg){cBot + run * (float)i / (float)k,
+                           cBot + run * (float)(i + 1) / (float)k,
+                           RIG_ROD_TOP + (RIG_RS + 0.5f - RIG_ROD_TOP) * f, 0};
+    }
+    return n;
+}
+
+static float DcRodHalfAt(const DcRig *g, float y)
+{
+    const float tY = DcThreadTop(g), cT = DcConeTop(g), cA = DcConeApex(g);
+    if (y >= cT) return fmaxf(0.5f, RIG_RS_BOT * (1.0f - (y - cT) / (cA - cT)));
+    if (y >= tY) return RIG_RS + (RIG_RS_BOT - RIG_RS) * ((y - tY) / fmaxf(1.0f, cT - tY));
+    DcSeg segs[8];
+    const int n = DcShaftSegs(g, segs);
+    for (int i = 0; i < n; i++) if (y < segs[i].y1) return segs[i].r;
+    return RIG_ROD_TOP;
+}
+
+static float DcCrestAt(const DcRig *g, float y)
+{
+    const float cT = DcConeTop(g), start = cT - RIG_TAPER_PX;
+    if (y <= start) return RIG_R;
+    if (y >= cT) return DcRodHalfAt(g, y);
+    return RIG_R + (DcRodHalfAt(g, y) - RIG_R) * Clampf01((y - start) / RIG_TAPER_PX);
+}
+
+/* ---- the helix (392) --------------------------------------------------- */
+#define DC_THREAD_MAX 900
+typedef struct DcThreadSeg {
+    float xr0, yr0, xc0, yc0, xr1, yr1, xc1, yc1, xe0, xe1, c, sn, y;
+} DcThreadSeg;
+
+static int DcThreadSegs(const DcRig *g, bool front, DcThreadSeg *out)
+{
+    const float tY = DcThreadTop(g), cT = DcConeTop(g), span = cT - tY;
+    if (span <= 6.0f) return 0;
+    int n = 0;
+    const float step = 0.075f, thMax = (span / RIG_PITCH) * 2.0f * PI;
+    for (float th = 0.0f; th < thMax && n < DC_THREAD_MAX; th += step)
+    {
+        const float a0 = th + g->phase, a1 = th + step + g->phase;
+        const float c0 = cosf(a0), c1 = cosf(a1), cm = (c0 + c1) * 0.5f;
+        if (front != (cm > 0.0f)) continue;
+        const float yb0 = tY + RIG_PITCH * th / (2.0f * PI);
+        const float yb1 = tY + RIG_PITCH * (th + step) / (2.0f * PI);
+        const float rc0 = DcCrestAt(g, yb0), rc1 = DcCrestAt(g, yb1);
+        const float rr0 = DcRodHalfAt(g, yb0), rr1 = DcRodHalfAt(g, yb1);
+        if (rc0 - rr0 < 1.3f) continue;
+        const float s0 = sinf(a0) * RIG_HAND, s1 = sinf(a1) * RIG_HAND;
+        out[n++] = (DcThreadSeg){
+            g->cx + rr0 * s0, yb0 + RIG_TILT * c0 * (rr0 / RIG_R),
+            g->cx + rc0 * s0, yb0 + RIG_TILT * c0 * (rc0 / RIG_R),
+            g->cx + rr1 * s1, yb1 + RIG_TILT * c1 * (rr1 / RIG_R),
+            g->cx + rc1 * s1, yb1 + RIG_TILT * c1 * (rc1 / RIG_R),
+            g->cx + (rc0 + 1.9f) * s0, g->cx + (rc1 + 1.9f) * s1,
+            cm, (s0 + s1) * 0.5f, (yb0 + yb1) * 0.5f};
+    }
+    /* far ribbons first, so the near ones land on top */
+    for (int i = 1; i < n; i++)
+    {
+        const DcThreadSeg key = out[i];
+        int j = i - 1;
+        while (j >= 0 && out[j].c > key.c) { out[j + 1] = out[j]; j--; }
+        out[j + 1] = key;
+    }
+    return n;
+}
+
+static void DcQuad(float ax, float ay, float bx, float by,
+                   float cx2, float cy2, float dx, float dy, Color col)
+{
+    const Vector2 q[4] = {{ax, ay}, {bx, by}, {cx2, cy2}, {dx, dy}};
+    c2d_fill_poly(q, 4, col);
+}
+
+static void DcDrawThread(const DcRig *g, bool front)
+{
+    static DcThreadSeg segs[DC_THREAD_MAX];
+    const int n = DcThreadSegs(g, front, segs);
+    if (!n) return;
+    const float M = 1.5f;
+    const Color outline = front ? RIG_OUT : RIG_OUTB;
+    for (int i = 0; i < n; i++)
+    {
+        const DcThreadSeg *s = &segs[i];
+        const Vector2 o[8] = {
+            {s->xr0, s->yr0 - M}, {s->xe0, s->yc0 - M},
+            {s->xe1, s->yc1 - M}, {s->xr1, s->yr1 - M},
+            {s->xr1, s->yr1 + RIG_TH_T + M}, {s->xe1, s->yc1 + RIG_TH_C + M},
+            {s->xe0, s->yc0 + RIG_TH_C + M}, {s->xr0, s->yr0 + RIG_TH_T + M}};
+        c2d_fill_poly(o, 8, outline);
+    }
+    for (int i = 0; i < n; i++)
+    {
+        const DcThreadSeg *s = &segs[i];
+        const float h = DcHeatAt(g, s->y);
+        const float c = fmaxf(0.0f, s->c), lt = (1.0f - s->sn) * 0.5f;
+        /* quantised to eight steps, as the JS does -- the banding is the look */
+        #define DcBand(v) (roundf(Clampf01(v) * 7.0f) / 7.0f)
+        const float dimf = front ? 1.0f : 0.0f;
+        #define DcDim(v)  (front ? (v) : 0.15f + (v) * 0.44f)
+        (void)dimf;
+        const float shRamp = DcDim(DcBand(0.33f + 0.46f * c + 0.14f * lt));
+        const float shRim  = DcDim(DcBand(0.38f + 0.34f * c + 0.22f * lt));
+        const float shBody = DcDim(DcBand(0.40f + 0.30f * c + 0.18f * lt));
+        const float shUnd  = DcDim(DcBand(0.10f + 0.16f * c));
+
+        const Vector2 body[8] = {
+            {s->xr0, s->yr0}, {s->xc0, s->yc0}, {s->xc1, s->yc1}, {s->xr1, s->yr1},
+            {s->xr1, s->yr1 + RIG_TH_T}, {s->xc1, s->yc1 + RIG_TH_C},
+            {s->xc0, s->yc0 + RIG_TH_C}, {s->xr0, s->yr0 + RIG_TH_T}};
+        c2d_fill_poly(body, 8, DcSteel(shBody, h));
+
+        const float u = RIG_TH_T * 0.55f, uC = RIG_TH_C * 0.55f;
+        const Vector2 und[8] = {
+            {s->xr0, s->yr0 + u}, {s->xc0, s->yc0 + uC},
+            {s->xc1, s->yc1 + uC}, {s->xr1, s->yr1 + u},
+            {s->xr1, s->yr1 + RIG_TH_T}, {s->xc1, s->yc1 + RIG_TH_C},
+            {s->xc0, s->yc0 + RIG_TH_C}, {s->xr0, s->yr0 + RIG_TH_T}};
+        c2d_fill_poly(und, 8, DcSteel(shUnd, h));
+
+        DcQuad(s->xc0, s->yc0, s->xc1, s->yc1,
+               s->xc1, s->yc1 + RIG_TH_C, s->xc0, s->yc0 + RIG_TH_C, DcSteel(shRim, h));
+        DcQuad(s->xr0, s->yr0, s->xc0, s->yc0,
+               s->xc1, s->yc1, s->xr1, s->yr1, DcSteel(shRamp, h));
+        #undef DcBand
+        #undef DcDim
+    }
+    if (front)
+        for (int i = 0; i < n; i++)
+        {
+            const DcThreadSeg *s = &segs[i];
+            const float gq = roundf(Clampf01(0.54f + 0.30f * fmaxf(0.0f, s->c)
+                                             + 0.12f * (1.0f - s->sn) * 0.5f) * 3.0f) / 3.0f;
+            const Vector2 e[2] = {{s->xc0, s->yc0 + 0.8f}, {s->xc1, s->yc1 + 0.8f}};
+            c2d_polyline(e, 2, DcSteel(gq, DcHeatAt(g, s->y)), 1.3f);
+        }
+}
+
+/* ---- rod, joints, chuck and the cone bit (480-528) --------------------- */
+static void DcJoint(const DcRig *g, float y, float r, bool big)
+{
+    const float hh = big ? 6.8f : 5.4f, w = r + (big ? 4.2f : 3.1f);
+    const float h = DcHeatAt(g, y);
+    static const float tones[5][2] = {{0.15f,0.16f},{0.18f,0.94f},{0.22f,0.56f},
+                                      {0.26f,0.28f},{0.19f,0.10f}};
+    c2d_rect(g->cx - w - 2.0f, y - hh - 2.0f, (w + 2.0f) * 2.0f, hh * 2.0f + 4.0f, RIG_OUT);
+    DcSteelBands(g->cx - w, g->cx + w, y - hh, hh * 2.0f, h, tones, 5);
+    c2d_rect(g->cx - w, y - hh, w * 2.0f, 1.7f, RGBA(255, 255, 255, 0.34f));
+    c2d_rect(g->cx - w, y + hh - 2.1f, w * 2.0f, 2.1f, RGBA(0, 0, 0, 0.45f));
+}
+
+static void DcChuck(const DcRig *g, float y0, float y1, float r)
+{
+    const float h = DcHeatAt(g, (y0 + y1) * 0.5f);
+    static const float tones[5][2] = {{0.17f,0.06f},{0.16f,0.62f},{0.22f,0.34f},
+                                      {0.26f,0.18f},{0.19f,0.04f}};
+    c2d_rect(g->cx - r - 2.5f, y0 - 2.5f, (r + 2.5f) * 2.0f, y1 - y0 + 5.0f, RIG_OUT);
+    DcSteelBands(g->cx - r, g->cx + r, y0, y1 - y0, h * 0.6f, tones, 5);
+    c2d_rect(g->cx - r, y0, r * 2.0f, 2.6f, RGBA(255, 255, 255, 0.24f));
+    c2d_rect(g->cx - r, y1 - 3.0f, r * 2.0f, 3.0f, RGBA(0, 0, 0, 0.40f));
+    c2d_rect(g->cx - r + 3.0f, y0 + 5.0f, 2.4f, y1 - y0 - 11.0f, RGBA(0, 0, 0, 0.35f));
+    c2d_rect(g->cx + r - 5.4f, y0 + 5.0f, 2.4f, y1 - y0 - 11.0f, RGBA(0, 0, 0, 0.35f));
+    c2d_rect(g->cx - r + 6.5f, y1 - 9.0f, 3.0f, 3.0f, RGB(0x8e, 0x9a, 0xa6));
+    c2d_rect(g->cx + r - 9.5f, y1 - 9.0f, 3.0f, 3.0f, RGB(0x8e, 0x9a, 0xa6));
+}
+
+static void DcDrawShaft(const DcRig *g, float clipTop)
+{
+    const float cA = DcConeApex(g), tY = DcThreadTop(g);
+    const float topShaft = fmaxf(clipTop - 30.0f, g->surfY - 120.0f);
+    static const float tones[5][2] = {{0.15f,0.11f},{0.17f,0.98f},{0.21f,0.58f},
+                                      {0.27f,0.30f},{0.20f,0.07f}};
+    for (float y = topShaft; y < cA; y += 1.4f)
+    {
+        const float w = DcRodHalfAt(g, y) + 2.0f;
+        c2d_rect(g->cx - w, y, w * 2.0f, 2.2f, RIG_OUT);
+    }
+    for (float y = topShaft; y < cA - 1.0f; y += 1.4f)
+    {
+        const float w = DcRodHalfAt(g, y);
+        if (w < 0.7f) continue;
+        DcSteelBands(g->cx - w, g->cx + w, y, 1.9f, DcHeatAt(g, y + 1.0f), tones, 5);
+    }
+    DcSeg segs[8];
+    const int n = DcShaftSegs(g, segs);
+    for (int i = 0; i < n; i++)
+    {
+        if (segs[i].chuck) { DcChuck(g, segs[i].y0, segs[i].y1, segs[i].r); continue; }
+        if (i > 0 && !segs[i - 1].chuck)
+            DcJoint(g, segs[i].y0, fmaxf(segs[i - 1].r, segs[i].r), false);
+    }
+    DcJoint(g, tY, RIG_RS + 1.0f, true);
+
+    /* the cone bit: three facets, hottest of all because it is the face */
+    const float h = fminf(1.0f, DcHeatAt(g, g->bitY) * 1.35f);
+    const float sh = cA - RIG_CONE_LEN + 1.5f, cw = RIG_RS_BOT * 0.90f;
+    static const float facet[3][3] = {{-1.00f,-0.34f,0.90f},
+                                      {-0.34f, 0.28f,0.52f},
+                                      { 0.28f, 1.00f,0.22f}};
+    for (int i = 0; i < 3; i++)
+    {
+        const Vector2 tri[3] = {{g->cx + cw * facet[i][0], sh},
+                                {g->cx + cw * facet[i][1], sh},
+                                {g->cx, cA - 1.5f}};
+        c2d_fill_poly(tri, 3, DcSteel(facet[i][2], h));
+    }
+    c2d_rect(g->cx - cw - 1.0f, sh - 1.4f, (cw + 1.0f) * 2.0f, 1.6f, RGBA(0, 0, 0, 0.45f));
+}
+
+/* A small deterministic RNG so the chip stream does not need per-frame
+ * allocation and does not flicker between frames at rest. */
 static unsigned int g_dcSeed = 1u;
 static float DcRnd(void)
 {
@@ -396,7 +667,6 @@ static void DcGauge(float x, float y, float w, const char *label, float v,
     DcRRectFill(x, by, w, bh, 4.0f, C_track);
     if (bandHi > bandLo)
     {
-        /* the band moves with the rock -- that is the thing worth reading */
         const float b0 = x + w * Clampf01(bandLo), b1 = x + w * Clampf01(bandHi);
         DcRRectFill(b0, by, b1 - b0, bh, 4.0f, RGBA(0x35, 0xd8, 0xee, 0.16f));
     }
@@ -414,50 +684,36 @@ static void DcRoughDrill(float x, float y, float w, float h,
      * 120 m hole. */
     const float sx = x + 12.0f, sw = w - 24.0f;
     const float top = y + 54.0f, bot = y + h - 10.0f;
-    const float heat = sim ? sim->heat : 0.0f;
-    const float rpm  = sim ? sim->rpm : 0.0f;
-    const float phase = sim ? sim->phase : 0.0f;
+    const float rpm = sim ? sim->rpm : 0.0f;
     const float depth = sim ? (sim->depthM - sim->lift) : 0.0f;
+    const float cx = sx + sw * 0.5f;
 
-    /* strata: redline's four, proportional to their real thickness so the
-     * column reads as the same 120 m the ruler measures */
+    DcRig rig;
+    rig.cx = cx;
+    rig.surfY = top;
+    rig.bitY = top + (bot - top) * Clampf01(depth / DRILL_TARGET_M);
+    rig.heat = sim ? sim->heat : 0.0f;
+    rig.phase = sim ? sim->phase : 0.0f;
+
+    /* strata: redline's four, proportional to their real thickness */
     const DrillStratum *S = DrillSim_Strata();
     for (int i = 0; i < DRILL_STRATA_COUNT; i++)
     {
         const float y0 = top + (bot - top) * (S[i].top / DRILL_TARGET_M);
         const float y1 = top + (bot - top) * (S[i].bot / DRILL_TARGET_M);
-        c2d_rect(sx, y0, sw, y1 - y0,
-                 (Color){S[i].col[0], S[i].col[1], S[i].col[2], 255});
-        c2d_rect(sx, y1 - 2.0f, sw, 2.0f,
-                 (Color){S[i].edge[0], S[i].edge[1], S[i].edge[2], 255});
+        c2d_rect(sx, y0, sw, y1 - y0, (Color){S[i].col[0], S[i].col[1], S[i].col[2], 255});
+        c2d_rect(sx, y1 - 2.0f, sw, 2.0f, (Color){S[i].edge[0], S[i].edge[1], S[i].edge[2], 255});
     }
-
-    const float cx = sx + sw * 0.5f;
-    const float bitY = top + (bot - top) * Clampf01(depth / DRILL_TARGET_M);
 
     /* the hole the string has already made */
-    if (bitY > top) c2d_rect(cx - 11.0f, top, 22.0f, bitY - top, RGB(0x07, 0x0b, 0x11));
+    if (rig.bitY > top)
+        c2d_rect(cx - RIG_R, top, RIG_R * 2.0f, rig.bitY - top, RGB(0x07, 0x0b, 0x11));
 
-    /* the string: a rod down to the bit, threaded near the face, its colour
-     * taken from the local heat so the glow climbs out of the hole */
-    const float rodTop = top - 30.0f;
-    for (float yy = rodTop; yy < bitY; yy += 6.0f)
-    {
-        const float hh = DcHeatAt(yy, bitY, heat);
-        c2d_rect(cx - 7.0f, yy, 14.0f, 6.0f, DcSteel(0.42f, hh));
-        /* the thread, which is what shows the rotation */
-        const float ph = phase + yy * 0.16f;
-        const float o = sinf(ph) * 6.0f;
-        c2d_rect(cx + o - 1.6f, yy, 3.2f, 6.0f, DcSteel(cosf(ph) > 0.0f ? 0.95f : 0.14f, hh));
-    }
-
-    /* the bit */
-    const float hb = DcHeatAt(bitY, bitY, heat);
-    const C2DCorner cone[3] = {{cx - 11.0f, bitY - 2.0f, 0.0f},
-                               {cx + 11.0f, bitY - 2.0f, 0.0f},
-                               {cx, bitY + 17.0f, 0.0f}};
-    Vector2 cv[DC_PTS];
-    c2d_fill_poly(cv, c2d_rpoly_pts(cone, 3, 0.0f, 0.0f, cv, DC_PTS), DcSteel(0.72f, hb));
+    /* BACK of the flight, then the shaft over it, then the FRONT -- that
+     * ordering is the whole reason the auger reads as round. */
+    DcDrawThread(&rig, false);
+    DcDrawShaft(&rig, y);
+    DcDrawThread(&rig, true);
 
     /* sparks off a hard face, exactly the condition redline uses (531) */
     const DrillStratum *g = DrillSim_At(sim ? sim->depthM : 0.0f);
@@ -467,7 +723,7 @@ static void DcRoughDrill(float x, float y, float w, float h,
         for (int i = 0; i < n; i++)
         {
             const float a = DcRnd() * PI, r2 = 6.0f + DcRnd() * 20.0f;
-            c2d_rect(cx + cosf(a) * r2, bitY + 10.0f - DcRnd() * 6.0f + sinf(a) * 6.0f,
+            c2d_rect(cx + cosf(a) * r2, rig.bitY + 10.0f - DcRnd() * 6.0f + sinf(a) * 6.0f,
                      2.0f, 2.0f,
                      (Color){255, (unsigned char)(170 + DcRnd() * 70), 60,
                              (unsigned char)((0.4f + DcRnd() * 0.5f) * 255)});
@@ -476,18 +732,16 @@ static void DcRoughDrill(float x, float y, float w, float h,
 
     /* cuttings riding up the flights */
     if (rpm > 0.05f && dt > 0.0f)
-    {
         for (int k = 0; k < 2; k++)
             for (int i = 0; i < DC_CHIPS_MAX; i++)
                 if (!g_chips[i].live)
                 {
-                    g_chips[i] = (DcChipP){cx, bitY - 6.0f, DcRnd() * 6.28f,
+                    g_chips[i] = (DcChipP){cx, rig.bitY - 6.0f, DcRnd() * 6.28f,
                                            20.0f + DcRnd() * 20.0f,
                                            (Color){g->grain[0], g->grain[1], g->grain[2], 255},
                                            true};
                     break;
                 }
-    }
     for (int i = 0; i < DC_CHIPS_MAX; i++)
     {
         if (!g_chips[i].live) continue;
@@ -496,7 +750,8 @@ static void DcRoughDrill(float x, float y, float w, float h,
         if (g_chips[i].y < top - 2.0f) { g_chips[i].live = false; continue; }
         Color c = g_chips[i].col;
         c.a = (unsigned char)(cosf(g_chips[i].a) > 0.0f ? 242 : 115);
-        c2d_rect(cx + 9.0f * sinf(g_chips[i].a), g_chips[i].y, 3.0f, 2.2f, c);
+        c2d_rect(cx + (DcRodHalfAt(&rig, g_chips[i].y) + 2.5f) * sinf(g_chips[i].a),
+                 g_chips[i].y, 3.0f, 2.2f, c);
     }
 
     /* the powerhead, with the lamp that reads the band (559) */
@@ -507,7 +762,6 @@ static void DcRoughDrill(float x, float y, float w, float h,
         c2d_rect(hx - 16.0f, ptop + 6.0f + (float)i * 7.5f, 32.0f, 4.0f, RGB(0x7a, 0x51, 0x15));
         c2d_rect(hx - 16.0f, ptop + 8.8f + (float)i * 7.5f, 32.0f, 1.4f, RGBA(0, 0, 0, 0.5f));
     }
-    c2d_rect(hx - 13.0f, ptop + 30.0f, 26.0f, 10.0f, RGB(0x4a, 0x54, 0x5f));
     c2d_rect(hx + 26.0f, ptop + 8.0f, 20.0f, 16.0f, RGB(0x39, 0x42, 0x4e));
     const int band = sim ? DrillSim_BandState(sim) : -1;
     const Color lamp = (band > 0) ? RGB(0xff, 0x5a, 0x28)
@@ -518,9 +772,9 @@ static void DcRoughDrill(float x, float y, float w, float h,
     c2d_rect(sx, top - 7.0f, sw, 7.0f, RGB(0x1c, 0x25, 0x30));
     c2d_rect(sx, top - 7.0f, sw, 2.0f, RGBA(255, 255, 255, 0.18f));
 
-    /* a red wash over everything once the bit is genuinely hot (740) */
-    if (heat > 0.75f)
-        c2d_rect(x, y, w, h, RGBA(255, 60, 20, 0.10f * (heat - 0.75f) / 0.25f));
+    /* a red wash once the bit is genuinely hot (740) */
+    if (rig.heat > 0.75f)
+        c2d_rect(x, y, w, h, RGBA(255, 60, 20, 0.10f * (rig.heat - 0.75f) / 0.25f));
 }
 
 void Dash_DrillBar(float x, float y, float w, float h, const char *title,
