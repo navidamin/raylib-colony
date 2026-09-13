@@ -6,6 +6,7 @@
 #include "raylib.h"
 #include "rlgl.h"
 #include "c2d.h"
+#include "drill_sim.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -458,6 +459,65 @@ int main(int argc, char **argv)
         CHECK(just > mid && mid > far, "and it decays with distance");
         CHECK(far < 20, "reaching about blur and no further");
         UnloadImage(img);
+    }
+
+    printf("\n== 15. the drill: clicking drives it, heat follows the spindle ==\n");
+    {
+        /* The behaviour ported from redline.html, and the only part of the
+           drill bar that is not a picture. No GL involved. */
+        DrillSim d;
+        DrillSim_Reset(&d);
+        const float idle = d.rpm;
+
+        DrillSim_Bite(&d);
+        CHECK(d.rpm > idle + 0.2f, "a click kicks the spindle up");
+
+        /* left alone it decays back toward idle */
+        for (int i = 0; i < 200; i++) DrillSim_Step(&d, 1.0f / 60.0f);
+        printf("    after 3.3s idle: rpm %.3f (idle %.3f) heat %.3f\n", d.rpm, idle, d.heat);
+        CHECK(d.rpm < idle + 0.02f, "and it decays back to idle when you stop");
+        CHECK(d.heat < 0.02f, "heat bleeds away with it");
+
+        /* held at a rhythm, heat climbs and the hole deepens */
+        DrillSim_Reset(&d);
+        float peakHeat = 0.0f;
+        for (int i = 0; i < 600; i++)
+        {
+            if (i % 12 == 0) DrillSim_Bite(&d);      /* ~5 clicks a second */
+            DrillSim_Step(&d, 1.0f / 60.0f);
+            if (d.heat > peakHeat) peakHeat = d.heat;
+        }
+        printf("    after 10s of clicking: rpm %.2f heat %.2f depth %.1f m wear %.2f\n",
+               d.rpm, d.heat, d.depthM, d.wear);
+        CHECK(peakHeat > 0.3f, "sustained clicking heats the bit");
+        CHECK(d.depthM > 5.0f, "and cuts");
+
+        /* the coupling itself: more spindle, more heat, all else equal */
+        DrillSim slow, fast;
+        DrillSim_Reset(&slow); DrillSim_Reset(&fast);
+        for (int i = 0; i < 240; i++)
+        {
+            if (i % 24 == 0) DrillSim_Bite(&slow);
+            if (i % 6  == 0) DrillSim_Bite(&fast);
+            DrillSim_Step(&slow, 1.0f / 60.0f);
+            DrillSim_Step(&fast, 1.0f / 60.0f);
+        }
+        printf("    slow rpm %.2f heat %.2f | fast rpm %.2f heat %.2f\n",
+               slow.rpm, slow.heat, fast.rpm, fast.heat);
+        CHECK(fast.rpm > slow.rpm, "clicking faster spins faster");
+        CHECK(fast.heat > slow.heat + 0.1f, "and runs hotter -- the coupling");
+
+        /* the band moves with the rock, which is the thing worth reading */
+        DrillSim probe;
+        DrillSim_Reset(&probe);
+        probe.rpm = 0.5f;
+        probe.depthM = 5.0f;                  /* regolith, band .26-.60 */
+        const int inRegolith = DrillSim_BandState(&probe);
+        probe.depthM = 100.0f;                /* basalt, band .68-1.18  */
+        const int inBasalt = DrillSim_BandState(&probe);
+        printf("    rpm 0.50 reads %d in regolith, %d in basalt\n", inRegolith, inBasalt);
+        CHECK(inRegolith == 0 && inBasalt < 0,
+              "the same spindle is in band in soft rock and rubbing in hard");
     }
 
     c2d_fonts_unload();

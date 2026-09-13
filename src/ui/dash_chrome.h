@@ -51,8 +51,21 @@ void Dash_Log(float x, float y, float w, float h,
 
 typedef struct DashDepth { const char *depth, *name; } DashDepth;
 
+/* Live now, and driven by DrillSim -- see drill_sim.h. The strata, the string
+ * position, the heat glow on the steel, the chip stream, the motor-pod band
+ * lamp and the two gauges all read the simulation, so clicking the pane
+ * drives the spindle and the bit temperature follows it.
+ *
+ * `sim` may be NULL, in which case the bar draws its static pose. */
+struct DrillSim;
 void Dash_DrillBar(float x, float y, float w, float h, const char *title,
-                   const DashDepth *depths, int depthCount);
+                   const DashDepth *depths, int depthCount,
+                   const struct DrillSim *sim, float dt);
+
+/* The rect inside the bar that responds to a click (the hole and the
+ * string). Design-space, relative to the same x/y passed to Dash_DrillBar. */
+void Dash_DrillBarFace(float x, float y, float w, float h,
+                       float *fx, float *fy, float *fw, float *fh);
 
 #ifdef __cplusplus
 }

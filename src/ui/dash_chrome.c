@@ -1,5 +1,6 @@
 /* dash_chrome.c — see dash_chrome.h. Port of js/dashboard.html 1290-1670. */
 #include "dash_chrome.h"
+#include "drill_sim.h"
 
 #include <math.h>
 #include <string.h>
@@ -65,6 +66,8 @@ static void DcLine(float x1, float y1, float x2, float y2, Color col, float w)
     const Vector2 p[2] = {{x1, y1}, {x2, y2}};
     c2d_polyline(p, 2, col, w);
 }
+
+static float Clampf01(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
 static float DcLabel(const char *s, float x, float y, float size, Color col, C2DWeight w)
 {
@@ -312,10 +315,11 @@ void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int cou
 }
 
 /* ---------- the drill bar (1544, 1567) -------------------------------- */
-static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n)
+static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
+                    float pad)
 {
     DcLine(x, y0, x, y1, C_accentDim, 1.5f);
-    const float pad = 42.0f, top = y0 + pad, bot = y1 - pad;
+    const float top = y0 + pad, bot = y1 - pad;
     const float step = (n > 1) ? (bot - top) / (float)(n - 1) : 0.0f;
     if (step > 0.0f)
         for (float yy = top; yy <= bot + 0.5f; yy += step / 10.0f)
@@ -330,75 +334,223 @@ static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n)
     }
 }
 
-static void DcRoughDrill(float x, float y, float w, float h)
+/* ---- the live rig -----------------------------------------------------
+ * The reference's roughDrill (1544) is a static pose: fixed strata bands and a
+ * bit parked near the top. It is replaced here by the rig from
+ * docs/design/subsurface/prototypes/redline.html, driven by DrillSim -- the
+ * strata are that prototype's, the steel takes its heat glow, the shaft turns
+ * on the spindle phase and throws chips, and the motor pod's lamp reads the
+ * contact-pressure band. Clicking the face is what drives it. */
+
+/* steel(shade, heat) (redline.html:292): cold steel lerped toward an orange
+ * glow as the bit heats. */
+static Color DcSteel(float shade, float heat)
 {
-    (void)w;
-    const float sx = x + 12.0f, sw = 160.0f, top = y + 123.0f, bot = y + h - 8.0f;
-    const float bands[5] = {0.17f, 0.13f, 0.16f, 0.18f, 0.36f};
-    float yy = top;
-    for (int i = 0; i < 5; i++)
+    const float base[3] = {96.0f + (238.0f - 96.0f) * shade,
+                           104.0f + (244.0f - 104.0f) * shade,
+                           118.0f + (252.0f - 118.0f) * shade};
+    const float glow[3] = {255.0f, 55.0f + (165.0f - 55.0f) * shade, 25.0f};
+    const float t = heat * 1.15f > 1.0f ? 1.0f : heat * 1.15f;
+    return (Color){(unsigned char)(base[0] + (glow[0] - base[0]) * t),
+                   (unsigned char)(base[1] + (glow[1] - base[1]) * t),
+                   (unsigned char)(base[2] + (glow[2] - base[2]) * t), 255};
+}
+
+/* heatAt (redline.html:288): the glow is local to the bit and falls off up
+ * the string, so the steel is hottest at the face. */
+static float DcHeatAt(float y, float bitY, float heat)
+{
+    const float d = fabsf(y - bitY);
+    return heat * expf(-(d * d) / (2.0f * 110.0f * 110.0f));
+}
+
+/* A small deterministic RNG so the chip stream and the grain do not need
+ * per-frame allocation and do not flicker between frames at rest. */
+static unsigned int g_dcSeed = 1u;
+static float DcRnd(void)
+{
+    g_dcSeed = (g_dcSeed * 1103515245u + 12345u);
+    return (float)((g_dcSeed >> 8) & 0xffffff) / (float)0x1000000;
+}
+
+#define DC_CHIPS_MAX 96
+typedef struct DcChipP { float x, y, a, up; Color col; bool live; } DcChipP;
+static DcChipP g_chips[DC_CHIPS_MAX];
+
+void Dash_DrillBarFace(float x, float y, float w, float h,
+                       float *fx, float *fy, float *fw, float *fh)
+{
+    if (fx) *fx = x + 30.0f;
+    if (fy) *fy = y + 70.0f;
+    if (fw) *fw = w - 44.0f;
+    if (fh) *fh = h - 92.0f;
+}
+
+/* Two gauges, the Spindle card from redline's sidebar (172-186): pressure
+ * with the rock's band marked on it, and bit temperature. */
+static void DcGauge(float x, float y, float w, const char *label, float v,
+                    Color fill, float bandLo, float bandHi)
+{
+    DcLabel(label, x, y, 12.0f, C_depth, C2D_W500);
+    const float by = y + 12.0f, bh = 9.0f;
+    DcRRectFill(x, by, w, bh, 4.0f, C_track);
+    if (bandHi > bandLo)
     {
-        const float bh = (bot - top) * bands[i];
-        c2d_rect(sx, yy, sw, bh, C_strata[i]);
-        c2d_rect(sx, yy + bh - 2.0f, sw, 2.0f, RGBA(0, 0, 0, 0.18f));
-        yy += bh;
+        /* the band moves with the rock -- that is the thing worth reading */
+        const float b0 = x + w * Clampf01(bandLo), b1 = x + w * Clampf01(bandHi);
+        DcRRectFill(b0, by, b1 - b0, bh, 4.0f, RGBA(0x35, 0xd8, 0xee, 0.16f));
     }
-    DcLine(x + 4.0f, y + 20.0f, x + 4.0f, bot, C_accentDim, 1.5f);
-    for (float t = y + 30.0f; t < bot; t += 22.0f) DcLine(x + 4.0f, t, x + 9.0f, t, C_accentDim, 1.5f);
+    const float f = Clampf01(v);
+    if (f > 0.01f) DcRRectFill(x, by, w * f, bh, 4.0f, fill);
+    DcRRectStroke(x, by, w, bh, 4.0f, C_line, 1.0f);
+}
 
-    const float cx = sx + sw / 2.0f - 10.0f;
-    c2d_rect(cx - 14.0f, y + 26.0f, 28.0f, 26.0f, C_accent);
-    c2d_rect(cx - 4.0f, y + 34.0f, 8.0f, 8.0f, RGB(0x03, 0x1a, 0x24));
-    c2d_rect(cx - 20.0f, y + 56.0f, 40.0f, 12.0f, RGB(0x9f, 0xb6, 0xcc));
+static void DcRoughDrill(float x, float y, float w, float h,
+                         const DrillSim *sim, float dt)
+{
+    /* ONE depth axis for the whole rig: the strata, the bit, the chips and the
+     * ruler beside it all measure from `top` (the surface) to `bot`
+     * (DRILL_TARGET_M). They disagreed once and the ruler read 2 km against a
+     * 120 m hole. */
+    const float sx = x + 12.0f, sw = w - 24.0f;
+    const float top = y + 54.0f, bot = y + h - 10.0f;
+    const float heat = sim ? sim->heat : 0.0f;
+    const float rpm  = sim ? sim->rpm : 0.0f;
+    const float phase = sim ? sim->phase : 0.0f;
+    const float depth = sim ? (sim->depthM - sim->lift) : 0.0f;
 
-    /* striped shaft: a rotated hatch clipped to the shaft rect */
-    Vector2 shaft[DC_PTS];
-    const int sn = DcRect(cx - 12.0f, y + 68.0f, 24.0f, 100.0f, 0.0f, shaft);
-    c2d_rect(cx - 12.0f, y + 68.0f, 24.0f, 100.0f, RGB(0xe6, 0xf0, 0xf7));
-    c2d_save();
-    c2d_clip_poly_begin(shaft, sn, false);
-    c2d_translate(cx, y + 118.0f);
-    c2d_rotate(-PI * 0.28f);
-    for (int k = -8; k <= 8; k++) c2d_rect(-40.0f, (float)k * 14.0f, 80.0f, 6.0f, RGB(0x2a, 0x4a, 0x63));
-    c2d_restore();
+    /* strata: redline's four, proportional to their real thickness so the
+     * column reads as the same 120 m the ruler measures */
+    const DrillStratum *S = DrillSim_Strata();
+    for (int i = 0; i < DRILL_STRATA_COUNT; i++)
+    {
+        const float y0 = top + (bot - top) * (S[i].top / DRILL_TARGET_M);
+        const float y1 = top + (bot - top) * (S[i].bot / DRILL_TARGET_M);
+        c2d_rect(sx, y0, sw, y1 - y0,
+                 (Color){S[i].col[0], S[i].col[1], S[i].col[2], 255});
+        c2d_rect(sx, y1 - 2.0f, sw, 2.0f,
+                 (Color){S[i].edge[0], S[i].edge[1], S[i].edge[2], 255});
+    }
 
-    C2DGradient cyl = c2d_gradient_linear_x(cx - 32.0f, cx + 32.0f);
-    c2d_gradient_stop(&cyl, 0.0f,  RGB(0x5a, 0x6f, 0x86));
-    c2d_gradient_stop(&cyl, 0.35f, RGB(0xdf, 0xe8, 0xf0));
-    c2d_gradient_stop(&cyl, 0.55f, RGB(0xb9, 0xc7, 0xd4));
-    c2d_gradient_stop(&cyl, 1.0f,  RGB(0x3d, 0x50, 0x66));
+    const float cx = sx + sw * 0.5f;
+    const float bitY = top + (bot - top) * Clampf01(depth / DRILL_TARGET_M);
+
+    /* the hole the string has already made */
+    if (bitY > top) c2d_rect(cx - 11.0f, top, 22.0f, bitY - top, RGB(0x07, 0x0b, 0x11));
+
+    /* the string: a rod down to the bit, threaded near the face, its colour
+     * taken from the local heat so the glow climbs out of the hole */
+    const float rodTop = top - 30.0f;
+    for (float yy = rodTop; yy < bitY; yy += 6.0f)
+    {
+        const float hh = DcHeatAt(yy, bitY, heat);
+        c2d_rect(cx - 7.0f, yy, 14.0f, 6.0f, DcSteel(0.42f, hh));
+        /* the thread, which is what shows the rotation */
+        const float ph = phase + yy * 0.16f;
+        const float o = sinf(ph) * 6.0f;
+        c2d_rect(cx + o - 1.6f, yy, 3.2f, 6.0f, DcSteel(cosf(ph) > 0.0f ? 0.95f : 0.14f, hh));
+    }
+
+    /* the bit */
+    const float hb = DcHeatAt(bitY, bitY, heat);
+    const C2DCorner cone[3] = {{cx - 11.0f, bitY - 2.0f, 0.0f},
+                               {cx + 11.0f, bitY - 2.0f, 0.0f},
+                               {cx, bitY + 17.0f, 0.0f}};
     Vector2 cv[DC_PTS];
-    const int cn2 = DcRect(cx - 32.0f, y + 165.0f, 64.0f, 300.0f, 6.0f, cv);
-    c2d_fill_poly_gradient(cv, cn2, &cyl);
-    c2d_polygon(cv, cn2, RGBA(0, 10, 20, 0.7f), 2.0f);
+    c2d_fill_poly(cv, c2d_rpoly_pts(cone, 3, 0.0f, 0.0f, cv, DC_PTS), DcSteel(0.72f, hb));
 
-    for (int k = 0; k < 3; k++)
+    /* sparks off a hard face, exactly the condition redline uses (531) */
+    const DrillStratum *g = DrillSim_At(sim ? sim->depthM : 0.0f);
+    if (rpm > 0.1f && g->hard > 0.5f)
     {
-        const float py = y + 205.0f + (float)k * 95.0f;
-        Vector2 p[DC_PTS];
-        const int pn = DcRect(cx - 7.0f, py, 14.0f, 50.0f, 5.0f, p);
-        c2d_shadow_begin();
-        c2d_fill_poly(p, pn, C_accent);
-        c2d_shadow_end(C_accent, 12.0f);
-        c2d_rect(cx - 3.0f, py + 6.0f, 6.0f, 38.0f, RGBA(255, 255, 255, 0.4f));
+        const int n = (int)(10.0f * g->hard * rpm);
+        for (int i = 0; i < n; i++)
+        {
+            const float a = DcRnd() * PI, r2 = 6.0f + DcRnd() * 20.0f;
+            c2d_rect(cx + cosf(a) * r2, bitY + 10.0f - DcRnd() * 6.0f + sinf(a) * 6.0f,
+                     2.0f, 2.0f,
+                     (Color){255, (unsigned char)(170 + DcRnd() * 70), 60,
+                             (unsigned char)((0.4f + DcRnd() * 0.5f) * 255)});
+        }
     }
 
-    /* base machine */
-    DcRRectFill(sx + 8.0f, y + 460.0f, sw - 16.0f, 112.0f, 8.0f, RGB(0x1b, 0x2a, 0x38));
-    DcRRectStroke(sx + 8.0f, y + 460.0f, sw - 16.0f, 112.0f, 8.0f, RGB(0x3a, 0x4d, 0x60), 2.0f);
-    for (int k = 0; k < 4; k++) c2d_rect(sx + 50.0f, y + 472.0f + (float)k * 16.0f, 52.0f, 8.0f, RGB(0x0b, 0x14, 0x1c));
-    const float lamp[4][2] = {{sx + 22.0f, y + 520.0f}, {sx + sw - 22.0f, y + 520.0f},
-                              {sx + 22.0f, y + 546.0f}, {sx + sw - 22.0f, y + 546.0f}};
-    for (int k = 0; k < 4; k++) c2d_rect(lamp[k][0] - 4.0f, lamp[k][1] - 3.0f, 8.0f, 6.0f, C_accent);
-    for (int k = 0; k < 4; k++) c2d_rect(sx + 56.0f + (float)k * 12.0f, y + 552.0f, 8.0f, 4.0f, C_accent);
+    /* cuttings riding up the flights */
+    if (rpm > 0.05f && dt > 0.0f)
+    {
+        for (int k = 0; k < 2; k++)
+            for (int i = 0; i < DC_CHIPS_MAX; i++)
+                if (!g_chips[i].live)
+                {
+                    g_chips[i] = (DcChipP){cx, bitY - 6.0f, DcRnd() * 6.28f,
+                                           20.0f + DcRnd() * 20.0f,
+                                           (Color){g->grain[0], g->grain[1], g->grain[2], 255},
+                                           true};
+                    break;
+                }
+    }
+    for (int i = 0; i < DC_CHIPS_MAX; i++)
+    {
+        if (!g_chips[i].live) continue;
+        g_chips[i].y -= g_chips[i].up * dt * rpm * 1.6f;
+        g_chips[i].a -= rpm * 9.0f * dt;
+        if (g_chips[i].y < top - 2.0f) { g_chips[i].live = false; continue; }
+        Color c = g_chips[i].col;
+        c.a = (unsigned char)(cosf(g_chips[i].a) > 0.0f ? 242 : 115);
+        c2d_rect(cx + 9.0f * sinf(g_chips[i].a), g_chips[i].y, 3.0f, 2.2f, c);
+    }
+
+    /* the powerhead, with the lamp that reads the band (559) */
+    const float hx = cx, ptop = top - 48.0f;
+    c2d_rect(hx - 26.0f, ptop, 52.0f, 30.0f, RGB(0xd9, 0x96, 0x2f));
+    for (int i = 0; i < 3; i++)
+    {
+        c2d_rect(hx - 16.0f, ptop + 6.0f + (float)i * 7.5f, 32.0f, 4.0f, RGB(0x7a, 0x51, 0x15));
+        c2d_rect(hx - 16.0f, ptop + 8.8f + (float)i * 7.5f, 32.0f, 1.4f, RGBA(0, 0, 0, 0.5f));
+    }
+    c2d_rect(hx - 13.0f, ptop + 30.0f, 26.0f, 10.0f, RGB(0x4a, 0x54, 0x5f));
+    c2d_rect(hx + 26.0f, ptop + 8.0f, 20.0f, 16.0f, RGB(0x39, 0x42, 0x4e));
+    const int band = sim ? DrillSim_BandState(sim) : -1;
+    const Color lamp = (band > 0) ? RGB(0xff, 0x5a, 0x28)
+                     : (band == 0) ? RGB(0xff, 0xc8, 0x4d) : RGB(0x50, 0xe1, 0xff);
+    c2d_rect(hx + 32.0f, ptop + 13.0f, 6.0f, 6.0f, lamp);
+
+    /* the collar at the surface */
+    c2d_rect(sx, top - 7.0f, sw, 7.0f, RGB(0x1c, 0x25, 0x30));
+    c2d_rect(sx, top - 7.0f, sw, 2.0f, RGBA(255, 255, 255, 0.18f));
+
+    /* a red wash over everything once the bit is genuinely hot (740) */
+    if (heat > 0.75f)
+        c2d_rect(x, y, w, h, RGBA(255, 60, 20, 0.10f * (heat - 0.75f) / 0.25f));
 }
 
 void Dash_DrillBar(float x, float y, float w, float h, const char *title,
-                   const DashDepth *depths, int depthCount)
+                   const DashDepth *depths, int depthCount,
+                   const DrillSim *sim, float dt)
 {
     Dash_Panel(x, y, w, h, (Color){0, 0, 0, 0}, 12.0f, 26.0f);
     Dash_Title(title, x + 38.0f, y + 40.0f, 25.0f, 40.0f);
-    DcRRectStroke(x + 30.0f, y + 70.0f, w - 44.0f, h - 92.0f, 8.0f, C_line, 1.5f);
-    DcRoughDrill(x + 30.0f, y + 70.0f, w - 44.0f, h - 92.0f);
-    DcRuler(x + 214.0f, y + 90.0f, y + h - 24.0f, depths, depthCount);
+
+    float fx, fy, fw, fh;
+    Dash_DrillBarFace(x, y, w, h, &fx, &fy, &fw, &fh);
+    /* the gauges sit under the title, above the hole */
+    const float gaugeH = 44.0f;
+    const DrillStratum *g = DrillSim_At(sim ? sim->depthM : 0.0f);
+    DcGauge(x + 30.0f, y + 62.0f, (w - 76.0f) * 0.5f, "SPINDLE",
+            sim ? sim->rpm / 1.35f : 0.0f, RGB(0x24, 0xdc, 0xf2),
+            g->bandLo / 1.35f, g->bandHi / 1.35f);
+    DcGauge(x + 30.0f + (w - 76.0f) * 0.5f + 16.0f, y + 62.0f, (w - 76.0f) * 0.5f,
+            "BIT TEMP", sim ? sim->heat : 0.0f,
+            (sim && sim->heat > 0.75f) ? RGB(0xff, 0x5a, 0x28) : RGB(0xff, 0xc8, 0x4d),
+            0.0f, 0.0f);
+
+    fy += gaugeH; fh -= gaugeH;
+    DcRRectStroke(fx, fy, fw, fh, 8.0f, C_line, 1.5f);
+    Vector2 clip[DC_PTS];
+    const int cn = DcRect(fx + 1.0f, fy + 1.0f, fw - 2.0f, fh - 2.0f, 7.0f, clip);
+    c2d_save();
+    c2d_clip_poly_begin(clip, cn, false);
+    DcRoughDrill(fx, fy, fw, fh, sim, dt);
+    c2d_restore();
+    /* the ruler's ends ARE the rig's surface and target, so pad 0 */
+    DcRuler(x + w - 92.0f, fy + 54.0f, fy + fh - 10.0f, depths, depthCount, 0.0f);
 }

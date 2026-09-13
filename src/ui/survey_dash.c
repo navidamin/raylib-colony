@@ -3,6 +3,7 @@
 
 #include "c2d.h"
 #include "dash_chrome.h"
+#include "drill_sim.h"
 #include "holo3d.h"
 #include "toolrack.h"
 
@@ -66,6 +67,7 @@ static Holo3DModel *g_model = NULL;
 static H3DState     g_block;
 static H3DView      g_view;
 static ToolRackData g_rack;
+static DrillSim     g_drill;
 
 /* Drag state. `moved` distinguishes a rotate from a tap, the same way the
  * JS controller does -- without it one drag suppresses the next tap. */
@@ -90,9 +92,11 @@ static const DashLogEntry *SurveyDash_DemoLog(void)
 
 static const DashDepth *SurveyDash_DemoDepths(void)
 {
+    /* the rig's own scale -- DRILL_TARGET_M is 120, so the ruler has to read
+     * metres, not the dashboard's placeholder kilometres */
     static const DashDepth d[5] = {
-        {"0 m", "SURFACE"}, {"200 m", NULL}, {"600 m", NULL},
-        {"1.15 km", NULL}, {"2.00 km", "BOREHOLE"},
+        {"0 m", "SURFACE"}, {"30 m", NULL}, {"60 m", NULL},
+        {"90 m", NULL}, {"120 m", "TARGET"},
     };
     return d;
 }
@@ -124,6 +128,7 @@ bool SurveyDash_Init(void)
     g_view.zoom = DASH_BLOCK_ZOOM;
 
     g_rack = ToolRack_Demo();
+    DrillSim_Reset(&g_drill);
     g_ready = true;
     return true;
 }
@@ -168,8 +173,9 @@ void SurveyDash_Draw(Rectangle region, float dt)
 
     Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, SurveyDash_DemoLog(), 4);
 
+    DrillSim_Step(&g_drill, dt);
     Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, "DRILL BAR",
-                  SurveyDash_DemoDepths(), 5);
+                  SurveyDash_DemoDepths(), 5, &g_drill, dt);
 
     c2d_end();
 
@@ -191,6 +197,14 @@ void SurveyDash_Press(Rectangle region, Vector2 screenPt)
     g_downPt = d;
     g_onBlock = (d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 &&
                  d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1);
+
+    /* The drill takes its input on PRESS, not release: the whole loop is a
+     * rhythm the player keeps, and waiting for the button to come up puts a
+     * lag between the tap and the kick. */
+    float fx, fy, fw, fh;
+    Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, &fx, &fy, &fw, &fh);
+    if (d.x >= fx && d.x <= fx + fw && d.y >= fy && d.y <= fy + fh)
+        DrillSim_Bite(&g_drill);
 }
 
 void SurveyDash_Drag(Rectangle region, Vector2 delta)
