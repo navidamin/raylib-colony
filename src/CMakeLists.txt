@@ -6,7 +6,7 @@
 # call raylib directly -- see docs/CANVAS2D_PORT_SPEC.md. The shim is C; the
 # header carries extern "C" guards so the C++ game can call it.
 # ---------------------------------------------------------------------------
-add_library(colony_c2d STATIC ui/c2d.c ui/holo3d.c ui/toolrack.c ui/drill_sim.c ui/dash_chrome.c ui/survey_dash.c)
+add_library(colony_c2d STATIC ui/c2d.c ui/holo3d.c ui/toolrack.c ui/drill_sim.c ui/dash_knowledge.c ui/dash_chrome.c ui/survey_dash.c)
 target_include_directories(colony_c2d PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui")
 target_link_libraries(colony_c2d PUBLIC raylib)
 set_target_properties(colony_c2d PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)

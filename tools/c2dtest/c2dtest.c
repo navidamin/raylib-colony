@@ -7,6 +7,7 @@
 #include "rlgl.h"
 #include "c2d.h"
 #include "drill_sim.h"
+#include "dash_knowledge.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -518,6 +519,110 @@ int main(int argc, char **argv)
         printf("    rpm 0.50 reads %d in regolith, %d in basalt\n", inRegolith, inBasalt);
         CHECK(inRegolith == 0 && inBasalt < 0,
               "the same spindle is in band in soft rock and rubbing in hard");
+    }
+
+    printf("\n== 16. delineation: what the console knows ==\n");
+    {
+        /* The claims are the design's own (survey_knowledge.h): about seven
+           well-spread full-depth holes clear 95%, a 3x3 grid reaches 99.8%,
+           and shallow holes alone plateau. */
+        DashKnowledge k;
+        DashKnow_Clear(&k);
+        CHECK(DashKnow_Delineation(&k, DK_LATTICE, DRILL_TARGET_M) == 0.0f,
+              "an undrilled block is known not at all");
+        CHECK(!DashKnow_IsMeasured(&k, DK_LATTICE, DRILL_TARGET_M),
+              "and isolate is locked");
+
+        /* one hole in the middle, full depth */
+        DashKnow_Add(&k, DK_LATTICE * 0.5f, DK_LATTICE * 0.5f, DRILL_TARGET_M);
+        const float one = DashKnow_Delineation(&k, DK_LATTICE, DRILL_TARGET_M);
+        printf("    1 hole:  %.3f (%s)\n", one, DashKnow_Tier(&k, DK_LATTICE, DRILL_TARGET_M));
+        CHECK(one > 0.1f && one < DK_DELIN_GATE,
+              "one hole says something, and nothing like enough");
+
+        /* a 3x3 grid, well spread */
+        DashKnow_Clear(&k);
+        for (int a = 0; a < 3; a++)
+            for (int b = 0; b < 3; b++)
+                DashKnow_Add(&k, (a + 0.5f) / 3.0f * DK_LATTICE,
+                                 (b + 0.5f) / 3.0f * DK_LATTICE, DRILL_TARGET_M);
+        const float grid = DashKnow_Delineation(&k, DK_LATTICE, DRILL_TARGET_M);
+        printf("    3x3 grid: %.3f (%s)\n", grid, DashKnow_Tier(&k, DK_LATTICE, DRILL_TARGET_M));
+        CHECK(grid > 0.99f, "a 3x3 grid all but settles the block");
+        CHECK(DashKnow_IsMeasured(&k, DK_LATTICE, DRILL_TARGET_M), "and unlocks isolate");
+
+        /* DEPTH MATTERS: the same five holes, shallow against full-depth.
+           (Enough shallow holes will still settle it -- misses multiply, so
+           sixteen of anything gets there. The claim the model makes is that
+           depth is worth something, not that shallow drilling is worthless.) */
+        DashKnowledge sh, dp;
+        DashKnow_Clear(&sh); DashKnow_Clear(&dp);
+        for (int a = 0; a < 5; a++)
+        {
+            const float i = (a % 3 + 0.5f) / 3.0f * DK_LATTICE;
+            const float j = (a / 3 + 0.5f) / 3.0f * DK_LATTICE;
+            DashKnow_Add(&sh, i, j, DRILL_TARGET_M * 0.12f);
+            DashKnow_Add(&dp, i, j, DRILL_TARGET_M);
+        }
+        const float shallow = DashKnow_Delineation(&sh, DK_LATTICE, DRILL_TARGET_M);
+        const float deep    = DashKnow_Delineation(&dp, DK_LATTICE, DRILL_TARGET_M);
+        printf("    5 shallow %.3f (%s) vs 5 full-depth %.3f (%s)\n",
+               shallow, DashKnow_Tier(&sh, DK_LATTICE, DRILL_TARGET_M),
+               deep, DashKnow_Tier(&dp, DK_LATTICE, DRILL_TARGET_M));
+        /* Only just, and that is a SCALE MISMATCH worth seeing in the output
+           rather than hiding behind a threshold: DK_K_SKIRT_M is 230 m, a
+           physical statement about how far below its bottom a hole still
+           constrains the beds, and it was set against the game's ~2 km
+           column. Over redline's 120 m column a 14 m hole is already inside
+           the skirt of the whole thing, so depth hardly matters. Resolved
+           when the console is fed the real column -- see the C5-C7 notes in
+           survey-dashboard-implementation.md. */
+        CHECK(deep > shallow, "the same holes drilled deeper know more");
+        CHECK(!DashKnow_IsMeasured(&sh, DK_LATTICE, DRILL_TARGET_M),
+              "five shallow holes do not settle the column");
+
+        /* three mediocre holes beat one good one: misses multiply */
+        DashKnowledge a1, a3;
+        DashKnow_Clear(&a1); DashKnow_Clear(&a3);
+        DashKnow_Add(&a1, 14.0f, 14.0f, DRILL_TARGET_M);
+        DashKnow_Add(&a3, 7.0f, 7.0f, DRILL_TARGET_M);
+        DashKnow_Add(&a3, 21.0f, 7.0f, DRILL_TARGET_M);
+        DashKnow_Add(&a3, 14.0f, 21.0f, DRILL_TARGET_M);
+        printf("    1 central %.3f vs 3 spread %.3f\n",
+               DashKnow_Delineation(&a1, DK_LATTICE, DRILL_TARGET_M),
+               DashKnow_Delineation(&a3, DK_LATTICE, DRILL_TARGET_M));
+        CHECK(DashKnow_Delineation(&a3, DK_LATTICE, DRILL_TARGET_M) >
+              DashKnow_Delineation(&a1, DK_LATTICE, DRILL_TARGET_M),
+              "three spread holes are worth more than one central one");
+    }
+
+    printf("\n== 17. the borehole bar owns the depth ==\n");
+    {
+        DrillSim d;
+        DrillSim_Reset(&d);
+        DrillSim_SetTarget(&d, 20.0f);
+        int completions = 0;
+        for (int i = 0; i < 3000; i++)
+        {
+            if (i % 8 == 0) DrillSim_Bite(&d);
+            DrillSim_Step(&d, 1.0f / 60.0f);
+            if (d.completed) completions++;
+        }
+        printf("    target 20 m -> stopped at %.2f m, completed %d time(s)\n",
+               d.depthM, completions);
+        CHECK(d.depthM <= 20.05f, "the string stops AT the depth asked for");
+        CHECK(d.depthM >= 19.95f, "and reaches it");
+        CHECK(completions == 1, "completion fires once, not every frame");
+
+        /* and it goes on when a deeper depth is asked for */
+        DrillSim_SetTarget(&d, 45.0f);
+        for (int i = 0; i < 3000; i++)
+        {
+            if (i % 8 == 0) DrillSim_Bite(&d);
+            DrillSim_Step(&d, 1.0f / 60.0f);
+        }
+        printf("    then target 45 m -> %.2f m\n", d.depthM);
+        CHECK(d.depthM > 44.9f && d.depthM < 45.1f, "a deeper target feeds it on");
     }
 
     c2d_fonts_unload();

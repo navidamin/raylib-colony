@@ -501,9 +501,50 @@ wiring, which the game can render as fast as a browser can.
 | **C2** | the console frame: `ComputeSurveyLayout`, the five panels, the horizontal module bar, the existing controls rehoused | **done** |
 | **C3** | the drill — glyph, cursor, planted rig, cycle, spatter, bore markers — on the block's own camera | **done** |
 | **C4** | the tool rack, five bays; the resource statement folded behind a button | **done** |
-| **C5** | the ruler, the CONFIDENCE bar, isolate gated at 95%, and the ghost compositing the flat per-bed alpha stands in for | |
-| **C6** | the borehole bar, and the depth control it owns | |
-| **C7** | derived telemetry and the log; retire the old panel and the prototypes, with their graveyard records | |
+| **C5** | the ruler, the CONFIDENCE bar, isolate gated at 95%, and the ghost compositing the flat per-bed alpha stands in for | **done** |
+| **C6** | the borehole bar, and the depth control it owns | **done** |
+| **C7** | derived telemetry and the log; retire the old panel and the prototypes, with their graveyard records | log and telemetry **done**; the retirement is not |
+
+### C5-C7 — as built, and where they landed instead
+
+The plan above was written against `src/Survey/`. The port has since moved to
+`src/ui/` — the c2d shim, Holo3D, ToolRack, `dash_chrome`, `survey_dash` — so
+these three landed there:
+
+- **Ghost compositing** was never needed as a stage. Holo3D's port does it
+  properly through `c2d_group_*` (spec 2.6): each ghost group is painted
+  opaque into its own buffer and composited **once** at 0.3, so stacked
+  ghosts do not accumulate. The flat per-bed alpha C1 stood in with is gone.
+- **The CONFIDENCE bar** is `Dash_Confidence`, reading `dash_knowledge.{h,c}`
+  — the same model as `survey_knowledge.{h,cpp}`, transcribed to C because
+  the console is a C library. The two must never disagree about the same
+  rock; when the old console retires that C++ copy goes and the C one is it.
+- **Isolate is gated.** Until the model reads MEASURED a tap on the block
+  moves the drill site instead of peeling a bed — so the player always has a
+  control, and the better one is earned.
+- **The borehole bar owns the depth.** The ruler is the control: tap a depth
+  and the string is fed to exactly there and stops. The finished hole is what
+  the model learns from, which is where C5 and C6 meet.
+- **The log is written by events**, not from a table — site moved, string set,
+  hole logged with the stratum it ended in, model MEASURED.
+
+**A scale mismatch, found by testing and not yet resolved.** `DK_K_SKIRT_M`
+is 230 m: a physical statement about how far below its own bottom a hole
+still constrains the beds, set against the game's ~2 km column. The drill is
+redline's, and redline is a **120 m** game. Over 120 m a 14 m hole is already
+inside the skirt of the entire column, so depth barely affects delineation —
+measured, five shallow holes score 0.844 against 0.888 for the same five at
+full depth. The model is not wrong and the drill is not wrong; they are
+calibrated to different columns. Resolving it means either feeding the
+console the real 2 km column (and re-tuning redline's `CUT_RATE` and
+`WEAR_PER_M`, which are per-metre and would trip the bit every 60 m over
+2 km) or accepting the drill's own scale. That is a design decision, not a
+bug fix, so it is recorded rather than guessed at.
+
+**Verified by test** — `tools/c2dtest/c2dtest.sh` sections 15-17: the click
+loop and the heat coupling, delineation against the design's own claims (a
+3x3 grid reaches 0.998, one hole 0.396, three spread holes beat one central
+one), and the depth control stopping where it was asked to.
 
 ### C1 — as built
 

@@ -1,6 +1,9 @@
 /* dash_chrome.c — see dash_chrome.h. Port of js/dashboard.html 1290-1670. */
 #include "dash_chrome.h"
 #include "drill_sim.h"
+#include "dash_knowledge.h"
+
+#include <stdio.h>
 
 #include <math.h>
 #include <string.h>
@@ -777,6 +780,61 @@ static void DcRoughDrill(float x, float y, float w, float h,
         c2d_rect(x, y, w, h, RGBA(255, 60, 20, 0.10f * (rig.heat - 0.75f) / 0.25f));
 }
 
+/* C6: the ruler's own geometry, so the picker and the painter cannot drift
+ * apart. Depth 0 sits at rulerY0, DRILL_TARGET_M at rulerY1. */
+static void DcRulerSpan(float x, float y, float w, float h,
+                        float *rx, float *ry0, float *ry1)
+{
+    float fx, fy, fw, fh;
+    Dash_DrillBarFace(x, y, w, h, &fx, &fy, &fw, &fh);
+    fy += 44.0f; fh -= 44.0f;                 /* the gauges sit above */
+    if (rx)  *rx  = x + w - 92.0f;
+    if (ry0) *ry0 = fy + 54.0f;
+    if (ry1) *ry1 = fy + fh - 10.0f;
+}
+
+float Dash_DrillBarPickDepth(float x, float y, float w, float h,
+                             float px, float py)
+{
+    float rx, ry0, ry1;
+    DcRulerSpan(x, y, w, h, &rx, &ry0, &ry1);
+    /* generous across, because the label is part of the target */
+    if (px < rx - 16.0f || px > x + w - 8.0f) return -1.0f;
+    if (py < ry0 - 6.0f || py > ry1 + 6.0f) return -1.0f;
+    return Clampf01((py - ry0) / fmaxf(1.0f, ry1 - ry0)) * DRILL_TARGET_M;
+}
+
+void Dash_Confidence(float x, float y, float w, float h,
+                     float delineation, const char *tier, bool measured)
+{
+    DcRRectFill(x, y, w, h, 8.0f, C_boxFill);
+    DcRRectStroke(x, y, w, h, 8.0f, C_boxEdge, 1.5f);
+    DcLabel("DELINEATION", x + 14.0f, y + 20.0f, 13.0f, C_depth, C2D_W500);
+
+    char pct[16];
+    snprintf(pct, sizeof(pct), "%d%%", (int)(delineation * 100.0f + 0.5f));
+    const float pw = c2d_measure(C2D_W700, 17.0f, pct);
+    c2d_text(C2D_W700, 17.0f, pct, x + w - 14.0f - pw, y + 21.0f,
+             measured ? C_accent : C_title, C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
+
+    const float bx = x + 14.0f, by = y + 30.0f, bw = w - 28.0f;
+    DcRRectFill(bx, by, bw, 10.0f, 4.0f, C_track);
+    /* the gate, marked on the bar: the last 5% is where isolate unlocks */
+    const float gx = bx + bw * DK_DELIN_GATE;
+    if (delineation > 0.01f)
+        DcRRectFill(bx, by, bw * Clampf01(delineation), 10.0f, 4.0f,
+                    measured ? C_accent : RGB(0x1c, 0x7f, 0x95));
+    c2d_rect(gx, by - 3.0f, 1.5f, 16.0f, measured ? C_accent : C_line);
+    DcRRectStroke(bx, by, bw, 10.0f, 4.0f, C_line, 1.0f);
+
+    DcLabel(tier, x + 14.0f, y + 60.0f, 14.0f,
+            measured ? C_accent : C_depth, C2D_W700);
+    DcLabel(measured ? "ISOLATE UNLOCKED -- tap a bed"
+                     : "isolate locked until MEASURED",
+            x + 14.0f + c2d_measure(C2D_W700, 14.0f, tier) + 12.0f, y + 60.0f,
+            12.0f, measured ? C_depth : RGB(0x3d, 0x4e, 0x5e), C2D_W500);
+}
+
 void Dash_DrillBar(float x, float y, float w, float h, const char *title,
                    const DashDepth *depths, int depthCount,
                    const DrillSim *sim, float dt)
@@ -806,5 +864,19 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
     DcRoughDrill(fx, fy, fw, fh, sim, dt);
     c2d_restore();
     /* the ruler's ends ARE the rig's surface and target, so pad 0 */
-    DcRuler(x + w - 92.0f, fy + 54.0f, fy + fh - 10.0f, depths, depthCount, 0.0f);
+    float rx, ry0, ry1;
+    DcRulerSpan(x, y, w, h, &rx, &ry0, &ry1);
+    DcRuler(rx, ry0, ry1, depths, depthCount, 0.0f);
+    /* C6: the depth that has been asked for, marked on the control */
+    if (sim && sim->targetM >= 0.0f)
+    {
+        const float ty = ry0 + (ry1 - ry0) * Clampf01(sim->targetM / DRILL_TARGET_M);
+        const Color mark = (sim->depthM >= sim->targetM) ? C_accent : RGB(0xff, 0xc8, 0x4d);
+        DcLine(rx - 12.0f, ty, rx + 4.0f, ty, mark, 2.5f);
+        const C2DCorner tri[3] = {{rx - 16.0f, ty - 5.0f, 0.0f},
+                                  {rx - 16.0f, ty + 5.0f, 0.0f},
+                                  {rx - 7.0f, ty, 0.0f}};
+        Vector2 v[DC_PTS];
+        c2d_fill_poly(v, c2d_rpoly_pts(tri, 3, 0.0f, 0.0f, v, DC_PTS), mark);
+    }
 }

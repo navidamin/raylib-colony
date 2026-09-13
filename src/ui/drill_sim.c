@@ -55,6 +55,14 @@ void DrillSim_Reset(DrillSim *s)
     memset(s, 0, sizeof(*s));
     s->rpm = IDLE_RPM;
     s->wear = 1.0f;
+    s->targetM = -1.0f;
+}
+
+void DrillSim_SetTarget(DrillSim *s, float depthM)
+{
+    if (!s) return;
+    s->targetM = Clampf(depthM, 0.0f, DRILL_TARGET_M);
+    if (s->targetM > s->depthM) s->done = false;
 }
 
 void DrillSim_Bite(DrillSim *s)
@@ -113,6 +121,20 @@ void DrillSim_Step(DrillSim *s, float dt)
         return;
     }
 
+    s->completed = false;
+
+    /* The string stops AT the depth that was asked for. Without this the
+     * borehole bar is a label rather than a control. */
+    const float stopAt = (s->targetM >= 0.0f) ? s->targetM : DRILL_TARGET_M;
+    if (s->depthM >= stopAt)
+    {
+        s->rpm = IDLE_RPM + (s->rpm - IDLE_RPM) * expf(-dt / RPM_TAU);
+        s->rate = 0.0f;
+        s->heat = Clampf(s->heat - HEAT_BLEED * dt, 0.0f, 1.0f);
+        s->phase -= s->rpm * 9.0f * dt;
+        return;
+    }
+
     const DrillStratum *g = DrillSim_At(s->depthM);
     s->rpm = IDLE_RPM + (s->rpm - IDLE_RPM) * expf(-dt / RPM_TAU);
 
@@ -122,7 +144,7 @@ void DrillSim_Step(DrillSim *s, float dt)
     const float lo = g->bandLo;
     const float bite = (s->rpm >= lo) ? 1.0f : (s->rpm / lo) * (s->rpm / lo);
     s->rate = s->rpm * FEED * (1.30f - g->hard * 0.85f) * CUT_RATE * bite;
-    const float adv = fminf(s->rate * dt, DRILL_TARGET_M - s->depthM);
+    const float adv = fminf(s->rate * dt, stopAt - s->depthM);
 
     s->depthM = Clampf(s->depthM + adv, 0.0f, DRILL_TARGET_M);
 
@@ -136,7 +158,13 @@ void DrillSim_Step(DrillSim *s, float dt)
                      0.0f, 1.0f);
 
     if (s->wear <= 0.0f) { DrillSim_BeginTrip(s, true); return; }
-    if (s->depthM >= DRILL_TARGET_M) { s->done = true; return; }
+    if (s->depthM >= stopAt)
+    {
+        /* the hole is finished, and the model is about to learn from it */
+        s->completed = true;
+        s->completedAtM = s->depthM;
+        if (s->depthM >= DRILL_TARGET_M) s->done = true;
+    }
 
     s->phase -= s->rpm * 9.0f * dt;
 }

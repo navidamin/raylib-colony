@@ -54,6 +54,14 @@ typedef struct DrillSim {
     float shake;                /* 0..1, decays; the click's kick        */
     bool  done;
     float t;
+
+    /* C6: the borehole bar owns the depth. Pick a depth on the ruler and the
+     * string is fed to exactly there and stops; the hole is then finished and
+     * the model learns from it. targetM < 0 means "no target": free drilling,
+     * which is what the prototype does. */
+    float targetM;
+    bool  completed;            /* set for ONE step when the target lands  */
+    float completedAtM;
 } DrillSim;
 
 void DrillSim_Reset(DrillSim *s);
@@ -64,6 +72,9 @@ void DrillSim_Bite (DrillSim *s);
 
 /* Pull the string and change the bit: costs time that scales with depth. */
 void DrillSim_BeginTrip(DrillSim *s, bool broken);
+
+/* C6: feed the string to exactly this depth and stop there. */
+void DrillSim_SetTarget(DrillSim *s, float depthM);
 
 /* Where the spindle sits relative to the current rock's band:
  * -1 rubbing, 0 in band, +1 over-driving. Drives the motor-pod lamp. */

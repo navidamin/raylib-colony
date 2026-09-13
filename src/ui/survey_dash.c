@@ -4,6 +4,9 @@
 #include "c2d.h"
 #include "dash_chrome.h"
 #include "drill_sim.h"
+#include "dash_knowledge.h"
+
+#include <stdio.h>
 #include "holo3d.h"
 #include "toolrack.h"
 
@@ -41,20 +44,22 @@
 #define DASH_RACK_X       (LEFT_X + 8.0f)
 #define DASH_RACK_Y       (PANE_TOP + 14.0f)
 
-/* the block, centred in the middle pane above the log */
+/* the block, the confidence bar, then the log, down the middle pane */
+#define CONF_H         76.0f
 #define LOG_H         196.0f
 #define LOG_X         (MID_X + 16.0f)
 #define LOG_Y         (PANE_TOP + PANE_H - LOG_H - 16.0f)
+#define CONF_Y        (LOG_Y - CONF_H - 12.0f)
 #define LOG_W         (MID_W - 32.0f)
 #define DASH_BLOCK_CX (MID_X + MID_W * 0.5f)
-#define DASH_BLOCK_CY (PANE_TOP + (LOG_Y - PANE_TOP) * 0.56f)
-#define DASH_BLOCK_ZOOM 0.235f
+#define DASH_BLOCK_CY (PANE_TOP + (CONF_Y - PANE_TOP) * 0.58f)
+#define DASH_BLOCK_ZOOM 0.205f
 
 /* the rect inside which a drag rotates the block */
 #define DASH_BLOCK_X0 (MID_X + 20.0f)
 #define DASH_BLOCK_Y0 (PANE_TOP + 20.0f)
 #define DASH_BLOCK_X1 (MID_X + MID_W - 20.0f)
-#define DASH_BLOCK_Y1 (LOG_Y - 8.0f)
+#define DASH_BLOCK_Y1 (CONF_Y - 8.0f)
 
 /* The console ships supersampled: Canvas antialiases coverage and raylib does
  * not, and 2 is where that stops paying (docs/design/prospecting/
@@ -68,6 +73,50 @@ static H3DState     g_block;
 static H3DView      g_view;
 static ToolRackData g_rack;
 static DrillSim     g_drill;
+static DashKnowledge g_know;
+
+/* The drill site, in lattice coordinates across the block. Tapping the cap
+ * moves it; the hole that lands is credited there, which is what makes
+ * spreading holes out worth doing. */
+static float g_siteI = DK_LATTICE * 0.5f, g_siteJ = DK_LATTICE * 0.5f;
+static bool  g_saidMeasured = false;
+
+static float Clampf01v(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
+
+/* C7: the log is written by what happens, not by a table. */
+#define DASH_LOG_MAX 6
+static DashLogEntry g_log[DASH_LOG_MAX];
+static char         g_logTime[DASH_LOG_MAX][8];
+static char         g_logText[DASH_LOG_MAX][96];
+static char         g_logTag [DASH_LOG_MAX][24];
+static int          g_logCount = 0;
+
+static void DashLog_Push(float t, const char *text, const char *tag)
+{
+    for (int i = (g_logCount < DASH_LOG_MAX ? g_logCount : DASH_LOG_MAX - 1); i > 0; i--)
+    {
+        memcpy(g_logTime[i], g_logTime[i - 1], sizeof(g_logTime[0]));
+        memcpy(g_logText[i], g_logText[i - 1], sizeof(g_logText[0]));
+        memcpy(g_logTag [i], g_logTag [i - 1], sizeof(g_logTag[0]));
+    }
+    snprintf(g_logTime[0], sizeof(g_logTime[0]), "%02d:%02d",
+             (int)(t / 60.0f) % 100, (int)t % 60);
+    snprintf(g_logText[0], sizeof(g_logText[0]), "%s", text);
+    snprintf(g_logTag [0], sizeof(g_logTag [0]), "%s", tag ? tag : "");
+    if (g_logCount < DASH_LOG_MAX) g_logCount++;
+    for (int i = 0; i < g_logCount; i++)
+    {
+        g_log[i].time = g_logTime[i];
+        g_log[i].parts[0] = (DashLogPart){g_logText[i], false};
+        g_log[i].partCount = 1;
+        if (g_logTag[i][0])
+        {
+            g_log[i].parts[1] = (DashLogPart){g_logTag[i], true};
+            g_log[i].partCount = 2;
+        }
+        g_log[i].chipCount = 0;
+    }
+}
 
 /* Drag state. `moved` distinguishes a rotate from a tap, the same way the
  * JS controller does -- without it one drag suppresses the next tap. */
@@ -129,6 +178,10 @@ bool SurveyDash_Init(void)
 
     g_rack = ToolRack_Demo();
     DrillSim_Reset(&g_drill);
+    DashKnow_Clear(&g_know);
+    g_saidMeasured = false;
+    g_logCount = 0;
+    DashLog_Push(0.0f, "Console online. Tap the cap to set a site, the ruler to set a depth.", NULL);
     g_ready = true;
     return true;
 }
@@ -171,9 +224,29 @@ void SurveyDash_Draw(Rectangle region, float dt)
     Holo3D_Render(g_model, &g_block, &g_view);
     Holo3D_DrawHud(g_model, &g_block, &g_view, &hud);
 
-    Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, SurveyDash_DemoLog(), 4);
+    Dash_Confidence(LOG_X, CONF_Y, LOG_W, CONF_H,
+                    DashKnow_Delineation(&g_know, DK_LATTICE, DRILL_TARGET_M),
+                    DashKnow_Tier(&g_know, DK_LATTICE, DRILL_TARGET_M),
+                    DashKnow_IsMeasured(&g_know, DK_LATTICE, DRILL_TARGET_M));
+    Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, g_log, g_logCount);
 
     DrillSim_Step(&g_drill, dt);
+    if (g_drill.completed)
+    {
+        /* C5+C6 meet here: a finished hole is what the model learns from. */
+        DashKnow_Add(&g_know, g_siteI, g_siteJ, g_drill.completedAtM);
+        char msg[96];
+        snprintf(msg, sizeof(msg), "Hole to %d m logged at site %d/%d in ",
+                 (int)(g_drill.completedAtM + 0.5f), (int)g_siteI, (int)g_siteJ);
+        DashLog_Push(g_drill.t, msg, DrillSim_At(g_drill.completedAtM)->name);
+        /* announced ONCE -- it fires on a completion, and every later hole
+         * is also a completion with the model still measured */
+        if (!g_saidMeasured && DashKnow_IsMeasured(&g_know, DK_LATTICE, DRILL_TARGET_M))
+        {
+            DashLog_Push(g_drill.t, "Model MEASURED. Isolate unlocked.", NULL);
+            g_saidMeasured = true;
+        }
+    }
     Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, "DRILL BAR",
                   SurveyDash_DemoDepths(), 5, &g_drill, dt);
 
@@ -197,6 +270,19 @@ void SurveyDash_Press(Rectangle region, Vector2 screenPt)
     g_downPt = d;
     g_onBlock = (d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 &&
                  d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1);
+
+    /* C6: the ruler is the depth control. Checked before the face, because
+     * it sits inside the bar and a click on it must arm rather than drill. */
+    const float pick = Dash_DrillBarPickDepth(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, d.x, d.y);
+    if (pick >= 0.0f)
+    {
+        DrillSim_SetTarget(&g_drill, pick);
+        char msg[96];
+        snprintf(msg, sizeof(msg), "String set to %d m. Tap the hole to feed it down.",
+                 (int)(pick + 0.5f));
+        DashLog_Push(g_drill.t, msg, NULL);
+        return;
+    }
 
     /* The drill takes its input on PRESS, not release: the whole loop is a
      * rhythm the player keeps, and waiting for the button to come up puts a
@@ -233,7 +319,28 @@ void SurveyDash_Release(Rectangle region, Vector2 screenPt)
         if (g_onBlock)
         {
             const int bed = Holo3D_Hit(g_model, d.x, d.y);
-            if (bed >= 0) Holo3D_Select(&g_block, bed);
+            /* C5: isolate is GATED. Until the model is MEASURED a tap on the
+             * block moves the drill site instead of peeling a bed -- the
+             * control the player has before they have earned the other one. */
+            if (DashKnow_IsMeasured(&g_know, DK_LATTICE, DRILL_TARGET_M))
+            {
+                if (bed >= 0) Holo3D_Select(&g_block, bed);
+            }
+            else
+            {
+                /* the site, from where the tap landed across the block */
+                const float u = Clampf01v((d.x - DASH_BLOCK_X0) / (DASH_BLOCK_X1 - DASH_BLOCK_X0));
+                const float v = Clampf01v((d.y - DASH_BLOCK_Y0) / (DASH_BLOCK_Y1 - DASH_BLOCK_Y0));
+                g_siteI = u * (float)DK_LATTICE;
+                g_siteJ = v * (float)DK_LATTICE;
+                g_drill.depthM = 0.0f;      /* a new site is a new hole */
+                g_drill.lift = 0.0f;
+                g_drill.done = false;
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Site moved to %d/%d. Collared.",
+                         (int)g_siteI, (int)g_siteJ);
+                DashLog_Push(g_drill.t, msg, NULL);
+            }
         }
         else
         {

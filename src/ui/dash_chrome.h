@@ -67,6 +67,15 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
 void Dash_DrillBarFace(float x, float y, float w, float h,
                        float *fx, float *fy, float *fw, float *fh);
 
+/* C6: the ruler is the depth control. Returns the depth in metres a click at
+ * `py` selects, or -1 if the click is not on the ruler. `armed` draws it lit,
+ * which is what tells the player it has become a control. */
+float Dash_DrillBarPickDepth(float x, float y, float w, float h, float px, float py);
+
+/* C5: delineation, its tier, and the gate isolate waits on. */
+void Dash_Confidence(float x, float y, float w, float h,
+                     float delineation, const char *tier, bool measured);
+
 #ifdef __cplusplus
 }
 #endif
