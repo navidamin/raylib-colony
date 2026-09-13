@@ -304,8 +304,16 @@ UI modules are ported from procedural Canvas 2D JS in `js/`. This is a
   is allowed to appear.
 - Before porting, produce the gap inventory table required by the spec.
 - A port is not done until the visual diff is under 2%. Run it with
-  `SS=2 tools/visdiff/visdiff.sh` -- `c2d_set_supersample(2)` is what the
-  console ships with, and the gate is measured in the same configuration.
+  `SS=2 tools/visdiff/visdiff.sh` (or `visdiff_toolrack.sh`) --
+  `c2d_set_supersample(2)` is what the console ships with, and the gate is
+  measured in the same configuration.
+- Two ways to draw a `shadowBlur`, and the choice matters:
+  `c2d_glow_stroke` / `c2d_glow_fill` dilate one shape and stack passes,
+  which is cheap and right for an isolated shape; `c2d_shadow_begin` /
+  `c2d_shadow_end` blur a whole layer once, which is what Canvas actually
+  does and the only correct choice where several shapes share one `glowOn`
+  or the path is dashed. Stacking put the rack's dashed ellipse at 0.81 in
+  the gaps where the reference reads 0.16.
 
 Two corrections to the spec's own S3.5 count table, verified by grepping all
 four modules (7 of its 10 rows, and every total, match exactly):

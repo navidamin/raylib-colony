@@ -1038,6 +1038,177 @@ void c2d_clip_end(void)
     c2d_base_space_end();
 }
 
+/* ================================================================== */
+/* 6b. shadowBlur as a layer blur  (spec 2.3, third amendment)         */
+/* ================================================================== */
+
+/* Canvas blurs the alpha of everything drawn under one shadow setting, once,
+ * and composites that once. Reproduced here as: draw into a layer, downsample
+ * it, box-blur the small copy (three boxes approximate a Gaussian closely
+ * enough at these radii), lay the blurred copy underneath in the shadow
+ * colour, then blit the layer's own sharp pixels over it.
+ *
+ * Downsampling first is what makes it affordable: sigma 8 at full res is
+ * sigma 1 at 1/8 scale, so the blur is a handful of bilinear taps on a small
+ * target rather than fifty on a 3200x2600 one. */
+#define C2D_SHADOW_BOXES 3
+
+/* The downsample factor is CHOSEN PER BLUR, not fixed. A fixed 8 is right for
+ * blur 16 and quite wrong for blur 5: sigma lands below one small-target
+ * pixel, the box radius clamps to 1 and the shadow comes out twice as wide as
+ * it should, while a 2px stroke shrinks to a quarter of a pixel and loses
+ * most of its ink on the way down. Fixed-8 measured 3.51% against 2.82% for
+ * the one site that had been converted. Aim instead for sigma ~2 on the small
+ * target, whatever the blur, and keep a slot per factor so the targets are
+ * not reallocated as the console alternates between blurs. */
+#define C2D_SHADOW_SLOTS 6
+
+typedef struct C2DBlurSlot { RenderTexture2D a, b; int w, h; } C2DBlurSlot;
+static C2DBlurSlot g_blur[C2D_SHADOW_SLOTS];
+static bool g_shadow_open = false;
+
+static C2DBlurSlot *c2d_blur_targets(int w, int h)
+{
+    for (int i = 0; i < C2D_SHADOW_SLOTS; i++)
+        if (g_blur[i].a.id != 0 && g_blur[i].w == w && g_blur[i].h == h) return &g_blur[i];
+    for (int i = 0; i < C2D_SHADOW_SLOTS; i++)
+        if (g_blur[i].a.id == 0)
+        {
+            g_blur[i].a = LoadRenderTexture(w, h);
+            g_blur[i].b = LoadRenderTexture(w, h);
+            SetTextureFilter(g_blur[i].a.texture, TEXTURE_FILTER_BILINEAR);
+            SetTextureFilter(g_blur[i].b.texture, TEXTURE_FILTER_BILINEAR);
+            g_blur[i].w = w; g_blur[i].h = h;
+            return &g_blur[i];
+        }
+    /* all slots taken by other sizes: recycle the first */
+    UnloadRenderTexture(g_blur[0].a);
+    UnloadRenderTexture(g_blur[0].b);
+    g_blur[0].a = LoadRenderTexture(w, h);
+    g_blur[0].b = LoadRenderTexture(w, h);
+    SetTextureFilter(g_blur[0].a.texture, TEXTURE_FILTER_BILINEAR);
+    SetTextureFilter(g_blur[0].b.texture, TEXTURE_FILTER_BILINEAR);
+    g_blur[0].w = w; g_blur[0].h = h;
+    return &g_blur[0];
+}
+
+/* One separable box pass: 2r+1 equally weighted taps along one axis.
+ *
+ * NOT BLEND_ADDITIVE, which is (SRC_ALPHA, ONE) and therefore accumulates
+ * dst.a += src.a * src.a -- the alpha gets SQUARED. With a tap weight of 0.2
+ * that multiplies the alpha by 0.2 every pass, and six passes take a solid
+ * shadow to 6e-5, i.e. to nothing. It read as "the blur target is empty" and
+ * cost a long hunt through the downsample chain, which was fine all along.
+ *
+ * So: a separate-factor blend that leaves RGB alone and adds alpha linearly,
+ * over a target pre-cleared to WHITE with zero alpha. The result carries the
+ * blurred coverage in its alpha and white in its colour, which is exactly
+ * what the composite wants -- it tints white with the shadow colour. */
+static void c2d_blur_axis(RenderTexture2D src, RenderTexture2D dst,
+                          float dx, float dy, int radius)
+{
+    const int taps = radius * 2 + 1;
+    const float wgt = 1.0f / (float)taps;
+    BeginTextureMode(dst);
+    ClearBackground((Color){255, 255, 255, 0});
+    rlSetBlendFactorsSeparate(RL_ZERO, RL_ONE, RL_ONE, RL_ONE, RL_FUNC_ADD, RL_FUNC_ADD);
+    BeginBlendMode(BLEND_CUSTOM_SEPARATE);
+    const Rectangle srcR = {0.0f, 0.0f, (float)src.texture.width,
+                            -(float)src.texture.height};
+    for (int i = -radius; i <= radius; i++)
+    {
+        const Rectangle d = {dx * (float)i, dy * (float)i,
+                             (float)dst.texture.width, (float)dst.texture.height};
+        DrawTexturePro(src.texture, srcR, d, (Vector2){0.0f, 0.0f}, 0.0f,
+                       (Color){255, 255, 255, (unsigned char)(wgt * 255.0f + 0.5f)});
+    }
+    EndBlendMode();
+    EndTextureMode();
+}
+
+void c2d_shadow_begin(void)
+{
+    if (g_shadow_open) return;
+    if (!c2d_layer_push()) return;
+    g_clip[g_clip_top - 1].isTextMask = true;   /* close with a plain blit */
+    g_clip[g_clip_top - 1].n = 0;
+    g_shadow_open = true;
+}
+
+void c2d_shadow_end(Color shadow, float blur)
+{
+    if (!g_shadow_open) return;
+    g_shadow_open = false;
+    if (g_clip_top <= 0) return;
+
+    C2DClipLevel *L = &g_clip[g_clip_top - 1];
+
+    /* LEAVE THE LAYER FIRST. BeginTextureMode does not nest -- running the
+     * blur passes while the layer was still bound unbalanced the target and
+     * silently dropped everything drawn inside the shadow (the rack's drill
+     * head and its selected-slot outline both vanished). */
+    c2d_unbind();
+    g_clip_top--;
+
+    const float sigmaLayer = blur * 0.5f * (float)g_ss;   /* Canvas: sigma = blur/2 */
+    /* A POWER OF TWO, reached by repeated halving. Bilinear minification
+     * samples four texels regardless of the ratio, so going straight from the
+     * full layer to 1/7 scale throws away most of a thin stroke's ink and the
+     * shadow comes out far too faint -- which is exactly what it did. Halving
+     * is the one ratio bilinear averages correctly, so step down. */
+    int down = 1;
+    while (down * 2 <= 8 && (float)(down * 2) <= sigmaLayer * 0.5f) down *= 2;
+    const int sw = g_surface->w * g_ss, sh = g_surface->h * g_ss;
+    const int bw = sw / down, bh = sh / down;
+    const bool doBlur = (blur > 0.0f && bw > 1 && bh > 1);
+    C2DBlurSlot *slot = NULL;
+
+    if (doBlur)
+    {
+        Texture2D cur = L->rt.texture;
+        for (int d = (down > 1) ? 2 : 1; d <= down; d *= 2)
+        {
+            const int tw = sw / d, th = sh / d;
+            slot = c2d_blur_targets(tw, th);
+            BeginTextureMode(slot->a);
+            ClearBackground(BLANK);
+            const Rectangle csrc = {0.0f, 0.0f, (float)cur.width, -(float)cur.height};
+            DrawTexturePro(cur, csrc, (Rectangle){0.0f, 0.0f, (float)tw, (float)th},
+                           (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
+            EndTextureMode();
+            cur = slot->a.texture;
+            if (d == 1) break;
+        }
+
+        /* A box of radius r has variance r(r+1)/3; three of them sum to
+         * sigma^2, so r solves r(r+1) = sigma^2. */
+        const float sigmaSmall = sigmaLayer / (float)down;
+        int r = (int)(0.5f * (sqrtf(1.0f + 4.0f * sigmaSmall * sigmaSmall) - 1.0f) + 0.5f);
+        if (r < 1) r = 1;
+        if (r > 24) r = 24;
+        for (int i = 0; i < C2D_SHADOW_BOXES; i++)
+        {
+            c2d_blur_axis(slot->a, slot->b, 1.0f, 0.0f, r);
+            c2d_blur_axis(slot->b, slot->a, 0.0f, 1.0f, r);
+        }
+    }
+
+    c2d_bind_current();
+    c2d_base_space_begin();
+    if (doBlur)
+    {
+        const Rectangle bsrc = {0.0f, 0.0f, (float)bw, -(float)bh};
+        const Rectangle bdst = {0.0f, 0.0f, (float)g_surface->w, (float)g_surface->h};
+        DrawTexturePro(slot->a.texture, bsrc, bdst, (Vector2){0.0f, 0.0f}, 0.0f,
+                       c2d_tint(shadow));
+    }
+    const Rectangle src = {0.0f, 0.0f, (float)L->rt.texture.width,
+                           -(float)L->rt.texture.height};
+    const Rectangle dst = {0.0f, 0.0f, (float)g_surface->w, (float)g_surface->h};
+    DrawTexturePro(L->rt.texture, src, dst, (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
+    c2d_base_space_end();
+}
+
 static void c2d_clip_pop_to(int depth)
 {
     while (g_clip_top > depth) c2d_clip_end();

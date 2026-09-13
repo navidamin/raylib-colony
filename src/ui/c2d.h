@@ -175,6 +175,31 @@ void c2d_glow_polygon(const Vector2 *pts, int n, Color c, float w, float blur);
 void c2d_glow_dashed_phase(const Vector2 *pts, int n, float on, float off,
                            float phase, Color c, float w, float blur);
 
+/* ------------------------------------------------------------------ */
+/* shadowBlur, done properly  (spec 2.3, third amendment)              */
+/* ------------------------------------------------------------------ */
+
+/* The dilate-and-stack glows above approximate a shadow per SHAPE. Canvas
+ * does something different: it blurs the alpha of everything drawn under the
+ * shadow setting, ONCE, and composites that once. The difference is invisible
+ * for one isolated stroke and severe for a dashed path -- measured on the
+ * rack's drill ellipse, the reference reads 0.16 in the gap between two dashes
+ * and stacked per-dash halos read 0.81, because a round cap carries full
+ * strength three sigma past the end of every dash.
+ *
+ * So: open a shadow layer, draw whatever the JS draws between glowOn and
+ * glowOff, and close it. The layer's own pixels are composited sharp, and a
+ * blurred copy is laid underneath in the shadow colour -- which is the order
+ * and the arithmetic Canvas uses.
+ *
+ *     c2d_shadow_begin();
+ *     ... draws ...
+ *     c2d_shadow_end(shadowColour, blur);
+ *
+ * Nestable inside a clip; not inside another shadow. */
+void c2d_shadow_begin(void);
+void c2d_shadow_end(Color shadow, float blur);
+
 /* shadowBlur applies to whatever is painted next, and Canvas paints fills as
  * readily as strokes -- five of ToolRack's seven glow sites glow a FILL. A
  * filled shape's shadow is its own silhouette blurred outward, so stroking

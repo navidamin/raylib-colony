@@ -163,3 +163,73 @@ grained region against the reference's) rather than pixel identity.
 The shim work in "Six things" comes first, with a `c2dtest` assertion for
 each before it is used — the spec's rule is not to start a step before the
 previous one has a passing test. Then the module, then the diff at `SS=2`.
+
+---
+
+## Result
+
+`SS=2 tools/visdiff/visdiff_toolrack.sh`, grain off on both sides:
+
+| | Differing px | % |
+|---|---:|---:|
+| first render | 33,249 | 8.11 |
+| **now** | **7,517** | **1.83** |
+| glow disabled on both sides | 5,712 | 1.39 |
+
+**Under the spec's 2% gate.** Glow now accounts for 0.44pp of the total,
+where the per-shape approximation cost 1.65pp.
+
+What the module turned up, beyond the six shim gaps this file predicted:
+
+1. **Every string was 24% too small** — the em-square bug. Written up in
+   `holo3d-inventory.md`; it is the single largest correction in either port
+   and it invalidated the earlier "Chromium rasterises text heavier" theory.
+2. **Gradient text painted its whole bounding box.** Masking a gradient by
+   multiplying in the glyphs' alpha is a no-op outside the glyphs. Now the
+   glyphs are stencilled first and the gradient drawn over them with a blend
+   that replaces colour and keeps alpha.
+3. **`c2d_glow_stroke` drops the closing segment** of a closed path — on a
+   rounded rect built corner-first that is the whole left edge, and the
+   selected slot's outline was missing one side. `c2d_glow_polygon` added.
+4. **`lineDashOffset` had the wrong sign**, putting every dash exactly in the
+   reference's gaps. A symmetric unit test cannot see this; the render can.
+5. **Both glows ramped linearly** where Canvas falls off as a Gaussian —
+   see the third amendment below.
+
+## Third amendment to spec 2.3: shadowBlur as a layer blur
+
+The spec's glow is a per-shape approximation: dilate the shape and stack
+passes. That is fine for one isolated stroke on a dark ground and wrong
+wherever shapes share a shadow, because Canvas blurs the alpha of everything
+drawn under one shadow setting **once** and composites that once, whereas
+stacking composites each shape's halo separately with source-over.
+
+Measured on the rack's dashed drill ellipse: between two dashes the reference
+reads 0.16 and stacked per-dash halos read 0.81, because a round cap carries
+full strength three sigma past the end of every dash.
+
+`c2d_shadow_begin()` / `c2d_shadow_end(colour, blur)` do it properly — draw
+into a layer, downsample, box-blur, composite the blurred copy underneath in
+the shadow colour and the sharp pixels over it. Three findings from building
+it, each of which presented as "the shadow is empty":
+
+- **`BeginTextureMode` does not nest.** Running the blur while the layer was
+  still bound unbalanced the target and silently dropped everything drawn
+  inside the shadow. Unbind first.
+- **Bilinear minification undersamples.** Going straight from the full layer
+  to 1/7 scale throws away most of a thin stroke's ink. Halving repeatedly is
+  the one ratio bilinear averages correctly, so the factor is a power of two
+  reached in steps.
+- **`BLEND_ADDITIVE` squares the alpha.** It is `(SRC_ALPHA, ONE)`, so
+  `dst.a += src.a * src.a`; with a tap weight of 0.2 that multiplies alpha by
+  0.2 every pass and six passes take a solid shadow to 6e-5. The blur uses a
+  separate-factor blend that adds alpha linearly over a target pre-cleared to
+  white with zero alpha.
+
+**Both forms stay in the shim, and that is deliberate.** The layer blur costs
+a full-surface clear, a downsample chain and six blur passes per shadow;
+Holo3D sets `shadowBlur` per stroke and draws dozens of them per frame, so
+converting it would mean dozens of full-surface passes and it is already at
+1.15%. The rule: `c2d_glow_stroke` / `c2d_glow_fill` for an isolated shape,
+`c2d_shadow_begin` / `c2d_shadow_end` wherever shapes share one `glowOn` or
+the path is dashed.

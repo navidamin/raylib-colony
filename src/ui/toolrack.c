@@ -445,7 +445,7 @@ static void TrDrawPillB(float cy, bool on, bool fx)
     {
         Vector2 p[TR_PTS_MAX];
         const int n = TrRectPts(cx - 10.5f, cy - 28.0f, 21.0f, 56.0f, 5.0f, p);
-        if (fx) c2d_glow_fill(p, n, PB_coreEdge, 16.0f);
+        if (fx) { c2d_shadow_begin(); c2d_fill_poly(p, n, PB_coreEdge); c2d_shadow_end(PB_glow, 16.0f); }
         else    c2d_fill_poly(p, n, PB_coreEdge);
         TrRRectFill(cx - 10.0f, cy - 27.5f, 20.0f, 55.0f, 4.5f, PB_core);
         TrRRectFill(cx - 5.0f, cy - 23.0f, 10.0f, 46.0f, 3.0f, RGBA(255, 255, 255, 0.22f));
@@ -480,7 +480,7 @@ static void TrDrawRowB(const ToolRackTool *tool, bool active, bool selected, int
         {
             Vector2 p[TR_PTS_MAX];
             const int n = TrRectPts(ix, iy, iw, ih, 7.0f, p);
-            if (fx) c2d_glow_polygon(p, n, PB_sel, 2.0f, 14.0f);
+            if (fx) { c2d_shadow_begin(); c2d_polygon(p, n, PB_sel, 2.0f); c2d_shadow_end(PB_sel, 14.0f); }
             else    c2d_polygon(p, n, PB_sel, 2.0f);
         }
         const Color selRim = RGB(0x12, 0x50, 0x5f);
@@ -550,7 +550,7 @@ static void TrDrawRowB(const ToolRackTool *tool, bool active, bool selected, int
     const int pn = TrPoly(pip, 6, 0.0f, 0.0f, pp);
     if (on)
     {
-        if (fx) c2d_glow_fill(pp, pn, PB_pipEdge, 14.0f);
+        if (fx) { c2d_shadow_begin(); c2d_fill_poly(pp, pn, PB_pipEdge); c2d_shadow_end(PB_glow, 14.0f); }
         else    c2d_fill_poly(pp, pn, PB_pipEdge);
         const C2DCorner in[6] = {
             {px + 1.0f, py + 1.0f, 0.0f}, {px + 8.5f, py + 1.0f, 0.0f},
@@ -578,9 +578,9 @@ static void TrIconDrillStriped(float cx, float cy, bool on, bool fx)
     const Color el = on ? PB_ellipseCol : PB_iconOffDk;
     if (on && fx)
     {
-        const Vector2 head[4] = {{cx - 13.0f, cy - 37.0f}, {cx + 13.0f, cy - 37.0f},
-                                 {cx + 13.0f, cy - 11.0f}, {cx - 13.0f, cy - 11.0f}};
-        c2d_glow_fill(head, 4, c, 6.0f);
+        c2d_shadow_begin();
+        c2d_rect(cx - 13.0f, cy - 37.0f, 26.0f, 26.0f, c);
+        c2d_shadow_end(PB_glow, 6.0f);
     }
     else
     {
@@ -604,10 +604,16 @@ static void TrIconDrillStriped(float cx, float cy, bool on, bool fx)
     Vector2 ell[128];
     const int en = c2d_ellipse_pts((Vector2){cx, cy + 21.5f}, 40.5f, 16.0f, 0.0f,
                                    0.0f, TAU, ell, 96);
-    /* dashed AND glowing: the halo follows each dash, so the glow lives
-     * inside the dash walker rather than over a solid ring */
-    if (on && fx) c2d_glow_dashed_phase(ell, en, 7.0f, 4.0f, 3.0f, el, 2.5f, 5.0f);
-    else          c2d_dashed_polyline_phase(ell, en, 7.0f, 4.0f, 3.0f, el, 2.5f);
+    /* glowOn(PB.glow, 5) around the dashed ellipse. A real shadow layer, not
+     * a per-dash halo: the halos of neighbouring dashes have to SUM before
+     * they are composited, and stacking them source-over filled the gaps. */
+    if (on && fx)
+    {
+        c2d_shadow_begin();
+        c2d_dashed_polyline_phase(ell, en, 7.0f, 4.0f, 3.0f, el, 2.5f);
+        c2d_shadow_end(PB_glow, 5.0f);
+    }
+    else c2d_dashed_polyline_phase(ell, en, 7.0f, 4.0f, 3.0f, el, 2.5f);
 }
 
 static void TrIconSeismicWide(float cx, float cy, bool on, bool fx)
@@ -619,7 +625,7 @@ static void TrIconSeismicWide(float cx, float cy, bool on, bool fx)
     Vector2 p[15];
     for (int i = 0; i < 15; i++) p[i] = (Vector2){cx + pts[i][0], cy + pts[i][1] + 3.0f};
     const Color c = on ? PB_trace : RGB(0x8f, 0xa6, 0xbd);
-    if (on && fx) c2d_glow_stroke(p, 15, c, 2.0f, 5.0f);
+    if (on && fx) { c2d_shadow_begin(); c2d_polyline(p, 15, c, 2.0f); c2d_shadow_end(PB_glow, 5.0f); }
     else          c2d_polyline(p, 15, c, 2.0f);
 }
 
@@ -628,17 +634,21 @@ static void TrIconSonar(float cx, float cy, bool on, bool fx)
     const Color c = on ? PB_head : PB_iconOff;
     const float ox = cx - 14.0f, oy = cy + 12.0f;
     const float radii[3] = {15.0f, 28.0f, 41.0f};
+    /* one glowOn spans the arcs, the emitter and the bearing line (661-668),
+     * so they share one shadow layer -- which is also what makes their halos
+     * sum rather than stack */
+    if (on && fx) c2d_shadow_begin();
     for (int i = 0; i < 3; i++)
     {
         Vector2 arc[96];
         const int n = c2d_ellipse_pts((Vector2){ox, oy}, radii[i], radii[i], 0.0f,
                                       -PI * 0.44f, PI * 0.1f, arc, 48);
-        if (on && fx) c2d_glow_stroke(arc, n, c, 3.0f, 6.0f);
-        else          c2d_polyline(arc, n, c, 3.0f);
+        c2d_polyline(arc, n, c, 3.0f);
     }
     c2d_disc((Vector2){ox, oy}, 5.0f, c);
     const Vector2 bearing[2] = {{ox, oy}, {ox + 40.0f, oy - 30.0f}};
     c2d_dashed_polyline(bearing, 2, 3.0f, 4.0f, c, 1.5f);
+    if (on && fx) c2d_shadow_end(PB_glow, 6.0f);
 }
 
 /* rover (380, variant A) -- the dashboard's slot 3 asks for it by name */

@@ -377,7 +377,9 @@ static void DcRoughDrill(float x, float y, float w, float h)
         const float py = y + 205.0f + (float)k * 95.0f;
         Vector2 p[DC_PTS];
         const int pn = DcRect(cx - 7.0f, py, 14.0f, 50.0f, 5.0f, p);
-        c2d_glow_fill(p, pn, C_accent, 12.0f);
+        c2d_shadow_begin();
+        c2d_fill_poly(p, pn, C_accent);
+        c2d_shadow_end(C_accent, 12.0f);
         c2d_rect(cx - 3.0f, py + 6.0f, 6.0f, 38.0f, RGBA(255, 255, 255, 0.4f));
     }
 
