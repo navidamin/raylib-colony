@@ -39,19 +39,43 @@ static int g_ss = 1;
 void c2d_set_supersample(int n) { g_ss = (n < 1) ? 1 : (n > 4 ? 4 : n); }
 int  c2d_supersample(void)      { return g_ss; }
 
-/* BeginTextureMode loads an identity modelview, so the scale has to be
- * pushed after it and popped before the matching End -- every bind in this
- * file goes through these two. */
+/* BeginTextureMode loads an identity modelview, so the supersample scale and
+ * the caller's transform both have to be (re)applied after it -- every bind in
+ * this file goes through these two.
+ *
+ * c2d_load_matrix is declared here and defined with the transform stack; the
+ * two are one mechanism, and every draw in the shim ends up under whatever it
+ * last loaded. */
+static void c2d_load_matrix(bool with_user_transform);
+
 static void c2d_bind(RenderTexture2D rt)
 {
     BeginTextureMode(rt);
-    if (g_ss > 1) { rlPushMatrix(); rlScalef((float)g_ss, (float)g_ss, 1.0f); }
+    rlPushMatrix();
+    c2d_load_matrix(true);
 }
 
 static void c2d_unbind(void)
 {
-    if (g_ss > 1) { rlDrawRenderBatchActive(); rlPopMatrix(); }
+    rlDrawRenderBatchActive();
+    rlPopMatrix();
     EndTextureMode();
+}
+
+/* Composites (clip, group, cache) blit a whole layer in SURFACE space. If the
+ * caller has a transform pushed, the blit must not inherit it -- the layer's
+ * contents were already drawn under it. Bracket every composite with these. */
+static void c2d_base_space_begin(void)
+{
+    rlDrawRenderBatchActive();
+    rlPushMatrix();
+    c2d_load_matrix(false);
+}
+
+static void c2d_base_space_end(void)
+{
+    rlDrawRenderBatchActive();
+    rlPopMatrix();
 }
 
 C2DSurface c2d_surface_create(int design_w, int design_h)
@@ -122,17 +146,116 @@ Vector2 c2d_to_design(C2DSurface *s, Vector2 p)
 
 static float g_alpha[C2D_STACK_MAX] = {1.0f};
 static int   g_alpha_top = 0;
-static int   g_save[C2D_STACK_MAX];
-static int   g_save_top = 0;
+
+/* ctx.save() snapshots alpha, transform AND clip depth; ctx.restore() unwinds
+ * all three. ToolRack's `slab` depends on the last one: it opens two clips and
+ * closes both with a single restore. */
+typedef struct C2DSaved { int alpha, xform, clip; } C2DSaved;
+static C2DSaved g_save[C2D_STACK_MAX];
+static int      g_save_top = 0;
+
+/* 2x3 affine, row major: [a c e ; b d f], same layout as Canvas setTransform. */
+typedef struct C2DMat { float a, b, c, d, e, f; } C2DMat;
+static const C2DMat C2D_IDENTITY = {1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+static C2DMat g_xform[C2D_STACK_MAX] = {{1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}};
+static int    g_xform_top = 0;
+
+static int c2d_clip_depth(void);
+static void c2d_clip_pop_to(int depth);
+static void c2d_xform_apply(void);
+
+static C2DMat c2d_mat_mul(C2DMat m, C2DMat n)
+{
+    /* n applied first, then m -- the Canvas convention, so translate then
+     * scale composes the way the JS reads. */
+    C2DMat o;
+    o.a = m.a * n.a + m.c * n.b;
+    o.b = m.b * n.a + m.d * n.b;
+    o.c = m.a * n.c + m.c * n.d;
+    o.d = m.b * n.c + m.d * n.d;
+    o.e = m.a * n.e + m.c * n.f + m.e;
+    o.f = m.b * n.e + m.d * n.f + m.f;
+    return o;
+}
+
+/* rlgl wants a 4x4. The supersample scale is always on; the caller's affine
+ * rides on top of it. */
+static void c2d_load_matrix(bool with_user_transform)
+{
+    rlLoadIdentity();
+    if (g_ss > 1) rlScalef((float)g_ss, (float)g_ss, 1.0f);
+    if (!with_user_transform) return;
+    const C2DMat m = g_xform[g_xform_top];
+    if (m.a == 1.0f && m.b == 0.0f && m.c == 0.0f &&
+        m.d == 1.0f && m.e == 0.0f && m.f == 0.0f) return;
+    const float mat[16] = {
+        m.a,  m.b,  0.0f, 0.0f,
+        m.c,  m.d,  0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        m.e,  m.f,  0.0f, 1.0f,
+    };
+    rlMultMatrixf(mat);
+}
+
+static void c2d_xform_apply(void)
+{
+    /* the batch is queued, not drawn -- flush before the matrix moves under it */
+    rlDrawRenderBatchActive();
+    c2d_load_matrix(true);
+}
+
+Vector2 c2d_transform_pt(Vector2 p)
+{
+    const C2DMat m = g_xform[g_xform_top];
+    return (Vector2){m.a * p.x + m.c * p.y + m.e, m.b * p.x + m.d * p.y + m.f};
+}
+
+static void c2d_xform_push(C2DMat m)
+{
+    if (g_xform_top + 1 >= C2D_STACK_MAX) return;
+    g_xform[g_xform_top + 1] = c2d_mat_mul(g_xform[g_xform_top], m);
+    g_xform_top++;
+    c2d_xform_apply();
+}
+
+void c2d_translate(float x, float y)
+{
+    c2d_xform_push((C2DMat){1.0f, 0.0f, 0.0f, 1.0f, x, y});
+}
+
+void c2d_scale(float sx, float sy)
+{
+    c2d_xform_push((C2DMat){sx, 0.0f, 0.0f, sy, 0.0f, 0.0f});
+}
+
+void c2d_rotate(float r)
+{
+    const float cs = cosf(r), sn = sinf(r);
+    c2d_xform_push((C2DMat){cs, sn, -sn, cs, 0.0f, 0.0f});
+}
 
 void c2d_save(void)
 {
-    if (g_save_top < C2D_STACK_MAX) g_save[g_save_top++] = g_alpha_top;
+    if (g_save_top < C2D_STACK_MAX)
+    {
+        g_save[g_save_top].alpha = g_alpha_top;
+        g_save[g_save_top].xform = g_xform_top;
+        g_save[g_save_top].clip  = c2d_clip_depth();
+        g_save_top++;
+    }
 }
 
 void c2d_restore(void)
 {
-    if (g_save_top > 0) g_alpha_top = g_save[--g_save_top];
+    if (g_save_top > 0)
+    {
+        const C2DSaved sv = g_save[--g_save_top];
+        /* clips first: each one composites into its parent, and the parent
+         * has to still be bound when it does */
+        c2d_clip_pop_to(sv.clip);
+        g_alpha_top = sv.alpha;
+        if (sv.xform != g_xform_top) { g_xform_top = sv.xform; c2d_xform_apply(); }
+    }
 }
 
 void c2d_push_alpha(float a)
@@ -161,6 +284,18 @@ Color c2d_tint(Color c)
 /* ================================================================== */
 /* 3. gradients                                                        */
 /* ================================================================== */
+
+C2DGradient c2d_gradient_linear_x(float x0, float x1)
+{
+    C2DGradient g = c2d_gradient_linear(x0, x1);
+    g.horizontal = true;
+    return g;
+}
+
+Color c2d_gradient_at_pt(const C2DGradient *g, Vector2 p)
+{
+    return c2d_gradient_at(g, g->horizontal ? p.x : p.y);
+}
 
 C2DGradient c2d_gradient_linear(float y0, float y1)
 {
@@ -336,6 +471,56 @@ static int g_tris[C2D_TRIS_MAX];
    other, so every cell of the cap was silently culled and the block
    rendered as a wireframe lid. Caught by the visual diff, not by the unit
    test, because the unit test's one polygon wound the lucky way. */
+/* ToolRack's `rpoly` (dashboard.html:68). Each corner with r > 0 becomes a
+ * quadratic Bezier: in from the previous edge at distance r, control point at
+ * the corner itself, out along the next edge at distance r -- which is
+ * literally what ctx.quadraticCurveTo(x, y, t2x, t2y) draws there. r == 0
+ * keeps the corner sharp. (dx, dy) shifts every vertex, which is how `slab`
+ * offsets its bevel bands inward.
+ *
+ * The JS clamps nothing: if r exceeds half an edge the tangent points cross
+ * and Canvas draws the resulting kink. Reproduce that rather than clamping --
+ * two of the rack's plates have radii that do overrun slightly, and the kink
+ * is in the reference. */
+#define C2D_CORNER_SEGS 8
+
+int c2d_rpoly_pts(const C2DCorner *corners, int n, float dx, float dy,
+                  Vector2 *out, int max_out)
+{
+    if (n < 3 || !out) return 0;
+    int m = 0;
+    for (int i = 0; i < n; i++)
+    {
+        const C2DCorner v = corners[i];
+        if (v.r <= 0.0f)
+        {
+            if (m < max_out) out[m++] = (Vector2){v.x + dx, v.y + dy};
+            continue;
+        }
+        const C2DCorner pv = corners[(i - 1 + n) % n], nv = corners[(i + 1) % n];
+        const float l1 = hypotf(pv.x - v.x, pv.y - v.y);
+        const float l2 = hypotf(nv.x - v.x, nv.y - v.y);
+        if (l1 <= 1e-6f || l2 <= 1e-6f)
+        {
+            if (m < max_out) out[m++] = (Vector2){v.x + dx, v.y + dy};
+            continue;
+        }
+        const Vector2 t1 = {v.x + (pv.x - v.x) / l1 * v.r + dx,
+                            v.y + (pv.y - v.y) / l1 * v.r + dy};
+        const Vector2 t2 = {v.x + (nv.x - v.x) / l2 * v.r + dx,
+                            v.y + (nv.y - v.y) / l2 * v.r + dy};
+        const Vector2 ctl = {v.x + dx, v.y + dy};
+        for (int k = 0; k <= C2D_CORNER_SEGS; k++)
+        {
+            const float t = (float)k / (float)C2D_CORNER_SEGS, u = 1.0f - t;
+            const Vector2 q = {u * u * t1.x + 2.0f * u * t * ctl.x + t * t * t2.x,
+                               u * u * t1.y + 2.0f * u * t * ctl.y + t * t * t2.y};
+            if (m < max_out) out[m++] = q;
+        }
+    }
+    return m;
+}
+
 void c2d_fill_poly(const Vector2 *pts, int n, Color c)
 {
     const int t = c2d_earclip(pts, n, g_tris, C2D_POLY_MAX);
@@ -356,7 +541,7 @@ void c2d_fill_poly_gradient(const Vector2 *pts, int n, const C2DGradient *g)
     for (int i = 0; i < t; i++)
     {
         const Vector2 a = pts[g_tris[i * 3]], b = pts[g_tris[i * 3 + 1]], d = pts[g_tris[i * 3 + 2]];
-        const Color ca = c2d_gradient_at(g, a.y), cb = c2d_gradient_at(g, b.y), cd = c2d_gradient_at(g, d.y);
+        const Color ca = c2d_gradient_at_pt(g, a), cb = c2d_gradient_at_pt(g, b), cd = c2d_gradient_at_pt(g, d);
         DrawTriangleGradient(a, d, b, ca, cd, cb);
     }
 }
@@ -457,6 +642,73 @@ void c2d_glow_stroke(const Vector2 *pts, int n, Color c, float w, float blur)
     c2d_polyline(pts, n, c, w);
 }
 
+/* The fill twin (spec 2.3, second amendment). Canvas blurs the shape's own
+ * alpha with a Gaussian of sigma = blur/2 and paints the shape on top, so
+ * just outside a straight edge the halo is A * Phi(-t/sigma): half the fill's
+ * alpha AT the edge, decaying to nothing by about 2 sigma = blur. That is a
+ * different law from the stroke's 0.8*w/blur, which conserves the ink of a
+ * thin line -- a filled area is wide compared with sigma, so its shadow
+ * saturates instead.
+ *
+ * Approximated by source-over passes of the polygon offset outward along the
+ * vertex normals, the widest first. At distance t the passes still covering
+ * it number k = N(1 - t/blur), giving 1-(1-u)^k, which tracks the CDF closely
+ * enough at these radii (blur is 5..16 here). */
+#define C2D_GLOW_FILL_PASSES 6
+#define C2D_GLOW_FILL_EDGE   0.5f
+
+void c2d_glow_fill(const Vector2 *pts, int n, Color c, float blur)
+{
+    if (n >= 3 && blur > 0.0f && n <= C2D_POLY_MAX)
+    {
+        /* outward is whichever way the winding says; shoelace picks the sign */
+        float area2 = 0.0f;
+        for (int i = 0; i < n; i++)
+        {
+            const Vector2 a = pts[i], b = pts[(i + 1) % n];
+            area2 += a.x * b.y - b.x * a.y;
+        }
+        const float sgn = (area2 < 0.0f) ? -1.0f : 1.0f;
+
+        Vector2 nrm[C2D_POLY_MAX];
+        for (int i = 0; i < n; i++)
+        {
+            const Vector2 p = pts[(i - 1 + n) % n], q = pts[i], r = pts[(i + 1) % n];
+            const float l1 = hypotf(q.x - p.x, q.y - p.y);
+            const float l2 = hypotf(r.x - q.x, r.y - q.y);
+            Vector2 n1 = {0.0f, 0.0f}, n2 = {0.0f, 0.0f};
+            if (l1 > 1e-6f) { n1.x = sgn * (q.y - p.y) / l1; n1.y = -sgn * (q.x - p.x) / l1; }
+            if (l2 > 1e-6f) { n2.x = sgn * (r.y - q.y) / l2; n2.y = -sgn * (r.x - q.x) / l2; }
+            Vector2 v = {n1.x + n2.x, n1.y + n2.y};
+            const float m = hypotf(v.x, v.y);
+            if (m <= 1e-6f) { nrm[i] = (Vector2){0.0f, 0.0f}; continue; }
+            v.x /= m; v.y /= m;
+            /* MITER, not the averaged normal. Moving a vertex d along the
+             * bisector moves its two edges out by only d*cos(half-angle) --
+             * at a square's corner that is d/sqrt(2), so a 12px blur reached
+             * 8.5px and the test caught it. Divide by the projection to make
+             * the EDGES move by d. Capped: a near-degenerate corner would
+             * otherwise fire a spike off to infinity. */
+            const float proj = v.x * n1.x + v.y * n1.y;
+            float scale = (proj > 0.2f) ? 1.0f / proj : 5.0f;
+            nrm[i] = (Vector2){v.x * scale, v.y * scale};
+        }
+
+        const Color tc = c2d_tint(c);
+        const float total = C2D_GLOW_FILL_EDGE * (tc.a / 255.0f);
+        const float unit = 1.0f - powf(1.0f - total, 1.0f / (float)C2D_GLOW_FILL_PASSES);
+        Vector2 grown[C2D_POLY_MAX];
+        for (int i = 0; i < C2D_GLOW_FILL_PASSES; i++)
+        {
+            const float d = blur * (1.0f - (float)i / (float)C2D_GLOW_FILL_PASSES);
+            for (int k = 0; k < n; k++)
+                grown[k] = (Vector2){pts[k].x + nrm[k].x * d, pts[k].y + nrm[k].y * d};
+            c2d_fill_poly(grown, n, Fade(tc, unit));
+        }
+    }
+    c2d_fill_poly(pts, n, c);
+}
+
 void c2d_glow_line(Vector2 a, Vector2 b, Color c, float w, float blur)
 {
     const Vector2 p[2] = {a, b};
@@ -466,10 +718,23 @@ void c2d_glow_line(Vector2 a, Vector2 b, Color c, float w, float blur)
 void c2d_dashed_polyline(const Vector2 *pts, int n, float on, float off,
                          Color c, float w)
 {
+    c2d_dashed_polyline_phase(pts, n, on, off, 0.0f, c, w);
+}
+
+/* ctx.lineDashOffset: Canvas SUBTRACTS it, so a positive offset slides the
+ * pattern backwards along the path. */
+void c2d_dashed_polyline_phase(const Vector2 *pts, int n, float on, float off,
+                               float offset, Color c, float w)
+{
     if (n < 2 || on <= 0.0f) return;
     const Color k = c2d_tint(c);
     const float period = on + (off > 0.0f ? off : 0.0f);
     float phase = 0.0f;                     /* distance into the pattern */
+    if (period > 0.0f)
+    {
+        phase = fmodf(-offset, period);
+        if (phase < 0.0f) phase += period;
+    }
     for (int i = 0; i < n - 1; i++)
     {
         Vector2 a = pts[i];
@@ -518,64 +783,164 @@ void c2d_dashed_polyline(const Vector2 *pts, int n, float on, float off,
  * target's ALPHA with a separate blend factor, and the result is
  * composited. Colour is untouched (ZERO/ONE), alpha becomes dst.a * src.a,
  * so everything outside the mask is erased exactly. */
-static RenderTexture2D g_clip_rt = {0};
-static bool g_clip_open = false;
-static Vector2 g_clip_poly[C2D_POLY_MAX];
-static int  g_clip_n = 0;
-static bool g_clip_evenodd = false;
+/* NESTED. ToolRack's `slab` clips to the plate, then clips again to the
+ * inset bevel, and closes both with one ctx.restore() -- so this is a stack,
+ * not a flag. Each level owns a scratch target; content drawn at level k
+ * lands there, and closing k masks it by k's polygon and composites it into
+ * k-1 (or into the surface at level 0). */
+#define C2D_CLIP_MAX 4
+
+typedef struct C2DClipLevel {
+    RenderTexture2D rt;
+    Vector2 poly[C2D_POLY_MAX];
+    int     n;
+    bool    evenodd;
+    bool    isTextMask;          /* the gradient-text layer masks by glyphs */
+} C2DClipLevel;
+
+static C2DClipLevel g_clip[C2D_CLIP_MAX];
+static int          g_clip_top = 0;      /* 0 = drawing straight to surface */
+static void (*g_clip_maskDraw)(void *) = NULL;   /* set for a text mask */
+static void  *g_clip_maskUser = NULL;
+
+static int c2d_clip_depth(void) { return g_clip_top; }
+
+static void c2d_bind_current(void)
+{
+    if (g_clip_top > 0) c2d_bind(g_clip[g_clip_top - 1].rt);
+    else if (g_surface) c2d_bind(g_surface->tex);
+}
 
 static void c2d_rebind_surface(void)
 {
-    if (g_surface) c2d_bind(g_surface->tex);
+    c2d_bind_current();
+}
+
+/* Opens a scratch layer. The mask is supplied when it closes. */
+static bool c2d_layer_push(void)
+{
+    if (!g_surface || g_clip_top >= C2D_CLIP_MAX) return false;
+    C2DClipLevel *L = &g_clip[g_clip_top];
+    const int w = g_surface->w * g_ss, h = g_surface->h * g_ss;
+    if (L->rt.id == 0 || L->rt.texture.width != w || L->rt.texture.height != h)
+    {
+        if (L->rt.id != 0) UnloadRenderTexture(L->rt);
+        L->rt = LoadRenderTexture(w, h);
+        SetTextureFilter(L->rt.texture, TEXTURE_FILTER_BILINEAR);
+    }
+    c2d_unbind();
+    g_clip_top++;
+    c2d_bind(L->rt);
+    ClearBackground(BLANK);
+    return true;
 }
 
 void c2d_clip_poly_begin(const Vector2 *pts, int n, bool even_odd)
 {
-    if (g_clip_open || !g_surface || n < 3 || n > C2D_POLY_MAX) return;
-    if (g_clip_rt.id == 0 ||
-        g_clip_rt.texture.width != g_surface->w * g_ss ||
-        g_clip_rt.texture.height != g_surface->h * g_ss)
+    if (n < 3 || n > C2D_POLY_MAX) return;
+    /* Canvas resolves the clip path against the transform in force when
+     * clip() is called, so bake it now -- by the time this level closes the
+     * caller may have pushed or popped anything. */
+    Vector2 surf[C2D_POLY_MAX];
+    for (int i = 0; i < n; i++) surf[i] = c2d_transform_pt(pts[i]);
+    if (!c2d_layer_push()) return;
+    C2DClipLevel *L = &g_clip[g_clip_top - 1];
+    memcpy(L->poly, surf, sizeof(Vector2) * (size_t)n);
+    L->n = n;
+    L->evenodd = even_odd;
+    L->isTextMask = false;
+}
+
+/* Composite a layer through a polygon: draw the triangulated region, textured
+ * with the layer's target, in surface space.
+ *
+ * The obvious alternative -- multiply the layer's alpha by the mask polygon --
+ * is what this used to do, and it is a NO-OP outside the polygon: no fragment
+ * is emitted there, so dst.a is left alone rather than zeroed. Nothing caught
+ * it because Holo3D's only shim clip is the even-odd one, which works by
+ * punching a hole and so never relies on the outside being erased. ToolRack's
+ * eight plain clips would all have leaked. */
+static void c2d_composite_through_poly(RenderTexture2D rt, const Vector2 *poly, int n)
+{
+    const float sw = (float)g_surface->w, sh = (float)g_surface->h;
+    int tri[C2D_POLY_MAX * 3];
+    const int t = c2d_earclip(poly, n, tri, C2D_POLY_MAX);
+    rlSetTexture(rt.texture.id);
+    rlBegin(RL_QUADS);
+    rlColor4ub(255, 255, 255, 255);
+    for (int i = 0; i < t; i++)
     {
-        if (g_clip_rt.id != 0) UnloadRenderTexture(g_clip_rt);
-        g_clip_rt = LoadRenderTexture(g_surface->w * g_ss, g_surface->h * g_ss);
-        SetTextureFilter(g_clip_rt.texture, TEXTURE_FILTER_BILINEAR);
+        /* RL_QUADS with the last vertex repeated: rlgl has no RL_TRIANGLES
+         * path that carries a texture through the same batch. */
+        /* order 0,2,1 -- the same reversal c2d_fill_poly emits. raylib culls
+         * "clockwise as read on screen", the triangulator emits the other
+         * way, and getting this wrong here drew exactly nothing. */
+        const Vector2 v[3] = {poly[tri[i * 3]], poly[tri[i * 3 + 2]], poly[tri[i * 3 + 1]]};
+        for (int k = 0; k < 4; k++)
+        {
+            const Vector2 p = v[k < 3 ? k : 2];
+            /* the RT is Y-flipped, so v runs the other way */
+            rlTexCoord2f(p.x / sw, 1.0f - p.y / sh);
+            rlVertex2f(p.x, p.y);
+        }
     }
-    memcpy(g_clip_poly, pts, sizeof(Vector2) * (size_t)n);
-    g_clip_n = n;
-    g_clip_evenodd = even_odd;
-    g_clip_open = true;
-    c2d_unbind();
-    c2d_bind(g_clip_rt);
-    ClearBackground(BLANK);
+    rlEnd();
+    rlSetTexture(0);
 }
 
 void c2d_clip_end(void)
 {
-    if (!g_clip_open) return;
-    /* keep the colour, replace the alpha with dst.a * src.a */
-    rlSetBlendFactorsSeparate(RL_ZERO, RL_ONE, RL_ZERO, RL_SRC_ALPHA, RL_FUNC_ADD, RL_FUNC_ADD);
-    BeginBlendMode(BLEND_CUSTOM_SEPARATE);
-    if (g_clip_evenodd)
+    if (g_clip_top <= 0) return;
+    C2DClipLevel *L = &g_clip[g_clip_top - 1];
+
+    /* The even-odd and text-mask cases erase part of the layer's alpha first,
+     * then blit the whole thing; the plain case needs no mask pass at all
+     * because it composites through the polygon itself. */
+    if (L->isTextMask && g_clip_maskDraw)
     {
-        /* even-odd against a hull means "everything OUTSIDE it": mask the
-         * whole surface, then punch the hull back out. */
-        DrawRectangle(0, 0, g_surface->w, g_surface->h, WHITE);
+        /* keep the colour, replace the alpha with dst.a * src.a */
+        rlSetBlendFactorsSeparate(RL_ZERO, RL_ONE, RL_ZERO, RL_SRC_ALPHA,
+                                  RL_FUNC_ADD, RL_FUNC_ADD);
+        BeginBlendMode(BLEND_CUSTOM_SEPARATE);
+        g_clip_maskDraw(g_clip_maskUser);
+        EndBlendMode();
+    }
+    else if (L->evenodd)
+    {
+        /* even-odd against a hull means "everything OUTSIDE it": leave the
+         * layer alone, then punch the hull out of its alpha. */
+        c2d_base_space_begin();
         rlSetBlendFactorsSeparate(RL_ZERO, RL_ONE, RL_ZERO, RL_ONE_MINUS_SRC_ALPHA,
                                   RL_FUNC_ADD, RL_FUNC_ADD);
-        c2d_fill_poly(g_clip_poly, g_clip_n, WHITE);
+        BeginBlendMode(BLEND_CUSTOM_SEPARATE);
+        c2d_fill_poly(L->poly, L->n, WHITE);
+        EndBlendMode();
+        c2d_base_space_end();
+    }
+
+    c2d_unbind();
+    g_clip_top--;
+    c2d_bind_current();
+    /* the layer already carries the caller's transform baked into its pixels,
+     * so blit it in surface space */
+    c2d_base_space_begin();
+    if (!L->isTextMask && !L->evenodd)
+    {
+        c2d_composite_through_poly(L->rt, L->poly, L->n);
     }
     else
     {
-        c2d_fill_poly(g_clip_poly, g_clip_n, WHITE);
+        const Rectangle src = {0.0f, 0.0f, (float)L->rt.texture.width,
+                               -(float)L->rt.texture.height};
+        const Rectangle dst = {0.0f, 0.0f, (float)g_surface->w, (float)g_surface->h};
+        DrawTexturePro(L->rt.texture, src, dst, (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
     }
-    EndBlendMode();
-    c2d_unbind();
-    c2d_rebind_surface();
-    const Rectangle src = {0.0f, 0.0f, (float)g_clip_rt.texture.width,
-                           -(float)g_clip_rt.texture.height};
-    const Rectangle dst = {0.0f, 0.0f, (float)g_surface->w, (float)g_surface->h};
-    DrawTexturePro(g_clip_rt.texture, src, dst, (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
-    g_clip_open = false;
+    c2d_base_space_end();
+}
+
+static void c2d_clip_pop_to(int depth)
+{
+    while (g_clip_top > depth) c2d_clip_end();
 }
 
 /* Writes the pieces of [a,b] that fall outside (or inside) poly, as
@@ -742,6 +1107,57 @@ void c2d_text_tracked(C2DWeight w, float size, const char *text, float x, float 
                       Color c, C2DAlign align, C2DBaseline baseline, float tracking)
 {
     c2d_text_at(w, size, text, x, y, c, align, baseline, tracking);
+}
+
+/* A gradient as the glyph fill. raylib tints a glyph quad with one flat
+ * colour, so paint the gradient into a scratch layer and mask it by the
+ * glyphs' own alpha -- the same layer machinery the clip stack uses, with
+ * text in place of a polygon as the mask. */
+typedef struct C2DTextMask {
+    C2DWeight   w;
+    float       size, x, y;
+    C2DAlign    align;
+    C2DBaseline baseline;
+    const char *text;
+} C2DTextMask;
+
+static C2DTextMask g_textMask;
+
+static void c2d_text_mask_draw(void *ud)
+{
+    const C2DTextMask *m = (const C2DTextMask *)ud;
+    c2d_text_at(m->w, m->size, m->text, m->x, m->y, WHITE, m->align, m->baseline, 0.0f);
+}
+
+void c2d_text_gradient(C2DWeight w, float size, const char *text,
+                       float x, float y, const C2DGradient *g,
+                       C2DAlign align, C2DBaseline baseline)
+{
+    if (!g || g->count == 0) { c2d_text(w, size, text, x, y, WHITE, align, baseline); return; }
+    if (!c2d_layer_push()) { c2d_text(w, size, text, x, y, g->color[0], align, baseline); return; }
+
+    g_textMask = (C2DTextMask){w, size, x, y, align, baseline, text};
+    C2DClipLevel *L = &g_clip[g_clip_top - 1];
+    L->isTextMask = true;
+    L->n = 0;
+    g_clip_maskDraw = c2d_text_mask_draw;
+    g_clip_maskUser = &g_textMask;
+
+    /* the gradient, over a box that comfortably contains the glyphs; the mask
+     * decides what survives, so it only has to be big enough */
+    const float wid = c2d_measure(w, size, text) + size;
+    const float asc = c2d_ascender(w, size);
+    const Vector2 box[4] = {
+        {x - size,       y - asc - size},
+        {x + wid + size, y - asc - size},
+        {x + wid + size, y + size},
+        {x - size,       y + size},
+    };
+    c2d_fill_poly_gradient(box, 4, g);
+
+    c2d_clip_end();
+    g_clip_maskDraw = NULL;
+    g_clip_maskUser = NULL;
 }
 
 /* ================================================================== */

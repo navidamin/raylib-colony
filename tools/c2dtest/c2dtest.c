@@ -313,6 +313,152 @@ int main(int argc, char **argv)
         printf("    wrote %s\n", outPng);
     }
 
+    /* ================================================================
+       The ToolRack extensions. Six gaps the Holo3D port never exercised,
+       each tested before the module was allowed to use it.
+       ================================================================ */
+
+    printf("\n== 9. rpoly: quadratic corner rounding ==\n");
+    {
+        const C2DCorner sharp[4] = {{100,100,0},{300,100,0},{300,240,0},{100,240,0}};
+        const C2DCorner round4[4] = {{100,100,40},{300,100,40},{300,240,40},{100,240,40}};
+        Vector2 a[256], b[256];
+        const int na = c2d_rpoly_pts(sharp, 4, 0, 0, a, 256);
+        const int nb = c2d_rpoly_pts(round4, 4, 0, 0, b, 256);
+        CHECK(na == 4, "radius 0 emits the corner untouched");
+        CHECK(nb > 30, "a rounded corner is flattened into an arc");
+        /* the square corner (100,100) must be OUTSIDE the rounded polygon,
+           and every emitted point must stay within the original box */
+        CHECK(!inside_poly((Vector2){101.0f, 101.0f}, b, nb),
+              "the corner is actually cut away, not just re-pointed");
+        bool inBox = true;
+        for (int i = 0; i < nb; i++)
+            if (b[i].x < 99.5f || b[i].x > 300.5f || b[i].y < 99.5f || b[i].y > 240.5f) inBox = false;
+        CHECK(inBox, "the arc bulges inward, never outside the hull");
+        /* the (dx,dy) offset slab depends on */
+        Vector2 c[256];
+        const int nc = c2d_rpoly_pts(round4, 4, -5.0f, -3.0f, c, 256);
+        CHECK(nc == nb && fabsf((c[0].x - b[0].x) + 5.0f) < 0.01f
+                       && fabsf((c[0].y - b[0].y) + 3.0f) < 0.01f,
+              "(dx,dy) shifts every vertex and nothing else");
+    }
+
+    printf("\n== 10. nested clip, and restore closing both ==\n");
+    {
+        /* slab's pattern: clip to A, clip to B, fill huge, one restore */
+        RenderTexture2D rt = LoadRenderTexture(400, 300);
+        BeginTextureMode(rt); ClearBackground(BLACK); EndTextureMode();
+        c2d_begin(&s, BLACK);
+        const Vector2 A[4] = {{50,50},{250,50},{250,250},{50,250}};
+        const Vector2 B[4] = {{150,20},{350,20},{350,220},{150,220}};
+        c2d_save();
+        c2d_clip_poly_begin(A, 4, false);
+        c2d_clip_poly_begin(B, 4, false);
+        c2d_rect(0, 0, 900, 900, WHITE);
+        c2d_restore();                       /* must close BOTH */
+        c2d_rect(400, 400, 40, 40, RED);     /* proves we are back on the surface */
+        c2d_end();
+        Image img = LoadImageFromTexture(s.tex.texture); ImageFlipVertical(&img);
+        const int inBoth = GetImageColor(img, 200, 150).r;
+        const int inAonly = GetImageColor(img, 100, 150).r;
+        const int inBonly = GetImageColor(img, 300, 100).r;
+        printf("    A and B %d, A only %d, B only %d\n", inBoth, inAonly, inBonly);
+        CHECK(inBoth > 200, "the intersection is filled");
+        CHECK(inAonly < 30 && inBonly < 30, "neither clip alone survives -- they intersect");
+        CHECK(GetImageColor(img, 410, 410).r > 200, "restore returned drawing to the surface");
+        UnloadImage(img); UnloadRenderTexture(rt);
+    }
+
+    printf("\n== 11. gradient axis ==\n");
+    {
+        C2DGradient gx = c2d_gradient_linear_x(100.0f, 300.0f);
+        c2d_gradient_stop(&gx, 0.0f, (Color){0,0,0,255});
+        c2d_gradient_stop(&gx, 1.0f, (Color){255,255,255,255});
+        c2d_begin(&s, BLACK);
+        const Vector2 q[4] = {{100,100},{300,100},{300,200},{100,200}};
+        c2d_fill_poly_gradient(q, 4, &gx);
+        c2d_end();
+        Image img = LoadImageFromTexture(s.tex.texture); ImageFlipVertical(&img);
+        const int l = GetImageColor(img, 110, 150).r, r = GetImageColor(img, 290, 150).r;
+        const int t = GetImageColor(img, 200, 110).r, bm = GetImageColor(img, 200, 190).r;
+        printf("    horizontal: left %d right %d ; top %d bottom %d\n", l, r, t, bm);
+        CHECK(r > l + 150, "a horizontal gradient varies along x");
+        CHECK(abs(t - bm) < 12, "and NOT along y");
+        UnloadImage(img);
+    }
+
+    printf("\n== 12. transform stack ==\n");
+    {
+        c2d_begin(&s, BLACK);
+        c2d_save();
+        c2d_translate(200.0f, 100.0f);
+        c2d_scale(2.0f, 1.0f);
+        c2d_rect(0.0f, 0.0f, 50.0f, 40.0f, WHITE);   /* -> 200..300 x 100..140 */
+        c2d_restore();
+        c2d_rect(0.0f, 0.0f, 10.0f, 10.0f, RED);     /* transform popped */
+        /* a clip inside a transform must not be double-transformed */
+        c2d_save();
+        c2d_translate(0.0f, 300.0f);
+        const Vector2 cp[4] = {{100,0},{200,0},{200,80},{100,80}};
+        c2d_clip_poly_begin(cp, 4, false);
+        c2d_rect(0, 0, 900, 900, GREEN);
+        c2d_clip_end();
+        c2d_restore();
+        c2d_end();
+        Image img = LoadImageFromTexture(s.tex.texture); ImageFlipVertical(&img);
+        printf("    scaled rect: (250,120)=%d  (310,120)=%d\n",
+               GetImageColor(img, 250, 120).r, GetImageColor(img, 310, 120).r);
+        CHECK(GetImageColor(img, 250, 120).r > 200, "translate+scale places the rect");
+        CHECK(GetImageColor(img, 310, 120).r < 30, "and scales its width, not past it");
+        CHECK(GetImageColor(img, 5, 5).r > 200, "restore pops the transform");
+        const int gIn = GetImageColor(img, 150, 340).g, gOut = GetImageColor(img, 150, 250).g;
+        printf("    clipped-in-transform: inside %d outside %d\n", gIn, gOut);
+        CHECK(gIn > 200, "a clip inside a transform lands where the transform puts it");
+        CHECK(gOut < 30, "and is composited once, not transformed twice");
+        UnloadImage(img);
+    }
+
+    printf("\n== 13. lineDashOffset ==\n");
+    {
+        const Vector2 ln[2] = {{50.0f, 100.0f}, {450.0f, 100.0f}};
+        c2d_begin(&s, BLACK);
+        c2d_dashed_polyline_phase(ln, 2, 10.0f, 10.0f, 0.0f, WHITE, 4.0f);
+        const Vector2 ln2[2] = {{50.0f, 200.0f}, {450.0f, 200.0f}};
+        c2d_dashed_polyline_phase(ln2, 2, 10.0f, 10.0f, 10.0f, WHITE, 4.0f);
+        c2d_end();
+        Image img = LoadImageFromTexture(s.tex.texture); ImageFlipVertical(&img);
+        /* offset 10 on a 10/10 pattern is exactly antiphase */
+        const int a0 = GetImageColor(img, 55, 100).r, b0 = GetImageColor(img, 55, 200).r;
+        const int a1 = GetImageColor(img, 65, 100).r, b1 = GetImageColor(img, 65, 200).r;
+        printf("    x=55: phase0 %d phase10 %d ; x=65: phase0 %d phase10 %d\n", a0, b0, a1, b1);
+        CHECK(a0 > 200 && b0 < 30, "offset moves the pattern along the path");
+        CHECK(a1 < 30 && b1 > 200, "a half-period offset is exactly antiphase");
+        UnloadImage(img);
+    }
+
+    printf("\n== 14. glow on a FILL ==\n");
+    {
+        const Vector2 sq[4] = {{200,150},{280,150},{280,230},{200,230}};
+        c2d_begin(&s, BLACK);
+        c2d_glow_fill(sq, 4, (Color){0,255,255,255}, 12.0f);
+        const Vector2 sq2[4] = {{200,350},{280,350},{280,430},{200,430}};
+        c2d_fill_poly(sq2, 4, (Color){0,255,255,255});
+        c2d_end();
+        Image img = LoadImageFromTexture(s.tex.texture); ImageFlipVertical(&img);
+        const int core = GetImageColor(img, 240, 190).g;
+        const int just = GetImageColor(img, 240, 234).g;   /* 4px outside */
+        const int mid  = GetImageColor(img, 240, 240).g;   /* 10px outside */
+        const int far  = GetImageColor(img, 240, 260).g;   /* 30px outside */
+        const int flat = GetImageColor(img, 240, 434).g;   /* no glow, 4px out */
+        printf("    fill glow: core %d, +4px %d, +10px %d, +30px %d ; unglowed +4px %d\n",
+               core, just, mid, far, flat);
+        CHECK(core > 240, "the shape itself stays solid -- not ringed");
+        CHECK(just > flat + 40, "there is a halo outside the edge");
+        CHECK(just > mid && mid > far, "and it decays with distance");
+        CHECK(far < 20, "reaching about blur and no further");
+        UnloadImage(img);
+    }
+
     c2d_fonts_unload();
     c2d_surface_destroy(&s);
     CloseWindow();
