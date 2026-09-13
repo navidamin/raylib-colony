@@ -158,6 +158,16 @@ void c2d_polygon (const Vector2 *pts, int n, Color c, float w); /* closed */
  * normal-blend core pass. See CANVAS2D_PORT_SPEC.md 2.3.             */
 void c2d_glow_stroke(const Vector2 *pts, int n, Color c, float w, float blur);
 
+/* CLOSED. ctx.stroke() on a closed path strokes the closing segment too, and
+ * the open version silently drops it -- on a rounded rect built corner-first
+ * that segment is the whole left edge, which is exactly how this was found. */
+void c2d_glow_polygon(const Vector2 *pts, int n, Color c, float w, float blur);
+
+/* A dashed path under shadowBlur: the halo follows each dash, so the glow
+ * has to be inside the dash walker rather than over a solid path. */
+void c2d_glow_dashed_phase(const Vector2 *pts, int n, float on, float off,
+                           float phase, Color c, float w, float blur);
+
 /* shadowBlur applies to whatever is painted next, and Canvas paints fills as
  * readily as strokes -- five of ToolRack's seven glow sites glow a FILL. A
  * filled shape's shadow is its own silhouette blurred outward, so stroking

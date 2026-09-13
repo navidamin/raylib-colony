@@ -66,7 +66,7 @@ heatmap).
 | Supersampling | Differing px | % |
 |---|---:|---:|
 | off (`SS=1`) | 42,509 | 2.04 |
-| **`SS=2` (the default the console should ship)** | **29,658** | **1.43** |
+| **`SS=2` (the default the console should ship)** | **23,927** | **1.15** |
 | `SS=3` | 27,863 | 1.34 |
 
 **Under the spec's 2% gate at SS=2.** It was 2.60% when the port was first
@@ -143,13 +143,18 @@ the fill rate.
 Residual at SS=2 is 29,658 px. The largest single group is the five callout
 boxes at ~5,700 px combined. That is **not** a position error — a ±3px
 cross-correlation search puts the best alignment at exactly (0,0) for all
-five. It is ink: at matched size and matched typeface the port lays down
-about 20% less coverage per glyph (title row, ref 494 lit px vs port 391).
-Chromium rasterises through FreeType with hinting and gamma-corrected text
-blending; raylib blits a stb_truetype coverage mask with a straight alpha
-blend. Closing it means gamma-adjusting the text atlas — a fudge factor in
-the shim's text model, not a gap in this inventory — so it is left alone and
-recorded here instead.
+five. It was ink: at matched size and matched typeface the port laid down about
+20% less coverage per glyph (title row, ref 494 lit px vs port 391).
+
+**That diagnosis was wrong, and the ToolRack port found out why.** It is not
+a rasteriser difference at all: raylib's `fontSize` goes to
+`stbtt_ScaleForPixelHeight`, which makes ASCENT-DESCENT that many pixels,
+while Canvas's `24px` sets the EM SQUARE to 24. For JetBrains Mono the two
+differ by 1320/1000, so **every string the port drew was 24% too small**.
+`c2d.c` now reads `unitsPerEm` from `head` and the ascender/descender from
+`hhea` and scales accordingly. A gamma correction on the atlas alpha was
+tried first, on the old theory, and does nothing measurable once the size is
+right. Holo3D's diff went 1.32% -> **1.15%** on that one fix.
 
 Two earlier claims in this file were wrong and are withdrawn: the callouts
 are not offset by a pixel of projection rounding, and the cap/wall error was

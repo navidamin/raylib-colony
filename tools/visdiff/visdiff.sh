@@ -11,7 +11,10 @@ export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
 # configure only if the cache is missing: reconfiguring raylib every run cost
 # more than the diff itself
 [ -f build/CMakeCache.txt ] || cmake -B build >/dev/null
-cmake --build build --target holo3d_visdiff -j"$(nproc)" >/dev/null
+# A silent build failure means the diff measures a STALE binary. It cost a
+# gamma sweep in which four different exponents all produced byte-identical
+# output, because none of them had compiled.
+cmake --build build --target holo3d_visdiff -j"$(nproc)" || { echo "BUILD FAILED"; exit 4; }
 NODE_PATH=/opt/node22/lib/node_modules node tools/visdiff/shoot.js \
   out="$OUT/ref_$TAG.png" yaw="$YAW" pitch="$PITCH" sel="$SEL" explode="$EXPLODE" t="$T" hud="$HUD"
 xvfb-run -a -s "-screen 0 1920x1400x24" ./build/tools/holo3d_visdiff \

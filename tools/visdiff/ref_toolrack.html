@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>
+/* LOCAL faces -- see the note in ref.html. A blocked webfont does not fail
+   loudly, and the diff then measures one typeface against another. */
+@font-face{font-family:'JetBrains Mono';font-weight:500;font-style:normal;
+  src:url('../../src/assets/fonts/JetBrainsMono-Medium.ttf') format('truetype');}
+@font-face{font-family:'JetBrains Mono';font-weight:600;font-style:normal;
+  src:url('../../src/assets/fonts/JetBrainsMono-SemiBold.ttf') format('truetype');}
+@font-face{font-family:'JetBrains Mono';font-weight:700;font-style:normal;
+  src:url('../../src/assets/fonts/JetBrainsMono-Bold.ttf') format('truetype');}
+html,body{margin:0;background:#02111a}canvas{display:block}
+</style></head><body>
+<canvas id="c" width="500" height="820"></canvas>
+<script src="../../js/toolrack.js"></script>
+<script>
+/* The reference half of the ToolRack diff (spec 5). Same rack data as the
+   dashboard (dashboard.html:1634) and the same placement the port uses.
+
+   GRAIN IS OFF. makeGrain() fills its tile from Math.random(), so a grained
+   region can never diff stably; level 5 turns it off through the module's
+   own API, and grain is checked separately for coverage and alpha. */
+const q = new URLSearchParams(location.search);
+const num = (k, d) => q.has(k) ? parseFloat(q.get(k)) : d;
+const ctx = document.getElementById('c').getContext('2d');
+const rack = { header: 'SURVEY TOOLS', slots: 5, tools: [
+  { name: 'DRILL',   type: 'Point', icon: 'drillStriped', active: true,  selected: true },
+  { name: 'SEISMIC', type: 'Line',  icon: 'seismicWide',  active: true },
+  { name: 'ROVER',   type: 'Line',  icon: 'rover',        active: false },
+  { name: 'SONAR',   type: 'Area',  icon: 'sonar',        active: false }, null ] };
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#02111a'; ctx.fillRect(0, 0, 500, 820);
+  ToolRack.drawRackB(ctx, rack, 40, 40, { level: num('level', 6), grain: null });
+  window.__ready = true;
+}
+Promise.all([500, 600, 700].map(w =>
+  document.fonts.load(`${w} 20px "JetBrains Mono"`).then(f => {
+    if (!f.length) throw new Error(`JetBrains Mono ${w} did not load`);
+  })
+)).then(() => document.fonts.ready).then(draw).catch(e => {
+  window.__fontError = String(e && e.message || e);
+});
+</script></body></html>

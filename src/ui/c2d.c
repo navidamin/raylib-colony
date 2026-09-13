@@ -607,11 +607,12 @@ void c2d_polygon(const Vector2 *pts, int n, Color c, float w)
  *
  * Set C2D_GLOW_PASSES to 2 and C2D_GLOW_TOTAL to a flat 0.32f for the
  * letter of the spec. */
-#define C2D_GLOW_PASSES 5
+#define C2D_GLOW_PASSES 9
 #define C2D_GLOW_TOTAL(w, blur) \
     ((blur) <= 0.0f ? 0.0f : ((0.8f * (w) / (blur)) > 0.5f ? 0.5f : 0.8f * (w) / (blur)))
 
-void c2d_glow_stroke(const Vector2 *pts, int n, Color c, float w, float blur)
+static void c2d_glow_passes(const Vector2 *pts, int n, Color c, float w,
+                            float blur, bool closed)
 {
     if (blur > 0.0f)
     {
@@ -631,15 +632,40 @@ void c2d_glow_stroke(const Vector2 *pts, int n, Color c, float w, float blur)
          * 1-(1-u)^k, hence u = 1-(1-total)^(1/passes). For small totals that
          * is within a percent of total/passes, so the isolated-stroke profile
          * this was tuned against does not move. */
-        const float unit = 1.0f - powf(1.0f - total, 1.0f / (float)C2D_GLOW_PASSES);
+        /* GAUSSIAN, not a linear ramp. Equally weighted passes at evenly
+         * spaced widths make coverage fall off linearly with distance; the
+         * reference falls off as exp(-t^2/2sigma^2) with sigma = blur/2, the
+         * same law the fill glow was fitted to on the rack's status pip. So
+         * space the widths over 3 sigma and weight each pass so the
+         * accumulated source-over coverage tracks the profile. */
+        const float sigma = blur * 0.5f;
+        const float core = w * 0.5f;
+        float prevT = 0.0f;
         for (int i = 0; i < C2D_GLOW_PASSES; i++)
         {
             /* widest first, so each narrower pass lands on top of the last */
-            const float t = 1.0f - (float)i / (float)C2D_GLOW_PASSES;
-            c2d_stroke_raw(pts, n, Fade(tc, unit), w + blur * 1.6f * t, false);
+            const float f = (float)(C2D_GLOW_PASSES - 1 - i) / (float)(C2D_GLOW_PASSES - 1);
+            const float half = core + 3.0f * sigma * f;
+            const float d = half - core;               /* distance from the stroke */
+            const float T = total * expf(-(d * d) / (2.0f * sigma * sigma));
+            float u = (prevT >= 1.0f) ? 0.0f : 1.0f - (1.0f - T) / (1.0f - prevT);
+            prevT = T;
+            if (u <= 0.0f) continue;
+            c2d_stroke_raw(pts, n, Fade(tc, u), half * 2.0f, closed);
         }
     }
+}
+
+void c2d_glow_stroke(const Vector2 *pts, int n, Color c, float w, float blur)
+{
+    c2d_glow_passes(pts, n, c, w, blur, false);
     c2d_polyline(pts, n, c, w);
+}
+
+void c2d_glow_polygon(const Vector2 *pts, int n, Color c, float w, float blur)
+{
+    c2d_glow_passes(pts, n, c, w, blur, true);
+    c2d_polygon(pts, n, c, w);
 }
 
 /* The fill twin (spec 2.3, second amendment). Canvas blurs the shape's own
@@ -654,7 +680,7 @@ void c2d_glow_stroke(const Vector2 *pts, int n, Color c, float w, float blur)
  * vertex normals, the widest first. At distance t the passes still covering
  * it number k = N(1 - t/blur), giving 1-(1-u)^k, which tracks the CDF closely
  * enough at these radii (blur is 5..16 here). */
-#define C2D_GLOW_FILL_PASSES 6
+#define C2D_GLOW_FILL_PASSES 9
 #define C2D_GLOW_FILL_EDGE   0.5f
 
 void c2d_glow_fill(const Vector2 *pts, int n, Color c, float blur)
@@ -694,16 +720,35 @@ void c2d_glow_fill(const Vector2 *pts, int n, Color c, float blur)
             nrm[i] = (Vector2){v.x * scale, v.y * scale};
         }
 
+        /* Equal-alpha passes at evenly spaced distances give a roughly LINEAR
+         * ramp, and the reference is a Gaussian: measured across the rack's
+         * status pip (blur 14) the halo above background runs 92, 70, 50, 32,
+         * 19, 10, 5, 2 at 1..15px out, which fits A*Phi(-t/sigma) with
+         * sigma = 6.5..7 -- i.e. exactly blur/2 -- while equal passes gave 81
+         * where the reference had 32. So space the passes over 3 sigma and set
+         * each one's alpha so the ACCUMULATED source-over coverage tracks the
+         * CDF: u_i = 1 - (1-T_i)/(1-T_{i-1}) with T_i = Phi(-d_i/sigma). */
         const Color tc = c2d_tint(c);
-        const float total = C2D_GLOW_FILL_EDGE * (tc.a / 255.0f);
-        const float unit = 1.0f - powf(1.0f - total, 1.0f / (float)C2D_GLOW_FILL_PASSES);
+        const float aScale = tc.a / 255.0f;
+        const float sigma = blur * 0.5f;
         Vector2 grown[C2D_POLY_MAX];
+        float prevT = 0.0f;
         for (int i = 0; i < C2D_GLOW_FILL_PASSES; i++)
         {
-            const float d = blur * (1.0f - (float)i / (float)C2D_GLOW_FILL_PASSES);
+            const float f = (float)(C2D_GLOW_FILL_PASSES - 1 - i) /
+                            (float)(C2D_GLOW_FILL_PASSES - 1);
+            const float d = 3.0f * sigma * f;
+            /* Phi(-x) = erfc(x/sqrt2)/2, and Phi(0) = 0.5 -- the edge value
+             * C2D_GLOW_FILL_EDGE was derived as, so the two agree by
+             * construction rather than by coincidence. */
+            const float T = 0.5f * erfcf((d / sigma) * 0.70710678f) *
+                            (C2D_GLOW_FILL_EDGE / 0.5f);
+            float u = (prevT >= 1.0f) ? 0.0f : 1.0f - (1.0f - T) / (1.0f - prevT);
+            prevT = T;
+            if (u <= 0.0f) continue;
             for (int k = 0; k < n; k++)
                 grown[k] = (Vector2){pts[k].x + nrm[k].x * d, pts[k].y + nrm[k].y * d};
-            c2d_fill_poly(grown, n, Fade(tc, unit));
+            c2d_fill_poly(grown, n, Fade(tc, u * aScale));
         }
     }
     c2d_fill_poly(pts, n, c);
@@ -721,8 +766,42 @@ void c2d_dashed_polyline(const Vector2 *pts, int n, float on, float off,
     c2d_dashed_polyline_phase(pts, n, on, off, 0.0f, c, w);
 }
 
-/* ctx.lineDashOffset: Canvas SUBTRACTS it, so a positive offset slides the
- * pattern backwards along the path. */
+/* ctx.lineDashOffset. The pattern is sampled at (s + offset) mod period, so
+ * a positive offset starts the path that far INTO the dash array. Getting
+ * the sign backwards put every dash exactly in the reference's gaps -- which
+ * is invisible in a symmetric unit test and obvious against the render. */
+/* Set only for the duration of c2d_glow_dashed_phase. The walk runs twice:
+ * once collecting whole dashes and glowing them, once drawing the cores over
+ * the top -- the halo has to be underneath, and it has to be per dash. */
+#define C2D_DASH_RUN_MAX 32
+enum { C2D_DASH_CORE = 0, C2D_DASH_GLOW = 1 };
+static float   g_dash_blur = 0.0f;
+static int     g_dash_pass = C2D_DASH_CORE;
+static Vector2 g_run[C2D_DASH_RUN_MAX];
+static int     g_run_n = 0;
+
+static void c2d_dash_flush(Color c, float w)
+{
+    if (g_run_n >= 2) c2d_glow_passes(g_run, g_run_n, c, w, g_dash_blur, false);
+    g_run_n = 0;
+}
+
+void c2d_glow_dashed_phase(const Vector2 *pts, int n, float on, float off,
+                           float phase, Color c, float w, float blur)
+{
+    if (blur > 0.0f)
+    {
+        g_dash_blur = blur;
+        g_dash_pass = C2D_DASH_GLOW;
+        g_run_n = 0;
+        c2d_dashed_polyline_phase(pts, n, on, off, phase, c, w);
+        c2d_dash_flush(c, w);           /* the path may end mid-dash */
+        g_dash_pass = C2D_DASH_CORE;
+        g_dash_blur = 0.0f;
+    }
+    c2d_dashed_polyline_phase(pts, n, on, off, phase, c, w);
+}
+
 void c2d_dashed_polyline_phase(const Vector2 *pts, int n, float on, float off,
                                float offset, Color c, float w)
 {
@@ -732,7 +811,7 @@ void c2d_dashed_polyline_phase(const Vector2 *pts, int n, float on, float off,
     float phase = 0.0f;                     /* distance into the pattern */
     if (period > 0.0f)
     {
-        phase = fmodf(-offset, period);
+        phase = fmodf(offset, period);
         if (phase < 0.0f) phase += period;
     }
     for (int i = 0; i < n - 1; i++)
@@ -760,7 +839,25 @@ void c2d_dashed_polyline_phase(const Vector2 *pts, int n, float on, float off,
             {
                 const Vector2 p0 = {a.x + ux * travelled, a.y + uy * travelled};
                 const Vector2 p1 = {a.x + ux * (travelled + step), a.y + uy * (travelled + step)};
-                DrawLineEx(p0, p1, w, k);
+                if (g_dash_pass == C2D_DASH_GLOW)
+                {
+                    /* Accumulate the DASH, do not glow the sub-step. The
+                     * walker splits one dash wherever it crosses a polyline
+                     * vertex or a pattern boundary, and a 7px dash on a
+                     * 96-segment ellipse becomes several pieces -- glowing
+                     * each piece stacked their halos into a solid saturated
+                     * bead. Flushed when the run ends. */
+                    if (g_run_n == 0 && g_run_n < C2D_DASH_RUN_MAX) g_run[g_run_n++] = p0;
+                    if (g_run_n < C2D_DASH_RUN_MAX) g_run[g_run_n++] = p1;
+                }
+                else
+                {
+                    DrawLineEx(p0, p1, w, k);
+                }
+            }
+            else if (g_dash_pass == C2D_DASH_GLOW)
+            {
+                c2d_dash_flush(c, w);
             }
             travelled += step;
             phase += step;
@@ -800,8 +897,6 @@ typedef struct C2DClipLevel {
 
 static C2DClipLevel g_clip[C2D_CLIP_MAX];
 static int          g_clip_top = 0;      /* 0 = drawing straight to surface */
-static void (*g_clip_maskDraw)(void *) = NULL;   /* set for a text mask */
-static void  *g_clip_maskUser = NULL;
 
 static int c2d_clip_depth(void) { return g_clip_top; }
 
@@ -896,14 +991,9 @@ void c2d_clip_end(void)
     /* The even-odd and text-mask cases erase part of the layer's alpha first,
      * then blit the whole thing; the plain case needs no mask pass at all
      * because it composites through the polygon itself. */
-    if (L->isTextMask && g_clip_maskDraw)
+    if (L->isTextMask)
     {
-        /* keep the colour, replace the alpha with dst.a * src.a */
-        rlSetBlendFactorsSeparate(RL_ZERO, RL_ONE, RL_ZERO, RL_SRC_ALPHA,
-                                  RL_FUNC_ADD, RL_FUNC_ADD);
-        BeginBlendMode(BLEND_CUSTOM_SEPARATE);
-        g_clip_maskDraw(g_clip_maskUser);
-        EndBlendMode();
+        /* nothing to mask: c2d_text_gradient has already stencilled the layer */
     }
     else if (L->evenodd)
     {
@@ -1015,6 +1105,49 @@ static Font  g_font[C2D_WEIGHT_COUNT];
 static bool  g_fonts_ready = false;
 static float g_ascend[C2D_WEIGHT_COUNT];   /* at C2D_FONT_BASE */
 static float g_cap[C2D_WEIGHT_COUNT];
+static float g_emScale[C2D_WEIGHT_COUNT] = {1.0f, 1.0f, 1.0f};
+
+/* THE EM SQUARE. Canvas `font: 700 24px X` sets the EM to 24px. raylib's
+ * fontSize goes to stbtt_ScaleForPixelHeight, which sets ASCENT-DESCENT to
+ * that many pixels instead. For JetBrains Mono (unitsPerEm 1000, hhea ascender
+ * 1020, descender -300) the two differ by 1320/1000 = 1.32, so every string
+ * the port drew was 24% too small -- measured, "DRILL" at size 24 came out
+ * 41px wide against the reference's 54.
+ *
+ * That is what the Holo3D audit recorded as a 20% "ink deficit" and blamed on
+ * Chromium's rasteriser. It was not a rasteriser difference; it was the wrong
+ * size, and no amount of gamma was ever going to fix it.
+ *
+ * So read the two numbers out of the font: unitsPerEm from 'head', ascender
+ * and descender from 'hhea', and scale every requested size by
+ * (ascender - descender) / unitsPerEm before handing it to raylib. */
+static uint16_t c2d_be16(const unsigned char *p) { return (uint16_t)((p[0] << 8) | p[1]); }
+static uint32_t c2d_be32(const unsigned char *p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) | p[3];
+}
+
+static float c2d_font_em_scale(const unsigned char *ttf, int size)
+{
+    if (!ttf || size < 12) return 1.0f;
+    const int numTables = c2d_be16(ttf + 4);
+    uint32_t headOff = 0, hheaOff = 0;
+    for (int i = 0; i < numTables; i++)
+    {
+        const unsigned char *e = ttf + 12 + 16 * i;
+        if (e + 16 > ttf + size) break;
+        if (!memcmp(e, "head", 4)) headOff = c2d_be32(e + 8);
+        else if (!memcmp(e, "hhea", 4)) hheaOff = c2d_be32(e + 8);
+    }
+    if (!headOff || !hheaOff) return 1.0f;
+    if ((int)headOff + 20 > size || (int)hheaOff + 8 > size) return 1.0f;
+    const float unitsPerEm = (float)c2d_be16(ttf + headOff + 18);
+    const float ascender  = (float)(int16_t)c2d_be16(ttf + hheaOff + 4);
+    const float descender = (float)(int16_t)c2d_be16(ttf + hheaOff + 6);
+    if (unitsPerEm <= 0.0f) return 1.0f;
+    const float k = (ascender - descender) / unitsPerEm;
+    return (k > 0.5f && k < 3.0f) ? k : 1.0f;
+}
 
 /* From the font's ACTUAL metrics, not an estimate.
  *
@@ -1028,6 +1161,24 @@ static void c2d_measure_metrics(C2DWeight w)
     const float cap = g_font[w].recs[gi].height;
     g_cap[w] = cap;
     g_ascend[w] = (float)g_font[w].glyphs[gi].offsetY + cap;
+}
+
+/* The em scale has to come from the file, so the file is read here and the
+ * atlas still built by LoadFontEx.
+ *
+ * A gamma correction on the atlas alpha was tried first, on the theory that
+ * Chromium's text blending thickens light-on-dark glyphs. It does nothing
+ * measurable once the size is right (1.39% / 1.15% at every exponent from 1.0
+ * to 1.4), so there is none. The "20% ink deficit" it was meant to fix was
+ * the em-square bug above. */
+static float c2d_read_em_scale(const char *path)
+{
+    int size = 0;
+    unsigned char *data = LoadFileData(path, &size);
+    if (!data) return 1.0f;
+    const float k = c2d_font_em_scale(data, size);
+    UnloadFileData(data);
+    return k;
 }
 
 void c2d_fonts_load(const char *p500, const char *p600, const char *p700)
@@ -1046,8 +1197,9 @@ void c2d_fonts_load(const char *p500, const char *p600, const char *p700)
     const char *paths[C2D_WEIGHT_COUNT] = {p500, p600, p700};
     for (int i = 0; i < C2D_WEIGHT_COUNT; i++)
     {
+        g_emScale[i] = c2d_read_em_scale(paths[i]);
         g_font[i] = LoadFontEx(paths[i], C2D_FONT_BASE, cps, nc);
-        if (g_font[i].texture.id == 0) g_font[i] = GetFontDefault();
+        if (g_font[i].texture.id == 0) { g_font[i] = GetFontDefault(); g_emScale[i] = 1.0f; }
         SetTextureFilter(g_font[i].texture, TEXTURE_FILTER_BILINEAR);
         c2d_measure_metrics((C2DWeight)i);
     }
@@ -1065,20 +1217,20 @@ void c2d_fonts_unload(void)
 float c2d_ascender(C2DWeight w, float size)
 {
     if (!g_fonts_ready) return size * 0.75f;
-    return g_ascend[w] * size / (float)C2D_FONT_BASE;
+    return g_ascend[w] * size * g_emScale[w] / (float)C2D_FONT_BASE;
 }
 
 float c2d_cap_height(C2DWeight w, float size)
 {
     if (!g_fonts_ready) return size * 0.70f;
-    return g_cap[w] * size / (float)C2D_FONT_BASE;
+    return g_cap[w] * size * g_emScale[w] / (float)C2D_FONT_BASE;
 }
 
 float c2d_measure(C2DWeight w, float size, const char *text)
 {
     if (!g_fonts_ready) return (float)MeasureText(text, (int)size);
     /* Canvas has no letter-spacing by default, so spacing is 0, not 1. */
-    return MeasureTextEx(g_font[w], text, size, 0.0f).x;
+    return MeasureTextEx(g_font[w], text, size * g_emScale[w], 0.0f).x;
 }
 
 static void c2d_text_at(C2DWeight w, float size, const char *text,
@@ -1086,7 +1238,8 @@ static void c2d_text_at(C2DWeight w, float size, const char *text,
                         C2DAlign align, C2DBaseline baseline, float tracking)
 {
     if (!g_fonts_ready) return;
-    const float width = MeasureTextEx(g_font[w], text, size, tracking).x;
+    const float rs = size * g_emScale[w];      /* raylib size for this em size */
+    const float width = MeasureTextEx(g_font[w], text, rs, tracking).x;
     if (align == C2D_ALIGN_CENTER) x -= width * 0.5f;
     else if (align == C2D_ALIGN_RIGHT) x -= width;
     /* Canvas 'alphabetic' means y is the BASELINE; raylib's y is the TOP of
@@ -1094,7 +1247,7 @@ static void c2d_text_at(C2DWeight w, float size, const char *text,
      * most common cause of "close but subtly off". */
     if (baseline == C2D_BASELINE_ALPHABETIC) y -= c2d_ascender(w, size);
     else if (baseline == C2D_BASELINE_MIDDLE) y -= c2d_ascender(w, size) - c2d_cap_height(w, size) * 0.5f;
-    DrawTextEx(g_font[w], text, (Vector2){x, y}, size, tracking, c2d_tint(c));
+    DrawTextEx(g_font[w], text, (Vector2){x, y}, rs, tracking, c2d_tint(c));
 }
 
 void c2d_text(C2DWeight w, float size, const char *text, float x, float y,
@@ -1110,41 +1263,26 @@ void c2d_text_tracked(C2DWeight w, float size, const char *text, float x, float 
 }
 
 /* A gradient as the glyph fill. raylib tints a glyph quad with one flat
- * colour, so paint the gradient into a scratch layer and mask it by the
- * glyphs' own alpha -- the same layer machinery the clip stack uses, with
- * text in place of a polygon as the mask. */
-typedef struct C2DTextMask {
-    C2DWeight   w;
-    float       size, x, y;
-    C2DAlign    align;
-    C2DBaseline baseline;
-    const char *text;
-} C2DTextMask;
-
-static C2DTextMask g_textMask;
-
-static void c2d_text_mask_draw(void *ud)
-{
-    const C2DTextMask *m = (const C2DTextMask *)ud;
-    c2d_text_at(m->w, m->size, m->text, m->x, m->y, WHITE, m->align, m->baseline, 0.0f);
-}
-
+ * colour, so: paint the glyphs into a scratch layer as a stencil, then draw
+ * the gradient over them with a blend that REPLACES the colour and KEEPS the
+ * layer's alpha -- (srcRGB ONE, dstRGB ZERO, srcAlpha ZERO, dstAlpha ONE).
+ * Outside the glyphs the layer's alpha is zero, so nothing survives.
+ *
+ * The obvious way round -- gradient first, then multiply its alpha by the
+ * glyphs -- is the same no-op the polygon clip had: where no glyph fragment
+ * is emitted dst.a is left alone rather than zeroed, so the whole gradient
+ * box paints. It did exactly that on the first render of the rack's title. */
 void c2d_text_gradient(C2DWeight w, float size, const char *text,
                        float x, float y, const C2DGradient *g,
                        C2DAlign align, C2DBaseline baseline)
 {
     if (!g || g->count == 0) { c2d_text(w, size, text, x, y, WHITE, align, baseline); return; }
     if (!c2d_layer_push()) { c2d_text(w, size, text, x, y, g->color[0], align, baseline); return; }
+    g_clip[g_clip_top - 1].isTextMask = true;
+    g_clip[g_clip_top - 1].n = 0;
 
-    g_textMask = (C2DTextMask){w, size, x, y, align, baseline, text};
-    C2DClipLevel *L = &g_clip[g_clip_top - 1];
-    L->isTextMask = true;
-    L->n = 0;
-    g_clip_maskDraw = c2d_text_mask_draw;
-    g_clip_maskUser = &g_textMask;
+    c2d_text_at(w, size, text, x, y, WHITE, align, baseline, 0.0f);
 
-    /* the gradient, over a box that comfortably contains the glyphs; the mask
-     * decides what survives, so it only has to be big enough */
     const float wid = c2d_measure(w, size, text) + size;
     const float asc = c2d_ascender(w, size);
     const Vector2 box[4] = {
@@ -1153,11 +1291,12 @@ void c2d_text_gradient(C2DWeight w, float size, const char *text,
         {x + wid + size, y + size},
         {x - size,       y + size},
     };
+    rlSetBlendFactorsSeparate(RL_ONE, RL_ZERO, RL_ZERO, RL_ONE, RL_FUNC_ADD, RL_FUNC_ADD);
+    BeginBlendMode(BLEND_CUSTOM_SEPARATE);
     c2d_fill_poly_gradient(box, 4, g);
+    EndBlendMode();
 
     c2d_clip_end();
-    g_clip_maskDraw = NULL;
-    g_clip_maskUser = NULL;
 }
 
 /* ================================================================== */
