@@ -119,6 +119,16 @@ static Rectangle c2d_fit_contain(float sw, float sh, float dw, float dh)
     return (Rectangle){(dw - w) * 0.5f, (dh - h) * 0.5f, w, h};
 }
 
+void c2d_present_into(C2DSurface *s, Rectangle into)
+{
+    s->dst = c2d_fit_contain((float)s->w, (float)s->h, into.width, into.height);
+    s->dst.x += into.x;
+    s->dst.y += into.y;
+    const Rectangle src = {0.0f, 0.0f, (float)s->tex.texture.width,
+                           -(float)s->tex.texture.height};
+    DrawTexturePro(s->tex.texture, src, s->dst, (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
+}
+
 void c2d_present(C2DSurface *s)
 {
     s->dst = c2d_fit_contain((float)s->w, (float)s->h,

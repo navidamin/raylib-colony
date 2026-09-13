@@ -50,6 +50,13 @@ void c2d_end(void);
 /* Blit to the window, letterboxed. Handles the RenderTexture Y flip. */
 void c2d_present(C2DSurface *s);
 
+/* Blit into an arbitrary rect, letterboxed within IT. Use this whenever the
+ * console is not the whole window: presenting against the window and then
+ * scissoring to the region crops the design space instead of fitting it,
+ * which silently cut the top off the tool rack. Sets s->dst, so
+ * c2d_to_design inverts whichever of the two was used last. */
+void c2d_present_into(C2DSurface *s, Rectangle dst);
+
 /* Screen -> design space. Use this before ANY hit test. */
 Vector2 c2d_to_design(C2DSurface *s, Vector2 screen_pt);
 

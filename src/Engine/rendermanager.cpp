@@ -1,4 +1,5 @@
 #include "rendermanager.h"
+#include "survey_dash.h"
 #include "rlgl.h"
 #include "web_mouse.h"
 #include "resource_manager.h"
@@ -3371,8 +3372,31 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
         Rectangle region = { 0.0f, static_cast<float>(EXT_TOP_BAR_H),
                              static_cast<float>(screenWidth),
                              static_cast<float>(screenHeight - EXT_TOP_BAR_H - EXT_BOTTOM_BAR_H) };
-        DrawProspectingPanel(unit, static_cast<int>(region.x), static_cast<int>(region.y),
-                             static_cast<int>(region.width), static_cast<int>(region.height));
+        /* The ported console (src/ui/), drawn in its own fixed 1536x1024
+           design space and letterboxed in. The old screen-space panel is
+           still below for the module bar; the two coexist until the
+           Dashboard chrome is ported and the old one can be retired with its
+           graveyard record. */
+        DrawSurveyModuleBar(unit, { region.x, region.y, region.width, 34.0f });
+        Rectangle console = { region.x, region.y + 34.0f,
+                              region.width, region.height - 34.0f };
+        SurveyDash_Draw(console, GetFrameTime());
+
+        /* IMGUI, like the rest of this file: the console's input is handled
+           here, next to its draw. Every hit test goes through design space --
+           SurveyDash_* take screen points and convert internally, because
+           hit-testing in screen space is the mistake the port spec names. */
+        const Vector2 mouse = GetMousePosition();
+        if (CheckCollisionPointRec(mouse, console))
+        {
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(console, mouse);
+            if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
+            {
+                const Vector2 d = GetMouseDelta();
+                if (d.x != 0.0f || d.y != 0.0f) SurveyDash_Drag(console, d);
+            }
+        }
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) SurveyDash_Release(console, mouse);
         return;
     }
 

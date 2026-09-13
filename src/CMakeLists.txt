@@ -1,4 +1,16 @@
 # Core game sources shared by the game executable and the offscreen preview tool
+# ---------------------------------------------------------------------------
+# The Canvas 2D shim, and its phase-1 acceptance tests.
+#
+# UI modules ported from the JS reference draw through src/ui/c2d.h and never
+# call raylib directly -- see docs/CANVAS2D_PORT_SPEC.md. The shim is C; the
+# header carries extern "C" guards so the C++ game can call it.
+# ---------------------------------------------------------------------------
+add_library(colony_c2d STATIC ui/c2d.c ui/holo3d.c ui/toolrack.c ui/survey_dash.c)
+target_include_directories(colony_c2d PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui")
+target_link_libraries(colony_c2d PUBLIC raylib)
+set_target_properties(colony_c2d PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
+
 set(COLONY_CORE_SOURCES
     Colony/colony.cpp
     Engine/Engine.cpp
@@ -77,7 +89,7 @@ set_target_properties(colony_game PROPERTIES
 target_include_directories(colony_game PRIVATE ${COLONY_INCLUDE_DIRS})
 
 # Link libraries
-target_link_libraries(colony_game raylib tomlplusplus::tomlplusplus)
+target_link_libraries(colony_game raylib tomlplusplus::tomlplusplus colony_c2d)
 
 # Platform specific configurations
 if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
@@ -158,7 +170,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
 
     target_include_directories(colony_preview PRIVATE ${COLONY_INCLUDE_DIRS})
 
-    target_link_libraries(colony_preview raylib tomlplusplus::tomlplusplus)
+    target_link_libraries(colony_preview raylib tomlplusplus::tomlplusplus colony_c2d)
 
     if(NOT WIN32)
         target_link_libraries(colony_preview m)
@@ -197,7 +209,7 @@ set_target_properties(colony_playtest PROPERTIES
 
 target_include_directories(colony_playtest PRIVATE ${COLONY_INCLUDE_DIRS})
 
-target_link_libraries(colony_playtest raylib tomlplusplus::tomlplusplus)
+target_link_libraries(colony_playtest raylib tomlplusplus::tomlplusplus colony_c2d)
 
 if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
     target_link_libraries(colony_playtest m)
@@ -242,7 +254,7 @@ set_target_properties(colony_extraction PROPERTIES
 )
 
 target_include_directories(colony_extraction PRIVATE ${COLONY_INCLUDE_DIRS})
-target_link_libraries(colony_extraction raylib tomlplusplus::tomlplusplus)
+target_link_libraries(colony_extraction raylib tomlplusplus::tomlplusplus colony_c2d)
 
 if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
     target_link_libraries(colony_extraction m)
@@ -293,7 +305,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
     )
 
     target_include_directories(colony_test PRIVATE ${COLONY_INCLUDE_DIRS})
-    target_link_libraries(colony_test raylib tomlplusplus::tomlplusplus)
+    target_link_libraries(colony_test raylib tomlplusplus::tomlplusplus colony_c2d)
 
     if(UNIX AND NOT APPLE)
         target_link_libraries(colony_test m)
@@ -322,7 +334,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
     )
 
     target_include_directories(colony_playthrough PRIVATE ${COLONY_INCLUDE_DIRS})
-    target_link_libraries(colony_playthrough raylib tomlplusplus::tomlplusplus)
+    target_link_libraries(colony_playthrough raylib tomlplusplus::tomlplusplus colony_c2d)
 
     if(UNIX AND NOT APPLE)
         target_link_libraries(colony_playthrough m)
@@ -465,7 +477,7 @@ set_target_properties(colony_sectwalk PROPERTIES
 
 target_include_directories(colony_sectwalk PRIVATE ${COLONY_INCLUDE_DIRS})
 
-target_link_libraries(colony_sectwalk raylib tomlplusplus::tomlplusplus)
+target_link_libraries(colony_sectwalk raylib tomlplusplus::tomlplusplus colony_c2d)
 
 if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
     target_link_libraries(colony_sectwalk m)
@@ -505,7 +517,7 @@ set_target_properties(colony_viewtest PROPERTIES
 
 target_include_directories(colony_viewtest PRIVATE ${COLONY_INCLUDE_DIRS})
 
-target_link_libraries(colony_viewtest raylib tomlplusplus::tomlplusplus)
+target_link_libraries(colony_viewtest raylib tomlplusplus::tomlplusplus colony_c2d)
 if(NOT WIN32 AND NOT "${PLATFORM}" STREQUAL "Web")
     target_link_libraries(colony_viewtest m)
 endif()
@@ -518,17 +530,6 @@ if("${PLATFORM}" STREQUAL "Web")
     set_target_properties(colony_viewtest PROPERTIES LINK_FLAGS "${vt_link_flags}")
 endif()
 
-# ---------------------------------------------------------------------------
-# The Canvas 2D shim, and its phase-1 acceptance tests.
-#
-# UI modules ported from the JS reference draw through src/ui/c2d.h and never
-# call raylib directly -- see docs/CANVAS2D_PORT_SPEC.md. The shim is C; the
-# header carries extern "C" guards so the C++ game can call it.
-# ---------------------------------------------------------------------------
-add_library(colony_c2d STATIC ui/c2d.c ui/holo3d.c ui/toolrack.c)
-target_include_directories(colony_c2d PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ui")
-target_link_libraries(colony_c2d PUBLIC raylib)
-set_target_properties(colony_c2d PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON)
 
 add_executable(c2dtest "${CMAKE_CURRENT_SOURCE_DIR}/../tools/c2dtest/c2dtest.c")
 target_link_libraries(c2dtest PRIVATE colony_c2d raylib)
