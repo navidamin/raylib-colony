@@ -20,8 +20,17 @@
 extern "C" {
 #endif
 
+/* 1536x768, not the reference's 1536x1024.
+ *
+ * The MODULES keep their own design units -- ToolRack and Holo3D are placed
+ * and scaled exactly as dashboard.html places them, which is what the spec
+ * fixes. What changed is the console's canvas, because this console is three
+ * panes wide rather than the reference's four stacked blocks, and because the
+ * game gives it a wide, short region. At 1536x1024 the fit-contain left it
+ * 750px wide inside a 1280px region and everything was half-legible; 2:1
+ * fills it. */
 #define SURVEY_DASH_DESIGN_W 1536
-#define SURVEY_DASH_DESIGN_H 1024
+#define SURVEY_DASH_DESIGN_H 768
 
 /* Idempotent; safe to call every frame. Returns false if the GL resources
  * could not be created, in which case Draw is a no-op. */

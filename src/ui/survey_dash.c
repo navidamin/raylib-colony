@@ -2,31 +2,58 @@
 #include "survey_dash.h"
 
 #include "c2d.h"
+#include "dash_chrome.h"
 #include "holo3d.h"
 #include "toolrack.h"
 
 #include <math.h>
 #include <string.h>
 
-/* DASH.layout, js/dashboard.html:1627. Only the two entries the ported
- * modules need; the rest arrives with the Dashboard chrome. */
-#define DASH_RACK_X       48.0f
-#define DASH_RACK_Y       32.0f
+/* THREE PANES, which is a layout decision and not the reference's. The JS
+ * dashboard has four blocks -- rack + tool stats down the left, block + log in
+ * the middle, drill bar + drill stats down the right. This console is three:
+ *
+ *      left    the tool rack
+ *      middle  the block, with the message log beneath it
+ *      right   the drill bar
+ *
+ * The two stats blocks have no pane, so they are not drawn. Placement inside
+ * each pane still comes from the reference (rack scale, block camera), so the
+ * modules themselves are untouched -- only where the console puts them.
+ *
+ * 1536 = 20 + 350 + 16 + 744 + 16 + 370 + 20. */
+#define PANE_M   20.0f
+#define PANE_G   16.0f
+#define PANE_TOP 20.0f
+#define PANE_H   (SURVEY_DASH_DESIGN_H - PANE_TOP * 2.0f)
+
+#define LEFT_X    PANE_M
+#define LEFT_W    350.0f
+#define MID_X     (LEFT_X + LEFT_W + PANE_G)
+#define MID_W     744.0f
+#define RIGHT_X   (MID_X + MID_W + PANE_G)
+#define RIGHT_W   370.0f
+
+/* the rack, centred in the left pane at the reference's own scale */
 #define DASH_RACK_SCALE   0.845f
-#define DASH_RACK_SCALE_Y 0.875f
-#define DASH_LAYERS_X     400.0f
-#define DASH_LAYERS_Y     22.0f
+#define DASH_RACK_SCALE_Y 0.925f
+#define DASH_RACK_X       (LEFT_X + 8.0f)
+#define DASH_RACK_Y       (PANE_TOP + 14.0f)
 
-/* blockView (1609): { cx: b.x + 370, cy: b.y + 345, zoom: 0.28 } */
-#define DASH_BLOCK_CX   (DASH_LAYERS_X + 370.0f)
-#define DASH_BLOCK_CY   (DASH_LAYERS_Y + 345.0f)
-#define DASH_BLOCK_ZOOM 0.28f
+/* the block, centred in the middle pane above the log */
+#define LOG_H         196.0f
+#define LOG_X         (MID_X + 16.0f)
+#define LOG_Y         (PANE_TOP + PANE_H - LOG_H - 16.0f)
+#define LOG_W         (MID_W - 32.0f)
+#define DASH_BLOCK_CX (MID_X + MID_W * 0.5f)
+#define DASH_BLOCK_CY (PANE_TOP + (LOG_Y - PANE_TOP) * 0.56f)
+#define DASH_BLOCK_ZOOM 0.235f
 
-/* blockRegion (1610): the rect inside which a drag rotates the block */
-#define DASH_BLOCK_X0 (DASH_LAYERS_X + 130.0f)
-#define DASH_BLOCK_Y0 (DASH_LAYERS_Y + 120.0f)
-#define DASH_BLOCK_X1 (DASH_LAYERS_X + 610.0f)
-#define DASH_BLOCK_Y1 (DASH_LAYERS_Y + 590.0f)
+/* the rect inside which a drag rotates the block */
+#define DASH_BLOCK_X0 (MID_X + 20.0f)
+#define DASH_BLOCK_Y0 (PANE_TOP + 20.0f)
+#define DASH_BLOCK_X1 (MID_X + MID_W - 20.0f)
+#define DASH_BLOCK_Y1 (LOG_Y - 8.0f)
 
 /* The console ships supersampled: Canvas antialiases coverage and raylib does
  * not, and 2 is where that stops paying (docs/design/prospecting/
@@ -44,6 +71,31 @@ static ToolRackData g_rack;
  * JS controller does -- without it one drag suppresses the next tap. */
 static bool    g_down = false, g_moved = false, g_onBlock = false;
 static Vector2 g_downPt = {0.0f, 0.0f};
+
+/* DASH.log and DASH.drill.depths (dashboard.html:1641, 1647). Placeholder
+ * content until the console is fed by the real prospecting system. */
+static const DashLogEntry *SurveyDash_DemoLog(void)
+{
+    static const DashLogEntry log[4] = {
+        {"14:27", {{"Discovered a mature pocket in ", false}, {"layer 1", true},
+                   {" and tagged the resources.", false}}, 3,
+                  {"power", "water", "propellant", "farming", "life"}, 5},
+        {"14:12", {{"Buried crater detected at ", false}, {"layer 3.", true}, {".", false}}, 3,
+                  {"construction", "water", "propellant"}, 3},
+        {"13:46", {{"Strong seismic reflection at ", false}, {"layer 4.", true}, {".", false}}, 3, {0}, 0},
+        {"13:15", {{"Stable formation confirmed at ", false}, {"layer 2.", true}, {".", false}}, 3, {0}, 0},
+    };
+    return log;
+}
+
+static const DashDepth *SurveyDash_DemoDepths(void)
+{
+    static const DashDepth d[5] = {
+        {"0 m", "SURFACE"}, {"200 m", NULL}, {"600 m", NULL},
+        {"1.15 km", NULL}, {"2.00 km", "BOREHOLE"},
+    };
+    return d;
+}
 
 bool SurveyDash_Init(void)
 {
@@ -93,7 +145,10 @@ void SurveyDash_Draw(Rectangle region, float dt)
     Holo3D_Tick(&g_block, dt, (float)GetTime());
     g_block.time = (float)GetTime();
 
-    c2d_begin(&g_surf, (Color){0x02, 0x0e, 0x17, 255});
+    c2d_begin(&g_surf, DashC_Bg());
+
+    Dash_Panel(LEFT_X,  PANE_TOP, LEFT_W,  PANE_H, (Color){0, 0, 0, 0}, 12.0f, 26.0f);
+    Dash_Panel(MID_X,   PANE_TOP, MID_W,   PANE_H, (Color){0, 0, 0, 0}, 12.0f, 26.0f);
 
     ToolRackOpts ro = {0};
     ro.level = 6;
@@ -110,6 +165,11 @@ void SurveyDash_Draw(Rectangle region, float dt)
     hud.reticle = true;
     Holo3D_Render(g_model, &g_block, &g_view);
     Holo3D_DrawHud(g_model, &g_block, &g_view, &hud);
+
+    Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, SurveyDash_DemoLog(), 4);
+
+    Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, "DRILL BAR",
+                  SurveyDash_DemoDepths(), 5);
 
     c2d_end();
 
