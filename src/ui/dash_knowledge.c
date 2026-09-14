@@ -21,6 +21,8 @@ void DashKnow_Clear(DashKnowledge *k)
     if (!k) return;
     memset(k, 0, sizeof(*k));
     k->cachedRevision = -1;
+    k->cachedLattice = -1;
+    k->cachedColumnM = -1.0f;
 }
 
 void DashKnow_Add(DashKnowledge *k, float i, float j, float depthM)
@@ -61,8 +63,12 @@ float DashKnow_Confidence(float known)
 float DashKnow_Delineation(DashKnowledge *k, int lattice, float columnM)
 {
     if (!k) return 0.0f;
-    if (k->cachedRevision == k->revision) return k->cachedDelineation;
+    if (k->cachedRevision == k->revision &&
+        k->cachedLattice  == lattice &&
+        k->cachedColumnM  == columnM) return k->cachedDelineation;
     k->cachedRevision = k->revision;
+    k->cachedLattice  = lattice;
+    k->cachedColumnM  = columnM;
     if (k->count == 0) { k->cachedDelineation = 0.0f; return 0.0f; }
     float sum = 0.0f;
     int n = 0;

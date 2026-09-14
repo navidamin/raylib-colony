@@ -49,16 +49,9 @@ constexpr float SURVEY_CRATER_RIM   = 0.34f;
 constexpr float SURVEY_CRATER_INFILL= 0.55f;
 
 // ---- what a borehole is worth, and how far -------------------------------
-/* A borehole does not light a stripe: it constrains the whole model, most
-   where it stands and least far away, and never nothing -- a hole in the far
-   corner still says something about the section you are looking at. */
-constexpr float SURVEY_K_NEAR    = 0.68f;  // what one hole settles right where it stands
-constexpr float SURVEY_K_FAR     = 0.15f;  // and what it still says from anywhere at all
-constexpr float SURVEY_K_RADIUS  = 9.0f;   // cells over which the near term falls away
-constexpr float SURVEY_K_BELOW   = 0.20f;  // how much it says about ground it never reached
-constexpr float SURVEY_K_SKIRT_M = 230.0f; // over what depth it drops to that
-constexpr float SURVEY_K_FULL    = 0.95f;  // fog at 5% is confidence 1: the model stops here
-constexpr float SURVEY_DELIN_GATE = 0.95f; // MEASURED, and the gate isolate waits on
+/* MOVED. These constants now live in src/ui/dash_knowledge.h as DK_K_*,
+   which is the one implementation of the knowledge model -- the values are
+   unchanged, they just have one home instead of two. */
 
 // ---- the scour a hole leaves ---------------------------------------------
 constexpr float SURVEY_SCOUR_R      = 1.5f;   // lattice cells -- about 320 m

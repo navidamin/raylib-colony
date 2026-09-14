@@ -31,6 +31,9 @@ extern "C" {
 #define DK_K_FULL       0.95f    /* fog at 5% is confidence 1               */
 #define DK_DELIN_GATE   0.95f    /* MEASURED, and the gate isolate waits on */
 
+/* The model saturates long before this: seven well-spread full-depth holes
+ * clear the MEASURED gate and confidence is capped at 1, so a hole past the
+ * cap could not move any output even if it were stored. */
 #define DK_HOLES_MAX 64
 
 typedef struct DkHole { float i, j, depthM; } DkHole;
@@ -40,8 +43,13 @@ typedef struct DashKnowledge {
     int    count;
     int    revision;
     /* Delineation walks every hole at 567 sample points, so it is cached
-     * against the revision rather than recomputed per frame. */
+     * rather than recomputed per frame. The key is all three inputs, not
+     * just the revision: the same holes sampled over a different column
+     * are a different question, and keying on revision alone answered the
+     * second caller with the first caller's number. */
     int    cachedRevision;
+    int    cachedLattice;
+    float  cachedColumnM;
     float  cachedDelineation;
 } DashKnowledge;
 

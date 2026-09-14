@@ -34,7 +34,6 @@ set(COLONY_CORE_SOURCES
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
     Prospecting/rock_texture.cpp
-    Survey/survey_knowledge.cpp
     Survey/survey_ground.cpp
     Survey/survey_block.cpp
     Survey/survey_console.cpp
@@ -365,7 +364,6 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Prospecting/lab_engine.cpp
         Prospecting/survey_progress_engine.cpp
         Prospecting/prospecting_system.cpp
-        Survey/survey_knowledge.cpp
         Survey/survey_ground.cpp
         Survey/survey_block.cpp
         Survey/survey_console.cpp
@@ -383,7 +381,10 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
     )
 
     target_include_directories(colony_sim PRIVATE ${COLONY_INCLUDE_DIRS})
-    target_link_libraries(colony_sim raylib tomlplusplus::tomlplusplus)
+    # colony_c2d for the knowledge model only: SurveyKnowledge is a C++ face
+    # on dash_knowledge.c, which is pure logic with no raylib in it. Static
+    # linking pulls that one object and leaves the drawing behind.
+    target_link_libraries(colony_sim raylib tomlplusplus::tomlplusplus colony_c2d)
 
     if(UNIX AND NOT APPLE)
         target_link_libraries(colony_sim m)
