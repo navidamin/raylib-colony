@@ -106,16 +106,34 @@ static void DashLog_Bind(SurveyDashLog *L)
     }
 }
 
-/* DASH.drill.depths (dashboard.html:1647). Placeholder content until the
- * console is fed by the real prospecting system. */
-static const DashDepth *SurveyDash_DemoDepths(void)
+/* The ruler's graduations, from the ground itself rather than from a table:
+ * the collar, then the base of each stratum, then the bottom of the column.
+ * Those bases ARE the game's four depth layers (LAYER_THICKNESS_M), so the
+ * ruler, the bands beside it, the energy a hole costs and the layer it cores
+ * are finally all reading the same numbers.
+ *
+ * The strata are named inside their own bands; what the ruler marks is the
+ * HOLE's landmarks. */
+#define DASH_RULER_TICKS (DRILL_STRATA_COUNT + 1)
+
+static const DashDepth *SurveyDash_Ruler(void)
 {
-    /* the rig's own scale -- DRILL_TARGET_M is 120, so the ruler has to read
-       metres, not the dashboard's placeholder kilometres */
-    static const DashDepth d[5] = {
-        {"0 m", "SURFACE"}, {"30 m", NULL}, {"60 m", NULL},
-        {"90 m", NULL}, {"120 m", "TARGET"},
-    };
+    static DashDepth d[DASH_RULER_TICKS];
+    static char      label[DASH_RULER_TICKS][12];
+    static bool      built = false;
+    if (!built)
+    {
+        const DrillStratum *S = DrillSim_Strata();
+        snprintf(label[0], sizeof(label[0]), "%d m", (int)(S[0].top + 0.5f));
+        d[0] = (DashDepth){S[0].top, label[0], "SURFACE"};
+        for (int i = 0; i < DRILL_STRATA_COUNT; i++)
+        {
+            snprintf(label[i + 1], sizeof(label[i + 1]), "%d m", (int)(S[i].bot + 0.5f));
+            d[i + 1] = (DashDepth){S[i].bot, label[i + 1],
+                                   (i == DRILL_STRATA_COUNT - 1) ? "TARGET" : NULL};
+        }
+        built = true;
+    }
     return d;
 }
 
@@ -228,7 +246,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
         }
     }
     Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, "DRILL BAR",
-                  SurveyDash_DemoDepths(), 5, &s->drill, dt);
+                  SurveyDash_Ruler(), DASH_RULER_TICKS, &s->drill, dt);
 
     c2d_end();
 

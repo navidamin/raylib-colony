@@ -49,7 +49,12 @@ void Dash_Log(float x, float y, float w, float h,
 
 /* ---- the drill bar (drawDrillBar, 1567) ------------------------------- */
 
-typedef struct DashDepth { const char *depth, *name; } DashDepth;
+/* A graduation on the borehole ruler. `m` is what places it -- the ticks sit
+ * at their true depth, because the strata bands beside them always did and an
+ * evenly-spaced ruler only agreed with them while the depths happened to be an
+ * arithmetic sequence. `name` marks the hole's own landmarks (the collar, the
+ * target); the ROCK is named inside its band, where the rock is. */
+typedef struct DashDepth { float m; const char *depth, *name; } DashDepth;
 
 /* Live now, and driven by DrillSim -- see drill_sim.h. The strata, the string
  * position, the heat glow on the steel, the chip stream, the motor-pod band

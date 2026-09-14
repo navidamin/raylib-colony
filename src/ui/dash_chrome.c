@@ -318,18 +318,24 @@ void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int cou
 }
 
 /* ---------- the drill bar (1544, 1567) -------------------------------- */
+#define DC_RULER_MINOR_M 5.0f
+
 static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
                     float pad)
 {
     DcLine(x, y0, x, y1, C_accentDim, 1.5f);
     const float top = y0 + pad, bot = y1 - pad;
-    const float step = (n > 1) ? (bot - top) / (float)(n - 1) : 0.0f;
-    if (step > 0.0f)
-        for (float yy = top; yy <= bot + 0.5f; yy += step / 10.0f)
-            DcLine(x, yy, x + 6.0f, yy, RGBA(53, 216, 238, 0.55f), 1.0f);
+
+    /* Minor graduations every DC_RULER_MINOR_M of real depth. They used to be
+     * a tenth of the gap between labels, which is only a scale while the
+     * labels are evenly spaced. */
+    for (float m = 0.0f; m <= DRILL_TARGET_M + 0.01f; m += DC_RULER_MINOR_M)
+        DcLine(x, top + (bot - top) * (m / DRILL_TARGET_M), x + 6.0f,
+               top + (bot - top) * (m / DRILL_TARGET_M), RGBA(53, 216, 238, 0.55f), 1.0f);
+
     for (int i = 0; i < n; i++)
     {
-        const float yy = top + step * (float)i;
+        const float yy = top + (bot - top) * Clampf01(d[i].m / DRILL_TARGET_M);
         DcLine(x, yy, x + 14.0f, yy, C_accent, 1.5f);
         c2d_disc((Vector2){x + 14.0f, yy}, 2.5f, C_accent);
         DcLabel(d[i].depth, x + 24.0f, yy + 6.0f, 16.0f, C_depth, C2D_W500);
@@ -706,6 +712,12 @@ static void DcRoughDrill(float x, float y, float w, float h,
         const float y1 = top + (bot - top) * (S[i].bot / DRILL_TARGET_M);
         c2d_rect(sx, y0, sw, y1 - y0, (Color){S[i].col[0], S[i].col[1], S[i].col[2], 255});
         c2d_rect(sx, y1 - 2.0f, sw, 2.0f, (Color){S[i].edge[0], S[i].edge[1], S[i].edge[2], 255});
+        /* The rock is named in its own band. The ruler has 68 units of label
+         * width and MEGAREGOLITH needs 100 -- but more than that, a stratum
+         * name is a fact about the ground, not about the hole. */
+        if (y1 - y0 > 20.0f)
+            DcLabel(S[i].name, sx + 9.0f, y0 + 15.0f, 11.0f,
+                    RGBA(214, 228, 238, 0.58f), C2D_W500);
     }
 
     /* the hole the string has already made */
