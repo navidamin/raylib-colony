@@ -3380,12 +3380,11 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
         DrawSurveyModuleBar(unit, { region.x, region.y, region.width, 34.0f });
         Rectangle console = { region.x, region.y + 34.0f,
                               region.width, region.height - 34.0f };
-        /* P1 parks the console's state here, next to its draw. P2 moves it
-           onto ProspectingSystem so each prospecting module gets its own
-           hole, log and turned block; until then there is still one console,
-           but it is an object rather than a pile of file statics. */
-        static SurveyDashState dash = {};
-        SurveyDash_Draw(&dash, console, GetFrameTime());
+        /* The console's state belongs to the MODULE, not to the renderer:
+           each prospecting unit keeps its own hole, log and turned block,
+           and finds them again when the player comes back to it. */
+        SurveyDashState* dash = &unit->GetProspectingSystem()->Dash();
+        SurveyDash_Draw(dash, console, GetFrameTime());
 
         /* IMGUI, like the rest of this file: the console's input is handled
            here, next to its draw. Every hit test goes through design space --
@@ -3394,14 +3393,14 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
         const Vector2 mouse = GetMousePosition();
         if (CheckCollisionPointRec(mouse, console))
         {
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(&dash, console, mouse);
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(dash, console, mouse);
             if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
             {
                 const Vector2 d = GetMouseDelta();
-                if (d.x != 0.0f || d.y != 0.0f) SurveyDash_Drag(&dash, console, d);
+                if (d.x != 0.0f || d.y != 0.0f) SurveyDash_Drag(dash, console, d);
             }
         }
-        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) SurveyDash_Release(&dash, console, mouse);
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) SurveyDash_Release(dash, console, mouse);
         return;
     }
 

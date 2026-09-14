@@ -66,6 +66,7 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
     "${CMAKE_CURRENT_SOURCE_DIR}/Survey"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui"
     "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/Excavation"
 )

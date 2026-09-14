@@ -7,6 +7,7 @@
 #include "lab_engine.h"
 #include "survey_progress_engine.h"
 #include "survey_console.h"
+#include "survey_dash.h"
 
 enum class ProspectingTab { SWEEP, SAMPLES, LAB };
 
@@ -119,6 +120,19 @@ public:
     SurveyConsole& Survey() { return survey; }
     const SurveyConsole& Survey() const { return survey; }
 
+    // ---- The ported console's own state ---------------------------------
+    // The drill, the holes it has logged, the turned block, the rack and the
+    // event log. It lives here for the same reason plateLight does: the
+    // renderer is rebuilt from nothing each frame and could only ever snap,
+    // so anything the player expects to still be there when they come back
+    // has to be owned by the unit. One per prospecting module, so two
+    // extraction units drill their own ground.
+    //
+    // Zero-initialised is a valid un-started console -- SurveyDash_Draw
+    // resets it on its first frame, so there is nothing to call from here.
+    SurveyDashState& Dash() { return dash; }
+    const SurveyDashState& Dash() const { return dash; }
+
     // UI state
     ProspectingTab activeTab = ProspectingTab::SWEEP;
     int selectedCellX = -1;
@@ -136,6 +150,7 @@ public:
 
 private:
     SurveyConsole survey;
+    SurveyDashState dash = {};
 
     int tier;
     ResourceManager& resourceManager;
