@@ -3380,7 +3380,12 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
         DrawSurveyModuleBar(unit, { region.x, region.y, region.width, 34.0f });
         Rectangle console = { region.x, region.y + 34.0f,
                               region.width, region.height - 34.0f };
-        SurveyDash_Draw(console, GetFrameTime());
+        /* P1 parks the console's state here, next to its draw. P2 moves it
+           onto ProspectingSystem so each prospecting module gets its own
+           hole, log and turned block; until then there is still one console,
+           but it is an object rather than a pile of file statics. */
+        static SurveyDashState dash = {};
+        SurveyDash_Draw(&dash, console, GetFrameTime());
 
         /* IMGUI, like the rest of this file: the console's input is handled
            here, next to its draw. Every hit test goes through design space --
@@ -3389,14 +3394,14 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
         const Vector2 mouse = GetMousePosition();
         if (CheckCollisionPointRec(mouse, console))
         {
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(console, mouse);
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(&dash, console, mouse);
             if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
             {
                 const Vector2 d = GetMouseDelta();
-                if (d.x != 0.0f || d.y != 0.0f) SurveyDash_Drag(console, d);
+                if (d.x != 0.0f || d.y != 0.0f) SurveyDash_Drag(&dash, console, d);
             }
         }
-        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) SurveyDash_Release(console, mouse);
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) SurveyDash_Release(&dash, console, mouse);
         return;
     }
 

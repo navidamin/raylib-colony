@@ -2,14 +2,8 @@
 #include "survey_dash.h"
 
 #include "c2d.h"
-#include "dash_chrome.h"
-#include "drill_sim.h"
-#include "dash_knowledge.h"
 
 #include <stdio.h>
-#include "holo3d.h"
-#include "toolrack.h"
-
 #include <math.h>
 #include <string.h>
 
@@ -66,83 +60,58 @@
  * holo3d-inventory.md). */
 #define DASH_SS 2
 
-static bool         g_ready = false;
+/* THE ONLY FILE STATICS LEFT, and they are the process's, not a console's:
+ * one render surface, one set of fonts, one block geometry, shared by every
+ * console that draws. Everything a console remembers is in SurveyDashState. */
+static bool         g_resReady = false;
 static C2DSurface   g_surf;
 static Holo3DModel *g_model = NULL;
-static H3DState     g_block;
-static H3DView      g_view;
-static ToolRackData g_rack;
-static DrillSim     g_drill;
-static DashKnowledge g_know;
-
-/* The drill site, in lattice coordinates across the block. Tapping the cap
- * moves it; the hole that lands is credited there, which is what makes
- * spreading holes out worth doing. */
-static float g_siteI = DK_LATTICE * 0.5f, g_siteJ = DK_LATTICE * 0.5f;
-static bool  g_saidMeasured = false;
 
 static float Clampf01v(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
-/* C7: the log is written by what happens, not by a table. */
-#define DASH_LOG_MAX 6
-static DashLogEntry g_log[DASH_LOG_MAX];
-static char         g_logTime[DASH_LOG_MAX][8];
-static char         g_logText[DASH_LOG_MAX][96];
-static char         g_logTag [DASH_LOG_MAX][24];
-static int          g_logCount = 0;
+/* ---- the log ---------------------------------------------------------- */
 
-static void DashLog_Push(float t, const char *text, const char *tag)
+static void DashLog_Push(SurveyDashState *s, float t, const char *text, const char *tag)
 {
-    for (int i = (g_logCount < DASH_LOG_MAX ? g_logCount : DASH_LOG_MAX - 1); i > 0; i--)
+    SurveyDashLog *L = &s->log;
+    for (int i = (L->count < SURVEY_DASH_LOG_MAX ? L->count : SURVEY_DASH_LOG_MAX - 1); i > 0; i--)
     {
-        memcpy(g_logTime[i], g_logTime[i - 1], sizeof(g_logTime[0]));
-        memcpy(g_logText[i], g_logText[i - 1], sizeof(g_logText[0]));
-        memcpy(g_logTag [i], g_logTag [i - 1], sizeof(g_logTag[0]));
+        memcpy(L->time[i], L->time[i - 1], sizeof(L->time[0]));
+        memcpy(L->text[i], L->text[i - 1], sizeof(L->text[0]));
+        memcpy(L->tag [i], L->tag [i - 1], sizeof(L->tag [0]));
     }
-    snprintf(g_logTime[0], sizeof(g_logTime[0]), "%02d:%02d",
+    snprintf(L->time[0], sizeof(L->time[0]), "%02d:%02d",
              (int)(t / 60.0f) % 100, (int)t % 60);
-    snprintf(g_logText[0], sizeof(g_logText[0]), "%s", text);
-    snprintf(g_logTag [0], sizeof(g_logTag [0]), "%s", tag ? tag : "");
-    if (g_logCount < DASH_LOG_MAX) g_logCount++;
-    for (int i = 0; i < g_logCount; i++)
+    snprintf(L->text[0], sizeof(L->text[0]), "%s", text);
+    snprintf(L->tag [0], sizeof(L->tag [0]), "%s", tag ? tag : "");
+    if (L->count < SURVEY_DASH_LOG_MAX) L->count++;
+}
+
+/* Point the entries at this struct's own strings. Done on the way to the
+ * draw, never on push, so a copied state is repaired rather than left with
+ * pointers into the state it was copied from. */
+static void DashLog_Bind(SurveyDashLog *L)
+{
+    for (int i = 0; i < L->count; i++)
     {
-        g_log[i].time = g_logTime[i];
-        g_log[i].parts[0] = (DashLogPart){g_logText[i], false};
-        g_log[i].partCount = 1;
-        if (g_logTag[i][0])
+        L->entry[i].time = L->time[i];
+        L->entry[i].parts[0] = (DashLogPart){L->text[i], false};
+        L->entry[i].partCount = 1;
+        if (L->tag[i][0])
         {
-            g_log[i].parts[1] = (DashLogPart){g_logTag[i], true};
-            g_log[i].partCount = 2;
+            L->entry[i].parts[1] = (DashLogPart){L->tag[i], true};
+            L->entry[i].partCount = 2;
         }
-        g_log[i].chipCount = 0;
+        L->entry[i].chipCount = 0;
     }
 }
 
-/* Drag state. `moved` distinguishes a rotate from a tap, the same way the
- * JS controller does -- without it one drag suppresses the next tap. */
-static bool    g_down = false, g_moved = false, g_onBlock = false;
-static Vector2 g_downPt = {0.0f, 0.0f};
-
-/* DASH.log and DASH.drill.depths (dashboard.html:1641, 1647). Placeholder
- * content until the console is fed by the real prospecting system. */
-static const DashLogEntry *SurveyDash_DemoLog(void)
-{
-    static const DashLogEntry log[4] = {
-        {"14:27", {{"Discovered a mature pocket in ", false}, {"layer 1", true},
-                   {" and tagged the resources.", false}}, 3,
-                  {"power", "water", "propellant", "farming", "life"}, 5},
-        {"14:12", {{"Buried crater detected at ", false}, {"layer 3.", true}, {".", false}}, 3,
-                  {"construction", "water", "propellant"}, 3},
-        {"13:46", {{"Strong seismic reflection at ", false}, {"layer 4.", true}, {".", false}}, 3, {0}, 0},
-        {"13:15", {{"Stable formation confirmed at ", false}, {"layer 2.", true}, {".", false}}, 3, {0}, 0},
-    };
-    return log;
-}
-
+/* DASH.drill.depths (dashboard.html:1647). Placeholder content until the
+ * console is fed by the real prospecting system. */
 static const DashDepth *SurveyDash_DemoDepths(void)
 {
     /* the rig's own scale -- DRILL_TARGET_M is 120, so the ruler has to read
-     * metres, not the dashboard's placeholder kilometres */
+       metres, not the dashboard's placeholder kilometres */
     static const DashDepth d[5] = {
         {"0 m", "SURFACE"}, {"30 m", NULL}, {"60 m", NULL},
         {"90 m", NULL}, {"120 m", "TARGET"},
@@ -152,7 +121,7 @@ static const DashDepth *SurveyDash_DemoDepths(void)
 
 bool SurveyDash_Init(void)
 {
-    if (g_ready) return true;
+    if (g_resReady) return true;
 
     c2d_set_supersample(DASH_SS);
     c2d_fonts_load("src/assets/fonts/JetBrainsMono-Medium.ttf",
@@ -167,41 +136,51 @@ bool SurveyDash_Init(void)
     g_model = Holo3D_Build(&opts);
     if (!g_model) { c2d_surface_destroy(&g_surf); return false; }
 
-    memset(&g_block, 0, sizeof(g_block));
-    g_block.yaw = -0.1f;
-    g_block.pitch = 0.42f;
-    g_block.selected = -1;
-    memset(&g_view, 0, sizeof(g_view));
-    g_view.cx = DASH_BLOCK_CX;
-    g_view.cy = DASH_BLOCK_CY;
-    g_view.zoom = DASH_BLOCK_ZOOM;
-
-    g_rack = ToolRack_Demo();
-    DrillSim_Reset(&g_drill);
-    DashKnow_Clear(&g_know);
-    g_saidMeasured = false;
-    g_logCount = 0;
-    DashLog_Push(0.0f, "Console online. Tap the cap to set a site, the ruler to set a depth.", NULL);
-    g_ready = true;
+    g_resReady = true;
     return true;
 }
 
 void SurveyDash_Shutdown(void)
 {
-    if (!g_ready) return;
+    if (!g_resReady) return;
     Holo3D_Free(g_model);
     g_model = NULL;
     c2d_surface_destroy(&g_surf);
     c2d_fonts_unload();
-    g_ready = false;
+    g_resReady = false;
 }
 
-void SurveyDash_Draw(Rectangle region, float dt)
+void SurveyDash_Reset(SurveyDashState *s)
 {
-    if (!SurveyDash_Init()) return;
+    if (!s) return;
+    memset(s, 0, sizeof(*s));
 
-    Holo3D_Tick(&g_block, dt, (float)GetTime());
-    g_block.time = (float)GetTime();
+    s->block.yaw = -0.1f;
+    s->block.pitch = 0.42f;
+    s->block.selected = -1;
+
+    s->view.cx = DASH_BLOCK_CX;
+    s->view.cy = DASH_BLOCK_CY;
+    s->view.zoom = DASH_BLOCK_ZOOM;
+
+    s->rack = ToolRack_Demo();
+    DrillSim_Reset(&s->drill);
+    DashKnow_Clear(&s->know);
+
+    s->siteI = DK_LATTICE * 0.5f;
+    s->siteJ = DK_LATTICE * 0.5f;
+
+    DashLog_Push(s, 0.0f, "Console online. Tap the cap to set a site, the ruler to set a depth.", NULL);
+    s->started = true;
+}
+
+void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
+{
+    if (!s || !SurveyDash_Init()) return;
+    if (!s->started) SurveyDash_Reset(s);
+
+    Holo3D_Tick(&s->block, dt, (float)GetTime());
+    s->block.time = (float)GetTime();
 
     c2d_begin(&g_surf, DashC_Bg());
 
@@ -214,41 +193,42 @@ void SurveyDash_Draw(Rectangle region, float dt)
     c2d_save();
     c2d_translate(DASH_RACK_X, DASH_RACK_Y);
     c2d_scale(DASH_RACK_SCALE, DASH_RACK_SCALE_Y);
-    ToolRack_DrawB(&g_rack, 0.0f, 0.0f, &ro);
+    ToolRack_DrawB(&s->rack, 0.0f, 0.0f, &ro);
     c2d_restore();
 
     /* drawBlock3D (1611): callouts, brackets and the base ring are OFF in the
      * dashboard -- they belong to the block's own full-screen view. */
     H3DHud hud = {0};
     hud.reticle = true;
-    Holo3D_Render(g_model, &g_block, &g_view);
-    Holo3D_DrawHud(g_model, &g_block, &g_view, &hud);
+    Holo3D_Render(g_model, &s->block, &s->view);
+    Holo3D_DrawHud(g_model, &s->block, &s->view, &hud);
 
     Dash_Confidence(LOG_X, CONF_Y, LOG_W, CONF_H,
-                    DashKnow_Delineation(&g_know, DK_LATTICE, DRILL_TARGET_M),
-                    DashKnow_Tier(&g_know, DK_LATTICE, DRILL_TARGET_M),
-                    DashKnow_IsMeasured(&g_know, DK_LATTICE, DRILL_TARGET_M));
-    Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, g_log, g_logCount);
+                    DashKnow_Delineation(&s->know, DK_LATTICE, DRILL_TARGET_M),
+                    DashKnow_Tier(&s->know, DK_LATTICE, DRILL_TARGET_M),
+                    DashKnow_IsMeasured(&s->know, DK_LATTICE, DRILL_TARGET_M));
+    DashLog_Bind(&s->log);
+    Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, s->log.entry, s->log.count);
 
-    DrillSim_Step(&g_drill, dt);
-    if (g_drill.completed)
+    DrillSim_Step(&s->drill, dt);
+    if (s->drill.completed)
     {
         /* C5+C6 meet here: a finished hole is what the model learns from. */
-        DashKnow_Add(&g_know, g_siteI, g_siteJ, g_drill.completedAtM);
+        DashKnow_Add(&s->know, s->siteI, s->siteJ, s->drill.completedAtM);
         char msg[96];
         snprintf(msg, sizeof(msg), "Hole to %d m logged at site %d/%d in ",
-                 (int)(g_drill.completedAtM + 0.5f), (int)g_siteI, (int)g_siteJ);
-        DashLog_Push(g_drill.t, msg, DrillSim_At(g_drill.completedAtM)->name);
+                 (int)(s->drill.completedAtM + 0.5f), (int)s->siteI, (int)s->siteJ);
+        DashLog_Push(s, s->drill.t, msg, DrillSim_At(s->drill.completedAtM)->name);
         /* announced ONCE -- it fires on a completion, and every later hole
          * is also a completion with the model still measured */
-        if (!g_saidMeasured && DashKnow_IsMeasured(&g_know, DK_LATTICE, DRILL_TARGET_M))
+        if (!s->saidMeasured && DashKnow_IsMeasured(&s->know, DK_LATTICE, DRILL_TARGET_M))
         {
-            DashLog_Push(g_drill.t, "Model MEASURED. Isolate unlocked.", NULL);
-            g_saidMeasured = true;
+            DashLog_Push(s, s->drill.t, "Model MEASURED. Isolate unlocked.", NULL);
+            s->saidMeasured = true;
         }
     }
     Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, "DRILL BAR",
-                  SurveyDash_DemoDepths(), 5, &g_drill, dt);
+                  SurveyDash_DemoDepths(), 5, &s->drill, dt);
 
     c2d_end();
 
@@ -261,26 +241,26 @@ Vector2 SurveyDash_ToDesign(Rectangle region, Vector2 p)
     return c2d_to_design(&g_surf, p);
 }
 
-void SurveyDash_Press(Rectangle region, Vector2 screenPt)
+void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
 {
-    if (!g_ready) return;
+    if (!s || !s->started) return;
     const Vector2 d = SurveyDash_ToDesign(region, screenPt);
-    g_down = true;
-    g_moved = false;
-    g_downPt = d;
-    g_onBlock = (d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 &&
-                 d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1);
+    s->down = true;
+    s->moved = false;
+    s->downPt = d;
+    s->onBlock = (d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 &&
+                  d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1);
 
     /* C6: the ruler is the depth control. Checked before the face, because
      * it sits inside the bar and a click on it must arm rather than drill. */
     const float pick = Dash_DrillBarPickDepth(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, d.x, d.y);
     if (pick >= 0.0f)
     {
-        DrillSim_SetTarget(&g_drill, pick);
+        DrillSim_SetTarget(&s->drill, pick);
         char msg[96];
         snprintf(msg, sizeof(msg), "String set to %d m. Tap the hole to feed it down.",
                  (int)(pick + 0.5f));
-        DashLog_Push(g_drill.t, msg, NULL);
+        DashLog_Push(s, s->drill.t, msg, NULL);
         return;
     }
 
@@ -290,56 +270,56 @@ void SurveyDash_Press(Rectangle region, Vector2 screenPt)
     float fx, fy, fw, fh;
     Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, &fx, &fy, &fw, &fh);
     if (d.x >= fx && d.x <= fx + fw && d.y >= fy && d.y <= fy + fh)
-        DrillSim_Bite(&g_drill);
+        DrillSim_Bite(&s->drill);
 }
 
-void SurveyDash_Drag(Rectangle region, Vector2 delta)
+void SurveyDash_Drag(SurveyDashState *s, Rectangle region, Vector2 delta)
 {
-    if (!g_ready || !g_down || !g_onBlock) return;
+    if (!s || !s->started || !s->down || !s->onBlock) return;
     /* the letterbox scale, so a drag turns the block by the same amount
      * whatever the window size */
     const float k = (g_surf.dst.width > 0.0f)
                   ? (float)g_surf.w / g_surf.dst.width : 1.0f;
     (void)region;
-    if (fabsf(delta.x) + fabsf(delta.y) > 0.0f) g_moved = true;
-    g_block.yaw   += delta.x * k * 0.006f;
-    g_block.pitch += delta.y * k * 0.004f;
-    if (g_block.pitch < 0.05f) g_block.pitch = 0.05f;
-    if (g_block.pitch > 1.30f) g_block.pitch = 1.30f;
-    g_block.fast = true;
+    if (fabsf(delta.x) + fabsf(delta.y) > 0.0f) s->moved = true;
+    s->block.yaw   += delta.x * k * 0.006f;
+    s->block.pitch += delta.y * k * 0.004f;
+    if (s->block.pitch < 0.05f) s->block.pitch = 0.05f;
+    if (s->block.pitch > 1.30f) s->block.pitch = 1.30f;
+    s->block.fast = true;
 }
 
-void SurveyDash_Release(Rectangle region, Vector2 screenPt)
+void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
 {
-    if (!g_ready) return;
+    if (!s || !s->started) return;
     const Vector2 d = SurveyDash_ToDesign(region, screenPt);
-    g_block.fast = false;
-    if (g_down && !g_moved)
+    s->block.fast = false;
+    if (s->down && !s->moved)
     {
-        if (g_onBlock)
+        if (s->onBlock)
         {
             const int bed = Holo3D_Hit(g_model, d.x, d.y);
             /* C5: isolate is GATED. Until the model is MEASURED a tap on the
              * block moves the drill site instead of peeling a bed -- the
              * control the player has before they have earned the other one. */
-            if (DashKnow_IsMeasured(&g_know, DK_LATTICE, DRILL_TARGET_M))
+            if (DashKnow_IsMeasured(&s->know, DK_LATTICE, DRILL_TARGET_M))
             {
-                if (bed >= 0) Holo3D_Select(&g_block, bed);
+                if (bed >= 0) Holo3D_Select(&s->block, bed);
             }
             else
             {
                 /* the site, from where the tap landed across the block */
                 const float u = Clampf01v((d.x - DASH_BLOCK_X0) / (DASH_BLOCK_X1 - DASH_BLOCK_X0));
                 const float v = Clampf01v((d.y - DASH_BLOCK_Y0) / (DASH_BLOCK_Y1 - DASH_BLOCK_Y0));
-                g_siteI = u * (float)DK_LATTICE;
-                g_siteJ = v * (float)DK_LATTICE;
-                g_drill.depthM = 0.0f;      /* a new site is a new hole */
-                g_drill.lift = 0.0f;
-                g_drill.done = false;
+                s->siteI = u * (float)DK_LATTICE;
+                s->siteJ = v * (float)DK_LATTICE;
+                s->drill.depthM = 0.0f;      /* a new site is a new hole */
+                s->drill.lift = 0.0f;
+                s->drill.done = false;
                 char msg[96];
                 snprintf(msg, sizeof(msg), "Site moved to %d/%d. Collared.",
-                         (int)g_siteI, (int)g_siteJ);
-                DashLog_Push(g_drill.t, msg, NULL);
+                         (int)s->siteI, (int)s->siteJ);
+                DashLog_Push(s, s->drill.t, msg, NULL);
             }
         }
         else
@@ -348,15 +328,15 @@ void SurveyDash_Release(Rectangle region, Vector2 screenPt)
                order, exactly as the draw applied them */
             const float rx = (d.x - DASH_RACK_X) / DASH_RACK_SCALE;
             const float ry = (d.y - DASH_RACK_Y) / DASH_RACK_SCALE_Y;
-            const int slot = ToolRack_HitTestB(rx, ry, g_rack.slots);
-            if (slot >= 0 && g_rack.tools[slot].present)
+            const int slot = ToolRack_HitTestB(rx, ry, s->rack.slots);
+            if (slot >= 0 && s->rack.tools[slot].present)
             {
-                for (int i = 0; i < g_rack.slots; i++) g_rack.tools[i].selected = false;
-                g_rack.tools[slot].active = !g_rack.tools[slot].active;
-                g_rack.tools[slot].selected = g_rack.tools[slot].active;
+                for (int i = 0; i < s->rack.slots; i++) s->rack.tools[i].selected = false;
+                s->rack.tools[slot].active = !s->rack.tools[slot].active;
+                s->rack.tools[slot].selected = s->rack.tools[slot].active;
             }
         }
     }
-    g_down = false;
-    g_moved = false;
+    s->down = false;
+    s->moved = false;
 }

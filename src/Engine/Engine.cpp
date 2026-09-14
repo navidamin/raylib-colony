@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "survey_dash.h"
 #include <ctime>
 #include <cmath>
 
@@ -20,6 +21,9 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
 }
 
 Engine::~Engine() {
+    /* Before CloseWindow: the console's render surface, fonts and block
+       geometry are GL objects and the context has to still be alive. */
+    SurveyDash_Shutdown();
     CloseWindow();
 }
 
