@@ -70,7 +70,7 @@ private:
     struct Crater { float x, y, r, d; };
 
     int   lattice = SURVEY_LATTICE;
-    float columnM = 2000.0f;
+    float columnM = SURVEY_COLUMN_M;
     float edgeM[SURVEY_BEDS + 1] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     std::vector<float> surf[SURVEY_BEDS + 1];
     std::vector<Crater> craters;

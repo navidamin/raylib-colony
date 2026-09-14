@@ -1437,12 +1437,20 @@ stay **locked** until the number clears its gate.
   Indicated / Measured* are real resource categories and carry the whole idea
   in one word each; "38%" alone does not tell anyone what kind of thing they
   are looking at.
-- **Prove the gate is reachable before you set it, arithmetically.** A
-  threshold nobody can hit is a dead end that looks like a bug. Here: ~8
-  well-spread full-depth holes clear 95%, a 3×3 grid reaches 99.8%, and
-  shallow-only drilling plateaus around 94% for 25 holes — which is the right
-  answer, since nothing has been established about the bottom of the column.
-  Show the gate on the bar from the first frame, long before it bites.
+- **Prove the gate is reachable before you set it, arithmetically — and
+  re-prove it whenever the ground changes.** A threshold nobody can hit is a
+  dead end that looks like a bug. Measured on the game's real 120 m column
+  (`tools` scratch harness over `dash_knowledge.c`): **7** well-spread
+  full-depth holes clear 95%, and depth is what buys it — 15 holes at 80% of
+  the column, 28 at half, 35 at a tenth. Show the gate on the bar from the
+  first frame, long before it bites.
+
+  Two earlier figures here were measured on a 2 km column and no longer hold.
+  Shallow-only drilling does **not** plateau below the gate: it climbs slowly
+  and clears at ~35 holes (0.87 at 25, where this previously said 0.94). That
+  is a 5× cost difference against deep drilling rather than a wall, which is
+  still the right shape — but "plateau" was the wrong word for it, and saying
+  so is cheaper than a future session trusting the wall.
 - **A status row is head-up: pin it, do not lay it out.** Put the bar in the
   panel's own layout and it drifts down the canvas whenever the content is
   short enough to be centred — the one place a status bar must never be.

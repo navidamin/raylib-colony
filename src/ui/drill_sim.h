@@ -18,12 +18,16 @@
 
 #include <stdbool.h>
 
+#include "subsurface.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define DRILL_STRATA_COUNT 4
-#define DRILL_TARGET_M     120.0f
+/* The bottom of the drill's reach IS the bottom of the surveyed column --
+ * they were two spellings of 120 and are now one. */
+#define DRILL_TARGET_M     SUB_COLUMN_M
 
 typedef struct DrillStratum {
     const char *name;

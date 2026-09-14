@@ -16,34 +16,50 @@
 
 #include "raylib.h"
 
+#include "prospecting_constants.h"
+#include "subsurface.h"
+
 // ---- the ground the block is a picture of --------------------------------
-// 6 km of ground centred on a sect, 2 km deep. The lattice is the resolution
-// the height fields are generated at, NOT the resource grid's: this is a
-// picture of the rock, and it is sampled finer than the game's 32x32 cells.
+// 6 km of ground centred on a sect, SUB_COLUMN_M deep. The lattice is the
+// resolution the height fields are generated at, NOT the resource grid's:
+// this is a picture of the rock, and it is sampled finer than the game's
+// 32x32 cells.
 constexpr int   SURVEY_LATTICE      = 28;
-constexpr float SURVEY_RELIEF_M     = 93.0f;   // amplitude of the surface undulation
+/* Bed thicknesses, metres. Four beds, five interfaces -- and they are THE
+   GAME'S FOUR DEPTH LAYERS, taken from the table that prices a hole and gates
+   a dig rather than restated here. The block is now a picture of the ground
+   the drill actually reaches. */
+constexpr float SURVEY_T0 = LAYER_THICKNESS_M[0];
+constexpr float SURVEY_T1 = LAYER_THICKNESS_M[1];
+constexpr float SURVEY_T2 = LAYER_THICKNESS_M[2];
+constexpr float SURVEY_T3 = LAYER_THICKNESS_M[3];
+constexpr int   SURVEY_BEDS = 4;
+constexpr float SURVEY_COLUMN_M = SURVEY_T0 + SURVEY_T1 + SURVEY_T2 + SURVEY_T3;
+
+static_assert(SURVEY_COLUMN_M == SUB_COLUMN_M,
+              "the block and the drill must be a picture of the same ground");
+
+/* EVERY VERTICAL MEASURE IS A FRACTION OF THE COLUMN, not an absolute in
+   metres. The block is drawn as depth / columnM throughout, so a fraction
+   keeps the picture identical whatever the column is, and an absolute does
+   not. The ratios below are the ones the look was settled at, over the 2 km
+   column it was settled on: 93/2000, 67/2000, 90/2000, 45/2000, 18/2000,
+   250/2000. See docs/design/subsurface/README.md. */
+constexpr float SURVEY_RELIEF_M     = SURVEY_COLUMN_M * 0.0465f; // surface undulation
 constexpr float SURVEY_FEATURE      = 3.5f;    // noise period, in features across the block
 constexpr int   SURVEY_DETAIL       = 3;       // fbm octaves
 constexpr float SURVEY_CONFORM      = 0.62f;   // how much each bed inherits from the one above
 constexpr float SURVEY_DAMP         = 0.55f;   // how fast relief dies with depth
-constexpr float SURVEY_DIP_M        = 67.0f;   // regional dip across the block
+constexpr float SURVEY_DIP_M        = SURVEY_COLUMN_M * 0.0335f; // regional dip
 constexpr float SURVEY_DIP_AZ_DEG   = 25.0f;
 constexpr float SURVEY_DIP_SPREAD   = 0.35f;   // how the dip fans with depth
 constexpr float SURVEY_GRAIN        = 0.25f;   // squashes the noise domain: mottle becomes ridges
-
-// Bed thicknesses, metres. Four beds, five interfaces; the last interface is
-// the base of the SURVEYED column -- a depth somebody chose, not a bed.
-constexpr float SURVEY_T0 = 200.0f;
-constexpr float SURVEY_T1 = 400.0f;
-constexpr float SURVEY_T2 = 550.0f;
-constexpr float SURVEY_T3 = 850.0f;
-constexpr int   SURVEY_BEDS = 4;
 
 // A few small craters, hashed so they are the same every load, each nudged
 // off the middle -- a crater under the sect is not a crater, it is a mistake.
 constexpr int   SURVEY_CRATER_N     = 3;
 constexpr float SURVEY_CRATER_SIZE  = 1.0f;
-constexpr float SURVEY_CRATER_DEPTH = 90.0f;
+constexpr float SURVEY_CRATER_DEPTH = SURVEY_COLUMN_M * 0.045f;
 constexpr int   SURVEY_CRATER_LAYER = 0;       // which interface they were cut into
 constexpr float SURVEY_CRATER_RIM   = 0.34f;
 constexpr float SURVEY_CRATER_INFILL= 0.55f;
@@ -55,8 +71,8 @@ constexpr float SURVEY_CRATER_INFILL= 0.55f;
 
 // ---- the scour a hole leaves ---------------------------------------------
 constexpr float SURVEY_SCOUR_R      = 1.5f;   // lattice cells -- about 320 m
-constexpr float SURVEY_SCOUR_DEEP_M = 45.0f;  // how far the bowl is driven down
-constexpr float SURVEY_SCOUR_RIM_M  = 18.0f;  // how high the spoil rim stands
+constexpr float SURVEY_SCOUR_DEEP_M = SURVEY_COLUMN_M * 0.0225f; // bowl depth
+constexpr float SURVEY_SCOUR_RIM_M  = SURVEY_COLUMN_M * 0.009f;  // spoil rim
 
 // ---- the palette ---------------------------------------------------------
 /* Navy and cyan, from the console design. This is NOT the extraction UI's
@@ -98,7 +114,7 @@ constexpr float SURVEY_MODEL_D = 700.0f;
 
 // ---- the cage -------------------------------------------------------------
 constexpr int   SURVEY_CAGE_STEP   = 4;      // lattice nodes between column lines
-constexpr float SURVEY_CAGE_RING_M = 250.0f; // metres between depth rings
+constexpr float SURVEY_CAGE_RING_M = SURVEY_COLUMN_M * 0.125f; // depth rings
 constexpr float SURVEY_CAGE_ALPHA  = 0.30f;
 constexpr float SURVEY_CRAWL_HZ    = 6.0f;   // stepped, not run: data arriving, not judder
 

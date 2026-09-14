@@ -73,8 +73,14 @@ public:
        The tiers are the mining industry's own and worth borrowing whole: a
        resource is INFERRED while its shape is a guess, INDICATED once
        drilling constrains it, and MEASURED only when the drilling is dense
-       enough to bet on. Shallow holes alone plateau, which is correct,
-       since nothing has been established about the bottom of the column. */
+       enough to bet on.
+
+       Measured on the real 120 m column: seven well-spread full-depth holes
+       clear the gate, and DEPTH is what buys that -- 15 holes if each stops
+       at 80% of the column, 28 at half, 35 at a tenth. Shallow drilling is
+       five times the work, not a wall: it climbs slowly and does clear
+       eventually, which is the intended shape and not the "plateau" the
+       older notes claimed. */
     float Delineation(int lattice, float columnM) const
     {
         return DashKnow_Delineation(&k, lattice, columnM);

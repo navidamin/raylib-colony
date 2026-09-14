@@ -18,6 +18,8 @@
 
 #include <stdbool.h>
 
+#include "subsurface.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -27,7 +29,12 @@ extern "C" {
 #define DK_K_FAR        0.15f    /* and what it still says from anywhere    */
 #define DK_K_RADIUS     9.0f     /* cells over which the near term falls    */
 #define DK_K_BELOW      0.20f    /* what it says about ground it never met  */
-#define DK_K_SKIRT_M  230.0f     /* over what depth it drops to that        */
+/* Over what depth it drops to that -- AS A FRACTION OF THE COLUMN. It was
+ * 230 m absolute, tuned when the block was 2 km deep, and then run against a
+ * 120 m one where a 230 m skirt is nearly twice the whole column and depth
+ * therefore cost almost nothing. 230/2000 is the ratio that was meant. */
+#define DK_K_SKIRT_FRAC 0.115f
+#define DK_K_SKIRT_M  (SUB_COLUMN_M * DK_K_SKIRT_FRAC)
 #define DK_K_FULL       0.95f    /* fog at 5% is confidence 1               */
 #define DK_DELIN_GATE   0.95f    /* MEASURED, and the gate isolate waits on */
 
