@@ -1,9 +1,18 @@
 # Prospecting Playtest
 
 An interactive sandbox that boots straight into the extraction unit's
-prospecting module — no menu, no colony placement, no navigation. Use it to
-playtest the sweep → sample → lab loop and feel how survey progress and
-extraction efficiency respond.
+prospecting module — no menu, no colony placement, no navigation.
+
+It now opens on the **ported survey console** (`src/ui/`), not the old
+three-column panel: a tool rack showing the game's real tools, a block
+generated from the real ground, and a drill bar whose ruler reads the game's
+four depth layers. Use it to feel the drilling loop and watch the block re-fit
+as holes land.
+
+**Not wired yet (P6):** drilling on the console does not charge energy, does
+not core a layer, and therefore does not move survey progress or extraction
+yield. The delineation bar and the block are live; the economy is not. See
+[`docs/design/prospecting/console-real-data.md`](../../docs/design/prospecting/console-real-data.md).
 
 ## Play on phone / tablet
 
@@ -33,7 +42,8 @@ libraries on Linux; see `tools/preview/README.md` for the apt list).
 
 | Input | Action |
 |---|---|
-| Mouse | everything in the panel: tabs, grid cells, frequency bands, depth layers, COLLECT, lab tools |
+| Mouse | everything on the survey console: tap the block to set a drill site, the ruler to set a depth, the hole to feed the string down, a rack bay to pick a tool |
+| `RESOURCE` chip | opens the resource statement over the console (it is the module's score, read between decisions -- so it folds, the same call the console itself made) |
 | `T` | upgrade prospecting tier (0 → 3; reach ring widens, bands/depths unlock) |
 | `D` | dig the selected spot at the selected depth — a sandbox shortcut for what excavation will do properly |
 | `R` | reset the run — fresh grid, tier 0 |

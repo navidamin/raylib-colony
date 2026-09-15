@@ -86,6 +86,7 @@ struct PlaytestContext
     int renderScale = 1;
     int frame = 0;
     const char* shotPath = nullptr;
+    bool statementOpen = false;
     bool done = false;
 };
 
@@ -116,8 +117,8 @@ static std::unique_ptr<Unit> MakeUnit(PlaytestContext& ctx)
     // a tap IS the hover. That is worth saying out loud on the one build
     // people actually use on a phone; an unreachable feature is not a
     // feature (docs/guides/feature-completeness.md).
-    unit->PublicShowMessage("[PLAYTEST] Tap cells to survey - tap a layer to light it. "
-                            "TIER UP / RESET top right.");
+    unit->PublicShowMessage("[PLAYTEST] Tap the block to set a site, the ruler for a depth, "
+                            "then the hole to drill it. RESOURCE opens the statement.");
     return unit;
 }
 
@@ -280,9 +281,24 @@ static void UpdateDrawFrame(void* arg)
     wantDig |= PlaytestButton({bx + 166.0f, 14.0f, 80.0f, 28.0f}, "DIG SPOT",
                               {80, 230, 150, 255});
 
-    // Drawn after the panel, in the empty strip below the module list. Sized
-    // to clear the DIRECTIVES card above it and the panel border below.
-    PlaytestDrawStatement(*ctx.unit, 18.0f, 497.0f, 250.0f, 80.0f);
+    /* THE RESOURCE STATEMENT, FOLDED. It used to sit in the strip below the
+       module list, which the survey console does not have -- the console is
+       full width now, so the old slot lands on top of the tool rack's bays.
+       This is the decision the console itself already made and wrote down
+       (SurveyConsole::resourceOverlay): the statement is the module's SCORE,
+       read BETWEEN decisions rather than during one, so it folds behind a
+       chip and opens over the console when you ask for it.
+
+       The chip lives in the letterbox bar, which is the one part of the
+       screen the console does not use. */
+    if (PlaytestButton({10.0f, 300.0f, 116.0f, 26.0f}, "RESOURCE",
+                       ctx.statementOpen ? Color{80, 230, 150, 255}
+                                         : Color{80, 225, 255, 255}))
+    {
+        ctx.statementOpen = !ctx.statementOpen;
+    }
+    if (ctx.statementOpen)
+        PlaytestDrawStatement(*ctx.unit, 18.0f, 430.0f, 250.0f, 96.0f);
 
     // Build stamp, bottom-right: the git SHA this binary was configured
     // from, plus the live framebuffer, so a screenshot answers both "which
