@@ -55,6 +55,28 @@ typedef struct SurveyDashLog {
     DashLogEntry entry[SURVEY_DASH_LOG_MAX];
 } SurveyDashLog;
 
+/* ---- what the game tells the console ---------------------------------
+ *
+ * Refilled every frame before Draw. A state that has never been fed keeps
+ * the reference's own rack, which is what the preview and visdiff harnesses
+ * run on -- they have no game behind them.
+ */
+#define SURVEY_DASH_TOOLS_MAX TR_SLOTS_MAX
+
+typedef struct SurveyDashTool {
+    const char *name;    /* the game's own name: "DRILL", "SURFACE SWEEP" */
+    const char *kind;    /* "Point" / "Line" / "Area"                     */
+    TRIcon      icon;    /* chosen at the boundary, where tool identity is */
+    bool        built;   /* does the game actually RUN this one yet       */
+} SurveyDashTool;
+
+typedef struct SurveyDashFeed {
+    int            tier;            /* module tier 0..3                    */
+    int            toolCount;
+    SurveyDashTool tool[SURVEY_DASH_TOOLS_MAX];
+    int            selectedTool;    /* index into tool[], or -1            */
+} SurveyDashFeed;
+
 typedef struct SurveyDashState {
     /* Zero-initialised is a valid, un-started console: Draw resets it on the
      * first frame, so a caller can just embed one and never call Reset. */
@@ -78,6 +100,12 @@ typedef struct SurveyDashState {
      * JS controller does -- without it one drag suppresses the next tap. */
     bool          down, moved, onBlock;
     Vector2       downPt;
+
+    /* The bay the player last picked, or -1. The console does not change the
+     * selection itself: it reports the pick, the game sets it, and the next
+     * feed brings it back. One owner, and the rack cannot drift from
+     * SurveyConsole::SelectedTool. */
+    int           toolPick;
 } SurveyDashState;
 
 /* Process-wide GPU resources. Idempotent; safe to call every frame. Returns
@@ -87,6 +115,14 @@ void SurveyDash_Shutdown(void);
 
 /* A fresh console: no holes, no knowledge, the block square on. */
 void SurveyDash_Reset(SurveyDashState *s);
+
+/* Game -> console. Safe to skip entirely; the console keeps what it was last
+ * told. */
+void SurveyDash_Feed(SurveyDashState *s, const SurveyDashFeed *feed);
+
+/* Console -> game: the bay the player picked since the last read, or -1.
+ * Reading it clears it. */
+int  SurveyDash_TakeToolPick(SurveyDashState *s);
 
 /* Draws into the design surface and blits it, letterboxed, into `region`. */
 void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt);

@@ -3339,6 +3339,56 @@ static void ExtDrawWireframeUnit(Rectangle area, Color c, const std::string& uni
 
 // ============================================================================
 
+/* ---------------------------------------------------------------------------
+   THE CONSOLE'S FEED
+   ---------------------------------------------------------------------------
+   Everything the ported console needs from the game, refilled each frame.
+   colony_c2d is C and knows nothing about SurveyTool, ProspectingSystem or
+   any of it, so this is where a game concept becomes a plain-C row -- the
+   icon included, because which picture stands for a penetrometer is knowledge
+   about the tool, not about the rack.
+   --------------------------------------------------------------------------- */
+static TRIcon SurveyToolIcon(SurveyTool tool)
+{
+    switch (tool)
+    {
+        case SurveyTool::DRILL:        return TR_ICON_DRILL_STRIPED;
+        case SurveyTool::SWEEP:        return TR_ICON_ROVER;   // a body on wheels
+        case SurveyTool::SEISMIC:      return TR_ICON_SEISMIC_WIDE;
+        case SurveyTool::GPR:          return TR_ICON_SONAR;   // a radiating face
+        // The ported icon set has no needle-and-collar. Unbuilt, so it draws
+        // as an empty bay and never needs one; give it one when it is built.
+        case SurveyTool::PENETROMETER: return TR_ICON_NONE;
+        default:                       return TR_ICON_NONE;
+    }
+}
+
+static const char* SurveyToolKind(SurveyToolMark mark)
+{
+    return mark == SurveyToolMark::POINT ? "Point" : "Line";
+}
+
+static void FeedSurveyConsole(ProspectingSystem* ps, SurveyDashState* dash)
+{
+    SurveyDashFeed feed = {};
+    feed.tier = ps->GetTier();
+    feed.toolCount = static_cast<int>(SurveyTool::COUNT);
+    if (feed.toolCount > SURVEY_DASH_TOOLS_MAX) feed.toolCount = SURVEY_DASH_TOOLS_MAX;
+
+    for (int i = 0; i < feed.toolCount; i++)
+    {
+        const SurveyTool t = static_cast<SurveyTool>(i);
+        const SurveyToolInfo& info = SurveyToolOf(t);
+        feed.tool[i].name  = info.name;
+        feed.tool[i].kind  = SurveyToolKind(info.mark);
+        feed.tool[i].icon  = SurveyToolIcon(t);
+        feed.tool[i].built = info.built;
+    }
+    feed.selectedTool = static_cast<int>(ps->Survey().SelectedTool());
+
+    SurveyDash_Feed(dash, &feed);
+}
+
 /* Which modules the survey console owns. Prospecting today; excavation when
    its panel is ported, because the two share the block and must not disagree
    about the ground. Everything else keeps the three-column unit view. */
@@ -3383,7 +3433,9 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
         /* The console's state belongs to the MODULE, not to the renderer:
            each prospecting unit keeps its own hole, log and turned block,
            and finds them again when the player comes back to it. */
-        SurveyDashState* dash = &unit->GetProspectingSystem()->Dash();
+        ProspectingSystem* ps = unit->GetProspectingSystem();
+        SurveyDashState* dash = &ps->Dash();
+        FeedSurveyConsole(ps, dash);
         SurveyDash_Draw(dash, console, GetFrameTime());
 
         /* IMGUI, like the rest of this file: the console's input is handled
@@ -3401,6 +3453,12 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
             }
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) SurveyDash_Release(dash, console, mouse);
+
+        /* The game owns the selection: the console reports the bay, we set it,
+           and the next frame's feed hands it back. */
+        const int picked = SurveyDash_TakeToolPick(dash);
+        if (picked >= 0 && picked < static_cast<int>(SurveyTool::COUNT))
+            ps->Survey().SelectTool(static_cast<SurveyTool>(picked));
         return;
     }
 

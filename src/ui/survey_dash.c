@@ -137,6 +137,55 @@ static const DashDepth *SurveyDash_Ruler(void)
     return d;
 }
 
+/* ---- the feed ---------------------------------------------------------
+ *
+ * An UNBUILT tool is an EMPTY BAY, not a dim one. The rack already draws a
+ * null entry as an empty machined socket -- the JS data has one -- and "a bay
+ * you have no tool for yet" is exactly what that reads as. The alternative,
+ * drawing it present but inactive, collides with the state a BUILT tool sits
+ * in when it is simply not running, and the player would have no way to tell
+ * a tool they can use from one they cannot.
+ *
+ * What it costs: the rack no longer names what is coming. Nothing else in the
+ * game advertises unbuilt tools either, so inventing that here would be
+ * designing rather than integrating. Recorded in
+ * docs/design/prospecting/console-real-data.md. */
+void SurveyDash_Feed(SurveyDashState *s, const SurveyDashFeed *feed)
+{
+    if (!s || !feed) return;
+    if (!s->started) SurveyDash_Reset(s);
+
+    ToolRackData *r = &s->rack;
+    r->header = "SURVEY TOOLS";
+    r->slots = feed->toolCount > TR_SLOTS_MAX ? TR_SLOTS_MAX : feed->toolCount;
+
+    for (int i = 0; i < TR_SLOTS_MAX; i++)
+    {
+        ToolRackTool *t = &r->tools[i];
+        memset(t, 0, sizeof(*t));
+        t->fade = -1.0f;                 /* no transition in flight */
+        if (i >= r->slots) continue;
+
+        const SurveyDashTool *g = &feed->tool[i];
+        if (!g->built) continue;         /* the empty socket */
+
+        t->present  = true;
+        t->name     = g->name;
+        t->type     = g->kind;
+        t->icon     = g->icon;
+        t->active   = (i == feed->selectedTool);
+        t->selected = t->active;
+    }
+}
+
+int SurveyDash_TakeToolPick(SurveyDashState *s)
+{
+    if (!s) return -1;
+    const int p = s->toolPick;
+    s->toolPick = -1;
+    return p;
+}
+
 bool SurveyDash_Init(void)
 {
     if (g_resReady) return true;
@@ -187,6 +236,7 @@ void SurveyDash_Reset(SurveyDashState *s)
 
     s->siteI = DK_LATTICE * 0.5f;
     s->siteJ = DK_LATTICE * 0.5f;
+    s->toolPick = -1;
 
     DashLog_Push(s, 0.0f, "Console online. Tap the cap to set a site, the ruler to set a depth.", NULL);
     s->started = true;
@@ -349,9 +399,12 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
             const int slot = ToolRack_HitTestB(rx, ry, s->rack.slots);
             if (slot >= 0 && s->rack.tools[slot].present)
             {
-                for (int i = 0; i < s->rack.slots; i++) s->rack.tools[i].selected = false;
-                s->rack.tools[slot].active = !s->rack.tools[slot].active;
-                s->rack.tools[slot].selected = s->rack.tools[slot].active;
+                /* Report it, do not act on it. The game owns the selection
+                 * and hands it back on the next feed, so the rack can never
+                 * disagree with SurveyConsole::SelectedTool. A harness with no
+                 * game behind it takes the pick and feeds it straight back --
+                 * the same handshake, not a second code path. */
+                s->toolPick = slot;
             }
         }
     }
