@@ -75,6 +75,21 @@ typedef struct SurveyDashFeed {
     int            toolCount;
     SurveyDashTool tool[SURVEY_DASH_TOOLS_MAX];
     int            selectedTool;    /* index into tool[], or -1            */
+
+    /* THE GROUND. `groundAt` samples the real block; NULL leaves the
+     * reference's own five beds in place, which is what a harness with no
+     * game behind it gets. Resampled only when `groundRevision` changes --
+     * the ground moves when a hole lands, not when a frame does. */
+    int            bedCount;
+    H3DDepthFn     groundAt;
+    void          *groundCtx;
+    int            groundRevision;
+    H3DBedText     bedText[H3D_LAYERS];
+
+    /* The one knowledge model. The console writes finished holes into it and
+     * the ground is regenerated from it, so the block and the drill cannot be
+     * looking at different holes. NULL keeps the console's own. */
+    DashKnowledge *knowledge;
 } SurveyDashFeed;
 
 typedef struct SurveyDashState {
@@ -83,7 +98,12 @@ typedef struct SurveyDashState {
     bool          started;
 
     DrillSim      drill;
-    DashKnowledge know;
+
+    /* The model this console writes holes into. It is `own` unless the game
+     * has handed over its own -- see SurveyDashFeed::knowledge. Resolved on
+     * every draw, so a copied state repairs itself the way the log does. */
+    DashKnowledge  own;
+    DashKnowledge *know;
     H3DState      block;
     H3DView       view;
     ToolRackData  rack;

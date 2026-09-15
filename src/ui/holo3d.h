@@ -66,6 +66,29 @@ typedef struct Holo3DModel Holo3DModel;
 Holo3DModel *Holo3D_Build(const H3DBuildOpts *opts);
 void         Holo3D_Free(Holo3DModel *m);
 
+/* ---- real ground ------------------------------------------------------
+ *
+ * The reference builds its point grid once from six measured profiles and
+ * never reads the profiles again, so feeding it a real block is an injection
+ * rather than a rewrite.
+ *
+ * `fn` samples boundary k -- 0 is the ground you stand on, `beds` is the base
+ * of the column -- at (u, v) in 0..1 across the block, and returns the depth
+ * as a FRACTION of the column. Passing fn = NULL restores the reference's own
+ * profiles and its five beds, which is what the visdiff harness runs on: the
+ * port is not re-baselined to suit a caller.
+ *
+ * `text` is optional; the names and ranges are only drawn behind
+ * hud->callouts, but a bed labelled "0 - 200 m" when it is 0 - 12 m is a lie
+ * waiting for someone to switch them on. Colours always come from the port's
+ * own palette. */
+typedef float (*H3DDepthFn)(void *ctx, int boundary, float u, float v);
+
+typedef struct H3DBedText { const char *name, *range, *tag; } H3DBedText;
+
+void Holo3D_SetGround(Holo3DModel *m, int beds, H3DDepthFn fn, void *ctx,
+                      const H3DBedText *text);
+
 void Holo3D_Render (Holo3DModel *m, const H3DState *st, H3DView *view);
 void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3DHud *hud);
 int  Holo3D_Hit    (const Holo3DModel *m, float x, float y);

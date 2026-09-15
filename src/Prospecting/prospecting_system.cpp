@@ -13,6 +13,14 @@ ProspectingSystem::ProspectingSystem(int tier, int parentGridX, int parentGridY,
     , sampler(tier)
     , lab(tier)
 {
+    /* The console's state owns the knowledge model; SurveyConsole borrows it,
+       so a hole drilled on the console is the same hole the block is
+       regenerated from. Reset explicitly rather than letting the first draw
+       do it -- a hole recorded before the console is ever opened must not be
+       wiped by a lazy first-frame reset. */
+    SurveyDash_Reset(&dash);
+    survey.UseKnowledge(&dash.own);
+
     // Start on a cell the instruments can actually reach, so the cell readout
     // is meaningful before the player clicks anything.
     int centre = GetGridSizeForTier(tier) / 2;

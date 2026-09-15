@@ -97,7 +97,8 @@ namespace
 
 SurveyGround::SurveyGround()
 {
-    SurveyKnowledge empty;
+    DashKnowledge empty;
+    DashKnow_Clear(&empty);
     Build(empty, {});
 }
 
@@ -146,7 +147,7 @@ float SurveyGround::CraterAmp(int interfaceIndex) const
                                           static_cast<float>(k - interfaceIndex));
 }
 
-void SurveyGround::Build(const SurveyKnowledge& knowledge, const std::vector<SurveyScour>& scours)
+void SurveyGround::Build(const DashKnowledge& knowledge, const std::vector<SurveyScour>& scours)
 {
     lattice = SURVEY_LATTICE;
     const int stride = Stride();
@@ -198,8 +199,8 @@ void SurveyGround::Build(const SurveyKnowledge& knowledge, const std::vector<Sur
                                   + ep.tilt * ((u - 0.5f) * ep.tca + (v - 0.5f) * ep.tsa)
                                   + ep.amp * ((Fbm(u, v, ep.p1, 2, ep.s1) - 0.5f) * 1.30f
                                             + (Fbm(u, v, ep.p2, 2, ep.s2) - 0.5f) * 0.70f);
-                    z += e * (1.0f - SurveyKnowledge::Confidence(
-                                        knowledge.KnowAt(static_cast<float>(i),
+                    z += e * (1.0f - DashKnow_Confidence(
+                                        DashKnow_KnowAt(&knowledge, static_cast<float>(i),
                                                          static_cast<float>(j), edgeM[L])));
                 }
                 surf[L][static_cast<size_t>(j) * stride + i] = z;

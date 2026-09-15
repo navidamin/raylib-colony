@@ -3368,6 +3368,15 @@ static const char* SurveyToolKind(SurveyToolMark mark)
     return mark == SurveyToolMark::POINT ? "Point" : "Line";
 }
 
+/* The block samples the ground the console generates. Depth comes back as a
+   fraction of the column, which is the only unit Holo3D has -- it draws
+   everything as depth/columnM and so does SurveyBlock. */
+static float SurveyGroundDepth01(void* ctx, int boundary, float u, float v)
+{
+    const SurveyGround* g = static_cast<const SurveyGround*>(ctx);
+    return g->SampleDepth(boundary, u, v) / g->ColumnM();
+}
+
 static void FeedSurveyConsole(ProspectingSystem* ps, SurveyDashState* dash)
 {
     SurveyDashFeed feed = {};
@@ -3385,6 +3394,35 @@ static void FeedSurveyConsole(ProspectingSystem* ps, SurveyDashState* dash)
         feed.tool[i].built = info.built;
     }
     feed.selectedTool = static_cast<int>(ps->Survey().SelectedTool());
+
+    /* THE GROUND. SurveyGround's four beds are the game's four depth layers
+       (P4), and its interfaces already carry the error model -- each one is
+       wrong by an amount scaled by 1 - confidence -- so the block is an
+       ESTIMATE that re-fits itself as holes land, with no code here for the
+       effect. */
+    SurveyConsole& console = ps->Survey();
+    const SurveyGround& ground = console.Ground();
+
+    feed.knowledge      = &dash->own;
+    feed.bedCount       = SURVEY_BEDS;
+    feed.groundAt       = SurveyGroundDepth01;
+    feed.groundCtx      = const_cast<SurveyGround*>(&ground);
+    feed.groundRevision = console.GroundRevision();
+
+    /* The bed text is only drawn behind hud->callouts, which this console
+       leaves off -- but a bed labelled "0 - 200 m" when it is 0 - 12 m is a
+       lie waiting for someone to switch them on. The names are the strata the
+       drill bar already draws; the ranges are the ground's own interfaces. */
+    static char rangeBuf[SURVEY_BEDS][24];
+    const DrillStratum* strata = DrillSim_Strata();
+    for (int k = 0; k < SURVEY_BEDS; k++)
+    {
+        snprintf(rangeBuf[k], sizeof(rangeBuf[k]), "%d - %d m",
+                 static_cast<int>(ground.EdgeM(k) + 0.5f),
+                 static_cast<int>(ground.EdgeM(k + 1) + 0.5f));
+        feed.bedText[k].name  = strata[k].name;
+        feed.bedText[k].range = rangeBuf[k];
+    }
 
     SurveyDash_Feed(dash, &feed);
 }
@@ -3435,6 +3473,11 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
            and finds them again when the player comes back to it. */
         ProspectingSystem* ps = unit->GetProspectingSystem();
         SurveyDashState* dash = &ps->Dash();
+        /* Regenerates the ground when a hole has landed since the last frame.
+           Nothing has called this since the old panel became unreachable, so
+           the block could not have re-fitted even if it had been reading the
+           real ground. */
+        ps->Survey().Step(GetFrameTime());
         FeedSurveyConsole(ps, dash);
         SurveyDash_Draw(dash, console, GetFrameTime());
 

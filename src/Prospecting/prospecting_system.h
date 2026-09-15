@@ -117,6 +117,9 @@ public:
     // The block, the ground it is a picture of, and what is known about it.
     // Shared with excavation: the two modules must never disagree about the
     // rock. See src/Survey/ and docs/design/prospecting/survey-dashboard-design.md
+    /* The console's state and SurveyConsole share ONE knowledge model: the
+       state owns it because that is what the player's drill writes into, and
+       the ground is regenerated from it. Wired in the constructor. */
     SurveyConsole& Survey() { return survey; }
     const SurveyConsole& Survey() const { return survey; }
 

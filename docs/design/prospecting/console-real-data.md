@@ -1,6 +1,6 @@
 # The Console on Real Data
 
-**Status:** P1–P4 built, P5 in progress, P6–P7 planned
+**Status:** P1–P5 built, P6–P7 planned
 **Supersedes nothing.** This is the integration plan for #16's port: the
 console is finished as a *picture*, and this is how it stops being one.
 
@@ -17,7 +17,7 @@ provable and none needs the next to be correct.
 | P2 | That state lives on `ProspectingSystem`, one per module | **BUILT** `1c89f7f` |
 | P3 | One knowledge model: `SurveyKnowledge` becomes a C++ face on `dash_knowledge.c` | **BUILT** `f0524ed` |
 | P4 | One column: 120 m, and every vertical measure a fraction of it | **BUILT** `53910a4` |
-| P5 | Real rack, real ruler, real block | **IN PROGRESS** |
+| P5 | Real rack, real ruler, real block | **BUILT** `573e78e` `fb5e165` + this |
 | P6 | Close the loop: drilling changes `scanMultiplier` | planned |
 | P7 | Retire the old console | planned |
 
@@ -163,6 +163,41 @@ Three integration points on the C++ side:
 Bed names and ranges come from `SurveyGround::EdgeM` and the strata table.
 They are only drawn behind `hud->callouts`, which the console leaves off, so
 they are carried for correctness rather than for pixels.
+
+## P5 as built — where it departed from the plan above
+
+**P5a found a bug the demo data was hiding.** `DcRuler` spaced its ticks
+*evenly*, which only agreed with the strata bands beside them because
+0/30/60/90/120 is an arithmetic sequence. Real layer bases are not. Ticks now
+sit at true depth and the minor graduations are every 5 m of real depth. The
+plan said the risk was label width; the real risk was the scale being wrong.
+
+**The stratum names moved off the ruler and into the bands.** The ruler has 68
+design units of label width and `MEGAREGOLITH` needs about 100 — but the better
+reason is that a stratum name is a fact about the ground, not about the hole.
+The ruler keeps `SURFACE` and `TARGET`.
+
+**P5c deleted the rest of `SurveyKnowledge`.** The plan said the console's state
+would own the model and `SurveyConsole` would borrow it. A C++ class that owns
+its storage by value cannot be borrowed, and the class was by then a header of
+one-line forwards, so `SurveyGround::Build` and `SurveyBlock::Draw*` now take a
+`const DashKnowledge&` directly. The graveyard record is amended rather than
+duplicated.
+
+**`ProspectingSystem` calls `SurveyDash_Reset` in its constructor.** P1's design
+was that a zero-initialised state resets itself on the first draw, so a caller
+never needs to. That is still true — but a hole recorded before the console is
+ever opened would be wiped by that lazy reset, and P6 makes exactly that
+possible. Explicit is right here.
+
+**The bed text is carried even though nothing draws it.** Names and ranges are
+only drawn behind `hud->callouts`, which this console leaves off. A bed labelled
+"0 – 200 m" when it is 0 – 12 m is a lie waiting for someone to switch them on.
+
+**What it looks like, measured.** Nine spread holes take the block from
+undulating INFERRED ground to 100% MEASURED with the interfaces visibly
+re-fitted, and Holo3D's visual diff stays at 1.15% because the harness never
+calls `Holo3D_SetGround` — the reference's five beds are still what it draws.
 
 ## What P5 deliberately does not do
 

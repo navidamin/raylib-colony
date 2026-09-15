@@ -186,7 +186,7 @@ namespace
    out with explode: the cage is the shape of one solid volume, and a
    block taken apart is not one.
    ===================================================================== */
-void SurveyBlock::DrawCage(const SurveyGround& ground, const SurveyKnowledge& knowledge,
+void SurveyBlock::DrawCage(const SurveyGround& ground, const DashKnowledge& knowledge,
                            const SurveyBlockState& state, const SurveyCamera& cam)
 {
     const float fade = 1.0f - std::min(1.0f, state.explode * 1.6f);
@@ -211,7 +211,7 @@ void SurveyBlock::DrawCage(const SurveyGround& ground, const SurveyKnowledge& kn
         {
             int i, j; WallNode(w, t, n, i, j);
             const float a = SURVEY_CAGE_ALPHA * fade *
-                (1.0f - SurveyKnowledge::Confidence(knowledge.KnowAt(i, j, columnM * 0.5f)));
+                (1.0f - DashKnow_Confidence(DashKnow_KnowAt(&knowledge, i, j, columnM * 0.5f)));
             if (a <= 0.006f) continue;
             const Vector2 top = ProjectNode(ground, cam, 0, i, j, 0.0f);
             const float x = (static_cast<float>(i) / n - 0.5f) * SURVEY_MODEL_W;
@@ -232,8 +232,8 @@ void SurveyBlock::DrawCage(const SurveyGround& ground, const SurveyKnowledge& kn
                 WallNode(w, ticks[s], n, i0, j0);
                 WallNode(w, ticks[s + 1], n, i1, j1);
                 const float a = SURVEY_CAGE_ALPHA * fade * wave *
-                    (1.0f - SurveyKnowledge::Confidence(
-                        knowledge.KnowAt((i0 + i1) * 0.5f, (j0 + j1) * 0.5f, depth)));
+                    (1.0f - DashKnow_Confidence(DashKnow_KnowAt(
+                        &knowledge, (i0 + i1) * 0.5f, (j0 + j1) * 0.5f, depth)));
                 if (a <= 0.006f) continue;
                 const float x0 = (static_cast<float>(i0) / n - 0.5f) * SURVEY_MODEL_W;
                 const float z0 = (static_cast<float>(j0) / n - 0.5f) * SURVEY_MODEL_W;
@@ -246,7 +246,7 @@ void SurveyBlock::DrawCage(const SurveyGround& ground, const SurveyKnowledge& kn
     }
 }
 
-void SurveyBlock::DrawBeds(const SurveyGround& ground, const SurveyKnowledge& knowledge,
+void SurveyBlock::DrawBeds(const SurveyGround& ground, const DashKnowledge& knowledge,
                            SurveyBlockState& state, const SurveyCamera& cam)
 {
     const int n = ground.Lattice();
@@ -264,11 +264,11 @@ void SurveyBlock::DrawBeds(const SurveyGround& ground, const SurveyKnowledge& kn
     // SURFACE is known for free, because you can see it.
     auto ifaceKnow = [&](int L, int i, int j) {
         return L == 0 ? 1.0f
-                      : SurveyKnowledge::Confidence(knowledge.KnowAt(i, j, ground.EdgeM(L)));
+                      : DashKnow_Confidence(DashKnow_KnowAt(&knowledge, i, j, ground.EdgeM(L)));
     };
     auto bedKnow = [&](int k, int i, int j) {
-        return SurveyKnowledge::Confidence(
-            knowledge.KnowAt(i, j, (ground.EdgeM(k) + ground.EdgeM(k + 1)) * 0.5f));
+        return DashKnow_Confidence(DashKnow_KnowAt(
+            &knowledge, i, j, (ground.EdgeM(k) + ground.EdgeM(k + 1)) * 0.5f));
     };
 
     // Isolate ghosts every bed but the focus. The prototype composites the

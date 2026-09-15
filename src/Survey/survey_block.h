@@ -3,7 +3,7 @@
 #include "survey_camera.h"
 #include "survey_constants.h"
 #include "survey_ground.h"
-#include "survey_knowledge.h"
+#include "dash_knowledge.h"
 
 #include <vector>
 
@@ -65,9 +65,9 @@ namespace SurveyBlock
     SurveyCamera MakeCamera(const SurveyBlockState& state, const SurveyBlockPlacement& place);
 
     // The cage first, then the beds: the cage is what the beds are drawn ON.
-    void DrawCage(const SurveyGround& ground, const SurveyKnowledge& knowledge,
+    void DrawCage(const SurveyGround& ground, const DashKnowledge& knowledge,
                   const SurveyBlockState& state, const SurveyCamera& cam);
-    void DrawBeds(const SurveyGround& ground, const SurveyKnowledge& knowledge,
+    void DrawBeds(const SurveyGround& ground, const DashKnowledge& knowledge,
                   SurveyBlockState& state, const SurveyCamera& cam);
     void DrawBaseRing(const SurveyBlockState& state, const SurveyCamera& cam,
                       const SurveyGround& ground);

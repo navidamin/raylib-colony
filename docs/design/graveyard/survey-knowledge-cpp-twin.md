@@ -1,10 +1,9 @@
 # The C++ twin of the knowledge model
 
-**Lived:** `src/Survey/survey_knowledge.cpp` (96 lines) and the
+**Lived:** `src/Survey/survey_knowledge.{h,cpp}` and the
 `SURVEY_K_*` / `SURVEY_DELIN_GATE` block of `src/Survey/survey_constants.h`
-**Removed:** real-data integration, P3 — one implementation, in C
-**Replaced by:** `src/ui/dash_knowledge.{h,c}`; `SurveyKnowledge` survives as
-a header-only C++ face on it
+**Removed:** real-data integration, P3 (the implementation) and P5c (the face)
+**Replaced by:** `src/ui/dash_knowledge.{h,c}`, called directly
 
 ## What it was
 
@@ -51,6 +50,23 @@ One behaviour did change, and it is a cap rather than a formula:
 `std::vector` was unbounded. Seven well-spread full-depth holes already clear
 the MEASURED gate and the model saturates at 1.0 long before 64, so no output
 can move once the cap is reached.
+
+## The second half: the face went too (P5c)
+
+P3 left `SurveyKnowledge` standing as a header-only C++ class whose every
+method was a one-line forward to `DashKnow_*`. P5c removed it.
+
+The reason was ownership, not tidiness. P5c makes the console's own state own
+the knowledge model — it is what the player's drill writes into — and
+`SurveyConsole` borrow it, so the block is regenerated from the same holes the
+drill just made. A class that owns its storage by value cannot be borrowed, and
+a version that owns *or* borrows behind a raw pointer is a copy hazard for no
+gain when every caller wanted the same four free functions anyway.
+
+So `SurveyGround::Build`, `SurveyBlock::DrawCage` and `DrawBeds` now take a
+`const DashKnowledge&`, and `SurveyConsole` holds a `DashKnowledge*` pointing
+at `ProspectingSystem::Dash().own`. There is one model, one owner, and no layer
+between them.
 
 ## What would bring it back
 

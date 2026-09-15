@@ -2,7 +2,7 @@
 
 #include "survey_block.h"
 #include "survey_ground.h"
-#include "survey_knowledge.h"
+#include "dash_knowledge.h"
 #include "survey_rig.h"
 #include "survey_sprites.h"
 
@@ -54,16 +54,28 @@ public:
     SurveyRig&       Rig() { return rig; }
     const SurveyRig& Rig() const { return rig; }
 
-    const SurveyGround&    Ground() const { return ground; }
-    const SurveyKnowledge& Knowledge() const { return knowledge; }
+    const SurveyGround&   Ground() const { return ground; }
+
+    /* THE MODEL IS NOT OWNED HERE. The console's own state owns it -- it is
+       what the player's drill writes into -- and this borrows it, so the
+       block and the drill cannot be looking at different holes. Points at
+       `fallback` until UseKnowledge is called, so a SurveyConsole standing
+       on its own still works. */
+    void UseKnowledge(DashKnowledge* k) { know = k ? k : &fallback; }
+
+    /* Bumped every time the ground is regenerated. The block resamples on
+       this rather than every frame -- a rebuild is 1190 samples and the
+       ground only moves when a hole lands or a scour deepens. */
+    int GroundRevision() const { return groundRevision; }
+    const DashKnowledge& Knowledge() const { return *know; }
     SurveyBlockState&      Block() { return block; }
     const SurveyBlockState& Block() const { return block; }
 
     const std::vector<SurveyScour>& Scours() const { return scours; }
 
-    float Delineation() const { return knowledge.Delineation(ground.Lattice(), ground.ColumnM()); }
-    const char* Tier() const { return knowledge.Tier(ground.Lattice(), ground.ColumnM()); }
-    bool IsMeasured() const { return knowledge.IsMeasured(ground.Lattice(), ground.ColumnM()); }
+    float Delineation() const { return DashKnow_Delineation(know, ground.Lattice(), ground.ColumnM()); }
+    const char* Tier() const { return DashKnow_Tier(know, ground.Lattice(), ground.ColumnM()); }
+    bool IsMeasured() const { return DashKnow_IsMeasured(know, ground.Lattice(), ground.ColumnM()); }
 
     // Drag-to-turn, which needs an origin to measure against and therefore
     // cannot live in the renderer.
@@ -77,12 +89,14 @@ private:
     void Rebuild();
 
     SurveyGround ground;
-    SurveyKnowledge knowledge;
+    DashKnowledge  fallback = {};
+    DashKnowledge* know = &fallback;
     SurveyBlockState block;
     SurveyRig rig;
     SurveyTool selectedTool = SurveyTool::DRILL;
     std::vector<SurveyScour> scours;
 
+    int groundRevision = 0;
     int builtKnowledgeRevision = -1;
     int scourRevision = 0;
     int builtScourRevision = -1;

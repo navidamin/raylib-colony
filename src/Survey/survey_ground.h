@@ -1,7 +1,7 @@
 #pragma once
 
 #include "survey_constants.h"
-#include "survey_knowledge.h"
+#include "dash_knowledge.h"
 
 #include <vector>
 
@@ -44,7 +44,7 @@ public:
     // Regenerates every interface. Cheap enough to call when a hole lands or
     // a scour deepens, and far too expensive to call per frame -- the caller
     // steps it on a revision, not on a clock.
-    void Build(const SurveyKnowledge& knowledge, const std::vector<SurveyScour>& scours);
+    void Build(const DashKnowledge& knowledge, const std::vector<SurveyScour>& scours);
 
     int   Lattice() const { return lattice; }
     int   Stride() const { return lattice + 1; }

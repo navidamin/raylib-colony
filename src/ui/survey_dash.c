@@ -67,6 +67,12 @@ static bool         g_resReady = false;
 static C2DSurface   g_surf;
 static Holo3DModel *g_model = NULL;
 
+/* What ground the ONE model is currently carrying. It is the model's
+ * property, not a console's: two prospecting units have different ground and
+ * whichever is on screen has to re-apply its own. */
+static void *g_groundCtx = NULL;
+static int   g_groundRev = -1;
+
 static float Clampf01v(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
 /* ---- the log ---------------------------------------------------------- */
@@ -176,6 +182,22 @@ void SurveyDash_Feed(SurveyDashState *s, const SurveyDashFeed *feed)
         t->active   = (i == feed->selectedTool);
         t->selected = t->active;
     }
+
+    /* One model for the block and the drill. Repointed every frame, so a
+     * copied state stops pointing into the state it was copied from. */
+    s->know = feed->knowledge ? feed->knowledge : &s->own;
+
+    /* The ground, only when it has actually moved. Holo3D holds one point
+     * grid for the process, so the check is against what the MODEL carries,
+     * not against what this console last asked for. */
+    if (g_model && feed->groundAt &&
+        (g_groundCtx != feed->groundCtx || g_groundRev != feed->groundRevision))
+    {
+        Holo3D_SetGround(g_model, feed->bedCount, feed->groundAt, feed->groundCtx,
+                         feed->bedText);
+        g_groundCtx = feed->groundCtx;
+        g_groundRev = feed->groundRevision;
+    }
 }
 
 int SurveyDash_TakeToolPick(SurveyDashState *s)
@@ -212,6 +234,8 @@ void SurveyDash_Shutdown(void)
     if (!g_resReady) return;
     Holo3D_Free(g_model);
     g_model = NULL;
+    g_groundCtx = NULL;
+    g_groundRev = -1;
     c2d_surface_destroy(&g_surf);
     c2d_fonts_unload();
     g_resReady = false;
@@ -232,11 +256,12 @@ void SurveyDash_Reset(SurveyDashState *s)
 
     s->rack = ToolRack_Demo();
     DrillSim_Reset(&s->drill);
-    DashKnow_Clear(&s->know);
+    DashKnow_Clear(&s->own);
 
     s->siteI = DK_LATTICE * 0.5f;
     s->siteJ = DK_LATTICE * 0.5f;
     s->toolPick = -1;
+    s->know = &s->own;
 
     DashLog_Push(s, 0.0f, "Console online. Tap the cap to set a site, the ruler to set a depth.", NULL);
     s->started = true;
@@ -246,6 +271,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
 {
     if (!s || !SurveyDash_Init()) return;
     if (!s->started) SurveyDash_Reset(s);
+    if (!s->know) s->know = &s->own;
 
     Holo3D_Tick(&s->block, dt, (float)GetTime());
     s->block.time = (float)GetTime();
@@ -272,9 +298,9 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     Holo3D_DrawHud(g_model, &s->block, &s->view, &hud);
 
     Dash_Confidence(LOG_X, CONF_Y, LOG_W, CONF_H,
-                    DashKnow_Delineation(&s->know, DK_LATTICE, DRILL_TARGET_M),
-                    DashKnow_Tier(&s->know, DK_LATTICE, DRILL_TARGET_M),
-                    DashKnow_IsMeasured(&s->know, DK_LATTICE, DRILL_TARGET_M));
+                    DashKnow_Delineation(s->know, DK_LATTICE, DRILL_TARGET_M),
+                    DashKnow_Tier(s->know, DK_LATTICE, DRILL_TARGET_M),
+                    DashKnow_IsMeasured(s->know, DK_LATTICE, DRILL_TARGET_M));
     DashLog_Bind(&s->log);
     Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, s->log.entry, s->log.count);
 
@@ -282,14 +308,14 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     if (s->drill.completed)
     {
         /* C5+C6 meet here: a finished hole is what the model learns from. */
-        DashKnow_Add(&s->know, s->siteI, s->siteJ, s->drill.completedAtM);
+        DashKnow_Add(s->know, s->siteI, s->siteJ, s->drill.completedAtM);
         char msg[96];
         snprintf(msg, sizeof(msg), "Hole to %d m logged at site %d/%d in ",
                  (int)(s->drill.completedAtM + 0.5f), (int)s->siteI, (int)s->siteJ);
         DashLog_Push(s, s->drill.t, msg, DrillSim_At(s->drill.completedAtM)->name);
         /* announced ONCE -- it fires on a completion, and every later hole
          * is also a completion with the model still measured */
-        if (!s->saidMeasured && DashKnow_IsMeasured(&s->know, DK_LATTICE, DRILL_TARGET_M))
+        if (!s->saidMeasured && DashKnow_IsMeasured(s->know, DK_LATTICE, DRILL_TARGET_M))
         {
             DashLog_Push(s, s->drill.t, "Model MEASURED. Isolate unlocked.", NULL);
             s->saidMeasured = true;
@@ -370,7 +396,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
             /* C5: isolate is GATED. Until the model is MEASURED a tap on the
              * block moves the drill site instead of peeling a bed -- the
              * control the player has before they have earned the other one. */
-            if (DashKnow_IsMeasured(&s->know, DK_LATTICE, DRILL_TARGET_M))
+            if (DashKnow_IsMeasured(s->know, DK_LATTICE, DRILL_TARGET_M))
             {
                 if (bed >= 0) Holo3D_Select(&s->block, bed);
             }

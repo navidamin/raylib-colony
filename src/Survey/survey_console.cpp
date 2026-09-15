@@ -10,15 +10,16 @@ SurveyConsole::SurveyConsole()
 
 void SurveyConsole::Rebuild()
 {
-    ground.Build(knowledge, scours);
-    builtKnowledgeRevision = knowledge.Revision();
+    ground.Build(*know, scours);
+    builtKnowledgeRevision = know->revision;
     builtScourRevision = scourRevision;
+    groundRevision++;
 }
 
 void SurveyConsole::Step(float dt)
 {
     block.Step(dt);
-    if (knowledge.Revision() != builtKnowledgeRevision || scourRevision != builtScourRevision)
+    if (know->revision != builtKnowledgeRevision || scourRevision != builtScourRevision)
     {
         Rebuild();
     }
@@ -26,7 +27,7 @@ void SurveyConsole::Step(float dt)
 
 void SurveyConsole::RecordHole(float i, float j, float depthM)
 {
-    knowledge.Add(i, j, depthM);
+    DashKnow_Add(know, i, j, depthM);
 }
 
 int SurveyConsole::AddScour(float i, float j)
@@ -52,7 +53,7 @@ void SurveyConsole::SetScour(int index, float i, float j, float progress)
 
 void SurveyConsole::Clear()
 {
-    knowledge.Clear();
+    DashKnow_Clear(know);
     scours.clear();
     scourRevision++;
     block.selected = -1;

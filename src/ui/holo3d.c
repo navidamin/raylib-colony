@@ -127,12 +127,30 @@ struct Holo3DModel {
 
     C2DGroup *ghost[2];
     int ghostW, ghostH;
+
+    /* Holo3D_SetGround's own copy: the geometry comes from the caller, the
+     * colours from LAYERS, and the text from the caller when it supplies
+     * any. `layers` points here once real ground is set. */
+    H3DLayer own[H3D_LAYERS];
 };
 
 static float h3d_field(const H3DProfile *p, float x, float z)
 {
     const float c = h3d_lerp_profile(p, 1.0f);
     return h3d_lerp_profile(p, x) + h3d_lerp_profile(p, 1.0f + z) - c;
+}
+
+static void h3d_points_from_profiles(Holo3DModel *m)
+{
+    for (int k = 0; k < H3D_BOUNDARIES; k++)
+        for (int i = 0; i <= m->NX; i++)
+            for (int j = 0; j <= m->NZ; j++)
+            {
+                const float x = (float)i / m->NX, z = (float)j / m->NZ;
+                m->pts[k][i][j].x = (x - 0.5f) * m->W;
+                m->pts[k][i][j].y = -h3d_field(&m->profile[k], x, z) * m->D;
+                m->pts[k][i][j].z = (z - 0.5f) * m->W;
+            }
 }
 
 Holo3DModel *Holo3D_Build(const H3DBuildOpts *opts)
@@ -156,16 +174,49 @@ Holo3DModel *Holo3D_Build(const H3DBuildOpts *opts)
     m->profile[5].u[0] = 0.0f; m->profile[5].d[0] = 1.0f;
     m->profile[5].u[1] = 2.0f; m->profile[5].d[1] = 1.0f;
 
-    for (int k = 0; k < H3D_BOUNDARIES; k++)
+    h3d_points_from_profiles(m);
+    return m;
+}
+
+void Holo3D_SetGround(Holo3DModel *m, int beds, H3DDepthFn fn, void *ctx,
+                      const H3DBedText *text)
+{
+    if (!m) return;
+    if (!fn)
+    {
+        m->layers = LAYERS;
+        m->layerCount = H3D_LAYERS;
+        h3d_points_from_profiles(m);
+        return;
+    }
+    if (beds < 1) beds = 1;
+    if (beds > H3D_LAYERS) beds = H3D_LAYERS;
+    m->layerCount = beds;
+
+    for (int k = 0; k < H3D_LAYERS; k++)
+    {
+        m->own[k] = LAYERS[k];
+        if (text && k < beds)
+        {
+            if (text[k].name)  m->own[k].name  = text[k].name;
+            if (text[k].range) m->own[k].range = text[k].range;
+            if (text[k].tag)   m->own[k].tag   = text[k].tag;
+        }
+    }
+    m->layers = m->own;
+
+    /* Boundary k bounds bed k above and bed k-1 below, so `beds` beds need
+     * beds + 1 surfaces. Anything past that is left where it was; no loop
+     * reaches it once layerCount is set. */
+    for (int k = 0; k <= beds; k++)
         for (int i = 0; i <= m->NX; i++)
             for (int j = 0; j <= m->NZ; j++)
             {
-                const float x = (float)i / m->NX, z = (float)j / m->NZ;
-                m->pts[k][i][j].x = (x - 0.5f) * m->W;
-                m->pts[k][i][j].y = -h3d_field(&m->profile[k], x, z) * m->D;
-                m->pts[k][i][j].z = (z - 0.5f) * m->W;
+                const float u = (float)i / m->NX, v = (float)j / m->NZ;
+                m->pts[k][i][j].x = (u - 0.5f) * m->W;
+                m->pts[k][i][j].y = -fn(ctx, k, u, v) * m->D;
+                m->pts[k][i][j].z = (v - 0.5f) * m->W;
             }
-    return m;
 }
 
 void Holo3D_Free(Holo3DModel *m)
