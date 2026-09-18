@@ -1,6 +1,6 @@
 # Site Selection — Design Documents
 
-**Status: SETTLED** — simplified 2026-08-25; step 1 of 4 implemented.
+**Status: SETTLED** — simplified 2026-08-25; step 1 of 4 implemented, steps 2–3 prototyped in `lunar_map --site` and **not yet in the game** (see [game-integration-plan.md](game-integration-plan.md), 2026-09-18).
 
 How a player gets from "somewhere on the Moon" to "the base goes *here*":
 **five levels, five different questions, two commitments.** Chemistry
@@ -32,15 +32,16 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | [site-selection-master-design.md](site-selection-master-design.md) | The two decisions, cursor behaviour, where resource information lives, implementation plan | SETTLED |
 | ↳ Appendix A | The five-level instrument-floor model this replaced, kept as reasoning, not as work | ARCHIVED |
 | [site-ground-texture.md](site-ground-texture.md) | Why the site level looks like grey noise over 99.8 % of the Moon, and the design for laying the terrain synthesizer over it — platform tiers by measured cost, web memory, phased delivery | DESIGNED — prototype behind `--chain` |
+| [game-integration-plan.md](game-integration-plan.md) | Wiring the `lunar_map` descent into `colony_game` as the one founding flow and retiring the grid picker behind `View::SITE_SELECTION` — the audit of both flows, eight decisions to settle first (anchor, later colonies, ground renderer, code home, the DEM in the game build, archetype, the poles, zoom), the module shape, six phases with acceptance criteria, and a symbol-by-symbol inventory of what moves where | PROPOSED — nothing built |
 
 ## Progress
 
 | Step | State |
 |------|-------|
 | 1 — Cursor infrastructure | **done** — `survey_cursor.{h,cpp}`, self-test, `lunar_map --ladder` |
-| 2 — Region identity + panel | not started |
-| 3 — Site terrain panel | not started |
-| 4 — Placement and commit | not started |
+| 2 — Region identity + panel | **built in `lunar_map --site`** (`IdentifyRegion`, `DrawRegionCard`); not in the game — see the integration plan, Phase 0–1 |
+| 3 — Site terrain panel | **built in `lunar_map --site`** (`DrawLevelCard`, `JudgeSite`); not in the game — plan Phase 1 |
+| 4 — Placement and commit | founding creates nothing yet, in either flow — plan Phase 1 (`GameManager::FoundColony`) and Phase 3 (later colonies) |
 
 ## Cross-references
 
@@ -55,7 +56,7 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | `src/Engine/gamemanager.cpp` | Existing `View::SITE_SELECTION` flow, Ctrl+click placement |
 | `src/Engine/rendermanager.cpp` | `DrawSiteSelectionView`, instrument panels |
 | `tools/surveycursor/survey_cursor_test.cpp` | Headless self-test for the cursor geometry |
-| `tools/lunarmap/lunarmap_main.cpp` | `--place` prototypes the site panel; `--layer` / `--ladder` prototyped the archived model |
+| `tools/lunarmap/lunarmap_main.cpp` | `--site` is the working three-rung descent (region identity, cards, verdict, flights, touch) that the integration plan ports into `src/SiteSelection/`; `--place` prototyped the site panel; `--layer` / `--ladder` prototyped the archived model |
 
 **Related design docs**
 
