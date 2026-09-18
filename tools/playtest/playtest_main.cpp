@@ -390,9 +390,22 @@ int main(int argc, char** argv)
             return Math.round(document.documentElement.clientHeight
                               * (window.devicePixelRatio || 1));
         });
-        float fit = std::min(devW / static_cast<float>(ctx.screenWidth),
-                             devH / static_cast<float>(ctx.screenHeight));
-        ctx.renderScale = fit > 1.05f ? 2 : 1;
+        /* SUPERSAMPLING IS OFF while the survey console is on screen.
+           The console renders through its own offscreen surface, and the
+           combination of that with a caller-applied rlScalef is not right
+           yet: reproduced natively at renderScale 2, the frame comes out
+           mis-scaled (and, before the c2d state-leak fixes, black). Two real
+           leaks are fixed -- the matrix save/restore order around
+           BeginTextureMode, and rlgl's framebuffer size, which EndTextureMode
+           does not put back -- but a correct frame at 2 is not proven, and
+           shipping a sharper blank screen is not a trade.
+
+           At 1 the canvas is 1280x720 and the browser upscales it: softer on
+           a dense display, but the console is there and playable. Restore the
+           `fit > 1.05f ? 2 : 1` choice once scale 2 renders correctly in
+           tools/playtest at 2560x1440. */
+        (void)devW; (void)devH;
+        ctx.renderScale = 1;
         EM_ASM({
             window.__colonyBufW = $0; window.__colonyBufH = $1;
             window.__colonyLogicalW = $2; window.__colonyLogicalH = $3;

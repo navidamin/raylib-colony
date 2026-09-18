@@ -107,38 +107,50 @@ What actually happened on iPhone, in order of discovery:
   (`cnv=402x226`) while raylib kept rendering 1280x720 → GL viewport
   anchored bottom-left → only the bottom-left corner of the UI visible.
 
-## Offscreen targets: the other way the canvas goes wrong
+## The survey console and `renderScale`: supersampling is OFF on the web
 
-The canvas-sizing bug above is about the shell. There is a second one, in the
-game, that presents identically -- a broken or blank page whose console says:
+The canvas-sizing bug above is about the shell. There is a second failure, in
+the game, that presents the same way -- a page that flashes some chrome and
+then goes black.
 
+**Reproduce it natively.** Set `renderScale = 2` in `tools/playtest/
+playtest_main.cpp` and render at the doubled size:
+
+```bash
+LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
+  xvfb-run -a -s "-screen 0 2560x1440x24" \
+  ./build/src/colony_playtest --shot out.png
 ```
-WebGL warning: drawElementsInstanced: Drawing to a destination rect
-smaller than the viewport rect.
-```
 
-**What it means.** `LoadRenderTexture` returns `id == 0` when the framebuffer
-could not be created, and `BeginTextureMode` on `id == 0` binds the DEFAULT
-framebuffer -- the canvas -- and then sets the viewport to the size the
-texture was asked for. Everything drawn next lands on the screen at the wrong
-scale, and nothing reports an error.
+That is the web path: the playtest draws a 1280x720 layout through
+`rlScalef(renderScale)` into a doubled framebuffer. **With the survey console
+on screen the frame is wrong; with the console branch disabled it is perfect.**
+So the fault is in the console's offscreen rendering meeting a caller-applied
+matrix -- nothing else in the game uses one.
 
-**Why it fires on the web and not on the desktop.** The survey console's c2d
-shim keeps seven design-sized offscreen targets (its surface, four clip
-layers, Holo3D's two ghost buffers), and `c2d_set_supersample(n)` multiplies
-every one of them. At the console's desktop setting of 2 that is 3072x1536
-each -- 126 MB, before depth buffers and the downsampled blur pairs. A
-browser tab refuses; a desktop GPU does not.
+**What is established, by measurement:**
 
-**The two fixes, both in place:**
+- `rlgl`'s framebuffer size is left at the console's render-texture size and
+  never restored. `BeginTextureMode` calls `rlSetFramebufferWidth/Height`;
+  `EndTextureMode` restores the viewport and the projection but not those.
+  Probed at frame 30: `screen=2560x1440 render=2560x1440 rlfb=3072x1536`.
+  rlgl re-derives its ortho from that on batch flushes, so one console frame
+  mis-scales the rest of the run.
+- `LoadRenderTexture` returning `id == 0` makes `BeginTextureMode` bind the
+  DEFAULT framebuffer at the texture's viewport -- the canvas, at the wrong
+  size. `c2d_bind` now refuses that, and every lazy allocation in `c2d.c`
+  fails its *effect* instead of returning a broken object.
 
-- `DASH_SS` is 1 under `__EMSCRIPTEN__` (`src/ui/survey_dash.c`). Same seven
-  targets, 31 MB.
-- `c2d_bind` refuses to bind a target with `id == 0`, and every lazy
-  allocation in `c2d.c` (clip layers, blur pairs, groups, caches) fails its
-  effect instead of returning a broken object. A missing clip draws
-  unclipped, a missing blur composites sharp -- wrong, but legible, and the
-  frame is never corrupted.
+**What is NOT yet fixed.** Restoring the framebuffer size, and reordering
+c2d's matrix push/pop around `BeginTextureMode`, were both tried and neither
+produced a correct frame at scale 2 -- the reorder broke the working scale-1
+case and was reverted. **The console is not safe at `renderScale != 1`.**
+
+**So the web build forces `renderScale = 1`** (`playtest_main.cpp`), and
+`DASH_SS` is 1 under `__EMSCRIPTEN__` (`src/ui/survey_dash.c`). The canvas is
+1280x720 and the browser upscales it: softer on a dense display, but the
+console is there and playable. Restore the `fit > 1.05f ? 2 : 1` choice once
+the native scale-2 repro above renders correctly.
 
 **If you add an offscreen target**, check its id. The shim's rule is that a
 failed allocation costs an effect, never the frame.
