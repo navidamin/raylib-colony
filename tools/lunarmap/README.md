@@ -132,26 +132,43 @@ craters must sit where the real ones sit.
 
 | Flag | Effect |
 |------|--------|
-| `--nearside` | whole near side, plate carrée (default) |
+| `--nearside` | whole near side (default) |
 | `--pick LAT,LON` | regional window centred on real coordinates |
 | `--span KM` | regional window size (default 200) |
 | `--style shaded\|color` | photographic relief / LOLA elevation ramp |
 | `--sun AZ,EL` | sun azimuth (cw from north) and elevation (default 315,30) |
-| `--exag F` | vertical exaggeration (default 2.0; 1.0 = true scale) |
-| `--detail F` | sub-floor synthesis strength (default 1.0; 0 = measured data only) |
-| `--ambient F` | shadow-side fill light (default 0.06) |
-| `--tilt` | tilted 3D slab instead of top-down |
-| `--size WxH` | output resolution (default 1200x1200) |
-| `--demres N` | height texture resolution (default: auto) |
-| `--meshres N` | terrain mesh grid (default 256, max 256) |
+| `--exag F` | vertical exaggeration (default 1.0 = true scale) |
+| `--interp NAME` | reconstruction filter: `catrom` (default), `bspline`, `lanczos`, `fractal` |
+| `--despeckle` / `--nodespeckle` | 3x3 median on overlay crops |
+| `--demdecim N` | coarsen overlays Nx (1 = 59 m, 4 = 237 m) |
+| `--survey` | print a buildability report, no render |
 | `--place DX,DY` | placement cursor, km east/north of the window centre |
 | `--footprint KM` | cursor footprint size (default 1.5) |
 | `--ladder` | walk the survey descent, one PNG per level |
+| `--demo NAME` | annotated descent: `imbrium`, `apennine`, `shackleton` |
 | `--site` | interactive site-selection playtest (the three levels) |
 | `--siteshot PATH` | scripted walk through `--site`, one PNG per step |
 | `--flyshot PATH` | the level-1 descent zoom, one PNG per phase |
+| `--maxlevel N` | stop the descent at this survey level |
+| `--layer N` | data layer 0 = hydrogen, 1 = iron, 2 = rock abundance |
+| `--truth` | draw the layer at full resolution, not on its grid |
+| `--layeralpha N` | layer opacity 0-255 (default 145) |
+| `--ambient F` | shadow-side fill light (default 0.06) |
+| `--tilt` | tilted 3D slab instead of top-down |
+| `--orbit YAW,PITCH` | tilt camera angles (default 180,52) |
+| `--size WxH` | output resolution (default 1200x1200) |
+| `--demres N` | shading texture resolution (default: auto) |
+| `--meshres N` | terrain mesh grid (default 256, max 256) |
+| `--globe LAT,LON[,ZOOM]` | where level 1's globe starts |
+| `--nolabels` | start with the labels off (`L` toggles them) |
+| `--chain` | lay the synthesizer's imagery chain over the site window |
+| `--chain-strength F` | how hard it is laid on (default 1.0) |
+| `--subfloor 0\|1` | the chain's world-anchored regolith, off or on (default 1) |
+| `--webshader` | use the GLSL ES 100 shader on desktop |
 | `--out PATH` | render PNG and exit; without it a window opens |
 | `--dem PATH` | alternate DEM TIFF |
+
+`--help` is the authoritative list; this table is checked against it.
 
 ## Survey ladder
 
@@ -190,16 +207,20 @@ the game's render path, not in this instrument. Geometry comes from
 - Elevations are metres against the 1737.4 km reference radius; the
   HUD legend and window stats print the real range (global:
   −8.98 … +10.69 km).
-- **Sub-floor synthesis** (`--detail`, on by default for regional
-  windows): LDEM_16 resolves nothing under ~1.9 km/px, so zoomed
-  windows come out soft. Below that floor the window synthesizes
-  plausible lunar ground — a fractal regolith spectrum plus a
-  clustered small-crater population (power-law sizes, degraded
-  parabolic bowls with rims). Deterministic per location (anchored to
-  global coordinates, independent of window framing); amplitude fades
-  to zero at wavelengths the real data carries, so the LOLA landforms
-  are textured, never displaced. Detail below ~2 km is *plausible*,
-  not *measured* — use `--detail 0` for the honest instrument view.
+- **What is measured and what is invented.** The DEM path shows
+  measured ground only: LDEM_16 resolves nothing under ~1.9 km/px, so a
+  zoomed window without `--chain` is genuinely soft, and that softness
+  is honest. This tool used to invent ground below that floor itself
+  (`--detail`); it no longer does — see graveyard entry 9 for what that
+  did and the one idea in it worth rebuilding.
+- **The invented ground is the chain's** (`--chain`): the same imagery
+  synthesis the game runs, laid over the site window, with the
+  world-anchored regolith inside it. `--subfloor 0` runs the chain
+  without the regolith, which is how to tell the two apart — at the
+  25 km site rung that is 3.3 m of relief against 9.3 m.
+- `--interp fractal` is a third thing and easy to confuse with both: a
+  stochastic residual *between* measured points, conditioned on the
+  local measured relief. That is interpolation, not invention.
 - The near-side map is plate carrée (equirectangular), so high-latitude
   ground stretches east-west; regional `--pick` windows compensate with
   the same 1/cos(lat) widening the game's terrain chain uses.

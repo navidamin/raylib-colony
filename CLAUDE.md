@@ -225,9 +225,14 @@ The planet's surface is **generated from real lunar imagery**, not from
 tile art. `terrain_synthesis.{h,cpp}` amplifies the shipped LROC WAC
 mosaic (`src/assets/planet/wac_global.jpg`): the real imagery supplies
 every landform, and below its ~1.3 km/px resolution floor the synthesizer
-re-sharpens, relights and adds regolith grain. Deterministic per
-location — the same coordinates always regenerate the same ground, so
-nothing is stored.
+re-sharpens, relights, and builds a **world-anchored regolith** — a
+fractal residual, a clustered crater population, clast bands, grit and
+albedo mottle, all inside `TextureModulate`. Deterministic per location
+— the same coordinates always regenerate the same ground, from any
+window that frames them, so nothing is stored. `detail_noise.h` holds
+the one lattice: `terrain_synthesis.cpp` and `lola_dem.cpp` include it,
+and `terrain_gpu.cpp` reproduces the same hash chain in GLSL — change
+the header and the shader must change with it.
 
 **Scale system** (anchored on the sect being 5 km across):
 
@@ -262,7 +267,14 @@ textures, the height field is never stored — and its noise is hashed
 rather than drawn from the CPU's xorshift stream, so it has the same
 texture statistics without the same pixels. `terrain_probe` builds a
 location both ways and reports the difference; run it after touching
-either synthesizer.
+either synthesizer (CPU vs GPU currently 3.4 / 7.5 / 3.5 out of 255).
+
+**The shader cannot do the regolith on WebGL1.** GLSL ES 1.00 has no
+`uint`, no bitwise operators, and a `highp int` guaranteed only to 2^16
+where the lattice indices reach millions. `TerrainGpuCanSubFloor()` says
+so, and callers ask before claiming the GPU path: on WebGL1 the regolith
+is built on the CPU rather than silently dropped. WebGL2 would end the
+split.
 
 **Real coordinates.** The 20x20 grid is anchored on a real lat/lon
 (`SetTerrainAnchor`, settable — clicking the orbital disc re-anchors the
@@ -280,8 +292,11 @@ Design record: `prototypes/planet_visuals/SITE_SYNTHESIS.md`. The same
 chain also runs in JavaScript in
 `prototypes/planet_visuals/regolith_craters.html` — an interactive bench
 that puts the mosaic beside what the chain made of it, over eight real
-regions and a free 200 km → 500 m zoom, with impact relief carved back
-in (craters are **not** in the shipped chain, removed 2026-08-13). It
+regions and a free 200 km → 500 m zoom. Its regolith stack — craters
+included — **is** the shipped chain's: it was designed there and ported
+to `terrain_synthesis.cpp`, and the two agree to RMS 0.71 out of 255 at
+all three levels. (An older, separate crater layer was removed from the
+chain on 2026-08-13; what is there now arrived with the port.) It
 carries its own WAC blocks, renders headlessly through
 `regolith_craters_render.mjs`, and its port is checked against
 `colony_preview`'s output rather than assumed.
@@ -304,6 +319,7 @@ draws:
 |------|-----|
 | `tools/preview/preview.sh` | one view in isolation (`--view orbital\|planet\|sect`, `--cell X,Y`) |
 | `tools/viewtest/viewtest.sh` | the whole Orbital → Planet → Colony → Sect descent, with per-view issue notes; `--pick LAT,LON` lands it anywhere on the moon |
+| `tools/lunarmap/lunarmap.sh` | the real-coordinates instrument: `--site` walks the globe → district → site survey ladder, `--chain` lays the synthesizer over it, `--siteshot` renders every step. Deploys to `/lunarmap/`. |
 
 Both need software GL: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
 xvfb-run -a ...` (the scripts apply it). `colony_viewtest` also deploys
@@ -426,6 +442,8 @@ without a display:
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
 | `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
+| `tools/lunarmap/` | `lunar_map`: the survey ladder on real lunar coordinates, from the orbital globe down to a 25 km site window. The only harness for the site-selection descent; `--help` lists the flags. |
+| `tools/surveycursor/` | `survey_cursor_test`: headless geometry self-test for the descent ladder. No GL, no DEM — run it after touching `survey_cursor.*`. |
 | `tools/terrainprobe/` | `terrain_probe`: one location's terrain chain built on the GPU and the CPU, timed, every level as PNG, per-level statistics and the mean difference between the two. |
 | `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
 
