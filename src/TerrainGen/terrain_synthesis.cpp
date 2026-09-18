@@ -696,6 +696,192 @@ GroundSpectrum MeasureGroundSpectrum(double latDeg, double lonDeg,
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// The roughness field
+//
+// Where the invented relief is concentrated. Built ONCE per chain, at a
+// span where the mosaic still resolves its own floor, and sampled by
+// latitude and longitude at every rung below.
+//
+// Built once and not per rung, because a rung cannot measure this for
+// itself. A 5 km window holds about four floor samples, and its macro is
+// an upscale of the rung above with no floor-scale detail left in it: a
+// gradient taken there reads the interpolation, not the ground. That is
+// why the albedo proxy this replaces went dead at the sect rung (93% of
+// its pixels pinned to one clamp) and why measuring the level's own macro
+// did no better.
+//
+// Sampled by lat/lon and not by pixel, because the alternative -- one
+// normalisation per window -- makes the overall amount of roughness a
+// function of where the window sits, so it breathes as the player pans.
+// Every value here is a gradient of the mosaic at a world position, so the
+// same ground reads the same from any window that frames it.
+// ---------------------------------------------------------------------------
+
+using RoughField = TerrainRoughField;
+// The statistic's own mean for the last field built, for the calibration
+// hook only -- it is not part of the field the chain samples.
+static float g_lastRoughRawMean = 0.0f;
+
+// What the albedo proxy averaged, measured over the three rungs at
+// imbrium: 0.564, 0.579, 0.533. subRough was calibrated with that damping
+// in place, so the mask keeps the mean and changes only its distribution.
+// Without this the same field would be a 2.3x amplitude change wearing a
+// refinement's clothes.
+const float ROUGH_MASK_MEAN = 0.56f;
+
+// Four pixels to a floor sample: enough to difference across without
+// making the crop bigger than the measurement deserves.
+const double ROUGH_PX_PER_FLOOR = 4.0;
+
+// How hard the spread is pulled in. The raw statistic runs 4.3x from
+// Imbrium to Tycho; at this exponent the mask runs 2.4x, which fits inside
+// the bounds without any region saturating against them.
+const float ROUGH_COMPRESS = 0.6f;
+const float ROUGH_MIN = 0.40f, ROUGH_MAX = 2.60f;
+
+// The yardstick the statistic below is divided by. This is a CALIBRATION
+// constant, not a property of the mosaic: it is the value at Mare Imbrium,
+// the game's default terrain anchor and where subRough was tuned, so the
+// tuned look is reproduced exactly where it was judged and everywhere else
+// moves relative to it.
+//
+// Anchoring on the moon's own average was tried and is wrong for this
+// job: Imbrium is a flat mare and sits well under it, so a global anchor
+// makes the one place the look was judged the smoothest thing on the map.
+// The two choices disagree about the overall amount, not the distribution.
+//
+// Where the regions land, relative to Imbrium at 1.00 (and the 2.20 clamp
+// is what stops the top of this range running away):
+//
+//   Procellarum 0.90   far-side highlands 2.72   Apennines 3.44
+//   Copernicus 3.52    Tycho 4.29
+//
+// It is the ESTIMATOR's value, not the mosaic's, so re-measure it if the
+// differencing above changes. MeanRoughStatistic is the hook for that.
+const float ROUGH_REFERENCE = 0.00568f;
+
+static RoughField BuildRoughField(double latDeg, double lonDeg,
+                                  double spanKm, double floorKm)
+{
+    RoughField f;
+    if (floorKm <= 0.0 || spanKm <= 0.0) return f;
+    if (!EnsureWacLoaded()) return f;
+
+    f.res = (int)std::clamp(std::lround(ROUGH_PX_PER_FLOOR * spanKm / floorKm),
+                            64L, 1024L);
+    double latSpanDeg = spanKm / MOON_KM_PER_DEG;
+    double c = std::max(0.2, std::cos(latDeg * DEG2RAD));
+    double lonSpanDeg = latSpanDeg / c;
+    f.lat0Deg = latDeg + latSpanDeg * 0.5;
+    f.dLatPerPx = -latSpanDeg / (double)f.res;
+    f.lon0Deg = lonDeg - lonSpanDeg * 0.5;
+    f.dLonPerPx = lonSpanDeg / (double)f.res;
+
+    // The RAW crop, deliberately: reliefAtFloor is measured on one too, so
+    // the ratio is like for like. Sharpening first would inflate every
+    // gradient and the mean would no longer be 1.
+    Field m = CropMacro(latDeg, lonDeg, latSpanDeg, f.res);
+    if ((int)m.size() != f.res * f.res) { f.res = 0; return f; }
+
+    const int res = f.res;
+    const int lag = std::max(1, (int)std::lround(floorKm / (spanKm / res)));
+    f.v.resize((size_t)res * res);
+    for (int y = 0; y < res; y++)
+    {
+        int ya = std::max(0, y - lag), yb = std::min(res - 1, y + lag);
+        for (int x = 0; x < res; x++)
+        {
+            int xa = std::max(0, x - lag), xb = std::min(res - 1, x + lag);
+            // Per floor sample, whatever the edge clamp left us spanning.
+            float dx = (m[(size_t)y * res + xb] - m[(size_t)y * res + xa])
+                     / ((float)std::max(1, xb - xa) / lag);
+            float dy = (m[(size_t)yb * res + x] - m[(size_t)ya * res + x])
+                     / ((float)std::max(1, yb - ya) / lag);
+            f.v[(size_t)y * res + x] =
+                std::sqrt(dx * dx + dy * dy) * 0.7071f;
+        }
+    }
+
+    // Blurred by one floor sample before it becomes a ratio, which the
+    // parked LOLA version did too and this one first did not. A single
+    // difference is a wildly skewed estimator -- near zero on flat ground,
+    // huge on one rim pixel -- so a third of the field ended up on the
+    // clamps and the mean meant nothing. What the mask wants is "how rough
+    // is this PATCH", and a patch is what the blur makes it.
+    GaussianBlur(f.v, res, res, (float)lag);
+
+    {
+        double sum = 0.0;
+        for (float v : f.v) sum += v;
+        g_lastRoughRawMean = (float)(sum / f.v.size());
+    }
+
+    for (int y = 0; y < res; y++)
+    {
+        for (int x = 0; x < res; x++)
+        {
+            float local = f.v[(size_t)y * res + x];
+            // Against a GLOBAL reference, not this place's own average.
+            // Dividing by the local average was the first thing tried and
+            // it is wrong in an interesting way: it normalises away exactly
+            // the regional spread that makes the measurement worth having,
+            // leaving every place equally rough on average and only the
+            // texture within it varying. A mare has to come out smoother
+            // than Tycho's ejecta, so the yardstick must be the moon.
+            //
+            // Compressed, then bounded. A hard clamp alone was tried and
+            // it recreates the fault this whole field exists to fix: at
+            // Tycho, where the ground really is several times Imbrium's,
+            // 100% of the sect rung sat on the cap, so the mask was a
+            // constant again -- just a different constant. A power below
+            // one keeps the ordering and the variation across a wide
+            // dynamic range while pulling the extremes in, and the bounds
+            // then only have to catch the tail.
+            float r = std::pow(local / ROUGH_REFERENCE, ROUGH_COMPRESS);
+            f.v[(size_t)y * res + x] = std::clamp(r, ROUGH_MIN, ROUGH_MAX);
+        }
+    }
+    return f;
+}
+
+float MeanRoughStatistic(double latDeg, double lonDeg, double spanKm,
+                         double floorKm)
+{
+    RoughField f = BuildRoughField(latDeg, lonDeg, spanKm, floorKm);
+    if (!f.Valid()) return 0.0f;
+    // The statistic's own mean, before the compression and the bounds.
+    // Averaging the stored field would report those rather than the
+    // ground, which is how the first reference came out 2.5x wrong.
+    return g_lastRoughRawMean;
+}
+
+TerrainRoughField BuildTerrainRoughField(double latDeg, double lonDeg,
+                                         double spanKm, double floorKm)
+{
+    return BuildRoughField(latDeg, lonDeg, spanKm, floorKm);
+}
+float TerrainRoughFieldMin()  { return ROUGH_MIN; }
+float TerrainRoughFieldSpan() { return ROUGH_MAX - ROUGH_MIN; }
+
+// Bilinear, by latitude and longitude. Outside the field -- which only
+// happens if a rung is somehow wider than the one it was built for -- the
+// edge value, not a wrap.
+static float SampleRough(const RoughField& f, double latDeg, double lonDeg)
+{
+    if (!f.Valid()) return 1.0f;
+    double fx = (lonDeg - f.lon0Deg) / f.dLonPerPx - 0.5;
+    double fy = (latDeg - f.lat0Deg) / f.dLatPerPx - 0.5;
+    fx = std::clamp(fx, 0.0, (double)f.res - 1.0);
+    fy = std::clamp(fy, 0.0, (double)f.res - 1.0);
+    int x0 = (int)fx, y0 = (int)fy;
+    int x1 = std::min(x0 + 1, f.res - 1), y1 = std::min(y0 + 1, f.res - 1);
+    float tx = (float)(fx - x0), ty = (float)(fy - y0);
+    float a = f.v[(size_t)y0 * f.res + x0] * (1 - tx) + f.v[(size_t)y0 * f.res + x1] * tx;
+    float b = f.v[(size_t)y1 * f.res + x0] * (1 - tx) + f.v[(size_t)y1 * f.res + x1] * tx;
+    return a + (b - a) * ty;
+}
+
 // Unsharp + adaptive contrast around the crop's own midpoint (capped
 // gain — maria must stay dark, calm plains).
 static void SharpenAdaptive(Field& macro, int res)
@@ -1027,45 +1213,40 @@ static int ClastBands(Field& outM, int res, const NoiseFrame& frame,
 // level instead of three different depths.
 static int SubFloorRelief(Field& height, int res, const NoiseFrame& frame,
                           double spanKm, const TerrainTuning& tune,
-                          const Field& density)
+                          const Field& density, const RoughField* rough)
 {
     double kmPerPx = spanKm / res;
     double heightScaleM = 110.0 * (spanKm * 1000.0 / res);
     WorldGrid W(frame, res);
     Field accM((size_t)res * res, 0.0f);
-    // Where the invented relief is concentrated: bright ground is rough
-    // ground, a real correlation on the moon.
+    // Where the invented relief is concentrated, sampled out of the
+    // roughness field by latitude and longitude -- see BuildRoughField.
     //
-    // It barely fires, and less the further down you go. Measured over the
-    // three rungs at imbrium, this mask's own distribution:
-    //
-    //   100 km  mean 0.564   34% sitting on the 0.532 clamp
-    //    25 km  mean 0.579   50%
-    //     5 km  mean 0.533   93%, and the whole range is 0.532 to 0.582
-    //
-    // So at the sect rung -- the one place the regolith is the picture --
-    // it is a constant, because `density` clamps at 0.15 for almost every
-    // pixel of a macro whose mean is about 0.25. subRough was calibrated
-    // with that damping in place, so this is not a bug to fix in passing;
-    // it means the mask is not currently carrying the information it looks
-    // like it carries.
-    //
-    // Measuring it instead was tried (MeasureGroundSpectrum gives the
-    // absolute reference a per-pixel gradient would be divided by) and is
-    // NOT what is here, for a reason worth knowing before trying again:
-    // taking the gradient from THIS level's macro gives mask means of
-    // 1.22 / 1.46 / 0.67 against this one's 0.56 / 0.58 / 0.53, so it
-    // multiplies the sub-floor by 2.3x / 2.7x / 1.25x -- a recalibration
-    // wearing a refinement's clothes. And it is worst where it matters:
-    // at 5 km the level's macro is an upscale that holds no floor-scale
-    // detail to measure, which is the same reason the albedo proxy dies
-    // there. The fix both need is the same -- build the roughness field
-    // ONCE at a span where the mosaic still resolves the floor, and sample
-    // it down the chain -- and a per-window normalisation is not it, since
-    // that makes the amplitude breathe as the window pans.
+    // The albedo proxy this replaces ("bright ground is rough ground") was
+    // a real correlation that barely fired: measured over the three rungs
+    // at imbrium it meant 0.564 / 0.579 / 0.533, with 34% / 50% / 93% of
+    // pixels sitting on its 0.532 clamp. At the sect rung -- the one place
+    // the regolith IS the picture -- it was a constant. It survives here
+    // only as the fallback for when there is no mosaic to measure.
     Field roughMask((size_t)res * res);
-    for (size_t i = 0; i < roughMask.size(); i++)
-        roughMask[i] = 0.45f + 0.55f * density[i];
+    if (rough && rough->Valid())
+    {
+        for (int y = 0; y < res; y++)
+        {
+            for (int x = 0; x < res; x++)
+            {
+                double lat = frame.lat0Deg + (y + 0.5) * frame.dLatPerPx;
+                double lon = frame.lon0Deg + (x + 0.5) * frame.dLonPerPx;
+                roughMask[(size_t)y * res + x] =
+                    ROUGH_MASK_MEAN * SampleRough(*rough, lat, lon);
+            }
+        }
+    }
+    else
+    {
+        for (size_t i = 0; i < roughMask.size(); i++)
+            roughMask[i] = 0.45f + 0.55f * density[i];
+    }
 
     if (tune.subRough > 0.0f)
         SubFloorNoise(accM, res, W, kmPerPx, tune.subRough, roughMask,
@@ -1371,7 +1552,8 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
                             float pxPerKm = 0.0f,
                             Field* outHeight = nullptr,
                             Field* outAlbedo = nullptr,
-                            bool lastRung = false)
+                            bool lastRung = false,
+                            const RoughField* rough = nullptr)
 {
     // Pixel-based sizes below are tuned at 300 px; k rescales them so
     // physical feature sizes stay fixed at other resolutions.
@@ -1403,7 +1585,7 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
 
     if (worldFloor)
     {
-        SubFloorRelief(height, res, frame, spanKm, tune, density);
+        SubFloorRelief(height, res, frame, spanKm, tune, density, rough);
     }
     // Note what is NOT here: with the world stack on, an INTERMEDIATE rung
     // gets neither. Not an oversight -- the rung below is a crop of this
@@ -1756,6 +1938,17 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
     // No per-window seed any more: every layer hashes the ground it
     // covers, so the same site invents the same detail from any window
     // that frames it. LocationSeed survives only for the GPU macro crop.
+    // Measured once for the whole chain and sampled by lat/lon at every
+    // rung. Both the measurement and the field come off RAW mosaic crops,
+    // so the field's ratio averages 1 by construction and the mask keeps
+    // the amplitude subRough was calibrated with.
+    RoughField rough;
+    if (tune.subFloor != 0)
+    {
+        rough = BuildRoughField(latDeg, lonDeg, levelSpanKm[0],
+                                tune.subFloorKm);
+    }
+
     Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
     SharpenAdaptive(lum, res);
     // The fields belong to the LAST level; every level above it still
@@ -1774,7 +1967,8 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                         MakeNoiseFrame(latDeg, lonDeg, levelSpanKm[lvl], res,
                                        0x9E3779B9u * (uint32_t)lvl),
                         1.0f + 0.7f * lvl, tune, boulderBase, siteForLevel[lvl],
-                        (float)res / levelSpanKm[lvl], oh, oa, lastRung);
+                        (float)res / levelSpanKm[lvl], oh, oa, lastRung,
+                        &rough);
     };
 
     auto emit = [&](int level, const Field& src)

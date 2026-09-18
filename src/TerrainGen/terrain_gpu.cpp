@@ -321,9 +321,37 @@ float toneAt(vec2 pix, float w, float tone)
 {
     return mix(macroAt(pix), tone, uSiteAmp.x * w);
 }
+// The albedo proxy the sub-floor used to concentrate its relief with.
+// Still here for the shipped chain's grain and the albedo speckle, which
+// were calibrated against it; the sub-floor now uses roughMeasured.
 float roughAt(float m)
 {
     return 0.45 + 0.55 * clamp((m - 0.22) / 0.45, 0.15, 1.0);
+}
+
+uniform sampler2D uRoughTex;  // the CPU's roughness field, 8-bit
+uniform vec4 uRoughFrame;     // lat0, dLat/px, lon0, dLon/px  (degrees)
+uniform vec3 uRoughCfg;       // res, unpack min, unpack span; res 0 = absent
+const float ROUGH_MASK_MEAN = 0.56;   // keep in step with terrain_synthesis.cpp
+
+// Where the sub-floor's relief is concentrated. Not computed here: this
+// samples the very field terrain_synthesis.cpp built and the CPU chain
+// reads, so the two cannot drift. Sampled by lat/lon, because the field
+// belongs to the ground and not to this window.
+float roughMeasured(vec2 pix, float m)
+{
+    if (uRoughCfg.x < 1.5) return roughAt(m);
+    float lat = uFrame.x + (pix.y + 0.5) * uFrame.y;
+    float lon = uFrame.z + (pix.x + 0.5) * uFrame.w;
+    vec2 f = vec2((lon - uRoughFrame.z) / uRoughFrame.w,
+                  (lat - uRoughFrame.x) / uRoughFrame.y);
+    // Clamped to the field: a rung wider than the one it was built for
+    // gets the edge value, never a wrap.
+    vec2 uv = clamp(f / uRoughCfg.x, vec2(0.5 / uRoughCfg.x),
+                    vec2(1.0 - 0.5 / uRoughCfg.x));
+    // A plain texture, not a render target, so no rtuv flip here.
+    return ROUGH_MASK_MEAN
+         * (uRoughCfg.y + TEX(uRoughTex, uv).r * uRoughCfg.z);
 }
 // Levelling the macro before the relief blur commutes with the blur to
 // within the site's fade width, so it is applied to the blurred value.
@@ -741,7 +769,8 @@ void main()
     // escapes that levelling entirely, and the sect view came back at std
     // 0.032 against the CPU's 0.012.
     float h = heightCommon(pix, mm.x, mm.y, 1.0,
-                           subFloorM(pix, roughAt(m)) / uHeightScaleM);
+                           subFloorM(pix, roughMeasured(pix, m))
+                             / uHeightScaleM);
     float q = clamp(h + 0.5, 0.0, 1.0) * 65535.0;
     float hi = floor(q / 256.0);
     OUT = vec4(hi / 255.0, floor(q - hi * 256.0) / 255.0, 0.0, 1.0);
@@ -876,7 +905,8 @@ void main()
     // the world stack goes straight in rather than through a target.
     float h = (uSubOn > 0.5)
         ? heightCommon(pix, tone, hmean, 1.0,
-                       subFloorM(pix, rough) / uHeightScaleM)
+                       subFloorM(pix, roughMeasured(pix, m))
+                         / uHeightScaleM)
         : heightAt(pix, tone, hmean, 1.0);
     float speckle = fbm(world(pix), 4.0, 0.5, 2, uSeedS);
     float alb = clamp(m * (1.0 + 0.04 * min(uAmp, 1.6)
@@ -940,6 +970,49 @@ Gpu G;
 // locally in BindHeight, so this is how a caller's data floor reaches the
 // shader without threading a parameter through every pass.
 double g_dataFloorKm = 0.0;
+
+// The CPU's roughness field, uploaded once per chain and sampled by the
+// sub-floor. Built by terrain_synthesis so there is one definition of it,
+// packed to 8 bits so no float texture is needed (WebGL1 has none).
+// File-global for the same reason g_dataFloorKm is, and safe for the same
+// one: the GPU path runs on the GL thread, one chain at a time.
+Texture2D g_roughTex = {};
+float g_roughFrame[4] = {0, 0, 0, 0};
+float g_roughCfg[3] = {0, 0, 0};
+
+void ReleaseRoughTexture()
+{
+    if (g_roughTex.id != 0) { UnloadTexture(g_roughTex); g_roughTex = Texture2D{}; }
+    g_roughCfg[0] = 0.0f;
+}
+
+void UploadRoughField(double latDeg, double lonDeg, double spanKm,
+                      double floorKm)
+{
+    ReleaseRoughTexture();
+    TerrainRoughField f = BuildTerrainRoughField(latDeg, lonDeg, spanKm,
+                                                 floorKm);
+    if (!f.Valid()) return;
+    const float lo = TerrainRoughFieldMin(), span = TerrainRoughFieldSpan();
+    std::vector<unsigned char> px((size_t)f.res * f.res);
+    for (size_t i = 0; i < px.size(); i++)
+        px[i] = (unsigned char)std::clamp(
+            std::lround((f.v[i] - lo) / span * 255.0f), 0L, 255L);
+    Image img = {};
+    img.data = px.data();
+    img.width = f.res; img.height = f.res; img.mipmaps = 1;
+    img.format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE;
+    g_roughTex = LoadTextureFromImage(img);        // copies; px stays ours
+    SetTextureFilter(g_roughTex, TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(g_roughTex, TEXTURE_WRAP_CLAMP);
+    g_roughFrame[0] = (float)f.lat0Deg;
+    g_roughFrame[1] = (float)f.dLatPerPx;
+    g_roughFrame[2] = (float)f.lon0Deg;
+    g_roughFrame[3] = (float)f.dLonPerPx;
+    g_roughCfg[0] = (float)f.res;
+    g_roughCfg[1] = lo;
+    g_roughCfg[2] = span;
+}
 
 bool UseEs100()
 {
@@ -1301,6 +1374,9 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
     SetV4(sh, "uTune", t);
     SetF(sh, "uSubOn", tune.subFloor ? 1.0f : 0.0f);
     SetF(sh, "uSubFloorKm", tune.subFloorKm);
+    if (g_roughCfg[0] > 1.5f) SetTex(sh, "uRoughTex", g_roughTex);
+    SetV4(sh, "uRoughFrame", g_roughFrame);
+    SetV3(sh, "uRoughCfg", g_roughCfg[0], g_roughCfg[1], g_roughCfg[2]);
     SetF(sh, "uKmPerPxSub", kmPerPx);
     SetF(sh, "uHeightScaleM", 110.0f * kmPerPx * 1000.0f);
     float sub[4] = {tune.subRough, tune.subGrit, tune.subCraters, tune.popDensity};
@@ -1515,6 +1591,15 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
     const int levelCount = std::clamp(ladder.count, 1,
                                       TERRAIN_CHAIN_MAX_LEVELS);
     out->levels = levelCount;
+
+    // Built for the WIDEST rung, so every rung below samples inside it.
+    if (IsSubFloorEnabled() && TerrainGpuCanSubFloor())
+    {
+        double floorKm = (g_dataFloorKm > 0.0) ? g_dataFloorKm
+                                               : TerrainTuning{}.subFloorKm;
+        UploadRoughField(latDeg, lonDeg, ladder.km[0], floorKm);
+    }
+    else ReleaseRoughTexture();
 
     TerrainMacroCrop crop;
     if (!GetTerrainMacroCrop(latDeg, lonDeg, &crop, ladder.km[0]))

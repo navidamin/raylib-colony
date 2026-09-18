@@ -371,6 +371,36 @@ struct GroundSpectrum
 GroundSpectrum MeasureGroundSpectrum(double latDeg, double lonDeg,
                                      double floorKm);
 
+// Calibration hook: the mean of the roughness statistic over one window.
+// Used once, by the sweep that sets ROUGH_REFERENCE. Not part of the chain.
+float MeanRoughStatistic(double latDeg, double lonDeg, double spanKm,
+                         double floorKm);
+
+// Where the sub-floor's invented relief is concentrated: a multiplier
+// around 0.56, built once per chain at a span where the mosaic still
+// resolves its own floor, and sampled by latitude and longitude at every
+// rung below. See BuildRoughField in the .cpp for why it cannot be built
+// per rung and why it is not normalised per window.
+//
+// Public only so terrain_gpu.cpp can upload the same field the CPU chain
+// uses rather than computing a second one in GLSL. One definition.
+struct TerrainRoughField
+{
+    std::vector<float> v;      // res*res, row 0 north; 1.0 = Imbrium-typical
+    int res = 0;
+    double lat0Deg = 0.0, dLatPerPx = 0.0;
+    double lon0Deg = 0.0, dLonPerPx = 0.0;
+    bool Valid() const { return res > 1 && (int)v.size() == res * res; }
+};
+// spanKm should cover the widest rung that will sample it.
+TerrainRoughField BuildTerrainRoughField(double latDeg, double lonDeg,
+                                         double spanKm, double floorKm);
+
+// The bounds the field's values live in, so a consumer that has to quantise
+// it (the GPU packs it into 8 bits) can unpack it again.
+float TerrainRoughFieldMin();
+float TerrainRoughFieldSpan();
+
 // tuning == nullptr uses the baseline TerrainTuning.
 Image GenerateSectTerrain(double latDeg, double lonDeg, int res = 300,
                           const TerrainTuning* tuning = nullptr);

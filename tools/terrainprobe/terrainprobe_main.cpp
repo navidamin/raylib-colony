@@ -136,9 +136,14 @@ int main(int argc, char** argv)
     // See GroundSpectrum in terrain_synthesis.h, and graveyard entry 9.
     {
         GroundSpectrum gs = MeasureGroundSpectrum(lat, lon, tune.subFloorKm);
-        std::printf("ground spectrum: reliefAtFloor %.5f   lumExponent %.3f"
-                    "  (exponent reported, never used)\n",
-                    gs.reliefAtFloor, gs.lumExponent);
+        float rough = MeanRoughStatistic(lat, lon, 100.0, tune.subFloorKm);
+        // 0.00568 is ROUGH_REFERENCE: Mare Imbrium, where subRough was
+        // tuned. Everything else is read against it, so this line says how
+        // much more or less sub-floor relief this ground gets than the
+        // place the look was judged at.
+        std::printf("ground: roughness %.5f = %.2fx Imbrium"
+                    "   reliefAtFloor %.5f   lumExponent %.3f (never used)\n",
+                    rough, rough / 0.00568f, gs.reliefAtFloor, gs.lumExponent);
     }
 
     Image gpu[3] = {}, cpu[3] = {};
