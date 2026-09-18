@@ -153,6 +153,9 @@ Vector2 SurveyDash_ToDesign(Rectangle region, Vector2 screenPt);
 /* Input, in SCREEN coordinates -- the conversion happens inside, because
  * hit-testing in screen space is the mistake the spec calls out by name. */
 void SurveyDash_Press  (SurveyDashState *s, Rectangle region, Vector2 screenPt);
+
+/* Wheel notches (or pinch steps) over the block. Positive zooms in. */
+void SurveyDash_Zoom   (SurveyDashState *s, Rectangle region, Vector2 screenPt, float steps);
 void SurveyDash_Drag   (SurveyDashState *s, Rectangle region, Vector2 delta);
 void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt);
 

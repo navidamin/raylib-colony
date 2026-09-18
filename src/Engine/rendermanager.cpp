@@ -3494,6 +3494,8 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
                 const Vector2 d = GetMouseDelta();
                 if (d.x != 0.0f || d.y != 0.0f) SurveyDash_Drag(dash, console, d);
             }
+            const float wheel = GetMouseWheelMove();
+            if (wheel != 0.0f) SurveyDash_Zoom(dash, console, mouse, wheel);
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) SurveyDash_Release(dash, console, mouse);
 

@@ -32,11 +32,26 @@
 #define RIGHT_X   (MID_X + MID_W + PANE_G)
 #define RIGHT_W   370.0f
 
-/* the rack, centred in the left pane at the reference's own scale */
-#define DASH_RACK_SCALE   0.845f
-#define DASH_RACK_SCALE_Y 0.925f
-#define DASH_RACK_X       (LEFT_X + 8.0f)
-#define DASH_RACK_Y       (PANE_TOP + 14.0f)
+/* THE SIDE COLUMNS ARE TWO PANELS EACH: the instrument, and its stats under
+ * it. That is the reference's own arrangement (dashboard.html's layout.stats
+ * and layout.dstats) and the three-pane port had dropped it for want of
+ * room. The stats are what a tool or a running drill reports, so they belong
+ * under the thing they describe. */
+#define STATS_H   168.0f
+#define STATS_GAP  12.0f
+#define MAIN_H    (PANE_H - STATS_H - STATS_GAP)
+#define STATS_Y   (PANE_TOP + MAIN_H + STATS_GAP)
+
+/* THE RACK SCALES UNIFORMLY. It was 0.845 across and 0.925 down -- a squash
+ * nobody chose, left over from filling a taller pane. One factor, fitted to
+ * whichever of the two axes runs out first, and centred in what is left. */
+#define RACK_FIT_W  (LEFT_W - 16.0f)
+#define RACK_FIT_H  (MAIN_H - 30.0f)   /* the panel's bracket needs air above and below */
+#define DASH_RACK_SCALE \
+    ((RACK_FIT_W / TR_W) < (RACK_FIT_H / TR_H) ? (RACK_FIT_W / TR_W) : (RACK_FIT_H / TR_H))
+#define DASH_RACK_SCALE_Y DASH_RACK_SCALE
+#define DASH_RACK_X       (LEFT_X + (LEFT_W - TR_W * DASH_RACK_SCALE) * 0.5f)
+#define DASH_RACK_Y       (PANE_TOP + (MAIN_H - TR_H * DASH_RACK_SCALE) * 0.5f)
 
 /* the block, the confidence bar, then the log, down the middle pane */
 #define CONF_H         76.0f
@@ -46,8 +61,16 @@
 #define CONF_Y        (LOG_Y - CONF_H - 12.0f)
 #define LOG_W         (MID_W - 32.0f)
 #define DASH_BLOCK_CX (MID_X + MID_W * 0.5f)
-#define DASH_BLOCK_CY (PANE_TOP + (CONF_Y - PANE_TOP) * 0.58f)
-#define DASH_BLOCK_ZOOM 0.205f
+#define DASH_BLOCK_CY (PANE_TOP + (CONF_Y - PANE_TOP) * 0.50f)
+
+/* The block was drawn at a fifth of its size in a pane seven hundred units
+ * wide -- the reference's zoom, carried over without re-fitting it to a pane
+ * that is a different shape. At 0.42 it fills the space it has. The player
+ * can move it: see DASH_ZOOM_MIN/MAX. */
+#define DASH_BLOCK_ZOOM 0.37f
+#define DASH_ZOOM_MIN   0.15f
+#define DASH_ZOOM_MAX   1.30f
+#define DASH_ZOOM_STEP  1.12f
 
 /* the rect inside which a drag rotates the block */
 #define DASH_BLOCK_X0 (MID_X + 20.0f)
@@ -315,8 +338,10 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
 
     c2d_begin(&g_surf, DashC_Bg());
 
-    Dash_Panel(LEFT_X,  PANE_TOP, LEFT_W,  PANE_H, (Color){0, 0, 0, 0}, 12.0f, 26.0f);
-    Dash_Panel(MID_X,   PANE_TOP, MID_W,   PANE_H, (Color){0, 0, 0, 0}, 12.0f, 26.0f);
+    Dash_Panel(LEFT_X, PANE_TOP, LEFT_W, MAIN_H,  (Color){0, 0, 0, 0}, 12.0f, 26.0f);
+    Dash_Panel(LEFT_X, STATS_Y,  LEFT_W, STATS_H, (Color){0, 0, 0, 0}, 12.0f, 22.0f);
+    Dash_Panel(MID_X,  PANE_TOP, MID_W,  PANE_H,  (Color){0, 0, 0, 0}, 12.0f, 26.0f);
+    Dash_Panel(RIGHT_X, STATS_Y, RIGHT_W, STATS_H, (Color){0, 0, 0, 0}, 12.0f, 22.0f);
 
     ToolRackOpts ro = {0};
     ro.level = 6;
@@ -358,7 +383,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
             s->saidMeasured = true;
         }
     }
-    Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, "DRILL BAR",
+    Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, "DRILL BAR",
                   SurveyDash_Ruler(), DASH_RULER_TICKS, &s->drill, dt);
 
     c2d_end();
@@ -384,7 +409,7 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
 
     /* C6: the ruler is the depth control. Checked before the face, because
      * it sits inside the bar and a click on it must arm rather than drill. */
-    const float pick = Dash_DrillBarPickDepth(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, d.x, d.y);
+    const float pick = Dash_DrillBarPickDepth(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, d.x, d.y);
     if (pick >= 0.0f)
     {
         DrillSim_SetTarget(&s->drill, pick);
@@ -399,9 +424,24 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
      * rhythm the player keeps, and waiting for the button to come up puts a
      * lag between the tap and the kick. */
     float fx, fy, fw, fh;
-    Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, PANE_H, &fx, &fy, &fw, &fh);
+    Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &fx, &fy, &fw, &fh);
     if (d.x >= fx && d.x <= fx + fw && d.y >= fy && d.y <= fy + fh)
         DrillSim_Bite(&s->drill);
+}
+
+void SurveyDash_Zoom(SurveyDashState *s, Rectangle region, Vector2 screenPt, float steps)
+{
+    if (!s || !s->started || steps == 0.0f) return;
+    const Vector2 d = SurveyDash_ToDesign(region, screenPt);
+    /* Only over the block. The rack and the drill bar are lists, and a wheel
+     * over a list should never move something else. */
+    if (d.x < DASH_BLOCK_X0 || d.x > DASH_BLOCK_X1 ||
+        d.y < DASH_BLOCK_Y0 || d.y > DASH_BLOCK_Y1) return;
+
+    float z = s->view.zoom * powf(DASH_ZOOM_STEP, steps);
+    if (z < DASH_ZOOM_MIN) z = DASH_ZOOM_MIN;
+    if (z > DASH_ZOOM_MAX) z = DASH_ZOOM_MAX;
+    s->view.zoom = z;
 }
 
 void SurveyDash_Drag(SurveyDashState *s, Rectangle region, Vector2 delta)
