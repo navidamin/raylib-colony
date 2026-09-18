@@ -99,10 +99,11 @@ struct NoiseFrame
     uint32_t salt = 0;         // which layer this is
 };
 
-// lola_dem's frame, exactly (see SynthesizeDetail): u is the east-west
-// arc from the prime meridian AT THIS PIXEL'S OWN LATITUDE, v the
-// north-south arc from the equator. Sharing it means the two
-// synthesizers quantise the same ground into the same cells.
+// lola_dem's frame, exactly (its fractal residual still uses it): u is
+// the east-west arc from the prime meridian AT THIS PIXEL'S OWN
+// LATITUDE, v the north-south arc from the equator. Sharing it means
+// the elevation model and the imagery quantise the same ground into the
+// same cells -- detail_noise.h is the lattice they share.
 //
 // The cos belongs to the pixel and not to the window. Taking it once at
 // the window centre looks equivalent and is not: it makes the east-west
@@ -303,29 +304,6 @@ static void GaussianBlur(Field& a, int w, int h, float sigma)
                                  + (v01 * (1.0f - tx) + v11 * tx) * ty;
         }
     }
-}
-
-static Field ResizeBilinear(const Field& src, int sw, int sh, int dw, int dh)
-{
-    Field dst((size_t)dw * dh);
-    for (int y = 0; y < dh; y++)
-    {
-        float fy = (y + 0.5f) * sh / dh - 0.5f;
-        int y0 = std::clamp((int)std::floor(fy), 0, sh - 1);
-        int y1 = std::min(y0 + 1, sh - 1);
-        float ty = fy - y0;
-        for (int x = 0; x < dw; x++)
-        {
-            float fx = (x + 0.5f) * sw / dw - 0.5f;
-            int x0 = std::clamp((int)std::floor(fx), 0, sw - 1);
-            int x1 = std::min(x0 + 1, sw - 1);
-            float tx = fx - x0;
-            float top = src[y0 * sw + x0] * (1 - tx) + src[y0 * sw + x1] * tx;
-            float bot = src[y1 * sw + x0] * (1 - tx) + src[y1 * sw + x1] * tx;
-            dst[y * dw + x] = top * (1 - ty) + bot * ty;
-        }
-    }
-    return dst;
 }
 
 // Single-octave smooth value noise: coarse random lattice, bilinear
@@ -680,94 +658,6 @@ static void SharpenAdaptive(Field& macro, int res)
         v = std::clamp(mid + (v - mid) * gain, 0.0f, 1.0f);
 }
 
-// Small-crater field for zoom levels BELOW the real-data floor
-// (~1.3 km/px): sub-resolution craters exist everywhere on the real
-// moon but the source cannot resolve them, so here invention is
-// honest — it never contradicts data. Real lunar crater profile:
-// flat floor (d < 0.70), power-law wall, tiny gaussian rim.
-[[maybe_unused]] static void CarveSmallCraters(Field& height, int res, TerrainRng& rng,
-                              int count, float rMinPx, float rMaxPx,
-                              float depthScale)
-{
-    // Placed craters, for overlap rejection: an overlapping crater
-    // field reads as noise, separated bowls read as ground.
-    std::vector<float> px, py, pr;
-    px.reserve(count);
-    py.reserve(count);
-    pr.reserve(count);
-
-    for (int c = 0; c < count; c++)
-    {
-        // Power-law-ish size mix: most craters small, a few large.
-        float u = rng.Uniform();
-        float r = rMinPx * std::pow(rMaxPx / rMinPx,
-                                    std::pow(u, 2.2f));
-        // Rejection placement: keep a clear margin to every earlier
-        // crater (1.25x their summed radii); big first would claim
-        // space better, but a few attempts per crater is enough.
-        float cx = 0.0f, cy = 0.0f;
-        bool placed = false;
-        for (int attempt = 0; attempt < 8 && !placed; attempt++)
-        {
-            cx = rng.Uniform() * res;
-            cy = rng.Uniform() * res;
-            placed = true;
-            for (size_t i = 0; i < px.size(); i++)
-            {
-                float ddx = px[i] - cx;
-                float ddy = py[i] - cy;
-                float minD = (pr[i] + r) * 1.25f;
-                if (ddx * ddx + ddy * ddy < minD * minD)
-                {
-                    placed = false;
-                    break;
-                }
-            }
-        }
-        if (!placed) continue;
-        px.push_back(cx);
-        py.push_back(cy);
-        pr.push_back(r);
-        float age = rng.Uniform();            // 0 fresh .. 1 eroded
-        float sharp = 1.0f - 0.7f * age;
-        float depth = -depthScale * sharp * (0.5f + rng.Uniform());
-        // A fresh deep minority gives the field its punch — without
-        // them everything reads as uniform soft dimples.
-        if (rng.Uniform() < 0.12f) depth *= 1.9f;
-        float rimAmp = 0.05f * sharp * std::fabs(depth) / depthScale;
-        float wallP = 3.5f;
-
-        int x0 = std::max(0, (int)(cx - r * 1.1f));
-        int x1 = std::min(res - 1, (int)(cx + r * 1.1f) + 1);
-        int y0 = std::max(0, (int)(cy - r * 1.1f));
-        int y1 = std::min(res - 1, (int)(cy + r * 1.1f) + 1);
-        for (int y = y0; y <= y1; y++)
-        {
-            for (int x = x0; x <= x1; x++)
-            {
-                float dx = (x - cx) / r;
-                float dy = (y - cy) / r;
-                float d = std::sqrt(dx * dx + dy * dy);
-                float delta = 0.0f;
-                if (d < 0.70f)
-                {
-                    delta = depth;
-                }
-                else if (d < 0.95f)
-                {
-                    float wu = (d - 0.70f) / 0.25f;
-                    delta = depth * (1.0f - std::pow(wu, wallP));
-                }
-                else if (d < 1.05f)
-                {
-                    float g = (d - 1.00f) / 0.05f;
-                    delta = rimAmp * depthScale * std::exp(-g * g);
-                }
-                height[y * res + x] += delta;
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // The world-anchored sub-floor.

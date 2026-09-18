@@ -276,3 +276,73 @@ static uint32_t LocationSeed(double latDeg, double lonDeg)   // 0.01 deg
 and not per-ground. Nothing in the chain is: it invents what a place
 looks like, and a place does not change because you framed it
 differently.
+
+---
+
+## 9. `SynthesizeDetail` — the LOLA path's own sub-floor
+
+**Was:** a second, independent invention of ground below the data floor,
+living in `lola_dem.cpp` and reachable only through `lunar_map --detail
+F`. It sat on the *elevation* model (LDEM_16, ~1.9 km/px) where the
+chain's regolith sits on the *imagery* (WAC, ~1.33 km/px), so the two
+never met in code and nobody noticed they were both running.
+
+Its distinguishing idea — and the reason this entry exists — is that it
+did not guess an amplitude. It **measured the real ground's spectrum in
+the window** and continued it downward:
+
+- **Hurst exponent**, one number per window: RMS height difference grows
+  as `L^H`, so `H = log2(rms(2L) / rms(L))`. Sampled at **4x and 8x the
+  native spacing, deliberately not 1x and 2x** — a stereo DEM rolls off
+  approaching its own grid and reaches only ~0.74 / 0.80 of its true
+  power law at 1x / 2x. Clamped to `[0.35, 1.0]`.
+- **Local roughness**, per pixel: RMS relief the real data carries over
+  one native sample *at that point*, blurred by the sample lag, so a
+  crater wall and the mare beside it got different synthetic amplitudes.
+- Band amplitude was then `roughM * (wave / nativeKm)^hurst * 0.30`,
+  starting **at** the data floor (not above it) — octaves coarser than
+  one native sample are the real data's job, and synthesizing there
+  double-counts relief already present. An earlier build that started
+  above the floor "looked like bark".
+
+A `--texture craters` mode (`LolaTexture`, `g_texture`,
+`DetailCraterField`) swapped the noise carpet for a saturated impact
+population where the deepest bowl wins rather than bowls summing.
+
+**Removed 2026-09-18**, having been parked (default `--detail 0`) on
+2026-09-08 by "Park lola_dem's sub-floor: one synthesis, not two".
+
+**Why it went**
+
+Two syntheses were inventing the same thing below the same floor and
+summing. Measured: what `--detail` added on top of `--chain` was the
+same as what it added to raw ground (RMS 13.32 vs 13.49 out of 255) —
+fully independent and additive, which is to say double-counted.
+
+The chain's regolith is the one kept: it carries the crater population
+with clustering and age, the clast bands and the grit; it is shared with
+the game's imagery chain and with the GPU shader and the JS bench, so
+there is one synthesis to improve rather than two to keep in step.
+
+**What was actually lost**, `--detail 0` vs `--detail 1`, `--pick
+32.8,-15.6`, 700 px render, no chain:
+
+| span | std | RMS difference |
+|---|---|---|
+| 25 km | 18.582 → 18.678 | 3.49 / 255 |
+| 5 km | 11.261 → 13.857 | 8.11 / 255 |
+
+At 5 km it was contributing a quarter of the picture's variance. The
+chain's regolith covers that ground now (`--subfloor 1` at the 25 km
+site rung: 3.3 m relief → 9.3 m), but it covers it with a *calibrated*
+amplitude, not a measured one.
+
+**Might it come back?** The mechanism, not the code. The regolith
+currently picks its amplitude from constants; the deleted path picked it
+from the ground underfoot. Folding the Hurst/roughness measurement into
+`SubFloorRelief` — measure the WAC crop's own spectrum, drive `subRough`
+from it — would make the invented ground continue each place's real
+texture instead of one global look. That is worth doing, and it is the
+one reason to read this entry.
+
+`git log -S'SynthesizeDetail'` for the real code.

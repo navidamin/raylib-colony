@@ -37,18 +37,6 @@ enum class LolaInterp
 };
 void LolaSetInterpolation(LolaInterp mode);
 
-// How the sub-floor surface texture is generated.
-//   NOISE   - fractal value noise carpet (continuous undulation)
-//   CRATERS - a saturated impact population as the primary relief,
-//             with noise demoted to grain between the craters. This is
-//             how the real surface is actually built at 10-500 m.
-enum class LolaTexture
-{
-    NOISE = 0,
-    CRATERS = 1,
-};
-void LolaSetTextureMode(LolaTexture mode);
-
 // Disable the 3x3 median despeckle applied to overlay crops on load.
 // The median removes sensor speckle but also erases real features up
 // to ~2 samples across; this exists to measure that trade.
@@ -134,15 +122,12 @@ public:
     // to res x res. Slope is computed at the DEM's native resolution,
     // then resampled — resampling first would flatten it.
     //
-    // detailStrength > 0 synthesizes surface detail below the DEM's
-    // ~1.9 km/px floor: a fractal regolith spectrum plus a scattered
-    // small-crater population, deterministic per location (anchored to
-    // global coordinates, so the same ground regenerates identically
-    // whatever the window framing). The real LOLA landforms stay the
-    // backbone; synthesis only fades in at wavelengths the data cannot
-    // resolve. 1.0 is the calibrated look, 0 disables.
+    // Measured ground only. What the data cannot resolve is left
+    // unresolved here; inventing below the floor is the chain's job
+    // (terrain_synthesis.cpp), and doing it in both places once meant
+    // doing it twice — see graveyard entry 9.
     LolaWindow Window(double latDeg, double lonDeg, double spanKm,
-                      int res, float detailStrength = 0.0f) const;
+                      int res) const;
 
     // Assess a site for construction from measured elevation alone.
     // footprintKm is the settlement's own extent (the game's 5 km sect);

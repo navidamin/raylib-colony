@@ -742,245 +742,24 @@ LolaWindow LolaDem::WindowDegrees(double lat0, double lat1,
 }
 
 // ---------------------------------------------------------------------------
-// Detail synthesis below the DEM floor
+// Below the DEM floor
 //
 // LDEM_16 resolves nothing under ~1.9 km/px, so zoomed windows come out
-// soft. Below that floor we synthesize plausible lunar ground: a
-// fractal regolith spectrum plus a scattered small-crater population
-// (power-law sizes, parabolic bowls with raised rims). Everything is a
-// pure function of global coordinates — quantized lattice cells in a
-// km-scaled lat/lon frame — so the same location regenerates the same
-// ground for any window centre, span or resolution. Amplitude fades to
-// zero at wavelengths the real data already carries; the LOLA
-// landforms stay the backbone and are never displaced, only textured.
-// ---------------------------------------------------------------------------
+// soft. This file used to invent ground down there itself; it no longer
+// does. The chain's world-anchored regolith (terrain_synthesis.cpp,
+// TextureModulate) is the one synthesis, shared with the GPU shader and
+// the JS bench — two independent inventions below the same floor were
+// summing, which is graveyard entry 9.
+//
+// What remains here is FRACTAL reconstruction (--interp fractal): a
+// stochastic residual BETWEEN measured points, conditioned on the local
+// measured relief. That is interpolation, not invention — it fills the
+// gaps in real data rather than adding a layer beneath it.
+//
+// DetailNoise and its hash live in detail_noise.h, so what is quantised
+// here lands in the same lattice cell terrain_synthesis.cpp uses. They
+// were identical by hand before; now they are identical by construction.
 
-// DetailHash / DetailHash01 / DetailNoise now live in detail_noise.h, so
-// terrain_synthesis.cpp's sub-floor stack quantises the same world point
-// into the same lattice cell this file does. They were identical by hand
-// before; now they are identical by construction.
-
-// Crater contribution at (u, v) from the jittered-grid population of
-// one size band (cells of `cellKm`). Degraded bowls: parabolic floor,
-// gaussian rim. Returns metres.
-static float DetailCraters(double u, double v, double cellKm, uint32_t salt)
-{
-    int32_t cx = (int32_t)std::floor(u / cellKm);
-    int32_t cy = (int32_t)std::floor(v / cellKm);
-    // Crater fields cluster: a slow density modulation keeps some
-    // patches busy and leaves others nearly clean, instead of the
-    // uniform bubble-wrap a constant occupancy produces.
-    float cluster = 0.5f + 0.5f * DetailNoise(u, v, cellKm * 9.0,
-                                              salt + 900u);
-    // Playtest call: 60% fewer microcraters. Density only — the size
-    // floor and the degraded-dish profile are unchanged, so the ones
-    // that remain look the same, there are just far fewer of them.
-    float occupancy = 0.02f + 0.112f * cluster * cluster;
-    float h = 0.0f;
-    for (int dy = -1; dy <= 1; dy++)
-    {
-        for (int dx = -1; dx <= 1; dx++)
-        {
-            int32_t gx = cx + dx, gy = cy + dy;
-            if (DetailHash01(gx, gy, salt) > occupancy) continue;
-            double px = (gx + 0.15 + 0.7 * DetailHash01(gx, gy, salt + 1)) *
-                        cellKm;
-            double py = (gy + 0.15 + 0.7 * DetailHash01(gx, gy, salt + 2)) *
-                        cellKm;
-            double diamKm = cellKm * (0.22 + 0.65 *
-                                      DetailHash01(gx, gy, salt + 3));
-            // Slightly elliptical, so the population is not a field of
-            // perfect circles.
-            double ex = 1.0 + 0.18 * (DetailHash01(gx, gy, salt + 5) - 0.5);
-            double r = std::hypot((u - px) * ex, (v - py) / ex) /
-                       (diamKm * 0.5);
-            if (r >= 1.5) continue;
-            // Age: billions of years of gardening leave most small
-            // craters as shallow, soft, rimless dishes — only a rare
-            // fresh few keep a deep bowl and a raised rim.
-            float age = DetailHash01(gx, gy, salt + 4);
-            float freshness = age * age * age;
-            float depthM = (float)(diamKm * 1000.0) *
-                           (0.055f + 0.075f * freshness);
-            if (r < 1.0)
-            {
-                // Cosine dish: smooth at the centre AND at the edge, so
-                // no embossed crest ring where the bowl meets the ground.
-                h -= depthM * 0.5f *
-                     (1.0f + std::cos((float)r * 3.14159265f));
-            }
-            float rimM = depthM * 0.30f * freshness;
-            if (rimM > 0.001f)
-            {
-                float rimT = (float)(r - 1.02) / 0.24f;
-                h += rimM * std::exp(-rimT * rimT * 4.0f);
-            }
-        }
-    }
-    return h;
-}
-
-// Total synthetic relief (metres) at one global point. `pixKm` bounds
-// the finest band (nothing under ~2 output pixels — it would alias),
-// `nativeKm` is the resolution floor of the real data underfoot (the
-// synthesis only fades in below what that data resolves). `roughM` is
-// the RMS relief the REAL data actually carries over one native
-// sample right here, and `hurst` the exponent of its measured
-// power law — together they continue the ground's own spectrum below
-// the data floor instead of guessing an amplitude.
-static LolaTexture g_texture = LolaTexture::NOISE;
-
-void LolaSetTextureMode(LolaTexture mode) { g_texture = mode; }
-
-// A SATURATED impact population, used as the primary relief rather than
-// as decoration on a noise carpet. Two things make this read as ground
-// rather than as brushwork:
-//   - the surface is mostly flat and interrupted by discrete objects,
-//     which is what the real Moon is at 10-500 m; a noise field is the
-//     opposite (everywhere undulating, nothing anywhere to lock onto)
-//   - depth is set by the crater's own diameter (d/D 0.03 ancient to
-//     0.20 fresh), so it is physically absolute, not spectrally scaled
-// Later impacts erase earlier ones, so the deepest bowl wins rather
-// than bowls summing — without that, a saturated field digs runaway
-// pits wherever craters overlap.
-static float DetailCraterField(double u, double v, double cellKm,
-                               uint32_t salt)
-{
-    int32_t cx = (int32_t)std::floor(u / cellKm);
-    int32_t cy = (int32_t)std::floor(v / cellKm);
-    float cluster = 0.5f + 0.5f * DetailNoise(u, v, cellKm * 11.0,
-                                              salt + 900u);
-    float occupancy = 0.30f + 0.45f * cluster;
-    float bowl = 0.0f;      // deepest wins
-    float relief = 0.0f;    // rims and ejecta accumulate
-    for (int dy = -1; dy <= 1; dy++)
-    {
-        for (int dx = -1; dx <= 1; dx++)
-        {
-            int32_t gx = cx + dx, gy = cy + dy;
-            if (DetailHash01(gx, gy, salt) > occupancy) continue;
-            double px = (gx + 0.12 + 0.76 * DetailHash01(gx, gy, salt + 1)) *
-                        cellKm;
-            double py = (gy + 0.12 + 0.76 * DetailHash01(gx, gy, salt + 2)) *
-                        cellKm;
-            double diamKm = cellKm * (0.30 + 0.70 *
-                                      DetailHash01(gx, gy, salt + 3));
-            double ex = 1.0 + 0.16 * (DetailHash01(gx, gy, salt + 5) - 0.5);
-            double r = std::hypot((u - px) * ex, (v - py) / ex) /
-                       (diamKm * 0.5);
-            if (r >= 1.8) continue;
-            // Most craters are ancient: age^3 keeps the fresh, sharp,
-            // rimmed ones rare, which is what a gardened surface looks
-            // like after billions of years.
-            float age = DetailHash01(gx, gy, salt + 4);
-            float freshness = age * age * age;
-            float depthM = (float)(diamKm * 1000.0) *
-                           (0.030f + 0.170f * freshness);
-            if (r < 1.0)
-            {
-                float b = -depthM * 0.5f *
-                          (1.0f + std::cos((float)r * 3.14159265f));
-                bowl = std::min(bowl, b);
-            }
-            float rimM = depthM * 0.34f * freshness;
-            if (rimM > 0.001f)
-            {
-                float rimT = (float)(r - 1.03) / 0.22f;
-                relief += rimM * std::exp(-rimT * rimT * 4.0f);
-                // Ejecta apron — the low skirt that makes a fresh crater
-                // read as an object sitting ON the ground rather than a
-                // dent punched into it.
-                if (r > 1.0)
-                {
-                    float e = (float)(r - 1.0) / 0.8f;
-                    float k = std::max(0.0f, 1.0f - e);
-                    relief += rimM * 0.35f * k * k;
-                }
-            }
-        }
-    }
-    return bowl + relief;
-}
-
-static float SynthesizeDetail(double u, double v, float pixKm,
-                              float nativeKm, float strength,
-                              float roughM, float hurst)
-{
-    if (g_texture == LolaTexture::CRATERS)
-    {
-        // Craters carry the relief; noise is only the grain between
-        // them. Bands start ABOVE the data floor here (unlike the noise
-        // path) because the DEM's own response is already rolling off
-        // for a decade above its grid — 60-500 m craters are weak in
-        // the data and absent from synthesis, so this fills that gap
-        // progressively: nothing at 4x native, full weight at 1x down.
-        float total = 0.0f;
-        double wave = nativeKm * 4.0;
-        for (int level = 0; level < 18 && wave >= 3.0 * pixKm; level++)
-        {
-            float w = (float)std::clamp(
-                std::log2(nativeKm * 4.0 / wave) / 2.0, 0.0, 1.0);
-            if (w > 0.0f)
-            {
-                total += w * DetailCraterField(
-                    u, v, wave, 0xC7A7E5u + (uint32_t)level * 7u);
-                float amp = roughM *
-                            std::pow((float)(wave / nativeKm), hurst) * 0.30f;
-                total += w * 0.25f * amp *
-                         DetailNoise(u, v, wave, 0x51u + (uint32_t)level);
-            }
-            wave *= 0.5;
-        }
-        return strength * total;
-    }
-
-    float total = 0.0f;
-    // Start AT the data floor, not above it: octaves coarser than one
-    // native sample are the real data's job, and synthesizing there
-    // double-counts relief that is already in the elevation field
-    // (which is what made the first spectral build look like bark).
-    double wave = nativeKm;
-    for (int level = 0; level < 16 && wave >= 3.0 * pixKm; level++)
-    {
-        // 0 where the DEM still resolves this wavelength, 1 below its
-        // effective (Nyquist-ish) floor at ~1.5x the native pixel.
-        float fade = (float)std::clamp(
-            (nativeKm * 4.0 - wave) / (nativeKm * 2.5),
-            0.0, 1.0);
-        if (fade > 0.0f)
-        {
-            // Continue the ground's OWN measured power law downward:
-            // relief at wavelength w = (relief at the native scale) x
-            // (w / native)^H. Rough walls stay rough, maria stay calm,
-            // and the fine scales carry the energy the real spectrum
-            // says they should — which hand-tuned constants never did.
-            float amp = roughM *
-                        std::pow((float)(wave / nativeKm), hurst) * 0.30f;
-            float band = amp *
-                         DetailNoise(u, v, wave, 0x51u + (uint32_t)level);
-            // Hummocky ground: half-rectified noise reads as soft
-            // mounds and rock lumps scattered on the plain, not as
-            // symmetric static.
-            float lumpN = DetailNoise(u, v, wave * 0.7,
-                                      0xB00Bu + (uint32_t)level);
-            band += 0.3f * amp * std::max(0.0f, lumpN);
-            // Craters above a ~30 m floor — smaller ones read as noise
-            // speckle, not landforms. NOTE this gate used to be 0.12 km,
-            // which no octave on a 59 m SLDEM overlay ever satisfies
-            // (wave starts AT nativeKm = 0.059 and halves): Tycho and
-            // Imbrium — the only high-res ground we have — were
-            // generating no synthetic craters at all.
-            if (wave >= 0.03)
-            {
-                band += DetailCraters(u, v, wave,
-                                      0xC7A7E5u + (uint32_t)level * 7u);
-            }
-            total += fade * band;
-        }
-        wave *= 0.5;
-    }
-    return strength * total;
-}
 
 // Regional windows sample through an azimuthal equidistant projection
 // centred on the pick: every output pixel is a true ground offset in
@@ -1218,7 +997,7 @@ TerrainBuildability LolaDem::EvaluateSite(double latDeg, double lonDeg,
 }
 
 LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
-                           int res, float detailStrength) const
+                           int res) const
 {
     LolaWindow out;
     if (!IsLoaded() || res < 2) return out;
@@ -1233,11 +1012,19 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     double lat0 = latDeg * DEG;
     double lon0 = lonDeg * DEG;
     double halfM = spanKm * 1000.0 / 2.0;
-    // Global km-scaled coordinates per pixel, kept for the synthesis
-    // pass: quantizing these (not window-local ones) is what makes the
-    // synthetic ground identical across window framings.
+    // Global km-scaled coordinates per pixel, for the fractal residual:
+    // quantizing these (not window-local ones) is what keys the infill to
+    // the ground rather than to the framing. These used to be filled only
+    // when the deleted sub-floor ran, and the residual carried a fallback
+    // -- `gu.empty() ? i * dMs : gu[k]` -- so `--interp fractal` without
+    // `--detail` was quietly seeding off the pixel's column and row index.
+    // Now they are filled whenever FRACTAL is the reconstruction, and the
+    // fallback is gone. (What that was worth on screen is not measured:
+    // lunar_map normalises elevation per window, which swamps a
+    // two-window comparison -- pure CATROM data scores the same on it.)
+    const bool wantWorldUV = (g_interp == LolaInterp::FRACTAL);
     std::vector<double> gu, gv;
-    if (detailStrength > 0.0f)
+    if (wantWorldUV)
     {
         gu.resize((size_t)res * res);
         gv.resize((size_t)res * res);
@@ -1270,7 +1057,7 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
             }
             out.elevationM[(size_t)j * res + i] =
                 ElevationM(lat / DEG, lon / DEG);
-            if (detailStrength > 0.0f)
+            if (wantWorldUV)
             {
                 gu[(size_t)j * res + i] =
                     (lon / DEG) * kmPerDeg * std::cos(lat);
@@ -1283,7 +1070,6 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
     // the native spacing of the finest data covering the window centre
     // (per axis: global-DEM columns shrink with cos lat; the overlay
     // crops are near-square already).
-    double outKm = spanKm / res;
     // The fine native applies only when the WHOLE window sits on an
     // overlay — keying a part-covered window to the fine data would
     // leave the coarse outskirts under-smoothed (lattice artifacts).
@@ -1342,8 +1128,7 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
                 for (int oct = 0; oct < 5 && wave >= 2.0 * spanKm / res;
                      oct++)
                 {
-                    total += amp * DetailNoise(gu.empty() ? i * dMs : gu[k],
-                                               gu.empty() ? j * dMs : gv[k],
+                    total += amp * DetailNoise(gu[k], gv[k],
                                                wave, 0xF2AC7A1u + oct);
                     amp *= 0.55f;
                     wave *= 0.5;
@@ -1357,100 +1142,6 @@ LolaWindow LolaDem::Window(double latDeg, double lonDeg, double spanKm,
         }
     }
 
-    // Synthesize sub-floor detail on top of the (smoothed) real ground.
-    // Runs after the blur so it is not smoothed away; the real slope of
-    // the smoothed field roughens the synthesis on crater walls.
-    if (detailStrength > 0.0f)
-    {
-        float pixKm = (float)(spanKm / res);
-
-        // --- Measure the real ground's spectrum in this window ---
-        // Lag of one native sample, in output pixels. Everything below
-        // this is the synthesis's to own; at and above it the data
-        // speaks, and we make the synthesis continue what it says.
-        int lag = std::max(1, (int)std::lround(nativeYKm / pixKm));
-
-        // Global Hurst exponent: RMS height difference grows as L^H, so
-        // H = log2( rms(2L) / rms(L) ). Sampled sparsely — this is one
-        // number for the window.
-        double s1 = 0.0, s2 = 0.0;
-        int n1 = 0, n2 = 0;
-        // Measure at 4x and 8x the native sample, NOT 1x and 2x: a
-        // stereo DEM rolls off approaching its own grid, so the data
-        // reaches only ~0.74/0.80 of its true power law at 1x/2x.
-        // Fitting there reads H too steep (~0.90 vs the true ~0.77)
-        // AND deflates the amplitude anchor — together about half the
-        // energy the fine octaves should carry.
-        int lagA = 4 * lag, lagB = 8 * lag;
-        for (int j = 0; j < res; j += 4)
-        {
-            for (int i = 0; i + lagB < res; i += 4)
-            {
-                size_t k = (size_t)j * res + i;
-                double d1 = out.elevationM[k + lagA] - out.elevationM[k];
-                double d2 = out.elevationM[k + lagB] - out.elevationM[k];
-                s1 += d1 * d1; n1++;
-                s2 += d2 * d2; n2++;
-            }
-        }
-        float hurst = 0.75f;
-        if (n1 > 8 && n2 > 8 && s1 > 1e-9)
-        {
-            double r1 = std::sqrt(s1 / n1), r2 = std::sqrt(s2 / n2);
-            if (r1 > 1e-6 && r2 > r1 * 1.001)
-            {
-                hurst = (float)(std::log2(r2 / r1));
-            }
-        }
-        // Real terrain sits well inside this range; clamp so a noisy
-        // or near-flat window cannot produce a runaway exponent.
-        hurst = std::clamp(hurst, 0.35f, 1.0f);
-
-        // Local roughness: RMS relief the real data carries over one
-        // native sample AT EACH POINT, so a crater wall and the mare
-        // beside it get different synthetic amplitudes.
-        // Sampled at 4x the native lag (clear of the roll-off) and then
-        // walked back down the fitted power law to the native scale,
-        // which removes the ~0.74 anchor deflation.
-        std::vector<float> rough((size_t)res * res, 0.0f);
-        const float roughToNative = std::pow(0.25f, hurst);
-        for (int j = 0; j < res; j++)
-        {
-            int jm = std::max(0, j - lagA), jp = std::min(res - 1, j + lagA);
-            for (int i = 0; i < res; i++)
-            {
-                int im = std::max(0, i - lagA), ip = std::min(res - 1, i + lagA);
-                size_t k = (size_t)j * res + i;
-                float h = out.elevationM[k];
-                float mad = 0.25f *
-                    (std::fabs(out.elevationM[(size_t)j * res + ip] - h) +
-                     std::fabs(h - out.elevationM[(size_t)j * res + im]) +
-                     std::fabs(out.elevationM[(size_t)jp * res + i] - h) +
-                     std::fabs(h - out.elevationM[(size_t)jm * res + i]));
-                // MAD -> RMS for gaussian-ish, then 4x lag -> native.
-                rough[k] = 1.25f * mad * roughToNative;
-            }
-        }
-        // Smooth the amplitude field itself, or its own graininess
-        // modulates the synthesis and reads as blotching.
-        FastBlur(rough, res, res, (float)lagA, (float)lagA);
-
-        std::vector<float> detail((size_t)res * res);
-        for (int j = 0; j < res; j++)
-        {
-            for (int i = 0; i < res; i++)
-            {
-                size_t k = (size_t)j * res + i;
-                detail[k] = SynthesizeDetail(
-                    gu[k], gv[k], pixKm, (float)nativeYKm,
-                    detailStrength, rough[k], hurst);
-            }
-        }
-        for (size_t k = 0; k < detail.size(); k++)
-        {
-            out.elevationM[k] += detail[k];
-        }
-    }
 
     // Slope straight off the (smoothed) output grid — uniform metric
     // spacing is the point of the projection.

@@ -189,20 +189,7 @@ struct MapOptions
     // exaggerates exactly the low-frequency shapes, which reads as
     // "melted". Raise it deliberately for map-scale legibility.
     float exaggeration = 1.0f;     // vertical scale multiplier
-    // Parked. lola_dem's own sub-floor synthesis and the chain's were both
-    // running, each adding its full relief below the same data floor --
-    // measured, and independent: what --detail added on top of --chain was
-    // the same as what it added to raw ground. Two inventions of the same
-    // thing, summed.
-    //
-    // The chain's is the one kept: it carries the crater population with
-    // clustering and age, the clast bands and the grit, and it is shared
-    // with the game's imagery chain, so there is one synthesis to improve
-    // rather than two to keep in step. --detail 1 still turns the old one
-    // back on for comparison.
-    float detail = 0.0f;           // sub-floor synthesis strength (0 = off)
     std::string interp = "catrom"; // catrom | bspline | lanczos | fractal
-    std::string texture = "noise"; // noise | craters
     bool despeckle = false;        // --despeckle to enable
     int demDecim = 1;              // --demdecim N: coarsen overlays
     bool survey = false;           // --survey: site report, no render
@@ -260,8 +247,6 @@ static void PrintUsage()
         << "  --style NAME      shaded | color          (default: shaded)\n"
         << "  --sun AZ,EL       sun azimuth/elevation   (default: 315,30)\n"
         << "  --exag F          vertical exaggeration   (default: 1.0)\n"
-        << "  --detail F        sub-floor synthesis     (default: 1.0, 0=off)\n"
-        << "  --texture NAME    noise | craters         (default: noise)\n"
         << "  --despeckle       apply the 3x3 median to overlay crops\n"
         << "  --demdecim N      coarsen overlays Nx (1=59m, 4=237m)\n"
         << "  --survey          print a buildability report, no render\n"
@@ -326,9 +311,7 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
             }
         }
         else if (arg == "--exag" && hasNext) { options.exaggeration = (float)std::atof(argv[++i]); }
-        else if (arg == "--detail" && hasNext) { options.detail = (float)std::atof(argv[++i]); }
         else if (arg == "--interp" && hasNext) { options.interp = argv[++i]; }
-        else if (arg == "--texture" && hasNext) { options.texture = argv[++i]; }
         else if (arg == "--nodespeckle") { options.despeckle = false; }
         else if (arg == "--despeckle") { options.despeckle = true; }
         else if (arg == "--survey") { options.survey = true; }
@@ -448,11 +431,11 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
             // parses correctly, it just gets the vaguer message.
             static const char* kNeedsValue[] = {
                 "--ambient", "--chain-strength", "--dem", "--demdecim",
-                "--demo", "--demres", "--detail", "--exag", "--flyshot",
+                "--demo", "--demres", "--exag", "--flyshot",
                 "--footprint", "--globe", "--interp", "--layer",
                 "--layeralpha", "--maxlevel", "--meshres", "--orbit",
                 "--out", "--pick", "--place", "--siteshot", "--size",
-                "--span", "--style", "--sun", "--texture",
+                "--span", "--style", "--sun",
             };
             bool needsValue = false;
             for (const char* n : kNeedsValue)
@@ -1039,7 +1022,6 @@ struct WindowCacheEntry
 {
     double latDeg = 0.0, lonDeg = 0.0, spanKm = 0.0;
     int res = 0;
-    float detail = 0.0f;
     LolaWindow window;
     unsigned long long used = 0;
 };
@@ -1057,21 +1039,20 @@ static size_t WindowBytes(const LolaWindow& w)
 // time, but they arrive through doubles, so compare with a tolerance
 // rather than betting on bit equality.
 static bool SameWindowKey(const WindowCacheEntry& e, double lat, double lon,
-                          double spanKm, int res, float detail)
+                          double spanKm, int res)
 {
     return e.res == res
-        && std::fabs(e.detail - detail) < 1e-6f
         && std::fabs(e.latDeg - lat) < 1e-9
         && std::fabs(e.lonDeg - lon) < 1e-9
         && std::fabs(e.spanKm - spanKm) < 1e-6;
 }
 
 static const LolaWindow* WindowCacheFind(double lat, double lon, double spanKm,
-                                         int res, float detail)
+                                         int res)
 {
     for (WindowCacheEntry& e : g_windowCache)
     {
-        if (SameWindowKey(e, lat, lon, spanKm, res, detail))
+        if (SameWindowKey(e, lat, lon, spanKm, res))
         {
             e.used = ++g_windowClock;
             return &e.window;
@@ -1081,7 +1062,7 @@ static const LolaWindow* WindowCacheFind(double lat, double lon, double spanKm,
 }
 
 static void WindowCacheStore(double lat, double lon, double spanKm, int res,
-                             float detail, const LolaWindow& w)
+                             const LolaWindow& w)
 {
     size_t bytes = WindowBytes(w);
     if (bytes == 0 || bytes > WINDOW_CACHE_BUDGET) return;
@@ -1099,7 +1080,7 @@ static void WindowCacheStore(double lat, double lon, double spanKm, int res,
 
     WindowCacheEntry e;
     e.latDeg = lat; e.lonDeg = lon; e.spanKm = spanKm;
-    e.res = res; e.detail = detail;
+    e.res = res;
     e.window = w;
     e.used = ++g_windowClock;
     g_windowCache.push_back(std::move(e));
@@ -1378,7 +1359,6 @@ struct WideSpeculation
     ChainLayer layer;
     LolaWindow window;             // the expensive half, see below
     int res = 0;
-    float detail = 0.0f;
     double lat = 0.0, lon = 0.0, spanKm = 0.0;
     float strength = 1.0f;
 };
@@ -1449,8 +1429,7 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
         texRes = std::clamp(res, 64, 4096);
         const LolaWindow* hit = WindowCacheFind(options.pickLat,
                                                options.pickLon,
-                                               options.spanKm, texRes,
-                                               options.detail);
+                                               options.spanKm, texRes);
         if (hit)
         {
             scene.window = *hit;
@@ -1458,9 +1437,9 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
         else
         {
             scene.window = dem.Window(options.pickLat, options.pickLon,
-                                      options.spanKm, texRes, options.detail);
+                                      options.spanKm, texRes);
             WindowCacheStore(options.pickLat, options.pickLon, options.spanKm,
-                             texRes, options.detail, scene.window);
+                             texRes, scene.window);
         }
         double spanDeg = options.spanKm * 1000.0 / LOLA_M_PER_DEG;
         double c = std::max(0.2, std::cos(options.pickLat * DEG2RAD));
@@ -2141,110 +2120,6 @@ static Color LayerColor(int layer, float v01)
                   (unsigned char)(70 + 25 * v01), 255 };
 }
 
-// Draw one layer on its own measurement grid, anchored globally so the
-// blocks belong to the moon and do not swim when the window moves.
-// gridKm <= 0 renders the field at full resolution -- the "what is
-// actually there" control image.
-static void DrawDataLayer(int layer, double gridKm, const SurveyCursor& cursor,
-                          const SurveyViewport& viewport, unsigned char alpha)
-{
-    bool truth = (gridKm <= 0.0);
-    if (truth) gridKm = cursor.windowSpanKm / 200.0;
-
-    double cx, cy;
-    LayerGlobalKm(cursor.windowLatDeg, cursor.windowLonDeg, &cx, &cy);
-    double cosLat = std::cos(cursor.windowLatDeg * DEG2RAD);
-    if (cosLat < 0.05) cosLat = 0.05;
-
-    double half = cursor.windowSpanKm * 0.5;
-    long i0 = (long)std::floor((cx - half) / gridKm);
-    long i1 = (long)std::floor((cx + half) / gridKm);
-    long j0 = (long)std::floor((cy - half) / gridKm);
-    long j1 = (long)std::floor((cy + half) / gridKm);
-
-    float pxPerKm = SurveyPixelsPerKm(viewport, cursor.windowSpanKm);
-    float cellPx = (float)gridKm * pxPerKm;
-
-    for (long j = j0; j <= j1; j++)
-    {
-        for (long i = i0; i <= i1; i++)
-        {
-            double gxc = (i + 0.5) * gridKm;
-            double gyc = (j + 0.5) * gridKm;
-            double lat = gyc / 30.32268;
-            double lon = gxc / (30.32268 * cosLat);
-            // The measured value of a cell is the field averaged over the
-            // instrument's footprint, not a point sample: that averaging
-            // IS the resolution limit.
-            float v = truth ? CompositionField01(layer, lat, lon)
-                            : FieldMean(layer, lat, lon, gridKm, 5);
-            float sx, sy;
-            SurveyOffsetKmToScreen(viewport, cursor.windowSpanKm,
-                                   gxc - cx, gyc - cy, &sx, &sy);
-            Color c = LayerColor(layer, v);
-            c.a = alpha;
-            DrawRectangleRec(Rectangle{ sx - cellPx * 0.5f - 0.5f,
-                                        sy - cellPx * 0.5f - 0.5f,
-                                        cellPx + 1.0f, cellPx + 1.0f }, c);
-        }
-    }
-}
-
-// The instrument footprint as a ring around the cursor -- drawn only
-// where it is LARGER than the cursor, which is exactly when the number
-// has stopped sharpening. Seeing a 45 km ring around a 1.5 km base is
-// the whole argument in one glance.
-static void DrawFootprintRing(double footprintKm, const SurveyCursor& cursor,
-                              const SurveyViewport& viewport,
-                              const char* instrument, Color tint)
-{
-    if (footprintKm <= cursor.footprintKm) return;
-    float pxPerKm = SurveyPixelsPerKm(viewport, cursor.windowSpanKm);
-    Rectangle r = SurveyCursorRect(cursor, viewport);
-    float cx = r.x + r.width * 0.5f, cy = r.y + r.height * 0.5f;
-    float radius = (float)(footprintKm * 0.5) * pxPerKm;
-
-    // Past a couple of levels the footprint is wider than the whole
-    // view, so the ring falls off the frame -- and its absence would
-    // read as "no limit here", the opposite of the truth. Say it on the
-    // frame edge instead.
-    if (footprintKm > cursor.windowSpanKm)
-    {
-        Rectangle f = { viewport.x + 5.0f, viewport.y + 5.0f,
-                        viewport.width - 10.0f, viewport.height - 10.0f };
-        float dash = 16.0f;
-        for (float x = f.x; x < f.x + f.width; x += dash * 2.0f)
-        {
-            float w = fminf(dash, f.x + f.width - x);
-            DrawRectangleRec(Rectangle{ x, f.y, w, 3.0f }, tint);
-            DrawRectangleRec(Rectangle{ x, f.y + f.height - 3.0f, w, 3.0f }, tint);
-        }
-        for (float y = f.y; y < f.y + f.height; y += dash * 2.0f)
-        {
-            float h = fminf(dash, f.y + f.height - y);
-            DrawRectangleRec(Rectangle{ f.x, y, 3.0f, h }, tint);
-            DrawRectangleRec(Rectangle{ f.x + f.width - 3.0f, y, 3.0f, h }, tint);
-        }
-        const char* msg = TextFormat("%s FOOTPRINT %.3g km  -  WIDER THAN THIS VIEW",
-                                     instrument, footprintKm);
-        int tw = MeasureText(msg, 15);
-        float bx = f.x + (f.width - tw) * 0.5f - 10.0f;
-        float by = f.y + f.height - 34.0f;
-        DrawRectangle((int)bx, (int)by, tw + 20, 24, Color{ 12, 12, 16, 215 });
-        DrawText(msg, (int)bx + 10, (int)by + 5, 15, tint);
-        return;
-    }
-
-    for (int k = 0; k < 96; k++)
-    {
-        float a0 = (float)k / 96.0f * 2.0f * PI;
-        float a1 = (float)(k + 1) / 96.0f * 2.0f * PI;
-        if ((k % 3) == 2) continue;      // dashed
-        DrawLineEx(Vector2{ cx + cosf(a0) * radius, cy + sinf(a0) * radius },
-                   Vector2{ cx + cosf(a1) * radius, cy + sinf(a1) * radius },
-                   2.5f, tint);
-    }
-}
 
 // ---------------------------------------------------------------------------
 // The survey cursor (src/TerrainGen/survey_cursor.*)
@@ -3578,7 +3453,6 @@ static void SpeculationStart(AppState& app)
     // meant to warm gets a key nobody looks up. Site mode sets demRes
     // explicitly per sharpening rung, so this is not a guess.
     g_spec.res = WideDemRes(app.options);
-    g_spec.detail = app.options.detail;
     g_spec.gen = g_specGen;
     g_spec.layer = ChainLayer{};
     g_spec.window = LolaWindow{};
@@ -3595,7 +3469,7 @@ static void SpeculationStart(AppState& app)
         // are startup settings, so concurrent reads are safe on the same
         // basis the game's TerrainPool already relies on.
         g_spec.window = dem->Window(g_spec.lat, g_spec.lon, g_spec.spanKm,
-                                    g_spec.res, g_spec.detail);
+                                    g_spec.res);
         BuildChainLayer(g_spec.lat, g_spec.lon, g_spec.spanKm, nativeKm,
                         g_spec.strength, &g_spec.layer, false);
         g_spec.done.store(true);
@@ -3614,7 +3488,7 @@ static void SpeculationPoll(AppState& app)
     {
         if (!g_spec.window.elevationM.empty())
             WindowCacheStore(g_spec.lat, g_spec.lon, g_spec.spanKm,
-                             g_spec.res, g_spec.detail, g_spec.window);
+                             g_spec.res, g_spec.window);
         if (g_spec.layer.res > 0)
             ChainLayerInsert(g_spec.lat, g_spec.lon, g_spec.spanKm,
                              g_spec.strength, std::move(g_spec.layer));
@@ -5072,8 +4946,7 @@ static int RenderLadder(AppState& app)
             // corner cell's neighbours are real ground, not blanks.
             double cLat = 0.0, cLon = 0.0;
             SurveyCursorLatLon(*cursor, &cLat, &cLon);
-            LolaWindow neigh = app.dem.Window(cLat, cLon, 15.0, 240,
-                                              opts.detail);
+            LolaWindow neigh = app.dem.Window(cLat, cLon, 15.0, 240);
             for (int j = 0; j < 3; j++)
             {
                 for (int i = 0; i < 3; i++)
@@ -5229,8 +5102,6 @@ int main(int argc, char** argv)
 
     LolaSetDespeckle(app.options.despeckle);
     LolaSetOverlayDecimation(app.options.demDecim);
-    LolaSetTextureMode(app.options.texture == "craters"
-                       ? LolaTexture::CRATERS : LolaTexture::NOISE);
     if (app.options.interp == "bspline")
         LolaSetInterpolation(LolaInterp::BSPLINE);
     else if (app.options.interp == "lanczos")
