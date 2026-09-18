@@ -1,527 +1,478 @@
 # Site Selection — Game Integration Plan
 
 **Status: PROPOSED** — written 2026-09-18 against `161ad96` on
-`claude/lunarmap-wiring-site-selection-b9lwaw`. Nothing in this document
-is built yet.
+`claude/lunarmap-wiring-site-selection-b9lwaw`; **revised the same day**
+after review. Nothing in this document is built yet.
 
-**Scope:** wire the survey descent that lives in `lunar_map --site` into
-`colony_game` as *the* way a colony is founded, retire the grid picker
-behind `View::SITE_SELECTION`, and leave one implementation of every
-piece that both the game and the instrument need.
+**Scope, in two parts, in this order:**
+
+- **Part A — retire the 20x20 playfield.** The globe *is* the planet.
+  Every colony, sect and unit lives at a real latitude and longitude, and
+  the game can hold colonies anywhere on the Moon at once. The fixed
+  100 km grid, its single anchor, and the world-unit coordinate system
+  built on it are removed.
+- **Part B — the descent is how a colony is founded.** The three-rung
+  survey ladder that lives in `lunar_map --site` becomes the game's
+  founding flow, Globe → District → Site, freely walkable up and down at
+  any time, and the grid picker behind `View::SITE_SELECTION` is retired.
+
+Part A comes first because the first draft of this plan tried to fit the
+descent onto the grid, and every awkward decision it produced — deriving
+an anchor from the founded site, forbidding a second descent, refusing
+polar sites because a lat/lon grid smears — was a workaround for the grid
+rather than a property of the design. With the grid gone those decisions
+do not exist.
 
 **Read first:** [`README.md`](README.md) (the design in two sentences),
 [`site-selection-master-design.md`](site-selection-master-design.md)
-§2–§5 (what each level decides, and the coherency contract), and
-[`../../guides/feature-completeness.md`](../../guides/feature-completeness.md)
-(the six questions this plan is organised around, because the descent
-is today's clearest case of *engine-implemented, not player-reachable*).
+§2–§5, and
+[`../../guides/feature-completeness.md`](../../guides/feature-completeness.md).
+
+Line numbers are for `161ad96`.
 
 ---
 
-## 0. Where the two flows stand
+# Part A — Retire the playfield: the Moon is the world
 
-Everything below was read from the code, not from the roadmaps. Line
-numbers are for `161ad96`.
+## A.0 What the grid is today
 
-| | The game: `View::SITE_SELECTION` | The instrument: `lunar_map --site` |
+Twenty by twenty cells of 5 km, 100 units each, one unit = 50 m, so the
+world is a 2000 x 2000 square of "world units" pinned to one real
+lat/lon by `SetTerrainAnchor` (`terrain_synthesis.cpp:1723`, clamped to
+±78°). Everything positional is expressed in it:
+
+| Where | What depends on the grid | Refs |
 |---|---|---|
-| **Entry** | Ctrl+click in Planet view (`Engine.cpp:308–316`) → `GameManager::BuildNewColony` → `EnterSiteSelection` | Menu-less: the web build boots straight into `--site` (`lunarmap_main.cpp:5029+`) |
-| **Level 1** | none — the Orbital view draws the globe and a lat/lon readout but a click does nothing (`rendermanager.cpp:6347–6405`); ENTER jumps to Planet at the default anchor (Mare Imbrium) | the globe (`lunar_globe.*`), hover names the region under the pointer, click claims it and flies down (`UpdateSiteSelect`, `:3807–4401`) |
-| **Level 2** | the 20x20 grid, cells tinted from synthetic `OrbitalSurveyData` over the three legacy moon tiles (`DrawSiteSelectionView`, `:1713–1937`) | 200 km DISTRICT: a LOLA elevation window shaded through a lunar GLSL shader, WAC albedo, optional chain layer; 25 km snapping cursor |
-| **Level 3** | — | 25 km SITE: same renderer, free 1.5 km cursor = the base's footprint |
-| **Region data** | per-cell Fe/Ti/Si/Al/Ca/Th/K/H bars — synthetic, random clusters, not geographic (`resource_manager.cpp:256–312`); Th is `(Fe+Ca)*0.5` | `IdentifyRegion` (`:2860`): zones.json feature (real), PKT polygon, mare/highland from real elevation; frozen at the claim |
-| **Terrain data** | slope / illumination / Earth visibility per cell from `EvaluateSite` at the **default anchor** (`:313–330`) | live `EvaluateSite` at the cursor, `GroundStats` over the cursor, `JudgeSite` verdict with named blocker |
-| **Commit** | ENTER → `ConfirmSiteSelection` (`gamemanager.cpp:563–616`): Colony + Sect at the cell centre, archetype set, Colony view | `app.founded = true` — a flag. Nothing is created. |
-| **Camera / input** | the Planet camera (`viewmanager.cpp:26`), keyboard ENTER/ESC | drag-vs-click gesture, release-to-commit, touch "tap to aim, tap to commit", BACK button, wheel zoom bounded per rung, descent flights, resolution ladder, scene cache, wide-window zoom-out, speculative prebuild thread |
-| **Hints** | none | `survey_hints.h` on hover, per card row |
-| **Harness** | none (`colony_preview --view` has no `site`) | `--siteshot`, `--flyshot`, `--ladder`, `--demo`, `survey_cursor_test` |
-| **Web** | ships at `/` with `src/assets` only — **no DEM**, so the survey's terrain rows fall back to the synthetic branch there | ships at `/lunarmap/` with the DEM (32 MB), the WAC and zones.json |
-| **Size** | ~330 lines across four files | 5,535 lines in one file; the reusable parts are `static` |
+| `game_constants.h:10–13` | `PLANET_SIZE`, `PLANET_WIDTH`, `PLANET_HEIGHT`; `SECT_CORE_RADIUS` doubles as the cell size | 4 |
+| `ResourceManager` | three 20x20 arrays — `resourceGrid`, `surveyGrid`, `layeredGrid` — filled once at startup by random clusters that are not geographic; `GetResourcesAtGrid`, `GetResourcesAtGridLayer`, `UpdateResourceDepletion`, `GetOrbitalSurveyAt`, `GetSiteArchetype`, `WorldToGrid` / `GridToWorld` all take cell indices | 31 |
+| `Planet` | owns the `ResourceManager`, a `map` nobody reads, `GetRandomValidPosition`, `GetWorldPosition`, the "active area" the Planet camera clamps to | 26 |
+| `Sect` | `SectPosition` in world units | 1 (+ every caller) |
+| `Unit` | `parentSectPosition` in world units; `WorldToGrid` of it picks the cell whose resources extraction reads and depletes (`unit.cpp:1470–1593`); excavator `gridPos` | 19 |
+| `ProspectingGrid` | keyed by `(parentGridX, parentGridY)`; reads the parent cell's layered resources; hashes its sub-grid from the cell indices (`prospecting_grid.cpp:118, 169, 231`) | 1 (+ constructor) |
+| `Colony` | centroid and jurisdiction radius in world units; `SECT_CORE_RADIUS * 4` | 3 |
+| `Road` | length in world units, travel time from it | — |
+| `RenderManager` | `DrawPlanetView` (100 km, level 0 of the chain over the grid), `DrawColonyView` (cell-registered level 1), `DrawSiteSelectionView`, `DrawCellInfo`, `DrawPlanetMapLayer` + `PlanetMapWorldRect` (the whole-moon map placed around the playfield), the terrain cache keyed by `(gx, gy, anchorVersion)`, `EnsureTerrainForCell`, `RequestNeighbourTerrain`, `DrawSectTerrainBackground`, the moon-tile fallback | 67 |
+| `ViewManager` | Planet camera zoom limits and pan clamp, Colony camera clamp to `PLANET_WIDTH`, `ResetCameraForCurrentView` | 19 |
+| `GameManager`, `Engine` | the grid picker, F6 debug cell lookup, initial camera on the playfield centre | 15 |
+| `terrain_synthesis` | `TerrainGridCellToLatLon` (`:1871`), the anchor API and its version token | 3 |
+| Tools | `colony_preview --cell`, `colony_viewtest` cell hopping, `sectwalk` / `playtest` / `c1_test` / `colony_inspect` construct `ResourceManager(PLANET_SIZE, …)` and place sects by cell | 26 |
+| Tests | `MakeTestResourceManager()` builds a 20-cell grid with seed 42; `test_prospecting_grid` reads parent cells (8, 8) | 2 (+ ~45 helper calls) |
+| `Engine_copy.{h,cpp}` | a stale copy, not in any CMake target, 29 grid refs | delete |
 
-Three facts that decide the shape of the work:
+Two things are **not** the grid and stay: the sect's 5 km footprint
+(`SECT_CORE_RADIUS`, radius 2.5 km) and the prospecting sub-grid inside a
+sect, which is a lattice *within* one sect, not a lattice of the world.
 
-1. **`survey_cursor.*` is already in every game target** but has no
-   caller in `src/Engine/`. The geometry is shared; nothing else is.
-2. **The game has one terrain anchor** (`SetTerrainAnchor`,
-   `terrain_synthesis.cpp:1723`) for the whole 20x20 grid, clamped to
-   ±78° latitude, and the survey grid is generated **once at startup at
-   the default anchor**. Re-anchoring invalidates the terrain cache but
-   leaves the survey grid describing Mare Imbrium. Founding must
-   regenerate it.
-3. **`Colony::GetArchetypeBonus` has no caller** (`colony.cpp:557`), and
-   the old picker's "Bonus: +20% Fe/Ti" text describes it. The master
-   design already says not to bolt multipliers on (§4.6, §8).
+## A.1 The replacement model
+
+**The world is the Moon. A position is a `LunarPoint { latDeg, lonDeg }`.**
+
+- `Sect`, `Colony`, excavators, roads and every marker carry a
+  `LunarPoint`. Nothing carries a world-unit position.
+- **Drawing happens in a local frame.** A view has a centre `LunarPoint`
+  and a span in km; a point's place on screen is its km offset east and
+  north of that centre. `survey_cursor.*` already implements exactly this
+  (`SurveyLatLonToOffsetKm`, `SurveyCursorLatLon`, `SurveyViewport`), so
+  the Colony view, the descent rungs and the globe markers all use one
+  mapping. Inside a local frame **1 unit = 50 m is kept** as the drawing
+  scale (`LOCAL_UNITS_PER_KM = 20`), so every existing radius, road
+  speed and dome size keeps its meaning unchanged — only the origin
+  moves from the corner of a global square to the centre of the view.
+- **Ground truth is a function of location, not a cell in an array.**
+  `ResourceManager` stops owning grids and answers questions about
+  points: `GroundAt(LunarPoint)` returns the layered quantities for the
+  5 km footprint at that point, generated deterministically from the
+  point (hash of the quantised coordinates, the same idea the terrain
+  chain and `ProspectingGrid` already use) scaled by the region's
+  composition (`IdentifyRegion`: real named feature, terrane, mare or
+  highland), plus smooth low-frequency variation so neighbouring sects
+  differ and nearby ones correlate. The founding sect's floor
+  (`EnsureBasicResources`) applies to that sect's ground. Depletion is
+  recorded per sect. This is the "invert the generator so the region
+  decides abundance" that the master design asked for (§4.6); removing
+  the grid forces it now.
+- **The survey is regional plus measured.** `GetOrbitalSurveyAt(gx, gy)`
+  becomes `SurveyAt(LunarPoint)`: composition from the region identity
+  (uniform inside a region, per §4.6), slope / illumination / Earth
+  visibility from `EvaluateSite` at the point. The Colony-view Ctrl+hover
+  "ORBITAL SURVEY" tooltip (`rendermanager.cpp:620–640`) and the F6 debug
+  dump read this.
+- **Terrain is keyed by location.** The chain is already
+  `GenerateTerrainChain(lat, lon, …)`; `TerrainGridCellToLatLon` was only
+  the lookup layer. The cache key becomes a quantised `LunarPoint` plus
+  span; neighbour prefetch requests the eight points one footprint away.
+  The anchor API and its clamp are deleted.
+- **Views.** `View::Planet` (the 100 km grid) and `View::SITE_SELECTION`
+  (the grid picker) are retired. What sits between the globe and a colony
+  is the District rung (Part B). `View::Colony` is the 25 km window
+  centred on the colony — the same window the descent's Site rung uses —
+  drawn in its local frame with the colony's sects in it. `View::Sect`
+  and `View::Unit` are unchanged; the Sect view is already screen-space.
+- **Any number of colonies, anywhere.** Each colony has its own centre,
+  its own ground, its own 25 km window. The globe and the District show
+  them as markers (`OrbitalLatLonToScreen` and the local frame).
+
+## A.2 Decisions
+
+**A-D1 — Sect placement inside a colony.** *Recommendation:* free
+placement, as today, with a minimum spacing of one footprint (5 km)
+between sect centres so footprints never overlap, and the existing
+jurisdiction rule. No local lattice: each sect generates its own ground
+at its own point, so nothing needs cells to line up.
+
+**A-D2 — What `Planet` becomes.** *Recommendation:* the owner of the
+`ResourceManager` and the colony list, nothing else. `map`,
+`GetRandomValidPosition`, `GetWorldPosition`, `DrawPlanetGrid` and the
+active area go; the Planet camera that used the active area goes with
+the Planet view.
+
+**A-D3 — How quantities are generated without clusters.**
+*Recommendation:* per point, base quantity per element from the region's
+composition (iron and titanium from `fePct` / `tiPct`, aluminium and
+calcium inversely, per §4.6), multiplied by a deterministic value noise
+in lat/lon at a 10–30 km wavelength, then the existing depth-bias table
+(`resource_manager.cpp:202–211`) for the four layers. Tuned once against
+`colony_inspect` and held by the c1 economics test, which must still
+pass on a mare point and a highland point. This is the one piece of new
+game logic in Part A and the one with balance risk.
+
+**A-D4 — Keep 1 unit = 50 m as the local drawing scale.**
+*Recommendation:* yes. Changing the unit would touch every radius,
+speed and layout constant for no gain; changing the origin touches one
+conversion.
+
+## A.3 Phases
+
+### A1 — Data lives at locations (L)
+
+- [ ] `LunarPoint` in `game_structs.h`; `LocalFrame { centre, spanKm }`
+      with `ToLocal(point) → Vector2 units` and `FromLocal`, built on
+      `survey_cursor`'s km mapping.
+- [ ] `Sect` stores a `LunarPoint`; `GetPosition()` becomes
+      `GetLocalPosition(const LocalFrame&)`. `Colony` centroid and
+      radius computed in km and converted per frame. `Road` length from
+      km offsets × 20. Minimum spacing rule (A-D1) in `BuildNewSect`.
+- [ ] `ResourceManager`: delete the three grids and `WorldToGrid` /
+      `GridToWorld`; add `GroundAt`, `GetResourcesAtLayer(point, layer)`,
+      `Deplete(point, type, amount)`, `SurveyAt(point)`,
+      `ArchetypeAt(point)` (the last two on top of `IdentifyRegion` and
+      `EvaluateSite`, which is why Part B's Phase 0 extraction of
+      `region_identity` is a prerequisite and is scheduled first).
+- [ ] `Unit::ProcessExtraction` reads and depletes by the parent sect's
+      point; excavator `gridPos` becomes a local offset or is dropped
+      (it is only ever set to the parent cell).
+- [ ] `ProspectingGrid` / `ProspectingSystem` keyed by `LunarPoint`;
+      `HashSeed` from quantised coordinates so the same spot yields the
+      same sub-grid.
+- [ ] Tests: `MakeTestResourceManager()` → `MakeTestGround()` at a fixed
+      point (Mare Imbrium centre) with a fixed seed; `test_prospecting_grid`
+      reads that point. New tests: two points 5 km apart give different
+      but correlated ground; the same point twice gives identical ground;
+      a mare point out-irons a highland point.
+- [ ] Tools: `colony_inspect --pick LAT,LON`; `sectwalk`, `playtest`,
+      `c1_test`, `preview` panel mode construct a sect at a point.
+
+**Accept when:** `grep -rn "PLANET_SIZE\|GetResourcesAtGrid\|WorldToGrid"
+src tools tests` hits only rendering and camera code; `ctest`, `c1_test`
+and `preview.sh --all` are clean; `colony_inspect` at Imbrium and at
+Tycho prints ground in the direction the region cards say.
+
+### A2 — Views and terrain keyed by location; the grid views go (L)
+
+- [ ] `RenderManager`: `EnsureTerrainAt(point)` replaces
+      `EnsureTerrainForCell`; cache key `(quantised point, span)`;
+      neighbour prefetch by footprint offsets; the CPU pool job carries a
+      point. `DrawColonyView` draws level 1 centred on the colony's point
+      in its local frame. `DrawSectTerrainBackground` by point. Delete
+      `DrawPlanetView`, `DrawPlanetMapLayer`, `PlanetMapWorldRect`,
+      `DrawSiteSelectionView`, `DrawCellInfo`'s cell maths (it reads
+      `GroundAt` for the hovered point), the moon-tile fallback if no
+      caller remains.
+- [ ] `ViewManager`: Colony camera clamps to the 25 km window plus a
+      margin; delete the Planet camera and the SITE_SELECTION case.
+- [ ] `terrain_synthesis`: delete `SetTerrainAnchor`, `GetTerrainAnchor`,
+      `GetTerrainAnchorVersion`, `TerrainGridCellToLatLon`, the
+      `TERRAIN_ANCHOR_*` constants and the ±78° clamp. `TERRAIN_CELL_KM`
+      stays as the footprint.
+- [ ] `game_enums.h`: remove `View::Planet` and `View::SITE_SELECTION`
+      (Part B adds `View::District`). `game_constants.h`: remove
+      `PLANET_SIZE / WIDTH / HEIGHT`, add `LOCAL_UNITS_PER_KM`.
+- [ ] **Founding stub so the game stays playable:** in the Orbital view a
+      click that is not a drag founds a colony at the picked point
+      (no cards, no verdict yet) and opens its Colony view; existing
+      colonies are drawn as markers on the globe and clicking a marker
+      opens that colony; Esc from Colony returns to the globe. Ctrl+click
+      in Colony view keeps adding sects. Part B replaces this stub with
+      the descent.
+- [ ] `GameManager`: `FoundColony(point, identity)`; delete the grid
+      picker methods and state; `UpdatePlanetActiveArea` goes.
+- [ ] Delete `Engine_copy.{h,cpp}`.
+- [ ] Tools: `colony_preview --view colony|sect --pick LAT,LON`;
+      `colony_viewtest` walks Orbital → Colony → Sect with `--pick` and
+      `--shots`, its Planet level removed; `terrain_probe` unchanged.
+- [ ] `docs/graveyard.md` entry 10: the 100 km playfield — the 20x20
+      constants, the anchor and its clamp, `TerrainGridCellToLatLon`, the
+      whole-moon map layer around the playfield, the grid picker's tint
+      formula (`rendermanager.cpp:1742–1750`) and its bonus text, and why
+      it all went.
+
+**Accept when:** `grep -rn "PLANET_SIZE\|PLANET_WIDTH\|PLANET_HEIGHT\|
+TerrainAnchor\|TerrainGridCellToLatLon\|SITE_SELECTION\|View::Planet"
+src tools tests` is empty; two colonies founded on opposite sides of the
+Moon each show their own real ground in Colony and Sect view and Esc
+walks back to the globe from either; `viewtest --shots` renders globe,
+colony and sect for a `--pick` on the far side; every target builds and
+`ctest` is green.
 
 ---
 
-## 1. The target
+# Part B — The descent is how a colony is founded
 
-One founding flow, three rungs, one commitment:
+## B.0 Where the two flows stand
+
+| | The game after Part A | `lunar_map --site` |
+|---|---|---|
+| **Level 1** | the globe; a click founds directly (the A2 stub) | the globe; hover names the region under the pointer, click claims it and flies down (`UpdateSiteSelect`, `lunarmap_main.cpp:3807–4401`) |
+| **Level 2** | — | 200 km DISTRICT window, 25 km snapping cursor |
+| **Level 3** | the Colony view is the 25 km window, but nothing is judged before founding | 25 km SITE window, free 1.5 km cursor = the base's footprint, live `EvaluateSite` + `JudgeSite` verdict with the blocker named |
+| **Region data** | `SurveyAt(point)` built on `IdentifyRegion` (Part A) | `IdentifyRegion` (`:2860`), frozen at the claim |
+| **Commit** | `FoundColony` | `app.founded = true`, a flag |
+| **Input, feel** | click | drag-vs-click gesture, release-to-commit, tap-to-aim then tap-to-commit, BACK button, bounded zoom per rung, flights, hints, labels toggle |
+| **Harness** | `viewtest --shots` | `--siteshot`, `--flyshot`, `--ladder`, `--demo` |
+| **Web** | needs the DEM for the verdict — see D5 | ships with the DEM at `/lunarmap/` |
+
+What is shared today: `survey_cursor.*` (compiled into every game target,
+called by none of them). What is `static` inside the 5,535-line tool
+file: everything else.
+
+## B.1 The target
 
 ```
-Menu ─ENTER─▶ ORBITAL (level 1: which economy?)
-                 │ hover: region chip + frozen-on-claim region card
-                 │ click (release, no drag): claim → flight
+Menu ─ENTER─▶ ORBITAL     the globe. hover: region chip + region card
+                 │         click (release, no drag): claim → flight
+                 │         click a colony marker: open that colony
                  ▼
-              SITE_SELECTION · DISTRICT (200 km, 25 km snapping cursor: which mix?)
-                 │ click: descend → flight
+              DISTRICT    200 km window, 25 km snapping cursor
+                 │         "which mix?" — colonies inside shown as markers
+                 │         click: descend → flight
                  ▼
-              SITE_SELECTION · SITE (25 km, free 1.5 km cursor: which ground?)
-                 │ click on a green cursor: FOUND
+              COLONY      25 km window. With no colony here it is the SITE
+                 │         rung: free 1.5 km cursor, live verdict,
+                 │         click on green: FOUND → the colony appears in place.
+                 │         With a colony here: sects, roads, Ctrl+click adds a sect.
                  ▼
-              GameManager::FoundColony ─▶ anchor laid, survey regenerated,
-                                          Colony + Sect created
-                 ▼
-              Colony view  (Planet / Sect / Unit as today)
+              SECT ─▶ UNIT   as today
 
-Esc / right-click / BACK at any rung backs out one rung with the cursor
-where it was left (SurveyDescent is a stack). Nothing binds before FOUND.
+Esc / right-click / BACK go up one rung from anywhere, at any time,
+with each rung's cursor where it was left. Nothing binds before FOUND.
+Found as many colonies as you like, anywhere; founding inside another
+colony's jurisdiction is refused with the reason shown.
 ```
 
-After the first colony exists the globe is a place to look, not to
-choose: the playfield is marked on it, clicking the mark (or ENTER)
-descends to Planet, and further colonies are founded **from the Planet
-view on the existing grid** (§2, D2).
-
-"Unified" here means: one controller, one region identity, one verdict,
-one set of cards, one hint layer, one geometry — used by `colony_game`,
+"Unified" means one controller, one region identity, one verdict, one
+set of cards, one hint layer, one geometry, used by `colony_game`,
 `colony_viewtest`, `colony_preview` and `lunar_map`. It does **not** mean
-one terrain renderer; D3 explains why the game keeps drawing ground the
-way its other views do.
+one terrain renderer (D3).
 
----
+## B.2 Decisions
 
-## 2. Decisions to settle before code
-
-Each has a recommendation. Overriding any of them changes tasks in §4,
-so settle them first.
-
-### D1 — How founding lays the grid
-
-The site cursor is free-moving at 1.5 km so the verdict is measured over
-the ground the base actually covers. The game places Sects at 5 km cell
-centres, and the terrain cache, the site disturbance and the Sect view
-are all per cell. Snapping the player's chosen spot to a cell of a
-pre-existing grid would move the base off the ground that was judged.
-
-**Recommendation: derive the anchor from the site, not the site from
-the grid.** On FOUND, set the anchor so the cursor centre becomes the
-centre of cell (10, 10):
-
-```
-cellDeg   = TERRAIN_CELL_KM / MOON_KM_PER_DEG          // 0.164893°
-anchorLat = siteLat + 0.5 * cellDeg
-anchorLon = siteLon - 0.5 * cellDeg / max(0.2, cos(anchorLat))
-```
-
-which inverts `TerrainGridCellToLatLon(10, 10)` (`terrain_synthesis.cpp:1871`:
-offsets `gx - 9.5`, `gy - 9.5`, longitude widened by `1/cos(anchorLat)`).
-The first Sect then sits at world `(1050, 1050)` and the playfield
-surrounds the base with room on every side. A unit test asserts the round
-trip to 1e-9°.
-
-### D2 — Colonies after the first
-
-Only one anchor exists, so a second descent from orbit cannot found
-anywhere else without moving colony 1's ground.
-
-**Recommendation:** with colonies present the Orbital view is browse-only
-(hover still names regions; clicking the playfield mark or ENTER goes to
-Planet; clicking elsewhere shows "the playfield is here" on the chip, no
-descent). Later colonies are founded in the **Planet view**: Ctrl+click a
-cell → the SITE-rung card appears in place (frozen region card +
-`EvaluateSite` over that 5 km cell + `JudgeSite` verdict + FOUND/CANCEL),
-drawn in the Planet camera. This is the site rung with a 5 km snapped
-cursor — `SurveyCursor` already carries `footprintKm` and `snapToGrid`
-per instance — and it needs no separate view. Refusal reasons: verdict
-red, cell inside another colony's jurisdiction (today's
-`CheckCollisionPointCircle` test in `ConfirmSiteSelection`), cell
-occupied.
-
-*Alternative considered:* a full DISTRICT → SITE descent clamped to the
-100 km playfield. More motion for no new decision; the region card is
-already fixed. Not recommended.
+*Retired by Part A:* the first draft's D1 (derive an anchor from the
+site), D2 (forbid a second descent; found later colonies from a grid
+view) and D7's clamp refusal. None has a referent once positions are
+lunar.
 
 ### D3 — What draws the ground at the DISTRICT and SITE rungs
 
-`lunar_map` draws a LOLA elevation mesh through its own lunar shader
-(`BuildScene`, `:1396–1615`; shaders `:479–670`; mesh and textures
-`:755–1000`). The game draws every geographic view as a 2D chain
-texture in world space (`DrawWorldTerrainLayer`, `EnsureTerrainForCell`).
+`lunar_map` draws a LOLA elevation mesh through its own shader
+(`BuildScene`, `:1396–1615`). The game draws every geographic view as a
+chain texture in a local frame.
 
-**Recommendation: the game draws both rungs with the terrain chain, and
-the DEM supplies only numbers** — the verdict, the level card, the
-ground stats. Reasons:
-
-- The SITE window (25 km) **is** chain level 1, the COLONY view's ground.
-  The handover from the descent to the playfield becomes the same
-  imagery of the same place at the same scale, which is the whole claim
-  the chain makes ("zooming approaches the same ground instead of
-  cutting to a different scene").
-- At 200 km the WAC mosaic (1.33 km/px) out-resolves LDEM_16
-  (1.9 km/px); at 25 km neither resolves anything and the chain's
-  regolith is the picture — [`site-ground-texture.md`](site-ground-texture.md)
-  §2.1–2.3 measured this, and the web instrument already lays the chain
-  over the DEM there for that reason.
-- `TerrainChainSpansForWindow(spanKm)` (`terrain_synthesis.cpp:2156`)
-  already builds arbitrary spans, on both paths; the GPU builds one in
-  milliseconds, the CPU pool off-thread in ~0.5 s.
-- No second renderer, second shader, or second camera enters
-  `RenderManager`, and WebGL1 needs no new work.
-
-What is given up: the DEM's shaded relief at 200 km (105 real samples,
-explicit sun) and the tilt view. Both stay in `lunar_map` as instrument
-features. If the game ever wants relief lit by its own sun, the route is
-site-ground-texture.md Phase 2 (the chain's unlit height + albedo
-export, `GenerateTerrainFields`) applied to the game's views — a
-separate track, not this one.
+**Recommendation: the game draws both rungs with the terrain chain and
+uses the DEM only for numbers** (verdict, level card, ground stats).
+The SITE window is chain level 1, the Colony view's own ground, so
+founding does not change the picture under the cursor at all. At 200 km
+the WAC out-resolves the DEM; at 25 km neither resolves anything and the
+chain's regolith is the picture ([`site-ground-texture.md`](site-ground-texture.md)
+§2). `TerrainChainSpansForWindow(spanKm)` (`terrain_synthesis.cpp:2156`)
+already builds arbitrary spans on both paths. The DEM relief look and the
+tilt view stay in the instrument; lighting the game's ground with its
+own sun is a separate track (site-ground-texture.md Phase 2).
 
 ### D4 — Where the shared code lives
 
-**Recommendation:** a new module `src/SiteSelection/`, in the shape
-[`../../guides/module-architecture.md`](../../guides/module-architecture.md)
-Part II prescribes (constants / types / pure engines / facade), added to
-`COLONY_CORE_SOURCES` and to `lunar_map`'s sources:
+`src/SiteSelection/`, in the module shape of
+[`../../guides/module-architecture.md`](../../guides/module-architecture.md):
 
 | File | Holds | From `lunarmap_main.cpp` |
 |---|---|---|
-| `site_selection_constants.h` | verdict thresholds (8° mean, 25° peak, 40 m rough, 400 m relief), horizon km, flight rates, drag threshold, jumped-pointer distance, layout constants shared by draw and hit-test | `JudgeSite` literals, `SITE_TRANS_*`, `SITE_DRAG_THRESHOLD_PX`, `24.0f` jump |
-| `region_identity.{h,cpp}` | `RegionIdentity`, `IdentifyRegion(dem, lat, lon)`, PKT polygon, `SiteArchetype` descriptor table (name, tint, gives / costs) | `:2703–2963` |
+| `site_selection_constants.h` | verdict thresholds (8° mean, 25° peak, 40 m rough, 400 m relief), horizon km, flight rates, drag threshold, jump distance, card layout constants shared by draw and hit-test | `JudgeSite` literals, `SITE_TRANS_*`, `SITE_DRAG_THRESHOLD_PX`, the `24.0f` jump |
+| `region_identity.{h,cpp}` | `RegionIdentity`, `IdentifyRegion(dem, point)`, PKT polygon, `SiteArchetype` descriptor table (name, tint, gives / costs from master design §2.1) | `:2703–2963` |
 | `site_verdict.{h,cpp}` | `PlacementVerdict`, `JudgeSite`, `GroundStats`, `CursorGroundStats` | `:1859–1876`, `:2152–2192` |
-| `survey_input.h` | `SurveyInput { pointer, click, escape, wheel, dt, pointerJumped }` — the seam the game, `viewtest` and `--siteshot` all feed | `FakePointer`, `PressGesture`, `SiteClick`, `SiteEscape` (`:3254–3350`) |
-| `site_selection_controller.{h,cpp}` | `SiteSelectionState` + `SiteSelectionController::Update(const SurveyInput&, w, h)`: rungs, `SurveyDescent` stack, claim, zoom within rung, flights, touch mode, hover hint key, pending verdict. **No GL, no drawing.** | the state half of `UpdateSiteSelect`, `BeginGlobeDescent`, `BeginDescentZoom`, `RunDescentZoom`'s interpolation, `RegionCardHintAt` |
-| `lunar_dem_shared.{h,cpp}` (in `TerrainGen/`) | `const LolaDem* GetLunarDem()`, one load, one path constant, optional override for `--dem` | `resource_manager.cpp:12–26` (`RealMoon`), `lunarmap_main.cpp:62`, `:5085` |
+| `survey_input.h` | `SurveyInput { pointer, click, escape, wheel, dt, pointerJumped }` — the seam the game, `viewtest` and `--siteshot` feed | `FakePointer`, `PressGesture`, `SiteClick`, `SiteEscape` (`:3254–3350`) |
+| `site_selection_controller.{h,cpp}` | rungs, `SurveyDescent` stack, claim, zoom within rung, flights as pure interpolation, touch mode, hover hint key, pending verdict, colony markers. **No GL, no drawing.** | the state half of `UpdateSiteSelect`, `BeginGlobeDescent`, `BeginDescentZoom`, `RunDescentZoom`'s interpolation, `RegionCardHintAt` |
+| `TerrainGen/lunar_dem_shared.{h,cpp}` | `const LolaDem* GetLunarDem()`: one load, one path constant, `--dem` override | `resource_manager.cpp:12–26`, `lunarmap_main.cpp:62`, `:5085` |
 
-Composition fallbacks for named features (`BUILTIN_FEATURES`,
-`:2713–2733`) move into `lunar_regions.cpp` so a `LunarRegion` always
-carries Fe/Ti/Th and no second table exists.
-
-Drawing goes to `RenderManager`, in a new translation unit
-`src/Engine/rendermanager_survey.cpp` (the class is already 6,405 lines
-in one file; CMake lists sources explicitly, so a second file costs
-nothing): region card, level card, hint tooltip, hover chip, globe
-feature outlines, globe cursor box, feature arcs in window, ladder
-cursor, cursor callout, prompt strip, BACK button. Restyled to the
-game's fonts and the dark kit tokens per
-[`../../guides/ui-panels.md`](../../guides/ui-panels.md) — the instrument
-draws with raylib's default font.
-
-The controller exports exactly what `GameManager` needs:
-`Founded()`, `FoundLat/Lon()`, `FoundRegion()`, `FoundVerdict()`.
-That is the whole contract.
+`BUILTIN_FEATURES` (`:2713–2733`) folds into `lunar_regions.cpp` so a
+`LunarRegion` always carries Fe/Ti/Th. Drawing goes to `RenderManager`
+in a new translation unit `src/Engine/rendermanager_survey.cpp`: region
+card, level card, hint tooltip, hover chip, globe feature outlines, globe
+cursor box, feature arcs in window, ladder cursor, cursor callout, prompt
+strip, BACK button, colony markers — restyled to the game's fonts and the
+dark-kit tokens ([`../../guides/ui-panels.md`](../../guides/ui-panels.md)).
+The controller exports `Founded()`, `FoundPoint()`, `FoundRegion()`,
+`FoundVerdict()`, and `EnterColony(index)`; that is the contract.
 
 ### D5 — The DEM in the game build
 
-The game already loads the DEM on desktop (`RealMoon`) from
-`prototypes/planet_visuals/data/lola/`; the Linux/macOS/Windows release
-zips copy only `src/assets` and so ship without it; the web game
-preloads only `src/assets`.
-
-**Recommendation:** move `ldem_16_uint.tif` (32 MB) to
-`src/assets/planet/lola/` so every build that copies assets carries it,
-update `fetch-dem.yml`'s target directory, and add it to the game's
-`--preload-file` list. Leave the two SLDEM overlays (51 MB) where they
-are: optional on desktop, absent on web. Web download grows ~32 MB; heap
-grows ~33 MB (the raw 16-bit grid). Measure the game's web heap before
-and after with the shell badge — the 271 MB figure in the roadmap is
-`lunar_map`'s, not the game's, and the game currently decodes the WAC
-**three** times (`EnsureWacLoaded`, `LoadAlbedo`, `LoadPlanetMap`; debt
-item 13 counts two). Sharing one decode is the enabling task for the
-phone (§4, Phase 5).
+Move `ldem_16_uint.tif` (32 MB) to `src/assets/planet/lola/` so every
+build that copies assets carries it; retarget `fetch-dem.yml`; add it to
+the game's `--preload-file`. The two SLDEM overlays (51 MB) stay optional
+and desktop-only. The web game currently decodes the WAC **three** times
+(`EnsureWacLoaded`, `LoadAlbedo`, `LoadPlanetMap`); Part A deletes the
+third, and Phase B5 shares the other two. Measure heap with the shell
+badge before and after.
 
 ### D6 — Archetype, bonus, composition
 
-**Recommendation:** `IdentifyRegion` returns the `SiteArchetype` enum
-(it produces POLAR_VOLATILE, KREEP_SCIENTIFIC, MARE_INDUSTRIAL,
-HIGHLAND_CONSTRUCTION; MIXED emerges from position per §2.1; LAVA_TUBE is
-never produced and stays an enum value). `Colony::SetArchetype` keeps
-receiving it. **Delete `GetArchetypeBonus`** and the bonus text with the
-old panel; record both in `docs/graveyard.md`. Composition coherency —
-the region card's numbers being the numbers the planet grid then holds —
-is Phase 4, done the cheap honest way first (§4).
+`IdentifyRegion` returns the `SiteArchetype` enum; `Colony::SetArchetype`
+keeps receiving it. `GetArchetypeBonus` (`colony.cpp:557`, no caller) and
+the old panel's bonus text are deleted and recorded in the graveyard
+entry. Composition coherency is Part A's A-D3, not a later phase.
 
-### D7 — The poles
+### D7 — The poles, honestly
 
-`SetTerrainAnchor` clamps to ±78°; the grid's longitude widening uses a
-cosine floor of 0.2. `lunar_map` happily claims Shackleton at −89.7°
-(`DEMO_SITES`). In the game, clamping silently would put the colony
-~12° from where the player pointed.
-
-**Recommendation:** FOUND is refused above the clamp with a named reason
-on the verdict ("PLAYFIELD GRID CANNOT REACH THIS LATITUDE"), the same
-way slope refuses. The polar strategy therefore does not exist in play
-until the grid becomes a local tangent-plane projection about the anchor
-(a change to `TerrainGridCellToLatLon`, `PlanetMapWorldRect` and the
-chain's cell placement). That is a follow-up (§7), and the refusal
-wording must say so honestly rather than pretend the ground is bad.
+With no grid there is no clamp, so a polar site can be founded. Two
+things still need measuring there, not assuming: the local frame's
+longitude widening uses a cosine floor (`0.05` in `survey_cursor.cpp`,
+`0.2` in the chain's macro crop), so a 25 km window very near the pole
+draws its ground stretched; and PSR distance on the region card is the
+instrument's placeholder (`psrKm = (|lat| > 80) ? 4 : 999`). Run
+`terrain_probe` and `viewtest --pick -89.7,110` at Shackleton in B1 and
+decide from the pictures whether a tangent-plane frame is needed before
+the polar strategy is advertised. The refusal reason, if any, must name
+the picture, never the ground.
 
 ### D8 — Zoom within a rung
 
-The instrument's zoom-out needs a second, wider DEM window with swap
-logic, a speculative worker and a cache (`BuildWideWindow`,
-`SpeculationStart`, `:3387–3510`) because the mesh frames the window's
-full width. With chain textures a wider view is a wider chain.
+Keep `SurveyZoomMax` (one notch in) and `SurveyZoomMin` (2x out).
+Zoom-in draws the rung's texture larger; zoom-out requests a 2x-span
+chain from the same cache. The instrument's wide-window swap and
+speculation thread (`:3387–3510`) are not ported.
 
-**Recommendation:** keep `SurveyZoomMax` (one notch in) and
-`SurveyZoomMin` (2x out) as the bounds, implement zoom-in as drawing the
-rung's texture larger, and zoom-out as requesting a 2x-span chain from
-the same ground cache. Drop the wide-window swap and the speculation
-thread from the port; they stay in `lunar_map` for the DEM renderer.
-
----
-
-## 3. Architecture of the port
-
-### 3.1 One frame of the descent in the game
+## B.3 Architecture
 
 ```
 Engine::HandleInput
-  ├─ InputManager::Update                (press gesture: down/moved/released,
-  │                                        pointer-jumped, wheel)
+  ├─ InputManager::Update            press gesture, pointer-jumped, wheel
   ├─ SurveyInput in = inputManager.Survey()
-  └─ if view ∈ {Orbital, SITE_SELECTION}:
-        controller.Update(in, w, h, dt)  ← pure state: hover → identity,
-                                            cursor track, zoom, flight t,
-                                            claim / descend / ascend / found
-        if controller.WantsGround(lat, lon, spanKm):
-            renderManager.RequestSurveyGround(lat, lon, spanKm)   (prefetch)
+  └─ if view ∈ {Orbital, District, Colony-without-colony}:
+        controller.Update(in, w, h, dt)      pure state
+        if controller.WantsGround(point, spanKm):
+            renderManager.RequestGround(point, spanKm)     prefetch
         if controller.Founded():
-            gameManager.FoundColony(controller)  → anchor, survey regen,
-                                                    Colony + Sect
-            viewManager.SwitchToColonyView(...)
+            gameManager.FoundColony(controller)             Colony + Sect
+        if controller.EnteredColony(i):
+            gameManager.SelectColony(i); view = Colony
 Engine::Draw
   └─ renderManager.DrawSurveyView(controller, planet, dem)
-        rung 0: DrawLunarGlobe + outlines + cursor box + chip + region card
-        rung 1/2: ground texture (chain window, cached) + feature arcs
-                  + ladder cursor + callout + region card + level card
-        flight: the previous rung's texture under the interpolated camera
-        hint tooltip last, prompt strip and BACK on top
+        rung 0: globe + outlines + cursor box + chip + region card + markers
+        rung 1/2: ground texture + feature arcs + ladder cursor + callout
+                  + region card + level card + markers
+        flight: previous rung's texture under the interpolated camera
+        hint tooltip last; prompt strip and BACK on top
 ```
 
-The controller never touches GL. `--siteshot` and `colony_viewtest
---shots` drive it with a scripted `SurveyInput`, which is what makes the
-harness verify the shipping state machine rather than a copy (the
-instrument's stated reason for `--siteshot`).
+Ground for the rungs: the location-keyed cache Part A built, asked for
+`(point, 200 km)` and `(point, 25 km)`; requested when a flight starts so
+the 1–3 s flight hides the CPU path's ~0.5 s build; `TerrainWarmMosaic()`
+in `Engine::InitGame` so the first descent never pays the JPEG decode.
 
-### 3.2 Ground for the rungs
+## B.4 Phases
 
-A small cache in `RenderManager` beside the per-cell one: three entries
-keyed by `(lat, lon, spanKm, anchorVersion-independent)`, each one chain
-built with `TerrainChainSpansForWindow(spanKm)` at
-`GetTerrainPathResolution()` (1024 GPU / 512 CPU), with
-`TerrainSiteDisturbance` off (nothing is built yet). On the GPU path it
-builds on request. On the CPU path `TerrainPool::Build` gains a job kind
-that carries `(lat, lon, spans)` instead of `(gx, gy)`, and the request
-is issued **when the flight begins**, so the 1–3 s of flight hides the
-~0.5 s build the instrument pays *after* landing. `TerrainWarmMosaic()`
-runs in `Engine::InitGame` so the first descent never pays the JPEG
-decode.
+Each leaves every target building and the game playable.
 
-### 3.3 Engine changes
-
-| File | Change |
-|---|---|
-| `game_enums.h` | `View::SITE_SELECTION` kept, meaning changes to "the descent below orbit". (Rename to `Survey` is optional; ~10 sites.) |
-| `Engine.cpp` | Orbital case: replace ENTER/ESC-only handling with the controller (ENTER = claim at the sub-point, the keyboard equivalent of a click). SITE_SELECTION case: replace hover/ENTER/ESC with the controller; on `Founded()` call `FoundColony`. Remove the Ctrl+click → `BuildNewColony` path in Planet (Phase 3 replaces it). Draw: `DrawSurveyView` for both views. Keep F6. |
-| `ViewManager` | `HandleCameraControls`: SITE_SELECTION no longer runs the Planet camera. Remove the SITE_SELECTION case from `ResetCameraForCurrentView`. Add `SwitchToSurveyView()`. |
-| `InputManager` | press gesture (down / moved past 5 px / released), `PointerJumped()` (24 px), `SurveyInput Survey() const`. |
-| `GameManager` | replace `EnterSiteSelection` / `UpdateSiteSelectionHover` / `ConfirmSiteSelection` / `CancelSiteSelection` / `inSiteSelection` / `hoveredGridPos` / `selectedSite` with `FoundColony(lat, lon, const RegionIdentity&, const TerrainBuildability&)` and, in Phase 3, `TryFoundColonyAtCell(gx, gy)`. Owns the `SiteSelectionController`. |
-| `RenderManager` | `rendermanager_survey.cpp`; delete the old `DrawSiteSelectionView` body; survey ground cache; the Orbital view's readout moves into the level-1 drawing. |
-| `resource_manager.cpp` | `RealMoon()` → `GetLunarDem()`. |
-| `src/CMakeLists.txt` | new sources in `COLONY_CORE_SOURCES`, `colony_viewtest`, `c1_test`, `colony_inspect`; `lunar_map` links `SiteSelection/`; DEM preload for the web game. |
-
-### 3.4 What `lunar_map` becomes
-
-The instrument keeps everything the game does not want: the DEM mesh and
-shader, `--nearside`, `--pick/--span`, `--tilt`, `--style`, `--survey`,
-`--place`, `--ladder`, `--demo`, the data-layer test, the chain layer
-over the DEM, the wide window. `UpdateSiteSelect` becomes: feed the
-shared controller, build/draw its DEM scene for the rung the controller
-says it is on, draw the shared cards. About 1,700 lines leave the file.
-Its README line "links no game code" is retired.
-
----
-
-## 4. Phases
-
-Each phase leaves every target building and the game playable end to
-end. Sizes are relative (S < M < L); no dates.
-
-### Phase 0 — Extraction, no behaviour change (M)
+### B0 — Extraction, no behaviour change (M) — *runs before Part A's A1*
 
 - [ ] Create `src/SiteSelection/` per D4; move `RegionIdentity`,
-      `IdentifyRegion`, PKT polygon, `JudgeSite`, `PlacementVerdict`,
-      `GroundStats`, `CursorGroundStats` out of `lunarmap_main.cpp`.
-- [ ] `IdentifyRegion` returns `SiteArchetype`; add the descriptor table
-      (name, tint, gives / costs from master design §2.1). `lunar_map`
-      reads the name from the table.
-- [ ] Fold `BUILTIN_FEATURES` composition fallbacks into
-      `lunar_regions.cpp`; `LunarRegion` always has Fe/Ti/Th.
-- [ ] `TerrainGen/lunar_dem_shared.{h,cpp}`: one `LolaDem`, one path;
-      `ResourceManager` and `lunar_map` use it (`--dem` sets the path
-      before first use).
-- [ ] `SurveyInput` + `SiteSelectionController`: lift the state half of
-      `UpdateSiteSelect` (claim, descend, ascend, zoom bounds, touch mode,
-      hint row, flights as pure interpolation). `lunar_map` drives it;
-      its draw half stays put for now.
-- [ ] `tests/test_site_selection.cpp` (Catch2; add
-      `WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}` to `catch_discover_tests`
-      so `zones.json` and the DEM resolve): descent stack semantics;
-      `IdentifyRegion` at Mare Imbrium → MARE_INDUSTRIAL, Tycho →
-      HIGHLAND_CONSTRUCTION, Shackleton rim → POLAR_VOLATILE; `JudgeSite`
-      on hand-built `TerrainBuildability` values at each threshold.
+      `IdentifyRegion`, PKT polygon, `JudgeSite`, `GroundStats`,
+      `CursorGroundStats` out of `lunarmap_main.cpp`. `IdentifyRegion`
+      returns `SiteArchetype`; add the descriptor table.
+- [ ] Fold `BUILTIN_FEATURES` into `lunar_regions.cpp`.
+- [ ] `lunar_dem_shared`: one `LolaDem`; `ResourceManager` and
+      `lunar_map` use it.
+- [ ] `SurveyInput` + controller lifted from `UpdateSiteSelect`;
+      `lunar_map` drives it, keeps its own drawing.
+- [ ] `tests/test_site_selection.cpp` (Catch2; `WORKING_DIRECTORY
+      ${CMAKE_SOURCE_DIR}` on `catch_discover_tests` so assets resolve):
+      descent stack; `IdentifyRegion` at Imbrium → MARE_INDUSTRIAL, Tycho
+      → HIGHLAND_CONSTRUCTION, Shackleton → POLAR_VOLATILE; `JudgeSite` at
+      each threshold.
 
-**Accept when:** all targets build (`colony_game colony_preview
-colony_playtest colony_sectwalk colony_viewtest colony_inspect lunar_map
-terrain_probe survey_cursor_test c1_test`), `ctest` green,
-`lunar_map --siteshot` renders the same twelve steps and `compare.py`
-reports no pixel change beyond text antialiasing, `lunarmap_main.cpp` is
-shorter by the moved code and contains no `static` copy of anything now
-in `src/SiteSelection/`.
+**Accept when:** all targets build, `ctest` green, `lunar_map --siteshot`
+unchanged beyond text antialiasing (`compare.py`), no `static` copy of
+anything in `src/SiteSelection/` remains in the tool.
 
-### Phase 1 — The first colony is founded through the descent (L)
+*Then Part A, A1 and A2.*
+
+### B1 — Founding through the descent (L)
 
 - [ ] `InputManager`: press gesture, jumped pointer, `Survey()`.
-- [ ] `RenderManager::RequestSurveyGround` / cache (§3.2); CPU pool job
-      kind for `(lat, lon, spans)`.
-- [ ] `rendermanager_survey.cpp`: port the cards, chip, outlines, arcs,
-      cursor, callout, strip, BACK, hint tooltip. Game fonts, dark-kit
-      tokens, layout constants shared with the controller's hit-test.
-- [ ] `Engine.cpp`: Orbital = rung 0 with the controller (ENTER claims at
-      the sub-point; no idle drift while choosing, as the instrument
-      does). SITE_SELECTION = rungs 1–2. No flights yet: cut straight, as
-      the headless harness does.
-- [ ] `GameManager::FoundColony`: D1 anchor, `SetTerrainAnchor`,
-      `planet->GetResourceManager().GenerateOrbitalSurveyData()`,
-      Colony (archetype from identity) + Sect at cell (10,10), switch to
-      Colony view. D7 refusal for |lat| above the clamp, surfaced on the
-      verdict before the click.
-- [ ] With colonies present: Orbital browse-only (D2), playfield mark
-      drawn with `OrbitalLatLonToScreen` (as `viewtest` does today).
-- [ ] Keep the old Ctrl+click grid picker for **additional** colonies in
-      this phase only, so multi-colony play does not regress.
+- [ ] `View::District` added; the Orbital view runs the controller's
+      rung 0 (ENTER claims at the sub-point); District runs rung 1; the
+      Colony view with no colony under it runs rung 2. The A2 founding
+      stub is removed.
+- [ ] `rendermanager_survey.cpp`: cards, chip, outlines, arcs, cursor,
+      callout, strip, BACK, hint tooltip, colony markers. No flights yet.
+- [ ] `GameManager::FoundColony(point, identity, verdict)`: Colony
+      (archetype) + first Sect at the point; the Colony view is already
+      looking at that window, so the base appears under the cursor.
 - [ ] `colony_preview --view survey --rung orbital|district|site --pick
-      LAT,LON [--aim DX,DY]` renders through the real `RenderManager`.
-- [ ] `colony_viewtest`: replace its own orbital pick prototype
-      (`viewtest_main.cpp:317–558`) with the controller; `--shots` walks
-      hover → claim → district → site → found → planet → colony → sect
-      with a scripted `SurveyInput`; update its issue notes.
-- [ ] Unit tests: anchor round trip (D1) to 1e-9°; FOUND refused on a red
-      verdict; FOUND refused above the latitude clamp with the right
-      reason; survey grid rows change after re-anchor.
+      LAT,LON [--aim DX,DY]`.
+- [ ] `colony_viewtest --shots`: hover → claim → district → site → found
+      → colony → sect, scripted `SurveyInput`; then Esc back to the
+      globe, claim a second region on the far side, found again.
+- [ ] Tests: FOUND refused on a red verdict; refused inside another
+      colony's jurisdiction; the founded sect's `GroundAt` equals what
+      `SurveyAt` showed on the card.
+- [ ] D7 check at Shackleton, pictures kept in `figures/`.
 
-**Accept when:** a player who starts the game can turn the globe, read a
-region name, claim it, descend twice, see a green or red 1.5 km cursor
-with the blocking limit named, found, and arrive in a Colony view whose
-ground is the ground they judged (the `--shots` sequence shows the site
-window and the Colony view as the same imagery). `survey_cursor_test`,
-`ctest`, `preview.sh --all` clean. **Look at the PNGs.**
+**Accept when:** a new player can turn the globe, read a region, claim
+it, descend twice, see a green or red 1.5 km cursor with the blocker
+named, found, and be in a Colony view whose ground did not change at the
+click; then walk back up and found a second colony elsewhere. **Look at
+the PNGs.**
 
-### Phase 2 — The feel (M)
+### B2 — The feel (M)
 
-- [ ] Flights: globe turn + zoom to `OrbitalZoomForSpan(200)` on claim;
-      log-space dive with the straight-approach centre law between rungs
-      (`RunDescentZoom`, `:3675–3758`, as pure interpolation in the
-      controller; the renderer draws the previous rung's texture under the
-      interpolated camera). Ground for the next rung requested at the
-      start of the flight.
-- [ ] Touch: tap-to-aim then tap-to-commit once a jumped pointer is seen;
-      prompt strip wording switches; BACK button; narrow layout branch
-      (< 720 px) kept even though the game's web canvas is pinned at
-      1280x720 today.
-- [ ] Hints on hover for every card row (`survey_hints.h` already ships
-      in `src/`); dotted underline affordance; tooltip drawn last.
-- [ ] Labels toggle (annotations on/off) and the region-card ghost of the
-      previously viewed region (master design §4.5, "keep the previous
-      region's panel on screen, ghosted").
-- [ ] Zoom within rung per D8.
+Flights (globe turn+zoom on claim; log-space dive with the
+straight-approach law between rungs, `:3675–3758`), ground requested at
+flight start; tap-to-aim then tap-to-commit; BACK; narrow layout kept;
+hints on every card row; labels toggle; the ghosted previous-region card
+(§4.5); zoom per D8.
 
-**Accept when:** `--shots` includes three flight frames at 25/50/80 %
-progress and they show the target falling straight to centre; a scripted
-jumped-pointer tap does not claim on the first tap and does on the
-second; every card row renders a hint in preview.
+**Accept when:** `--shots` has three flight frames at 25/50/80 % showing
+the target falling straight to centre; a scripted jumped tap does not
+claim on the first tap and does on the second; every row renders a hint.
 
-### Phase 3 — Later colonies, and the grid picker goes (M)
+### B3 — Web and device (M)
 
-- [ ] Ctrl+click in Planet view → in-place SITE-rung card for that cell
-      (D2): frozen region card, `EvaluateSite(cell, TERRAIN_CELL_KM)`,
-      `JudgeSite`, occupancy and jurisdiction refusals, FOUND / CANCEL.
-      `GameManager::TryFoundColonyAtCell`.
-- [ ] Delete the old `DrawSiteSelectionView` body, `EnterSiteSelection`
-      and friends, the `SITE_SELECTION` branches in `ViewManager`, and
-      `GetArchetypeBonus` (D6).
-- [ ] `docs/graveyard.md` entry 10: the instrument-panel grid picker —
-      the mare/highland tint formula (`60 + highland*140 …`, `:1742–1750`),
-      the bonus table, the archetype recommendation panel, why it went.
-- [ ] Colony-view Ctrl+hover "ORBITAL SURVEY" tooltip
-      (`rendermanager.cpp:620–640`) stays; it now reads a grid generated
-      for the real anchor.
+DEM under `src/assets/planet/lola/`, preload extended, `fetch-dem.yml`
+retargeted; one WAC decode shared by `terrain_synthesis` and
+`lunar_globe`; this branch in `deploy-web.yml` and the Pages environment
+while playtesting; device playtest at `/`.
 
-**Accept when:** a second colony can be founded on a free flat cell and
-is refused on a steep one, inside another jurisdiction, and on an
-occupied cell, each with its reason shown before the click;
-`grep -rn "SITE_SELECTION" src tools` finds only the descent.
+**Accept when:** the shell badge reports a game heap no larger than
+`lunar_map`'s 271 MB on the same iPad and a colony is founded on device.
 
-### Phase 4 — Coherency: the card is true (M)
+### B4 — Documents (S)
 
-The region card must show the numbers the planet then holds (master
-design §4.6, §5.0 rule 1). Cheapest honest version first; the generator
-inversion stays a follow-up.
-
-- [ ] `ResourceManager::GenerateResourceMap` takes the founding
-      `RegionIdentity`: cluster `maxAbundance` for Fe/Ti scaled by the
-      region's Fe/Ti, Al/Ca inversely (plagioclase vs mafic, §4.6), so a
-      mare playfield really holds more iron.
-- [ ] `GenerateOrbitalSurveyData`: Fe/Ti/Th rows set from the identity,
-      uniform across the grid (one gamma-ray pixel is wider than the
-      playfield); terrain rows from `EvaluateSite` at the real anchor;
-      drop the `(Fe + Ca) * 0.5` thorium.
-- [ ] Defer `Planet::GenerateMap()` from `InitGame` to `FoundColony`, or
-      regenerate there — Planet view is only reachable with a colony
-      after Phase 1. Harnesses that call `GenerateResourceMap` directly
-      are unaffected.
-- [ ] Test: the frozen card's Fe/Ti/Th equal
-      `GetOrbitalSurveyAt(10,10)` after founding; `colony_inspect` prints
-      the region it was generated for.
-
-**Accept when:** founding Mare Imbrium and founding a highland region
-produce visibly different `colony_inspect` dumps in the direction the
-cards said, and the c1 economics test still passes on both.
-
-### Phase 5 — Web and device (M)
-
-- [ ] DEM under `src/assets/planet/lola/`, `fetch-dem.yml` retargeted,
-      game `--preload-file` extended (D5). `lunar_map`'s preload updated
-      to the new path.
-- [ ] One WAC decode shared by `terrain_synthesis`, `lunar_globe` and
-      `LoadPlanetMap` (the globe's 2048-wide grayscale equirect can serve
-      as the planet map layer directly). Measure heap before/after with
-      the shell badge.
-- [ ] `deploy-web.yml`: this branch in `on.push.branches` while
-      playtesting (and in the `github-pages` environment rules — see
-      `docs/web-deploy-mobile.md`).
-- [ ] Device playtest of the game at `/`, not `/lunarmap/`: arrival pause
-      per rung, tap rules, whether the 1.5 km cursor can be aimed at
-      1280x720 scaled onto a phone.
-
-**Accept when:** the badge reports a game heap that stays under
-`lunar_map`'s 271 MB on the same iPad, and a colony is founded on device.
-
-### Phase 6 — Documents (S)
-
-- [ ] This file: status → IMPLEMENTED, with "as built" notes where
-      phases diverged.
-- [ ] `README.md` progress table: steps 2–4 done; document list.
-- [ ] `site-selection-master-design.md`: §5 "as built" for D1/D2/D3/D7.
-- [ ] `CLAUDE.md`: View System bullets, the Site Selection System
-      section, the auto-context row, the Visual Testing table
-      (`--view survey`).
-- [ ] `tools/lunarmap/README.md`: shares `src/SiteSelection/`; flags
-      table re-checked against `--help`.
-- [ ] `ROADMAP_IMMINENT.md` / `ROADMAP_OVERALL.md`: the ❌ line becomes
-      ✅ with the phase that closed it; debt items 13 and "two flows"
-      resolved; D7 polar grid and the generator inversion added as open
-      items.
+This file → IMPLEMENTED with "as built" notes; `README.md` progress
+table; master design §2 "as built" (the ladder is now the game's view
+stack: Globe / District / Colony / Sect / Unit); `CLAUDE.md` scale
+table, View System, Site Selection System, grid-system section, auto-
+context row, testing table; `tools/lunarmap/README.md`; both roadmaps
+(the ❌ line, debt items 13 and "two flows", the polar frame and the
+generator tuning as open items).
 
 ---
 
@@ -530,50 +481,43 @@ cards said, and the c1 economics test still passes on both.
 | Check | Instrument | Runs where |
 |---|---|---|
 | cursor geometry, snap, stack | `survey_cursor_test` | any build |
-| controller state machine, anchor math, refusals, identity | `ctest` (`test_site_selection`) | any build with `-DBUILD_TESTS=ON` |
-| every rung as the game draws it | `tools/preview/preview.sh --view survey --rung …` | headless, software GL |
-| the whole descent + handover to Planet/Colony/Sect | `tools/viewtest/viewtest.sh --shots` | headless, software GL |
-| the instrument still drives the same controller | `tools/lunarmap/lunarmap.sh --siteshot` + `compare.py` | headless, software GL |
-| CPU vs GPU ground for a rung | `terrain_probe` | headless |
-| nothing else regressed | `preview.sh --all`, all targets, six CI workflows (check each, per debt item 10) | CI |
+| controller, refusals, identity, ground determinism | `ctest` | `-DBUILD_TESTS=ON` |
+| ground economics at two regions | `c1_test`, `colony_inspect --pick` | any build |
+| every rung as the game draws it | `preview.sh --view survey …` | headless, software GL |
+| the whole ladder, both directions, two colonies | `viewtest.sh --shots` | headless, software GL |
+| the instrument drives the same controller | `lunarmap.sh --siteshot` + `compare.py` | headless, software GL |
+| CPU vs GPU ground for a rung, polar included | `terrain_probe` | headless |
+| nothing else regressed | `preview.sh --all`, all targets, six CI workflows checked individually | CI |
 | heap, tap rules, aim-ability | shell badge + a person with the device | device only |
 
 A fresh container fetches raylib but lacks the X11 development headers
 GLFW needs (`RandR headers not found`). `apt-get update` and then the
-package list in `tools/preview/README.md` (`libxrandr-dev libxinerama-dev
-libxcursor-dev libxi-dev libgl-dev mesa-common-dev`) fixes it; without
-the refresh the install 404s on a stale index.
-
----
+package list in `tools/preview/README.md` fixes it; without the refresh
+the install 404s on a stale index. Verified 2026-09-18: after that,
+`colony_game`, `lunar_map` and `survey_cursor_test` build here and the
+self-test passes all 42 checks.
 
 ## 6. Risks
 
 | Risk | Mitigation |
 |---|---|
-| The port drifts from the instrument and `--siteshot` stops proving anything | Phase 0 makes the controller shared *before* any game work; the harness feeds `SurveyInput`, never globals |
-| Re-anchoring after founding leaves stale state somewhere the terrain cache does not cover | `FoundColony` is the one place the anchor moves; the survey regen and the cache invalidation both key on `GetTerrainAnchorVersion()`; test asserts rows change |
-| The 200 km chain window looks worse than the DEM relief the instrument shows | Render both at three demo sites in Phase 1 and look; if the WAC-only district reads flat, the fallback is `DrawPlanetMapLayer`-style albedo plus the DEM hillshade as a multiply — still 2D, still one camera |
-| A polar claim is refused and the player does not know why | D7 wording names the grid, not the ground; the roadmap carries the tangent-plane follow-up |
-| Web heap grows past the iPad ceiling with the DEM added | Phase 5 measures first and ships the one-decode change in the same phase |
-| `rendermanager.cpp` grows again | new drawing goes to `rendermanager_survey.cpp`; nothing new lands in the 6,405-line file |
-| Cards restyled to the dark kit stop matching the instrument's screenshots | acceptable: the instrument keeps its own look for its own figures; the *content* and layout constants are shared |
-
----
+| A1 touches the economy: quantities without clusters could make every region play alike or starve the c1 chains | A-D3 is tuned against `colony_inspect` at named regions and held by `c1_test` on a mare and a highland point before A1 is accepted |
+| A hidden consumer of world units survives A2 and draws in the wrong place | the acceptance grep is the gate; `viewtest --shots` on the far side would show anything still assuming the old origin |
+| Prospecting sub-grids change under existing saves or tests when the seed moves from cell indices to coordinates | there are no saves; tests fix the point and the seed and assert determinism, not specific values |
+| The port drifts from the instrument and `--siteshot` stops proving anything | B0 makes the controller shared before any game work and feeds it through `SurveyInput`, never globals |
+| The 200 km chain window reads flatter than the instrument's relief | render three demo sites in B1 and look; fallback is a DEM hillshade multiplied into the texture, still one camera |
+| Polar windows draw stretched | D7 measures at Shackleton in B1; a tangent-plane frame is the follow-up if the pictures say so |
+| Web heap grows with the DEM | B3 measures first and lands the shared decode in the same phase |
+| `rendermanager.cpp` grows again | new drawing goes to `rendermanager_survey.cpp` only |
 
 ## 7. Deliberately out of scope
 
-- **Coherency chains C2–C4** (lunar night, PSR water, distance-priced
-  transport) — master design §5.0. The panels stay measured-only until
-  each system exists.
-- **Generator inversion** so that the region decides abundance
-  (§4.6 `[?]`). Phase 4 does the uniform-row version only.
-- **Polar playfields**: a tangent-plane grid about the anchor (D7).
-- **DEM relief lit by the game's own sun** in Planet/Colony/Sect —
-  site-ground-texture.md Phase 2.
-- **WebGL2**, and the CPU/GPU regolith split on the web.
-- **Real PSR distance** on the region card; the instrument's
-  `psrKm = (|lat| > 80) ? 4 : 999` placeholder is carried as-is and
-  labelled as such in code.
+- Coherency chains C2–C4 (lunar night, PSR water, distance-priced
+  transport), master design §5.0.
+- A tangent-plane local frame for polar windows, unless D7's pictures
+  demand it.
+- Save/load (which now has a natural unit: colonies as `LunarPoint`s).
+- DEM relief lit by the game's own sun; WebGL2; real PSR distance.
 
 ---
 
@@ -589,41 +533,36 @@ the refresh the install 404s on a stale index.
 | 1107–1328 | chain layer over the DEM | stays |
 | 1357–1395 | speculation | stays (D8) |
 | 1859–1876 | `PlacementVerdict`, `JudgeSite` | `site_verdict` |
-| 1878–1934 | `DrawPlacementCursor` | stays (`--place`); the cursor drawing it duplicates is `DrawLadderCursor` |
-| 1951–2126 | data-layer instruments (`INSTRUMENTS`, `FieldMean`, `FieldBand`) | stays (Appendix A test of the master design) |
+| 1878–1934 | `DrawPlacementCursor` | stays (`--place`) |
+| 1951–2126 | data-layer instruments | stays (the archived model's test) |
 | 2152–2192 | `GroundStats`, `CursorGroundStats` | `site_verdict` |
-| 2200–2286 | wrapped text, hint underline, hint tooltip, mini bar | `rendermanager_survey.cpp` (game fonts) |
+| 2200–2286 | wrapped text, hint underline, hint tooltip, mini bar | `rendermanager_survey.cpp` |
 | 2288–2512 | `DrawRegionCard`, `DrawLevelCard` | `rendermanager_survey.cpp` |
 | 2514–2529 | `DrawTestNote` | stays |
 | 2531–2580 | `LadderViewport`, `LadderViewportZoomed`, `ZoomApproach` | controller |
-| 2582–2676 | `DrawSurveyCursorNav` | stays (the archived instrument-floor readout) |
+| 2582–2676 | `DrawSurveyCursorNav` | stays |
 | 2703–2963 | features, PKT, `FeatureAt`, `RegionIdentity`, `IdentifyRegion`, `SiteFromIdentity` | `region_identity` (+ `lunar_regions` for the composition table) |
-| 3133–3230 | `GlobeCircleAt`, `DrawGlobeRing`, `DrawGlobeFeatureOutlines`, `DrawGlobeCursorBox` | `rendermanager_survey.cpp` (shared header so `lunar_map` draws them too) |
+| 3133–3230 | `GlobeCircleAt`, `DrawGlobeRing`, `DrawGlobeFeatureOutlines`, `DrawGlobeCursorBox` | `rendermanager_survey.cpp`, shared header so `lunar_map` draws them too |
 | 3254–3350 | fake pointer, press gesture, click/escape, view toggles | `SurveyInput` + `InputManager`; toggles stay |
-| 3353–3379 | `RegionCardHintAt` | controller (layout constants shared with the card) |
+| 3353–3379 | `RegionCardHintAt` | controller |
 | 3381–3510 | wide window, speculation | stays (D8) |
 | 3513–3587 | `BuildSiteScene` | stays |
 | 3589–3758 | flight constants, `BeginGlobeDescent`, `BeginDescentZoom`, `RunDescentZoom` | interpolation → controller; drawing → each renderer |
-| 3760–3805 | `SyncWebCanvasToViewport` | stays (the game's canvas is pinned) |
+| 3760–3805 | `SyncWebCanvasToViewport` | stays |
 | 3807–4401 | `UpdateSiteSelect` | state → controller; DEM draw stays; cards → shared |
 | 4617–4750 | `DrawGlobeHud`, `DrawHoverChip`, `DrawFeatureArcsInWindow`, `DrawCursorCallout`, `DrawLadderCursor` | `rendermanager_survey.cpp` |
-| 4753–5027 | `RenderLadder` (`--ladder`, `--demo`) | stays |
-| 5029–5535 | `main`, `--flyshot`, `--siteshot` | stays; the harnesses feed `SurveyInput` |
+| 4753–5027 | `RenderLadder` | stays |
+| 5029–5535 | `main`, `--flyshot`, `--siteshot` | stays; harnesses feed `SurveyInput` |
 
-## Appendix B — Anchor arithmetic (D1)
+## Appendix B — What the first draft got wrong, kept as reasoning
 
-`TerrainGridCellToLatLon(gx, gy)` is
-
-```
-lat = A_lat − (gy − 9.5) · cellDeg
-lon = A_lon + (gx − 9.5) · cellDeg / max(0.2, cos A_lat)
-```
-
-For the site `(φ, λ)` to be the centre of cell (10, 10), `gx − 9.5 =
-gy − 9.5 = 0.5`, so `A_lat = φ + 0.5·cellDeg` and then
-`A_lon = λ − 0.5·cellDeg / max(0.2, cos A_lat)`. `A_lat` is solved
-first because the longitude term depends on it. With `cellDeg =
-0.164893°` the anchor sits 4.6 km NNW of the site (2.5 km north,
-2.5 km west at the equator). `SetTerrainAnchor` clamps `A_lat` to ±78°;
-D7 refuses founding whenever `|φ + 0.5·cellDeg| > 78°` so the clamp
-never engages silently.
+The first draft accepted the 20x20 playfield as fixed and derived three
+decisions from it: lay the grid so the founded site becomes cell (10, 10)
+(`anchorLat = siteLat + 0.5·cellDeg`, the inverse of
+`TerrainGridCellToLatLon`); found later colonies only from the Planet view
+on that grid; refuse founding above 78° because the lat/lon grid smears.
+Each was internally sound and each was a consequence of a world model the
+design had already left behind — the globe is the planet, and the rungs
+below it are windows on the same Moon, so there is nothing to anchor.
+Removing the grid removes the decisions, which is the surest sign they
+were never design.

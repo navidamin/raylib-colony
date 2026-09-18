@@ -32,7 +32,7 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | [site-selection-master-design.md](site-selection-master-design.md) | The two decisions, cursor behaviour, where resource information lives, implementation plan | SETTLED |
 | ↳ Appendix A | The five-level instrument-floor model this replaced, kept as reasoning, not as work | ARCHIVED |
 | [site-ground-texture.md](site-ground-texture.md) | Why the site level looks like grey noise over 99.8 % of the Moon, and the design for laying the terrain synthesizer over it — platform tiers by measured cost, web memory, phased delivery | DESIGNED — prototype behind `--chain` |
-| [game-integration-plan.md](game-integration-plan.md) | Wiring the `lunar_map` descent into `colony_game` as the one founding flow and retiring the grid picker behind `View::SITE_SELECTION` — the audit of both flows, eight decisions to settle first (anchor, later colonies, ground renderer, code home, the DEM in the game build, archetype, the poles, zoom), the module shape, six phases with acceptance criteria, and a symbol-by-symbol inventory of what moves where | PROPOSED — nothing built |
+| [game-integration-plan.md](game-integration-plan.md) | Two parts, in order. **A:** retire the 20x20 playfield — the globe is the planet, every colony and sect lives at a real lat/lon, ground truth is a function of location, colonies anywhere at once. **B:** the `lunar_map` descent becomes the game's founding flow (Globe → District → Colony/Site → Sect), freely walkable up and down. Inventory of every grid dependency, decisions with recommendations, phases with acceptance criteria, symbol-by-symbol inventory of the tool file | PROPOSED — nothing built |
 
 ## Progress
 
