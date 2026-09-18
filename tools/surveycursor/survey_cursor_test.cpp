@@ -12,6 +12,11 @@
 #include <cmath>
 #include <cstdio>
 
+// MSVC does not expose M_PI without _USE_MATH_DEFINES, and this test
+// broke the Windows build for three weeks because nothing else here
+// needed it. survey_cursor.cpp carries the literal inline; match it.
+static const double SURVEY_PI = 3.14159265358979323846;
+
 static int failures = 0;
 static void Check(bool ok, const char* what)
 {
@@ -232,7 +237,7 @@ int main()
     double lat = 0.0, lon = 0.0;
     SurveyCursorLatLon(c3, &lat, &lon);
     double expectLat = 32.8 - 5.0 / 30.32268;
-    double expectLon = -15.6 + 5.0 / (30.32268 * std::cos(32.8 * M_PI / 180.0));
+    double expectLon = -15.6 + 5.0 / (30.32268 * std::cos(32.8 * SURVEY_PI / 180.0));
     Check(std::fabs(lat - expectLat) < 1e-9 && std::fabs(lon - expectLon) < 1e-9,
           "cursor centre -> real lat/lon");
 
