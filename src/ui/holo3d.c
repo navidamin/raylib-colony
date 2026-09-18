@@ -625,6 +625,72 @@ int Holo3D_Hit(const Holo3DModel *m, float x, float y)
     return any;
 }
 
+/* Barycentric test, and the weights, so a point inside a triangle also says
+ * WHERE inside it -- which is what turns a quad hit into a fractional cell. */
+static bool h3d_bary(Vector2 a, Vector2 b, Vector2 c, Vector2 p,
+                     float *wa, float *wb, float *wc)
+{
+    const float d = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
+    if (fabsf(d) < 1e-6f) return false;
+    const float l0 = ((b.y - c.y) * (p.x - c.x) + (c.x - b.x) * (p.y - c.y)) / d;
+    const float l1 = ((c.y - a.y) * (p.x - c.x) + (a.x - c.x) * (p.y - c.y)) / d;
+    const float l2 = 1.0f - l0 - l1;
+    if (l0 < -0.0001f || l1 < -0.0001f || l2 < -0.0001f) return false;
+    *wa = l0; *wb = l1; *wc = l2;
+    return true;
+}
+
+bool Holo3D_HitCap(const Holo3DModel *m, float x, float y, float *u, float *v)
+{
+    if (!m) return false;
+    const float dy = h3d_offY(m, 0);
+    const Vector2 p = {x, y};
+
+    /* Front to back, so a fold in the ground gives the nearer face. */
+    for (int i = m->NX - 1; i >= 0; i--)
+        for (int j = m->NZ - 1; j >= 0; j--)
+        {
+            const Vector2 q00 = h3d_proj_dy(m, m->pts[0][i][j], dy);
+            const Vector2 q10 = h3d_proj_dy(m, m->pts[0][i + 1][j], dy);
+            const Vector2 q11 = h3d_proj_dy(m, m->pts[0][i + 1][j + 1], dy);
+            const Vector2 q01 = h3d_proj_dy(m, m->pts[0][i][j + 1], dy);
+
+            float a, b, c;
+            float s = 0.0f, t = 0.0f;
+            if (h3d_bary(q00, q10, q11, p, &a, &b, &c))      { s = b + c; t = c; }
+            else if (h3d_bary(q00, q11, q01, p, &a, &b, &c)) { s = b;     t = b + c; }
+            else continue;
+
+            if (u) *u = ((float)i + (s < 0.0f ? 0.0f : (s > 1.0f ? 1.0f : s))) / (float)m->NX;
+            if (v) *v = ((float)j + (t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t))) / (float)m->NZ;
+            return true;
+        }
+    return false;
+}
+
+Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v)
+{
+    if (!m) return (Vector2){0.0f, 0.0f};
+    if (u < 0.0f) u = 0.0f; if (u > 1.0f) u = 1.0f;
+    if (v < 0.0f) v = 0.0f; if (v > 1.0f) v = 1.0f;
+
+    /* bilinear across the cap's grid, so the marker sits ON the ground
+       rather than on the nearest node */
+    const float fi = u * (float)m->NX, fj = v * (float)m->NZ;
+    int i = (int)fi, j = (int)fj;
+    if (i >= m->NX) i = m->NX - 1;
+    if (j >= m->NZ) j = m->NZ - 1;
+    const float s = fi - (float)i, t = fj - (float)j;
+
+    const V3 a = m->pts[0][i][j],     b = m->pts[0][i + 1][j];
+    const V3 c = m->pts[0][i][j + 1], d = m->pts[0][i + 1][j + 1];
+    V3 w;
+    w.x = (a.x * (1 - s) + b.x * s) * (1 - t) + (c.x * (1 - s) + d.x * s) * t;
+    w.y = (a.y * (1 - s) + b.y * s) * (1 - t) + (c.y * (1 - s) + d.y * s) * t;
+    w.z = (a.z * (1 - s) + b.z * s) * (1 - t) + (c.z * (1 - s) + d.z * s) * t;
+    return h3d_proj_dy(m, w, h3d_offY(m, 0));
+}
+
 /* ---------- 5. HUD (projected, so it follows the rotation) ----------- */
 
 H3DHud Holo3D_HudAll(void) { return (H3DHud){true, true, true, true}; }

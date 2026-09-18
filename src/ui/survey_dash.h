@@ -68,6 +68,7 @@ typedef struct SurveyDashTool {
     const char *kind;    /* "Point" / "Line" / "Area"                     */
     TRIcon      icon;    /* chosen at the boundary, where tool identity is */
     bool        built;   /* does the game actually RUN this one yet       */
+    bool        isDrill; /* the one tool that sites a hole               */
     /* What TOOL STATS reports, 0..8 segments each. The game has no
      * per-tool cost model yet -- SurveyToolInfo carries a name, a blurb, a
      * mark and `built` -- so these arrive as placeholders from the boundary
@@ -132,6 +133,15 @@ typedef struct SurveyDashState {
      * SurveyConsole::SelectedTool. */
     int           toolPick;
 
+    /* Where the pointer is on the ground, 0..1 across the block, and whether
+     * it is on the ground at all. Only meaningful while the drill is the
+     * selected tool -- that is the gate. */
+    bool          aimArmed;      /* the selected tool sites holes        */
+    bool          aimOn;         /* the pointer is over the cap          */
+    float         aimU, aimV;
+    bool          sited;         /* a site has been committed            */
+    float         siteU, siteV;  /* it, in the same 0..1 cap coordinates */
+
     /* mirrored from the feed, in rack slot order, for TOOL STATS */
     int           toolPower[SURVEY_DASH_TOOLS_MAX];
     int           toolTime [SURVEY_DASH_TOOLS_MAX];
@@ -163,6 +173,11 @@ Vector2 SurveyDash_ToDesign(Rectangle region, Vector2 screenPt);
 /* Input, in SCREEN coordinates -- the conversion happens inside, because
  * hit-testing in screen space is the mistake the spec calls out by name. */
 void SurveyDash_Press  (SurveyDashState *s, Rectangle region, Vector2 screenPt);
+
+/* Where the pointer is, every frame. There is no hover on a touch screen, but
+ * the web shell publishes the last touch and never clears it, so a tap
+ * behaves as a hover that stays (docs/web-deploy-mobile.md). */
+void SurveyDash_Hover  (SurveyDashState *s, Rectangle region, Vector2 screenPt);
 
 /* Wheel notches (or pinch steps) over the block. Positive zooms in. */
 void SurveyDash_Zoom   (SurveyDashState *s, Rectangle region, Vector2 screenPt, float steps);

@@ -7,6 +7,11 @@
 #include <math.h>
 #include <string.h>
 
+#ifndef PI
+#define PI 3.14159265358979323846f
+#endif
+#define RGBA8(r,g,b,a) ((Color){(r),(g),(b),(unsigned char)((a)*255.0f)})
+
 /* THREE PANES, which is a layout decision and not the reference's. The JS
  * dashboard has four blocks -- rack + tool stats down the left, block + log in
  * the middle, drill bar + drill stats down the right. This console is three:
@@ -222,9 +227,17 @@ void SurveyDash_Feed(SurveyDashState *s, const SurveyDashFeed *feed)
         t->icon     = g->icon;
         t->active   = (i == feed->selectedTool);
         t->selected = t->active;
+        if (t->active) s->aimArmed = g->isDrill;
         s->toolPower[i] = g->power;
         s->toolTime[i]  = g->time;
         s->toolCrew[i]  = g->crew;
+    }
+
+    /* nothing selected is not armed */
+    {
+        bool any = false;
+        for (int i = 0; i < r->slots; i++) if (r->tools[i].present && r->tools[i].active) any = true;
+        if (!any) s->aimArmed = false;
     }
 
     /* One model for the block and the drill. Repointed every frame, so a
@@ -309,6 +322,10 @@ void SurveyDash_Reset(SurveyDashState *s)
     DrillSim_Reset(&s->drill);
     DashKnow_Clear(&s->own);
 
+    /* There is always a collar. The console opens with one in the middle of
+     * the block so the player can see where a hole would go before touching
+     * anything; tapping the ground moves it. */
+    s->siteU = 0.5f; s->siteV = 0.5f; s->sited = true;
     s->siteI = DK_LATTICE * 0.5f;
     s->siteJ = DK_LATTICE * 0.5f;
     s->toolPick = -1;
@@ -316,6 +333,48 @@ void SurveyDash_Reset(SurveyDashState *s)
 
     DashLog_Push(s, 0.0f, "Console online. Tap the cap to set a site, the ruler to set a depth.", NULL);
     s->started = true;
+}
+
+/* THE SITE, ON THE GROUND. A ring where the pointer is and a fixed cross
+ * where the hole is collared -- both projected onto the cap, so they ride the
+ * block's rotation and zoom instead of floating over it. Drawn after the
+ * block and before the panels. */
+static void DashDrawSite(const SurveyDashState *s)
+{
+    if (!g_model) return;
+
+    if (s->sited)
+    {
+        const Vector2 p = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
+        const float r = 9.0f;
+        const Color hot = RGBA8(0xff, 0xc8, 0x4d, 0.95f);
+        const Vector2 h[2] = {{p.x - r, p.y}, {p.x + r, p.y}};
+        const Vector2 v[2] = {{p.x, p.y - r}, {p.x, p.y + r}};
+        c2d_polyline(h, 2, hot, 1.6f);
+        c2d_polyline(v, 2, hot, 1.6f);
+        Vector2 ring[17];
+        for (int i = 0; i <= 16; i++)
+        {
+            const float a = (float)(i % 16) / 16.0f * 2.0f * PI;
+            ring[i] = (Vector2){p.x + cosf(a) * r * 0.55f, p.y + sinf(a) * r * 0.55f};
+        }
+        c2d_polyline(ring, 17, hot, 1.6f);
+    }
+
+    if (s->aimArmed && s->aimOn)
+    {
+        const Vector2 p = Holo3D_CapPoint(g_model, s->aimU, s->aimV);
+        const Color aim = RGBA8(0x35, 0xd8, 0xee, 0.85f);
+        Vector2 ring[25];
+        for (int i = 0; i <= 24; i++)
+        {
+            const float a = (float)(i % 24) / 24.0f * 2.0f * PI;
+            ring[i] = (Vector2){p.x + cosf(a) * 12.0f, p.y + sinf(a) * 12.0f};
+        }
+        c2d_polyline(ring, 25, aim, 1.4f);
+        const Vector2 t[2] = {{p.x, p.y - 18.0f}, {p.x, p.y - 13.0f}};
+        c2d_polyline(t, 2, aim, 1.4f);
+    }
 }
 
 void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
@@ -382,6 +441,8 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
                            : (dr->rate > 0.05f) ? "DRILLING" : "IDLE";
         Dash_DrillStats(RIGHT_X, STATS_Y, RIGHT_W, STATS_H, dr, status);
     }
+
+    DashDrawSite(s);
 
     Dash_Confidence(LOG_X, CONF_Y, LOG_W, CONF_H,
                     DashKnow_Delineation(s->know, DK_LATTICE, DRILL_TARGET_M),
@@ -453,6 +514,17 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
         DrillSim_Bite(&s->drill);
 }
 
+void SurveyDash_Hover(SurveyDashState *s, Rectangle region, Vector2 screenPt)
+{
+    if (!s || !s->started) { return; }
+    s->aimOn = false;
+    if (!s->aimArmed || !g_model) return;
+    const Vector2 d = SurveyDash_ToDesign(region, screenPt);
+    if (d.x < DASH_BLOCK_X0 || d.x > DASH_BLOCK_X1 ||
+        d.y < DASH_BLOCK_Y0 || d.y > DASH_BLOCK_Y1) return;
+    s->aimOn = Holo3D_HitCap(g_model, d.x, d.y, &s->aimU, &s->aimV);
+}
+
 void SurveyDash_Zoom(SurveyDashState *s, Rectangle region, Vector2 screenPt, float steps)
 {
     if (!s || !s->started || steps == 0.0f) return;
@@ -501,20 +573,34 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
             {
                 if (bed >= 0) Holo3D_Select(&s->block, bed);
             }
+            else if (!s->aimArmed)
+            {
+                /* THE GATE. Siting a hole is the drill's act, so the drill has
+                 * to be the tool in hand. Without this the block answered taps
+                 * whatever was selected, which made the rack decorative. */
+                DashLog_Push(s, s->drill.t,
+                             "Select the DRILL in the rack before siting a hole.", NULL);
+            }
             else
             {
-                /* the site, from where the tap landed across the block */
-                const float u = Clampf01v((d.x - DASH_BLOCK_X0) / (DASH_BLOCK_X1 - DASH_BLOCK_X0));
-                const float v = Clampf01v((d.y - DASH_BLOCK_Y0) / (DASH_BLOCK_Y1 - DASH_BLOCK_Y0));
-                s->siteI = u * (float)DK_LATTICE;
-                s->siteJ = v * (float)DK_LATTICE;
-                s->drill.depthM = 0.0f;      /* a new site is a new hole */
-                s->drill.lift = 0.0f;
-                s->drill.done = false;
-                char msg[96];
-                snprintf(msg, sizeof(msg), "Site moved to %d/%d. Collared.",
-                         (int)s->siteI, (int)s->siteJ);
-                DashLog_Push(s, s->drill.t, msg, NULL);
+                /* ON THE GROUND, not across the panel. The old mapping took
+                 * the tap's position in the pane and called it a position on
+                 * the block -- which is only the same thing when the block is
+                 * square on and fills the pane. It is neither. */
+                float u, v;
+                if (Holo3D_HitCap(g_model, d.x, d.y, &u, &v))
+                {
+                    s->siteU = u; s->siteV = v; s->sited = true;
+                    s->siteI = u * (float)DK_LATTICE;
+                    s->siteJ = v * (float)DK_LATTICE;
+                    s->drill.depthM = 0.0f;      /* a new site is a new hole */
+                    s->drill.lift = 0.0f;
+                    s->drill.done = false;
+                    char msg[96];
+                    snprintf(msg, sizeof(msg), "Site set at %d/%d. Collared.",
+                             (int)s->siteI, (int)s->siteJ);
+                    DashLog_Push(s, s->drill.t, msg, NULL);
+                }
             }
         }
         else

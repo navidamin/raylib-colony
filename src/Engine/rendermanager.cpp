@@ -3392,6 +3392,7 @@ static void FeedSurveyConsole(ProspectingSystem* ps, SurveyDashState* dash)
         feed.tool[i].kind  = SurveyToolKind(info.mark);
         feed.tool[i].icon  = SurveyToolIcon(t);
         feed.tool[i].built = info.built;
+        feed.tool[i].isDrill = (t == SurveyTool::DRILL);
         /* PLACEHOLDER, and the only one left on the console. Nothing in the
            game costs a survey tool in power, time or crew yet; these are the
            reference's own numbers so the block has something to show. */
@@ -3492,7 +3493,11 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
            here, next to its draw. Every hit test goes through design space --
            SurveyDash_* take screen points and convert internally, because
            hit-testing in screen space is the mistake the port spec names. */
-        const Vector2 mouse = GetMousePosition();
+        /* ColonyGetMousePosition, not raylib's: on a touch screen the shell
+           publishes the last touch and never clears it, so a tap reads as a
+           hover that stays -- which is the only hover a phone has. */
+        const Vector2 mouse = ColonyGetMousePosition();
+        SurveyDash_Hover(dash, console, mouse);
         if (CheckCollisionPointRec(mouse, console))
         {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(dash, console, mouse);

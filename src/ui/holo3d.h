@@ -93,6 +93,18 @@ void Holo3D_Render (Holo3DModel *m, const H3DState *st, H3DView *view);
 void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3DHud *hud);
 int  Holo3D_Hit    (const Holo3DModel *m, float x, float y);
 
+/* ---- the cap, as a surface you can point at ---------------------------
+ *
+ * Holo3D_Hit answers "which bed", which is the question isolate asks. Siting
+ * a hole asks a different one: WHERE ON THE GROUND, in the block's own 0..1
+ * coordinates. Both read the camera the last Holo3D_Render stamped, so call
+ * them after it.
+ *
+ * HitCap walks the cap's quads and returns false when the point is off the
+ * ground -- past the horizon of the top face, or on a wall. */
+bool Holo3D_HitCap  (const Holo3DModel *m, float x, float y, float *u, float *v);
+Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v);
+
 /* The controller from the JS `attach`, minus the DOM: the caller feeds it
  * pointer events in DESIGN space and it keeps the same easing. */
 void Holo3D_Tick  (H3DState *st, float dt, float now);
