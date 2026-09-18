@@ -371,13 +371,16 @@ instrument and reports `reliefAtFloor`, the RMS luminance swing over one
 floor sample — 0.009 on a flat mare against 0.039 on Tycho's ejecta, a
 4.5x spread that is real information about the ground.
 
-Two things were learned trying to spend it, both written up at the mask
-itself in `SubFloorRelief`: the albedo proxy it would replace is 93%
-clamped at the sect rung and is a constant there, and taking the gradient
-from the level's own macro multiplies the sub-floor by up to 2.7x, because
-a 5 km window's macro is an upscale with no floor-scale detail in it. The
-fix both need is to build the roughness field once at a span where the
-mosaic still resolves the floor, and sample it down the chain. That is the
-live work item; this paragraph is what it costs to skip.
+**Done 2026-09-18.** The roughness field is built once per chain at a span
+where the mosaic still resolves the floor and sampled by lat/lon at every
+rung, on both the CPU and the GPU. `BuildRoughField` in
+`terrain_synthesis.cpp` carries the reasoning and the four wrong turns
+taken to get there — normalising by the place's own average, anchoring on
+the moon's average, reading the calibration back off a clamped field, and
+using a single unblurred difference. Regional spread now reaches the
+picture: Procellarum 0.90x Imbrium, Apennines 3.44x, Tycho 4.29x.
+
+So of the two constants this entry pointed at, one is measured and one
+stays a constant on purpose.
 
 `git log -S'SynthesizeDetail'` for the real code.

@@ -227,7 +227,10 @@ mosaic (`src/assets/planet/wac_global.jpg`): the real imagery supplies
 every landform, and below its ~1.3 km/px resolution floor the synthesizer
 re-sharpens, relights, and builds a **world-anchored regolith** — a
 fractal residual, a clustered crater population, clast bands, grit and
-albedo mottle, all inside `TextureModulate`. Deterministic per location
+albedo mottle, all inside `TextureModulate`, concentrated by a roughness
+field measured off the mosaic itself (`BuildRoughField`) so a mare gets
+less of it than crater ejecta — Procellarum 0.90x Mare Imbrium, Tycho
+4.29x. Deterministic per location
 — the same coordinates always regenerate the same ground, from any
 window that frames them, so nothing is stored. `detail_noise.h` holds
 the one lattice: `terrain_synthesis.cpp` and `lola_dem.cpp` include it,
