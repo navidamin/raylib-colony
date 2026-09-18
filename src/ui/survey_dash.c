@@ -222,6 +222,9 @@ void SurveyDash_Feed(SurveyDashState *s, const SurveyDashFeed *feed)
         t->icon     = g->icon;
         t->active   = (i == feed->selectedTool);
         t->selected = t->active;
+        s->toolPower[i] = g->power;
+        s->toolTime[i]  = g->time;
+        s->toolCrew[i]  = g->crew;
     }
 
     /* One model for the block and the drill. Repointed every frame, so a
@@ -358,6 +361,27 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     hud.reticle = true;
     Holo3D_Render(g_model, &s->block, &s->view);
     Holo3D_DrawHud(g_model, &s->block, &s->view, &hud);
+
+    /* ---- the two stats blocks, under the instruments they describe ---- */
+    {
+        int sel = -1;
+        for (int i = 0; i < s->rack.slots; i++)
+            if (s->rack.tools[i].present && s->rack.tools[i].active) { sel = i; break; }
+        Dash_ToolStats(LEFT_X, STATS_Y, LEFT_W, STATS_H,
+                       sel >= 0 ? s->rack.tools[sel].name : NULL,
+                       sel >= 0 ? s->rack.tools[sel].type : NULL,
+                       sel >= 0 ? s->toolPower[sel] : 0,
+                       sel >= 0 ? s->toolTime[sel]  : 0,
+                       sel >= 0 ? s->toolCrew[sel]  : 0);
+    }
+    {
+        const DrillSim *dr = &s->drill;
+        const char *status = dr->tripping ? "TRIPPING"
+                           : dr->done     ? "HOLE COMPLETE"
+                           : (dr->targetM >= 0.0f && dr->depthM >= dr->targetM) ? "AT TARGET"
+                           : (dr->rate > 0.05f) ? "DRILLING" : "IDLE";
+        Dash_DrillStats(RIGHT_X, STATS_Y, RIGHT_W, STATS_H, dr, status);
+    }
 
     Dash_Confidence(LOG_X, CONF_Y, LOG_W, CONF_H,
                     DashKnow_Delineation(s->know, DK_LATTICE, DRILL_TARGET_M),

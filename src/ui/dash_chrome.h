@@ -77,6 +77,24 @@ void Dash_DrillBarFace(float x, float y, float w, float h,
  * which is what tells the player it has become a control. */
 float Dash_DrillBarPickDepth(float x, float y, float w, float h, float px, float py);
 
+/* ---- the two stats blocks (drawToolStats 1376, drawDrillStats 1577) ----
+ *
+ * Both were skipped when the console went to three panes: they had no pane.
+ * They have one now, under the instrument each describes.
+ *
+ * TOOL STATS reports the SELECTED tool -- "NO TOOL" when nothing is picked,
+ * which is also the state that refuses a drill site. `power`/`time`/`crew`
+ * are 0..8 segment counts. */
+void Dash_ToolStats(float x, float y, float w, float h,
+                    const char *name, const char *type,
+                    int power, int time, int crew);
+
+/* DRILL STATS reads the simulation, so the bars move while the bit turns:
+ * rotary speed, load, temperature, bit wear and vibration. `sim` may be NULL
+ * for the idle pose. `status` is the line in the button at the foot. */
+void Dash_DrillStats(float x, float y, float w, float h,
+                     const struct DrillSim *sim, const char *status);
+
 /* C5: delineation, its tier, and the gate isolate waits on. */
 void Dash_Confidence(float x, float y, float w, float h,
                      float delineation, const char *tier, bool measured);

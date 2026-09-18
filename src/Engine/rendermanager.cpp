@@ -3392,6 +3392,13 @@ static void FeedSurveyConsole(ProspectingSystem* ps, SurveyDashState* dash)
         feed.tool[i].kind  = SurveyToolKind(info.mark);
         feed.tool[i].icon  = SurveyToolIcon(t);
         feed.tool[i].built = info.built;
+        /* PLACEHOLDER, and the only one left on the console. Nothing in the
+           game costs a survey tool in power, time or crew yet; these are the
+           reference's own numbers so the block has something to show. */
+        static const int kStats[5][3] = {{4,3,2},{2,5,3},{3,6,4},{5,2,1},{3,4,3}};
+        feed.tool[i].power = kStats[i % 5][0];
+        feed.tool[i].time  = kStats[i % 5][1];
+        feed.tool[i].crew  = kStats[i % 5][2];
     }
     feed.selectedTool = static_cast<int>(ps->Survey().SelectedTool());
 

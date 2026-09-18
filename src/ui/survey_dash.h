@@ -68,6 +68,11 @@ typedef struct SurveyDashTool {
     const char *kind;    /* "Point" / "Line" / "Area"                     */
     TRIcon      icon;    /* chosen at the boundary, where tool identity is */
     bool        built;   /* does the game actually RUN this one yet       */
+    /* What TOOL STATS reports, 0..8 segments each. The game has no
+     * per-tool cost model yet -- SurveyToolInfo carries a name, a blurb, a
+     * mark and `built` -- so these arrive as placeholders from the boundary
+     * and become real the day something defines them. */
+    int         power, time, crew;
 } SurveyDashTool;
 
 typedef struct SurveyDashFeed {
@@ -126,6 +131,11 @@ typedef struct SurveyDashState {
      * feed brings it back. One owner, and the rack cannot drift from
      * SurveyConsole::SelectedTool. */
     int           toolPick;
+
+    /* mirrored from the feed, in rack slot order, for TOOL STATS */
+    int           toolPower[SURVEY_DASH_TOOLS_MAX];
+    int           toolTime [SURVEY_DASH_TOOLS_MAX];
+    int           toolCrew [SURVEY_DASH_TOOLS_MAX];
 } SurveyDashState;
 
 /* Process-wide GPU resources. Idempotent; safe to call every frame. Returns

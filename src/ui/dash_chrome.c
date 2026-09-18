@@ -892,3 +892,231 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
         c2d_fill_poly(v, c2d_rpoly_pts(tri, 3, 0.0f, 0.0f, v, DC_PTS), mark);
     }
 }
+
+/* ====================================================================== */
+/* the two stats blocks (dashboard.html 1348-1372, 1376-1390, 1577-1590)  */
+/* ====================================================================== */
+
+static const Color C_barOn  = RGB(0x24, 0xdc, 0xf2);
+static const Color C_barOff = RGB(0x0a, 0x22, 0x30);
+static const Color C_barEg  = RGB(0x15, 0x37, 0x47);
+static const Color C_bright = RGB(0xbc, 0xd2, 0xe6);
+static const Color C_label  = RGB(0xa3, 0xb8, 0xcc);
+static const Color C_dim    = RGB(0x5f, 0x7a, 0x96);
+static const Color C_btnEdge = RGB(0x24, 0x5a, 0x6c);
+static const Color C_btnText = RGB(0x4d, 0x9c, 0xb4);
+/* the drill's own severity ramp, keyed by the letters in its stat codes */
+static const Color C_sev_g  = RGB(0x3f, 0xe3, 0x6e);
+static const Color C_sev_y  = RGB(0xe9, 0xe3, 0x4b);
+static const Color C_sev_o  = RGB(0xff, 0xa4, 0x41);
+static const Color C_sev_r  = RGB(0xff, 0x5a, 0x5a);
+
+static Color DcSeverity(char code)
+{
+    switch (code)
+    {
+        case 'g': return C_sev_g;
+        case 'y': return C_sev_y;
+        case 'o': return C_sev_o;
+        case 'r': return C_sev_r;
+        default:  return C_barOff;
+    }
+}
+
+/* segBar (1348): n cells, each filled or empty, with a highlight strip along
+ * the top of a filled one. `fills[i].a == 0` means empty. */
+static float DcSegBar(float x, float y, int n, const Color *fills,
+                      float cw, float ch, float gap)
+{
+    for (int i = 0; i < n; i++)
+    {
+        const float sx = x + (float)i * (cw + gap);
+        const bool on = fills[i].a != 0;
+        DcRRectFill(sx, y, cw, ch, 2.0f, on ? fills[i] : C_barOff);
+        DcRRectStroke(sx, y, cw, ch, 2.0f,
+                      on ? RGBA(0, 0, 0, 0.35f) : C_barEg, 1.0f);
+        if (on) c2d_rect(sx + 2.0f, y + 2.0f, cw - 4.0f, 2.0f, RGBA(255, 255, 255, 0.28f));
+    }
+    return (float)n * (cw + gap) - gap;
+}
+
+static void DcFillN(Color *out, int n, int on, Color c)
+{
+    for (int i = 0; i < n; i++) out[i] = (i < on) ? c : (Color){0, 0, 0, 0};
+}
+
+/* ---- glyphs (1360) --------------------------------------------------- */
+
+static void GlyBolt(float x, float y, float s, Color c)
+{
+    const Vector2 p[6] = {
+        {x + s * 0.55f, y - s}, {x - s * 0.35f, y + s * 0.15f}, {x + s * 0.1f, y + s * 0.15f},
+        {x - s * 0.5f, y + s}, {x + s * 0.45f, y - s * 0.15f}, {x, y - s * 0.15f}};
+    c2d_fill_poly(p, 6, c);
+}
+
+static void GlyClock(float x, float y, float s, Color c)
+{
+    Vector2 ring[25];
+    for (int i = 0; i <= 24; i++)
+    {
+        const float a = (float)(i % 24) / 24.0f * 2.0f * PI;
+        ring[i] = (Vector2){x + cosf(a) * s * 0.9f, y + sinf(a) * s * 0.9f};
+    }
+    c2d_polyline(ring, 25, c, s * 0.28f);
+    const Vector2 hands[3] = {{x, y - s * 0.55f}, {x, y}, {x + s * 0.45f, y + s * 0.2f}};
+    c2d_polyline(hands, 3, c, s * 0.28f);
+}
+
+static void GlyCrew(float x, float y, float s, Color c)
+{
+    const float d[3][3] = {{-0.65f, 0.1f, 0.32f}, {0.0f, -0.15f, 0.38f}, {0.65f, 0.1f, 0.32f}};
+    for (int i = 0; i < 3; i++)
+        c2d_disc((Vector2){x + d[i][0] * s, y + d[i][1] * s}, d[i][2] * s, c);
+    DcRRectFill(x - s, y + s * 0.45f, s * 2.0f, s * 0.55f, s * 0.2f, c);
+}
+
+static void GlyRotary(float x, float y, float s, Color c)
+{
+    Vector2 ring[21];
+    for (int i = 0; i <= 20; i++)
+    {
+        const float a = (float)(i % 20) / 20.0f * 2.0f * PI;
+        ring[i] = (Vector2){x + cosf(a) * s * 0.75f, y + sinf(a) * s * 0.75f};
+    }
+    c2d_polyline(ring, 21, c, s * 0.25f);
+    c2d_disc((Vector2){x, y}, s * 0.28f, c);
+    for (int k = 0; k < 4; k++)
+    {
+        const float a = (float)k * PI * 0.5f;
+        const Vector2 t[2] = {{x + cosf(a) * s * 0.95f, y + sinf(a) * s * 0.95f},
+                              {x + cosf(a) * s * 1.2f,  y + sinf(a) * s * 1.2f}};
+        c2d_polyline(t, 2, c, s * 0.25f);
+    }
+}
+
+static void GlyLock(float x, float y, float s, Color c)
+{
+    Vector2 sh[10];
+    for (int i = 0; i < 10; i++)
+    {
+        const float a = PI - (float)i / 9.0f * PI;
+        sh[i] = (Vector2){x + cosf(a) * s * 0.45f, y - s * 0.25f + sinf(a) * s * 0.45f};
+    }
+    c2d_polyline(sh, 10, c, s * 0.25f);
+    DcRRectFill(x - s * 0.75f, y - s * 0.2f, s * 1.5f, s * 1.1f, s * 0.15f, c);
+}
+
+static void GlyThermo(float x, float y, float s, Color c)
+{
+    const Vector2 stem[2] = {{x, y - s * 0.8f}, {x, y + s * 0.3f}};
+    c2d_polyline(stem, 2, c, s * 0.5f);
+    c2d_disc((Vector2){x, y + s * 0.55f}, s * 0.5f, c);
+    const Vector2 t1[2] = {{x + s * 0.55f, y - s * 0.6f}, {x + s * 0.9f, y - s * 0.6f}};
+    const Vector2 t2[2] = {{x + s * 0.55f, y - s * 0.2f}, {x + s * 0.9f, y - s * 0.2f}};
+    c2d_polyline(t1, 2, c, s * 0.18f);
+    c2d_polyline(t2, 2, c, s * 0.18f);
+}
+
+static void GlyBit(float x, float y, float s, Color c)
+{
+    c2d_rect(x - s * 0.35f, y - s, s * 0.7f, s * 0.55f, c);
+    c2d_rect(x - s * 0.2f, y - s * 0.45f, s * 0.4f, s * 0.5f, c);
+    const Vector2 tip[3] = {{x - s * 0.45f, y + s * 0.05f}, {x + s * 0.45f, y + s * 0.05f}, {x, y + s}};
+    c2d_fill_poly(tip, 3, c);
+}
+
+static void GlyWave(float x, float y, float s, Color c)
+{
+    const float d[8][2] = {{-1.0f, 0.0f}, {-0.6f, 0.0f}, {-0.4f, -0.5f}, {-0.15f, 0.9f},
+                           {0.1f, -0.9f}, {0.35f, 0.5f}, {0.55f, 0.0f}, {1.0f, 0.0f}};
+    Vector2 p[8];
+    for (int i = 0; i < 8; i++) p[i] = (Vector2){x + d[i][0] * s, y + d[i][1] * s};
+    c2d_polyline(p, 8, c, s * 0.22f);
+}
+
+/* ---- TOOL STATS (1376) ----------------------------------------------- */
+
+void Dash_ToolStats(float x, float y, float w, float h,
+                    const char *name, const char *type,
+                    int power, int time, int crew)
+{
+    (void)h;
+    const float tw = Dash_Title("TOOL STATS", x + 18.0f, y + 28.0f, 15.0f, 26.0f);
+    DcLabel("\xe2\x80\x94", x + 18.0f + tw + 14.0f, y + 28.0f, 12.0f, C_dim, C2D_W500);
+
+    char what[48];
+    if (name && name[0]) snprintf(what, sizeof(what), "%s (%s)", name, type ? type : "");
+    else                 snprintf(what, sizeof(what), "NO TOOL");
+    DcLabel(what, x + 18.0f + tw + 30.0f, y + 28.0f, 12.0f,
+            (name && name[0]) ? C_label : C_dim, C2D_W500);
+
+    const int rows[3] = {power, time, crew};
+    const char *names[3] = {"Power", "Time", "Crew"};
+    Color cells[8];
+    for (int i = 0; i < 3; i++)
+    {
+        const float ry = y + 62.0f + (float)i * 32.0f;
+        if (i == 0) GlyBolt (x + 30.0f, ry, 8.0f, C_accent);
+        if (i == 1) GlyClock(x + 30.0f, ry, 8.0f, C_accent);
+        if (i == 2) GlyCrew (x + 30.0f, ry, 8.0f, C_accent);
+        DcLabel(names[i], x + 52.0f, ry + 5.0f, 13.0f, C_label, C2D_W500);
+        DcFillN(cells, 8, rows[i], C_barOn);
+        DcSegBar(x + 112.0f, ry - 7.0f, 8, cells, 13.0f, 13.0f, 3.0f);
+    }
+}
+
+/* ---- DRILL STATS (1577) ----------------------------------------------- */
+
+void Dash_DrillStats(float x, float y, float w, float h,
+                     const struct DrillSim *sim, const char *status)
+{
+    Dash_Title("DRILL STATS", x + 18.0f, y + 26.0f, 15.0f, 0.0f);
+
+    /* The reference's five rows are static strings of severity letters. Ours
+     * read the simulation, so the ramp is computed from the value: the bars
+     * move while the bit turns, which is the whole reason the block is here. */
+    const float rpm  = sim ? sim->rpm / 1.35f : 0.0f;
+    const float heat = sim ? sim->heat : 0.0f;
+    const float wear = sim ? (1.0f - sim->wear) : 0.0f;
+    const float vib  = sim ? Clampf01(sim->shake * 0.7f + rpm * 0.35f) : 0.0f;
+    /* "Load" is what the rock pushes back: hardness carried by spindle speed. */
+    const float load = sim ? Clampf01(rpm * (0.4f + DrillSim_At(sim->depthM)->hard * 0.9f)) : 0.0f;
+
+    const float vals[5]  = {rpm, load, heat, wear, vib};
+    const char *names[5] = {"Rotary Speed", "Load", "Temperature", "Bit Wear", "Vibration"};
+
+    Color cells[8];
+    for (int i = 0; i < 5; i++)
+    {
+        const float ry = y + 44.0f + (float)i * 20.0f;
+        switch (i)
+        {
+            case 0: GlyRotary(x + 26.0f, ry, 7.0f, C_bright); break;
+            case 1: GlyLock  (x + 26.0f, ry, 7.0f, C_bright); break;
+            case 2: GlyThermo(x + 26.0f, ry, 7.0f, C_bright); break;
+            case 3: GlyBit   (x + 26.0f, ry, 7.0f, C_bright); break;
+            default: GlyWave (x + 26.0f, ry, 7.0f, C_bright); break;
+        }
+        DcLabel(names[i], x + 44.0f, ry + 4.0f, 12.0f, C_label, C2D_W500);
+
+        const int on = (int)(Clampf01(vals[i]) * 8.0f + 0.5f);
+        for (int k = 0; k < 8; k++)
+        {
+            if (k >= on) { cells[k] = (Color){0, 0, 0, 0}; continue; }
+            /* green up to half, then yellow, orange, red -- the ramp the
+               reference spells out letter by letter, as a function. */
+            const float f = (float)k / 7.0f;
+            cells[k] = DcSeverity(f < 0.5f ? 'g' : (f < 0.72f ? 'y' : (f < 0.88f ? 'o' : 'r')));
+        }
+        DcSegBar(x + 146.0f, ry - 5.0f, 8, cells, 10.0f, 10.0f, 2.0f);
+    }
+
+    /* the status button at the foot (1586) */
+    const float bh = 26.0f, by = y + h - bh - 10.0f;
+    DcRRectFill(x + 16.0f, by, w - 32.0f, bh, 6.0f, RGBA(20, 60, 80, 0.15f));
+    DcRRectStroke(x + 16.0f, by, w - 32.0f, bh, 6.0f, C_btnEdge, 1.5f);
+    const char *st = status ? status : "IDLE";
+    const float sw = c2d_measure(C2D_W700, 13.0f, st) * 0.9f;
+    DcCondensed(C2D_W700, 13.0f, 0.9f, st, x + w * 0.5f - sw * 0.5f, by + 17.5f, C_btnText);
+}
