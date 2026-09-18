@@ -1,8 +1,8 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-08-18
-**Current Sprint:** Prospecting & Extraction Unit Overhaul
-**Timeline:** Phase 1.5 - Extraction Unit Overhaul
+**Last Updated:** 2026-09-18
+**Current Sprint:** Terrain Synthesis & the Site-Selection Descent
+**Timeline:** Phase 0 graphics track — the planet surface and how a colony is sited on it
 
 ---
 
@@ -16,6 +16,7 @@ PHASE 0: Foundation & Architecture ███████████████
 ├─ Module system ✅ COMPLETE
 ├─ Data-driven architecture ✅ COMPLETE (Checkpoint 1)
 ├─ Graphics enhancement ~95% COMPLETE (needs polish pass)
+├─ Terrain synthesis & site selection ~95% (its own track below)
 └─ Transport network ✅ COMPLETE (~90%)
 
 PHASE 1.5: Extraction Unit Overhaul ████████████████████ 100% ✅ COMPLETE
@@ -23,6 +24,16 @@ PHASE 1.5: Extraction Unit Overhaul ██████████████�
 ├─ Module-specific UI rendering ✅ COMPLETE (display + interactive controls)
 ├─ Extraction UI redesign (dark sci-fi kit) ✅ COMPLETE (2026-08)
 └─ Balance pass ✅ MOSTLY COMPLETE (upgrade costs still untuned)
+
+TERRAIN SYNTHESIS & SITE SELECTION ███████████████████░ ~95% (2026-08-25 → 09-18)
+├─ Real-imagery chain (WAC mosaic → 100/25/5 km) ✅ COMPLETE
+├─ World-anchored regolith below the data floor ✅ COMPLETE (CPU + GPU)
+├─ Measured roughness field (mare vs ejecta) ✅ COMPLETE (2026-09-18)
+├─ Orbital globe + 3-level survey ladder ✅ COMPLETE
+├─ GPU synthesis path w/ CPU fallback ✅ COMPLETE
+├─ Web/iPad build (271 MB heap, was 783) ✅ COMPLETE
+├─ Descent wired into the game's colony placement ❌ NOT DONE
+└─ Height-field Hurst exponent 📋 BLOCKED — needs LOLA, see graveyard 9
 
 PROSPECTING REWRITE ████████████████░░░░ ~75% (design Phases 1-6 of 8)
 ├─ Phase 1: Data model & sub-cell grid ✅ COMPLETE
@@ -39,6 +50,64 @@ PHASE 2: Transport Network █████████████████�
 PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░░░░  0% PLANNED
 ...
 ```
+
+---
+
+## Recent Completions (2026-09-18)
+
+### Terrain Synthesis & the Site-Selection Descent ✅ COMPLETE
+
+98 commits on `claude/lunar-elevation-lola-dem-1dcdtj`. The planet surface
+is now generated from real lunar imagery at every scale the player sees, and
+colony siting happens on a real-coordinates descent rather than a grid click.
+
+**The synthesis**
+- **World-anchored regolith** — below the WAC mosaic's ~1.33 km/px floor the
+  chain invents ground: fractal residual, clustered crater population, clast
+  bands, grit, albedo mottle. Anchored to the moon, not the window, so the
+  same place regenerates the same ground from any framing (graveyard 8 is
+  the per-window version that was removed).
+- **Ported to the GPU** as fragment passes, and to JS in the bench; all three
+  share one lattice (`detail_noise.h`) and agree to RMS 0.71/255.
+- **Measured roughness field** (2026-09-18) — where the invented relief lands
+  is now read off the mosaic instead of guessed from albedo. The old proxy
+  was 93% clamped at the sect rung, i.e. a constant exactly where the
+  regolith is the picture. Procellarum 0.90x Mare Imbrium, Tycho 4.29x.
+- **One synthesis, not two** — `lola_dem`'s independent sub-floor was
+  measured to be double-counting and deleted (graveyard 9).
+
+**The descent**
+- Orbital globe you can turn (replacing 12 baked frames, graveyard 3), then
+  a 3-level survey ladder: ~3000 km → 200 km district → 25 km site with a
+  1.5 km build footprint. `survey_cursor.*` owns the geometry; the cursor is
+  always the footprint of the level below.
+- Buildability assessed from real LOLA elevation, not RNG.
+
+**Instruments**
+- `tools/lunarmap/` (`lunar_map`) — the descent harness, deployed to
+  `/lunarmap/`. `--site`, `--chain`, `--siteshot`, `--subfloor`.
+- `tools/terrainprobe/` — CPU vs GPU, timed, per-level statistics, and a
+  location's roughness as a multiple of Imbrium.
+- `tools/surveycursor/` — headless geometry self-test.
+- `prototypes/planet_visuals/regolith_*` — the JS bench the regolith was
+  designed in, at `/regolith/`.
+
+**Made it run on a phone**
+- Web heap 783 MB → 271 MB: `LoadAlbedo` was converting the 8192x4096 mosaic
+  through raylib's `ImageFormat`, which routes every pixel through a 16-byte
+  float intermediate — 512 MB in one call, and emscripten never gives heap
+  back. That, not the terrain work, was the iPad black screen.
+- GLSL ES 1.00 cannot run the regolith (no `uint`, no bitwise ops), so
+  `TerrainGpuCanSubFloor()` routes WebGL1 to the CPU rather than silently
+  dropping it.
+
+**Housekeeping (2026-09-18)**
+- Windows CI had been red for 23 days over a one-line `M_PI` portability
+  break; green on all six workflows now.
+- ~570 lines of dead code removed (parked sub-floor, orphaned helpers).
+- CLAUDE.md and `tools/lunarmap/README.md` corrected — the README documented
+  23 of 38 flags and described `--detail` as on by default a fortnight after
+  it was parked at 0.
 
 ---
 
@@ -338,16 +407,25 @@ Replaced opaque scanCount/3 extraction formula with transparent **Survey Progres
 6. **Non-extraction units use the legacy UI** - Farming/Energy/Manufacture/Research still render through `unit->DrawInUnitView()` (`unit_ui.cpp`), not `RenderManager`, so they get none of the themed chrome or preview-tool support. Route each through `RenderManager` when its real panel is built (see `docs/guides/ui-panels.md`).
 7. **Four unit types are stubs** - Farming, Energy, Manufacture, and Research each have five *named* modules but only generic production logic. This is the largest content gap in the game.
 8. **Prospecting design docs still marked DRAFT/STUB** - Phases 1-6 are implemented; the docs do not say so. `resource-distribution-model.md` is a genuine STUB (pathfinder tips undesigned).
-9. **Roadmaps drifted ~6 months** - This file and `ROADMAP_OVERALL.md` described the pre-rewrite prospecting system until 2026-08-13. Update them at the end of each session per the `CLAUDE.md` catchup procedure.
+9. **Roadmaps drift when a branch runs long** - This file went 2026-08-23 → 09-18 (98 commits) without an update; `ROADMAP_OVERALL.md` went from 08-13. Update them at the end of each session per the `CLAUDE.md` catchup procedure — a long branch is exactly when it stops happening.
+10. **CI is only watched when someone looks** - Windows was red for 23 days and 22 commits over a one-line `M_PI` portability break, while the other five workflows stayed green. Nothing surfaces a single red platform; check `actions_list` per workflow, not just the latest run.
+11. **The regolith takes two different paths on the web** - GLSL ES 1.00 cannot run the lattice hash, so WebGL1 builds the sub-floor on the CPU. Correct, and measured, but it means the browser and the desktop reach the same picture by different routes. WebGL2 would end the split.
+12. **Tycho's sect rung saturates the roughness mask** - 100% on the upper bound, so within-window variation is lost there. Honest (5 km inside a fresh crater floor really is uniformly extreme) but it is the one place the new mask behaves like the old one.
+13. **The mosaic is decoded twice** - `terrain_synthesis`'s `EnsureWacLoaded` and `lunar_globe`'s `LoadAlbedo` each decode `wac_global.jpg`, ~190 MB of the web build's 271 MB. Sharing one decode would recover most of it.
 
 ---
 
 ## Next Sprint Preview
 
-The prospecting loop is now playable end-to-end (real data, real costs, no
-dead ends) and testable on desktop, headlessly, and on phone. Candidate next
-moves, roughly in order of value:
+Two loops are now playable and untested by a human: prospecting (real data,
+real costs, no dead ends) and the globe → site descent (real coordinates,
+real elevation, the synthesizer over it). Both deploy to Pages and run on a
+phone. Candidate next moves, roughly in order of value:
 
+0. **Playtest the descent on device** — `/lunarmap/` has been loaded but not
+   *played*. Unverified from here: whether the arrival pause at each rung is
+   acceptable on an iPad, and whether the roughness variation reads at all
+   at sect scale on a small screen.
 1. **Playtest prospecting on device** — the loop has never had a real session
    with working data and enforced costs. Do this before tuning anything.
 2. **Prospecting Phase 8: Objectives** — gives the loop goals and reward
@@ -361,6 +439,19 @@ moves, roughly in order of value:
 5. **Phase 1: Core Resource System** — storage capacity (1.1), resource
    visualization (1.2), transport timing (1.3), consumption/distribution (1.4)
 6. **Save/load** — increasingly painful as systems accumulate
+
+### Terrain — open items (not scheduled)
+- **A real Hurst exponent** needs a height field; the mosaic's luminance
+  cannot give one (measured, graveyard 9). LOLA can, but the game's web
+  build ships no DEM, so this is a bigger change than it looks.
+- **Share one mosaic decode** between `terrain_synthesis` and `lunar_globe`
+  — ~190 MB of the web build's 271 MB.
+- **WebGL2** would let the shader run the regolith everywhere and end the
+  CPU/GPU split on the web.
+- **Connect the descent to the game.** `lunar_map` owns the survey ladder;
+  `src/Engine/` still sites colonies through `View::SITE_SELECTION` and its
+  instrument panels. These are two different site-selection experiences and
+  only one of them is on the roadmap as finished.
 
 ### Future Prospecting Ideas (not scheduled)
 - Global AI Manager that sets policies across all extraction units colony-wide

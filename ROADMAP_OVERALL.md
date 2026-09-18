@@ -42,6 +42,25 @@ Create a scalable, data-driven colony management game with deep resource logisti
   - ✅ std::set<int> activeModuleIndices tracking
   - ✅ ActivateModule/DeactivateModule methods
   - ✅ Per-module resource consumption and production
+- ✅ **Terrain synthesis from real lunar imagery** - *Completed 2026-09-18*
+  - ✅ One chain feeds three views (100 → 25 → 5 km), registered by
+        construction, so zooming approaches the same ground
+  - ✅ World-anchored regolith below the mosaic's ~1.33 km/px floor:
+        fractal residual, crater population, clast bands, grit, mottle
+  - ✅ Concentrated by a roughness field measured off the mosaic
+        (Procellarum 0.90x Mare Imbrium, Tycho 4.29x)
+  - ✅ Two synthesizers — CPU and GPU fragment passes — chosen by a startup
+        probe, agreeing to 3.4 / 7.5 / 3.5 out of 255
+  - ✅ Real coordinates: the 20x20 grid is anchored on a real lat/lon
+  - ✅ `terrain_probe`, `lunar_map`, `survey_cursor_test` as instruments
+- ✅ **The site-selection descent** (in `lunar_map`) - *Completed 2026-09*
+  - ✅ Turnable orbital globe replacing 12 baked frames
+  - ✅ Three-level survey ladder, ~3000 km → 200 km → 25 km, 1.5 km footprint
+  - ✅ Buildability from real LOLA elevation, not RNG
+  - ⚠️ **Not wired into the game.** `src/Engine/` still sites colonies
+        through `View::SITE_SELECTION` and its instrument panels;
+        `survey_cursor.*` compiles into the game but nothing calls it.
+        Two site-selection experiences, one of them unreachable in play.
 
 #### In Progress 🔄
 - 🔄 **Graphics enhancement** (Checkpoint 0 - ~95% complete, needs polish)
@@ -49,6 +68,8 @@ Create a scalable, data-driven colony management game with deep resource logisti
 
 #### Remaining Tasks 📋
 - 📋 Graphics polish pass (texture scaling, active/inactive tint refinement)
+- 📋 Connect the survey descent to the game's colony placement, or decide
+      deliberately that `View::SITE_SELECTION` stays the shipped flow
 
 **Exit Criteria Progress:**
 - ✅ All manager subsystems fully functional
@@ -562,9 +583,29 @@ See `docs/design/research/README.md` for full interface requirements and open qu
 
 ## Current Status Summary
 
-**Current Phase:** PHASE 1.5 (Extraction Unit Overhaul) - 100% COMPLETE
+**Current Phase:** PHASE 0 graphics track — terrain synthesis & site
+selection, ~95% complete. PHASE 1.5 (Extraction Unit Overhaul) 100% COMPLETE.
 **Prospecting rewrite:** design Phases 1-6 of 8 complete
 **Next Phase:** PHASE 1 (Core Resource System)
+
+**Recent Completions (2026-09-18) — terrain & site selection:**
+- ✅ The planet surface is generated from real LROC WAC imagery at every
+  scale the player sees, with a world-anchored regolith invented below the
+  mosaic's resolution floor — the same place regenerates the same ground
+  from any window that frames it
+- ✅ That regolith runs on the CPU, on the GPU as fragment passes, and in
+  JS in the bench, from one shared lattice, agreeing to RMS 0.71 / 255
+- ✅ Where it lands is measured off the mosaic rather than guessed from
+  albedo: a mare gets less than crater ejecta (0.90x vs 4.29x Imbrium)
+- ✅ Orbital globe + three-level survey ladder down to a 1.5 km build
+  footprint, on real coordinates, with buildability from real LOLA
+- ✅ Runs on an iPad: web heap 783 MB → 271 MB (a single `ImageFormat`
+  call on the 8192x4096 mosaic was costing 512 MB of a heap that never
+  shrinks — this, not the terrain work, was the black screen)
+- ✅ Instruments: `tools/lunarmap`, `tools/terrainprobe`,
+  `tools/surveycursor`, and the JS bench at `/regolith/`
+- ⚠️ The descent lives in `lunar_map` and is **not** wired into the game's
+  colony placement. Deciding that is the track's remaining work.
 
 **Recent Completions (2026-08-13):**
 - ✅ Prospecting polish & economy — energy costs enforced (charged, gated, refunded), CALIBRATE / DISCARD / lab PRESETS wired to UI (all three had complete engines and no input path), crystal sprites finally rendered
@@ -586,6 +627,9 @@ See `docs/design/research/README.md` for full interface requirements and open qu
 - Engine refactor into manager subsystems, terrain rendering, BuildNewColony/BuildNewSect
 
 **Immediate Priorities:**
+0. 📋 Playtest the descent on device — `/lunarmap/` loads but has not been
+   *played*; the arrival pause per rung and whether the roughness variation
+   reads at sect scale are both unverified
 1. 📋 Playtest prospecting on device — first session with real data and enforced costs
 2. 📋 Prospecting Phase 8 (objectives), then Phase 7 (AI / default mode)
 3. 📋 First non-extraction unit panel (Farming or Energy) — largest content gap; tests whether the new guides generalize
@@ -604,6 +648,16 @@ See `docs/design/research/README.md` for full interface requirements and open qu
 - [ ] Create unit testing framework
 
 **Medium Priority:**
+- [ ] **Two site-selection flows exist.** `lunar_map` walks a real-coordinate
+      survey descent; the game sites colonies through `View::SITE_SELECTION`.
+      Pick one, or state why both.
+- [ ] **The mosaic is decoded twice** (`terrain_synthesis::EnsureWacLoaded`
+      and `lunar_globe::LoadAlbedo`) — ~190 MB of the web build's 271 MB.
+- [ ] **WebGL2 for the web build.** GLSL ES 1.00 cannot run the regolith's
+      lattice hash, so WebGL1 builds it on the CPU. Works, measured, but it
+      means the browser reaches the picture by a different route.
+- [ ] **CI health is unobserved.** Windows sat red for 23 days because five
+      other workflows were green and nothing aggregates them.
 - [ ] Optimize rendering for large entity counts
 - [ ] Add serialization/deserialization for save/load
 - [ ] Improve error handling throughout codebase
