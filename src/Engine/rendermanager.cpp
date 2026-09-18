@@ -3498,6 +3498,10 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
            hover that stays -- which is the only hover a phone has. */
         const Vector2 mouse = ColonyGetMousePosition();
         SurveyDash_Hover(dash, console, mouse);
+        /* The console draws its own pointer while it owns one, so the system
+           arrow would be a second cursor standing next to the first. */
+        if (CheckCollisionPointRec(mouse, console) && SurveyDash_OwnsCursor(dash)) HideCursor();
+        else ShowCursor();
         if (CheckCollisionPointRec(mouse, console))
         {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(dash, console, mouse);

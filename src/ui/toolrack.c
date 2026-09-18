@@ -571,11 +571,14 @@ static void TrDrawRowB(const ToolRackTool *tool, bool active, bool selected, int
 }
 
 /* ---------- 9 icons (638) ------------------------------------------------- */
-static void TrIconDrillStriped(float cx, float cy, bool on, bool fx)
+/* The drill itself -- head, shaft and its diagonal stripes -- without the
+ * dashed ellipse. The bay draws both; the CURSOR draws only this, because
+ * there the ring's job is done by the target mark at the tip and two rings
+ * around one point read as clutter. One source of truth for the shape. */
+static void TrDrillBody(float cx, float cy, bool on, bool fx)
 {
     const Color c  = on ? PB_head : PB_iconOff;
     const Color st = on ? PB_stripe : PB_iconOff;
-    const Color el = on ? PB_ellipseCol : PB_iconOffDk;
     if (on && fx)
     {
         c2d_shadow_begin();
@@ -601,6 +604,13 @@ static void TrIconDrillStriped(float cx, float cy, bool on, bool fx)
     for (int k = -6; k <= 6; k++) c2d_rect(-40.0f, (float)k * 10.5f, 80.0f, 5.5f, st);
     c2d_restore();
 
+}
+
+static void TrIconDrillStriped(float cx, float cy, bool on, bool fx)
+{
+    TrDrillBody(cx, cy, on, fx);
+
+    const Color el = on ? PB_ellipseCol : PB_iconOffDk;
     Vector2 ell[128];
     const int en = c2d_ellipse_pts((Vector2){cx, cy + 21.5f}, 40.5f, 16.0f, 0.0f,
                                    0.0f, TAU, ell, 96);
@@ -776,6 +786,17 @@ int ToolRack_HitTestB(float x, float y, int slots)
     const int i = (int)floorf((y - GB_rowTop0) / GB_rowPitch);
     const float r = y - GB_rowTop0 - (float)i * GB_rowPitch;
     return (i >= 0 && i < slots && r >= 0.0f && r <= GB_rowH) ? i : -1;
+}
+
+void ToolRack_DrawDrillCursor(float tipX, float tipY, float scale, bool on)
+{
+    if (scale <= 0.0f) scale = 1.0f;
+    c2d_save();
+    c2d_translate(tipX, tipY);
+    c2d_scale(scale, scale);
+    /* the icon's own origin is TR_DRILL_TIP_DY above its tip */
+    TrDrillBody(0.0f, -TR_DRILL_TIP_DY, on, on);
+    c2d_restore();
 }
 
 ToolRackData ToolRack_Demo(void)

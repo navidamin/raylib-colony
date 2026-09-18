@@ -142,6 +142,20 @@ typedef struct SurveyDashState {
     bool          sited;         /* a site has been committed            */
     float         siteU, siteV;  /* it, in the same 0..1 cap coordinates */
 
+    /* THE GUIDED HAND-OFF. Choosing a site does not finish anything -- the
+     * hole still needs a depth -- so the console says where to go next: the
+     * cursor becomes a target and travels to the borehole ruler, and waits
+     * there with a line of text until a depth is picked.
+     *  0      not running
+     *  0..1   flying from the site to the ruler
+     *  >=1    parked at the ruler, prompting */
+    float         guideT;
+    Vector2       guideFrom;     /* design-space, where the site was     */
+    bool          depthPicked;   /* clears the prompt                    */
+
+    Vector2       pointer;       /* design space, last known            */
+    bool          pointerIn;     /* inside the console at all           */
+
     /* mirrored from the feed, in rack slot order, for TOOL STATS */
     int           toolPower[SURVEY_DASH_TOOLS_MAX];
     int           toolTime [SURVEY_DASH_TOOLS_MAX];
@@ -178,6 +192,10 @@ void SurveyDash_Press  (SurveyDashState *s, Rectangle region, Vector2 screenPt);
  * the web shell publishes the last touch and never clears it, so a tap
  * behaves as a hover that stays (docs/web-deploy-mobile.md). */
 void SurveyDash_Hover  (SurveyDashState *s, Rectangle region, Vector2 screenPt);
+
+/* True while the console is drawing a pointer of its own, so the caller can
+ * take the system one away. */
+bool SurveyDash_OwnsCursor(const SurveyDashState *s);
 
 /* Wheel notches (or pinch steps) over the block. Positive zooms in. */
 void SurveyDash_Zoom   (SurveyDashState *s, Rectangle region, Vector2 screenPt, float steps);

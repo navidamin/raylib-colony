@@ -406,6 +406,48 @@ with depth. The lamp on the side pod reads machine state semantically
 - **World consistency rule**: debris never below the bit — *there is no hole
   down there yet.* Annulus debris tumbles only in the cut section above it.
 
+### 6.5b The tool in your hand — a rack icon reused as a cursor
+
+An instrument panel that lets you pick a tool and then hands you a generic
+arrow has thrown away the thing it just told you. **The pointer is part of
+the instrument**: with the drill selected, the pointer *is* the drill, tip
+down, and the spot it would collar is marked at that tip.
+
+Three rules, learned by rendering it wrong first:
+
+- **Reuse the bay's icon, do not draw a second one.** The tool in your hand
+  and the tool in its bay must be the same object, or the rack stops
+  explaining the cursor. In the code that is `TrDrillBody`, called by both.
+- **Split the icon at the decoration, not at the shape.** The rack's drill
+  carries a dashed ellipse — a *bay* ornament saying "this one marks a
+  point". As a cursor it swamps the drill (radius 40 against a 26-wide body)
+  and fights the target mark for the same spot. The cursor draws the body
+  only. That is composing a new component from existing parts, which §4.4
+  allows; redrawing the drill differently is what it forbids.
+- **Anchor the tip, not the centre.** A pointer's hotspot is where it
+  touches. The icon is laid out around a centre with its tip 34 below it, so
+  the cursor translates by that offset. Everything else about the icon is
+  untouched.
+
+**The target mark** that annotates the spot is one shape family used at three
+sizes: riding the bit's tip while aiming, left on the ground once the site is
+taken, and carried by the cursor on its way to the next control. Ring, four
+ticks turning slowly, centre dot. It carries **one shared glow layer**
+(`c2d_shadow_begin`/`end` around the whole mark, never a halo per shape) —
+the cap it sits on is imagery, grid and grain, and unglowed line work
+disappears into it. Stacking per-shape halos fills the gaps between the ticks
+and turns the mark into a blob; this is the same lesson as the rack's dashed
+ellipse.
+
+**Handing off between controls.** Choosing a site does not finish anything —
+the hole still needs a depth — so the mark *flies once* from the site to the
+control that is next, on an ease-out over about half a second, and then goes
+back to following the pointer. It does not park there: a cursor parked on a
+control is a cursor you cannot use that control with. What stays is a small
+plated sign anchored at the control, and a dimmer copy of the mark under it,
+so the sign points at something. Text that crosses rock needs the plate;
+unbacked line text over the strata bands is unreadable.
+
 ### 6.5 The crown — a rotary bit as an elliptical annulus
 
 A diamond core bit is not a helix. It is a **ring of segmented pads split by

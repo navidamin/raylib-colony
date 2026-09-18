@@ -72,6 +72,11 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
 void Dash_DrillBarFace(float x, float y, float w, float h,
                        float *fx, float *fy, float *fw, float *fh);
 
+/* Where the depth ruler runs, so a caller can point at it. Design-space,
+ * same x/y/w/h as Dash_DrillBar. */
+void Dash_DrillBarSpan(float x, float y, float w, float h,
+                       float *rx, float *ry0, float *ry1);
+
 /* C6: the ruler is the depth control. Returns the depth in metres a click at
  * `py` selects, or -1 if the click is not on the ruler. `armed` draws it lit,
  * which is what tells the player it has become a control. */

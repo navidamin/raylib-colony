@@ -322,10 +322,10 @@ void SurveyDash_Reset(SurveyDashState *s)
     DrillSim_Reset(&s->drill);
     DashKnow_Clear(&s->own);
 
-    /* There is always a collar. The console opens with one in the middle of
-     * the block so the player can see where a hole would go before touching
-     * anything; tapping the ground moves it. */
-    s->siteU = 0.5f; s->siteV = 0.5f; s->sited = true;
+    /* NOTHING IS SITED until the player sites it. The console used to open
+     * with a collar in the middle of the block, which read as a decision
+     * already taken and left a large mark sitting idle on the ground. */
+    s->sited = false;
     s->siteI = DK_LATTICE * 0.5f;
     s->siteJ = DK_LATTICE * 0.5f;
     s->toolPick = -1;
@@ -335,46 +335,140 @@ void SurveyDash_Reset(SurveyDashState *s)
     s->started = true;
 }
 
-/* THE SITE, ON THE GROUND. A ring where the pointer is and a fixed cross
- * where the hole is collared -- both projected onto the cap, so they ride the
- * block's rotation and zoom instead of floating over it. Drawn after the
- * block and before the panels. */
+/* ---- the target mark ---------------------------------------------------
+ *
+ * Four ticks around a ring, turning slowly, with a dot at the centre. It is
+ * the same mark wherever it appears -- riding the bit's tip while you aim,
+ * left on the ground once the site is taken, and carried by the cursor on
+ * its way to the ruler -- because they are all the same statement: THIS
+ * SPOT. Only the size changes. */
+static void DashTargetMarkShapes(Vector2 p, float r, float spin, Color c, float lw)
+{
+    Vector2 ring[25];
+    for (int i = 0; i <= 24; i++)
+    {
+        const float a = (float)(i % 24) / 24.0f * 2.0f * PI;
+        ring[i] = (Vector2){p.x + cosf(a) * r, p.y + sinf(a) * r};
+    }
+    c2d_polyline(ring, 25, c, lw);
+
+    for (int k = 0; k < 4; k++)
+    {
+        const float a = spin + (float)k * PI * 0.5f;
+        const Vector2 t[2] = {
+            {p.x + cosf(a) * r * 1.15f, p.y + sinf(a) * r * 1.15f},
+            {p.x + cosf(a) * r * 1.75f, p.y + sinf(a) * r * 1.75f}};
+        c2d_polyline(t, 2, c, lw);
+    }
+    c2d_disc(p, r * 0.22f, c);
+}
+
+/* The cap is busy -- imagery, grid, grain -- so the mark carries its own
+ * glow. One shadow layer for the whole mark, not a halo per shape: the ring,
+ * the four ticks and the dot overlap, and stacking their halos source-over
+ * fills the gaps between them (CLAUDE.md, the two ways to draw a shadowBlur). */
+static void DashTargetMark(Vector2 p, float r, float spin, Color c, float lw)
+{
+    c2d_shadow_begin();
+    DashTargetMarkShapes(p, r, spin, c, lw);
+    c2d_shadow_end(c, 7.0f);
+    DashTargetMarkShapes(p, r, spin, c, lw);
+}
+
+/* THE SITE, ON THE GROUND. Left where the hole was collared, projected onto
+ * the cap so it rides the block's rotation and zoom. */
 static void DashDrawSite(const SurveyDashState *s)
 {
-    if (!g_model) return;
+    if (!g_model || !s->sited) return;
+    const Vector2 p = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
+    const float pulse = 0.85f + 0.15f * sinf(s->drill.t * 3.0f);
+    DashTargetMark(p, 7.0f * pulse, s->drill.t * 0.6f, RGBA8(0xff, 0xc8, 0x4d, 0.95f), 1.6f);
+}
 
-    if (s->sited)
+static float DashEaseOut(float t)
+{
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    return 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
+}
+
+/* ---- THE CURSOR --------------------------------------------------------
+ *
+ * The console draws its own pointer, because the pointer is part of the
+ * instrument: with the drill in hand it IS the drill, tip down, and the spot
+ * it would collar is marked at the tip. That is the whole reason the rack
+ * has a tool in it.
+ *
+ * Once a site is taken the cursor stops being a drill -- there is nothing
+ * left to point at on the ground -- and becomes the target mark, which
+ * travels to the borehole ruler and waits there with the one instruction
+ * that matters next. */
+static void DashDrawCursor(const SurveyDashState *s)
+{
+    if (!s->pointerIn) return;
+
+    /* 1. aiming: the drill, tip on the ground, target at the tip */
+    if (s->aimArmed && !s->sited)
     {
-        const Vector2 p = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
-        const float r = 9.0f;
-        const Color hot = RGBA8(0xff, 0xc8, 0x4d, 0.95f);
-        const Vector2 h[2] = {{p.x - r, p.y}, {p.x + r, p.y}};
-        const Vector2 v[2] = {{p.x, p.y - r}, {p.x, p.y + r}};
-        c2d_polyline(h, 2, hot, 1.6f);
-        c2d_polyline(v, 2, hot, 1.6f);
-        Vector2 ring[17];
-        for (int i = 0; i <= 16; i++)
-        {
-            const float a = (float)(i % 16) / 16.0f * 2.0f * PI;
-            ring[i] = (Vector2){p.x + cosf(a) * r * 0.55f, p.y + sinf(a) * r * 0.55f};
-        }
-        c2d_polyline(ring, 17, hot, 1.6f);
+        Vector2 tip = s->pointer;
+        if (s->aimOn && g_model) tip = Holo3D_CapPoint(g_model, s->aimU, s->aimV);
+        ToolRack_DrawDrillCursor(tip.x, tip.y, 0.85f, s->aimOn);
+        if (s->aimOn)
+            DashTargetMark(tip, 9.0f, s->drill.t * 0.9f, RGBA8(0x35, 0xd8, 0xee, 0.95f), 1.7f);
+        return;
     }
 
-    if (s->aimArmed && s->aimOn)
+    /* 2. sited, no depth yet.
+     *
+     * The mark FLIES from the site to the ruler once, to say where to go
+     * next, and then goes back to following the pointer -- because a cursor
+     * parked at the ruler is a cursor you cannot pick a depth with. The
+     * instruction stays anchored at the ruler until a depth is taken. */
+    if (s->sited && !s->depthPicked)
     {
-        const Vector2 p = Holo3D_CapPoint(g_model, s->aimU, s->aimV);
-        const Color aim = RGBA8(0x35, 0xd8, 0xee, 0.85f);
-        Vector2 ring[25];
-        for (int i = 0; i <= 24; i++)
+        float rx, ry0, ry1;
+        Dash_DrillBarSpan(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &rx, &ry0, &ry1);
+        const Vector2 to = {rx - 26.0f, (ry0 + ry1) * 0.5f};
+        const bool flying = (s->guideT < 1.0f);
+        const float k = DashEaseOut(s->guideT);
+        const Vector2 p = flying
+            ? (Vector2){s->guideFrom.x + (to.x - s->guideFrom.x) * k,
+                        s->guideFrom.y + (to.y - s->guideFrom.y) * k}
+            : s->pointer;
+
+        const Color c = RGBA8(0x35, 0xd8, 0xee, 0.95f);
+        DashTargetMark(p, 8.0f, s->drill.t * 0.9f, c, 1.6f);
+
+        /* The instruction rides beside it once it has arrived -- on its own
+         * plate, because it crosses the strata bands and unbacked text over
+         * rock is unreadable. */
+        if (s->guideT >= 1.0f)
         {
-            const float a = (float)(i % 24) / 24.0f * 2.0f * PI;
-            ring[i] = (Vector2){p.x + cosf(a) * 12.0f, p.y + sinf(a) * 12.0f};
+            const char *msg = "SELECT THE DEPTH";
+            const float fs = 12.0f;
+            const float tw = c2d_measure(C2D_W500, fs, msg);
+            const float pw = tw + 20.0f, ph = 24.0f;
+            /* anchored at the RULER, not at the cursor: it is a sign on the
+               thing you have to touch, not a tooltip on your hand */
+            const float px = to.x - 16.0f - pw, py = to.y - ph * 0.5f;
+
+            const C2DCorner cr[4] = {{px, py, 5.0f}, {px + pw, py, 5.0f},
+                                     {px + pw, py + ph, 5.0f}, {px, py + ph, 5.0f}};
+            Vector2 plate[64];
+            const int pn = c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, plate, 64);
+            c2d_fill_poly(plate, pn, RGBA8(0x03, 0x14, 0x20, 0.92f));
+            if (pn < 63) { plate[pn] = plate[0]; c2d_polyline(plate, pn + 1, RGBA8(0x1c, 0x7f, 0x95, 0.9f), 1.2f); }
+            c2d_text(C2D_W500, fs, msg, px + 10.0f, py + 16.0f,
+                     c, C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
+            /* and a quieter mark where it landed, so the sign points at
+               something once the cursor has moved on */
+            DashTargetMarkShapes(to, 8.0f, s->drill.t * 0.9f,
+                                 RGBA8(0x1c, 0x7f, 0x95, 0.85f), 1.4f);
         }
-        c2d_polyline(ring, 25, aim, 1.4f);
-        const Vector2 t[2] = {{p.x, p.y - 18.0f}, {p.x, p.y - 13.0f}};
-        c2d_polyline(t, 2, aim, 1.4f);
+        return;
     }
+
+    /* 3. otherwise the console does not own the pointer: leave it alone */
 }
 
 void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
@@ -468,8 +562,13 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
             s->saidMeasured = true;
         }
     }
+    if (s->sited && !s->depthPicked && s->guideT < 1.0f)
+        s->guideT += dt * 2.2f;      /* about half a second to arrive */
+
     Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, "DRILL BAR",
                   SurveyDash_Ruler(), DASH_RULER_TICKS, &s->drill, dt);
+
+    DashDrawCursor(s);
 
     c2d_end();
 
@@ -498,6 +597,7 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     if (pick >= 0.0f)
     {
         DrillSim_SetTarget(&s->drill, pick);
+        s->depthPicked = true;
         char msg[96];
         snprintf(msg, sizeof(msg), "String set to %d m. Tap the hole to feed it down.",
                  (int)(pick + 0.5f));
@@ -514,12 +614,22 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
         DrillSim_Bite(&s->drill);
 }
 
+bool SurveyDash_OwnsCursor(const SurveyDashState *s)
+{
+    if (!s || !s->started) return false;
+    return (s->aimArmed && !s->sited) || (s->sited && !s->depthPicked);
+}
+
 void SurveyDash_Hover(SurveyDashState *s, Rectangle region, Vector2 screenPt)
 {
-    if (!s || !s->started) { return; }
+    if (!s || !s->started) return;
+    const Vector2 d = SurveyDash_ToDesign(region, screenPt);
+    s->pointer = d;
+    s->pointerIn = (d.x >= 0.0f && d.x <= (float)SURVEY_DASH_DESIGN_W &&
+                    d.y >= 0.0f && d.y <= (float)SURVEY_DASH_DESIGN_H);
+
     s->aimOn = false;
     if (!s->aimArmed || !g_model) return;
-    const Vector2 d = SurveyDash_ToDesign(region, screenPt);
     if (d.x < DASH_BLOCK_X0 || d.x > DASH_BLOCK_X1 ||
         d.y < DASH_BLOCK_Y0 || d.y > DASH_BLOCK_Y1) return;
     s->aimOn = Holo3D_HitCap(g_model, d.x, d.y, &s->aimU, &s->aimV);
@@ -596,6 +706,9 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                     s->drill.depthM = 0.0f;      /* a new site is a new hole */
                     s->drill.lift = 0.0f;
                     s->drill.done = false;
+                    s->guideFrom = Holo3D_CapPoint(g_model, u, v);
+                    s->guideT = 0.0f;
+                    s->depthPicked = false;
                     char msg[96];
                     snprintf(msg, sizeof(msg), "Site set at %d/%d. Collared.",
                              (int)s->siteI, (int)s->siteJ);

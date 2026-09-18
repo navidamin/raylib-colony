@@ -67,6 +67,16 @@ typedef struct ToolRackOpts {
 void ToolRack_DrawB(const ToolRackData *rack, float x, float y,
                     const ToolRackOpts *opts);
 
+/* THE DRILL, AS A CURSOR. The same icon the rack draws, at `scale`, with the
+ * BIT TIP landing exactly on (tipX, tipY) -- the icon is laid out around a
+ * centre with its tip 34 units below it, so pointing with it means anchoring
+ * the tip, not the centre. `on` lights it the way a selected bay does.
+ *
+ * Reused rather than redrawn: the tool in your hand and the tool in its bay
+ * must be the same object (dark-plating.md section 4.4). */
+void ToolRack_DrawDrillCursor(float tipX, float tipY, float scale, bool on);
+#define TR_DRILL_TIP_DY 34.0f
+
 /* (x, y) in rack-local units -> slot index, or -1. */
 int  ToolRack_HitTestB(float x, float y, int slots);
 
