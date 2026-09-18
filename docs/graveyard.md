@@ -337,12 +337,47 @@ chain's regolith covers that ground now (`--subfloor 1` at the 25 km
 site rung: 3.3 m relief → 9.3 m), but it covers it with a *calibrated*
 amplitude, not a measured one.
 
-**Might it come back?** The mechanism, not the code. The regolith
-currently picks its amplitude from constants; the deleted path picked it
-from the ground underfoot. Folding the Hurst/roughness measurement into
-`SubFloorRelief` — measure the WAC crop's own spectrum, drive `subRough`
-from it — would make the invented ground continue each place's real
-texture instead of one global look. That is worth doing, and it is the
-one reason to read this entry.
+**Might it come back? The Hurst half: no. Tried 2026-09-18.**
+
+This entry used to say that folding the measurement into `SubFloorRelief`
+was "worth doing, and the one reason to read this entry". It was tried,
+and the answer is no — not from the mosaic. Writing down why, because the
+idea is attractive enough to occur to the next person too.
+
+The deleted code measured a HEIGHT field. The chain amplifies IMAGERY.
+Luminance is shading that saturates, not height that accumulates, and its
+structure function has no single slope to read an exponent off. Measured
+over seven very different terrains (`terrain_probe` prints it per
+location), the slope falls the whole way out and is nearly the same
+everywhere — the signature of a field decorrelating rather than a power
+law:
+
+| lag, floor samples | 1→2 | 2→4 | 4→8 | 8→16 |
+|---|---|---|---|---|
+| Imbrium, mare | 0.76 | 0.37 | 0.16 | 0.14 |
+| Tycho, fresh ejecta | 0.69 | 0.38 | 0.22 | 0.12 |
+| Apennines | 0.75 | 0.38 | 0.18 | 0.19 |
+| Procellarum, flat mare | 0.79 | 0.46 | 0.24 | 0.14 |
+| far-side highlands | 0.81 | 0.49 | 0.19 | 0.08 |
+
+Used as a Hurst exponent, what is measured here puts **3.9 m of relief on
+a 10 m wavelength** — a 40% slope, where real regolith carries 0.2–0.5 m.
+A real exponent needs a height field: LOLA, not the WAC. That is a
+different change — the game's web build ships no DEM — and a bigger one.
+
+**The roughness half: yes, but not the way it was tried.** What the mosaic
+does answer is amplitude. `MeasureGroundSpectrum` survives as an
+instrument and reports `reliefAtFloor`, the RMS luminance swing over one
+floor sample — 0.009 on a flat mare against 0.039 on Tycho's ejecta, a
+4.5x spread that is real information about the ground.
+
+Two things were learned trying to spend it, both written up at the mask
+itself in `SubFloorRelief`: the albedo proxy it would replace is 93%
+clamped at the sect rung and is a constant there, and taking the gradient
+from the level's own macro multiplies the sub-floor by up to 2.7x, because
+a 5 km window's macro is an upscale with no floor-scale detail in it. The
+fix both need is to build the roughness field once at a span where the
+mosaic still resolves the floor, and sample it down the chain. That is the
+live work item; this paragraph is what it costs to skip.
 
 `git log -S'SynthesizeDetail'` for the real code.

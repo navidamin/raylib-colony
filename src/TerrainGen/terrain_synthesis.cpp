@@ -636,6 +636,66 @@ static Field CropMacro(double latDeg, double lonDeg, double spanDeg, int res)
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// How rough this ground is
+//
+// An instrument, not a stage of the chain: nothing here feeds the picture.
+// It exists because the sub-floor's two amplitude decisions -- how fast
+// relief falls away below the floor, and where on the ground it is
+// concentrated -- were both made from constants, and the question of
+// whether the mosaic can answer them from data is worth being able to
+// re-ask. See GroundSpectrum in the header for what it answered.
+// ---------------------------------------------------------------------------
+
+// Wide enough for a decade of scales above the floor and no wider: this is
+// a local property, and a crop spanning a mare AND the highlands beside it
+// measures neither.
+const int SPECTRUM_RES = 128;
+
+GroundSpectrum MeasureGroundSpectrum(double latDeg, double lonDeg,
+                                     double floorKm)
+{
+    GroundSpectrum out;
+    if (!EnsureWacLoaded() || floorKm <= 0.0) return out;
+
+    // One pixel per floor sample, so a lag in pixels IS a lag in floor
+    // samples and the numbers below mean what they say.
+    double spanKm = floorKm * SPECTRUM_RES;
+    Field m = CropMacro(latDeg, lonDeg, spanKm / MOON_KM_PER_DEG,
+                        SPECTRUM_RES);
+    if ((int)m.size() != SPECTRUM_RES * SPECTRUM_RES) return out;
+
+    auto rmsAtLag = [&](int lag) -> double
+    {
+        double acc = 0.0;
+        long n = 0;
+        for (int y = 0; y < SPECTRUM_RES; y++)
+            for (int x = 0; x + lag < SPECTRUM_RES; x++)
+            {
+                double d = m[(size_t)y * SPECTRUM_RES + x + lag] -
+                           m[(size_t)y * SPECTRUM_RES + x];
+                acc += d * d; n++;
+            }
+        for (int y = 0; y + lag < SPECTRUM_RES; y++)
+            for (int x = 0; x < SPECTRUM_RES; x++)
+            {
+                double d = m[(size_t)(y + lag) * SPECTRUM_RES + x] -
+                           m[(size_t)y * SPECTRUM_RES + x];
+                acc += d * d; n++;
+            }
+        return n > 0 ? std::sqrt(acc / n) : 0.0;
+    };
+
+    double r1 = rmsAtLag(1), r4 = rmsAtLag(4);
+    if (r1 > 1e-6 && r4 > r1 * 1.001)
+        out.lumExponent = (float)(std::log2(r4 / r1) / 2.0);
+    // Wanted at exactly one floor sample, so taken there. The mosaic's
+    // roll-off near its own grid makes this a slight underestimate rather
+    // than the wrong shape, which is the trade the exponent could not make.
+    out.reliefAtFloor = (float)r1;
+    return out;
+}
+
 // Unsharp + adaptive contrast around the crop's own midpoint (capped
 // gain — maria must stay dark, calm plains).
 static void SharpenAdaptive(Field& macro, int res)
@@ -973,9 +1033,39 @@ static int SubFloorRelief(Field& height, int res, const NoiseFrame& frame,
     double heightScaleM = 110.0 * (spanKm * 1000.0 / res);
     WorldGrid W(frame, res);
     Field accM((size_t)res * res, 0.0f);
+    // Where the invented relief is concentrated: bright ground is rough
+    // ground, a real correlation on the moon.
+    //
+    // It barely fires, and less the further down you go. Measured over the
+    // three rungs at imbrium, this mask's own distribution:
+    //
+    //   100 km  mean 0.564   34% sitting on the 0.532 clamp
+    //    25 km  mean 0.579   50%
+    //     5 km  mean 0.533   93%, and the whole range is 0.532 to 0.582
+    //
+    // So at the sect rung -- the one place the regolith is the picture --
+    // it is a constant, because `density` clamps at 0.15 for almost every
+    // pixel of a macro whose mean is about 0.25. subRough was calibrated
+    // with that damping in place, so this is not a bug to fix in passing;
+    // it means the mask is not currently carrying the information it looks
+    // like it carries.
+    //
+    // Measuring it instead was tried (MeasureGroundSpectrum gives the
+    // absolute reference a per-pixel gradient would be divided by) and is
+    // NOT what is here, for a reason worth knowing before trying again:
+    // taking the gradient from THIS level's macro gives mask means of
+    // 1.22 / 1.46 / 0.67 against this one's 0.56 / 0.58 / 0.53, so it
+    // multiplies the sub-floor by 2.3x / 2.7x / 1.25x -- a recalibration
+    // wearing a refinement's clothes. And it is worst where it matters:
+    // at 5 km the level's macro is an upscale that holds no floor-scale
+    // detail to measure, which is the same reason the albedo proxy dies
+    // there. The fix both need is the same -- build the roughness field
+    // ONCE at a span where the mosaic still resolves the floor, and sample
+    // it down the chain -- and a per-window normalisation is not it, since
+    // that makes the amplitude breathe as the window pans.
     Field roughMask((size_t)res * res);
     for (size_t i = 0; i < roughMask.size(); i++)
-        roughMask[i] = 0.45f + 0.55f * density[i];   // bright ground is rough ground
+        roughMask[i] = 0.45f + 0.55f * density[i];
 
     if (tune.subRough > 0.0f)
         SubFloorNoise(accM, res, W, kmPerPx, tune.subRough, roughMask,

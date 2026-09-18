@@ -129,6 +129,18 @@ int main(int argc, char** argv)
                 lat, lon, res, site ? "on" : "off", tune.subFloor, tune.crisp,
                 out.c_str());
 
+    // What the mosaic says about this ground, before anything is invented
+    // on top of it. reliefAtFloor varies ~4.5x across the moon and is real
+    // information; lumExponent is reported so the claim that it CANNOT be
+    // used as a Hurst exponent stays checkable rather than remembered.
+    // See GroundSpectrum in terrain_synthesis.h, and graveyard entry 9.
+    {
+        GroundSpectrum gs = MeasureGroundSpectrum(lat, lon, tune.subFloorKm);
+        std::printf("ground spectrum: reliefAtFloor %.5f   lumExponent %.3f"
+                    "  (exponent reported, never used)\n",
+                    gs.reliefAtFloor, gs.lumExponent);
+    }
+
     Image gpu[3] = {}, cpu[3] = {};
     bool haveGpu = false, haveCpu = false;
 

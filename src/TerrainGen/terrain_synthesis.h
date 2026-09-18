@@ -342,6 +342,35 @@ bool GenerateTerrainFields(double latDeg, double lonDeg, int res,
 // of the 5 km cell, amplified through the real-imagery chain
 // (100 km -> 25 km -> 5 km). Caller owns the Image (UnloadImage).
 // Requires src/assets/planet/wac_global.jpg (loaded once, cached).
+// How rough one place's ground is, measured from the mosaic. Deterministic
+// per location and independent of any window: a property of the ground, not
+// of the frame that happens to show it. Both values are in macro-luminance
+// units, and are 0 when the mosaic is not loaded.
+//
+// `reliefAtFloor` is the RMS luminance swing over one floor sample. It
+// varies about 4.5x across the moon -- 0.009 on a flat mare, 0.039 on
+// Tycho's ejecta -- and that variation is real information about the
+// ground.
+//
+// `lumExponent` is REPORTED, NOT USED, and the comment is the point of it.
+// The obvious thing to do with it is read it as the terrain's Hurst
+// exponent and continue the ground's own power law below the floor, which
+// is what the parked LOLA sub-floor did on elevation (graveyard entry 9).
+// It does not transfer. Over seven very different terrains the luminance
+// structure function has no single slope -- 0.75 between 1 and 2 floor
+// samples, 0.37 between 2 and 4, 0.16 between 4 and 8 -- and what slope it
+// has is nearly the same everywhere, because luminance is shading that
+// saturates rather than height that accumulates. Used as an exponent it
+// puts 3.9 m of relief on a 10 m wavelength: a 40% slope, against the
+// 0.2-0.5 m real regolith carries. A real exponent needs a height field.
+struct GroundSpectrum
+{
+    float reliefAtFloor = 0.0f;
+    float lumExponent = 0.0f;
+};
+GroundSpectrum MeasureGroundSpectrum(double latDeg, double lonDeg,
+                                     double floorKm);
+
 // tuning == nullptr uses the baseline TerrainTuning.
 Image GenerateSectTerrain(double latDeg, double lonDeg, int res = 300,
                           const TerrainTuning* tuning = nullptr);
