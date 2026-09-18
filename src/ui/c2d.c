@@ -48,18 +48,36 @@ int  c2d_supersample(void)      { return g_ss; }
  * last loaded. */
 static void c2d_load_matrix(bool with_user_transform);
 
-static void c2d_bind(RenderTexture2D rt)
+#define C2D_BIND_MAX 16
+
+/* NEVER BIND A TARGET THAT FAILED TO LOAD. raylib returns id 0 from
+ * LoadRenderTexture when the framebuffer could not be created, and
+ * BeginTextureMode on id 0 binds the DEFAULT framebuffer -- the window, or on
+ * the web the canvas -- and then sets the viewport to the size the texture
+ * was asked for. A 3072x1536 viewport on a 1280x720 canvas is what
+ * "drawing to a destination rect smaller than the viewport rect" means, and
+ * everything the shim draws afterwards lands on the screen at the wrong
+ * scale. Skipping the bind loses the effect; taking it corrupts the frame. */
+static int  c2d_bind_depth = 0;
+static bool c2d_bind_real[C2D_BIND_MAX];
+
+static bool c2d_bind(RenderTexture2D rt)
 {
-    BeginTextureMode(rt);
+    const bool real = (rt.id != 0) && (c2d_bind_depth < C2D_BIND_MAX);
+    if (real) BeginTextureMode(rt);
+    if (c2d_bind_depth < C2D_BIND_MAX) c2d_bind_real[c2d_bind_depth] = real;
+    c2d_bind_depth++;
     rlPushMatrix();
     c2d_load_matrix(true);
+    return real;
 }
 
 static void c2d_unbind(void)
 {
     rlDrawRenderBatchActive();
     rlPopMatrix();
-    EndTextureMode();
+    if (c2d_bind_depth > 0) c2d_bind_depth--;
+    if (c2d_bind_depth < C2D_BIND_MAX && c2d_bind_real[c2d_bind_depth]) EndTextureMode();
 }
 
 /* Composites (clip, group, cache) blit a whole layer in SURFACE space. If the
@@ -933,6 +951,9 @@ static bool c2d_layer_push(void)
         L->rt = LoadRenderTexture(w, h);
         SetTextureFilter(L->rt.texture, TEXTURE_FILTER_BILINEAR);
     }
+    /* No layer, no clip: the caller draws unclipped, which is wrong but
+     * legible. The alternative is drawing the layer onto the window. */
+    if (L->rt.id == 0) return false;
     c2d_unbind();
     g_clip_top++;
     c2d_bind(L->rt);
@@ -1076,6 +1097,7 @@ static C2DBlurSlot *c2d_blur_targets(int w, int h)
         {
             g_blur[i].a = LoadRenderTexture(w, h);
             g_blur[i].b = LoadRenderTexture(w, h);
+            if (g_blur[i].a.id == 0 || g_blur[i].b.id == 0) return NULL;
             SetTextureFilter(g_blur[i].a.texture, TEXTURE_FILTER_BILINEAR);
             SetTextureFilter(g_blur[i].b.texture, TEXTURE_FILTER_BILINEAR);
             g_blur[i].w = w; g_blur[i].h = h;
@@ -1086,6 +1108,7 @@ static C2DBlurSlot *c2d_blur_targets(int w, int h)
     UnloadRenderTexture(g_blur[0].b);
     g_blur[0].a = LoadRenderTexture(w, h);
     g_blur[0].b = LoadRenderTexture(w, h);
+    if (g_blur[0].a.id == 0 || g_blur[0].b.id == 0) return NULL;
     SetTextureFilter(g_blur[0].a.texture, TEXTURE_FILTER_BILINEAR);
     SetTextureFilter(g_blur[0].b.texture, TEXTURE_FILTER_BILINEAR);
     g_blur[0].w = w; g_blur[0].h = h;
@@ -1160,7 +1183,7 @@ void c2d_shadow_end(Color shadow, float blur)
     while (down * 2 <= 8 && (float)(down * 2) <= sigmaLayer * 0.5f) down *= 2;
     const int sw = g_surface->w * g_ss, sh = g_surface->h * g_ss;
     const int bw = sw / down, bh = sh / down;
-    const bool doBlur = (blur > 0.0f && bw > 1 && bh > 1);
+    bool doBlur = (blur > 0.0f && bw > 1 && bh > 1);
     C2DBlurSlot *slot = NULL;
 
     if (doBlur)
@@ -1170,6 +1193,9 @@ void c2d_shadow_end(Color shadow, float blur)
         {
             const int tw = sw / d, th = sh / d;
             slot = c2d_blur_targets(tw, th);
+            /* No targets: composite the layer unblurred rather than binding
+               the window and drawing the whole shadow onto the screen. */
+            if (!slot) break;
             BeginTextureMode(slot->a);
             ClearBackground(BLANK);
             const Rectangle csrc = {0.0f, 0.0f, (float)cur.width, -(float)cur.height};
@@ -1180,6 +1206,14 @@ void c2d_shadow_end(Color shadow, float blur)
             if (d == 1) break;
         }
 
+        /* The downsample chain gave up: no blur targets, so composite the
+           layer as it is. Dereferencing a NULL slot below would be the bug
+           this whole guard exists to avoid. */
+        if (!slot) doBlur = false;
+    }
+
+    if (doBlur)
+    {
         /* A box of radius r has variance r(r+1)/3; three of them sum to
          * sigma^2, so r solves r(r+1) = sigma^2. */
         const float sigmaSmall = sigmaLayer / (float)down;
@@ -1608,6 +1642,7 @@ C2DGroup *c2d_group_create(int w, int h)
     C2DGroup *g = (C2DGroup *)calloc(1, sizeof(C2DGroup));
     if (!g) return NULL;
     g->rt = LoadRenderTexture(w * g_ss, h * g_ss);
+    if (g->rt.id == 0) { free(g); return NULL; }
     SetTextureFilter(g->rt.texture, TEXTURE_FILTER_BILINEAR);
     g->w = w; g->h = h;
     return g;
@@ -1651,6 +1686,7 @@ C2DCache *c2d_cache_create(int w, int h)
     C2DCache *c = (C2DCache *)calloc(1, sizeof(C2DCache));
     if (!c) return NULL;
     c->rt = LoadRenderTexture(w * g_ss, h * g_ss);
+    if (c->rt.id == 0) { free(c); return NULL; }
     SetTextureFilter(c->rt.texture, TEXTURE_FILTER_BILINEAR);
     c->w = w; c->h = h; c->valid = false;
     return c;

@@ -57,8 +57,26 @@
 
 /* The console ships supersampled: Canvas antialiases coverage and raylib does
  * not, and 2 is where that stops paying (docs/design/prospecting/
- * holo3d-inventory.md). */
-#define DASH_SS 2
+ * holo3d-inventory.md).
+ *
+ * NOT ON THE WEB. Supersampling multiplies EVERY offscreen target the shim
+ * owns. At 2 a design-sized target is 3072x1536 -- 18 MB apiece -- and seven
+ * of them are design-sized: the surface, four clip layers and Holo3D's two
+ * ghost buffers. That is 126 MB, plus a depth renderbuffer on each and the
+ * downsampled blur pairs on top. A browser tab refuses somewhere in there,
+ * and raylib answers a refused LoadRenderTexture with id 0. Binding id 0 is
+ * binding the CANVAS -- at the viewport the texture asked for. That is
+ * exactly "drawing to a destination rect smaller than the viewport rect",
+ * and why the page came up broken with no error in it.
+ *
+ * At 1 the same seven come to 31 MB. The visual diff gate is measured at 2
+ * and is a desktop and CI concern; the phone gets a console instead of a
+ * blank screen, which is the better trade. */
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+  #define DASH_SS 1
+#else
+  #define DASH_SS 2
+#endif
 
 /* THE ONLY FILE STATICS LEFT, and they are the process's, not a console's:
  * one render surface, one set of fonts, one block geometry, shared by every
@@ -217,7 +235,14 @@ bool SurveyDash_Init(void)
                    "src/assets/fonts/JetBrainsMono-SemiBold.ttf",
                    "src/assets/fonts/JetBrainsMono-Bold.ttf");
     g_surf = c2d_surface_create(SURVEY_DASH_DESIGN_W, SURVEY_DASH_DESIGN_H);
-    if (g_surf.tex.id == 0) return false;
+    if (g_surf.tex.id == 0)
+    {
+        TraceLog(LOG_WARNING,
+                 "SURVEY CONSOLE: no %dx%d render target (supersample %d) -- "
+                 "the console cannot draw",
+                 SURVEY_DASH_DESIGN_W * DASH_SS, SURVEY_DASH_DESIGN_H * DASH_SS, DASH_SS);
+        return false;
+    }
 
     H3DBuildOpts opts = {0};
     opts.surfaceW = SURVEY_DASH_DESIGN_W;
@@ -269,7 +294,19 @@ void SurveyDash_Reset(SurveyDashState *s)
 
 void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
 {
-    if (!s || !SurveyDash_Init()) return;
+    if (!s) return;
+    if (!SurveyDash_Init())
+    {
+        /* A blank rectangle is indistinguishable from a hung game. Say what
+         * happened, on the screen, where the console would have been. */
+        DrawRectangleRec(region, DashC_Bg());
+        const char *msg = "SURVEY CONSOLE UNAVAILABLE - no render target";
+        const int tw = MeasureText(msg, 20);
+        DrawText(msg, (int)(region.x + (region.width - tw) * 0.5f),
+                 (int)(region.y + region.height * 0.5f - 10.0f), 20,
+                 (Color){0xff, 0x8a, 0x5a, 255});
+        return;
+    }
     if (!s->started) SurveyDash_Reset(s);
     if (!s->know) s->know = &s->own;
 

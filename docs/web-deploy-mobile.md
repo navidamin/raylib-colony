@@ -107,6 +107,42 @@ What actually happened on iPhone, in order of discovery:
   (`cnv=402x226`) while raylib kept rendering 1280x720 → GL viewport
   anchored bottom-left → only the bottom-left corner of the UI visible.
 
+## Offscreen targets: the other way the canvas goes wrong
+
+The canvas-sizing bug above is about the shell. There is a second one, in the
+game, that presents identically -- a broken or blank page whose console says:
+
+```
+WebGL warning: drawElementsInstanced: Drawing to a destination rect
+smaller than the viewport rect.
+```
+
+**What it means.** `LoadRenderTexture` returns `id == 0` when the framebuffer
+could not be created, and `BeginTextureMode` on `id == 0` binds the DEFAULT
+framebuffer -- the canvas -- and then sets the viewport to the size the
+texture was asked for. Everything drawn next lands on the screen at the wrong
+scale, and nothing reports an error.
+
+**Why it fires on the web and not on the desktop.** The survey console's c2d
+shim keeps seven design-sized offscreen targets (its surface, four clip
+layers, Holo3D's two ghost buffers), and `c2d_set_supersample(n)` multiplies
+every one of them. At the console's desktop setting of 2 that is 3072x1536
+each -- 126 MB, before depth buffers and the downsampled blur pairs. A
+browser tab refuses; a desktop GPU does not.
+
+**The two fixes, both in place:**
+
+- `DASH_SS` is 1 under `__EMSCRIPTEN__` (`src/ui/survey_dash.c`). Same seven
+  targets, 31 MB.
+- `c2d_bind` refuses to bind a target with `id == 0`, and every lazy
+  allocation in `c2d.c` (clip layers, blur pairs, groups, caches) fails its
+  effect instead of returning a broken object. A missing clip draws
+  unclipped, a missing blur composites sharp -- wrong, but legible, and the
+  frame is never corrupted.
+
+**If you add an offscreen target**, check its id. The shim's rule is that a
+failed allocation costs an effect, never the frame.
+
 ## The fix (SHELL v4, in `src/minshell.html`)
 
 A persistent enforcer, not a one-shot:
