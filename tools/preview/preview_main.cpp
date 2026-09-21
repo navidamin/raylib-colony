@@ -52,8 +52,8 @@ struct PreviewOptions
 
     // View mode (--view): empty means panel mode
     std::string view;
-    int cellX = 10;    // planet grid cell for --view sect
-    int cellY = 10;
+    double pickLat = 32.8;    // where the colony stands (Mare Imbrium)
+    double pickLon = -15.6;
     std::string tune;  // named terrain tuning preset (sect view)
     // Orbital globe: a fixed camera makes a screenshot reproducible,
     // which a drifting one never is.
@@ -106,11 +106,11 @@ static void PrintUsage()
         << "\n"
         << "View mode (renders a whole game view instead of a module panel):\n"
         << "\n"
-        << "  --view <name>     orbital | planet | sect\n"
+        << "  --view <name>     orbital | colony | sect\n"
         << "  --globe LAT,LON[,ZOOM]  orbital: fix the globe camera (stops the drift)\n"
         << "  --globe-sun MIX[,LON[,LAT]]  orbital: 0 flat mosaic .. 1 full terminator\n"
         << "  --globe-marks     orbital: crosshair known craters (projection check)\n"
-        << "  --cell <X,Y>      planet grid cell for sect view (default: 10,10)\n"
+        << "  --pick <LAT,LON>  where the colony stands (default: 32.8,-15.6, Mare Imbrium)\n"
         << "  --tune <name>     terrain preset: baseline|silky|rough|rolling|\n"
         << "                    boulders|dramatic              (sect view)\n";
 }
@@ -200,14 +200,12 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         {
             options.tune = argv[++i];
         }
-        else if (arg == "--cell" && hasNext)
+        else if (arg == "--pick" && hasNext)
         {
-            std::string value = argv[++i];
-            size_t sep = value.find(',');
-            if (sep != std::string::npos)
+            if (std::sscanf(argv[++i], "%lf,%lf", &options.pickLat, &options.pickLon) != 2)
             {
-                options.cellX = TextToInteger(value.substr(0, sep).c_str());
-                options.cellY = TextToInteger(value.substr(sep + 1).c_str());
+                std::cerr << "--pick wants LAT,LON\n";
+                return false;
             }
         }
         else if (arg == "--out" && hasNext)
@@ -552,7 +550,7 @@ static void DrawGlobeMarks(const PreviewOptions& options)
         { "Copernicus",      9.6,  -20.1 },
         { "Mare Crisium",   17.0,   59.1 },
         { "Grimaldi",       -5.5,  -68.3 },
-        { "Imbrium anchor", 32.8,  -15.6 },   // where the playfield sits
+        { "Mare Imbrium",   32.8,  -15.6 },
         { "Tsiolkovskiy",  -21.2,  128.9 },   // far side: hidden until turned
     };
     for (const Mark& m : marks)
@@ -588,23 +586,28 @@ static int RenderGameView(const PreviewOptions& options)
         InputManager inputManager;
 
         Planet planet;
+        planet.GenerateMap(PREVIEW_MAP_SEED);   // reproducible ground
         std::vector<Colony*> colonies;
 
-        // Sect standing at the real place its grid cell names (sect view
-        // only). The same fixed seed as the UI previews, so the ground it
-        // stands on is reproducible.
-        ResourceManager resourceManager(PREVIEW_MAP_SEED);
+        // A colony of one sect at the picked place, for the colony and
+        // sect views. The colony owns the sect.
+        Colony* colony = nullptr;
         Sect* sect = nullptr;
+        LunarPoint here;
+        here.latDeg = options.pickLat;
+        here.lonDeg = options.pickLon;
+        if (options.view == "sect" || options.view == "colony")
+        {
+            colony = new Colony();
+            sect = new Sect(here, planet.GetResourceManager(), timeManager);
+            colony->AddSect(sect);
+            colonies.push_back(colony);
+            std::cout << "Colony at lat " << here.latDeg << ", lon " << here.lonDeg << "\n";
+        }
         if (options.view == "sect")
         {
-            LunarPoint here;
-            TerrainGridCellToLatLon(options.cellX, options.cellY, &here.latDeg, &here.lonDeg);
-            sect = new Sect(here, resourceManager, timeManager);
             double lat = here.latDeg;
             double lon = here.lonDeg;
-            std::cout << "Sect on cell (" << options.cellX << ","
-                      << options.cellY << ") -> lat " << lat
-                      << ", lon " << lon << "\n";
             // Raw terrain dump alongside the composed view, for style
             // comparison. Named presets vary the non-crater surface layers.
             TerrainTuning tune;
@@ -663,11 +666,13 @@ static int RenderGameView(const PreviewOptions& options)
             UnloadImage(ground);
         }
 
+        // The colony view draws in the colony's frame (origin at its
+        // centre); fit the 25 km window across the width.
         Camera2D camera = {0};
-        camera.target = {PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f};
+        camera.target = {0.0f, 0.0f};
         camera.offset = {options.width / 2.0f, options.height / 2.0f};
         camera.rotation = 0.0f;
-        camera.zoom = 1.0f;
+        camera.zoom = options.width / (float)(COLONY_WINDOW_KM * LOCAL_UNITS_PER_KM);
 
         if (options.globeFixed)
         {
@@ -688,9 +693,9 @@ static int RenderGameView(const PreviewOptions& options)
             BeginDrawing();
             ClearBackground(BLACK);
 
-            if (options.view == "planet")
+            if (options.view == "colony")
             {
-                renderManager.DrawPlanetView(camera, &planet, colonies,
+                renderManager.DrawColonyView(camera, colony, &planet, colonies,
                                               inputManager, timeManager);
             }
             else if (options.view == "sect")
@@ -706,7 +711,7 @@ static int RenderGameView(const PreviewOptions& options)
             EndDrawing();
         }
 
-        delete sect;
+        delete colony;      // frees the sect too
 
         Image screenshot = LoadImageFromScreen();
         bool exported = ExportImage(screenshot, options.outPath.c_str());

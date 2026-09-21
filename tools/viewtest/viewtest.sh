@@ -9,4 +9,4 @@ mkdir -p "$(dirname "$PREFIX")"
 cmake --build build --target colony_viewtest -j"$(nproc)"
 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
     xvfb-run -a ./build/src/colony_viewtest --shots "$PREFIX"
-echo "wrote ${PREFIX}_{orbital,planet,colony,sect}.png"
+echo "wrote ${PREFIX}_{orbital,colony,sect}.png"

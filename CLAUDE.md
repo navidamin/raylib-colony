@@ -131,11 +131,22 @@ The engine runs a standard game loop: `HandleInput()` → `Update()` → `Draw()
 The game world has a nested hierarchy representing different scales of management:
 
 ```
-Planet (20x20 grid, resource generation)
-  └─ Colony (collection of sects, resource pooling)
-      └─ Sect (settlement with units, local storage)
+Planet (the Moon: the ground truth, and the colonies on it)
+  └─ Colony (founded at a LunarPoint; a 25 km window; resource pooling)
+      └─ Sect (a 5 km footprint at its own LunarPoint; units, local storage)
           └─ Unit (production/extraction buildings, modules)
 ```
+
+**Positions are places on the Moon.** Every colony, sect and unit
+carries a `LunarPoint` (lat/lon, `game_structs.h`); nothing carries a
+world-unit position. Each view draws in a `LocalFrame`
+(`src/TerrainGen/lunar_frame.h`) about what it is looking at — origin at
+the colony's centre, +x east, +y south, 1 unit = 50 m — so a sect's
+`GetPosition()` is where it sits in *its colony's* frame, and
+`GetPoint()` is where it is on the Moon. There is no grid: sects are
+placed freely, a footprint (5 km) apart at least, anywhere inside the
+colony's window, and two colonies can stand on opposite sides of the
+Moon at once.
 
 Each level can be viewed and interacted with by zooming in (double-click) or out (Escape key).
 
@@ -143,9 +154,8 @@ Each level can be viewed and interacted with by zooming in (double-click) or out
 
 The game operates in different views defined in `game_enums.h`:
 - **Menu** - Initial menu (not yet implemented)
-- **Planet** - Strategic view showing all colonies on the planet surface
-- **Site_Selection** - Orbital survey view for informed colony placement (instrument panels: GRS, Neutron, Thermal, Site Assessment)
-- **Colony** - Shows all sects within a colony and their connections
+- **Orbital** - The Moon as a globe (`lunar_globe.h`): turn it, zoom it, click to found a colony at the picked point or a marker to open one
+- **Colony** - A colony's 25 km window: its sects and their connections, drawn in the colony's local frame
 - **Sect** - Shows individual units within a settlement
 - **Unit** - Detailed view of a specific production unit and its modules
 
@@ -153,11 +163,17 @@ View transitions are handled by `ViewManager::SwitchTo*View()` methods which adj
 
 ### Site Selection System
 
-Colony placement uses an informed site selection flow (src/Engine/gamemanager.cpp):
-- Ctrl+click in Planet view enters `View::SITE_SELECTION` instead of placing immediately
-- `DrawSiteSelectionView()` renders orbital instrument panels (GRS bar charts, neutron spectrometer, thermal mapper)
-- Each grid cell is classified with a `SiteArchetype` (MARE_INDUSTRIAL, HIGHLAND_CONSTRUCTION, POLAR_VOLATILE, KREEP_SCIENTIFIC, LAVA_TUBE, MIXED)
-- Confirming a site creates a Colony with archetype-specific bonus multipliers
+A colony is founded at a place on the Moon (`GameManager::FoundColony(point)`,
+src/Engine/gamemanager.cpp): the first sect stands there, the colony's
+window is centred on it, and the archetype comes from the region
+(`ResourceManager::ArchetypeAt`). Today the Orbital view founds on a
+click — the **founding stub**. The informed descent (globe → district →
+site, region cards, buildability verdict) exists as the `lunar_map`
+instrument and as `src/SiteSelection/` (`SiteSelectionController`,
+`region_identity`, `site_verdict`); wiring it into the game is Part B of
+`docs/design/site-selection/game-integration-plan.md`.
+- Each place is classified with a `SiteArchetype` (MARE_INDUSTRIAL, HIGHLAND_CONSTRUCTION, POLAR_VOLATILE, KREEP_SCIENTIFIC, LAVA_TUBE, MIXED) from its region's real composition
+- `FoundSect(point)` refuses a sect inside another colony's territory, closer than `SECT_MIN_SPACING_KM` to any sect, or with its footprint outside the `COLONY_WINDOW_KM` window
 - Sect placement within a Colony shows a resource preview tooltip (Ctrl+hover)
 
 ### Resource System
@@ -165,12 +181,12 @@ Colony placement uses an informed site selection flow (src/Engine/gamemanager.cp
 Resources are managed at multiple levels:
 
 **ResourceManager** (src/ResourceManager/):
-- Generates procedural resource distribution across the planet grid using cluster-based generation
-- Each grid cell has resource abundances (0.0-1.0) for different ResourceTypes
-- Tracks resource depletion as units extract materials
+- The ground truth is a function of location: `GroundAt(point)` generates the resources under one sect footprint from the region's real composition (`IdentifyRegion`), a hashed 20 km variation and the depth-bias table, on first ask, and remembers it (keyed by `LunarQuantise(point)`); one world seed per Moon
+- Absolute quantities (hundreds to thousands) per element; the prospecting chain normalises them to composition fractions
+- Tracks resource depletion per place as units extract materials
 - ResourceTypes defined in `resource_types.h` include: ENERGY, H2, O2, C, Fe, Si, Ti, Al, Ca, WATER, FOOD, BIOFUEL, SCIENCE, MANPOWER, MACHINERY, ELECTRONICS, ALLOYS, CONSTRUCTION_MATERIALS
-- Generates `OrbitalSurveyData` per grid cell (elemental composition, hydrogen signal, solar illumination, terrain slope, earth visibility)
-- Classifies grid cells into `SiteArchetype` based on composition thresholds
+- `SurveyAt(point)` gives `OrbitalSurveyData` (composition, hydrogen signal, solar illumination, real terrain slope from LOLA, earth visibility); `ArchetypeAt(point)` the region's `SiteArchetype`
+- `colony_inspect LAT LON` dumps all of it for a place
 
 **ResourceDescriptor table** (`resource_types.h`):
 - `ResourceDescriptor` struct is the single source of truth for each resource's name, color, category (`SINGULAR` or `TYPED`), and subtypes
@@ -178,7 +194,7 @@ Resources are managed at multiple levels:
 - `ResourceTypeToString`, `GetResourceCategory`, and `ResourceUtils::*` are thin wrappers around the descriptor lookup
 
 **Resource flow:**
-- Planet grid stores natural resources (H2, O2, C, Fe, Si, Ti, Al, Ca)
+- The ground holds the natural resources (H2, O2, C, Fe, Si, Ti, Al, Ca)
 - Sects have local storage for processed/extracted resources
 - Units consume resources from sect storage during production cycles
 - Production costs defined in `game_constants.h` (e.g., EXTRACTION_PRODUCTION_COSTS, FARMING_PRODUCTION_COSTS)
@@ -241,19 +257,21 @@ the header and the shader must change with it.
 
 | | |
 |---|---|
-| 1 world unit | 50 m |
-| grid cell (sect + units) | 5 km = 100 world units |
-| PLANET view | 20x20 cells = 100 km |
-| COLONY view | 5x5 cells = 25 km |
-| SECT view | 1 cell = 5 km |
+| 1 local unit | 50 m (`LOCAL_UNITS_PER_KM = 20`) |
+| sect footprint (sect + units) | 5 km = 100 units (`TERRAIN_CELL_KM`) |
+| COLONY view | 25 km window = 500 units (`COLONY_WINDOW_KM`) |
+| SECT view | 5 km |
+| ORBITAL view | the whole Moon, as a globe |
 
-**One chain feeds three views.** `GenerateTerrainChain` walks
-100 → 25 → 5 km, each level the centre crop of the one above, and emits
-all three: level 0 is the Planet backdrop, 1 the Colony, 2 the Sect.
-Because they are registered to each other by construction, zooming
-approaches the same ground instead of cutting to a different scene.
-`RenderManager` caches one chain per grid cell — the cell you stand on
-plus its eight neighbours, built before they are asked for.
+**One chain feeds the views.** `GenerateTerrainChain` walks
+100 → 25 → 5 km about one `LunarPoint`, each level the centre crop of
+the one above: level 1 is the Colony window, 2 the Sect (level 0, the
+100 km, was the retired Planet view's backdrop and will be the district
+rung's). Because they are registered to each other by construction,
+zooming approaches the same ground instead of cutting to a different
+scene. `RenderManager` caches one chain per place (`EnsureTerrainAt`,
+keyed by `LunarQuantise`) — the colony being looked at plus its sects,
+which `RequestTerrainAt` builds before they are asked for.
 
 **Two synthesizers, one chosen at startup.** `terrain_gpu.{h,cpp}` runs
 the same chain as fragment-shader passes (both GLSL 330 and ES 100, so
@@ -279,11 +297,12 @@ so, and callers ask before claiming the GPU path: on WebGL1 the regolith
 is built on the CPU rather than silently dropped. WebGL2 would end the
 split.
 
-**Real coordinates.** The 20x20 grid is anchored on a real lat/lon
-(`SetTerrainAnchor`, settable — clicking the orbital disc re-anchors the
-playfield there via `OrbitalPickToLatLon`). `TerrainGridCellToLatLon`
-gives any cell its true coordinates. Elevation/slope ground truth from
-NASA's LOLA model lives in `prototypes/planet_visuals/elevation.py`.
+**Real coordinates.** Everything is a real lat/lon: a click on the
+globe is inverted by `OrbitalPickToLatLon`, and the chain is built for
+that point. Elevation/slope ground truth from NASA's LOLA model is read
+in-game through `GetLunarDem()` (`lunar_dem_shared.h`, from
+`prototypes/planet_visuals/data/lola/`); `elevation.py` beside it is the
+Python original.
 
 **Occupied sites** get `TerrainSiteDisturbance`: the natural ground is
 levelled off (relief and imagery contrast damped toward local means,
@@ -320,8 +339,8 @@ draws:
 
 | Tool | Use |
 |------|-----|
-| `tools/preview/preview.sh` | one view in isolation (`--view orbital\|planet\|sect`, `--cell X,Y`) |
-| `tools/viewtest/viewtest.sh` | the whole Orbital → Planet → Colony → Sect descent, with per-view issue notes; `--pick LAT,LON` lands it anywhere on the moon |
+| `tools/preview/preview.sh` | one view in isolation (`--view orbital\|colony\|sect`, `--pick LAT,LON`) |
+| `tools/viewtest/viewtest.sh` | the whole Orbital → Colony → Sect descent, with per-view issue notes; `--pick LAT,LON` lands it anywhere on the moon |
 | `tools/lunarmap/lunarmap.sh` | the real-coordinates instrument: `--site` walks the globe → district → site survey ladder, `--chain` lays the synthesizer over it, `--siteshot` renders every step. Deploys to `/lunarmap/`. |
 
 Both need software GL: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
@@ -336,8 +355,8 @@ to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
 - **Functions**: TitleCase (e.g., `InitWindow()`, `CalculateProduction()`)
 - **Variables/members**: lowerCase (e.g., `screenWidth`, `resourceManager`)
 - **Structs/Classes**: TitleCase (e.g., `Colony`, `ResourceManager`)
-- **Enums**: TitleCase with ALL_CAPS members (e.g., `enum class View`, `View::Planet`)
-- **Constants/Defines**: ALL_CAPS (e.g., `PLANET_SIZE`, `SECT_CORE_RADIUS`)
+- **Enums**: TitleCase with ALL_CAPS members (e.g., `enum class View`, `View::Colony`)
+- **Constants/Defines**: ALL_CAPS (e.g., `COLONY_WINDOW_KM`, `SECT_CORE_RADIUS`)
 - **float literals**: Always use `.0f` suffix (e.g., `1.0f`, `0.5f`)
 - **Braces**: Always aligned opening/closing on separate lines
 - **Spacing**: 4 spaces (no tabs), spaces around `+/-` but not `*//`
@@ -388,11 +407,12 @@ path in `unit_ui.cpp` is no longer reached.*
 4. Initialize storage in `Sect` constructor and `Colony` constructor
 5. All wrapper functions (`ResourceTypeToString`, `GetResourceCategory`, `ResourceUtils::*`) automatically work via descriptor lookup
 
-**Working with the grid system:**
-- Planet uses a 20x20 grid (PLANET_SIZE)
-- Each cell is SECT_CORE_RADIUS * 2 units wide (100 units)
-- Conversion functions: `WorldToGrid()` / `GridToWorld()` in relevant classes
-- World coordinates are used for rendering, grid coordinates for resource lookup
+**Working with places and frames:**
+- A place is a `LunarPoint`; ask the ground about it (`ResourceManager::GroundAt`, `SurveyAt`) and the terrain about it (`EnsureTerrainAt`)
+- Distances and offsets in km: `LunarDistanceKm`, `LunarOffsetKm`, `LunarOffsetPoint` (`lunar_frame.h`)
+- Drawing happens in a view's `LocalFrame`: `ToLocal(point)` / `FromLocal(local)`, 1 unit = 50 m; the Colony view's frame is `colony->GetFrame()`
+- A sect is SECT_CORE_RADIUS * 2 = 100 units across; the colony window is `COLONY_WINDOW_KM * LOCAL_UNITS_PER_KM` = 500 units
+- Never store a local position as if it were the world: it is only meaningful in the frame that produced it
 
 ## File Organization
 

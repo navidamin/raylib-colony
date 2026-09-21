@@ -51,7 +51,8 @@ there is no band to read, no ring to interpret, no instrument to learn.
 |------|-----------|
 | `src/TerrainGen/lola_dem.{h,cpp}` | `EvaluateSite` / `TerrainBuildability` — the real terrain gate |
 | `src/TerrainGen/survey_cursor.{h,cpp}` | Cursor geometry — screen ↔ km ↔ lat/lon, snapping, stack (step 1) |
-| `src/TerrainGen/terrain_synthesis.h` | `TerrainGridCellToLatLon`, `OrbitalPickToLatLon`, `SetTerrainAnchor`, `TERRAIN_CELL_KM` |
+| `src/TerrainGen/terrain_synthesis.h` | `OrbitalPickToLatLon`, `OrbitalLatLonToScreen`, `TERRAIN_CELL_KM` |
+| `src/TerrainGen/lunar_frame.h` | `LunarPoint` maths: `LunarOffsetKm`, `LunarDistanceKm`, `LunarQuantise`, `LocalFrame` |
 | `src/ResourceManager/resource_manager.{h,cpp}` | `OrbitalSurveyData`, `GetSiteArchetype` — the region's holdings |
 | `src/Engine/gamemanager.cpp` | Existing `View::SITE_SELECTION` flow, Ctrl+click placement |
 | `src/Engine/rendermanager.cpp` | `DrawSiteSelectionView`, instrument panels |

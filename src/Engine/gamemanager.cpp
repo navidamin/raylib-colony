@@ -69,19 +69,10 @@ void GameManager::Update(float deltaTime) {
     }
 }
 
-void GameManager::SelectColony(Vector2 playfieldPos) {
-    // The colony's centroid is in its own frame; the Planet view draws
-    // that frame's origin at the colony's real place. Both are in units
-    // of 50 m, so the offset carries straight over.
-    for (auto& colony : colonies) {
-        if (!colony->HasCentre()) continue;
-        Vector2 centroid = Vector2Add(Planet::WorldOf(colony->GetCentre()),
-                                      colony->GetCentroid());
-        if (Vector2Distance(playfieldPos, centroid) <= colony->GetRadius()) {
-            currentColony = colony;
-            break;
-        }
-    }
+void GameManager::SetCurrentColony(Colony* colony) {
+    currentColony = colony;
+    currentSect = (colony && !colony->GetSects().empty()) ? colony->GetSects()[0] : nullptr;
+    currentUnit = nullptr;
 }
 
 void GameManager::SelectSect(Vector2 mousePosition, Camera2D camera) {
@@ -217,22 +208,12 @@ Sect* GameManager::FoundSect(const LunarPoint& point) {
     return sect;
 }
 
-Colony* GameManager::BuildNewColony(Vector2 playfieldPos) {
-    return FoundColony(Planet::PointOf(playfieldPos));
-}
-
 Sect* GameManager::BuildNewSect(Vector2 localPos) {
     if (!currentColony) {
         std::cout << "[FOUND] Current colony unknown!" << std::endl;
         return nullptr;
     }
     return FoundSect(currentColony->GetFrame().FromLocal(localPos));
-}
-
-void GameManager::UpdatePlanetActiveArea() {
-    if (planet) {
-        planet->UpdateActiveArea(colonies);
-    }
 }
 
 void GameManager::BuildAllRoads() {

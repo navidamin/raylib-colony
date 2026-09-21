@@ -1426,7 +1426,7 @@ double ProbeMs()
 {
     TerrainGpuChain chain;
     double t0 = GetTime();
-    if (!GenerateTerrainChainGPU(TERRAIN_ANCHOR_LAT, TERRAIN_ANCHOR_LON, 512,
+    if (!GenerateTerrainChainGPU(TERRAIN_REFERENCE_LAT, TERRAIN_REFERENCE_LON, 512,
                                  &chain, nullptr))
         return 1e9;
     void* px = rlReadTexturePixels(chain.color[2].texture.id, 512, 512,

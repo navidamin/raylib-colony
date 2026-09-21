@@ -18,13 +18,6 @@ const double SECT_MIN_SPACING_KM = SECT_FOOTPRINT_KM;
 // window the site-selection descent's last rung shows.
 const double COLONY_WINDOW_KM = 25.0;
 
-// The 100 km playfield grid. Being retired: the world is the Moon and
-// positions are LunarPoints. These remain only while the Planet view still
-// draws the anchored 20x20 square.
-const int PLANET_SIZE = 20;  // 20x20 grid of possible sect locations
-const float PLANET_WIDTH = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f;  // Total width of planet
-const float PLANET_HEIGHT = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f; // Total height of planet
-
 const float TICK_DURATION = 1.0f;
 // TICKS_PER_DAY
 static const int TICKS_PER_DAY = 20;  // 60 seconds = 1 day

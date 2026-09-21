@@ -15,13 +15,16 @@ enum class UnitType {
 };
 
 
+// The ladder: the Moon as a globe (where a colony is founded and chosen),
+// a colony's 25 km window, a sect's 5 km footprint, a unit. There is no
+// view of a "planet grid" between the globe and the colony any more;
+// Part B of the site-selection plan puts the survey descent there.
 enum class View {
     Menu,
-    Planet,
     Colony,
     Sect,
     Unit,
-    Orbital   // Moon-from-orbit view, sits above Planet in the zoom hierarchy
+    Orbital
 };
 
 

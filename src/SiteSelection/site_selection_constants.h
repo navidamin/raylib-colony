@@ -89,4 +89,9 @@ inline const SurveyCardRow* GetRegionCardRows(int* count)
 }
 const int SURVEY_CARD_ROW_HEIGHT = 26;
 
+// Colony markers on the globe: how large one is drawn and how close a
+// click must land to open it rather than found a new colony beside it.
+const float ORBITAL_MARKER_RADIUS_PX = 8.0f;
+const float ORBITAL_MARKER_PICK_PX = 18.0f;
+
 #endif // SITE_SELECTION_CONSTANTS_H

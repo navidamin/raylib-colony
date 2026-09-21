@@ -85,7 +85,7 @@ struct TerrainRng
 //
 // The frame is a local tangent plane in km, x east and y south, with
 // longitude scaled by cos(lat) at the window centre -- the same
-// approximation the game's own cell grid makes (TerrainGridCellToLatLon).
+// approximation the game's local drawing frames make (lunar_frame.h).
 // Two windows near each other differ only to second order in it.
 struct NoiseFrame
 {
@@ -1716,28 +1716,6 @@ static Color RampColor(float t)
 // Public API
 // ---------------------------------------------------------------------------
 
-static double g_anchorLat = TERRAIN_ANCHOR_LAT;
-static double g_anchorLon = TERRAIN_ANCHOR_LON;
-static unsigned int g_anchorVersion = 1;
-
-void SetTerrainAnchor(double latDeg, double lonDeg)
-{
-    // Keep the playfield off the poles, where the 1/cos(lat) longitude
-    // stretch blows up and the grid would smear.
-    g_anchorLat = std::clamp(latDeg, -78.0, 78.0);
-    g_anchorLon = lonDeg;
-    g_anchorVersion++;
-    TraceLog(LOG_INFO, "TERRAIN: anchor -> %.3f, %.3f (v%u)",
-             g_anchorLat, g_anchorLon, g_anchorVersion);
-}
-
-void GetTerrainAnchor(double* latDeg, double* lonDeg)
-{
-    if (latDeg) *latDeg = g_anchorLat;
-    if (lonDeg) *lonDeg = g_anchorLon;
-}
-
-unsigned int GetTerrainAnchorVersion() { return g_anchorVersion; }
 
 // ---------------------------------------------------------------------------
 // The orbital globe's projection
@@ -1866,19 +1844,6 @@ bool OrbitalLatLonToScreen(double latDeg, double lonDeg,
     if (screenX) *screenX = (float)(screenWidth / 2.0 + x1 * r);
     if (screenY) *screenY = (float)(screenHeight / 2.0 - y2 * r);
     return true;
-}
-
-void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg)
-{
-    double cellDeg = TERRAIN_CELL_KM / MOON_KM_PER_DEG;   // 0.16489 deg
-    // Grid centre is between cells 9 and 10; gy grows south.
-    double offX = (gx - 9.5);
-    double offY = (gy - 9.5);
-    double lat = g_anchorLat - offY * cellDeg;
-    double c = std::max(0.2, std::cos(g_anchorLat * DEG2RAD));
-    double lon = g_anchorLon + offX * cellDeg / c;
-    *latDeg = lat;
-    *lonDeg = lon;
 }
 
 // Shared engine: walk a span ladder, writing an Image for every level

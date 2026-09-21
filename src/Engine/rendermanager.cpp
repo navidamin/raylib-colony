@@ -1,6 +1,8 @@
 #include "rendermanager.h"
 #include "resource_manager.h"
 #include "region_identity.h"
+#include "lunar_dem_shared.h"
+#include "site_selection_constants.h"
 #include "terrain_synthesis.h"
 #include "terrain_gpu.h"
 #include "lunar_globe.h"
@@ -207,13 +209,10 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
       screenHeight(screenHeight),
       fontsLoaded(false),
-      tilesLoaded(false),
       orbitalAssetsLoaded(false),
       terrainClock(0),
-      terrainLoaded(false),
-      planetMapLoaded(false)
+      terrainLoaded(false)
 {
-    planetMapTexture = {0};
     orbitalNearTexture = {0};
     for (int i = 0; i < 3; i++) terrainLevels[i] = {0};
 }
@@ -243,9 +242,6 @@ RenderManager::~RenderManager() {
         UnloadFont(uiHeaderFont);
     }
 
-    // Unload moon surface tiles when done
-    UnloadMoonTiles();
-
     // Unload cached crystal sample sprites
     for (auto& [path, texture] : crystalTextures)
     {
@@ -256,11 +252,6 @@ RenderManager::~RenderManager() {
     UnloadOrbitalAssets();
 
     UnloadTerrainLevels();
-
-    if (planetMapLoaded)
-    {
-        UnloadTexture(planetMapTexture);
-    }
 }
 
 // --- Crystal sample sprites ------------------------------------------------
@@ -359,65 +350,6 @@ void RenderManager::DrawMenuView() {
     DrawText("Press ENTER to start", GetScreenWidth()/2 - MeasureText("Press ENTER to start", 20)/2, GetScreenHeight()/2, 20, GRAY);
 }
 
-void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
-                                  InputManager& inputManager, TimeManager& timeManager) {
-    BeginMode2D(camera);
-
-    if (planet) {  // Guard against null planet
-        ClearBackground(BLACK);
-
-        // The whole moon underneath, so zooming out leaves the
-        // playfield and reveals the globe around it.
-        DrawPlanetMapLayer(camera);
-
-        // Ground: level 0 of the terrain chain (100 km) spans the whole
-        // playfield, registered on its anchor. This is the same generated
-        // ground the sect stands on, seen from 100 km — so zooming in
-        // approaches it instead of cutting to tiles.
-        LunarPoint anchor;
-        GetTerrainAnchor(&anchor.latDeg, &anchor.lonDeg);
-        EnsureTerrainAt(anchor);
-        if (terrainLoaded && terrainLevels[0].id != 0) {
-            DrawWorldTerrainLayer(0,
-                Vector2{PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f},
-                (float)PLANET_SIZE);
-        } else {
-            // Fallback: the legacy 3-tile shuffle.
-            if (!tilesLoaded) {
-                LoadMoonTiles();
-                GenerateTilePattern();
-                tilesLoaded = true;
-            }
-            RenderMoonSurface();
-        }
-
-        // Colonies, each at its real place mapped into the playfield.
-        for (const auto& colony : colonies) {
-            DrawColonyMarker(colony, camera.zoom);
-        }
-    }
-
-    EndMode2D();
-
-    // The ground under the cursor (Ctrl+I), and the founding cursor (Ctrl).
-    if (planet && (inputManager.IsInfoKeyPressed() || inputManager.IsCommandPressed())) {
-        Vector2 mousePos = inputManager.GetMousePosition();
-        LunarPoint under = Planet::PointOf(GetScreenToWorld2D(mousePos, camera));
-        DrawPointInfo(mousePos, under, planet, colonies);
-        if (inputManager.IsCommandPressed()) {
-            DrawPlusIndicator(mousePos, View::Planet);
-        }
-    }
-
-    // Draw UI elements including time
-    timeManager.Draw(screenWidth, screenHeight);
-    DrawText("Planet View", 10, 10, 20, BLACK);
-    DrawText("Press C for Colony View", 10, 40, 20, GRAY);
-
-    DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
-    DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
-}
-
 void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* planet,
                                    std::vector<Colony*>& colonies, InputManager& inputManager,
                                    TimeManager& timeManager, Road* selectedRoad,
@@ -434,13 +366,6 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         if (terrainLoaded && terrainLevels[1].id != 0) {
             DrawWorldTerrainLayer(1, Vector2{0.0f, 0.0f},
                                   (float)(COLONY_WINDOW_KM / TERRAIN_CELL_KM));
-        } else {
-            if (!tilesLoaded) {
-                LoadMoonTiles();
-                GenerateTilePattern();
-                tilesLoaded = true;
-            }
-            RenderMoonSurface();
         }
 
         // The sects are the places one click away: have their chains
@@ -591,7 +516,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     timeManager.Draw(screenWidth, screenHeight);
     DrawText("Colony View", 10, 10, 20, BLACK);
     DrawText("Press S for Sect View", 10, 40, 20, GRAY);
-    DrawText("Press P for Planet View", 10, 70, 20, GRAY);
+    DrawText("Press ESC for Orbit", 10, 70, 20, GRAY);
 
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
     DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
@@ -686,89 +611,6 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         {
             DrawText("MAX LEVEL", panelX + 10, panelY + 55, 16, Color{100, 200, 100, 255});
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Full-planet map
-//
-// The 20x20 grid covers 100 km of real moon centred on the playfield
-// anchor. Extending that same projection across the whole globe gives
-// the planet view something to zoom out INTO: one world space holding
-// both the playfield and the entire moon, aligned exactly where they
-// meet, so zooming out never cuts to a different scene.
-//
-// Longitude uses the anchor's cos(lat) scale, which is what makes the
-// playfield land on the grid exactly. The cost is that the far side of
-// the globe is squashed horizontally by that same factor — acceptable
-// while the map is context rather than a place you operate.
-// ---------------------------------------------------------------------------
-
-static float PlanetUnitsPerDegLat()
-{
-    double latSpanDeg = (PLANET_SIZE * TERRAIN_CELL_KM) / MOON_KM_PER_DEG;
-    return (float)(PLANET_HEIGHT / latSpanDeg);
-}
-
-static float PlanetUnitsPerDegLon()
-{
-    double alat, alon;
-    GetTerrainAnchor(&alat, &alon);
-    (void)alon;
-    return PlanetUnitsPerDegLat()
-           * (float)std::max(0.2, std::cos(alat * DEG2RAD));
-}
-
-// World rect the whole moon occupies (lon -180..180, lat +90..-90).
-static Rectangle PlanetMapWorldRect()
-{
-    double alat, alon;
-    GetTerrainAnchor(&alat, &alon);
-    float updLat = PlanetUnitsPerDegLat();
-    float updLon = PlanetUnitsPerDegLon();
-    float originX = PLANET_WIDTH * 0.5f - (float)(alon + 180.0) * updLon;
-    float originY = PLANET_HEIGHT * 0.5f - (float)(90.0 - alat) * updLat;
-    return Rectangle{originX, originY, 360.0f * updLon, 180.0f * updLat};
-}
-
-void RenderManager::LoadPlanetMap()
-{
-    if (planetMapLoaded) return;
-    Image img = LoadImage("src/assets/planet/wac_global.jpg");
-    if (img.data == nullptr)
-    {
-        planetMapLoaded = true;       // don't retry every frame
-        return;
-    }
-    // 8K is far more than this view needs and costs VRAM; half of one
-    // screen width per 180 degrees is plenty at full zoom-out.
-    ImageResize(&img, 2048, 1024);
-    planetMapTexture = LoadTextureFromImage(img);
-    SetTextureFilter(planetMapTexture, TEXTURE_FILTER_BILINEAR);
-    UnloadImage(img);
-    planetMapLoaded = true;
-}
-
-void RenderManager::DrawPlanetMapLayer(Camera2D camera)
-{
-    LoadPlanetMap();
-    if (planetMapTexture.id == 0) return;
-
-    Rectangle dst = PlanetMapWorldRect();
-    Rectangle src = {0, 0, (float)planetMapTexture.width,
-                     (float)planetMapTexture.height};
-    DrawTexturePro(planetMapTexture, src, dst, Vector2{0, 0}, 0.0f, WHITE);
-
-    // Once the playfield is small on screen, mark it so it stays findable.
-    float playfieldPx = PLANET_WIDTH * camera.zoom;
-    if (playfieldPx < 220.0f)
-    {
-        Color gold = Color{255, 200, 100, 255};
-        float pad = 6.0f / std::max(camera.zoom, 0.0001f);
-        DrawRectangleLinesEx(
-            Rectangle{-pad, -pad, PLANET_WIDTH + pad * 2,
-                      PLANET_HEIGHT + pad * 2},
-            2.0f / std::max(camera.zoom, 0.0001f), gold);
     }
 }
 
@@ -984,27 +826,6 @@ void RenderManager::EnsureTerrainAt(const LunarPoint& point)
     }
 
     BindTerrainSlot(slot);
-}
-
-// A colony as the Planet view sees it. Its frame's origin is drawn at
-// its real place; sect positions and the jurisdiction circle are in
-// that frame, in the same 50 m units as the playfield, so they carry
-// straight over.
-void RenderManager::DrawColonyMarker(const Colony* colony, float zoom)
-{
-    if (!colony || !colony->HasCentre()) return;
-    Vector2 origin = Planet::WorldOf(colony->GetCentre());
-    Vector2 centroid = Vector2Add(origin, colony->GetCentroid());
-    float thick = 2.0f / std::max(zoom, 0.0001f);
-
-    DrawRing(centroid, colony->GetRadius() - thick, colony->GetRadius(),
-             0.0f, 360.0f, 48, ColorAlpha(GOLD, 0.7f));
-    for (const Sect* sect : colony->GetSects())
-    {
-        Vector2 p = Vector2Add(origin, sect->GetPosition());
-        DrawCircleV(p, sect->GetRadius() * 0.5f, ColorAlpha(GOLD, 0.35f));
-        DrawCircleV(p, std::max(sect->GetRadius() * 0.15f, thick * 2.0f), GOLD);
-    }
 }
 
 // Draw a chain level as world-space ground. Called inside BeginMode2D,
@@ -1267,10 +1088,8 @@ void RenderManager::DrawPlusIndicator(Vector2 mousePos, View currentView) {
 
     const char* text;
 
-    if (currentView == View::Planet) {
-        text = "DOUBLE-CLICK to add a new colony";
-    } else if (currentView == View::Colony) {
-        text = "DOUBLE-CLICK to add a new sect";
+    if (currentView == View::Colony) {
+        text = "CTRL+CLICK to found a new sect";
     } else {
         text = "";
     }
@@ -1285,91 +1104,6 @@ void RenderManager::DrawPlusIndicator(Vector2 mousePos, View currentView) {
 
     DrawText(text, textX, textY, fontSize, textColor);
 }
-
-// Function to load the moon surface tiles
-void RenderManager::LoadMoonTiles() {
-    const char* tileFiles[3] = {
-        "src/assets/moonsurface_tile1.png",
-        "src/assets/moonsurface_tile2.png",
-        "src/assets/moonsurface_tile3.png"
-    };
-
-    for (int i = 0; i < 3; i++) {
-        moonTiles[i] = LoadTexture(tileFiles[i]);
-
-        if (moonTiles[i].id == 0) {
-            std::cout << "ERROR: Failed to load tile texture: " << tileFiles[i] << std::endl;
-        } else {
-            std::cout << "Loaded tile texture: " << tileFiles[i] << std::endl;
-        }
-    }
-}
-
-// Function to generate random tile pattern for the planet surface
-void RenderManager::GenerateTilePattern() {
-    // Calculate total number of tiles needed
-    int tilesX = (PLANET_WIDTH / 100) + 2;  // Add extra for coverage
-    int tilesY = (PLANET_HEIGHT / 100) + 2;
-    int totalTiles = tilesX * tilesY;
-
-    tilePattern.clear();
-    tilePattern.reserve(totalTiles);
-
-    // Use a fixed seed for consistent pattern
-    SetRandomSeed(12345);
-
-    // Generate random tile indices (0-2)
-    for (int i = 0; i < totalTiles; i++) {
-        tilePattern.push_back(GetRandomValue(0, 2));
-    }
-}
-
-// Function to render the tiled moon surface
-void RenderManager::RenderMoonSurface() {
-    // Safety check before rendering
-    if (!tilesLoaded || moonTiles[0].id == 0) {
-        return;
-    }
-
-    // Get tile size (assuming all tiles are same size)
-    int tileWidth = moonTiles[0].width;
-    int tileHeight = moonTiles[0].height;
-
-    // Calculate how many tiles we need
-    int tilesX = (PLANET_WIDTH / tileWidth) + 2;
-    int tilesY = (PLANET_HEIGHT / tileHeight) + 2;
-
-    // Draw tiles across the planet surface
-    int patternIndex = 0;
-    for (int y = -1; y < tilesY; y++) {
-        for (int x = -1; x < tilesX; x++) {
-            // Get which tile to use from pattern
-            int tileIndex = tilePattern[patternIndex % tilePattern.size()];
-            patternIndex++;
-
-            // Calculate position
-            Vector2 position = {
-                static_cast<float>(x * tileWidth),
-                static_cast<float>(y * tileHeight)
-            };
-
-            // Draw the tile
-            DrawTextureV(moonTiles[tileIndex], position, WHITE);
-        }
-    }
-}
-
-// Function to unload moon surface tiles
-void RenderManager::UnloadMoonTiles() {
-    for (int i = 0; i < 3; i++) {
-        if (moonTiles[i].id != 0) {
-            UnloadTexture(moonTiles[i]);
-            moonTiles[i].id = 0;
-        }
-    }
-    tilesLoaded = false;
-}
-
 
 // Transport visualization functions
 
@@ -5966,6 +5700,11 @@ void RenderManager::UnloadOrbitalAssets() {
 }
 
 void RenderManager::DrawOrbitalView() {
+    static std::vector<Colony*> none;
+    DrawOrbitalView(none, nullptr);
+}
+
+void RenderManager::DrawOrbitalView(std::vector<Colony*>& colonies, const Colony* current) {
     int w = GetScreenWidth();
     int h = GetScreenHeight();
 
@@ -5987,15 +5726,50 @@ void RenderManager::DrawOrbitalView() {
                             cam.zoom),
                  20, 52, 17, Color{150, 165, 195, 255});
 
+        // Every colony at its real place, the current one brighter, the
+        // one under the pointer enlarged so a click on it reads as
+        // "open" rather than "found another beside it".
+        Vector2 m = GetMousePosition();
+        const Colony* hover = nullptr;
+        int hoverIndex = 0;
+        int index = 0;
+        for (const Colony* colony : colonies) {
+            index++;
+            if (!colony->HasCentre()) continue;
+            float x, y;
+            if (!OrbitalLatLonToScreen(colony->GetCentre().latDeg,
+                                       colony->GetCentre().lonDeg, w, h, &x, &y))
+                continue;
+            bool near = Vector2Distance(m, Vector2{x, y}) <= ORBITAL_MARKER_PICK_PX;
+            if (near) { hover = colony; hoverIndex = index; }
+            Color c = (colony == current) ? GOLD : Color{255, 220, 150, 220};
+            float r = ORBITAL_MARKER_RADIUS_PX + (near ? 3.0f : 0.0f);
+            DrawCircleV(Vector2{x, y}, r, ColorAlpha(c, 0.25f));
+            DrawRing(Vector2{x, y}, r - 2.0f, r, 0.0f, 360.0f, 24, c);
+            DrawCircleV(Vector2{x, y}, 2.5f, c);
+            DrawText(TextFormat("COLONY %d", index), (int)x + 12, (int)y - 8, 14, c);
+        }
+
         // Reading back the ground under the pointer is the cheapest proof
         // that the picture and the picker agree: it is the same
-        // projection, inverted.
-        Vector2 m = GetMousePosition();
+        // projection, inverted. The region's name says whose ground it is.
         double lat = 0.0, lon = 0.0;
-        if (OrbitalPickToLatLon(m.x, m.y, w, h, &lat, &lon)) {
-            const char* label = TextFormat("%.1f%c  %.1f%c",
-                                           std::fabs(lat), lat < 0 ? 'S' : 'N',
-                                           std::fabs(lon), lon < 0 ? 'W' : 'E');
+        const char* label = nullptr;
+        if (hover) {
+            label = TextFormat("open COLONY %d", hoverIndex);
+        } else if (OrbitalPickToLatLon(m.x, m.y, w, h, &lat, &lon)) {
+            RegionIdentity region = IdentifyRegion(GetLunarDem(), lat, lon);
+            // The default font has no en dash ("South Pole–Aitken").
+            std::string name = region.name;
+            for (size_t at = name.find("\xE2\x80\x93"); at != std::string::npos;
+                 at = name.find("\xE2\x80\x93"))
+                name.replace(at, 3, "-");
+            label = TextFormat("%.1f%c  %.1f%c   %s",
+                               std::fabs(lat), lat < 0 ? 'S' : 'N',
+                               std::fabs(lon), lon < 0 ? 'W' : 'E',
+                               name.c_str());
+        }
+        if (label) {
             int tw = MeasureText(label, 16);
             DrawRectangle((int)m.x + 14, (int)m.y - 10, tw + 12, 24,
                           Color{8, 10, 16, 200});
@@ -6021,6 +5795,7 @@ void RenderManager::DrawOrbitalView() {
         DrawText("Lunar Orbit", 20, 20, 26, RAYWHITE);
     }
 
-    DrawText("ENTER  descend to surface", 20, h - 60, 18, LIGHTGRAY);
+    DrawText("click  found a colony here   /   click a marker  open it", 20, h - 84, 18, LIGHTGRAY);
+    DrawText("ENTER  open the current colony", 20, h - 60, 18, LIGHTGRAY);
     DrawText("ESC    return to menu",     20, h - 36, 18, LIGHTGRAY);
 }

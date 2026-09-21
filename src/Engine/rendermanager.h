@@ -28,9 +28,11 @@ public:
     void EndDraw();
 
     void DrawMenuView();
+    // The globe, with every colony marked at its real place; `current`
+    // is drawn brighter. The argument-less form is for harnesses with
+    // no colonies to show.
+    void DrawOrbitalView(std::vector<Colony*>& colonies, const Colony* current);
     void DrawOrbitalView();
-    void DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
-                       InputManager& inputManager, TimeManager& timeManager);
     void DrawColonyView(Camera2D camera, Colony* colony, Planet* planet, std::vector<Colony *> &colonies,
                         InputManager& inputManager, TimeManager& timeManager, Road* selectedRoad = nullptr,
                         bool buildRoadMode = false, Sect* roadBuildStartSect = nullptr);
@@ -58,11 +60,6 @@ private:
 
     // Font size multiplier (XL preset: 1.30x)
     float FS(float baseSize);
-
-    // Moon surface tile textures
-    Texture2D moonTiles[3];
-    bool tilesLoaded;
-    std::vector<int> tilePattern;  // Store which tile to use for each grid cell
 
     // Crystal sample sprites, lazy-loaded from src/assets/sprites/samples/
     std::map<std::string, Texture2D> crystalTextures;
@@ -122,25 +119,11 @@ private:
     void UploadReadyTerrain();                    // finished work -> cache
     void ShutdownTerrainWorkers();
 
-    // Full-planet 2D map (the whole moon, equirectangular) that the
-    // planet view zooms out to. Aligned with the playfield grid where
-    // the two meet, so zooming out is continuous.
-    Texture2D planetMapTexture;
-    bool planetMapLoaded;
-    void LoadPlanetMap();
-    void DrawPlanetMapLayer(Camera2D camera);
-
     void DrawSectTerrainBackground(Sect* sect);
-    // World-space ground for the panned views. spanCells is how many
-    // 5 km sect footprints the level covers (20 for PLANET, 5 for
-    // COLONY); centre is the point in the view's frame the level is
-    // registered on.
+    // Ground for the panned Colony view. spanCells is how many 5 km sect
+    // footprints the level covers (5 for the 25 km window); centre is the
+    // point in the view's frame the level is registered on.
     void DrawWorldTerrainLayer(int level, Vector2 centre, float spanCells);
-    // A colony as the Planet view sees it: its territory and its sects,
-    // each at its real place mapped into the playfield.
-    void DrawColonyMarker(const Colony* colony, float zoom);
-
-    void DrawDebugActiveArea();
 
     // Shared modular unit UI: chrome used by every unit type
     void DrawModularUnitView(Unit* unit, TimeManager& timeManager);
@@ -171,14 +154,6 @@ private:
     void DrawDashedLine(Vector2 start, Vector2 end, float dashLength, float gapLength,
                         float thickness, Color color);
 
-    // Function to load the moon surface tiles
-    void LoadMoonTiles();
-    // Function to render the tiled moon surface
-    void RenderMoonSurface();
-    // Function to unload moon surface tiles
-    void UnloadMoonTiles();
-    // Function to generate tile pattern
-    void GenerateTilePattern();
 };
 
 #endif // RENDER_MANAGER_H

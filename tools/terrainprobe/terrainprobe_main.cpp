@@ -76,7 +76,7 @@ double MeanAbsDiff(const Image& a, const Image& b)
 
 int main(int argc, char** argv)
 {
-    double lat = TERRAIN_ANCHOR_LAT, lon = TERRAIN_ANCHOR_LON;
+    double lat = TERRAIN_REFERENCE_LAT, lon = TERRAIN_REFERENCE_LON;
     int res = 0;
     std::string out = "build/terrain_probe";
     std::string path = "both";

@@ -145,31 +145,31 @@ conversion.
 
 ### A1 — Data lives at locations (L)
 
-- [ ] `LunarPoint` in `game_structs.h`; `LocalFrame { centre, spanKm }`
+- [x] `LunarPoint` in `game_structs.h`; `LocalFrame { centre, spanKm }`
       with `ToLocal(point) → Vector2 units` and `FromLocal`, built on
       `survey_cursor`'s km mapping.
-- [ ] `Sect` stores a `LunarPoint`; `GetPosition()` becomes
+- [x] `Sect` stores a `LunarPoint`; `GetPosition()` becomes
       `GetLocalPosition(const LocalFrame&)`. `Colony` centroid and
       radius computed in km and converted per frame. `Road` length from
       km offsets × 20. Minimum spacing rule (A-D1) in `BuildNewSect`.
-- [ ] `ResourceManager`: delete the three grids and `WorldToGrid` /
+- [x] `ResourceManager`: delete the three grids and `WorldToGrid` /
       `GridToWorld`; add `GroundAt`, `GetResourcesAtLayer(point, layer)`,
       `Deplete(point, type, amount)`, `SurveyAt(point)`,
       `ArchetypeAt(point)` (the last two on top of `IdentifyRegion` and
       `EvaluateSite`, which is why Part B's Phase 0 extraction of
       `region_identity` is a prerequisite and is scheduled first).
-- [ ] `Unit::ProcessExtraction` reads and depletes by the parent sect's
+- [x] `Unit::ProcessExtraction` reads and depletes by the parent sect's
       point; excavator `gridPos` becomes a local offset or is dropped
       (it is only ever set to the parent cell).
-- [ ] `ProspectingGrid` / `ProspectingSystem` keyed by `LunarPoint`;
+- [x] `ProspectingGrid` / `ProspectingSystem` keyed by `LunarPoint`;
       `HashSeed` from quantised coordinates so the same spot yields the
       same sub-grid.
-- [ ] Tests: `MakeTestResourceManager()` → `MakeTestGround()` at a fixed
+- [x] Tests: `MakeTestResourceManager()` → `MakeTestGround()` at a fixed
       point (Mare Imbrium centre) with a fixed seed; `test_prospecting_grid`
       reads that point. New tests: two points 5 km apart give different
       but correlated ground; the same point twice gives identical ground;
       a mare point out-irons a highland point.
-- [ ] Tools: `colony_inspect --pick LAT,LON`; `sectwalk`, `playtest`,
+- [x] Tools: `colony_inspect --pick LAT,LON`; `sectwalk`, `playtest`,
       `c1_test`, `preview` panel mode construct a sect at a point.
 
 **Accept when:** `grep -rn "PLANET_SIZE\|GetResourcesAtGrid\|WorldToGrid"
@@ -179,7 +179,7 @@ Tycho prints ground in the direction the region cards say.
 
 ### A2 — Views and terrain keyed by location; the grid views go (L)
 
-- [ ] `RenderManager`: `EnsureTerrainAt(point)` replaces
+- [x] `RenderManager`: `EnsureTerrainAt(point)` replaces
       `EnsureTerrainForCell`; cache key `(quantised point, span)`;
       neighbour prefetch by footprint offsets; the CPU pool job carries a
       point. `DrawColonyView` draws level 1 centred on the colony's point
@@ -188,29 +188,29 @@ Tycho prints ground in the direction the region cards say.
       `DrawSiteSelectionView`, `DrawCellInfo`'s cell maths (it reads
       `GroundAt` for the hovered point), the moon-tile fallback if no
       caller remains.
-- [ ] `ViewManager`: Colony camera clamps to the 25 km window plus a
+- [x] `ViewManager`: Colony camera clamps to the 25 km window plus a
       margin; delete the Planet camera and the SITE_SELECTION case.
-- [ ] `terrain_synthesis`: delete `SetTerrainAnchor`, `GetTerrainAnchor`,
+- [x] `terrain_synthesis`: delete `SetTerrainAnchor`, `GetTerrainAnchor`,
       `GetTerrainAnchorVersion`, `TerrainGridCellToLatLon`, the
       `TERRAIN_ANCHOR_*` constants and the ±78° clamp. `TERRAIN_CELL_KM`
       stays as the footprint.
-- [ ] `game_enums.h`: remove `View::Planet` and `View::SITE_SELECTION`
+- [x] `game_enums.h`: remove `View::Planet` and `View::SITE_SELECTION`
       (Part B adds `View::District`). `game_constants.h`: remove
       `PLANET_SIZE / WIDTH / HEIGHT`, add `LOCAL_UNITS_PER_KM`.
-- [ ] **Founding stub so the game stays playable:** in the Orbital view a
+- [x] **Founding stub so the game stays playable:** in the Orbital view a
       click that is not a drag founds a colony at the picked point
       (no cards, no verdict yet) and opens its Colony view; existing
       colonies are drawn as markers on the globe and clicking a marker
       opens that colony; Esc from Colony returns to the globe. Ctrl+click
       in Colony view keeps adding sects. Part B replaces this stub with
       the descent.
-- [ ] `GameManager`: `FoundColony(point, identity)`; delete the grid
+- [x] `GameManager`: `FoundColony(point, identity)`; delete the grid
       picker methods and state; `UpdatePlanetActiveArea` goes.
-- [ ] Delete `Engine_copy.{h,cpp}`.
-- [ ] Tools: `colony_preview --view colony|sect --pick LAT,LON`;
+- [x] Delete `Engine_copy.{h,cpp}`.
+- [x] Tools: `colony_preview --view colony|sect --pick LAT,LON`;
       `colony_viewtest` walks Orbital → Colony → Sect with `--pick` and
       `--shots`, its Planet level removed; `terrain_probe` unchanged.
-- [ ] `docs/graveyard.md` entry 10: the 100 km playfield — the 20x20
+- [x] `docs/graveyard.md` entry 10: the 100 km playfield — the 20x20
       constants, the anchor and its clamp, `TerrainGridCellToLatLon`, the
       whole-moon map layer around the playfield, the grid picker's tint
       formula (`rendermanager.cpp:1742–1750`) and its bonus text, and why

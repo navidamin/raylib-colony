@@ -384,3 +384,98 @@ So of the two constants this entry pointed at, one is measured and one
 stays a constant on purpose.
 
 `git log -S'SynthesizeDetail'` for the real code.
+
+## 10. The 100 km playfield — the 20x20 grid, its anchor and the Planet view
+
+**Was:** the game's world. A square of 20x20 cells, each 5 km
+(`PLANET_SIZE`, `PLANET_WIDTH = PLANET_HEIGHT = 2000` units at 50 m a
+unit), with its world origin at the top-left corner. Every colony, sect
+and unit carried a `Vector2` in that square; resources were a 20x20
+array of per-cell quantities (`GetResourcesAtGrid(gx, gy)`,
+`GenerateResourceMap(seed)`, cluster-based); the prospecting lattice was
+seeded from `(gx, gy)`; the terrain cache was keyed by cell.
+
+The square was pinned to the real Moon by one **anchor** —
+`SetTerrainAnchor / GetTerrainAnchor / GetTerrainAnchorVersion`, default
+Mare Imbrium 32.8, −15.6, clamped to ±78° of latitude so the 1/cos(lat)
+longitude stretch stayed finite — and a cell's real coordinates were
+
+    cellDeg = 5 / 30.32268 = 0.16489°
+    lat = anchorLat − (gy − 9.5) · cellDeg
+    lon = anchorLon + (gx − 9.5) · cellDeg / max(0.2, cos anchorLat)
+
+(`TerrainGridCellToLatLon`). Picking a region on the orbital disc moved
+the anchor and re-registered the *whole* grid there, invalidating every
+cached chain through the version token.
+
+Three things drew it:
+
+- **The Planet view** (`DrawPlanetView`, `View::Planet`): level 0 of
+  the terrain chain (100 km) stretched over the square, colonies as
+  jurisdiction circles, a camera that fitted the square and could zoom
+  out to the whole moon.
+- **The whole-moon map layer** (`DrawPlanetMapLayer`,
+  `PlanetMapWorldRect`): the equirectangular WAC mosaic laid around the
+  square so zooming out was continuous. Units per degree of latitude
+  were `PLANET_HEIGHT / (20 · 5 / 30.32268)` = 606.5; longitude the same
+  times `max(0.2, cos anchorLat)`; the map's origin sat at
+  `(PLANET_WIDTH/2 − (anchorLon + 180)·updLon, PLANET_HEIGHT/2 − (90 −
+  anchorLat)·updLat)`. Its zoom floor was `min(W / 360·updLon, H /
+  180·updLat) · 0.92`, its ceiling five times the fit. The far side was
+  squashed by the anchor's cos(lat). Once the square fell under 220 px
+  on screen a gold frame marked it.
+- **The grid site picker** (`View::SITE_SELECTION`,
+  `DrawSiteSelectionView`, `EnterSiteSelection / ConfirmSiteSelection`):
+  Ctrl+click in the Planet view tinted every cell from its orbital
+  survey —
+
+      mare = (Fe + Ti) / 2,  highland = (Si + Al) / 2,  hydrogen = H signal
+      r = 60 + 140·highland,  g = 50 + 130·highland,  b = 60 + 120·highland + 80·hydrogen
+      r, g scaled by (1 − 0.5·mare);  alpha 140
+
+  — and a right-hand panel of bar charts (GRS Fe/Ti/Si/Al/Ca, Th and K
+  in ppm, neutron H with an ice-likelihood word, thermal solar fraction
+  with day/night temperatures `−173 + 300·solar` / `−173 + 20·solar`,
+  slope, Earth comms) ended in the archetype and a bonus line: "+20%
+  Fe/Ti extraction", "+20% Si/Al extraction", "+50% water extraction",
+  "+30% Science generation", "+15% all production", "No special bonus".
+  Enter founded the colony at the cell's centre.
+
+Also gone with it: the three-tile moon-surface shuffle
+(`LoadMoonTiles / RenderMoonSurface`) that was the ground before the
+chain existed and survived as its fallback, `Planet::ActiveArea` (the
+centroid and radius of all colonies, which the Planet camera kept in
+view), and `Engine_copy.{h,cpp}`, a pre-manager copy of the engine that
+nothing built.
+
+**Removed 2026-09-21** in two steps: "Put every colony, sect and unit at
+a real place on the Moon" (the data) and the commit that carries this
+entry (the views).
+
+**Why it went**
+
+The world is the Moon. The site-selection instrument (`lunar_map`)
+already walked globe → district → site on real coordinates and judged
+real ground; the game meanwhile founded colonies on a 100 km square that
+had to be *moved* to wherever the player had chosen, so only one region
+of the Moon could be played at a time and two colonies could never be
+far apart. The square was a coordinate system standing in for a world.
+
+What replaced it (`docs/design/site-selection/game-integration-plan.md`,
+Part A): every colony, sect and unit carries a `LunarPoint`; the ground
+truth is a function of the point (`ResourceManager::GroundAt`), generated
+from the region's real composition plus a hashed 20 km variation, so any
+two places on the Moon can be played at once; each view draws in a
+`LocalFrame` about what it is looking at, at the same 50 m a unit, so
+every radius and road speed kept its meaning; the terrain cache is keyed
+by the point. The Planet view had no place in that — between the globe
+and a colony's 25 km window there is no "100 km square" to look at; Part
+B puts the survey descent's district rung there instead.
+
+The grid picker's instrument panels were the first draft of the region
+cards the descent now shows (`lunarmap_main.cpp`, ported to
+`src/SiteSelection`); the archetype bonus lines survive as
+`GetSiteArchetypeDescriptor(...).gives / costs`.
+
+`git log -S'PLANET_SIZE'`, `git log -S'TerrainGridCellToLatLon'` and
+`git log -S'DrawSiteSelectionView'` for the real code.

@@ -1,6 +1,6 @@
 # View-ladder playtest (`colony_viewtest`)
 
-Walks the game's geographic views — **Orbital → Planet → Colony → Sect** —
+Walks the game's geographic views — **Orbital → Colony → Sect** —
 using the real `RenderManager`, and overlays the known issues for whichever
 view is on screen. The annotations are playtest-only commentary; they exist
 in this target alone and never ship in the game.
@@ -16,7 +16,7 @@ cmake --build build --target colony_viewtest
 # interactive
 ./build/src/colony_viewtest
 
-# headless screenshots -> build/viewtest/vt_{orbital,planet,colony,sect}.png
+# headless screenshots -> build/viewtest/vt_{orbital,colony,sect}.png
 tools/viewtest/viewtest.sh
 ```
 
@@ -29,19 +29,21 @@ Headless rendering needs the software-GL wrapper the script already applies:
 |-------|--------|
 | click / tap, ↓ | descend one view |
 | Esc, right-click, ↑ | ascend one view |
-| `1` `2` `3` `4` | jump to Orbital / Planet / Colony / Sect |
+| `1` `2` `3` | jump to Orbital / Colony / Sect |
 | `I` | toggle the issue overlay |
-| `R` | hop the sect to another grid cell (new terrain) |
+| `R` | move the colony to the next real place (new terrain) |
 
-On the **orbital** view a click is a *region pick*: it inverts the disc
-projection to real lat/lon, re-anchors the playfield there, and descends.
-The gold marker shows the 100 km playfield you are about to enter.
+On the **orbital** view a click is a *site pick*: it inverts the globe
+projection to real lat/lon, asks you to confirm, founds the colony there
+and descends into its 25 km window. The game itself founds on a single
+click; the harness's two-step prompt is its own. Once founded, the colony
+is marked on the globe by the game's own renderer.
 
 ## Flags
 
 | Flag | Effect |
 |------|--------|
-| `--shots PREFIX` | render all four views to `PREFIX_*.png` and exit |
+| `--shots PREFIX` | render the three views (plus the two orbital pick states) to `PREFIX_*.png` and exit |
 | `--pick LAT,LON` | land the ladder anywhere without clicking |
 | `--nodisturb` | generate the ground with the site left untouched |
 

@@ -27,7 +27,9 @@ public:
     Sect* GetCurrentSect() const { return currentSect; }
     Unit* GetCurrentUnit() const { return currentUnit; }
 
-    void SelectColony(Vector2 playfieldPos);          // Planet view units
+    // Make a colony (one the globe marker was clicked on) the current
+    // one; its first sect becomes the current sect.
+    void SetCurrentColony(Colony* colony);
     void SelectSect(Vector2 mousePosition, Camera2D camera);
     void SelectUnit(Vector2 mousePosition);
     void SelectDefaultUnit();  // Auto-select Extraction unit or first available
@@ -43,10 +45,8 @@ public:
     // its whole footprint inside the colony's window. Refused otherwise.
     Sect* FoundSect(const LunarPoint& point);
 
-    // The same two from the views' drawing frames: the Planet view's
-    // playfield units (until that view goes) and the current colony's
-    // local frame.
-    Colony* BuildNewColony(Vector2 playfieldPos);
+    // FoundSect from the Colony view's drawing frame (the current
+    // colony's local frame).
     Sect* BuildNewSect(Vector2 localPos);
 
     // Test functions for transport
@@ -66,7 +66,6 @@ public:
     bool IsBuildRoadMode() const { return buildRoadMode; }
     Sect* GetRoadBuildStartSect() const { return roadBuildStartSect; }
 
-    void UpdatePlanetActiveArea();
     TimeManager& GetTimeManager() { return timeManager; }
 
 private:
