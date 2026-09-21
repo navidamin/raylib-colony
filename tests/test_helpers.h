@@ -5,6 +5,8 @@
 #include "prospecting_grid.h"
 #include "resource_manager.h"
 #include "prospecting_system.h"
+#include "lunar_frame.h"
+#include "game_constants.h"
 
 inline Sample MakeDummySample(DepthLayer depth = DepthLayer::SURFACE,
                                float richness = 0.5f)
@@ -46,12 +48,22 @@ inline Sample MakeSampleWithConfidence(float feConf, float siConf)
     return s;
 }
 
+// A fixed world seed, so the numbers a test sees are the same every run.
 inline ResourceManager MakeTestResourceManager()
 {
-    ResourceManager rm(20, 100.0f);
-    rm.GenerateResourceMap(42);
-    rm.GenerateOrbitalSurveyData();
-    return rm;
+    return ResourceManager(42);
+}
+
+// Where the tests stand: Mare Imbrium, a populated mare. The offsets are
+// in sect footprints (5 km) east and north, so TestPoint(1, 0) is the
+// next sect over -- what the old grid tests meant by (gx + 1, gy).
+inline LunarPoint TestPoint(int eastCells = 0, int northCells = 0)
+{
+    LunarPoint imbrium;
+    imbrium.latDeg = 32.8;
+    imbrium.lonDeg = -15.6;
+    return LunarOffsetPoint(imbrium, eastCells * SECT_FOOTPRINT_KM,
+                            northCells * SECT_FOOTPRINT_KM);
 }
 
 // The lattice is a fixed 8x8; a tier only widens a centred reach window, so

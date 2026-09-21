@@ -1,5 +1,6 @@
 #include "rendermanager.h"
 #include "resource_manager.h"
+#include "region_identity.h"
 #include "terrain_synthesis.h"
 #include "terrain_gpu.h"
 #include "lunar_globe.h"
@@ -34,14 +35,19 @@ namespace
 {
 
 // The CPU chain's resolution: the pyramid blur made 1024 cost 2.4 s a
-// cell, so the threads build 512 (RenderManager::TERRAIN_RES).
+// chain, so the threads build 512 (RenderManager::TERRAIN_RES).
 const int CPU_TERRAIN_RES = 512;
+
+// A chain to build: the place it is registered on, and its cache key.
+struct TerrainRequest
+{
+    LunarKey key;
+    LunarPoint point;
+};
 
 struct TerrainJob
 {
-    int gx = 0;
-    int gy = 0;
-    unsigned int anchorVersion = 0;
+    LunarKey key;
     Image levels[3] = {};
 };
 
@@ -60,7 +66,7 @@ public:
 #else
         unsigned int hw = std::thread::hardware_concurrency();
         int count = (int)((hw > 4) ? (hw / 2) : 2);
-        if (count > 6) count = 6;      // enough to hide the ring of 8
+        if (count > 6) count = 6;      // enough to hide a colony's sects
         for (int i = 0; i < count; i++)
             workers.emplace_back([this] { Run(); });
 #endif
@@ -83,33 +89,33 @@ public:
         started = false;
     }
 
-    // Queue a cell unless it is already queued, in flight, or done.
-    void Request(int gx, int gy, unsigned int anchorVersion)
+    // Queue a place unless it is already queued, in flight, or done.
+    void Request(const TerrainRequest& req)
     {
         std::lock_guard<std::mutex> lock(mutex);
-        if (Tracked(gx, gy, anchorVersion)) return;
-        pending.push_back({gx, gy, anchorVersion});
+        if (Tracked(req.key)) return;
+        pending.push_back(req);
         wake.notify_one();
     }
 
     bool TakeDone(std::vector<TerrainJob>& out)
     {
 #if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
-        // Threadless: build one queued cell right here, one per frame.
-        Key key;
+        // Threadless: build one queued place right here, one per frame.
+        TerrainRequest req;
         bool have = false;
         {
             std::lock_guard<std::mutex> lock(mutex);
             if (started && !pending.empty())
             {
-                key = pending.front();
+                req = pending.front();
                 pending.pop_front();
                 have = true;
             }
         }
         if (have)
         {
-            TerrainJob job = Build(key);
+            TerrainJob job = Build(req);
             std::lock_guard<std::mutex> lock(mutex);
             done.push_back(std::move(job));
         }
@@ -122,50 +128,23 @@ public:
         return true;
     }
 
-    // The anchor moved: everything queued or produced is for the wrong
-    // playfield now.
-    void Invalidate(unsigned int keepVersion)
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        pending.erase(std::remove_if(pending.begin(), pending.end(),
-            [keepVersion](const Key& k) { return k.anchorVersion != keepVersion; }),
-            pending.end());
-        for (auto it = done.begin(); it != done.end(); )
-        {
-            if (it->anchorVersion != keepVersion)
-            {
-                for (int i = 0; i < 3; i++) UnloadImage(it->levels[i]);
-                it = done.erase(it);
-            }
-            else ++it;
-        }
-    }
-
 private:
-    struct Key { int gx, gy; unsigned int anchorVersion; };
-
-    bool Tracked(int gx, int gy, unsigned int v) const
+    bool Tracked(const LunarKey& key) const
     {
-        for (const auto& k : pending)
-            if (k.gx == gx && k.gy == gy && k.anchorVersion == v) return true;
-        for (const auto& k : inFlight)
-            if (k.gx == gx && k.gy == gy && k.anchorVersion == v) return true;
-        for (const auto& j : done)
-            if (j.gx == gx && j.gy == gy && j.anchorVersion == v) return true;
+        for (const auto& r : pending) if (r.key == key) return true;
+        for (const auto& r : inFlight) if (r.key == key) return true;
+        for (const auto& j : done) if (j.key == key) return true;
         return false;
     }
 
-    TerrainJob Build(const Key& key)
+    TerrainJob Build(const TerrainRequest& req)
     {
-        double lat, lon;
-        TerrainGridCellToLatLon(key.gx, key.gy, &lat, &lon);
         TerrainSiteDisturbance site;
         site.enabled = true;
         TerrainJob job;
-        job.gx = key.gx;
-        job.gy = key.gy;
-        job.anchorVersion = key.anchorVersion;
-        GenerateTerrainChain(lat, lon, CPU_TERRAIN_RES, job.levels, &site);
+        job.key = req.key;
+        GenerateTerrainChain(req.point.latDeg, req.point.lonDeg, CPU_TERRAIN_RES,
+                             job.levels, &site);
         return job;
     }
 
@@ -173,24 +152,22 @@ private:
     {
         for (;;)
         {
-            Key key;
+            TerrainRequest req;
             {
                 std::unique_lock<std::mutex> lock(mutex);
                 wake.wait(lock, [this] { return quitting || !pending.empty(); });
                 if (quitting) return;
-                key = pending.front();
+                req = pending.front();
                 pending.pop_front();
-                inFlight.push_back(key);
+                inFlight.push_back(req);
             }
 
-            TerrainJob job = Build(key);
+            TerrainJob job = Build(req);
 
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 inFlight.erase(std::remove_if(inFlight.begin(), inFlight.end(),
-                    [&key](const Key& k) {
-                        return k.gx == key.gx && k.gy == key.gy
-                            && k.anchorVersion == key.anchorVersion; }),
+                    [&req](const TerrainRequest& r) { return r.key == req.key; }),
                     inFlight.end());
                 if (quitting)
                 {
@@ -203,8 +180,8 @@ private:
     }
 
     std::vector<std::thread> workers;
-    std::deque<Key> pending;
-    std::vector<Key> inFlight;
+    std::deque<TerrainRequest> pending;
+    std::vector<TerrainRequest> inFlight;
     std::vector<TerrainJob> done;
     std::mutex mutex;
     std::condition_variable wake;
@@ -214,15 +191,13 @@ private:
 
 TerrainPool g_terrainPool;
 
-// The GPU path's prefetch queue: cells to build, one per frame, on the
+// The GPU path's prefetch queue: chains to build, one per frame, on the
 // main thread. Nothing to synchronise.
-struct GpuKey { int gx, gy; unsigned int anchorVersion; };
-std::deque<GpuKey> g_gpuPending;
+std::deque<TerrainRequest> g_gpuPending;
 
-bool GpuQueued(int gx, int gy, unsigned int v)
+bool GpuQueued(const LunarKey& key)
 {
-    for (const auto& k : g_gpuPending)
-        if (k.gx == gx && k.gy == gy && k.anchorVersion == v) return true;
+    for (const auto& r : g_gpuPending) if (r.key == key) return true;
     return false;
 }
 
@@ -236,9 +211,6 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
       orbitalAssetsLoaded(false),
       terrainClock(0),
       terrainLoaded(false),
-      terrainCellX(-1),
-      terrainCellY(-1),
-      terrainAnchorVersion(0),
       planetMapLoaded(false)
 {
     planetMapTexture = {0};
@@ -399,10 +371,12 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
         DrawPlanetMapLayer(camera);
 
         // Ground: level 0 of the terrain chain (100 km) spans the whole
-        // 20x20 grid, registered on the playfield anchor. This is the
-        // same generated ground the sect stands on, seen from 100 km —
-        // so zooming in approaches it instead of cutting to tiles.
-        EnsureTerrainForCell(PLANET_SIZE / 2, PLANET_SIZE / 2);
+        // playfield, registered on its anchor. This is the same generated
+        // ground the sect stands on, seen from 100 km — so zooming in
+        // approaches it instead of cutting to tiles.
+        LunarPoint anchor;
+        GetTerrainAnchor(&anchor.latDeg, &anchor.lonDeg);
+        EnsureTerrainAt(anchor);
         if (terrainLoaded && terrainLevels[0].id != 0) {
             DrawWorldTerrainLayer(0,
                 Vector2{PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f},
@@ -416,37 +390,23 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
             }
             RenderMoonSurface();
         }
-/*
-        // Draw grid
-        for (int i = 0; i <= PLANET_SIZE; i++) {
-            float linePos = i * SECT_CORE_RADIUS * 2;
-            DrawLineV({linePos, 0}, {linePos, PLANET_HEIGHT}, LIGHTGRAY);
-            DrawLineV({0, linePos}, {PLANET_WIDTH, linePos}, LIGHTGRAY);
-        }*/
 
-        // Draw colonies if any
+        // Colonies, each at its real place mapped into the playfield.
         for (const auto& colony : colonies) {
-            colony->Draw(camera);
+            DrawColonyMarker(colony, camera.zoom);
         }
-    }
-
-    // Show the resource map if TAB is held
-    if (inputManager.IsInfoKeyPressed()) {
-        planet->DrawResourceDebug(camera.zoom);
     }
 
     EndMode2D();
 
-    // Show the Cell info if Ctrl+I is held
-    if (inputManager.IsInfoKeyPressed()) {
-        DrawCellInfo(inputManager.GetMousePosition(), camera, planet, colonies);
-    }
-
-    // Draw Add Sect when Left_ctrl pressed
-    if (inputManager.IsCommandPressed()) {
+    // The ground under the cursor (Ctrl+I), and the founding cursor (Ctrl).
+    if (planet && (inputManager.IsInfoKeyPressed() || inputManager.IsCommandPressed())) {
         Vector2 mousePos = inputManager.GetMousePosition();
-        DrawCellInfo(mousePos, camera, planet, colonies);
-        DrawPlusIndicator(mousePos, View::Planet);
+        LunarPoint under = Planet::PointOf(GetScreenToWorld2D(mousePos, camera));
+        DrawPointInfo(mousePos, under, planet, colonies);
+        if (inputManager.IsCommandPressed()) {
+            DrawPlusIndicator(mousePos, View::Planet);
+        }
     }
 
     // Draw UI elements including time
@@ -468,22 +428,12 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     if (colony) {
         // Ground: level 1 of the chain (25 km) centred on the colony —
         // the same ground as the planet view above and the sect below,
-        // one zoom step closer.
-        Vector2 colonyCentre = colony->GetSects().empty()
-            ? Vector2{PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f}
-            : colony->GetSects()[0]->GetPosition();
-        int cgx = std::clamp((int)(colonyCentre.x / (SECT_CORE_RADIUS * 2.0f)),
-                             0, PLANET_SIZE - 1);
-        int cgy = std::clamp((int)(colonyCentre.y / (SECT_CORE_RADIUS * 2.0f)),
-                             0, PLANET_SIZE - 1);
-        EnsureTerrainForCell(cgx, cgy);
+        // one zoom step closer. The colony's frame has its origin at that
+        // centre, so the level draws at (0, 0).
+        EnsureTerrainAt(colony->GetCentre());
         if (terrainLoaded && terrainLevels[1].id != 0) {
-            // The level is registered on its cell centre, not the sect's
-            // arbitrary position, so it lines up with the grid.
-            Vector2 cellCentre = {
-                (cgx + 0.5f) * SECT_CORE_RADIUS * 2.0f,
-                (cgy + 0.5f) * SECT_CORE_RADIUS * 2.0f};
-            DrawWorldTerrainLayer(1, cellCentre, 5.0f);
+            DrawWorldTerrainLayer(1, Vector2{0.0f, 0.0f},
+                                  (float)(COLONY_WINDOW_KM / TERRAIN_CELL_KM));
         } else {
             if (!tilesLoaded) {
                 LoadMoonTiles();
@@ -493,46 +443,12 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
             RenderMoonSurface();
         }
 
-        // Calculate visible area in world coordinates
-        Vector2 topLeft = GetScreenToWorld2D({0, 0}, camera);
-        Vector2 bottomRight = GetScreenToWorld2D(
-            {static_cast<float>(screenWidth),
-             static_cast<float>(screenHeight)},
-            camera
-        );
-
-        // Calculate grid line positions
-        float cellSize = SECT_CORE_RADIUS * 2.0f;
-        float planetWidth = PLANET_SIZE * cellSize;  // Total width of planet
-        float planetHeight = PLANET_SIZE * cellSize; // Total height of planet
-/*
-        // Draw vertical grid lines
-        int startX = std::max(0, static_cast<int>(topLeft.x / cellSize));
-        int endX = std::min(PLANET_SIZE, static_cast<int>(bottomRight.x / cellSize) + 1);
-
-        for (int i = startX; i <= endX; i++) {
-            float x = i * cellSize;
-            if (x <= planetWidth) {  // Only draw if within planet width
-                Vector2 start = {x, 0};
-                Vector2 end = {x, planetHeight};
-                DrawLineV(start, end, Fade(LIGHTGRAY, 0.5f));
-            }
+        // The sects are the places one click away: have their chains
+        // ready before the click.
+        for (const auto& sect : colony->GetSects()) {
+            RequestTerrainAt(sect->GetPoint());
         }
 
-        // Draw horizontal grid lines
-        int startY = std::max(0, static_cast<int>(topLeft.y / cellSize));
-        int endY = std::min(PLANET_SIZE, static_cast<int>(bottomRight.y / cellSize) + 1);
-
-        for (int i = startY; i <= endY; i++) {
-            float y = i * cellSize;
-            // Draw horizontal line from 0 to planetWidth (not screen width)
-            DrawLineV(
-                {0, y},
-                {planetWidth, y},
-                Fade(LIGHTGRAY, 0.5f)
-            );
-        }
-*/
         // Draw roads between sects (behind sects)
         DrawRoads(colony, selectedRoad);
 
@@ -569,11 +485,6 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         DrawTransportPackets(colony);
     }
 
-    // Show the resource map if TAB is held
-    if (inputManager.IsInfoKeyPressed()) {
-        planet->DrawResourceDebug(camera.zoom);
-    }
-
     EndMode2D();
 
     // Draw road info panel (screen-space, after EndMode2D)
@@ -597,28 +508,19 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         DrawText(instructions, screenWidth/2 - instrWidth/2, 45, 16, GREEN);
     }
 
-    // Show the Cell info if Ctrl+I is held
-    if (inputManager.IsInfoKeyPressed()) {
-        DrawCellInfo(inputManager.GetMousePosition(), camera, planet, colonies);
-    }
-
-    if (inputManager.IsCommandPressed()) {
+    // The ground under the cursor (Ctrl+I), and the sect-placement cursor
+    // (Ctrl) with its orbital preview of what the ground holds.
+    if (planet && colony && (inputManager.IsInfoKeyPressed() || inputManager.IsCommandPressed())) {
         Vector2 mousePos = inputManager.GetMousePosition();
-        DrawCellInfo(mousePos, camera, planet, colonies);
-        DrawPlusIndicator(mousePos, View::Colony);
+        LunarPoint under = colony->GetFrame().FromLocal(GetScreenToWorld2D(mousePos, camera));
+        DrawPointInfo(mousePos, under, planet, colonies);
 
-        // Resource preview overlay for sect placement
-        if (planet)
-        {
-            Vector2 worldPos = GetScreenToWorld2D(mousePos, camera);
-            float cellSize = SECT_CORE_RADIUS * 2.0f;
-            int gx = static_cast<int>(std::floor(worldPos.x / cellSize));
-            int gy = static_cast<int>(std::floor(worldPos.y / cellSize));
+        if (inputManager.IsCommandPressed()) {
+            DrawPlusIndicator(mousePos, View::Colony);
 
-            if (gx >= 0 && gx < PLANET_SIZE && gy >= 0 && gy < PLANET_SIZE)
+            // Resource preview overlay for sect placement
             {
-                auto survey = planet->GetResourceManager().GetOrbitalSurveyAt(gx, gy);
-                auto resources = planet->GetResourceManager().GetResourcesAtGrid(gx, gy);
+                auto resources = planet->GetResourceManager().GetResourcesAt(under);
 
                 // Draw tooltip near cursor
                 int tooltipX = static_cast<int>(mousePos.x) + 20;
@@ -883,31 +785,20 @@ void RenderManager::UnloadTerrainLevels()
         TerrainCacheEntry& e = terrainCache[i];
         if (!e.valid) continue;
         ReleaseTerrainEntry(e);
-        e.gx = -1;
-        e.gy = -1;
     }
     UnloadTerrainGpu();
 
     for (int i = 0; i < 3; i++) terrainLevels[i] = {0};
     terrainLoaded = false;
-    terrainCellX = -1;
-    terrainCellY = -1;
+    terrainKey = LunarKey{};
 }
 
-// Generate (and cache) the whole 100 / 25 / 5 km chain registered on a
-// grid cell. Regenerates when the cell changes or the playfield anchor
-// moves (the player picking a new region from orbit).
-int RenderManager::FindTerrainSlot(int gx, int gy,
-                                   unsigned int anchorVersion) const
+int RenderManager::FindTerrainSlot(const LunarKey& key) const
 {
     for (int i = 0; i < TERRAIN_CACHE_SLOTS; i++)
     {
         const TerrainCacheEntry& e = terrainCache[i];
-        if (e.valid && e.gx == gx && e.gy == gy
-            && e.anchorVersion == anchorVersion)
-        {
-            return i;
-        }
+        if (e.valid && e.key == key) return i;
     }
     return -1;
 }
@@ -954,36 +845,29 @@ void RenderManager::BindTerrainSlot(int slot)
     e.lastUsed = ++terrainClock;
     for (int i = 0; i < 3; i++) terrainLevels[i] = e.levels[i];
     terrainLoaded = true;
-    terrainCellX = e.gx;
-    terrainCellY = e.gy;
-    terrainAnchorVersion = e.anchorVersion;
+    terrainKey = e.key;
 }
 
 // Bring finished prefetch work into the cache. On the GPU path that
-// means building one queued neighbour right now — a few milliseconds of
-// main-thread GPU work per frame, which is how the ring of eight fills
-// in without threads. On the CPU path it drains the worker pool and
+// means building one queued chain right now — a few milliseconds of
+// main-thread GPU work per frame, which is how a colony's sects fill in
+// without threads. On the CPU path it drains the worker pool and
 // uploads what it produced; GL only happens here, on the main thread.
 void RenderManager::UploadReadyTerrain()
 {
-    unsigned int anchorVersion = GetTerrainAnchorVersion();
-
     if (GetTerrainPath() == TERRAIN_PATH_GPU)
     {
         while (!g_gpuPending.empty())
         {
-            GpuKey key = g_gpuPending.front();
+            TerrainRequest req = g_gpuPending.front();
             g_gpuPending.pop_front();
-            if (key.anchorVersion != anchorVersion) continue;
-            if (FindTerrainSlot(key.gx, key.gy, key.anchorVersion) >= 0) continue;
+            if (FindTerrainSlot(req.key) >= 0) continue;
 
-            double lat, lon;
-            TerrainGridCellToLatLon(key.gx, key.gy, &lat, &lon);
             TerrainSiteDisturbance site;
             site.enabled = true;
             TerrainGpuChain chain;
-            if (!GenerateTerrainChainGPU(lat, lon, GetTerrainPathResolution(),
-                                         &chain, &site))
+            if (!GenerateTerrainChainGPU(req.point.latDeg, req.point.lonDeg,
+                                         GetTerrainPathResolution(), &chain, &site))
                 return;
 
             int slot = ClaimTerrainSlot();
@@ -993,10 +877,8 @@ void RenderManager::UploadReadyTerrain()
                 e.targets[i] = chain.color[i];
                 e.levels[i] = chain.color[i].texture;
             }
-            e.gx = key.gx;
-            e.gy = key.gy;
-            e.anchorVersion = key.anchorVersion;
-            e.lastUsed = 0;         // prefetched: evict before the current cell
+            e.key = req.key;
+            e.lastUsed = 0;         // prefetched: evict before the bound chain
             e.valid = true;
             return;                 // one per frame
         }
@@ -1008,9 +890,7 @@ void RenderManager::UploadReadyTerrain()
 
     for (TerrainJob& job : finished)
     {
-        bool stale = (job.anchorVersion != anchorVersion)
-                  || (FindTerrainSlot(job.gx, job.gy, job.anchorVersion) >= 0);
-        if (stale)
+        if (FindTerrainSlot(job.key) >= 0)
         {
             for (int i = 0; i < 3; i++) UnloadImage(job.levels[i]);
             continue;
@@ -1024,39 +904,30 @@ void RenderManager::UploadReadyTerrain()
             SetTextureFilter(e.levels[i], TEXTURE_FILTER_BILINEAR);
             UnloadImage(job.levels[i]);
         }
-        e.gx = job.gx;
-        e.gy = job.gy;
-        e.anchorVersion = job.anchorVersion;
+        e.key = job.key;
         // Prefetched, not yet looked at: leave it low in the LRU order so
-        // it is evicted before the cell the player is actually standing on.
+        // it is evicted before the chain the player is actually looking at.
         e.lastUsed = 0;
         e.valid = true;
     }
 }
 
-// The eight cells reachable in one step are the only ones worth guessing.
-void RenderManager::RequestNeighbourTerrain(int gx, int gy)
+// Queue a place's chain for the frames ahead. The sects of the colony
+// being looked at are the only places one click away, so they are the
+// ones worth guessing.
+void RenderManager::RequestTerrainAt(const LunarPoint& point)
 {
-    unsigned int anchorVersion = GetTerrainAnchorVersion();
-    for (int dy = -1; dy <= 1; dy++)
+    TerrainRequest req;
+    req.key = LunarQuantise(point);
+    req.point = point;
+    if (FindTerrainSlot(req.key) >= 0) return;
+    if (GetTerrainPath() == TERRAIN_PATH_GPU)
     {
-        for (int dx = -1; dx <= 1; dx++)
-        {
-            if (dx == 0 && dy == 0) continue;
-            int nx = gx + dx;
-            int ny = gy + dy;
-            if (nx < 0 || ny < 0 || nx >= PLANET_SIZE || ny >= PLANET_SIZE) continue;
-            if (FindTerrainSlot(nx, ny, anchorVersion) >= 0) continue;
-            if (GetTerrainPath() == TERRAIN_PATH_GPU)
-            {
-                if (!GpuQueued(nx, ny, anchorVersion))
-                    g_gpuPending.push_back({nx, ny, anchorVersion});
-            }
-            else
-            {
-                g_terrainPool.Request(nx, ny, anchorVersion);
-            }
-        }
+        if (!GpuQueued(req.key)) g_gpuPending.push_back(req);
+    }
+    else
+    {
+        g_terrainPool.Request(req);
     }
 }
 
@@ -1066,41 +937,24 @@ void RenderManager::ShutdownTerrainWorkers()
 }
 
 // Generate (and cache) the whole 100 / 25 / 5 km chain registered on a
-// grid cell. A hit binds in microseconds; a miss still blocks, but the
-// ring around it is queued so the next step across a boundary does not.
-void RenderManager::EnsureTerrainForCell(int gx, int gy)
+// place. A hit binds in microseconds; a miss still blocks, which is what
+// RequestTerrainAt exists to avoid.
+void RenderManager::EnsureTerrainAt(const LunarPoint& point)
 {
-    unsigned int anchorVersion = GetTerrainAnchorVersion();
-
-    // Playfield re-anchored: every cached chain describes other ground.
-    if (anchorVersion != terrainAnchorVersion)
-    {
-        g_terrainPool.Invalidate(anchorVersion);
-        g_gpuPending.clear();
-        for (int i = 0; i < TERRAIN_CACHE_SLOTS; i++)
-        {
-            TerrainCacheEntry& e = terrainCache[i];
-            if (!e.valid || e.anchorVersion == anchorVersion) continue;
-            ReleaseTerrainEntry(e);
-        }
-        terrainLoaded = false;
-    }
-
     UploadReadyTerrain();
 
-    int slot = FindTerrainSlot(gx, gy, anchorVersion);
+    LunarKey key = LunarQuantise(point);
+    int slot = FindTerrainSlot(key);
     if (slot < 0)
     {
         // Miss. Build it here — the caller needs ground this frame.
-        double lat, lon;
-        TerrainGridCellToLatLon(gx, gy, &lat, &lon);
         TerrainSiteDisturbance site;
         site.enabled = true;
 
         TerrainGpuChain chain;
         bool gpu = (GetTerrainPath() == TERRAIN_PATH_GPU)
-                && GenerateTerrainChainGPU(lat, lon, GetTerrainPathResolution(),
-                                           &chain, &site);
+                && GenerateTerrainChainGPU(point.latDeg, point.lonDeg,
+                                           GetTerrainPathResolution(), &chain, &site);
 
         slot = ClaimTerrainSlot();
         TerrainCacheEntry& e = terrainCache[slot];
@@ -1115,7 +969,7 @@ void RenderManager::EnsureTerrainForCell(int gx, int gy)
         else
         {
             Image levels[3] = {};
-            GenerateTerrainChain(lat, lon, TERRAIN_RES, levels, &site);
+            GenerateTerrainChain(point.latDeg, point.lonDeg, TERRAIN_RES, levels, &site);
             for (int i = 0; i < 3; i++)
             {
                 e.levels[i] = LoadTextureFromImage(levels[i]);
@@ -1125,14 +979,32 @@ void RenderManager::EnsureTerrainForCell(int gx, int gy)
             // The mosaic is warm now, so workers cannot race to load it.
             g_terrainPool.Start();
         }
-        e.gx = gx;
-        e.gy = gy;
-        e.anchorVersion = anchorVersion;
+        e.key = key;
         e.valid = true;
     }
 
     BindTerrainSlot(slot);
-    RequestNeighbourTerrain(gx, gy);
+}
+
+// A colony as the Planet view sees it. Its frame's origin is drawn at
+// its real place; sect positions and the jurisdiction circle are in
+// that frame, in the same 50 m units as the playfield, so they carry
+// straight over.
+void RenderManager::DrawColonyMarker(const Colony* colony, float zoom)
+{
+    if (!colony || !colony->HasCentre()) return;
+    Vector2 origin = Planet::WorldOf(colony->GetCentre());
+    Vector2 centroid = Vector2Add(origin, colony->GetCentroid());
+    float thick = 2.0f / std::max(zoom, 0.0001f);
+
+    DrawRing(centroid, colony->GetRadius() - thick, colony->GetRadius(),
+             0.0f, 360.0f, 48, ColorAlpha(GOLD, 0.7f));
+    for (const Sect* sect : colony->GetSects())
+    {
+        Vector2 p = Vector2Add(origin, sect->GetPosition());
+        DrawCircleV(p, sect->GetRadius() * 0.5f, ColorAlpha(GOLD, 0.35f));
+        DrawCircleV(p, std::max(sect->GetRadius() * 0.15f, thick * 2.0f), GOLD);
+    }
 }
 
 // Draw a chain level as world-space ground. Called inside BeginMode2D,
@@ -1157,12 +1029,7 @@ void RenderManager::DrawSectTerrainBackground(Sect* sect)
 {
     if (!sect) return;
 
-    Vector2 pos = sect->GetPosition();
-    int gx = std::clamp((int)(pos.x / (SECT_CORE_RADIUS * 2.0f)), 0,
-                        PLANET_SIZE - 1);
-    int gy = std::clamp((int)(pos.y / (SECT_CORE_RADIUS * 2.0f)), 0,
-                        PLANET_SIZE - 1);
-    EnsureTerrainForCell(gx, gy);
+    EnsureTerrainAt(sect->GetPoint());
     if (!terrainLoaded || terrainLevels[2].id == 0) return;
 
     // Sect view is screen-space: the 5 km cell fills the screen.
@@ -1292,36 +1159,23 @@ void RenderManager::DrawUnitView(Unit* unit, TimeManager& timeManager) {
     DrawModularUnitView(unit, timeManager);
 }
 
-void RenderManager::DrawCellInfo(Vector2 mousePosition, Camera2D camera, Planet* planet, std::vector<Colony*>& colonies) {
-    // Convert screen coordinates to world coordinates
-    Vector2 worldPos = GetScreenToWorld2D(mousePosition, camera);
+void RenderManager::DrawPointInfo(Vector2 mousePosition, const LunarPoint& point,
+                                  Planet* planet, std::vector<Colony*>& colonies) {
+    if (!planet) return;
+    const ResourceManager::Ground& ground = planet->GetResourceManager().GroundAt(point);
+    const RegionIdentity& region = ground.region;
 
-    // Get grid coordinates
-    int gridX = static_cast<int>(worldPos.x / (SECT_CORE_RADIUS * 2));
-    int gridY = static_cast<int>(worldPos.y / (SECT_CORE_RADIUS * 2));
-
-    // Check if position is within planet bounds
-    if (gridX < 0 || gridX >= PLANET_SIZE || gridY < 0 || gridY >= PLANET_SIZE) {
-        return;
-    }
-
-    // Get resource information
-    Vector2 gridWorldPos = {
-        static_cast<float>(gridX) * SECT_CORE_RADIUS * 2,
-        static_cast<float>(gridY) * SECT_CORE_RADIUS * 2
-    };
-    auto resources = planet->GetResourceInfo(gridWorldPos);
-
-    // Build info text
     std::vector<std::string> infoLines;
+    infoLines.push_back(TextFormat("%+.3f, %+.3f", point.latDeg, point.lonDeg));
+    infoLines.push_back(TextFormat("%s (%s)",
+                                   region.name[0] ? region.name : "Unnamed ground",
+                                   region.isMare ? "mare" : "highland"));
+    infoLines.push_back(GetSiteArchetypeDescriptor(region.archetype).name);
 
-    // Add coordinates
-    infoLines.push_back(TextFormat("Grid: %d, %d", gridX, gridY));
-
-    // Add resources
-    if (!resources.empty()) {
+    if (!ground.resources.empty()) {
         infoLines.push_back("Resources:");
-        for (const auto& [type, abundance] : resources) {
+        for (const auto& [type, abundance] : ground.resources) {
+            if (abundance <= 0.0f) continue;
             std::string resourceName = ResourceUtils::GetResourceName(type);
             int kiloTonnes = static_cast<int>(abundance * 100);
             infoLines.push_back(TextFormat("  %s: %d kilo Tonnes", resourceName.c_str(), kiloTonnes));
@@ -1330,12 +1184,9 @@ void RenderManager::DrawCellInfo(Vector2 mousePosition, Camera2D camera, Planet*
         infoLines.push_back("No resources");
     }
 
-    // Check jurisdiction
     std::string jurisdiction = "Unclaimed";
     for (const auto& colony : colonies) {
-        Vector2 colonyCenter = colony->GetCentroid();
-        float colonyRadius = colony->GetRadius();
-        if (CheckCollisionPointCircle(gridWorldPos, colonyCenter, colonyRadius)) {
+        if (colony->Contains(point)) {
             jurisdiction = "Colony Territory";
             break;
         }
@@ -1704,236 +1555,6 @@ void RenderManager::DrawRoadInfoPanel(Road* selectedRoad, Colony* colony) {
 
     // Controls hint
     DrawText("Press T to cycle mode", panelX + padding, y, 12, DARKGRAY);
-}
-
-// ============================================================================
-// SITE SELECTION VIEW
-// ============================================================================
-
-void RenderManager::DrawSiteSelectionView(Camera2D camera, Planet* planet, Vector2 hoveredGridPos,
-                                          TimeManager& timeManager) {
-    if (!planet) return;
-
-    ResourceManager& rm = planet->GetResourceManager();
-    float cellSize = SECT_CORE_RADIUS * 2.0f;
-
-    // --- Draw world-space elements (orbital map with colored grid) ---
-    BeginMode2D(camera);
-
-    // Draw tiled moon surface background
-    if (tilesLoaded)
-    {
-        RenderMoonSurface();
-    }
-
-    // Draw colored overlay for each grid cell
-    for (int y = 0; y < PLANET_SIZE; y++)
-    {
-        for (int x = 0; x < PLANET_SIZE; x++)
-        {
-            auto survey = rm.GetOrbitalSurveyAt(x, y);
-
-            // Color based on composition: dark = mare (Fe/Ti), light = highland (Si/Al)
-            float mareIntensity = (survey.fePercent + survey.tiPercent) * 0.5f;
-            float highlandIntensity = (survey.siPercent + survey.alPercent) * 0.5f;
-            float hydrogenTint = survey.hydrogenSignal;
-
-            // Blend: dark grey for mare, light grey for highland, blue tint for hydrogen
-            unsigned char r = static_cast<unsigned char>(60.0f + highlandIntensity * 140.0f);
-            unsigned char g = static_cast<unsigned char>(50.0f + highlandIntensity * 130.0f);
-            unsigned char b = static_cast<unsigned char>(60.0f + highlandIntensity * 120.0f + hydrogenTint * 80.0f);
-
-            // Darken for mare regions
-            r = static_cast<unsigned char>(r * (1.0f - mareIntensity * 0.5f));
-            g = static_cast<unsigned char>(g * (1.0f - mareIntensity * 0.5f));
-
-            Color cellColor = {r, g, b, 140};
-
-            float worldX = x * cellSize;
-            float worldY = y * cellSize;
-            DrawRectangle(static_cast<int>(worldX), static_cast<int>(worldY),
-                         static_cast<int>(cellSize), static_cast<int>(cellSize), cellColor);
-
-            // Draw thin grid lines
-            DrawRectangleLines(static_cast<int>(worldX), static_cast<int>(worldY),
-                              static_cast<int>(cellSize), static_cast<int>(cellSize),
-                              {100, 100, 100, 80});
-        }
-    }
-
-    // Highlight hovered cell
-    int hx = static_cast<int>(hoveredGridPos.x);
-    int hy = static_cast<int>(hoveredGridPos.y);
-    if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE)
-    {
-        float worldX = hx * cellSize;
-        float worldY = hy * cellSize;
-        DrawRectangleLines(static_cast<int>(worldX), static_cast<int>(worldY),
-                          static_cast<int>(cellSize), static_cast<int>(cellSize),
-                          {255, 255, 0, 255});
-        DrawRectangleLinesEx(
-            {worldX + 1, worldY + 1, cellSize - 2, cellSize - 2},
-            2.0f, {255, 255, 0, 200});
-    }
-
-    EndMode2D();
-
-    // --- Draw screen-space UI panels ---
-
-    // Choose fonts (fall back to default if loading failed)
-    const Font& bodyFont = fontsLoaded ? uiFont : GetFontDefault();
-    const Font& headerFont = fontsLoaded ? uiHeaderFont : GetFontDefault();
-    float sp = 1.0f;  // Letter spacing
-
-    // Title bar
-    DrawRectangle(0, 0, screenWidth, 40, {20, 20, 40, 230});
-    DrawTextEx(headerFont, "COLONY SITE SELECTION", {20.0f, 8.0f}, 22.0f, sp, WHITE);
-    DrawTextEx(bodyFont, "[ENTER] Confirm  [ESC] Cancel",
-               {(float)(screenWidth - 320), 12.0f}, 16.0f, sp, LIGHTGRAY);
-
-    // Get survey data for hovered cell
-    if (hx >= 0 && hx < PLANET_SIZE && hy >= 0 && hy < PLANET_SIZE)
-    {
-        auto survey = rm.GetOrbitalSurveyAt(hx, hy);
-        SiteArchetype archetype = rm.GetSiteArchetype(hx, hy);
-
-        const char* archetypeNames[] = {
-            "MARE INDUSTRIAL", "HIGHLAND CONSTRUCTION", "POLAR VOLATILE",
-            "KREEP SCIENTIFIC", "LAVA TUBE", "MIXED"
-        };
-
-        int panelX = screenWidth - 340;
-        int panelY = 50;
-        int panelW = 330;
-        int panelH = 530;
-
-        // Panel background
-        DrawRectangle(panelX, panelY, panelW, panelH, {20, 20, 40, 220});
-        DrawRectangleLines(panelX, panelY, panelW, panelH, {100, 100, 200, 200});
-
-        int padding = 10;
-        float yPos = static_cast<float>(panelY + padding);
-        float lineH = 20.0f;
-        float px = static_cast<float>(panelX + padding);
-
-        // Cell coordinates
-        DrawTextEx(headerFont, TextFormat("Grid Position: (%d, %d)", hx, hy),
-                   {px, yPos}, 16.0f, sp, WHITE);
-        yPos += lineH + 5.0f;
-
-        // --- Gamma-Ray Spectrometer ---
-        DrawTextEx(headerFont, "GAMMA-RAY SPECTROMETER", {px, yPos}, 14.0f, sp, {150, 150, 255, 255});
-        yPos += lineH;
-
-        // Bar charts for elemental composition
-        auto DrawBar = [&](const char* label, float value, Color color) {
-            DrawTextEx(bodyFont, TextFormat("%-4s", label), {px, yPos}, 13.0f, sp, LIGHTGRAY);
-            float barX = px + 40.0f;
-            int barW = 180;
-            int barH = 13;
-            DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 1.0f), barW, barH, {40, 40, 40, 200});
-            DrawRectangle(static_cast<int>(barX), static_cast<int>(yPos + 1.0f), static_cast<int>(barW * value), barH, color);
-            DrawTextEx(bodyFont, TextFormat("%.0f%%", value * 100.0f),
-                       {barX + barW + 5.0f, yPos}, 13.0f, sp, LIGHTGRAY);
-            yPos += lineH;
-        };
-
-        DrawBar("Fe", survey.fePercent, {139, 69, 19, 255});
-        DrawBar("Ti", survey.tiPercent, {180, 160, 200, 255});
-        DrawBar("Si", survey.siPercent, {144, 180, 148, 255});
-        DrawBar("Al", survey.alPercent, {200, 200, 220, 255});
-        DrawBar("Ca", survey.caPercent, {220, 210, 190, 255});
-
-        DrawTextEx(bodyFont, TextFormat("Th: %.1f ppm", survey.thPpm), {px, yPos}, 13.0f, sp, LIGHTGRAY);
-        yPos += lineH;
-        DrawTextEx(bodyFont, TextFormat("K:  %.0f ppm", survey.kPpm), {px, yPos}, 13.0f, sp, LIGHTGRAY);
-        yPos += lineH + 8.0f;
-
-        // --- Neutron Spectrometer ---
-        DrawTextEx(headerFont, "NEUTRON SPECTROMETER", {px, yPos}, 14.0f, sp, {100, 200, 255, 255});
-        yPos += lineH;
-
-        DrawBar("H", survey.hydrogenSignal, {100, 200, 255, 255});
-
-        const char* iceLikelihood = survey.hydrogenSignal > 0.6f ? "HIGH" :
-                                    survey.hydrogenSignal > 0.3f ? "MODERATE" : "LOW";
-        Color iceColor = survey.hydrogenSignal > 0.6f ? GREEN :
-                         survey.hydrogenSignal > 0.3f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Ice likelihood: %s", iceLikelihood), {px, yPos}, 13.0f, sp, iceColor);
-        yPos += lineH + 8.0f;
-
-        // --- Thermal Mapper ---
-        DrawTextEx(headerFont, "THERMAL MAPPER", {px, yPos}, 14.0f, sp, {255, 200, 100, 255});
-        yPos += lineH;
-
-        DrawBar("Solar", survey.solarIllumination, {255, 255, 100, 255});
-
-        float dayTemp = -173.0f + survey.solarIllumination * 300.0f;
-        float nightTemp = -173.0f + survey.solarIllumination * 20.0f;
-        DrawTextEx(bodyFont, TextFormat("Day: %+.0f C  Night: %+.0f C", dayTemp, nightTemp),
-                   {px, yPos}, 13.0f, sp, LIGHTGRAY);
-        yPos += lineH + 8.0f;
-
-        // --- Site Assessment ---
-        DrawTextEx(headerFont, "SITE ASSESSMENT", {px, yPos}, 14.0f, sp, {200, 255, 200, 255});
-        yPos += lineH;
-
-        // Terrain slope
-        const char* terrainDesc = survey.terrainSlope < 5.0f ? "Flat" :
-                                  survey.terrainSlope < 15.0f ? "Moderate" : "Steep";
-        Color terrainColor = survey.terrainSlope < 5.0f ? GREEN :
-                             survey.terrainSlope < 15.0f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Terrain: %.0f deg (%s)", survey.terrainSlope, terrainDesc),
-                   {px, yPos}, 13.0f, sp, terrainColor);
-        yPos += lineH;
-
-        // Solar access
-        const char* solarDesc = survey.solarIllumination > 0.7f ? "Excellent" :
-                                survey.solarIllumination > 0.4f ? "Good" : "Poor";
-        Color solarColor = survey.solarIllumination > 0.7f ? GREEN :
-                           survey.solarIllumination > 0.4f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Solar Access: %.0f%% (%s)", survey.solarIllumination * 100.0f, solarDesc),
-                   {px, yPos}, 13.0f, sp, solarColor);
-        yPos += lineH;
-
-        // Earth visibility
-        const char* earthDesc = survey.earthVisibility > 0.7f ? "Reliable" :
-                                survey.earthVisibility > 0.4f ? "Intermittent" : "Poor";
-        Color earthColor = survey.earthVisibility > 0.7f ? GREEN :
-                           survey.earthVisibility > 0.4f ? YELLOW : RED;
-        DrawTextEx(bodyFont, TextFormat("Earth Comms: %.0f%% (%s)", survey.earthVisibility * 100.0f, earthDesc),
-                   {px, yPos}, 13.0f, sp, earthColor);
-        yPos += lineH + 8.0f;
-
-        // Archetype recommendation
-        DrawRectangle(static_cast<int>(px) - 2, static_cast<int>(yPos) - 2,
-                      panelW - padding * 2 + 4, static_cast<int>(lineH) + 6, {40, 40, 80, 200});
-        DrawTextEx(headerFont, TextFormat("ARCHETYPE: %s", archetypeNames[static_cast<int>(archetype)]),
-                   {px, yPos}, 16.0f, sp, {255, 220, 100, 255});
-        yPos += lineH + 4.0f;
-
-        // Archetype bonus description
-        const char* bonusDesc[] = {
-            "+20% Fe/Ti extraction",
-            "+20% Si/Al extraction",
-            "+50% water extraction",
-            "+30% Science generation",
-            "+15% all production",
-            "No special bonus"
-        };
-        DrawTextEx(bodyFont, TextFormat("Bonus: %s", bonusDesc[static_cast<int>(archetype)]),
-                   {px, yPos}, 13.0f, sp, {180, 180, 255, 255});
-    }
-
-    // Bottom bar
-    int bottomY = screenHeight - 40;
-    DrawRectangle(0, bottomY, screenWidth, 40, {20, 20, 40, 230});
-    DrawTextEx(bodyFont, "Ctrl+Click to enter  |  Mouse: hover cells  |  Enter: confirm  |  Esc: cancel",
-               {20.0f, static_cast<float>(bottomY + 10)}, 14.0f, sp, LIGHTGRAY);
-
-    // Time display
-    DrawTextEx(bodyFont, TextFormat("Day %d", timeManager.GetCurrentDay()),
-               {static_cast<float>(screenWidth - 100), static_cast<float>(bottomY + 10)}, 14.0f, sp, WHITE);
 }
 
 // ============================================================================

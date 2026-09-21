@@ -10,17 +10,14 @@ namespace
     {
         ResourceManager rm;
         TimeManager tm;
-        Vector2 position;
+        LunarPoint position;
         std::map<ResourceType, float> storage;
         std::map<ResourceType, float> capacity;
 
         UnitFixture()
-            : rm(20, 100.0f)
-            , position{500.0f, 500.0f}
+            : rm(42)
+            , position(TestPoint(5, 5))
         {
-            rm.GenerateResourceMap(42);
-            rm.GenerateOrbitalSurveyData();
-
             ResourceType allTypes[] = {
                 ResourceType::ENERGY, ResourceType::H2, ResourceType::O2,
                 ResourceType::C, ResourceType::Fe, ResourceType::Si,
@@ -67,18 +64,17 @@ TEST_CASE("Non-extraction unit has no ProspectingSystem", "[wiring]")
     REQUIRE(unit.GetProspectingSystem() == nullptr);
 }
 
-TEST_CASE("ProspectingSystem grid matches unit position", "[wiring]")
+TEST_CASE("ProspectingSystem grid stands where the unit stands", "[wiring]")
 {
     UnitFixture f;
     auto unit = f.MakeExtraction();
 
-    Vector2 gp = unit.GetGridPosition();
-    int gx = static_cast<int>(gp.x);
-    int gy = static_cast<int>(gp.y);
+    const LunarPoint& here = unit.GetParentPoint();
+    REQUIRE_THAT(here.latDeg, Catch::Matchers::WithinAbs(f.position.latDeg, 1e-9));
 
     auto* ps = unit.GetProspectingSystem();
-    REQUIRE(ps->GetGrid().GetParentGridX() == gx);
-    REQUIRE(ps->GetGrid().GetParentGridY() == gy);
+    REQUIRE_THAT(ps->GetGrid().GetParentPoint().latDeg, Catch::Matchers::WithinAbs(here.latDeg, 1e-9));
+    REQUIRE_THAT(ps->GetGrid().GetParentPoint().lonDeg, Catch::Matchers::WithinAbs(here.lonDeg, 1e-9));
 }
 
 TEST_CASE("ProspectingSystem starts with zero survey progress", "[wiring]")

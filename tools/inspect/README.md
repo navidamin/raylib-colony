@@ -5,16 +5,19 @@ from numbers instead of from reading generation code.
 
 ```bash
 cmake --build build --target colony_inspect
-./build/src/colony_inspect             # parent cell (5,5), tier 3
-./build/src/colony_inspect 12 7        # a specific parent cell
-./build/src/colony_inspect 12 7 1      # ...at tier 1
+./build/src/colony_inspect                  # Mare Imbrium, tier 3
+./build/src/colony_inspect -43.3 -11.4      # Tycho: any LAT LON on the Moon
+./build/src/colony_inspect -43.3 -11.4 1    # ...at tier 1
+./build/src/colony_inspect --pick 32.8,-15.6
 ```
 
 ## Output
 
-1. **ResourceManager raw quantities** for the parent cell, per depth layer —
-   the absolute numbers the world generator produced.
-2. **ProspectingGrid sub-cell view** — composition fractions (should sum to
+1. **The region** the point falls in and its orbital survey — who the
+   ground is, and the composition the region card would show.
+2. **ResourceManager raw quantities** at that point, per depth layer —
+   the absolute numbers the ground generator produced.
+3. **ProspectingGrid sub-cell view** — composition fractions (should sum to
    ~1.00) plus absolute quantity per sub-cell, i.e. exactly what the
    prospecting chain consumes.
 
@@ -28,8 +31,7 @@ generation code suggested the logic was fine, and two rounds of theorising
 blamed the wrong component. Dumping the actual values found both causes in
 minutes:
 
-- the test harness never called `GenerateResourceMap()`, so the planet was
-  empty;
+- the test harness never seeded the world, so the planet was empty;
 - abundances are **quantities in the hundreds to thousands**, while the whole
   prospecting chain treated them as **0-1 composition fractions**.
 

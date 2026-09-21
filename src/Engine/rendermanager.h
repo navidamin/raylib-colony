@@ -11,6 +11,8 @@
 #include "inputmanager.h"
 #include "transport_types.h"
 #include "game_enums.h"
+#include "game_structs.h"
+#include "lunar_frame.h"
 #include <vector>
 #include <string>
 #include <map>
@@ -35,12 +37,10 @@ public:
     void DrawSectView(Sect* sect, TimeManager& timeManager);
     void DrawUnitView(Unit* unit, TimeManager& timeManager);
 
-    void DrawCellInfo(Vector2 mousePosition, Camera2D camera, Planet* planet, std::vector<Colony*>& colonies);
+    // The ground under the cursor: where it is, whose it is, what is in it.
+    void DrawPointInfo(Vector2 mousePosition, const LunarPoint& point, Planet* planet,
+                       std::vector<Colony*>& colonies);
     void DrawPlusIndicator(Vector2 mousePos, View currentView);
-
-    // Site selection view
-    void DrawSiteSelectionView(Camera2D camera, Planet* planet, Vector2 hoveredGridPos,
-                               TimeManager& timeManager);
 
     // Transport visualization
     void DrawRoads(Colony* colony, Road* selectedRoad = nullptr);
@@ -77,18 +77,18 @@ private:
 
     // Generated terrain (real-imagery amplification).
     //
-    // One chain per location gives all three geographic views their
-    // ground: level 0 = PLANET (100 km), 1 = COLONY (25 km), 2 = SECT
-    // (5 km). Because each level is the centre of the one above, the
-    // views are registered to each other and zooming is continuous.
-    // The cell you are standing on is kept alongside its eight
-    // neighbours — the only cells reachable in one step — and the
-    // neighbours are built before they are asked for, which is what
-    // makes crossing a cell boundary free rather than a 33-frame hitch.
-    // Two ways to build one, chosen once by GetTerrainPath(): the CPU
-    // chain (~0.5 s, so it runs on worker threads) or the GPU chain
-    // (milliseconds, main thread, one neighbour per frame). Nine cells
-    // at 512 is about 28 MB; at the GPU's 1024, 113 MB.
+    // One chain per place gives all three geographic views their ground:
+    // level 0 = PLANET (100 km), 1 = COLONY (25 km), 2 = SECT (5 km),
+    // each the centre crop of the one above and all registered on the
+    // same LunarPoint, so zooming is continuous. The colony you are
+    // looking at is kept alongside the chains of its sects — the only
+    // places one click away — and those are built before they are asked
+    // for, which is what makes opening a sect free rather than a
+    // 33-frame hitch. Two ways to build one, chosen once by
+    // GetTerrainPath(): the CPU chain (~0.5 s, so it runs on worker
+    // threads) or the GPU chain (milliseconds, main thread, one per
+    // frame). Nine chains at 512 is about 28 MB; at the GPU's 1024,
+    // 113 MB.
     static const int TERRAIN_CACHE_SLOTS = 9;
     static const int TERRAIN_RES = 512;     // the CPU path's resolution
 
@@ -96,10 +96,8 @@ private:
     {
         Texture2D levels[3] = {};
         RenderTexture2D targets[3] = {};    // GPU-built: owns the textures
-        int gx = -1;
-        int gy = -1;
-        unsigned int anchorVersion = 0;
-        unsigned int lastUsed = 0;      // LRU stamp
+        LunarKey key;                       // the place, quantised
+        unsigned int lastUsed = 0;          // LRU stamp
         bool valid = false;
     };
     TerrainCacheEntry terrainCache[TERRAIN_CACHE_SLOTS];
@@ -108,20 +106,20 @@ private:
     // The chain the three view layers currently draw from.
     Texture2D terrainLevels[3];
     bool terrainLoaded;
-    int terrainCellX;
-    int terrainCellY;
-    unsigned int terrainAnchorVersion;
+    LunarKey terrainKey;
 
-    void EnsureTerrainForCell(int gx, int gy);
+    // Bind the chain registered on a place, building it now on a miss.
+    void EnsureTerrainAt(const LunarPoint& point);
+    // Queue a place's chain for the frames ahead.
+    void RequestTerrainAt(const LunarPoint& point);
     void UnloadTerrainLevels();
 
     // Cache plumbing.
-    int FindTerrainSlot(int gx, int gy, unsigned int anchorVersion) const;
+    int FindTerrainSlot(const LunarKey& key) const;
     int ClaimTerrainSlot();                       // LRU victim, unloaded
     void BindTerrainSlot(int slot);               // slot -> terrainLevels
     void ReleaseTerrainEntry(TerrainCacheEntry& e);
     void UploadReadyTerrain();                    // finished work -> cache
-    void RequestNeighbourTerrain(int gx, int gy); // queue the ring of 8
     void ShutdownTerrainWorkers();
 
     // Full-planet 2D map (the whole moon, equirectangular) that the
@@ -134,9 +132,13 @@ private:
 
     void DrawSectTerrainBackground(Sect* sect);
     // World-space ground for the panned views. spanCells is how many
-    // 5 km grid cells the level covers (20 for PLANET, 5 for COLONY);
-    // centre is the world point the level is registered on.
+    // 5 km sect footprints the level covers (20 for PLANET, 5 for
+    // COLONY); centre is the point in the view's frame the level is
+    // registered on.
     void DrawWorldTerrainLayer(int level, Vector2 centre, float spanCells);
+    // A colony as the Planet view sees it: its territory and its sects,
+    // each at its real place mapped into the playfield.
+    void DrawColonyMarker(const Colony* colony, float zoom);
 
     void DrawDebugActiveArea();
 

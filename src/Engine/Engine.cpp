@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "region_identity.h"
 #include <ctime>
 #include <cmath>
 
@@ -86,26 +87,17 @@ void Engine::HandleInput() {
         registry.PrintStatus();
     }
 
-    // DEBUG: F6 - Print orbital survey data at cursor position
+    // DEBUG: F6 - Print the orbital survey of the ground under the cursor
     if (IsKeyPressed(KEY_F6) && viewManager.GetCurrentView() == View::Planet) {
-        Vector2 worldPos = viewManager.GetWorldMousePosition();
         Planet* planet = gameManager.GetPlanet();
         if (planet) {
-            Vector2 gridPos = {
-                std::floor(worldPos.x / (SECT_CORE_RADIUS * 2.0f)),
-                std::floor(worldPos.y / (SECT_CORE_RADIUS * 2.0f))
-            };
-            int gx = static_cast<int>(gridPos.x);
-            int gy = static_cast<int>(gridPos.y);
-            auto survey = planet->GetResourceManager().GetOrbitalSurveyAt(gx, gy);
-            auto archetype = planet->GetResourceManager().GetSiteArchetype(gx, gy);
+            LunarPoint point = Planet::PointOf(viewManager.GetWorldMousePosition());
+            ResourceManager& rm = planet->GetResourceManager();
+            auto survey = rm.SurveyAt(point);
+            const RegionIdentity& region = rm.GroundAt(point).region;
 
-            const char* archetypeNames[] = {
-                "MARE_INDUSTRIAL", "HIGHLAND_CONSTRUCTION", "POLAR_VOLATILE",
-                "KREEP_SCIENTIFIC", "LAVA_TUBE", "MIXED"
-            };
-
-            std::cout << "\n=== ORBITAL SURVEY at (" << gx << "," << gy << ") ===" << std::endl;
+            std::cout << "\n=== ORBITAL SURVEY at " << point.latDeg << ", " << point.lonDeg
+                      << " (" << (region.name[0] ? region.name : "unnamed ground") << ") ===" << std::endl;
             std::cout << "  Fe: " << (survey.fePercent * 100.0f) << "%" << std::endl;
             std::cout << "  Ti: " << (survey.tiPercent * 100.0f) << "%" << std::endl;
             std::cout << "  Si: " << (survey.siPercent * 100.0f) << "%" << std::endl;
@@ -117,7 +109,7 @@ void Engine::HandleInput() {
             std::cout << "  Solar: " << (survey.solarIllumination * 100.0f) << "%" << std::endl;
             std::cout << "  Slope: " << survey.terrainSlope << " deg" << std::endl;
             std::cout << "  Earth vis: " << (survey.earthVisibility * 100.0f) << "%" << std::endl;
-            std::cout << "  Archetype: " << archetypeNames[static_cast<int>(archetype)] << std::endl;
+            std::cout << "  Archetype: " << GetSiteArchetypeDescriptor(region.archetype).name << std::endl;
             std::cout << "================================\n" << std::endl;
         }
     }
@@ -152,34 +144,6 @@ void Engine::HandleInput() {
             }
             if (IsKeyPressed(KEY_ESCAPE)) {
                 viewManager.SetCurrentView(View::Menu);
-            }
-            break;
-        case View::SITE_SELECTION:
-            // Update hover position as mouse moves
-            gameManager.UpdateSiteSelectionHover(viewManager.GetWorldMousePosition());
-
-            // Click to select a cell
-            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                gameManager.UpdateSiteSelectionHover(viewManager.GetWorldMousePosition());
-            }
-
-            // Enter to confirm
-            if (IsKeyPressed(KEY_ENTER)) {
-                gameManager.ConfirmSiteSelection();
-                if (!gameManager.IsInSiteSelection()) {
-                    // Successfully placed - switch to colony view
-                    viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
-                    viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
-                                                         gameManager.GetColonies(),
-                                                         gameManager.GetCurrentColony(),
-                                                         gameManager.GetPlanet());
-                }
-            }
-
-            // Escape to cancel
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                gameManager.CancelSiteSelection();
-                viewManager.SetCurrentView(View::Planet);
             }
             break;
         case View::Planet:
@@ -308,12 +272,15 @@ void Engine::HandleInput() {
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && inputManager.IsCommandPressed()) {
         switch (viewManager.GetCurrentView()) {
             case View::Planet:
-                gameManager.BuildNewColony(viewManager.GetWorldMousePosition());
-                viewManager.SetCurrentView(View::SITE_SELECTION);
-                viewManager.ResetCameraForCurrentView(View::SITE_SELECTION,
-                                                     gameManager.GetColonies(),
-                                                     gameManager.GetCurrentColony(),
-                                                     gameManager.GetPlanet());
+                // Founding at the clicked place. The informed descent
+                // that replaces this click arrives with the survey views.
+                if (gameManager.BuildNewColony(viewManager.GetWorldMousePosition())) {
+                    viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
+                    viewManager.ResetCameraForCurrentView(View::Colony,
+                                                         gameManager.GetColonies(),
+                                                         gameManager.GetCurrentColony(),
+                                                         gameManager.GetPlanet());
+                }
                 break;
             case View::Colony:
                 gameManager.BuildNewSect(viewManager.GetWorldMousePosition());
@@ -342,13 +309,6 @@ void Engine::Draw() {
             break;
         case View::Orbital:
             renderManager.DrawOrbitalView();
-            break;
-        case View::SITE_SELECTION:
-            renderManager.DrawSiteSelectionView(
-                viewManager.GetCamera(),
-                gameManager.GetPlanet(),
-                gameManager.GetHoveredGridPos(),
-                gameManager.GetTimeManager());
             break;
         case View::Planet:
             renderManager.DrawPlanetView(viewManager.GetCamera(),

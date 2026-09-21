@@ -172,11 +172,11 @@ static void RebuildSect(ViewTestContext& ctx)
     // that - never deleted here, and never replaced behind the colony's
     // back. Deleting it here left the colony holding a freed pointer,
     // which it then freed again on the way out.
-    Vector2 pos = {(ctx.cellX + 0.5f) * SECT_CORE_RADIUS * 2.0f,
-                   (ctx.cellY + 0.5f) * SECT_CORE_RADIUS * 2.0f};
+    LunarPoint here;
+    TerrainGridCellToLatLon(ctx.cellX, ctx.cellY, &here.latDeg, &here.lonDeg);
     if (ctx.sect == nullptr)
     {
-        ctx.sect = new Sect(pos, *ctx.resourceManager, *ctx.timeManager);
+        ctx.sect = new Sect(here, *ctx.resourceManager, *ctx.timeManager);
         if (ctx.colony)
         {
             ctx.colony->AddSect(ctx.sect);
@@ -184,8 +184,11 @@ static void RebuildSect(ViewTestContext& ctx)
     }
     else
     {
-        ctx.sect->SetPosition(pos);
+        ctx.sect->SetPoint(here);
     }
+    // The colony's window follows its one sect, so the colony view is
+    // centred on the same ground the sect view shows.
+    if (ctx.colony) ctx.colony->SetCentre(here);
 }
 
 static void DrawIssuePanel(const ViewTestContext& ctx)
@@ -582,9 +585,9 @@ static void ApplyViewCamera(ViewTestContext& ctx)
     }
     else if (ctx.level == 2)
     {
-        Vector2 p = ctx.sect ? ctx.sect->GetPosition()
-                             : Vector2{PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f};
-        ctx.camera.target = p;
+        // The colony view draws in the colony's own frame: origin at
+        // its centre, which RebuildSect keeps on the sect.
+        ctx.camera.target = Vector2{0.0f, 0.0f};
         ctx.camera.zoom = VT_WIDTH / (5.0f * cellUnits);           // 25 km
     }
     ctx.camera.offset = {VT_WIDTH / 2.0f, VT_HEIGHT / 2.0f};
@@ -671,8 +674,7 @@ int main(int argc, char** argv)
         renderManager.LoadFonts();
         TimeManager timeManager;
         InputManager inputManager;
-        ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
-        resourceManager.GenerateResourceMap(20260813u);
+        ResourceManager resourceManager(20260813u);
         Planet planet;
         Colony colony;
 

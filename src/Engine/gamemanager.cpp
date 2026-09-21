@@ -1,4 +1,7 @@
 #include "gamemanager.h"
+#include "region_identity.h"
+#include "lunar_frame.h"
+#include <cmath>
 #include <iostream>
 
 GameManager::GameManager()
@@ -9,9 +12,6 @@ GameManager::GameManager()
       selectedRoad(nullptr),
       buildRoadMode(false),
       roadBuildStartSect(nullptr),
-      inSiteSelection(false),
-      hoveredGridPos({0.0f, 0.0f}),
-      selectedSite({-1.0f, -1.0f}),
       lastUpdateTime(0.0f)
 {
 }
@@ -34,9 +34,9 @@ void GameManager::InitGame() {
     lastUpdateTime = GetTime();  // Set initial time
     timeManager.Reset();         // Reset time manager to initial state
 
-    // Generate map/grid/resource map of the planet
+    // Seed the ground truth. No colony exists yet: the player founds the
+    // first one by choosing a site.
     planet->GenerateMap();
-    // No colony created - player must use site selection
 }
 
 void GameManager::Update(float deltaTime) {
@@ -69,12 +69,15 @@ void GameManager::Update(float deltaTime) {
     }
 }
 
-void GameManager::SelectColony(Vector2 mousePosition) {
-    Vector2 worldMousePos = mousePosition;  // Already in world coords
-
+void GameManager::SelectColony(Vector2 playfieldPos) {
+    // The colony's centroid is in its own frame; the Planet view draws
+    // that frame's origin at the colony's real place. Both are in units
+    // of 50 m, so the offset carries straight over.
     for (auto& colony : colonies) {
-        Vector2 colonyWorldPos = colony->GetCentroid();  // Should return world coordinates
-        if (Vector2Distance(worldMousePos, colonyWorldPos) <= colony->GetRadius()) {
+        if (!colony->HasCentre()) continue;
+        Vector2 centroid = Vector2Add(Planet::WorldOf(colony->GetCentre()),
+                                      colony->GetCentroid());
+        if (Vector2Distance(playfieldPos, centroid) <= colony->GetRadius()) {
             currentColony = colony;
             break;
         }
@@ -137,34 +140,93 @@ void GameManager::SelectDefaultUnit() {
     std::cout << "Auto-selected first unit: " << currentUnit->GetUnitType() << std::endl;
 }
 
-void GameManager::BuildNewColony(Vector2 worldPos) {
-    // Enter site selection mode instead of placing immediately
-    EnterSiteSelection();
-    UpdateSiteSelectionHover(worldPos);
+Colony* GameManager::FoundColony(const LunarPoint& point) {
+    for (Colony* colony : colonies) {
+        if (colony->Contains(point)) {
+            std::cout << "[FOUND] Refused: inside another colony's territory." << std::endl;
+            return nullptr;
+        }
+    }
+
+    ResourceManager& rm = planet->GetResourceManager();
+    SiteArchetype archetype = rm.ArchetypeAt(point);
+
+    Colony* colony = new Colony();
+    colony->SetArchetype(archetype);
+    colony->SetCentre(point);
+    colonies.push_back(colony);
+    planet->AddColony(colony);
+    currentColony = colony;
+
+    // The founding floor: a first sect never starts on empty ground.
+    rm.EnsureBasicResources(point);
+    Sect* sect = new Sect(point, rm, timeManager);
+    colony->AddSect(sect);
+    currentSect = sect;
+    currentUnit = nullptr;
+
+    const RegionIdentity& region = rm.GroundAt(point).region;
+    std::cout << "[FOUND] Colony at " << point.latDeg << ", " << point.lonDeg
+              << " (" << (region.name[0] ? region.name : "unnamed ground") << ") -- "
+              << GetSiteArchetypeDescriptor(archetype).name << std::endl;
+    return colony;
 }
 
-void GameManager::BuildNewSect(Vector2 worldPos) {
-    bool intrudingOtherColony = false;
+Sect* GameManager::FoundSect(const LunarPoint& point) {
+    if (!currentColony) {
+        std::cout << "[FOUND] No current colony to add a sect to." << std::endl;
+        return nullptr;
+    }
+
     for (Colony* colony : colonies) {
         if (colony == currentColony) continue;
-        if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius())) {
-            intrudingOtherColony = true;
-            break;
+        if (colony->Contains(point)) {
+            std::cout << "[FOUND] Refused: intruding the jurisdiction of another colony." << std::endl;
+            return nullptr;
         }
     }
 
-    if (!intrudingOtherColony) {
-        if (currentColony) {
-            Sect* sect = new Sect(worldPos, planet->GetResourceManager(), timeManager);
-            currentColony->AddSect(sect);
-            currentSect = sect;
-            std::cout << "New sect created successfully\n";
-        } else {
-            std::cout << "Current colony unknown!" << std::endl;
+    // The whole footprint stays inside the colony's window.
+    if (currentColony->HasCentre()) {
+        Vector2 km = LunarOffsetKm(currentColony->GetCentre(), point);
+        double half = (COLONY_WINDOW_KM - SECT_FOOTPRINT_KM) * 0.5;
+        if (std::fabs(km.x) > half || std::fabs(km.y) > half) {
+            std::cout << "[FOUND] Refused: outside the colony's " << COLONY_WINDOW_KM
+                      << " km window." << std::endl;
+            return nullptr;
         }
-    } else {
-        std::cout << "Intruding the jurisdiction of another Colony!\n";
     }
+
+    // A footprint's spacing from every sect there is.
+    for (Colony* colony : colonies) {
+        for (Sect* other : colony->GetSects()) {
+            double km = LunarDistanceKm(other->GetPoint(), point);
+            if (km < SECT_MIN_SPACING_KM) {
+                std::cout << "[FOUND] Refused: " << km << " km from an existing sect (minimum "
+                          << SECT_MIN_SPACING_KM << " km)." << std::endl;
+                return nullptr;
+            }
+        }
+    }
+
+    Sect* sect = new Sect(point, planet->GetResourceManager(), timeManager);
+    currentColony->AddSect(sect);
+    currentSect = sect;
+    currentUnit = nullptr;
+    std::cout << "[FOUND] Sect at " << point.latDeg << ", " << point.lonDeg << std::endl;
+    return sect;
+}
+
+Colony* GameManager::BuildNewColony(Vector2 playfieldPos) {
+    return FoundColony(Planet::PointOf(playfieldPos));
+}
+
+Sect* GameManager::BuildNewSect(Vector2 localPos) {
+    if (!currentColony) {
+        std::cout << "[FOUND] Current colony unknown!" << std::endl;
+        return nullptr;
+    }
+    return FoundSect(currentColony->GetFrame().FromLocal(localPos));
 }
 
 void GameManager::UpdatePlanetActiveArea() {
@@ -538,85 +600,4 @@ void GameManager::SelectSectForRoadBuild(Vector2 worldPos) {
         roadBuildStartSect = nullptr;
         std::cout << "[ROAD BUILD] Ready for next road. Click a sect or press B to exit." << std::endl;
     }
-}
-
-// --- Site Selection Methods ---
-
-void GameManager::EnterSiteSelection() {
-    inSiteSelection = true;
-    selectedSite = {-1.0f, -1.0f};
-    std::cout << "[SITE SELECT] Entered site selection mode. Hover to inspect, click to select, Enter to confirm, Escape to cancel." << std::endl;
-}
-
-void GameManager::UpdateSiteSelectionHover(Vector2 worldPos) {
-    float cellSize = SECT_CORE_RADIUS * 2.0f;
-    hoveredGridPos = {
-        std::floor(worldPos.x / cellSize),
-        std::floor(worldPos.y / cellSize)
-    };
-
-    // Clamp to grid bounds
-    hoveredGridPos.x = Clamp(hoveredGridPos.x, 0.0f, static_cast<float>(PLANET_SIZE - 1));
-    hoveredGridPos.y = Clamp(hoveredGridPos.y, 0.0f, static_cast<float>(PLANET_SIZE - 1));
-}
-
-void GameManager::ConfirmSiteSelection() {
-    if (!inSiteSelection) return;
-
-    int gridX = static_cast<int>(hoveredGridPos.x);
-    int gridY = static_cast<int>(hoveredGridPos.y);
-
-    // Check for colony intrusion
-    float cellSize = SECT_CORE_RADIUS * 2.0f;
-    Vector2 worldPos = {
-        hoveredGridPos.x * cellSize + cellSize * 0.5f,
-        hoveredGridPos.y * cellSize + cellSize * 0.5f
-    };
-
-    bool intrudingOtherColony = false;
-    for (Colony* colony : colonies)
-    {
-        if (CheckCollisionPointCircle(worldPos, colony->GetCentroid(), colony->GetRadius()))
-        {
-            intrudingOtherColony = true;
-            break;
-        }
-    }
-
-    if (intrudingOtherColony)
-    {
-        std::cout << "[SITE SELECT] Cannot place colony - intruding another colony's jurisdiction!" << std::endl;
-        return;
-    }
-
-    // Get archetype for the selected site
-    SiteArchetype archetype = planet->GetResourceManager().GetSiteArchetype(gridX, gridY);
-
-    const char* archetypeNames[] = {
-        "MARE_INDUSTRIAL", "HIGHLAND_CONSTRUCTION", "POLAR_VOLATILE",
-        "KREEP_SCIENTIFIC", "LAVA_TUBE", "MIXED"
-    };
-
-    // Create colony with archetype
-    Colony* colony = new Colony();
-    colony->SetArchetype(archetype);
-    colonies.push_back(colony);
-    currentColony = colony;
-
-    // Create initial sect at the center of the selected grid cell
-    Sect* sect = new Sect(worldPos, planet->GetResourceManager(), timeManager);
-    currentColony->AddSect(sect);
-    currentSect = sect;
-
-    inSiteSelection = false;
-    selectedSite = hoveredGridPos;
-
-    std::cout << "[SITE SELECT] Colony created at grid (" << gridX << "," << gridY
-              << ") with archetype: " << archetypeNames[static_cast<int>(archetype)] << std::endl;
-}
-
-void GameManager::CancelSiteSelection() {
-    inSiteSelection = false;
-    selectedSite = {-1.0f, -1.0f};
-    std::cout << "[SITE SELECT] Site selection cancelled." << std::endl;
 }

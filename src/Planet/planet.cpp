@@ -1,16 +1,11 @@
 #include "planet.h"
+#include "terrain_synthesis.h"
 #include <iostream>
 
 Planet::Planet() :
-    size(PLANET_SIZE, PLANET_SIZE),
-    time(0),
-    resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2)  // Initialize in the initialization list
+    resourceManager(0),
+    time(0)
 {
-    // Initialize the map with empty tiles
-    map.resize(size.first, std::vector<int>(size.second, 0));
-
-    // Initialize ResourceManager with  grid size and cell size
-    // SECT_CORE_RADIUS * 2 matches existing grid cell size
 }
 
 Planet::~Planet() {
@@ -19,9 +14,8 @@ Planet::~Planet() {
     }
 }
 
-void Planet::GenerateMap() {
-    resourceManager.GenerateResourceMap();
-    // Generate terrain, initialize other map features
+void Planet::GenerateMap(unsigned int worldSeed) {
+    resourceManager.SetWorldSeed(worldSeed);
 }
 
 void Planet::AddColony(Colony* colony) {
@@ -29,13 +23,38 @@ void Planet::AddColony(Colony* colony) {
     std::cout << "New colony added to the planet." << std::endl;
 }
 
-std::vector<std::pair<ResourceType, float>> Planet::GetResourceInfo(Vector2 location) const {
-    return resourceManager.GetResourcesAt(location);
+std::vector<std::pair<ResourceType, float>> Planet::GetResourceInfo(const LunarPoint& point) const {
+    return resourceManager.GetResourcesAt(point);
 }
 
 void Planet::Update() {
     time++;
     // TODO: Implement update logic (e.g., trigger events, update colonies)
+}
+
+// ---------------------------------------------------------------------------
+// The anchored playfield square. The frame is centred on the terrain
+// anchor; the square's world origin sits half a playfield up and left of
+// it, which is what TerrainGridCellToLatLon's (gx - 9.5) offsets say.
+// ---------------------------------------------------------------------------
+
+static LocalFrame PlayfieldFrame()
+{
+    LocalFrame f;
+    GetTerrainAnchor(&f.centre.latDeg, &f.centre.lonDeg);
+    return f;
+}
+
+Vector2 Planet::WorldOf(const LunarPoint& point)
+{
+    Vector2 local = PlayfieldFrame().ToLocal(point);
+    return Vector2{ local.x + PLANET_WIDTH * 0.5f, local.y + PLANET_HEIGHT * 0.5f };
+}
+
+LunarPoint Planet::PointOf(Vector2 world)
+{
+    Vector2 local = { world.x - PLANET_WIDTH * 0.5f, world.y - PLANET_HEIGHT * 0.5f };
+    return PlayfieldFrame().FromLocal(local);
 }
 
 Planet::ActiveArea Planet::CalculateActiveArea(const std::vector<Colony*>& colonies) const {
@@ -56,7 +75,7 @@ Planet::ActiveArea Planet::CalculateActiveArea(const std::vector<Colony*>& colon
     int count = 0;
 
     for (const auto& colony : colonies) {
-        Vector2 colonyCentroid = colony->GetCentroid();
+        Vector2 colonyCentroid = WorldOf(colony->GetCentre());
         sumX += colonyCentroid.x;
         sumY += colonyCentroid.y;
         count++;
@@ -68,7 +87,7 @@ Planet::ActiveArea Planet::CalculateActiveArea(const std::vector<Colony*>& colon
     // Calculate radius (distance to furthest colony)
     area.radius = 0;
     for (const auto& colony : colonies) {
-        Vector2 colonyCentroid = colony->GetCentroid();
+        Vector2 colonyCentroid = WorldOf(colony->GetCentre());
         float distance = Vector2Distance(area.centroid, colonyCentroid);
         area.radius = std::max(area.radius, distance);
     }
@@ -96,71 +115,3 @@ float Planet::GetActiveRadius() const {
 void Planet::UpdateActiveArea(const std::vector<Colony*>& colonies) {
     activeArea = CalculateActiveArea(colonies);
 }
-
-Vector2 Planet::GetRandomValidPosition() const {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-
-    // Use grid coordinates (0 to PLANET_SIZE-1) for the distribution
-    std::uniform_int_distribution<> dist(3, PLANET_SIZE - 4);  // Leave margin on edges
-
-    // Get random grid coordinates
-    int gridX = dist(gen);
-    int gridY = dist(gen);
-
-    // Convert to world coordinates and center in the cell
-    return Vector2{
-        (gridX * SECT_CORE_RADIUS * 2.0f) + SECT_CORE_RADIUS,  // Add SECT_CORE_RADIUS to center in cell
-        (gridY * SECT_CORE_RADIUS * 2.0f) + SECT_CORE_RADIUS
-    };
-}
-
-// Notify first sect's position to preare required conditions (such as ensuring min resources)
-void Planet::NotifyFirstSectPosition(Vector2 position) {
-    // Convert world position to grid position
-    int gridX = static_cast<int>(position.x / (SECT_CORE_RADIUS * 2.0f));
-    int gridY = static_cast<int>(position.y / (SECT_CORE_RADIUS * 2.0f));
-
-    // Ensure basic resources at this location
-    resourceManager.EnsureBasicResources(gridX, gridY);
-}
-
-Vector2 Planet::GetWorldPosition(Vector2 gridPos) const {
-    return GridToWorld(gridPos.x, gridPos.y);
-}
-
-Vector2 Planet::GridToWorld(int gridX, int gridY) const {
-    return Vector2{
-        gridX * SECT_CORE_RADIUS * 2.0f,
-        gridY * SECT_CORE_RADIUS * 2.0f
-    };
-}
-
-Vector2 Planet::WorldToGrid(Vector2 worldPos) const {
-    return Vector2{
-        std::floor(worldPos.x / (SECT_CORE_RADIUS * 2.0f)),
-        std::floor(worldPos.y / (SECT_CORE_RADIUS * 2.0f))
-    };
-}
-
-void Planet::Draw(Camera2D& camera) {
-    // Draw the planet background and grid
-        DrawPlanetGrid();
-        for (const auto& colony : colonies) {
-            colony->Draw(camera);  // Call Colony's Draw() for each colony
-        }
-}
-
-void Planet::DrawPlanetGrid() {
-    // Implement planet grid drawing logic here
-    // For example:
-    /*for (int i = 0; i < 20; i++) {
-        DrawLine(i * 10, 0, i * 10, GetScreenHeight(), LIGHTGRAY);
-        DrawLine(0, i * 10, GetScreenWidth(), i * 10, LIGHTGRAY);
-    }*/
-}
-
-void Planet::DrawResourceDebug(float scale) {
-    resourceManager.DrawResourceDebug(scale);
-}
-

@@ -23,6 +23,7 @@ add_library(colony_testlib STATIC
     # target was written before that dependency existed.
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/lola_dem.cpp
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/lunar_dem_shared.cpp
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen/lunar_frame.cpp
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/terrain_synthesis.cpp
     # The site-selection controller and what it reads: pure geometry and
     # data, so it tests without a display.
@@ -75,6 +76,7 @@ add_executable(colony_tests
     test_survey_progress.cpp
     test_prospecting_wiring.cpp
     test_site_selection.cpp
+    test_ground_truth.cpp
 )
 
 set_target_properties(colony_tests PROPERTIES

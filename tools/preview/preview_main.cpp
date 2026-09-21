@@ -590,17 +590,18 @@ static int RenderGameView(const PreviewOptions& options)
         Planet planet;
         std::vector<Colony*> colonies;
 
-        // Sect standing on its real grid cell (sect view only)
-        ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+        // Sect standing at the real place its grid cell names (sect view
+        // only). The same fixed seed as the UI previews, so the ground it
+        // stands on is reproducible.
+        ResourceManager resourceManager(PREVIEW_MAP_SEED);
         Sect* sect = nullptr;
         if (options.view == "sect")
         {
-            Vector2 sectPos = {
-                (options.cellX + 0.5f) * SECT_CORE_RADIUS * 2.0f,
-                (options.cellY + 0.5f) * SECT_CORE_RADIUS * 2.0f};
-            sect = new Sect(sectPos, resourceManager, timeManager);
-            double lat, lon;
-            TerrainGridCellToLatLon(options.cellX, options.cellY, &lat, &lon);
+            LunarPoint here;
+            TerrainGridCellToLatLon(options.cellX, options.cellY, &here.latDeg, &here.lonDeg);
+            sect = new Sect(here, resourceManager, timeManager);
+            double lat = here.latDeg;
+            double lon = here.lonDeg;
             std::cout << "Sect on cell (" << options.cellX << ","
                       << options.cellY << ") -> lat " << lat
                       << ", lon " << lon << "\n";
@@ -747,20 +748,16 @@ int main(int argc, char** argv)
     RenderManager renderManager(options.width, options.height);
     renderManager.LoadFonts();
 
-    // The constructor only allocates the grids; Planet normally calls this to
-    // populate them. Without it the whole map is empty and every sample reads
-    // 0% richness. A fixed seed keeps previews reproducible -- the default
-    // seed (0) uses random_device, which would make every screenshot show a
-    // different planet and defeat visual comparison.
-    ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
-    resourceManager.GenerateResourceMap(PREVIEW_MAP_SEED);
+    // A fixed seed keeps previews reproducible -- the default seed (0) uses
+    // random_device, which would make every screenshot show a different
+    // Moon and defeat visual comparison.
+    ResourceManager resourceManager(PREVIEW_MAP_SEED);
     TimeManager timeManager;
 
-    // Place the unit mid-grid so it samples a populated resource cell.
-    Vector2 unitPosition = {
-        SECT_CORE_RADIUS * 2.0f * 5.0f,
-        SECT_CORE_RADIUS * 2.0f * 5.0f
-    };
+    // The unit stands on Mare Imbrium: populated mare ground to sample.
+    LunarPoint unitPosition;
+    unitPosition.latDeg = 32.8;
+    unitPosition.lonDeg = -15.6;
 
     std::map<ResourceType, float> storage;
     std::map<ResourceType, float> capacity;

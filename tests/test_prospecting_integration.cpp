@@ -10,7 +10,7 @@
 TEST_CASE("Full pipeline: sweep grid, collect sample, analyze in lab", "[integration]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SweepEngine sweep(1);
     SamplingEngine sampler(1);
@@ -69,7 +69,7 @@ TEST_CASE("Full pipeline: sweep grid, collect sample, analyze in lab", "[integra
 TEST_CASE("Sweep data persists through sampling and lab stages", "[integration]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 3, 3, rm);
+    ProspectingGrid grid(2, TestPoint(3, 3), rm);
     SampleTray tray(2);
     SweepEngine sweep(2);
     SamplingEngine sampler(2);
@@ -94,7 +94,7 @@ TEST_CASE("Sweep data persists through sampling and lab stages", "[integration]"
 TEST_CASE("Sample composition from grid matches lab analysis targets", "[integration]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SampleTray tray(2);
     SamplingEngine sampler(2);
     LabEngine lab(2);
@@ -119,7 +119,7 @@ TEST_CASE("Sample composition from grid matches lab analysis targets", "[integra
 TEST_CASE("Multiple samples from same grid have consistent ground truth", "[integration]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 10, 10, rm);
+    ProspectingGrid grid(1, TestPoint(10, 10), rm);
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
@@ -146,7 +146,7 @@ TEST_CASE("Multiple samples from same grid have consistent ground truth", "[inte
 TEST_CASE("Tier upgrade unlocks new capabilities across all engines", "[integration]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
+    ProspectingGrid grid(0, TestPoint(5, 5), rm);
     SweepEngine sweep(0);
     SamplingEngine sampler(0);
     LabEngine lab(0);
@@ -218,7 +218,7 @@ TEST_CASE("Pipeline energy costs are queryable at each stage", "[integration]")
 TEST_CASE("Collected samples are registered in sub-cell sampleIds", "[integration]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 4, 4, rm);
+    ProspectingGrid grid(1, TestPoint(4, 4), rm);
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
@@ -240,7 +240,7 @@ TEST_CASE("Collected samples are registered in sub-cell sampleIds", "[integratio
 TEST_CASE("Fire assay on real sample sets 100% confidence and COMPLETED", "[integration]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 6, 6, rm);
+    ProspectingGrid grid(3, TestPoint(6, 6), rm);
     SampleTray tray(3);
     SamplingEngine sampler(3);
     LabEngine lab(3);
@@ -291,7 +291,7 @@ TEST_CASE("Degraded calibration reduces sweep confidence gain", "[integration]")
 
     // Both sweeps run at tier 3 so reach is identical and calibration is the
     // only difference between them.
-    ProspectingGrid grid1(3, 5, 5, rm);
+    ProspectingGrid grid1(3, TestPoint(5, 5), rm);
     SweepEngine sweep1(3);
     sweep1.ExecuteSweep(grid1, 0, 100.0f);
 
@@ -314,14 +314,14 @@ TEST_CASE("Degraded calibration reduces sweep confidence gain", "[integration]")
     SweepEngine sweep2(3);
     for (int i = 0; i < 20; i++)
     {
-        ProspectingGrid tempGrid(3, i, i, rm);
+        ProspectingGrid tempGrid(3, TestPoint(i, i), rm);
         sweep2.ExecuteSweep(tempGrid, 0, float(i * 100));
     }
 
     // Now sweep2 has degraded calibration
     REQUIRE(sweep2.GetCalibrationQuality() < 1.0f);
 
-    ProspectingGrid grid2(3, 5, 5, rm);
+    ProspectingGrid grid2(3, TestPoint(5, 5), rm);
     sweep2.ExecuteSweep(grid2, 0, 3000.0f);
 
     float degradedConf = 0.0f;

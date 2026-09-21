@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "test_helpers.h"
+#include <algorithm>
 #include "survey_progress_engine.h"
 #include "sweep_engine.h"
 #include "sampling_engine.h"
@@ -11,7 +12,7 @@
 TEST_CASE("Unswept, unsampled grid has zero progress", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
 
     CellSurveyResult result = SurveyProgressEngine::Calculate(grid, tray);
@@ -24,7 +25,7 @@ TEST_CASE("Unswept, unsampled grid has zero progress", "[survey]")
 TEST_CASE("Sweep-only produces sweep component only", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SweepEngine sweep(1);
 
@@ -43,7 +44,7 @@ TEST_CASE("Sweep-only produces sweep component only", "[survey]")
 TEST_CASE("Sample-only produces sample component only", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
@@ -61,7 +62,7 @@ TEST_CASE("Sample-only produces sample component only", "[survey]")
 TEST_CASE("Testing component requires analyzed samples", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SamplingEngine sampler(1);
     LabEngine lab(1);
@@ -86,7 +87,7 @@ TEST_CASE("Testing component requires analyzed samples", "[survey]")
 TEST_CASE("Survey progress is weighted sum of components", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 5, 5, rm);
+    ProspectingGrid grid(2, TestPoint(5, 5), rm);
     SampleTray tray(2);
     SweepEngine sweep(2);
     SamplingEngine sampler(2);
@@ -118,7 +119,7 @@ TEST_CASE("Weights sum to 1.0", "[survey]")
 TEST_CASE("Sweep and sampling stages increase survey progress", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 5, 5, rm);
+    ProspectingGrid grid(2, TestPoint(5, 5), rm);
     SampleTray tray(2);
     SweepEngine sweep(2);
     SamplingEngine sampler(2);
@@ -138,7 +139,7 @@ TEST_CASE("Sweep and sampling stages increase survey progress", "[survey]")
 TEST_CASE("Lab analysis adds testing component to progress", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 5, 5, rm);
+    ProspectingGrid grid(2, TestPoint(5, 5), rm);
     SampleTray tray(2);
     SamplingEngine sampler(2);
     LabEngine lab(2);
@@ -163,7 +164,7 @@ TEST_CASE("Lab analysis adds testing component to progress", "[survey]")
 TEST_CASE("More sweeps increase sweep component", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 5, 5, rm);
+    ProspectingGrid grid(2, TestPoint(5, 5), rm);
     SampleTray tray(2);
     SweepEngine sweep(2);
 
@@ -179,7 +180,7 @@ TEST_CASE("More sweeps increase sweep component", "[survey]")
 TEST_CASE("More samples increase sample component", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
@@ -196,7 +197,7 @@ TEST_CASE("More samples increase sample component", "[survey]")
 TEST_CASE("Better lab analysis increases testing component", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 5, 5, rm);
+    ProspectingGrid grid(2, TestPoint(5, 5), rm);
     SampleTray tray(2);
     SamplingEngine sampler(2);
     LabEngine lab(2);
@@ -228,7 +229,7 @@ TEST_CASE("Marked site qualification threshold", "[survey]")
 TEST_CASE("Sweep component averages all sub-cell confidences", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SweepEngine sweep(1);
 
     sweep.ExecuteSweep(grid, 0, 100.0f);
@@ -249,7 +250,7 @@ TEST_CASE("Sweep component averages all sub-cell confidences", "[survey]")
 TEST_CASE("Sample coverage caps at target fraction", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SamplingEngine sampler(1);
 
@@ -286,7 +287,7 @@ TEST_CASE("Sample coverage caps at target fraction", "[survey]")
 TEST_CASE("Removed samples don't count toward testing component", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 5, 5, rm);
+    ProspectingGrid grid(2, TestPoint(5, 5), rm);
     SampleTray tray(2);
     SamplingEngine sampler(2);
     LabEngine lab(2);
@@ -310,7 +311,7 @@ TEST_CASE("Removed samples don't count toward testing component", "[survey]")
 TEST_CASE("Survey progress is clamped to 0-1", "[survey]")
 {
     ResourceManager rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm);
+    ProspectingGrid grid(3, TestPoint(5, 5), rm);
     SampleTray tray(3);
     SweepEngine sweep(3);
     SamplingEngine sampler(3);

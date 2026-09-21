@@ -4,6 +4,7 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "game_constants.h"
+#include "game_structs.h"
 #include "planet.h"
 #include "colony.h"
 #include "sect.h"
@@ -26,13 +27,27 @@ public:
     Sect* GetCurrentSect() const { return currentSect; }
     Unit* GetCurrentUnit() const { return currentUnit; }
 
-    void SelectColony(Vector2 mousePosition);
+    void SelectColony(Vector2 playfieldPos);          // Planet view units
     void SelectSect(Vector2 mousePosition, Camera2D camera);
     void SelectUnit(Vector2 mousePosition);
     void SelectDefaultUnit();  // Auto-select Extraction unit or first available
 
-    void BuildNewColony(Vector2 worldPos);
-    void BuildNewSect(Vector2 worldPos);
+    // Founding. A colony is founded at a place on the Moon: its first sect
+    // stands there and the colony's 25 km window is centred on it. Refused
+    // (nullptr, reason printed) inside another colony's territory. This is
+    // the one call the site-selection descent makes when the player
+    // confirms a site.
+    Colony* FoundColony(const LunarPoint& point);
+    // A new sect of the current colony: not in another colony's
+    // territory, a footprint's spacing from every existing sect, and with
+    // its whole footprint inside the colony's window. Refused otherwise.
+    Sect* FoundSect(const LunarPoint& point);
+
+    // The same two from the views' drawing frames: the Planet view's
+    // playfield units (until that view goes) and the current colony's
+    // local frame.
+    Colony* BuildNewColony(Vector2 playfieldPos);
+    Sect* BuildNewSect(Vector2 localPos);
 
     // Test functions for transport
     void BuildAllRoads();
@@ -54,15 +69,6 @@ public:
     void UpdatePlanetActiveArea();
     TimeManager& GetTimeManager() { return timeManager; }
 
-    // Site selection
-    bool IsInSiteSelection() const { return inSiteSelection; }
-    Vector2 GetHoveredGridPos() const { return hoveredGridPos; }
-    Vector2 GetSelectedSite() const { return selectedSite; }
-    void EnterSiteSelection();
-    void UpdateSiteSelectionHover(Vector2 worldPos);
-    void ConfirmSiteSelection();
-    void CancelSiteSelection();
-
 private:
     Planet* planet;
     std::vector<Colony*> colonies;
@@ -74,11 +80,6 @@ private:
     // Road construction mode
     bool buildRoadMode;
     Sect* roadBuildStartSect;
-
-    // Site selection mode
-    bool inSiteSelection;
-    Vector2 hoveredGridPos;
-    Vector2 selectedSite;
 
     TimeManager timeManager;
     float lastUpdateTime;

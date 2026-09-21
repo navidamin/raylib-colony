@@ -1,5 +1,13 @@
 #include "viewmanager.h"
 #include "terrain_synthesis.h"
+#include "lunar_frame.h"
+
+// The colony view's drawing frame: origin at the colony's centre, the
+// 25 km window around it.
+static float ColonyWindowUnits()
+{
+    return (float)(COLONY_WINDOW_KM * LOCAL_UNITS_PER_KM);
+}
 
 ViewManager::ViewManager(int screenWidth, int screenHeight)
     : screenWidth(screenWidth),
@@ -23,7 +31,7 @@ void ViewManager::UpdateCamera(InputManager& inputManager, std::vector<Colony*>&
 }
 
 void ViewManager::HandleCameraControls(InputManager& inputManager, std::vector<Colony*>& colonies, Planet* planet) {
-    if (currentView == View::Planet || currentView == View::SITE_SELECTION) {
+    if (currentView == View::Planet) {
         HandlePlanetViewCamera(inputManager, planet);
     } else if (currentView == View::Colony) {
         HandleColonyViewCamera(inputManager);
@@ -108,12 +116,10 @@ void ViewManager::HandleColonyViewCamera(InputManager& inputManager) {
         float prevZoom = camera.zoom;
         camera.zoom += wheel * 0.1f;
 
-        // Colony view can zoom in more
-        float maxZoomOut = std::min(
-            screenWidth / (PLANET_WIDTH * 0.5f),
-            screenHeight / (PLANET_HEIGHT * 0.5f)
-        );
-        camera.zoom = Clamp(camera.zoom, maxZoomOut, 4.0f);  // Allow closer zoom
+        // Out to the whole 25 km window, in to a sect and a half.
+        float window = ColonyWindowUnits();
+        float maxZoomOut = std::min(screenWidth / window, screenHeight / window);
+        camera.zoom = Clamp(camera.zoom, maxZoomOut, 4.0f);
 
         if (camera.zoom != prevZoom) {
             Vector2 mouseWorldPosNew = GetScreenToWorld2D(inputManager.GetMousePosition(), camera);
@@ -131,22 +137,17 @@ void ViewManager::HandleColonyViewCamera(InputManager& inputManager) {
 }
 
 void ViewManager::ClampCameraColonyView() {
-    // Calculate visible area
+    // The colony's frame has its origin at the window's centre: keep the
+    // view inside the window, one sect footprint of margin past its edge.
     float visibleWidth = screenWidth / camera.zoom;
     float visibleHeight = screenHeight / camera.zoom;
+    float margin = SECT_CORE_RADIUS * 2.0f;
+    float half = ColonyWindowUnits() * 0.5f + margin;
 
-    // Calculate bounds with some margin
-    float margin = SECT_CORE_RADIUS * 2.0f;  // One cell margin
-
-    // Clamp X
-    float minX = std::max(0.0f, visibleWidth / 2.0f - margin);
-    float maxX = std::min(PLANET_WIDTH, PLANET_WIDTH - visibleWidth / 2.0f + margin);
-    camera.target.x = Clamp(camera.target.x, minX, maxX);
-
-    // Clamp Y
-    float minY = std::max(0.0f, visibleHeight / 2.0f - margin);
-    float maxY = std::min(PLANET_HEIGHT, PLANET_HEIGHT - visibleHeight / 2.0f + margin);
-    camera.target.y = Clamp(camera.target.y, minY, maxY);
+    float limitX = std::max(0.0f, half - visibleWidth / 2.0f);
+    float limitY = std::max(0.0f, half - visibleHeight / 2.0f);
+    camera.target.x = Clamp(camera.target.x, -limitX, limitX);
+    camera.target.y = Clamp(camera.target.y, -limitY, limitY);
 }
 
 void ViewManager::ResetCameraForCurrentView(View view, std::vector<Colony*>& colonies, Colony* currentColony, Planet* planet) {
@@ -155,8 +156,10 @@ void ViewManager::ResetCameraForCurrentView(View view, std::vector<Colony*>& col
             camera.target = {PLANET_WIDTH / 2, PLANET_HEIGHT / 2};  // Center of planet, not colony
 
             if (!colonies.empty()) {
-                camera.target = currentColony->GetCentroid();  // Use colony position
                 planet->UpdateActiveArea(colonies);  // Make sure active area is updated
+                camera.target = (currentColony && currentColony->HasCentre())
+                    ? Planet::WorldOf(currentColony->GetCentre())
+                    : planet->GetActiveCentroid();
                 float activeRadius = planet->GetActiveRadius();
 
                 // Calculate zoom to see either the whole planet or the active colony area,
@@ -194,14 +197,6 @@ void ViewManager::ResetCameraForCurrentView(View view, std::vector<Colony*>& col
             }
             break;
         }
-        case View::SITE_SELECTION: {
-            // Center on planet and zoom to fit entire grid
-            float zoomX = static_cast<float>(screenWidth) / PLANET_WIDTH;
-            float zoomY = static_cast<float>(screenHeight) / PLANET_HEIGHT;
-            camera.target = {PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f};
-            camera.zoom = std::min(zoomX, zoomY) * 0.9f;
-            break;
-        }
         default:
             break;
     }
@@ -214,15 +209,10 @@ Vector2 ViewManager::GetWorldMousePosition() {
 void ViewManager::SwitchToColonyView(Colony* currentColony) {
     if (currentColony) {
         currentView = View::Colony;
-        Vector2 colonyPos = currentColony->GetCentroid();
-        std::cout << "Switching to Colony View. Colony centroid at: ("
-                  << colonyPos.x << ", " << colonyPos.y << ")" << std::endl;
-
-        if (!currentColony->GetSects().empty()) {
-            Vector2 sectPos = currentColony->GetSects()[0]->GetPosition();
-            std::cout << "First sect position: ("
-                      << sectPos.x << ", " << sectPos.y << ")" << std::endl;
-        }
+        const LunarPoint& c = currentColony->GetCentre();
+        std::cout << "Switching to Colony View. Colony centred at "
+                  << c.latDeg << ", " << c.lonDeg << " with "
+                  << currentColony->GetSects().size() << " sect(s)" << std::endl;
     }
 }
 
@@ -255,15 +245,8 @@ void ViewManager::SwitchToPlanetView(Colony* currentColony) {
     currentView = View::Planet;
 
     if (currentColony) {
-        Vector2 colonyPos = currentColony->GetCentroid();
-        std::cout << "Switching to Planet View. Colony centroid at: ("
-                  << colonyPos.x << ", " << colonyPos.y << ")" << std::endl;
-
-        // Also print first sect position
-        if (!currentColony->GetSects().empty()) {
-            Vector2 sectPos = currentColony->GetSects()[0]->GetPosition();
-            std::cout << "First sect position: ("
-                      << sectPos.x << ", " << sectPos.y << ")" << std::endl;
-        }
+        const LunarPoint& c = currentColony->GetCentre();
+        std::cout << "Switching to Planet View. Current colony at "
+                  << c.latDeg << ", " << c.lonDeg << std::endl;
     }
 }

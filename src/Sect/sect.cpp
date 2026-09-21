@@ -2,13 +2,14 @@
 #include "colony.h"
 #include <iostream>
 
-Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
+Sect::Sect(const LunarPoint& where, ResourceManager& resource, TimeManager& time)
     : resourceManager(resource),
       timeManager(time),
       defaultCoreRadius(50.0f),
       coreRadius(defaultCoreRadius),
       color(CHINAROSE),
-      SectPosition(position),
+      point(where),
+      SectPosition({0.0f, 0.0f}),
       units(),
       core(nullptr),
       development_percentage(0.0f),
@@ -48,7 +49,7 @@ Sect::Sect(Vector2 &position, ResourceManager& resource, TimeManager& time)
     storageCapacity[ResourceType::ALLOYS] = SECT_BASE_STORAGE;
     storageCapacity[ResourceType::CONSTRUCTION_MATERIALS] = SECT_BASE_STORAGE;
 
-    CreateInitialUnits(position);
+    CreateInitialUnits();
 
     // Load textures for visual rendering
     LoadTextures();
@@ -130,14 +131,14 @@ void Sect::UpdateRoadConstruction(float deltaTime) {
     }
 }
 
-void Sect::CreateInitialUnits(Vector2& position) {
+void Sect::CreateInitialUnits() {
     std::vector<std::string> unit_types = {
         "Extraction", "Farming", "Manufacture", "Transport", "Communication", "Research","Energy", "Construction"
     };
 
     // Initialize and stary each unit
     for (const auto& type : unit_types) {
-        Unit* unit = new Unit(type, position, resourceManager, timeManager, resourceStorage, storageCapacity);
+        Unit* unit = new Unit(type, point, resourceManager, timeManager, resourceStorage, storageCapacity);
         if (type == "Extraction") {
             unit->Start();
             core = unit; // Set the Extraction unit as the core

@@ -19,6 +19,7 @@ set(COLONY_CORE_SOURCES
     TerrainGen/lunar_regions.cpp
     TerrainGen/lola_dem.cpp
     TerrainGen/lunar_dem_shared.cpp
+    TerrainGen/lunar_frame.cpp
     TerrainGen/survey_cursor.cpp
     SiteSelection/region_identity.cpp
     SiteSelection/site_verdict.cpp
@@ -38,6 +39,7 @@ set(COLONY_CORE_SOURCES
 # with lunar_map, which drives the same controller the game does.
 set(SITE_SELECTION_SOURCES
     TerrainGen/lunar_dem_shared.cpp
+    TerrainGen/lunar_frame.cpp
     SiteSelection/region_identity.cpp
     SiteSelection/site_verdict.cpp
     SiteSelection/site_selection_controller.cpp
@@ -263,10 +265,12 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         # main wrote this target before that dependency existed.
         TerrainGen/lola_dem.cpp
         TerrainGen/lunar_dem_shared.cpp
+        TerrainGen/lunar_frame.cpp
         TerrainGen/terrain_synthesis.cpp
         TerrainGen/terrain_gpu.cpp
         TerrainGen/lunar_globe.cpp
         TerrainGen/lunar_regions.cpp
+        SiteSelection/region_identity.cpp
     )
 
     set_target_properties(colony_inspect PROPERTIES

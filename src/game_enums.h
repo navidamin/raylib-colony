@@ -18,7 +18,6 @@ enum class UnitType {
 enum class View {
     Menu,
     Planet,
-    SITE_SELECTION,
     Colony,
     Sect,
     Unit,

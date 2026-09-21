@@ -12,7 +12,7 @@ enum class ProspectingTab { SWEEP, SAMPLES, LAB };
 class ProspectingSystem
 {
 public:
-    ProspectingSystem(int tier, int parentGridX, int parentGridY,
+    ProspectingSystem(int tier, const LunarPoint& parent,
                       ResourceManager& resourceManager);
 
     float GetSurveyProgress() const;

@@ -143,7 +143,10 @@ static void StepTier(Sect& sect, int delta)
 
 static std::unique_ptr<Sect> MakeSect(WalkContext& ctx)
 {
-    Vector2 position = {SECT_CORE_RADIUS * 2.0f * 5.0f, SECT_CORE_RADIUS * 2.0f * 5.0f};
+    // Mare Imbrium: populated mare ground.
+    LunarPoint position;
+    position.latDeg = 32.8;
+    position.lonDeg = -15.6;
     auto sect = std::make_unique<Sect>(position, *ctx.resourceManager, *ctx.timeManager);
     TopUpUnits(*sect);
     return sect;
@@ -294,8 +297,7 @@ int main(int argc, char** argv)
 
         // Fixed seed: the same sect every run, so a visual regression is real
         // rather than a different map.
-        ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
-        resourceManager.GenerateResourceMap(SECTWALK_SEED);
+        ResourceManager resourceManager(SECTWALK_SEED);
         TimeManager timeManager;
 
         ctx.renderManager = &renderManager;

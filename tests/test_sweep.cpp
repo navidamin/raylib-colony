@@ -15,7 +15,7 @@ TEST_CASE("SweepEngine initializes with full calibration", "[sweep]")
 TEST_CASE("SweepEngine CanSweep respects tier gating", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
 
     SweepEngine t0(0);
     REQUIRE(t0.CanSweep(grid, 0));
@@ -26,14 +26,14 @@ TEST_CASE("SweepEngine CanSweep respects tier gating", "[sweep]")
     REQUIRE(t1.CanSweep(grid, 1));
     REQUIRE_FALSE(t1.CanSweep(grid, 2));
 
-    ProspectingGrid grid2(2, 5, 5, rm);
+    ProspectingGrid grid2(2, TestPoint(5, 5), rm);
     SweepEngine t2(2);
     REQUIRE(t2.CanSweep(grid2, 0));
     REQUIRE(t2.CanSweep(grid2, 1));
     REQUIRE(t2.CanSweep(grid2, 2));
     REQUIRE_FALSE(t2.CanSweep(grid2, 3));
 
-    ProspectingGrid grid3(3, 5, 5, rm);
+    ProspectingGrid grid3(3, TestPoint(5, 5), rm);
     SweepEngine t3(3);
     REQUIRE(t3.CanSweep(grid3, 0));
     REQUIRE(t3.CanSweep(grid3, 3));
@@ -42,7 +42,7 @@ TEST_CASE("SweepEngine CanSweep respects tier gating", "[sweep]")
 TEST_CASE("SweepEngine CanSweep prevents frequency repeat", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm);
+    ProspectingGrid grid(3, TestPoint(5, 5), rm);
     SweepEngine engine(3);
 
     REQUIRE(engine.CanSweep(grid, 0));
@@ -54,7 +54,7 @@ TEST_CASE("SweepEngine CanSweep prevents frequency repeat", "[sweep]")
 TEST_CASE("SweepEngine CanSweep rejects invalid bands", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm);
+    ProspectingGrid grid(3, TestPoint(5, 5), rm);
     SweepEngine engine(3);
 
     REQUIRE_FALSE(engine.CanSweep(grid, -1));
@@ -75,7 +75,7 @@ TEST_CASE("SweepEngine GetSweepCost returns correct costs", "[sweep]")
 TEST_CASE("SweepEngine ExecuteSweep marks in-reach cells as swept", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SweepEngine engine(2);
 
     engine.ExecuteSweep(grid, 0, 100.0f);
@@ -103,7 +103,7 @@ TEST_CASE("SweepEngine ExecuteSweep marks in-reach cells as swept", "[sweep]")
 TEST_CASE("SweepEngine ExecuteSweep signals are in 0-1 range", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 10, 10, rm);
+    ProspectingGrid grid(3, TestPoint(10, 10), rm);
     SweepEngine engine(3);
 
     engine.ExecuteSweep(grid, 0, 100.0f);
@@ -123,7 +123,7 @@ TEST_CASE("SweepEngine ExecuteSweep signals are in 0-1 range", "[sweep]")
 TEST_CASE("SweepEngine ExecuteSweep adds confidence to sub-cells", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SweepEngine engine(2);
 
     engine.ExecuteSweep(grid, 0, 100.0f);
@@ -146,7 +146,7 @@ TEST_CASE("SweepEngine ExecuteSweep adds confidence to sub-cells", "[sweep]")
 TEST_CASE("SweepEngine ExecuteSweep returns valid result", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SweepEngine engine(2);
 
     auto result = engine.ExecuteSweep(grid, 0, 100.0f);
@@ -162,7 +162,7 @@ TEST_CASE("SweepEngine ExecuteSweep returns valid result", "[sweep]")
 TEST_CASE("SweepEngine ExecuteSweep on invalid band returns empty result", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SweepEngine engine(1);
 
     auto result = engine.ExecuteSweep(grid, 2, 100.0f);
@@ -173,7 +173,7 @@ TEST_CASE("SweepEngine ExecuteSweep on invalid band returns empty result", "[swe
 TEST_CASE("SweepEngine ExecuteSweep records in grid history", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm);
+    ProspectingGrid grid(3, TestPoint(5, 5), rm);
     SweepEngine engine(3);
 
     REQUIRE(grid.GetSweepHistory().empty());
@@ -185,7 +185,7 @@ TEST_CASE("SweepEngine ExecuteSweep records in grid history", "[sweep]")
 TEST_CASE("SweepEngine calibration degrades after sweep", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm);
+    ProspectingGrid grid(3, TestPoint(5, 5), rm);
     SweepEngine engine(3);
 
     float before = engine.GetCalibrationQuality();
@@ -203,7 +203,7 @@ TEST_CASE("SweepEngine calibration has minimum floor", "[sweep]")
 
     for (int i = 0; i < 100; i++)
     {
-        ProspectingGrid grid(3, 5, 5 + i, rm);
+        ProspectingGrid grid(3, TestPoint(5, 5 + i), rm);
         engine.ExecuteSweep(grid, 0, static_cast<float>(i));
     }
 
@@ -213,7 +213,7 @@ TEST_CASE("SweepEngine calibration has minimum floor", "[sweep]")
 TEST_CASE("SweepEngine StartCalibration and UpdateCalibration restore quality", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm);
+    ProspectingGrid grid(3, TestPoint(5, 5), rm);
     SweepEngine engine(3);
 
     engine.ExecuteSweep(grid, 0, 100.0f);
@@ -251,7 +251,7 @@ TEST_CASE("SweepEngine SetTier clamps to valid range", "[sweep]")
 TEST_CASE("SweepEngine multiple sweeps at different bands accumulate confidence", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 8, 8, rm);
+    ProspectingGrid grid(3, TestPoint(8, 8), rm);
     SweepEngine engine(3);
 
     engine.ExecuteSweep(grid, 0, 100.0f);
@@ -266,7 +266,7 @@ TEST_CASE("SweepEngine multiple sweeps at different bands accumulate confidence"
 TEST_CASE("SweepEngine max signal is kept across sweeps", "[sweep]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 8, 8, rm);
+    ProspectingGrid grid(3, TestPoint(8, 8), rm);
     SweepEngine engine(3);
 
     engine.ExecuteSweep(grid, 0, 100.0f);

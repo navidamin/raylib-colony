@@ -19,8 +19,11 @@ public:
     void SetTier(int tier);
     int GetTier() const;
 
+    // placeLat/placeLon are the grid's GetPlaceKeyLat/Lon: the sect's
+    // place, so the same sample looks the same every time it is drawn
+    // and a neighbouring sect's looks different.
     static CrystalVisual AssignCrystalVisual(const Sample& sample,
-                                              int parentGridX, int parentGridY);
+                                              int placeLat, int placeLon);
     // Richness comes from absolute deposit quantity, not composition
     // (composition fractions always sum to 1).
     static float CalculateRichnessFromQuantity(float totalQuantity);

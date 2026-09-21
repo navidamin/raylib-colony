@@ -1,10 +1,10 @@
 #include "prospecting_system.h"
 
-ProspectingSystem::ProspectingSystem(int tier, int parentGridX, int parentGridY,
+ProspectingSystem::ProspectingSystem(int tier, const LunarPoint& parent,
                                      ResourceManager& resourceManager)
     : tier(tier)
     , resourceManager(resourceManager)
-    , grid(tier, parentGridX, parentGridY, resourceManager)
+    , grid(tier, parent, resourceManager)
     , tray(tier)
     , sweep(tier)
     , sampler(tier)

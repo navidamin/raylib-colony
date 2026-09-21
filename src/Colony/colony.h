@@ -9,29 +9,45 @@
 #include "resource_types.h"
 #include "transport_types.h"
 #include "game_enums.h"
+#include "game_structs.h"
+#include "lunar_frame.h"
 
 class Colony {
 public:
     Colony();
     ~Colony();
 
+    // The colony's place on the Moon: the centre of its 25 km window and
+    // the origin of the local frame its sects are drawn in. Fixed when the
+    // first sect is adopted (or set explicitly), so the window does not
+    // drift as sects are added.
+    const LunarPoint& GetCentre() const { return centre; }
+    void SetCentre(const LunarPoint& point);
+    bool HasCentre() const { return hasCentre; }
+    LocalFrame GetFrame() const { LocalFrame f; f.centre = centre; return f; }
+    // Is the point inside this colony's territory?
+    bool Contains(const LunarPoint& point) const;
+    // Re-derive every sect's local position from the frame.
+    void RefreshLocalPositions();
+
+    // Adopting a sect lays it into the frame (and centres the colony on it
+    // if it is the first).
     void AddSect(Sect* sect);
     void BuildRoad(Sect* sect_a, Sect* sect_b);
     void ManageResources();
     void UnlockResearch();
-    void Draw(Camera2D &camera);
     void CalculateCentroid();
     void CalculateRadius();
-    void DrawJurisdiction();
 
     // Archetype
     void SetArchetype(SiteArchetype type) { archetype = type; }
     SiteArchetype GetArchetype() const { return archetype; }
     float GetArchetypeBonus(ResourceType resource) const;
 
-    // Getters
+    // Getters. Centroid and radius are in the local frame (units of 50 m).
     Vector2 GetCentroid() const {return centroid;}
     float GetRadius() const {return jurisdiction_radius;}
+    double GetRadiusKm() const { return jurisdiction_radius / LOCAL_UNITS_PER_KM; }
     const std::vector<Sect*>& GetSects() const {return sects;}
     const std::map<ResourceType, float>& GetStrategicReserves() const {return strategicReserves;}
     const std::map<ResourceType, float>& GetReserveCapacity() const {return reserveCapacity;}
@@ -74,6 +90,8 @@ public:
 
 private:
     SiteArchetype archetype = SiteArchetype::MIXED;
+    LunarPoint centre;
+    bool hasCentre = false;
     std::vector<Sect*> sects;
     Vector2 centroid;
     float jurisdiction_radius;
