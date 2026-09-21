@@ -12,6 +12,12 @@ InputManager::~InputManager() {
 }
 
 void InputManager::Update() {
+    // A left press that travels is a drag, not a click.
+    pressGesture.Update(::GetMousePosition(),
+                        IsMouseButtonPressed(MOUSE_BUTTON_LEFT),
+                        IsMouseButtonDown(MOUSE_BUTTON_LEFT),
+                        IsMouseButtonReleased(MOUSE_BUTTON_LEFT));
+
     // Update mouse dragging state
     if (IsMouseButtonPressed(MOUSE_MIDDLE_BUTTON)) {
         StartDragging();
@@ -20,6 +26,16 @@ void InputManager::Update() {
     if (IsMouseButtonReleased(MOUSE_MIDDLE_BUTTON)) {
         StopDragging();
     }
+}
+
+SurveyInput InputManager::Survey(float dt) const {
+    SurveyInput in;
+    in.pointer = ::GetMousePosition();
+    in.click = SurveyClick();
+    in.escape = IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+    in.wheel = GetMouseWheelMove();
+    in.dt = dt;
+    return in;
 }
 
 bool InputManager::IsDoubleClick() {

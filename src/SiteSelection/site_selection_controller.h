@@ -36,6 +36,34 @@ const char* SurveyRegionCardHintAt(Vector2 pointer, int cardX, int cardY, int ca
 // screenH, because the span maps onto the screen HEIGHT.
 SurveyViewport SurveyLadderViewport(int screenW, int screenH);
 
+// Where the cards, the prompt strip and the BACK button sit on a screen
+// of this size, and which of them the pointer is over. One function,
+// used by whoever draws and whoever hit-tests, so a click on a card row
+// can never be read as a click on the ground.
+struct SurveyLayout
+{
+    Vector2 pointer = { 0.0f, 0.0f };    // the pointer the layout was computed for
+    bool narrow = false;
+    int cardW = SURVEY_CARD_W;
+    int regionX = 16;
+    int regionY = SURVEY_CARD_TOP;
+    bool fullRegionCard = true;          // else a name strip (narrow, below the globe)
+    int levelX = 0;
+    int levelY = SURVEY_CARD_TOP;
+    Rectangle backBtn = { 0.0f, 0.0f, 0.0f, 0.0f };
+    bool backShown = false;
+    Rectangle strip = { 0.0f, 0.0f, 0.0f, 0.0f };
+    const char* hintKey = nullptr;       // region-card row under the pointer
+    bool pointerOnStrip = false;
+    bool pointerOnBack = false;
+    // The ground under the pointer is inside the polar cap the frames
+    // cannot draw yet (SITE_POLAR_FRAME_LAT_DEG): claims there are
+    // refused, and the strip says why.
+    bool polarBlocked = false;
+};
+SurveyLayout ComputeSurveyLayout(int screenW, int screenH, Vector2 pointer,
+                                 int level, bool founded);
+
 class SiteSelectionController
 {
 public:

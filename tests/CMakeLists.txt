@@ -2,6 +2,8 @@
 # We link raylib for types (Vector2, Color, etc.) but don't open a window.
 add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/Colony/colony.cpp
+    # Founding lives in GameManager; it needs no window, so it tests.
+    ${CMAKE_SOURCE_DIR}/src/Engine/gamemanager.cpp
     ${CMAKE_SOURCE_DIR}/src/Sect/sect.cpp
     ${CMAKE_SOURCE_DIR}/src/Unit/unit.cpp
     ${CMAKE_SOURCE_DIR}/src/Unit/unit_ui.cpp
@@ -77,6 +79,7 @@ add_executable(colony_tests
     test_prospecting_wiring.cpp
     test_site_selection.cpp
     test_ground_truth.cpp
+    test_site_founding.cpp
 )
 
 set_target_properties(colony_tests PROPERTIES

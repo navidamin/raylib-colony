@@ -80,12 +80,11 @@ void ViewManager::ResetCameraForCurrentView(View view, Colony* currentColony) {
     switch (view) {
         case View::Colony: {
             if (currentColony) {
-                camera.target = currentColony->GetCentroid();
-                float desiredView = 8 * SECT_CORE_RADIUS;
-                camera.zoom = std::min(
-                    screenWidth / desiredView,
-                    screenHeight / desiredView
-                );
+                // The window fills the height with its centre at the
+                // origin: the framing the site rung had, so a colony just
+                // founded appears exactly where the cursor was.
+                camera.target = Vector2{ 0.0f, 0.0f };
+                camera.zoom = screenHeight / ColonyWindowUnits();
                 ClampCameraColonyView();
             }
             break;

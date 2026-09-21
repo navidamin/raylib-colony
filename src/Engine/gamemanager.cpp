@@ -132,6 +132,20 @@ void GameManager::SelectDefaultUnit() {
 }
 
 Colony* GameManager::FoundColony(const LunarPoint& point) {
+    return FoundColony(point, point, nullptr);
+}
+
+Colony* GameManager::ColonyInWindow(const LunarPoint& centre, double spanKm) const {
+    for (Colony* colony : colonies) {
+        if (!colony->HasCentre()) continue;
+        Vector2 km = LunarOffsetKm(centre, colony->GetCentre());
+        if (std::fabs(km.x) <= spanKm * 0.5 && std::fabs(km.y) <= spanKm * 0.5) return colony;
+    }
+    return nullptr;
+}
+
+Colony* GameManager::FoundColony(const LunarPoint& point, const LunarPoint& windowCentre,
+                                 const RegionIdentity* claimed) {
     for (Colony* colony : colonies) {
         if (colony->Contains(point)) {
             std::cout << "[FOUND] Refused: inside another colony's territory." << std::endl;
@@ -140,11 +154,17 @@ Colony* GameManager::FoundColony(const LunarPoint& point) {
     }
 
     ResourceManager& rm = planet->GetResourceManager();
-    SiteArchetype archetype = rm.ArchetypeAt(point);
+    SiteArchetype archetype = claimed ? claimed->archetype : rm.ArchetypeAt(point);
+    if (claimed && claimed->archetype != rm.ArchetypeAt(point)) {
+        std::cout << "[FOUND] Note: the claimed region reads "
+                  << GetSiteArchetypeDescriptor(claimed->archetype).name
+                  << " but the ground here is "
+                  << GetSiteArchetypeDescriptor(rm.ArchetypeAt(point)).name << std::endl;
+    }
 
     Colony* colony = new Colony();
     colony->SetArchetype(archetype);
-    colony->SetCentre(point);
+    colony->SetCentre(windowCentre);
     colonies.push_back(colony);
     planet->AddColony(colony);
     currentColony = colony;

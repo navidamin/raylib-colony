@@ -40,18 +40,51 @@ namespace
 // chain, so the threads build 512 (RenderManager::TERRAIN_RES).
 const int CPU_TERRAIN_RES = 512;
 
-// A chain to build: the place it is registered on, and its cache key.
+// A chain to build: the place it is registered on, and its cache key
+// (which says whether it is the game chain or one window, and how wide).
 struct TerrainRequest
 {
-    LunarKey key;
+    RenderManager::TerrainKey key;
     LunarPoint point;
 };
 
 struct TerrainJob
 {
-    LunarKey key;
+    RenderManager::TerrainKey key;
     Image levels[3] = {};
+    int levelCount = 0;
 };
+
+// Build a chain for a key on the CPU: the game's own 100/25/5 with the
+// occupied-site disturbance, or one natural window of the key's span.
+void BuildChainCpu(const TerrainRequest& req, int res, Image levels[3], int* count)
+{
+    if (req.key.spanTenths == 0)
+    {
+        TerrainSiteDisturbance site;
+        site.enabled = true;
+        GenerateTerrainChain(req.point.latDeg, req.point.lonDeg, res, levels, &site);
+        *count = 3;
+        return;
+    }
+    TerrainChainSpans spans = TerrainChainSpansForWindow(req.key.spanTenths / 10.0);
+    GenerateTerrainChain(req.point.latDeg, req.point.lonDeg, res, levels, nullptr, &spans);
+    *count = spans.count;
+}
+
+// The same on the GPU. False if the shaders are unavailable.
+bool BuildChainGpu(const TerrainRequest& req, int res, TerrainGpuChain* chain)
+{
+    if (req.key.spanTenths == 0)
+    {
+        TerrainSiteDisturbance site;
+        site.enabled = true;
+        return GenerateTerrainChainGPU(req.point.latDeg, req.point.lonDeg, res, chain, &site);
+    }
+    TerrainChainSpans spans = TerrainChainSpansForWindow(req.key.spanTenths / 10.0);
+    return GenerateTerrainChainGPU(req.point.latDeg, req.point.lonDeg, res, chain,
+                                   nullptr, &spans);
+}
 
 class TerrainPool
 {
@@ -131,7 +164,7 @@ public:
     }
 
 private:
-    bool Tracked(const LunarKey& key) const
+    bool Tracked(const RenderManager::TerrainKey& key) const
     {
         for (const auto& r : pending) if (r.key == key) return true;
         for (const auto& r : inFlight) if (r.key == key) return true;
@@ -141,12 +174,9 @@ private:
 
     TerrainJob Build(const TerrainRequest& req)
     {
-        TerrainSiteDisturbance site;
-        site.enabled = true;
         TerrainJob job;
         job.key = req.key;
-        GenerateTerrainChain(req.point.latDeg, req.point.lonDeg, CPU_TERRAIN_RES,
-                             job.levels, &site);
+        BuildChainCpu(req, CPU_TERRAIN_RES, job.levels, &job.levelCount);
         return job;
     }
 
@@ -197,7 +227,7 @@ TerrainPool g_terrainPool;
 // main thread. Nothing to synchronise.
 std::deque<TerrainRequest> g_gpuPending;
 
-bool GpuQueued(const LunarKey& key)
+bool GpuQueued(const RenderManager::TerrainKey& key)
 {
     for (const auto& r : g_gpuPending) if (r.key == key) return true;
     return false;
@@ -211,6 +241,7 @@ RenderManager::RenderManager(int screenWidth, int screenHeight)
       fontsLoaded(false),
       orbitalAssetsLoaded(false),
       terrainClock(0),
+      terrainLevelCount(0),
       terrainLoaded(false)
 {
     orbitalNearTexture = {0};
@@ -358,14 +389,16 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     BeginMode2D(camera);
 
     if (colony) {
-        // Ground: level 1 of the chain (25 km) centred on the colony —
-        // the same ground as the planet view above and the sect below,
-        // one zoom step closer. The colony's frame has its origin at that
-        // centre, so the level draws at (0, 0).
-        EnsureTerrainAt(colony->GetCentre());
-        if (terrainLoaded && terrainLevels[1].id != 0) {
-            DrawWorldTerrainLayer(1, Vector2{0.0f, 0.0f},
-                                  (float)(COLONY_WINDOW_KM / TERRAIN_CELL_KM));
+        // Ground: the colony's 25 km window on natural ground, widened to
+        // cover the screen -- the very texture the site rung showed when
+        // the colony was founded, so nothing changed at the click. The
+        // colony's frame has its origin at the window's centre, so it
+        // draws at (0, 0).
+        float windowKm = WindowTextureSpanKm(COLONY_WINDOW_KM);
+        EnsureTerrainAt(colony->GetCentre(), windowKm);
+        if (BoundTerrainWindow()) {
+            DrawWorldTerrainLayer(terrainLevelCount - 1, Vector2{0.0f, 0.0f},
+                                  (float)(windowKm / TERRAIN_CELL_KM));
         }
 
         // The sects are the places one click away: have their chains
@@ -631,11 +664,33 @@ void RenderManager::UnloadTerrainLevels()
     UnloadTerrainGpu();
 
     for (int i = 0; i < 3; i++) terrainLevels[i] = {0};
+    terrainLevelCount = 0;
     terrainLoaded = false;
-    terrainKey = LunarKey{};
+    terrainKey = TerrainKey{};
 }
 
-int RenderManager::FindTerrainSlot(const LunarKey& key) const
+RenderManager::TerrainKey RenderManager::MakeTerrainKey(const LunarPoint& point, float spanKm)
+{
+    TerrainKey k;
+    k.place = LunarQuantise(point);
+    k.spanTenths = (spanKm > 0.0f) ? (int)std::lround(spanKm * 10.0f) : 0;
+    return k;
+}
+
+float RenderManager::WindowTextureSpanKm(double spanKm) const
+{
+    float aspect = std::max(1.0f, (float)screenWidth / (float)std::max(1, screenHeight));
+    return (float)spanKm * aspect;
+}
+
+const Texture2D* RenderManager::BoundTerrainWindow() const
+{
+    if (!terrainLoaded || terrainLevelCount <= 0) return nullptr;
+    const Texture2D& t = terrainLevels[terrainLevelCount - 1];
+    return (t.id != 0) ? &t : nullptr;
+}
+
+int RenderManager::FindTerrainSlot(const TerrainKey& key) const
 {
     for (int i = 0; i < TERRAIN_CACHE_SLOTS; i++)
     {
@@ -677,6 +732,7 @@ void RenderManager::ReleaseTerrainEntry(TerrainCacheEntry& e)
         e.targets[i] = {};
         e.levels[i] = {0};
     }
+    e.levelCount = 0;
     e.valid = false;
 }
 
@@ -686,6 +742,7 @@ void RenderManager::BindTerrainSlot(int slot)
     TerrainCacheEntry& e = terrainCache[slot];
     e.lastUsed = ++terrainClock;
     for (int i = 0; i < 3; i++) terrainLevels[i] = e.levels[i];
+    terrainLevelCount = e.levelCount;
     terrainLoaded = true;
     terrainKey = e.key;
 }
@@ -705,11 +762,8 @@ void RenderManager::UploadReadyTerrain()
             g_gpuPending.pop_front();
             if (FindTerrainSlot(req.key) >= 0) continue;
 
-            TerrainSiteDisturbance site;
-            site.enabled = true;
             TerrainGpuChain chain;
-            if (!GenerateTerrainChainGPU(req.point.latDeg, req.point.lonDeg,
-                                         GetTerrainPathResolution(), &chain, &site))
+            if (!BuildChainGpu(req, GetTerrainPathResolution(), &chain))
                 return;
 
             int slot = ClaimTerrainSlot();
@@ -719,6 +773,7 @@ void RenderManager::UploadReadyTerrain()
                 e.targets[i] = chain.color[i];
                 e.levels[i] = chain.color[i].texture;
             }
+            e.levelCount = chain.levels;
             e.key = req.key;
             e.lastUsed = 0;         // prefetched: evict before the bound chain
             e.valid = true;
@@ -734,7 +789,7 @@ void RenderManager::UploadReadyTerrain()
     {
         if (FindTerrainSlot(job.key) >= 0)
         {
-            for (int i = 0; i < 3; i++) UnloadImage(job.levels[i]);
+            for (int i = 0; i < 3; i++) if (job.levels[i].data) UnloadImage(job.levels[i]);
             continue;
         }
 
@@ -742,10 +797,18 @@ void RenderManager::UploadReadyTerrain()
         TerrainCacheEntry& e = terrainCache[slot];
         for (int i = 0; i < 3; i++)
         {
-            e.levels[i] = LoadTextureFromImage(job.levels[i]);
-            SetTextureFilter(e.levels[i], TEXTURE_FILTER_BILINEAR);
-            UnloadImage(job.levels[i]);
+            if (i < job.levelCount && job.levels[i].data != nullptr)
+            {
+                e.levels[i] = LoadTextureFromImage(job.levels[i]);
+                SetTextureFilter(e.levels[i], TEXTURE_FILTER_BILINEAR);
+                UnloadImage(job.levels[i]);
+            }
+            else
+            {
+                e.levels[i] = {0};
+            }
         }
+        e.levelCount = job.levelCount;
         e.key = job.key;
         // Prefetched, not yet looked at: leave it low in the LRU order so
         // it is evicted before the chain the player is actually looking at.
@@ -757,10 +820,10 @@ void RenderManager::UploadReadyTerrain()
 // Queue a place's chain for the frames ahead. The sects of the colony
 // being looked at are the only places one click away, so they are the
 // ones worth guessing.
-void RenderManager::RequestTerrainAt(const LunarPoint& point)
+void RenderManager::RequestTerrainAt(const LunarPoint& point, float spanKm)
 {
     TerrainRequest req;
-    req.key = LunarQuantise(point);
+    req.key = MakeTerrainKey(point, spanKm);
     req.point = point;
     if (FindTerrainSlot(req.key) >= 0) return;
     if (GetTerrainPath() == TERRAIN_PATH_GPU)
@@ -773,6 +836,11 @@ void RenderManager::RequestTerrainAt(const LunarPoint& point)
     }
 }
 
+void RenderManager::RequestGround(const LunarPoint& point, float spanKm)
+{
+    RequestTerrainAt(point, spanKm);
+}
+
 void RenderManager::ShutdownTerrainWorkers()
 {
     g_terrainPool.Stop();
@@ -781,22 +849,20 @@ void RenderManager::ShutdownTerrainWorkers()
 // Generate (and cache) the whole 100 / 25 / 5 km chain registered on a
 // place. A hit binds in microseconds; a miss still blocks, which is what
 // RequestTerrainAt exists to avoid.
-void RenderManager::EnsureTerrainAt(const LunarPoint& point)
+void RenderManager::EnsureTerrainAt(const LunarPoint& point, float spanKm)
 {
     UploadReadyTerrain();
 
-    LunarKey key = LunarQuantise(point);
-    int slot = FindTerrainSlot(key);
+    TerrainRequest req;
+    req.key = MakeTerrainKey(point, spanKm);
+    req.point = point;
+    int slot = FindTerrainSlot(req.key);
     if (slot < 0)
     {
         // Miss. Build it here — the caller needs ground this frame.
-        TerrainSiteDisturbance site;
-        site.enabled = true;
-
         TerrainGpuChain chain;
         bool gpu = (GetTerrainPath() == TERRAIN_PATH_GPU)
-                && GenerateTerrainChainGPU(point.latDeg, point.lonDeg,
-                                           GetTerrainPathResolution(), &chain, &site);
+                && BuildChainGpu(req, GetTerrainPathResolution(), &chain);
 
         slot = ClaimTerrainSlot();
         TerrainCacheEntry& e = terrainCache[slot];
@@ -807,21 +873,31 @@ void RenderManager::EnsureTerrainAt(const LunarPoint& point)
                 e.targets[i] = chain.color[i];
                 e.levels[i] = chain.color[i].texture;
             }
+            e.levelCount = chain.levels;
         }
         else
         {
             Image levels[3] = {};
-            GenerateTerrainChain(point.latDeg, point.lonDeg, TERRAIN_RES, levels, &site);
+            int count = 0;
+            BuildChainCpu(req, TERRAIN_RES, levels, &count);
             for (int i = 0; i < 3; i++)
             {
-                e.levels[i] = LoadTextureFromImage(levels[i]);
-                SetTextureFilter(e.levels[i], TEXTURE_FILTER_BILINEAR);
-                UnloadImage(levels[i]);
+                if (i < count && levels[i].data != nullptr)
+                {
+                    e.levels[i] = LoadTextureFromImage(levels[i]);
+                    SetTextureFilter(e.levels[i], TEXTURE_FILTER_BILINEAR);
+                    UnloadImage(levels[i]);
+                }
+                else
+                {
+                    e.levels[i] = {0};
+                }
             }
+            e.levelCount = count;
             // The mosaic is warm now, so workers cannot race to load it.
             g_terrainPool.Start();
         }
-        e.key = key;
+        e.key = req.key;
         e.valid = true;
     }
 
@@ -833,7 +909,7 @@ void RenderManager::EnsureTerrainAt(const LunarPoint& point)
 void RenderManager::DrawWorldTerrainLayer(int level, Vector2 centre,
                                           float spanCells)
 {
-    if (!terrainLoaded || level < 0 || level > 2) return;
+    if (!terrainLoaded || level < 0 || level >= terrainLevelCount) return;
     if (terrainLevels[level].id == 0) return;
 
     float cellUnits = SECT_CORE_RADIUS * 2.0f;      // 100 units = 5 km
@@ -850,8 +926,8 @@ void RenderManager::DrawSectTerrainBackground(Sect* sect)
 {
     if (!sect) return;
 
-    EnsureTerrainAt(sect->GetPoint());
-    if (!terrainLoaded || terrainLevels[2].id == 0) return;
+    EnsureTerrainAt(sect->GetPoint(), 0.0f);
+    if (!terrainLoaded || terrainLevelCount < 3 || terrainLevels[2].id == 0) return;
 
     // Sect view is screen-space: the 5 km cell fills the screen.
     float scale = std::max(screenWidth / (float)terrainLevels[2].width,
@@ -5730,25 +5806,9 @@ void RenderManager::DrawOrbitalView(std::vector<Colony*>& colonies, const Colony
         // one under the pointer enlarged so a click on it reads as
         // "open" rather than "found another beside it".
         Vector2 m = GetMousePosition();
-        const Colony* hover = nullptr;
         int hoverIndex = 0;
-        int index = 0;
-        for (const Colony* colony : colonies) {
-            index++;
-            if (!colony->HasCentre()) continue;
-            float x, y;
-            if (!OrbitalLatLonToScreen(colony->GetCentre().latDeg,
-                                       colony->GetCentre().lonDeg, w, h, &x, &y))
-                continue;
-            bool near = Vector2Distance(m, Vector2{x, y}) <= ORBITAL_MARKER_PICK_PX;
-            if (near) { hover = colony; hoverIndex = index; }
-            Color c = (colony == current) ? GOLD : Color{255, 220, 150, 220};
-            float r = ORBITAL_MARKER_RADIUS_PX + (near ? 3.0f : 0.0f);
-            DrawCircleV(Vector2{x, y}, r, ColorAlpha(c, 0.25f));
-            DrawRing(Vector2{x, y}, r - 2.0f, r, 0.0f, 360.0f, 24, c);
-            DrawCircleV(Vector2{x, y}, 2.5f, c);
-            DrawText(TextFormat("COLONY %d", index), (int)x + 12, (int)y - 8, 14, c);
-        }
+        SurveyDrawGlobeMarkers(colonies, current, m, w, h, &hoverIndex);
+        const Colony* hover = (hoverIndex > 0) ? colonies[hoverIndex - 1] : nullptr;
 
         // Reading back the ground under the pointer is the cheapest proof
         // that the picture and the picker agree: it is the same

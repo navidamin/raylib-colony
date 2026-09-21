@@ -11,6 +11,7 @@
 #include "unit.h"
 #include "time_manager.h"
 #include "inputmanager.h"
+#include "region_identity.h"
 #include <vector>
 
 class GameManager {
@@ -35,11 +36,20 @@ public:
     void SelectDefaultUnit();  // Auto-select Extraction unit or first available
 
     // Founding. A colony is founded at a place on the Moon: its first sect
-    // stands there and the colony's 25 km window is centred on it. Refused
-    // (nullptr, reason printed) inside another colony's territory. This is
-    // the one call the site-selection descent makes when the player
-    // confirms a site.
+    // stands at `point` and the colony's 25 km window is centred on
+    // `windowCentre` -- the site rung's window, so the picture does not
+    // change at the click. `claimed` is the region card the player read
+    // (its archetype becomes the colony's); nullptr takes the ground's
+    // own. Refused (nullptr, reason printed) inside another colony's
+    // territory. This is the one call the descent makes at FOUND.
+    Colony* FoundColony(const LunarPoint& point, const LunarPoint& windowCentre,
+                        const RegionIdentity* claimed);
+    // The same with the window centred on the sect: tools and tests.
     Colony* FoundColony(const LunarPoint& point);
+    // The colony whose centre lies inside a square window of spanKm on
+    // `centre`, or nullptr: what the descent finds when it lands on
+    // ground that is already someone's.
+    Colony* ColonyInWindow(const LunarPoint& centre, double spanKm) const;
     // A new sect of the current colony: not in another colony's
     // territory, a footprint's spacing from every existing sect, and with
     // its whole footprint inside the colony's window. Refused otherwise.

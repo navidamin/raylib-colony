@@ -79,6 +79,40 @@ const char* SurveyRegionCardHintAt(Vector2 m, int px, int py, int pw)
     return nullptr;
 }
 
+SurveyLayout ComputeSurveyLayout(int screenW, int screenH, Vector2 pointer,
+                                 int level, bool founded)
+{
+    SurveyLayout l;
+    l.pointer = pointer;
+    l.narrow = screenW < SURVEY_NARROW_SCREEN_W;
+    int cardX = l.narrow ? 8 : 16;
+    l.cardW = l.narrow ? screenW - 16 : SURVEY_CARD_W;
+    // The region card wins the globe (it is the decision there); the
+    // level card wins the descent (the ground is).
+    l.fullRegionCard = (level == 0) || !l.narrow;
+    l.regionX = l.narrow ? cardX : 16;
+    l.regionY = l.narrow ? 56 : SURVEY_CARD_TOP;
+    if (l.narrow && level == 0)
+    {
+        // Full width means the card covers a third of the moon. Put it in
+        // whichever half the pointer is not in, so the ground being read
+        // is never the ground hidden.
+        l.regionY = (pointer.y < screenH * 0.5f)
+            ? (screenH - SURVEY_STRIP_H - SURVEY_REGION_CARD_H - 8) : 56;
+    }
+    l.hintKey = l.fullRegionCard
+        ? SurveyRegionCardHintAt(pointer, l.regionX, l.regionY, l.cardW) : nullptr;
+    l.levelX = l.narrow ? cardX : screenW - SURVEY_CARD_W - 16;
+    l.levelY = (l.narrow && level > 0) ? l.regionY + 30 + 8 : SURVEY_CARD_TOP;
+    l.backBtn = Rectangle{ 8.0f, (float)screenH - 32.0f, 66.0f, 24.0f };
+    l.backShown = (level > 0) || founded;
+    l.strip = Rectangle{ 0.0f, (float)(screenH - SURVEY_STRIP_H), (float)screenW,
+                         (float)SURVEY_STRIP_H };
+    l.pointerOnStrip = pointer.y >= screenH - SURVEY_STRIP_H;
+    l.pointerOnBack = l.backShown && CheckCollisionPointRec(pointer, l.backBtn);
+    return l;
+}
+
 // ---------------------------------------------------------------------------
 
 SiteSelectionController::SiteSelectionController()

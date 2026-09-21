@@ -14,6 +14,10 @@
 #include "unit.h"
 #include "planet.h"
 #include "colony.h"
+#include "survey_flow.h"
+#include "survey_script.h"
+#include "lunar_dem_shared.h"
+#include "lunar_frame.h"
 #include "sect.h"
 #include "inputmanager.h"
 #include "resource_manager.h"
@@ -54,6 +58,10 @@ struct PreviewOptions
     std::string view;
     double pickLat = 32.8;    // where the colony stands (Mare Imbrium)
     double pickLon = -15.6;
+    // --view survey: which rung to render, and where the cursor is aimed
+    // (km east/north of the pick) below the globe.
+    std::string rung = "orbital";
+    double aimDxKm = 30.0, aimDyKm = -20.0;
     std::string tune;  // named terrain tuning preset (sect view)
     // Orbital globe: a fixed camera makes a screenshot reproducible,
     // which a drifting one never is.
@@ -106,7 +114,9 @@ static void PrintUsage()
         << "\n"
         << "View mode (renders a whole game view instead of a module panel):\n"
         << "\n"
-        << "  --view <name>     orbital | colony | sect\n"
+        << "  --view <name>     orbital | survey | colony | sect\n"
+        << "  --rung <name>     survey: orbital | district | site (default: orbital)\n"
+        << "  --aim <DX,DY>     survey: cursor target, km east/north of --pick (default: 30,-20)\n"
         << "  --globe LAT,LON[,ZOOM]  orbital: fix the globe camera (stops the drift)\n"
         << "  --globe-sun MIX[,LON[,LAT]]  orbital: 0 flat mosaic .. 1 full terminator\n"
         << "  --globe-marks     orbital: crosshair known craters (projection check)\n"
@@ -205,6 +215,18 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
             if (std::sscanf(argv[++i], "%lf,%lf", &options.pickLat, &options.pickLon) != 2)
             {
                 std::cerr << "--pick wants LAT,LON\n";
+                return false;
+            }
+        }
+        else if (arg == "--rung" && hasNext)
+        {
+            options.rung = argv[++i];
+        }
+        else if (arg == "--aim" && hasNext)
+        {
+            if (std::sscanf(argv[++i], "%lf,%lf", &options.aimDxKm, &options.aimDyKm) != 2)
+            {
+                std::cerr << "--aim wants DX,DY\n";
                 return false;
             }
         }
@@ -687,13 +709,51 @@ static int RenderGameView(const PreviewOptions& options)
             SetLunarGlobeSun(options.globeSunLon, options.globeSunLat,
                              options.globeSun);
 
+        // The descent, driven to the asked rung by the shared script with
+        // instant flights, then one frame of it drawn by the game's own
+        // renderer with the pointer resting on the target.
+        SurveyFlow flow;
+        if (options.view == "survey")
+        {
+            const LolaDem* dem = GetLunarDem();
+            SiteSelectionController& ctl = flow.Controller();
+            SetLunarGlobeSpin(0.0);
+            if (!options.globeFixed) SurveyScript::FaceGlobe(options.pickLat, options.pickLon);
+            LunarPoint target = LunarOffsetPoint(here, options.aimDxKm, options.aimDyKm);
+            if (options.rung == "district" || options.rung == "site")
+            {
+                if (!SurveyScript::ClickAt(ctl, options.width, options.height, dem,
+                                           options.pickLat, options.pickLon))
+                    std::cerr << "survey: the pick is not on the visible globe\n";
+            }
+            if (options.rung == "site" && ctl.Level() == 1)
+            {
+                SurveyScript::ClickAt(ctl, options.width, options.height, dem,
+                                      target.latDeg, target.lonDeg);
+            }
+            Vector2 pointer;
+            double aimLat = (ctl.Level() == 0) ? options.pickLat : target.latDeg;
+            double aimLon = (ctl.Level() == 0) ? options.pickLon : target.lonDeg;
+            if (SurveyScript::PointerFor(ctl, options.width, options.height, aimLat, aimLon, &pointer))
+            {
+                SurveyScript::Settle(ctl, options.width, options.height, dem, pointer);
+                SurveyInput in = SurveyScript::Base(pointer);
+                flow.BeginFrame(in, options.width, options.height, colonies);
+            }
+            std::cout << "survey rung " << ctl.Level() << " (" << options.rung << ")\n";
+        }
+
         // Draw twice: the first frame lets fonts and textures settle.
         for (int frame = 0; frame < 2; frame++)
         {
             BeginDrawing();
             ClearBackground(BLACK);
 
-            if (options.view == "colony")
+            if (options.view == "survey")
+            {
+                flow.Draw(renderManager, &planet, colonies, nullptr);
+            }
+            else if (options.view == "colony")
             {
                 renderManager.DrawColonyView(camera, colony, &planet, colonies,
                                               inputManager, timeManager);

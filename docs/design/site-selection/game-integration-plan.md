@@ -352,6 +352,18 @@ decide from the pictures whether a tangent-plane frame is needed before
 the polar strategy is advertised. The refusal reason, if any, must name
 the picture, never the ground.
 
+**Measured 2026-09-21** (`viewtest --shots --pick -89.6,0 --aim 8,6`,
+pictures in `figures/b1pole_*.png`): at 89.6° S the 200 km district and
+the 25 km site window are smeared into east-west streaks — the mosaic
+crop's cos(lat) floor of 0.2 is fully engaged, so a "square" window is
+5x wider in km than it draws — and the founded sect does not appear in
+its Colony view at all, because the survey cursor's 0.05 floor and the
+local frame's 0.2 floor put "8 km east" at different places. A
+tangent-plane frame is needed. Until it exists, a claim inside
+`SITE_POLAR_FRAME_LAT_DEG` (80°) is refused at the globe and the strip
+says the window there is not drawn truthfully yet — the picture, not the
+ground.
+
 ### D8 — Zoom within a rung
 
 Keep `SurveyZoomMax` (one notch in) and `SurveyZoomMin` (2x out).
@@ -416,25 +428,25 @@ anything in `src/SiteSelection/` remains in the tool.
 
 ### B1 — Founding through the descent (L)
 
-- [ ] `InputManager`: press gesture, jumped pointer, `Survey()`.
-- [ ] `View::District` added; the Orbital view runs the controller's
+- [x] `InputManager`: press gesture, jumped pointer, `Survey()`.
+- [x] `View::District` added; the Orbital view runs the controller's
       rung 0 (ENTER claims at the sub-point); District runs rung 1; the
       Colony view with no colony under it runs rung 2. The A2 founding
       stub is removed.
-- [ ] `rendermanager_survey.cpp`: cards, chip, outlines, arcs, cursor,
+- [x] `rendermanager_survey.cpp`: cards, chip, outlines, arcs, cursor,
       callout, strip, BACK, hint tooltip, colony markers. No flights yet.
-- [ ] `GameManager::FoundColony(point, identity, verdict)`: Colony
+- [x] `GameManager::FoundColony(point, identity, verdict)`: Colony
       (archetype) + first Sect at the point; the Colony view is already
       looking at that window, so the base appears under the cursor.
-- [ ] `colony_preview --view survey --rung orbital|district|site --pick
+- [x] `colony_preview --view survey --rung orbital|district|site --pick
       LAT,LON [--aim DX,DY]`.
-- [ ] `colony_viewtest --shots`: hover → claim → district → site → found
+- [x] `colony_viewtest --shots`: hover → claim → district → site → found
       → colony → sect, scripted `SurveyInput`; then Esc back to the
       globe, claim a second region on the far side, found again.
-- [ ] Tests: FOUND refused on a red verdict; refused inside another
+- [x] Tests: FOUND refused on a red verdict; refused inside another
       colony's jurisdiction; the founded sect's `GroundAt` equals what
       `SurveyAt` showed on the card.
-- [ ] D7 check at Shackleton, pictures kept in `figures/`.
+- [x] D7 check at Shackleton, pictures kept in `figures/`.
 
 **Accept when:** a new player can turn the globe, read a region, claim
 it, descend twice, see a green or red 1.5 km cursor with the blocker

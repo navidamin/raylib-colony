@@ -16,7 +16,9 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
       inputManager(),
       viewManager(screenWidth, screenHeight),
       gameManager(),
-      renderManager(screenWidth, screenHeight)
+      renderManager(screenWidth, screenHeight),
+      survey(),
+      surveyFrame(false)
 {
     InitWindow(screenWidth, screenHeight, title);
     SetTargetFPS(60);
@@ -36,6 +38,10 @@ void Engine::InitGame() {
     viewManager.GetCamera().offset = {static_cast<float>(screenWidth)/2, static_cast<float>(screenHeight)/2};
     viewManager.GetCamera().rotation = 0.0f;
     viewManager.GetCamera().zoom = 1.0f;
+
+    // Decode the mosaic where a pause is expected, not in the middle of
+    // the first descent.
+    TerrainWarmMosaic();
 
     // Set initial view to Menu
     viewManager.SetCurrentView(View::Menu);
@@ -59,32 +65,18 @@ void Engine::Run() {
 #endif
 }
 
-// The colony whose globe marker is under the pointer, if any.
-static Colony* ColonyMarkerAt(Vector2 screen, std::vector<Colony*>& colonies)
-{
-    int w = GetScreenWidth();
-    int h = GetScreenHeight();
-    Colony* best = nullptr;
-    float bestPx = ORBITAL_MARKER_PICK_PX;
-    for (Colony* colony : colonies)
-    {
-        if (!colony->HasCentre()) continue;
-        float x, y;
-        if (!OrbitalLatLonToScreen(colony->GetCentre().latDeg, colony->GetCentre().lonDeg,
-                                   w, h, &x, &y))
-            continue;
-        float d = Vector2Distance(screen, Vector2{x, y});
-        if (d <= bestPx)
-        {
-            best = colony;
-            bestPx = d;
-        }
-    }
-    return best;
+// The descent runs the Orbital and District views, and the Colony view
+// while no colony stands under it -- that is the site rung.
+bool Engine::SurveyActive() const {
+    View v = viewManager.GetCurrentView();
+    if (v == View::Orbital || v == View::District) return true;
+    return v == View::Colony && gameManager.GetCurrentColony() == nullptr;
 }
 
 void Engine::HandleInput() {
     inputManager.Update();
+    surveyFrame = false;
+    float dt = GetFrameTime();
 
     // Screenshot functionality (F12) - works in all views
     if (IsKeyPressed(KEY_F12)) {
@@ -128,25 +120,29 @@ void Engine::HandleInput() {
         } else if (viewManager.GetCurrentView() == View::Colony && gameManager.GetCurrentColony()) {
             point = gameManager.GetCurrentColony()->GetFrame().FromLocal(viewManager.GetWorldMousePosition());
             have = true;
+        } else if (survey.Controller().Level() > 0) {
+            point.latDeg = survey.Controller().HoverLat();
+            point.lonDeg = survey.Controller().HoverLon();
+            have = true;
         }
         if (planet && have) {
             ResourceManager& rm = planet->GetResourceManager();
-            auto survey = rm.SurveyAt(point);
+            auto surveyData = rm.SurveyAt(point);
             const RegionIdentity& region = rm.GroundAt(point).region;
 
             std::cout << "\n=== ORBITAL SURVEY at " << point.latDeg << ", " << point.lonDeg
                       << " (" << (region.name[0] ? region.name : "unnamed ground") << ") ===" << std::endl;
-            std::cout << "  Fe: " << (survey.fePercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Ti: " << (survey.tiPercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Si: " << (survey.siPercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Al: " << (survey.alPercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Ca: " << (survey.caPercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Th: " << survey.thPpm << " ppm" << std::endl;
-            std::cout << "  K:  " << survey.kPpm << " ppm" << std::endl;
-            std::cout << "  H signal: " << (survey.hydrogenSignal * 100.0f) << "%" << std::endl;
-            std::cout << "  Solar: " << (survey.solarIllumination * 100.0f) << "%" << std::endl;
-            std::cout << "  Slope: " << survey.terrainSlope << " deg" << std::endl;
-            std::cout << "  Earth vis: " << (survey.earthVisibility * 100.0f) << "%" << std::endl;
+            std::cout << "  Fe: " << (surveyData.fePercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Ti: " << (surveyData.tiPercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Si: " << (surveyData.siPercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Al: " << (surveyData.alPercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Ca: " << (surveyData.caPercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Th: " << surveyData.thPpm << " ppm" << std::endl;
+            std::cout << "  K:  " << surveyData.kPpm << " ppm" << std::endl;
+            std::cout << "  H signal: " << (surveyData.hydrogenSignal * 100.0f) << "%" << std::endl;
+            std::cout << "  Solar: " << (surveyData.solarIllumination * 100.0f) << "%" << std::endl;
+            std::cout << "  Slope: " << surveyData.terrainSlope << " deg" << std::endl;
+            std::cout << "  Earth vis: " << (surveyData.earthVisibility * 100.0f) << "%" << std::endl;
             std::cout << "  Archetype: " << GetSiteArchetypeDescriptor(region.archetype).name << std::endl;
             std::cout << "================================\n" << std::endl;
         }
@@ -163,51 +159,46 @@ void Engine::HandleInput() {
         }
     }
 
+    // ---------- the descent ----------
+    if (SurveyActive()) {
+        const SiteSelectionController& ctl = survey.Controller();
+        SurveyInput in = inputManager.Survey(dt);
+        bool atGlobe = (ctl.Level() == 0) && !ctl.FlightActive();
+        if (atGlobe && IsKeyPressed(KEY_ENTER)) {
+            survey.ClaimAtCentre(GetScreenWidth(), GetScreenHeight());
+        } else {
+            survey.BeginFrame(in, GetScreenWidth(), GetScreenHeight(), gameManager.GetColonies());
+        }
+        surveyFrame = true;
+        // At the globe there is nowhere to back out to but the menu.
+        if (atGlobe && IsKeyPressed(KEY_ESCAPE)) {
+            viewManager.SetCurrentView(View::Menu);
+        }
+        viewManager.UpdateCamera(inputManager);
+        return;
+    }
+
     switch (viewManager.GetCurrentView()) {
         case View::Menu:
             if (IsKeyPressed(KEY_ENTER)) {
                 viewManager.SwitchToOrbitalView();
             }
             break;
-        case View::Orbital: {
-            // The founding stub: a click that did not turn the globe
-            // founds a colony at the picked point, or opens the colony
-            // whose marker was clicked. The informed descent -- district,
-            // site, the region cards and the verdict -- replaces this in
-            // Part B of the site-selection plan.
-            if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON) && !LunarGlobeWasDragged()) {
-                Vector2 m = GetMousePosition();
-                Colony* hit = ColonyMarkerAt(m, gameManager.GetColonies());
-                if (hit) {
-                    gameManager.SetCurrentColony(hit);
-                } else {
-                    LunarPoint picked;
-                    if (OrbitalPickToLatLon(m.x, m.y, GetScreenWidth(), GetScreenHeight(),
-                                            &picked.latDeg, &picked.lonDeg)) {
-                        hit = gameManager.FoundColony(picked);
-                    }
-                }
-                if (hit) {
-                    viewManager.SwitchToColonyView(hit);
-                }
-            }
-            if (IsKeyPressed(KEY_ENTER) && gameManager.GetCurrentColony()) {
-                viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
-            }
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                viewManager.SetCurrentView(View::Menu);
-            }
-            break;
-        }
         case View::Colony:
             if (IsKeyPressed(KEY_S)) {
                 viewManager.SwitchToSectView(gameManager.GetCurrentColony(), gameManager.GetCurrentSect());
                 gameManager.SelectDefaultUnit();  // Auto-select default unit
             }
             if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P)) {
-                // Colony <- ESC <- the globe, turned to face this colony.
-                Colony* colony = gameManager.GetCurrentColony();
-                viewManager.SwitchToOrbitalView(colony ? &colony->GetCentre() : nullptr);
+                // Up one rung: the district the descent came through, or
+                // the globe turned to face this colony.
+                if (survey.Controller().Level() > 0
+                    && survey.Escape(GetScreenWidth(), GetScreenHeight())) {
+                    SyncViewToRung();
+                } else {
+                    Colony* colony = gameManager.GetCurrentColony();
+                    viewManager.SwitchToOrbitalView(colony ? &colony->GetCentre() : nullptr);
+                }
             }
             // TEST: Press R to build roads between all sects
             if (IsKeyPressed(KEY_R)) {
@@ -258,6 +249,8 @@ void Engine::HandleInput() {
                 viewManager.SwitchToSectView(gameManager.GetCurrentColony(), gameManager.GetCurrentSect());
             }
             break;
+        default:
+            break;
     }
 
     // Handle double-click selection of sects and units
@@ -305,19 +298,26 @@ void Engine::Draw() {
             renderManager.DrawMenuView();
             break;
         case View::Orbital:
-            renderManager.DrawOrbitalView(gameManager.GetColonies(),
-                                          gameManager.GetCurrentColony());
+        case View::District:
+            survey.Draw(renderManager, gameManager.GetPlanet(), gameManager.GetColonies(),
+                        gameManager.GetCurrentColony());
             break;
         case View::Colony:
-            renderManager.DrawColonyView(viewManager.GetCamera(),
-                                       gameManager.GetCurrentColony(),
-                                       gameManager.GetPlanet(),
-                                       gameManager.GetColonies(),
-                                       inputManager,
-                                       gameManager.GetTimeManager(),
-                                       gameManager.GetSelectedRoad(),
-                                       gameManager.IsBuildRoadMode(),
-                                       gameManager.GetRoadBuildStartSect());
+            if (gameManager.GetCurrentColony()) {
+                renderManager.DrawColonyView(viewManager.GetCamera(),
+                                           gameManager.GetCurrentColony(),
+                                           gameManager.GetPlanet(),
+                                           gameManager.GetColonies(),
+                                           inputManager,
+                                           gameManager.GetTimeManager(),
+                                           gameManager.GetSelectedRoad(),
+                                           gameManager.IsBuildRoadMode(),
+                                           gameManager.GetRoadBuildStartSect());
+            } else {
+                // The site rung: this window, no colony under it yet.
+                survey.Draw(renderManager, gameManager.GetPlanet(), gameManager.GetColonies(),
+                            nullptr);
+            }
             break;
         case View::Sect:
             renderManager.DrawSectView(gameManager.GetCurrentSect(),
@@ -329,4 +329,55 @@ void Engine::Draw() {
     }
 
     renderManager.EndDraw();
+
+    // The frame above was drawn against the state the input was judged
+    // in; now the click or escape it decided happens.
+    if (surveyFrame) {
+        ApplySurveyFrame(survey.EndFrame(renderManager));
+        surveyFrame = false;
+    }
+}
+
+void Engine::ApplySurveyFrame(const SurveyFlow::Frame& frame) {
+    if (frame.openedColony) {
+        gameManager.SetCurrentColony(frame.openedColony);
+        viewManager.SwitchToColonyView(frame.openedColony);
+        return;
+    }
+    if (frame.founded) {
+        Colony* colony = gameManager.FoundColony(frame.foundPoint, frame.windowCentre, &frame.region);
+        if (colony) {
+            viewManager.SwitchToColonyView(colony);
+        } else {
+            viewManager.SwitchToOrbitalView(&frame.foundPoint);
+        }
+        return;
+    }
+    if (frame.rungChanged) SyncViewToRung();
+}
+
+// The view follows the rung: the globe, the district, and at the site
+// rung either the colony that already stands in this window or the
+// window itself, waiting to be founded on.
+void Engine::SyncViewToRung() {
+    const SiteSelectionController& ctl = survey.Controller();
+    switch (ctl.Level()) {
+        case 0:
+            viewManager.SetCurrentView(View::Orbital);
+            break;
+        case 1:
+            viewManager.SetCurrentView(View::District);
+            break;
+        default: {
+            Colony* here = gameManager.ColonyInWindow(survey.WindowCentre(), survey.WindowSpanKm());
+            if (here) {
+                gameManager.SetCurrentColony(here);
+                viewManager.SwitchToColonyView(here);
+            } else {
+                gameManager.SetCurrentColony(nullptr);
+                viewManager.SetCurrentView(View::Colony);
+            }
+            break;
+        }
+    }
 }

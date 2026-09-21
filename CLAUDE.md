@@ -163,15 +163,22 @@ View transitions are handled by `ViewManager::SwitchTo*View()` methods which adj
 
 ### Site Selection System
 
-A colony is founded at a place on the Moon (`GameManager::FoundColony(point)`,
-src/Engine/gamemanager.cpp): the first sect stands there, the colony's
-window is centred on it, and the archetype comes from the region
-(`ResourceManager::ArchetypeAt`). Today the Orbital view founds on a
-click — the **founding stub**. The informed descent (globe → district →
-site, region cards, buildability verdict) exists as the `lunar_map`
-instrument and as `src/SiteSelection/` (`SiteSelectionController`,
-`region_identity`, `site_verdict`); wiring it into the game is Part B of
-`docs/design/site-selection/game-integration-plan.md`.
+A colony is founded through the **survey descent**: the globe
+(`View::Orbital`, hover names the region, click claims it), the 200 km
+district (`View::District`, a 25 km snapping cursor: which mix of
+ground), and the 25 km site window (`View::Colony` with no colony under
+it: a 1.5 km cursor that is the base's own footprint, judged live by
+`EvaluateSite` + `JudgeSite` from real LOLA elevation). A green click
+calls `GameManager::FoundColony(point, windowCentre, &region)`: the
+first sect stands at the point, the colony's window is the site window,
+and the archetype is the claimed region's. The state machine is
+`SiteSelectionController` (src/SiteSelection, shared with `lunar_map`);
+`SurveyFlow` (src/Engine) runs it a frame at a time for the Engine, the
+harness and the preview tool; `rendermanager_survey.cpp` draws it. The
+rungs' ground is the terrain chain's (a window keyed by place and span in
+the terrain cache); the DEM only judges. Claims inside the polar cap
+(`SITE_POLAR_FRAME_LAT_DEG`) are refused until a tangent-plane frame
+exists (plan D7).
 - Each place is classified with a `SiteArchetype` (MARE_INDUSTRIAL, HIGHLAND_CONSTRUCTION, POLAR_VOLATILE, KREEP_SCIENTIFIC, LAVA_TUBE, MIXED) from its region's real composition
 - `FoundSect(point)` refuses a sect inside another colony's territory, closer than `SECT_MIN_SPACING_KM` to any sect, or with its footprint outside the `COLONY_WINDOW_KM` window
 - Sect placement within a Colony shows a resource preview tooltip (Ctrl+hover)

@@ -89,6 +89,37 @@ inline const SurveyCardRow* GetRegionCardRows(int* count)
 }
 const int SURVEY_CARD_ROW_HEIGHT = 26;
 
+// ---------------------------------------------------------------------------
+// Card layout, shared by the drawing and the hit-testing (SurveyLayout).
+// ---------------------------------------------------------------------------
+const int SURVEY_CARD_W = 336;
+const int SURVEY_CARD_TOP = 64;
+const int SURVEY_REGION_CARD_H = 252;
+const int SURVEY_STRIP_H = 40;
+// Below this width the two cards cannot sit side by side: one gets the
+// width and the other collapses to a name strip.
+const int SURVEY_NARROW_SCREEN_W = 720;
+
+inline int SurveyLevelCardHeight(int level)
+{
+    // The site rung's verdict line is 16 pt at py + 221; the card has to
+    // clear it.
+    if (level == SITE_LEVELS - 1) return 252;
+    if (level == SITE_LEVELS - 2) return 208;
+    return 164;
+}
+
+// The polar cap the pictures cannot yet draw. Every window on the Moon is
+// cut from the equirectangular mosaic with longitude widened by
+// 1/cos(lat), floored (0.2 in the chain, 0.05 in the survey cursor). Past
+// this latitude the floors bite: the ground smears into streaks and the
+// two frames disagree about where east is, so a colony founded there is
+// drawn somewhere other than where it was placed (measured at Shackleton,
+// 2026-09-21: game-integration-plan.md D7). A claim there is refused, and
+// the refusal names the picture, not the ground. A tangent-plane frame
+// would lift this.
+const double SITE_POLAR_FRAME_LAT_DEG = 80.0;
+
 // Colony markers on the globe: how large one is drawn and how close a
 // click must land to open it rather than found a new colony beside it.
 const float ORBITAL_MARKER_RADIUS_PX = 8.0f;

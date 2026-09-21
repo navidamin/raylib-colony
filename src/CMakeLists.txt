@@ -6,6 +6,8 @@ set(COLONY_CORE_SOURCES
     Engine/viewmanager.cpp
     Engine/gamemanager.cpp
     Engine/rendermanager.cpp
+    Engine/rendermanager_survey.cpp
+    Engine/survey_flow.cpp
     Planet/planet.cpp
     Sect/sect.cpp
     Unit/unit.cpp
@@ -302,6 +304,8 @@ target_sources(colony_viewtest PRIVATE
     Engine/viewmanager.cpp
     Engine/gamemanager.cpp
     Engine/rendermanager.cpp
+    Engine/rendermanager_survey.cpp
+    Engine/survey_flow.cpp
     Planet/planet.cpp
     Sect/sect.cpp
     Unit/unit.cpp

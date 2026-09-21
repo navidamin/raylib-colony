@@ -1,6 +1,7 @@
 # View-ladder playtest (`colony_viewtest`)
 
-Walks the game's geographic views — **Orbital → Colony → Sect** —
+Walks the game's geographic views — **Orbital → District → Colony (or the
+site rung) → Sect** — through the game's own survey descent (`SurveyFlow`),
 using the real `RenderManager`, and overlays the known issues for whichever
 view is on screen. The annotations are playtest-only commentary; they exist
 in this target alone and never ship in the game.
@@ -16,7 +17,7 @@ cmake --build build --target colony_viewtest
 # interactive
 ./build/src/colony_viewtest
 
-# headless screenshots -> build/viewtest/vt_{orbital,colony,sect}.png
+# headless screenshots -> build/viewtest/vt_{orbital,district,site,colony,sect,orbital_two}.png
 tools/viewtest/viewtest.sh
 ```
 
@@ -27,24 +28,27 @@ Headless rendering needs the software-GL wrapper the script already applies:
 
 | Input | Action |
 |-------|--------|
-| click / tap, ↓ | descend one view |
-| Esc, right-click, ↑ | ascend one view |
-| `1` `2` `3` | jump to Orbital / Colony / Sect |
+| hover / click | the descent's own: the region under the pointer names itself; click claims, descends, founds |
+| click / tap, ↓ | colony → sect |
+| Esc, right-click, ↑, BACK | up one rung, all the way to the globe |
+| `1` `3` `4` | jump to the globe / the colony / the sect |
 | `I` | toggle the issue overlay |
-| `R` | move the colony to the next real place (new terrain) |
+| `R` | turn the globe to the next real place |
 
-On the **orbital** view a click is a *site pick*: it inverts the globe
-projection to real lat/lon, asks you to confirm, founds the colony there
-and descends into its 25 km window. The game itself founds on a single
-click; the harness's two-step prompt is its own. Once founded, the colony
-is marked on the globe by the game's own renderer.
+The descent is the game's: `SurveyFlow` drives the same
+`SiteSelectionController` the Engine does, so what the harness walks is
+the shipping state machine. Headless, `--shots` scripts the whole ladder
+at `--pick` (claim, descend with the cursor aimed `--aim DX,DY` km from
+the pick, found), then founds a second colony on the far side and ends on
+the globe with both marked.
 
 ## Flags
 
 | Flag | Effect |
 |------|--------|
-| `--shots PREFIX` | render the three views (plus the two orbital pick states) to `PREFIX_*.png` and exit |
-| `--pick LAT,LON` | land the ladder anywhere without clicking |
+| `--shots PREFIX` | script the whole descent and render every rung to `PREFIX_*.png`, then exit |
+| `--pick LAT,LON` | the region the scripted descent claims (default Mare Imbrium) |
+| `--aim DX,DY` | km east/north of the pick the cursor is aimed at below the globe (default 30,-20) |
 | `--nodisturb` | generate the ground with the site left untouched |
 
 `--pick` plus `--shots` is how the pipeline gets checked against arbitrary

@@ -7,6 +7,7 @@
 #include "viewmanager.h"
 #include "gamemanager.h"
 #include "rendermanager.h"
+#include "survey_flow.h"
 #include "game_constants.h"
 #include "game_enums.h"
 #include "time_manager.h"
@@ -31,9 +32,18 @@ private:
     GameManager gameManager;
     RenderManager renderManager;
 
+    // The site-selection descent: the Orbital and District views, and
+    // the Colony view while no colony stands under it (the site rung).
+    SurveyFlow survey;
+    bool surveyFrame;            // this frame ran the descent
+
     void HandleInput();
     void Update();
     void Draw();
+
+    bool SurveyActive() const;
+    void ApplySurveyFrame(const SurveyFlow::Frame& frame);
+    void SyncViewToRung();
 };
 
 #endif // ENGINE_H
