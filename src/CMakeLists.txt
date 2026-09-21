@@ -411,7 +411,7 @@ if("${PLATFORM}" STREQUAL "Web")
     set_target_properties(lunar_map PROPERTIES SUFFIX ".html")
     set(lm_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
     # Only the DEM and the WAC albedo are needed — not the game assets.
-    set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_SOURCE_DIR}/prototypes/planet_visuals/data/lola/ldem_16_uint.tif@prototypes/planet_visuals/data/lola/ldem_16_uint.tif")
+    set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/lola/ldem_16_uint.tif@src/assets/planet/lola/ldem_16_uint.tif")
     set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/wac_global.jpg@src/assets/planet/wac_global.jpg")
     # Level 1's named regions. Without it the web build silently falls
     # back to the built-in near-side table and the far side has nothing

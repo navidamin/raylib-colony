@@ -62,6 +62,7 @@ struct PreviewOptions
     // (km east/north of the pick) below the globe.
     std::string rung = "orbital";
     double aimDxKm = 30.0, aimDyKm = -20.0;
+    std::string hint;          // rest the pointer on this region-card row
     std::string tune;  // named terrain tuning preset (sect view)
     // Orbital globe: a fixed camera makes a screenshot reproducible,
     // which a drifting one never is.
@@ -117,6 +118,7 @@ static void PrintUsage()
         << "  --view <name>     orbital | survey | colony | sect\n"
         << "  --rung <name>     survey: orbital | district | site (default: orbital)\n"
         << "  --aim <DX,DY>     survey: cursor target, km east/north of --pick (default: 30,-20)\n"
+        << "  --hint <row>      survey: rest the pointer on a card row (rock|iron|titanium|thorium|psr)\n"
         << "  --globe LAT,LON[,ZOOM]  orbital: fix the globe camera (stops the drift)\n"
         << "  --globe-sun MIX[,LON[,LAT]]  orbital: 0 flat mosaic .. 1 full terminator\n"
         << "  --globe-marks     orbital: crosshair known craters (projection check)\n"
@@ -229,6 +231,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
                 std::cerr << "--aim wants DX,DY\n";
                 return false;
             }
+        }
+        else if (arg == "--hint" && hasNext)
+        {
+            options.hint = argv[++i];
         }
         else if (arg == "--out" && hasNext)
         {
@@ -734,7 +740,28 @@ static int RenderGameView(const PreviewOptions& options)
             Vector2 pointer;
             double aimLat = (ctl.Level() == 0) ? options.pickLat : target.latDeg;
             double aimLon = (ctl.Level() == 0) ? options.pickLon : target.lonDeg;
-            if (SurveyScript::PointerFor(ctl, options.width, options.height, aimLat, aimLon, &pointer))
+            bool havePointer = SurveyScript::PointerFor(ctl, options.width, options.height,
+                                                        aimLat, aimLon, &pointer);
+            if (!options.hint.empty())
+            {
+                // The pointer on a row of the (fixed) region card, so the
+                // row's hint opens. Below the globe the card is always
+                // drawn; on the globe it needs ground under the pointer.
+                SurveyLayout l = ComputeSurveyLayout(options.width, options.height, pointer,
+                                                     ctl.Level(), false);
+                int count = 0;
+                const SurveyCardRow* rows = GetRegionCardRows(&count);
+                for (int r = 0; r < count; r++)
+                {
+                    if (options.hint == rows[r].hintKey)
+                    {
+                        pointer = Vector2{ (float)(l.regionX + 20),
+                                           (float)(l.regionY + rows[r].yOffset + 5) };
+                        havePointer = true;
+                    }
+                }
+            }
+            if (havePointer)
             {
                 SurveyScript::Settle(ctl, options.width, options.height, dem, pointer);
                 SurveyInput in = SurveyScript::Base(pointer);

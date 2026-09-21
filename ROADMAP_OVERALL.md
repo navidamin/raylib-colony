@@ -51,16 +51,19 @@ Create a scalable, data-driven colony management game with deep resource logisti
         (Procellarum 0.90x Mare Imbrium, Tycho 4.29x)
   - ✅ Two synthesizers — CPU and GPU fragment passes — chosen by a startup
         probe, agreeing to 3.4 / 7.5 / 3.5 out of 255
-  - ✅ Real coordinates: the 20x20 grid is anchored on a real lat/lon
+  - ✅ Real coordinates everywhere: the 20x20 grid is gone (2026-09-21);
+        every colony, sect and unit carries a lat/lon and the views draw
+        in local frames about it
   - ✅ `terrain_probe`, `lunar_map`, `survey_cursor_test` as instruments
 - ✅ **The site-selection descent** (in `lunar_map`) - *Completed 2026-09*
   - ✅ Turnable orbital globe replacing 12 baked frames
   - ✅ Three-level survey ladder, ~3000 km → 200 km → 25 km, 1.5 km footprint
   - ✅ Buildability from real LOLA elevation, not RNG
-  - ⚠️ **Not wired into the game.** `src/Engine/` still sites colonies
-        through `View::SITE_SELECTION` and its instrument panels;
-        `survey_cursor.*` compiles into the game but nothing calls it.
-        Two site-selection experiences, one of them unreachable in play.
+  - ✅ **Wired into the game** (2026-09-21): Orbital → District → site
+        rung → founding, through the same `SiteSelectionController` the
+        instrument drives; the grid picker is gone (graveyard 10)
+  - ⚠️ Polar claims (past 80°) refused until a tangent-plane frame exists
+        (`game-integration-plan.md` D7, measured at Shackleton)
 
 #### In Progress 🔄
 - 🔄 **Graphics enhancement** (Checkpoint 0 - ~95% complete, needs polish)
@@ -584,7 +587,8 @@ See `docs/design/research/README.md` for full interface requirements and open qu
 ## Current Status Summary
 
 **Current Phase:** PHASE 0 graphics track — terrain synthesis & site
-selection, ~95% complete. PHASE 1.5 (Extraction Unit Overhaul) 100% COMPLETE.
+selection, complete 2026-09-21 (the descent founds colonies in the game;
+the world is the Moon). PHASE 1.5 (Extraction Unit Overhaul) 100% COMPLETE.
 **Prospecting rewrite:** design Phases 1-6 of 8 complete
 **Next Phase:** PHASE 1 (Core Resource System)
 
@@ -648,11 +652,13 @@ selection, ~95% complete. PHASE 1.5 (Extraction Unit Overhaul) 100% COMPLETE.
 - [ ] Create unit testing framework
 
 **Medium Priority:**
-- [ ] **Two site-selection flows exist.** `lunar_map` walks a real-coordinate
-      survey descent; the game sites colonies through `View::SITE_SELECTION`.
-      Pick one, or state why both.
-- [ ] **The mosaic is decoded twice** (`terrain_synthesis::EnsureWacLoaded`
-      and `lunar_globe::LoadAlbedo`) — ~190 MB of the web build's 271 MB.
+- [x] ~~**Two site-selection flows exist.**~~ ✅ RESOLVED 2026-09-21 — one
+      controller (`src/SiteSelection`), driven by the game and by `lunar_map`.
+- [x] ~~**The mosaic is decoded twice**~~ ✅ RESOLVED 2026-09-21 — the globe
+      builds its albedo from the synthesizer's grey decode (`TerrainWacGrey`).
+- [ ] **Polar windows need a tangent-plane frame** — the chain crop, the
+      survey cursor and `LocalFrame` each floor cos(lat) differently; past
+      80° the ground smears and claims are refused (plan D7).
 - [ ] **WebGL2 for the web build.** GLSL ES 1.00 cannot run the regolith's
       lattice hash, so WebGL1 builds it on the CPU. Works, measured, but it
       means the browser reaches the picture by a different route.

@@ -64,7 +64,10 @@ void SurveyFlow::RefreshStats()
     LunarPoint centre = WindowCentre();
     LunarKey key = LunarQuantise(centre);
     if (statsValid && statsLevel == ctl.Level() && key == statsKey) return;
-    stats = dem->Window(centre.latDeg, centre.lonDeg, WindowSpanKm(), 128);
+    // As wide as the ground on screen, which a landscape screen widens
+    // past the rung's span: the cursor can rest anywhere on it and its
+    // statistics must not fall off the edge.
+    stats = dem->Window(centre.latDeg, centre.lonDeg, WindowSpanKm() * groundAspect, 160);
     statsValid = true;
     statsLevel = ctl.Level();
     statsKey = key;
@@ -88,7 +91,8 @@ void SurveyFlow::BeginFrame(SurveyInput in, int w, int h, std::vector<Colony*>& 
 
     layout = ComputeSurveyLayout(w, h, in.pointer, level, ctl.Founded());
     in.hintKey = layout.hintKey;
-    in.groundAspect = std::max(1.0f, (float)w / (float)std::max(1, h));
+    groundAspect = std::max(1.0f, (float)w / (float)std::max(1, h));
+    in.groundAspect = groundAspect;
     in.zoomOutAllowed = true;
     // The game's own controls are resolved here, so the controller only
     // ever sees a click that means the ground.

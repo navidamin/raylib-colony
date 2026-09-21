@@ -169,6 +169,13 @@ TerrainChainSpans TerrainChainSpansForWindow(double spanKm);
 // Returns false if the mosaic is missing.
 bool TerrainWarmMosaic();
 
+// The decoded mosaic, one grey byte per texel, equirectangular, owned
+// here for the life of the process. The globe builds its albedo texture
+// from this rather than decoding the JPEG a second time -- on the web
+// that second decode was most of the heap. Loads on first call; false
+// if the mosaic is missing.
+bool TerrainWacGrey(const unsigned char** data, int* width, int* height);
+
 // spans == nullptr walks the game's own 100 / 25 / 5.
 // Declared below, next to the levers it holds; named here because the
 // chain entry point takes an optional one.

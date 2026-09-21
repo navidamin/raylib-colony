@@ -1,8 +1,10 @@
 # Site Selection — Game Integration Plan
 
-**Status: PROPOSED** — written 2026-09-18 against `161ad96` on
-`claude/lunarmap-wiring-site-selection-b9lwaw`; **revised the same day**
-after review. Nothing in this document is built yet.
+**Status: IMPLEMENTED** — written 2026-09-18 against `161ad96` on
+`claude/lunarmap-wiring-site-selection-b9lwaw`, revised the same day
+after review, **built 2026-09-21** (B0, A1, A2, B1, and the parts of
+B2–B4 listed in §8 "As built" at the end). Line numbers below are for
+`161ad96` and describe the code as it was before the work.
 
 **Scope, in two parts, in this order:**
 
@@ -527,7 +529,55 @@ self-test passes all 42 checks.
 - Coherency chains C2–C4 (lunar night, PSR water, distance-priced
   transport), master design §5.0.
 - A tangent-plane local frame for polar windows, unless D7's pictures
-  demand it.
+  demand it. *(They do — §8.)*
+
+## 8. As built (2026-09-21)
+
+Five commits on this branch, in the plan's order: B0 (`a98b947`), A1
+(`20a5a6f`), A2 (`859d7f9`), B1 (`e95b4af`), then B2–B4 together. What
+differs from the text above:
+
+- **The colony's centre is the site window, not the first sect.** A1 fixed
+  the centre on the first sect; B1 found that the base then moved on the
+  click (the Colony view recentred on it). The centre is the 25 km window
+  the site rung showed, the first sect stands at the click inside it, and
+  the Colony view opens with the window filling the height — so the base
+  appears exactly where the cursor was, on the same texture
+  (`GameManager::FoundColony(point, windowCentre, claimed)`).
+- **The ground under the rungs is one cache.** The terrain cache is keyed
+  by (place, span): the district asks for a 200 km window, the site and
+  the Colony view for the same 25 km window, both widened to the screen's
+  aspect; the Sect view keeps the game chain with the site disturbance.
+  Zoom-out draws the same cache's 1/zoomMin window (D8).
+- **Flights were not deferred to B2.** The controller already flew them;
+  drawing the rung being left under the moving camera (`SurveyDrawFlight`)
+  was a dozen lines, so B1 shipped with them. `viewtest --shots` renders
+  `flight1_25/50/80` (globe turn and zoom) and `flight2_25/50/80` (the dive).
+- **D7 measured, and it bites.** At Shackleton the windows smear and the
+  survey frame and the local frame disagree about east (D7, with
+  pictures). Claims inside 80° are refused at the globe with the strip
+  saying the window is not drawn truthfully yet. The tangent-plane frame
+  is the open item.
+- **The archetype is the claimed region's**, as D6 says, with a console
+  note when the ground at the click reads differently.
+- **Cards keep the instrument's default-font drawing.** The restyle to the
+  game's fonts and the dark-kit tokens is not done; the layout is shared
+  through `SurveyLayout` so it can be restyled in one place.
+- **Not built from B2:** the labels toggle and the ghosted previous-region
+  card (§4.5). Tap-to-aim, BACK, the narrow layout, hints and per-rung zoom
+  are in.
+- **B3:** the global LDEM_16 moved to `src/assets/planet/lola/`, so the
+  game's and the harness's web preload carry it (32 MB; the SLDEM overlays
+  stay with the prototypes); the globe builds its albedo from the
+  synthesizer's one grey decode (`TerrainWacGrey`), ending the double
+  decode; this branch is listed in `deploy-web.yml` for the playtest. The
+  heap was **not** measured on a device from this container — the shell
+  badge on an iPad is still the acceptance check.
+- **SurveyFlow** (`src/Engine/survey_flow.*`) is the piece the
+  architecture sketch in B.3 called "if view ∈ {…}: controller.Update":
+  the Engine, `colony_viewtest` and `colony_preview` run the descent
+  through it, and `SurveyScript` (`src/SiteSelection/survey_script.h`)
+  drives it headlessly for the tools and the tests.
 - Save/load (which now has a natural unit: colonies as `LunarPoint`s).
 - DEM relief lit by the game's own sun; WebGL2; real PSR distance.
 

@@ -4,7 +4,7 @@ Renders the **actual Moon** from NASA's LOLA elevation model — the whole
 near side as a map, or any picked region as terrain — in raylib, with a
 lunar-specific shading pipeline. An instrument beside the game: it
 shares the game's DEM ground truth
-(`prototypes/planet_visuals/data/lola/ldem_16_uint.tif`, the CGI Moon
+(`src/assets/planet/lola/ldem_16_uint.tif`, the CGI Moon
 Kit LDEM_16 derived from LRO/LOLA laser altimetry, 16 px/deg ≈ 1.9 km/px,
 through `src/TerrainGen/lunar_dem_shared.*`) and the game's
 site-selection module (`src/SiteSelection/`: region identity, the

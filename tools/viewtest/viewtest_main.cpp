@@ -84,8 +84,8 @@ static ViewNotes NotesForView(int level, bool hasColony)
                 {"OK",   "  clicking a marker opens that colony."},
                 {"OK",   "DRAG turns the globe and the WHEEL zooms; a"},
                 {"OK",   "  drag never claims."},
-                {"TODO", "Flights are the plain interpolation; the"},
-                {"TODO", "  feel pass (B2) tunes them."},
+                {"OK",   "Claiming flies: the globe turns and zooms onto"},
+                {"OK",   "  the district (--shots keeps 25/50/80 % frames)."},
                 {"GAP",  "Zoom stops at x8 - past that the WAC mosaic"},
                 {"GAP",  "  (~1.3 km/px) has nothing left to resolve."},
             }};
@@ -442,16 +442,20 @@ static void Shot(ViewTestContext& ctx, const char* name)
 
 // One scripted frame of the descent: the pointer rests here, and clicks
 // or not. Goes through BeginFrame / Draw / EndFrame like a live frame.
-static void Step(ViewTestContext& ctx, Vector2 pointer, bool click)
+// instant lands a transition the same frame; a live click starts the
+// flight the game would fly.
+static void Step(ViewTestContext& ctx, Vector2 pointer, bool click, bool instant = true)
 {
     SurveyInput in = SurveyScript::Base(pointer);
     in.click = click;
+    in.instant = instant;
+    in.dt = 1.0f / 60.0f;
     ctx.flow.BeginFrame(in, VT_WIDTH, VT_HEIGHT, ctx.game->GetColonies());
     ctx.surveyFrame = true;
     DrawFrame(ctx);
 }
 
-static bool StepAt(ViewTestContext& ctx, double lat, double lon, bool click)
+static bool StepAt(ViewTestContext& ctx, double lat, double lon, bool click, bool instant = true)
 {
     Vector2 p;
     if (!SurveyScript::PointerFor(ctx.flow.Controller(), VT_WIDTH, VT_HEIGHT, lat, lon, &p))
@@ -459,8 +463,31 @@ static bool StepAt(ViewTestContext& ctx, double lat, double lon, bool click)
         TraceLog(LOG_WARNING, "viewtest: %.2f,%.2f is not on the visible globe", lat, lon);
         return false;
     }
-    Step(ctx, p, click);
+    Step(ctx, p, click, instant);
     return true;
+}
+
+// Fly the flight the last click began, at 60 Hz, shooting frames at 25,
+// 50 and 80 % so the approach can be judged: the target should fall
+// straight to the centre, not swing out and back.
+static void Fly(ViewTestContext& ctx, const char* tag, bool shots)
+{
+    const SiteSelectionController& ctl = ctx.flow.Controller();
+    const float marks[3] = { 0.25f, 0.5f, 0.8f };
+    int next = 0;
+    int guard = 0;
+    while (ctl.FlightActive() && guard++ < 600)
+    {
+        Step(ctx, Vector2{ VT_WIDTH * 0.5f, VT_HEIGHT * 0.5f }, false, false);
+        if (shots && next < 3 && ctl.FlightActive() && ctl.FlightT() >= marks[next])
+        {
+            // A copy: TextFormat's buffer is rewritten by the frame's own
+            // text before the file is named otherwise.
+            std::string name = TextFormat("%s_%02d", tag, (int)(marks[next] * 100.0f + 0.5f));
+            Shot(ctx, name.c_str());
+            next++;
+        }
+    }
 }
 
 // Claim a place, descend into it and found there: the whole ladder,
@@ -475,12 +502,14 @@ static bool ScriptedFounding(ViewTestContext& ctx, double lat, double lon, bool 
 
     if (!StepAt(ctx, lat, lon, false)) return false;
     if (shots) Shot(ctx, "orbital");
-    StepAt(ctx, lat, lon, true);                            // claim
+    StepAt(ctx, lat, lon, true, false);                     // claim: a live flight
+    Fly(ctx, "flight1", shots);
     if (ctx.flow.Controller().Level() != 1) return false;
 
     StepAt(ctx, target.latDeg, target.lonDeg, false);
     if (shots) Shot(ctx, "district");
-    StepAt(ctx, target.latDeg, target.lonDeg, true);        // descend
+    StepAt(ctx, target.latDeg, target.lonDeg, true, false); // descend: a live dive
+    Fly(ctx, "flight2", shots);
     if (ctx.flow.Controller().Level() != 2) return false;
 
     StepAt(ctx, target.latDeg, target.lonDeg, false);

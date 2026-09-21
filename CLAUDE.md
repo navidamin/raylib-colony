@@ -154,8 +154,9 @@ Each level can be viewed and interacted with by zooming in (double-click) or out
 
 The game operates in different views defined in `game_enums.h`:
 - **Menu** - Initial menu (not yet implemented)
-- **Orbital** - The Moon as a globe (`lunar_globe.h`): turn it, zoom it, click to found a colony at the picked point or a marker to open one
-- **Colony** - A colony's 25 km window: its sects and their connections, drawn in the colony's local frame
+- **Orbital** - The Moon as a globe (`lunar_globe.h`): the first rung of the survey descent. Hover names the region, click claims it; a colony's marker opens it
+- **District** - The descent's second rung: a 200 km window with a 25 km snapping cursor
+- **Colony** - A colony's 25 km window: its sects and their connections, drawn in the colony's local frame. With no colony under it, it is the descent's site rung (1.5 km cursor, live verdict, click founds)
 - **Sect** - Shows individual units within a settlement
 - **Unit** - Detailed view of a specific production unit and its modules
 
@@ -307,8 +308,9 @@ split.
 **Real coordinates.** Everything is a real lat/lon: a click on the
 globe is inverted by `OrbitalPickToLatLon`, and the chain is built for
 that point. Elevation/slope ground truth from NASA's LOLA model is read
-in-game through `GetLunarDem()` (`lunar_dem_shared.h`, from
-`prototypes/planet_visuals/data/lola/`); `elevation.py` beside it is the
+in-game through `GetLunarDem()` (`lunar_dem_shared.h`; the global model
+ships in `src/assets/planet/lola/`, the optional SLDEM overlays stay in
+`prototypes/planet_visuals/data/lola/`); `elevation.py` there is the
 Python original.
 
 **Occupied sites** get `TerrainSiteDisturbance`: the natural ground is
@@ -347,7 +349,7 @@ draws:
 | Tool | Use |
 |------|-----|
 | `tools/preview/preview.sh` | one view in isolation (`--view orbital\|colony\|sect`, `--pick LAT,LON`) |
-| `tools/viewtest/viewtest.sh` | the whole Orbital → Colony → Sect descent, with per-view issue notes; `--pick LAT,LON` lands it anywhere on the moon |
+| `tools/viewtest/viewtest.sh` | the whole Orbital → District → Colony → Sect descent through the game's own `SurveyFlow`, with per-view issue notes; `--pick LAT,LON --aim DX,DY` scripts the claim, the dive, the founding and a second colony |
 | `tools/lunarmap/lunarmap.sh` | the real-coordinates instrument: `--site` walks the globe → district → site survey ladder, `--chain` lays the synthesizer over it, `--siteshot` renders every step. Deploys to `/lunarmap/`. |
 
 Both need software GL: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
@@ -500,7 +502,7 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 |--------|-----------------|-----------------|
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
-| Site Selection | `docs/design/site-selection/README.md` | Working on `src/TerrainGen/survey_cursor.*`, the survey descent ladder, `View::SITE_SELECTION` / `DrawSiteSelectionView`, or colony placement in `gamemanager.cpp` |
+| Site Selection | `docs/design/site-selection/README.md` | Working on `src/SiteSelection/*`, `src/Engine/survey_flow.*`, `rendermanager_survey.cpp`, `survey_cursor.*`, the Orbital / District views, or founding in `gamemanager.cpp` |
 | Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
 
 See `docs/design/README.md` for the full planning method explanation.

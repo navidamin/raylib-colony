@@ -2118,6 +2118,15 @@ bool TerrainWarmMosaic()
     return EnsureWacLoaded();
 }
 
+bool TerrainWacGrey(const unsigned char** data, int* width, int* height)
+{
+    if (!EnsureWacLoaded()) return false;
+    if (data) *data = g_wac.data();
+    if (width) *width = g_wacW;
+    if (height) *height = g_wacH;
+    return true;
+}
+
 TerrainChainSpans TerrainChainSpansForWindow(double spanKm)
 {
     TerrainChainSpans s;

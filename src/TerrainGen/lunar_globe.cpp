@@ -166,8 +166,54 @@ const int ALBEDO_MAX_WIDTH = 2048;
 const int ALBEDO_MAX_WIDTH = 8192;
 #endif
 
+// The albedo from the synthesizer's own decode of the mosaic: one grey
+// byte per texel, already in memory for the terrain chain, box-averaged
+// down to ALBEDO_MAX_WIDTH. No second JPEG decode, no RGB copy.
+bool LoadAlbedoShared()
+{
+    const unsigned char* src = nullptr;
+    int sw = 0, sh = 0;
+    if (!TerrainWacGrey(&src, &sw, &sh) || src == nullptr || sw <= 0) return false;
+    const int dw = std::min(sw, ALBEDO_MAX_WIDTH);
+    const int dh = std::max(1, sh * dw / sw);
+    unsigned char* dst = (unsigned char*)RL_MALLOC((size_t)dw * dh);
+    for (int y = 0; y < dh; y++)
+    {
+        int y0 = (int)((int64_t)y * sh / dh);
+        int y1 = std::max(y0 + 1, (int)((int64_t)(y + 1) * sh / dh));
+        for (int x = 0; x < dw; x++)
+        {
+            int x0 = (int)((int64_t)x * sw / dw);
+            int x1 = std::max(x0 + 1, (int)((int64_t)(x + 1) * sw / dw));
+            unsigned int sum = 0, n = 0;
+            for (int j = y0; j < y1; j++)
+            {
+                const unsigned char* row = src + (size_t)j * sw;
+                for (int i = x0; i < x1; i++) { sum += row[i]; n++; }
+            }
+            dst[(size_t)y * dw + x] = (unsigned char)(sum / (n ? n : 1));
+        }
+    }
+    Image img;
+    img.data = dst;
+    img.width = dw;
+    img.height = dh;
+    img.mipmaps = 1;
+    img.format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE;
+    g.albedo = LoadTextureFromImage(img);
+    UnloadImage(img);
+    if (g.albedo.id == 0) return false;
+    SetTextureFilter(g.albedo, TEXTURE_FILTER_BILINEAR);
+    SetTextureWrap(g.albedo, TEXTURE_WRAP_REPEAT);
+    TraceLog(LOG_INFO, "GLOBE: mosaic %dx%d uploaded from the shared decode (%.1f MB)",
+             dw, dh, (double)dw * dh / (1024.0 * 1024.0));
+    return true;
+}
+
 bool LoadAlbedo()
 {
+    if (LoadAlbedoShared()) return true;
+
     Image img = LoadImage("src/assets/planet/wac_global.jpg");
     if (img.data == nullptr)
     {

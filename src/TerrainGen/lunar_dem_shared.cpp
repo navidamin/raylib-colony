@@ -7,7 +7,12 @@
 namespace
 {
 
-const char* DEFAULT_PATH = "prototypes/planet_visuals/data/lola/ldem_16_uint.tif";
+// The global model ships with the game's assets (every build that
+// copies assets carries it, the web preload included). The optional
+// high-resolution SLDEM overlays stay with the prototypes: 51 MB that
+// only a desktop asks for.
+const char* DEFAULT_PATH = "src/assets/planet/lola/ldem_16_uint.tif";
+const char* OVERLAY_DIR = "prototypes/planet_visuals/data/lola";
 
 std::string g_path = DEFAULT_PATH;
 LolaDem g_dem;
@@ -40,12 +45,13 @@ const LolaDem* GetLunarDem()
         g_tried = true;
         if (g_dem.Load(g_path))
         {
-            // Overlays live beside the global model. A path with no
-            // directory part means the working directory.
+            // Overlays beside the model (a --dem elsewhere brings its
+            // own), and the prototypes' folder where fetch-dem puts them.
             size_t slash = g_path.find_last_of("/\\");
             std::string dir = (slash == std::string::npos) ? "."
                                                             : g_path.substr(0, slash);
             int n = g_dem.LoadOverlays(dir);
+            if (dir != OVERLAY_DIR) n += g_dem.LoadOverlays(OVERLAY_DIR);
             if (n > 0)
             {
                 TraceLog(LOG_INFO, "DEM: %d high-resolution overlay(s) active", n);

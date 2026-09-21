@@ -61,6 +61,17 @@ The ladder has no rung that is not a view the game already has.
 > 8×. The district therefore no longer coincides with the 100 km PLANET
 > playfield, and the cursor floor is 12% (the 8× rung sits at 12.5%).
 >
+> **As built in the game (2026-09-21).** The ladder is now the game's own
+> view stack: `View::Orbital` (the globe) → `View::District` → the Colony
+> view, which with no colony under it *is* the site rung → Sect → Unit.
+> There is no PLANET playfield any more: every colony, sect and unit
+> carries a real lat/lon and the views draw in local frames
+> (`game-integration-plan.md`, Part A). Founding calls
+> `GameManager::FoundColony(point, windowCentre, claimed region)`; the
+> colony's 25 km window is the site window, so the picture does not
+> change at the click. Claims inside 80° of latitude are refused until a
+> tangent-plane frame exists (plan D7, measured at Shackleton).
+>
 > Zoom no longer changes level anywhere: each rung is bounded to its own
 > range (`SurveyZoomMax`), crossing one is always a click, and the site
 > rung does not zoom at all — it arrives holding the base's own footprint.

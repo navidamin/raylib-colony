@@ -1,6 +1,6 @@
 # Site Selection — Design Documents
 
-**Status: SETTLED** — simplified 2026-08-25; step 1 of 4 implemented, steps 2–3 prototyped in `lunar_map --site` and **not yet in the game** (see [game-integration-plan.md](game-integration-plan.md), 2026-09-18).
+**Status: SETTLED, BUILT** — simplified 2026-08-25; all four steps are in the game since 2026-09-21: the descent is how a colony is founded (see [game-integration-plan.md](game-integration-plan.md) §8 "As built").
 
 How a player gets from "somewhere on the Moon" to "the base goes *here*":
 **five levels, five different questions, two commitments.** Chemistry
@@ -32,16 +32,16 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | [site-selection-master-design.md](site-selection-master-design.md) | The two decisions, cursor behaviour, where resource information lives, implementation plan | SETTLED |
 | ↳ Appendix A | The five-level instrument-floor model this replaced, kept as reasoning, not as work | ARCHIVED |
 | [site-ground-texture.md](site-ground-texture.md) | Why the site level looks like grey noise over 99.8 % of the Moon, and the design for laying the terrain synthesizer over it — platform tiers by measured cost, web memory, phased delivery | DESIGNED — prototype behind `--chain` |
-| [game-integration-plan.md](game-integration-plan.md) | Two parts, in order. **A:** retire the 20x20 playfield — the globe is the planet, every colony and sect lives at a real lat/lon, ground truth is a function of location, colonies anywhere at once. **B:** the `lunar_map` descent becomes the game's founding flow (Globe → District → Colony/Site → Sect), freely walkable up and down. Inventory of every grid dependency, decisions with recommendations, phases with acceptance criteria, symbol-by-symbol inventory of the tool file | PROPOSED — nothing built |
+| [game-integration-plan.md](game-integration-plan.md) | Two parts, in order. **A:** retire the 20x20 playfield — the globe is the planet, every colony and sect lives at a real lat/lon, ground truth is a function of location, colonies anywhere at once. **B:** the `lunar_map` descent becomes the game's founding flow (Globe → District → Colony/Site → Sect), freely walkable up and down. Inventory of every grid dependency, decisions with recommendations, phases with acceptance criteria, symbol-by-symbol inventory of the tool file, and §8 what was built differently | IMPLEMENTED 2026-09-21 |
 
 ## Progress
 
 | Step | State |
 |------|-------|
 | 1 — Cursor infrastructure | **done** — `survey_cursor.{h,cpp}`, self-test, `lunar_map --ladder` |
-| 2 — Region identity + panel | **built in `lunar_map --site`** (`IdentifyRegion`, `DrawRegionCard`); not in the game — see the integration plan, Phase 0–1 |
-| 3 — Site terrain panel | **built in `lunar_map --site`** (`DrawLevelCard`, `JudgeSite`); not in the game — plan Phase 1 |
-| 4 — Placement and commit | founding creates nothing yet, in either flow — plan Phase 1 (`GameManager::FoundColony`) and Phase 3 (later colonies) |
+| 2 — Region identity + panel | **done, in the game** — `src/SiteSelection/region_identity.*`, `RenderManager::SurveyDrawRegionCard` (shared with `lunar_map --site`) |
+| 3 — Site terrain panel | **done, in the game** — `site_verdict.*`, `SurveyDrawLevelCard`, the verdict-tinted cursor |
+| 4 — Placement and commit | **done** — `GameManager::FoundColony(point, windowCentre, claimed)` from `SurveyFlow`; any number of colonies, anywhere outside the polar cap (plan D7) |
 
 ## Cross-references
 
@@ -53,9 +53,11 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | `src/TerrainGen/survey_cursor.{h,cpp}` | Cursor geometry — screen ↔ km ↔ lat/lon, snapping, stack (step 1) |
 | `src/TerrainGen/terrain_synthesis.h` | `OrbitalPickToLatLon`, `OrbitalLatLonToScreen`, `TERRAIN_CELL_KM` |
 | `src/TerrainGen/lunar_frame.h` | `LunarPoint` maths: `LunarOffsetKm`, `LunarDistanceKm`, `LunarQuantise`, `LocalFrame` |
-| `src/ResourceManager/resource_manager.{h,cpp}` | `OrbitalSurveyData`, `GetSiteArchetype` — the region's holdings |
-| `src/Engine/gamemanager.cpp` | Existing `View::SITE_SELECTION` flow, Ctrl+click placement |
-| `src/Engine/rendermanager.cpp` | `DrawSiteSelectionView`, instrument panels |
+| `src/ResourceManager/resource_manager.{h,cpp}` | `GroundAt`, `SurveyAt`, `ArchetypeAt` — the ground truth as a function of the place |
+| `src/SiteSelection/` | `SiteSelectionController` (the descent's state machine), `region_identity`, `site_verdict`, `survey_input`, `survey_script`, the constants and the shared card layout |
+| `src/Engine/survey_flow.{h,cpp}` | Runs the controller a frame at a time for the Engine, `colony_viewtest` and `colony_preview` |
+| `src/Engine/gamemanager.cpp` | `FoundColony`, `FoundSect`, `ColonyInWindow` |
+| `src/Engine/rendermanager_survey.cpp` | The descent as drawn: globe rung, window rungs, cards, strip, markers, flights |
 | `tools/surveycursor/survey_cursor_test.cpp` | Headless self-test for the cursor geometry |
 | `tools/lunarmap/lunarmap_main.cpp` | `--site` is the working three-rung descent (region identity, cards, verdict, flights, touch) that the integration plan ports into `src/SiteSelection/`; `--place` prototyped the site panel; `--layer` / `--ladder` prototyped the archived model |
 

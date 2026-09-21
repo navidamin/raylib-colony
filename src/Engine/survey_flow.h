@@ -75,6 +75,7 @@ private:
     SurveyLayout layout;
     int screenW = 0;
     int screenH = 0;
+    float groundAspect = 1.0f;       // how much wider than the rung the ground is
     bool updated = false;
     Colony* markerHit = nullptr;
 

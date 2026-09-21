@@ -1,7 +1,7 @@
 // Real-elevation lunar map tool (`lunar_map`).
 //
 // Renders the actual Moon from the LOLA LDEM_16 elevation model
-// (prototypes/planet_visuals/data/lola/ldem_16_uint.tif) — the whole
+// (src/assets/planet/lola/ldem_16_uint.tif) — the whole
 // near side, or any picked region — as a 3D heightmap mesh with a
 // lunar-specific shading model:
 //
@@ -71,7 +71,7 @@
 #include <vector>
 
 static const char* DEFAULT_DEM_PATH =
-    "prototypes/planet_visuals/data/lola/ldem_16_uint.tif";
+    "src/assets/planet/lola/ldem_16_uint.tif";
 static const char* DEFAULT_WAC_PATH = "src/assets/planet/wac_global.jpg";
 
 // ---------------------------------------------------------------------------
