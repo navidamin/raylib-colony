@@ -2,11 +2,14 @@
 
 Renders the **actual Moon** from NASA's LOLA elevation model — the whole
 near side as a map, or any picked region as terrain — in raylib, with a
-lunar-specific shading pipeline. A standalone instrument beside the
-game: it shares the game's DEM ground truth
+lunar-specific shading pipeline. An instrument beside the game: it
+shares the game's DEM ground truth
 (`prototypes/planet_visuals/data/lola/ldem_16_uint.tif`, the CGI Moon
-Kit LDEM_16 derived from LRO/LOLA laser altimetry, 16 px/deg ≈ 1.9 km/px)
-but links no game code.
+Kit LDEM_16 derived from LRO/LOLA laser altimetry, 16 px/deg ≈ 1.9 km/px,
+through `src/TerrainGen/lunar_dem_shared.*`) and the game's
+site-selection module (`src/SiteSelection/`: region identity, the
+verdict, the descent's controller), and links none of the game's engine
+or entities.
 
 ```
 REAL MOON -> LOLA DEM (billions of laser shots)
@@ -86,9 +89,10 @@ Headless verification of the same state machine:
 tools/lunarmap/lunarmap.sh --siteshot build/lunarmap/step.png
 ```
 
-`--siteshot` drives the real `UpdateSiteSelect` with a scripted
-pointer, one PNG per step, so what is checked is the shipping flow and
-not a re-implementation of it. It settles the two-pass build before each
+`--siteshot` drives the real `UpdateSiteSelect` -- and through it the
+game's own `SiteSelectionController` -- with a scripted pointer, one PNG
+per step, so what is checked is the shipping flow and not a
+re-implementation of it. It settles the two-pass build before each
 export, and does **not** fly the descent zoom (a click would need ~27
 more frames to land) — but it does print where each flight *would* end,
 so the geometry stays checkable cheaply:

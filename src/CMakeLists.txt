@@ -18,7 +18,11 @@ set(COLONY_CORE_SOURCES
     TerrainGen/lunar_globe.cpp
     TerrainGen/lunar_regions.cpp
     TerrainGen/lola_dem.cpp
+    TerrainGen/lunar_dem_shared.cpp
     TerrainGen/survey_cursor.cpp
+    SiteSelection/region_identity.cpp
+    SiteSelection/site_verdict.cpp
+    SiteSelection/site_selection_controller.cpp
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
@@ -28,6 +32,15 @@ set(COLONY_CORE_SOURCES
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
     transport_types.cpp
+)
+
+# The site-selection module: region identity, verdict, controller. Shared
+# with lunar_map, which drives the same controller the game does.
+set(SITE_SELECTION_SOURCES
+    TerrainGen/lunar_dem_shared.cpp
+    SiteSelection/region_identity.cpp
+    SiteSelection/site_verdict.cpp
+    SiteSelection/site_selection_controller.cpp
 )
 
 set(COLONY_INCLUDE_DIRS
@@ -43,6 +56,7 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+    "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
 )
 
 add_executable(colony_game)
@@ -248,6 +262,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         # terrain anchor, so this tool needs them too. Added on the merge:
         # main wrote this target before that dependency existed.
         TerrainGen/lola_dem.cpp
+        TerrainGen/lunar_dem_shared.cpp
         TerrainGen/terrain_synthesis.cpp
         TerrainGen/terrain_gpu.cpp
         TerrainGen/lunar_globe.cpp
@@ -296,6 +311,7 @@ target_sources(colony_viewtest PRIVATE
     TerrainGen/lunar_regions.cpp
     TerrainGen/lola_dem.cpp
     TerrainGen/survey_cursor.cpp
+    ${SITE_SELECTION_SOURCES}
     Prospecting/prospecting_types.cpp
     Prospecting/sample_tray.cpp
     Prospecting/prospecting_grid.cpp
@@ -326,6 +342,7 @@ target_include_directories(colony_viewtest PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
+    "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
 )
 
 target_link_libraries(colony_viewtest raylib tomlplusplus::tomlplusplus)
@@ -360,6 +377,9 @@ target_sources(lunar_map PRIVATE
     TerrainGen/terrain_gpu.cpp
     TerrainGen/lunar_globe.cpp
     TerrainGen/lunar_regions.cpp
+    # The descent's state machine, region identity and verdict are the
+    # game's: the instrument drives the same controller colony_game does.
+    ${SITE_SELECTION_SOURCES}
 )
 
 set_target_properties(lunar_map PROPERTIES
@@ -371,6 +391,7 @@ set_target_properties(lunar_map PROPERTIES
 target_include_directories(lunar_map PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+    "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
 )
 
 target_link_libraries(lunar_map raylib)
@@ -484,6 +505,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         TerrainGen/lunar_regions.cpp
         TerrainGen/lola_dem.cpp
         TerrainGen/survey_cursor.cpp
+        ${SITE_SELECTION_SOURCES}
         Prospecting/prospecting_types.cpp
         Prospecting/sample_tray.cpp
         Prospecting/prospecting_grid.cpp
@@ -513,6 +535,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
         "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
         "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
+        "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
     )
 
     target_link_libraries(c1_test raylib tomlplusplus::tomlplusplus)

@@ -1,29 +1,9 @@
 #include "resource_manager.h"
 
-#include "lola_dem.h"
+#include "lunar_dem_shared.h"
 #include "terrain_synthesis.h"
 
 #include <cmath>
-
-namespace
-{
-// The real Moon, loaded once and shared by every survey query. Kept
-// local to this file so nothing else has to know the game reads a DEM.
-const LolaDem* RealMoon()
-{
-    static LolaDem dem;
-    static bool tried = false;
-    if (!tried)
-    {
-        tried = true;
-        if (dem.Load("prototypes/planet_visuals/data/lola/ldem_16_uint.tif"))
-        {
-            dem.LoadOverlays("prototypes/planet_visuals/data/lola");
-        }
-    }
-    return dem.IsLoaded() ? &dem : nullptr;
-}
-}    // namespace
 
 
 ResourceManager::ResourceManager(int gridSize, float cellSize)
@@ -315,7 +295,7 @@ void ResourceManager::GenerateOrbitalSurveyData() {
             // same elevation the player is looking at. Without it the
             // synthetic fallback below still runs, so the game works
             // with no data files present.
-            const LolaDem* moon = RealMoon();
+            const LolaDem* moon = GetLunarDem();
             if (moon != nullptr)
             {
                 double siteLat = 0.0, siteLon = 0.0;
