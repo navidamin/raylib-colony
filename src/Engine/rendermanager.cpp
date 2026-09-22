@@ -5855,7 +5855,7 @@ void RenderManager::DrawOrbitalView(std::vector<Colony*>& colonies, const Colony
         DrawText("Lunar Orbit", 20, 20, 26, RAYWHITE);
     }
 
-    DrawText("click  found a colony here   /   click a marker  open it", 20, h - 84, 18, LIGHTGRAY);
-    DrawText("ENTER  open the current colony", 20, h - 60, 18, LIGHTGRAY);
+    DrawText("click  claim a region   /   click a marker  open its colony", 20, h - 84, 18, LIGHTGRAY);
+    DrawText("ENTER  claim the region under the centre", 20, h - 60, 18, LIGHTGRAY);
     DrawText("ESC    return to menu",     20, h - 36, 18, LIGHTGRAY);
 }
