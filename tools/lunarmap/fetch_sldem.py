@@ -37,7 +37,7 @@ import urllib.request
 
 LOLA_DIR = "prototypes/planet_visuals/data/lola"
 REQUEST_PATH = os.path.join(LOLA_DIR, "REQUEST")
-GLOBAL_DEM = os.path.join(LOLA_DIR, "ldem_16_uint.tif")
+GLOBAL_DEM = "src/assets/planet/lola/ldem_16_uint.tif"  # the game's copy; overlays stay in LOLA_DIR
 BASE_URLS = [
     "https://imbrium.mit.edu/DATA/SLDEM2015/TILES/JP2",
     "https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/"
