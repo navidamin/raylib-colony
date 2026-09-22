@@ -5,6 +5,7 @@
 #include "lunar_globe.h"
 #include <ctime>
 #include <cmath>
+#include <cstdlib>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -18,10 +19,24 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
       gameManager(),
       renderManager(screenWidth, screenHeight),
       survey(),
-      surveyFrame(false)
+      surveyFrame(false),
+      pointerDiag(false),
+      mouseScale(1.0f)
 {
     InitWindow(screenWidth, screenHeight, title);
     SetTargetFPS(60);
+    // A compositor that magnifies the window but hands the pointer over in
+    // magnified pixels (WSLg and some fractional-scaling desktops) puts the
+    // game's pointer past the real one by the same factor. Until the
+    // platform is fixed, COLONY_MOUSE_SCALE=0.8 undoes a 125 % display;
+    // F11 shows what the game receives so the factor can be read off.
+    if (const char* env = std::getenv("COLONY_MOUSE_SCALE")) {
+        float k = static_cast<float>(std::atof(env));
+        if (k > 0.0f) {
+            mouseScale = k;
+            SetMouseScale(k, k);
+        }
+    }
     renderManager.LoadFonts();
 }
 
@@ -87,6 +102,11 @@ void Engine::HandleInput() {
         strftime(filename, sizeof(filename), "screenshots/screenshot_%Y%m%d_%H%M%S.png", timeinfo);
         TakeScreenshot(filename);
         std::cout << "[SCREENSHOT] Saved: " << filename << std::endl;
+    }
+
+    // F11: pointer diagnostic overlay, all views.
+    if (IsKeyPressed(KEY_F11)) {
+        pointerDiag = !pointerDiag;
     }
 
     // DEBUG: F5 - Cycle through tech unlocks
@@ -328,6 +348,9 @@ void Engine::Draw() {
             break;
     }
 
+    if (pointerDiag) {
+        DrawPointerDiagnostic();
+    }
     renderManager.EndDraw();
 
     // The frame above was drawn against the state the input was judged
@@ -336,6 +359,27 @@ void Engine::Draw() {
         ApplySurveyFrame(survey.EndFrame(renderManager));
         surveyFrame = false;
     }
+}
+
+// Where the game thinks the pointer is, and the numbers behind it. A
+// screenshot with the OS cursor visible then says whether the platform
+// scales the pointer differently from the window.
+void Engine::DrawPointerDiagnostic() {
+    Vector2 m = GetMousePosition();
+    Vector2 dpi = GetWindowScaleDPI();
+    Color ink = Color{ 80, 255, 120, 255 };
+    DrawCircleLines(static_cast<int>(m.x), static_cast<int>(m.y), 14.0f, ink);
+    DrawLine(static_cast<int>(m.x) - 22, static_cast<int>(m.y), static_cast<int>(m.x) + 22, static_cast<int>(m.y), ink);
+    DrawLine(static_cast<int>(m.x), static_cast<int>(m.y) - 22, static_cast<int>(m.x), static_cast<int>(m.y) + 22, ink);
+
+    int x = GetScreenWidth() - 300, y = 12, line = 16;
+    DrawRectangle(x - 8, y - 6, 296, line * 6 + 12, Color{ 0, 0, 0, 190 });
+    DrawText("POINTER DIAGNOSTIC  (F11)", x, y, 13, ink);
+    DrawText(TextFormat("mouse    %.0f, %.0f   (ring)", m.x, m.y), x, y + line, 13, RAYWHITE);
+    DrawText(TextFormat("screen   %d x %d", GetScreenWidth(), GetScreenHeight()), x, y + line * 2, 13, RAYWHITE);
+    DrawText(TextFormat("render   %d x %d", GetRenderWidth(), GetRenderHeight()), x, y + line * 3, 13, RAYWHITE);
+    DrawText(TextFormat("dpi      %.2f, %.2f", dpi.x, dpi.y), x, y + line * 4, 13, RAYWHITE);
+    DrawText(TextFormat("scale    %.2f  (COLONY_MOUSE_SCALE)", mouseScale), x, y + line * 5, 13, RAYWHITE);
 }
 
 void Engine::ApplySurveyFrame(const SurveyFlow::Frame& frame) {

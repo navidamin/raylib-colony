@@ -85,6 +85,25 @@ goes up a rung.
 - **Cards:** readability at phone width (they still use the default
   font; the restyle is an open item).
 
+## If the crosshair is not under your mouse
+
+The game draws its crosshair, box and callout at the pointer position it
+receives, and under a plain display they sit exactly under the OS cursor
+(verified on X11 at two spots). A crosshair that lands past the cursor by
+a constant factor means the platform magnifies the window and hands the
+pointer over in magnified pixels: WSLg at a 125 % Windows display does
+this, and some fractional-scaling desktops do too.
+
+- `F11` shows what the game receives: a green ring where it thinks the
+  pointer is, plus the mouse, screen, render and DPI numbers. Screenshot
+  it with your OS cursor visible and the factor reads straight off.
+- `COLONY_MOUSE_SCALE=0.8 ./build/src/colony_game` undoes a 125 % display
+  (`0.667` for 150 %). This is a workaround for the platform, not a fix.
+- WSLg: `WESTON_RDP_DISABLE_HI_DPI_SCALING=true` under `[system-distro-env]`
+  in `%USERPROFILE%\.wslgconfig` (then `wsl --shutdown`) stops the
+  magnification at the source; the native Windows build has no such
+  problem.
+
 ## Known, not fixed
 
 - Claims inside the polar cap (past 80 deg) are refused until the
