@@ -9,6 +9,7 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
 #endif
 
 Engine::Engine(int screenWidth, int screenHeight, const char* title)
@@ -24,6 +25,7 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
       mouseScale(1.0f)
 {
     InitWindow(screenWidth, screenHeight, title);
+    InputManager::FixWebPointerUnits();
     SetTargetFPS(60);
     // A compositor that magnifies the window but hands the pointer over in
     // magnified pixels (WSLg and some fractional-scaling desktops) puts the
@@ -104,8 +106,9 @@ void Engine::HandleInput() {
         std::cout << "[SCREENSHOT] Saved: " << filename << std::endl;
     }
 
-    // F11: pointer diagnostic overlay, all views.
-    if (IsKeyPressed(KEY_F11)) {
+    // F9: pointer diagnostic overlay, all views (F11 is the browser's
+    // fullscreen key).
+    if (IsKeyPressed(KEY_F9)) {
         pointerDiag = !pointerDiag;
     }
 
@@ -373,13 +376,18 @@ void Engine::DrawPointerDiagnostic() {
     DrawLine(static_cast<int>(m.x), static_cast<int>(m.y) - 22, static_cast<int>(m.x), static_cast<int>(m.y) + 22, ink);
 
     int x = GetScreenWidth() - 300, y = 12, line = 16;
-    DrawRectangle(x - 8, y - 6, 296, line * 6 + 12, Color{ 0, 0, 0, 190 });
-    DrawText("POINTER DIAGNOSTIC  (F11)", x, y, 13, ink);
+    DrawRectangle(x - 8, y - 6, 296, line * 7 + 12, Color{ 0, 0, 0, 190 });
+    DrawText("POINTER DIAGNOSTIC  (F9)", x, y, 13, ink);
     DrawText(TextFormat("mouse    %.0f, %.0f   (ring)", m.x, m.y), x, y + line, 13, RAYWHITE);
     DrawText(TextFormat("screen   %d x %d", GetScreenWidth(), GetScreenHeight()), x, y + line * 2, 13, RAYWHITE);
     DrawText(TextFormat("render   %d x %d", GetRenderWidth(), GetRenderHeight()), x, y + line * 3, 13, RAYWHITE);
     DrawText(TextFormat("dpi      %.2f, %.2f", dpi.x, dpi.y), x, y + line * 4, 13, RAYWHITE);
     DrawText(TextFormat("scale    %.2f  (COLONY_MOUSE_SCALE)", mouseScale), x, y + line * 5, 13, RAYWHITE);
+#ifdef __EMSCRIPTEN__
+    double cssW = 0.0, cssH = 0.0;
+    emscripten_get_element_css_size("#canvas", &cssW, &cssH);
+    DrawText(TextFormat("css box  %.0f x %.0f", cssW, cssH), x, y + line * 6, 13, RAYWHITE);
+#endif
 }
 
 void Engine::ApplySurveyFrame(const SurveyFlow::Frame& frame) {

@@ -13,6 +13,12 @@ public:
 
     void Update();
 
+    // Browser build only: emscripten's GLFW (3.1.6x) hands the mouse over
+    // in CSS pixels while raylib draws in framebuffer pixels, so on a
+    // canvas the shell CSS-fits to the viewport every pointer position
+    // is off by the fit. Call once after InitWindow; a no-op elsewhere.
+    static void FixWebPointerUnits();
+
     bool IsDoubleClick();
     bool IsInfoKeyPressed() const { return IsKeyDown(KEY_TAB); }
     bool IsCommandPressed() const { return IsKeyDown(KEY_LEFT_CONTROL); }

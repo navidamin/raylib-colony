@@ -36,7 +36,7 @@ private:
     // the Colony view while no colony stands under it (the site rung).
     SurveyFlow survey;
     bool surveyFrame;            // this frame ran the descent
-    bool pointerDiag;            // F11: draw where the game thinks the pointer is
+    bool pointerDiag;            // F9: draw where the game thinks the pointer is
     float mouseScale;            // COLONY_MOUSE_SCALE, 1 unless the platform lies
 
     void HandleInput();

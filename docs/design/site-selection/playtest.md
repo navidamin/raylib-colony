@@ -87,22 +87,25 @@ goes up a rung.
 
 ## If the crosshair is not under your mouse
 
-The game draws its crosshair, box and callout at the pointer position it
-receives, and under a plain display they sit exactly under the OS cursor
-(verified on X11 at two spots). A crosshair that lands past the cursor by
-a constant factor means the platform magnifies the window and hands the
-pointer over in magnified pixels: WSLg at a 125 % Windows display does
-this, and some fractional-scaling desktops do too.
+Found and fixed on 2026-09-22: in the browser the crosshair landed past
+the mouse by 1.25x. Emscripten 3.1.64's GLFW hands raylib the mouse in
+CSS pixels while the frame is 1280x720, so on a canvas the shell fits to
+the viewport every position is off by the fit; touch was scaled by raylib
+itself, which is why phones never showed it. `InputManager::
+FixWebPointerUnits()` corrects it (`docs/web-deploy-mobile.md`).
 
-- `F11` shows what the game receives: a green ring where it thinks the
-  pointer is, plus the mouse, screen, render and DPI numbers. Screenshot
-  it with your OS cursor visible and the factor reads straight off.
-- `COLONY_MOUSE_SCALE=0.8 ./build/src/colony_game` undoes a 125 % display
-  (`0.667` for 150 %). This is a workaround for the platform, not a fix.
-- WSLg: `WESTON_RDP_DISABLE_HI_DPI_SCALING=true` under `[system-distro-env]`
-  in `%USERPROFILE%\.wslgconfig` (then `wsl --shutdown`) stops the
-  magnification at the source; the native Windows build has no such
-  problem.
+If it ever comes back, on any platform:
+
+- `F9` shows what the game receives: a green ring where it thinks the
+  pointer is, plus the mouse, screen, render, DPI and (in the browser)
+  CSS-box numbers. Screenshot it with your OS cursor visible and the
+  factor reads straight off.
+- Desktop only: `COLONY_MOUSE_SCALE=0.8 ./build/src/colony_game` undoes
+  a 125 % magnification (`0.667` for 150 %) on a compositor that scales
+  the window and the pointer differently (WSLg at a 125 % display does;
+  `WESTON_RDP_DISABLE_HI_DPI_SCALING=true` under `[system-distro-env]` in
+  `%USERPROFILE%\.wslgconfig`, then `wsl --shutdown`, stops it at the
+  source).
 
 ## Known, not fixed
 

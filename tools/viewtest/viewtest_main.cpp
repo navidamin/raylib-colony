@@ -576,6 +576,7 @@ int main(int argc, char** argv)
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(VT_WIDTH, VT_HEIGHT, "Colony - View Ladder Playtest");
 
+    InputManager::FixWebPointerUnits();
     int status = 0;
     {
         RenderManager renderManager(VT_WIDTH, VT_HEIGHT);

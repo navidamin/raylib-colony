@@ -1,5 +1,41 @@
 #include "inputmanager.h"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
+// Emscripten 3.1.64's library_glfw.js installs, in glfwInit, a
+// Browser.calculateMouseCoords that scales page coordinates by
+// canvas.clientWidth / rect.width -- two CSS measures of the same box, so
+// the factor is 1 and GLFW reports the mouse in CSS pixels. raylib's
+// MouseMoveCallback stores that as the screen position. Touch input
+// never sees it: raylib's own touch callback scales targetX by
+// screen / CSS size, which is why phones were fine and a desktop mouse
+// on a CSS-fitted canvas landed past the cursor by the fit (1.25x on a
+// 1600 px box for the 1280 px frame). This puts the pre-3.1.5x scaling
+// back: framebuffer over CSS box. Where the two are equal (lunar_map
+// sizes its framebuffer to the viewport) it changes nothing.
+void InputManager::FixWebPointerUnits() {
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        if (typeof Browser === 'undefined' || !Module['canvas']) return;
+        Browser.calculateMouseCoords = function(pageX, pageY) {
+            var c = Module['canvas'];
+            var rect = c.getBoundingClientRect();
+            var sx = (typeof window.scrollX != 'undefined') ? window.scrollX : window.pageXOffset;
+            var sy = (typeof window.scrollY != 'undefined') ? window.scrollY : window.pageYOffset;
+            var x = pageX - (sx + rect.left);
+            var y = pageY - (sy + rect.top);
+            if (rect.width > 0 && rect.height > 0) {
+                x = x * (c.width / rect.width);
+                y = y * (c.height / rect.height);
+            }
+            return { x: x, y: y };
+        };
+    });
+#endif
+}
+
 InputManager::InputManager()
     : lastClickTime(0),
       lastDoubleClickTime(0),

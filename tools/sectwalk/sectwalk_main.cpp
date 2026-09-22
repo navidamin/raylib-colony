@@ -26,6 +26,7 @@
 // The Web build (PLATFORM=Web) is playable on phone/tablet; taps map to clicks.
 
 #include "raylib.h"
+#include "inputmanager.h"
 
 #include "rendermanager.h"
 #include "sect.h"
@@ -289,6 +290,7 @@ int main(int argc, char** argv)
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(ctx.screenWidth, ctx.screenHeight, "Colony - Sect Walkthrough");
+    InputManager::FixWebPointerUnits();
     SetTargetFPS(60);
 
     {
