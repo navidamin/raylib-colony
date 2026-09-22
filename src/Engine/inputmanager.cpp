@@ -15,6 +15,8 @@
 // 1600 px box for the 1280 px frame). This puts the pre-3.1.5x scaling
 // back: framebuffer over CSS box. Where the two are equal (lunar_map
 // sizes its framebuffer to the viewport) it changes nothing.
+// EM_ASM is a variadic macro: a comma outside parentheses splits the JS
+// into extra arguments (braces do not protect it), so the body has none.
 void InputManager::FixWebPointerUnits() {
 #ifdef __EMSCRIPTEN__
     EM_ASM({
@@ -30,7 +32,10 @@ void InputManager::FixWebPointerUnits() {
                 x = x * (c.width / rect.width);
                 y = y * (c.height / rect.height);
             }
-            return { x: x, y: y };
+            var out = {};
+            out.x = x;
+            out.y = y;
+            return out;
         };
     });
 #endif

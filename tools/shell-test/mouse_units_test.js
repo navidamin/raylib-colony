@@ -22,6 +22,24 @@ const src = fs.readFileSync(path.resolve(__dirname, '../../src/Engine/inputmanag
 const m = src.match(/EM_ASM\(\{([\s\S]*?)\n    \}\);/);
 if (!m) { console.error('EM_ASM body not found'); process.exit(2); }
 const body = m[1];
+// EM_ASM is a variadic C macro: a comma outside parentheses splits the JS
+// into extra macro arguments and the web build fails to compile (braces
+// do not protect it). Refuse such a body here, before CI does.
+{
+  let depth = 0, inStr = null;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (inStr) { if (ch === inStr && body[i - 1] !== '\\') inStr = null; continue; }
+    if (ch === "'" || ch === '"') { inStr = ch; continue; }
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === ',' && depth === 0) {
+      console.log('FAIL EM_ASM body has a comma outside parentheses at offset ' + i + ': ' + body.slice(Math.max(0, i - 30), i + 10).replace(/\n/g, ' '));
+      process.exit(1);
+    }
+  }
+  console.log('PASS EM_ASM body has no top-level comma');
+}
 const glfw364 = `function(pageX, pageY) {
   var rect = Module["canvas"].getBoundingClientRect();
   var cw = Module["canvas"].clientWidth; var ch = Module["canvas"].clientHeight;
