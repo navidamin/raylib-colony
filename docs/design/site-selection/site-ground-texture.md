@@ -1,7 +1,10 @@
 # Ground texture at the site level
 
-*Design record, 2026-09-03. Status: prototype exists behind `--chain`;
-nothing ships yet.*
+*Design record, 2026-09-03. Status: built — the synthesizer is laid over
+every level of the ladder (`BuildChainLayer` in `lunar_map`), on by
+default in the web build. Read "level" below as a level of the one
+ladder, Globe → District (200 km) → Site (25 km); the synthesizer's own
+100 / 25 / 5 km crops are called its **steps**, and are not levels.*
 
 The site level of `lunar_map` — the 25 km window where the base is
 placed — looks like uniform grey noise over most of the Moon, not like
@@ -83,12 +86,16 @@ level looks synthetic because it uses the other one. Nothing joins them.
 
 ### 2.6 The chain's scales almost, but not quite, fit the ladder
 
-Chain spans are hard-coded **100 / 25 / 5 km**. The ladder is
-3000 / 200 / 25 km. Chain level 1 is exactly the site window — for a
+*(Resolved: the chain is now built for the window it textures —
+`TerrainChainSpansForWindow(spanKm)` — at every level. As it stood on
+2026-09-03:)*
+
+Chain steps were hard-coded **100 / 25 / 5 km**. The ladder is
+3000 / 200 / 25 km. The chain's 25 km step is exactly the site window — for a
 *square* window. But the site window is built as
 `spanKm = 25 × sceneAspect` so the terrain covers a landscape screen: on
 16:9 that is **44.5 km**, and a 25 km chain covers only the central 56 %.
-Level 2 (200 km) has no chain level at all; the chain tops out at 100.
+Level 2 (200 km) has no chain step at all; the chain tops out at 100.
 
 ### 2.7 The maria and the highlands want opposite things
 
@@ -198,7 +205,7 @@ These hold before and after, and the test plan (§7) checks each.
    §5.6 for the layer. If the layer cannot be afforded, the site level
    looks as it does today — which is acceptable, not broken.
 6. **Level 2 is untouched** in phase 1. It works; it has no matching
-   chain level; the player is not complaining about it.
+   chain step; the player is not complaining about it.
 
 ---
 
@@ -250,7 +257,7 @@ because it exists and is safe; phase 2 is where this should end up.
 ### 5.2 Where it applies
 
 **Level 3 only.** Level 2 keeps its current render: full WAC albedo,
-105 DEM samples, curvature emphasis. If a 200 km chain level is ever
+105 DEM samples, curvature emphasis. If a 200 km chain step is ever
 wanted, the chain's top span needs generalising (§5.3 does most of that
 work) — but nobody has asked, and §4.6 says leave it.
 

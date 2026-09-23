@@ -1,5 +1,13 @@
 # Site Synthesis — zoom-anywhere detail below the WAC floor
 
+*Design record, 2026-08-13 — history, not the current design. It
+describes the imagery chain as first built and the game's grid views
+(20×20 → 5×5 → sect). The chain still runs, amended since by the
+world-anchored regolith and the roughness field (`terrain_synthesis.cpp`).
+The game's only level ladder is Globe → District (200 km) → Site (25 km)
+— `docs/design/site-selection/README.md` — and the "ladder" and
+"levels" below are the game's views and the chain's steps, not that.*
+
 Direction set 2026-08-13, after reviewing `zoom_progression.png`: the
 procedural style of `generate.py` (since removed, graveyard 10) was rejected as a *replacement* for
 real imagery, and the real imagery alone goes blurry at the deepest

@@ -22,25 +22,35 @@
 // The ladder
 // ---------------------------------------------------------------------------
 
-// Level 1 is the orbital disc. It is projected (OrbitalPickToLatLon),
-// not a top-down km window, so its "span" is nominal: the width of the
-// disc that can actually be picked on. Ground within ~15% of the limb is
-// too foreshortened to aim at, so the usable width is ~86% of the
-// diameter -- and that is what the cursor ratio should be measured
-// against. Rounded to 3000 km so the 500 km cursor tiles it exactly:
-// every level's span must be a whole number of its own cursors, or the
-// snap grid leaves ground the player can see but cannot select.
-// The site level hands over at TERRAIN_CELL_KM, so the ladder lands
-// exactly on the game's existing 5 km sect grid.
+// THE level ladder. There is exactly one, and this is it:
 //
-// Three levels, not four. LOCALITY (a 25 km window with a 5 km cursor)
-// and SITE (a 5 km window with a 1.5 km cursor) used to be separate
-// rungs, which made the player click through two framings to reach one
-// decision. They are now one level: the window holds at 25 km and the
-// cursor is the base's own 1.5 km footprint from the moment you arrive,
-// free-moving, because the only question left there is where the base
-// goes. It neither zooms nor refines -- one question, one answer, at the
-// size the answer really is.
+//   level  name      window                     cursor              question
+//   1      ORBITAL   the globe (3000 km usable) 200 km, snapped     which economy?
+//   2      DISTRICT  200 km                     25 km, snapped      which mix?
+//   3      SITE      25 km                      1.5 km, free        which ground?
+//
+// The descent zooms 15x then 8x, and every cursor is the window of the
+// level below, so what you frame is what you arrive in. The site cursor is
+// the base's own footprint; clicking it founds the colony. The design is
+// docs/design/site-selection/README.md.
+//
+// Not levels, though they are easy to confuse with them: the game's
+// Planet / Colony / Sect views (100 / 25 / 5 km, the views AFTER a colony
+// exists), the terrain chain's internal steps (terrain_synthesis.cpp), and
+// the crater bench's free zoom (prototypes/). Four other ladders lived
+// beside this one until 2026-09-23 -- graveyard entry 10.
+//
+// Level 1 is projected (OrbitalPickToLatLon), not a top-down km window, so
+// its span is nominal: the part of the disc that can actually be picked
+// on. Ground within ~15% of the limb is too foreshortened to aim at, so
+// the usable width is ~86% of the diameter.
+//
+// Three levels, and it was five. A 500 km REGIONAL rung went because the
+// region card freezes at level 1, so it had nothing new to read; LOCALITY
+// (a 25 km window choosing a 5 km cell) merged into SITE because choosing
+// a cell and then placing inside it is one decision wearing two framings.
+// survey_cursor_test fails if this count changes, and says what else has
+// to change with it.
 const int SURVEY_LEVEL_COUNT = 3;
 
 // The base's own footprint: what the site cursor IS, and the size the
@@ -61,7 +71,7 @@ struct SurveyLevelDef
     bool snapToGrid;         // navigation levels snap; the site level does not
 };
 
-// Table of the four levels, index 0..SURVEY_LEVEL_COUNT-1.
+// The table above, index 0..SURVEY_LEVEL_COUNT-1.
 const SurveyLevelDef* GetSurveyLadder();
 
 // The cursor:window ratio band from the design. Below the floor the

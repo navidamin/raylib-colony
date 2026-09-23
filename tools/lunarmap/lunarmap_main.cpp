@@ -2089,16 +2089,6 @@ static Color LayerColor(int layer, float v01)
 // ---------------------------------------------------------------------------
 
 
-// ---------------------------------------------------------------------------
-// Demo sites for the annotated descent (--demo)
-//
-// Three locations exercising the three main strategies. Region identity
-// values are real: Fe/Ti/Th from src/assets/planet/zones.json where the
-// entry carries them, terranes from Jolliff, Gillis & Haskin (2000).
-// The annotation strip is a TEST overlay, not game UI -- it narrates the
-// decision each level asks and its probable consequence.
-// ---------------------------------------------------------------------------
-
 // Ground statistics over a sub-square of the real window: what the
 // level cards report. Everything measured, nothing synthetic.
 struct GroundStats
@@ -2372,14 +2362,13 @@ static void DrawLevelCard(const SiteCard& site, int level,
         DrawText("terrane, rock and latitude decide the", px + 12, rowY, 14, dim);
         DrawText("economy. Chemistry locks HERE - the",   px + 12, rowY + 19, 14, dim);
         DrawText("region card never changes below this.", px + 12, rowY + 38, 14, dim);
-        DrawText("click = claim region + anchor playfield", px + 12, rowY + 62, 13, faint);
+        DrawText("click = claim region, go to its district", px + 12, rowY + 62, 13, faint);
         return;
     }
 
     if (level <= SITE_LEVELS - 2)
     {
-        const char* subject = (level == 1) ? "playfield" : "neighbourhood";
-        DrawText(TextFormat("%s mean slope", subject), px + 12, rowY, 14, dim);
+        DrawText("district mean slope", px + 12, rowY, 14, dim);
         DrawText(TextFormat("%.1f deg", g.meanSlope), px + pw - 92, rowY, 14, dim);
         rowY += 21;
         DrawText("buildable ground", px + 12, rowY, 14, dim);
@@ -2778,8 +2767,8 @@ static RegionIdentity IdentifyRegion(const LolaDem& dem, double lat, double lon)
     return r;
 }
 
-// A SiteCard view of a live identity, so the card and hint drawing
-// written for --demo serves the interactive playtest unchanged.
+// A SiteCard view of a live identity: what the region and level cards
+// draw from.
 static SiteCard SiteFromIdentity(const RegionIdentity& id, const char* hintKey,
                                  float psrKm)
 {
@@ -2958,7 +2947,7 @@ static void BlitSceneCache(const AppState& app)
 }
 
 // Drawn by the level-1 highlight and ladder helpers, which are defined
-// further down beside the --demo renderer and shared with it.
+// further down.
 static void DrawGlobeHud(int screenW, int screenH);
 
 // Level 1 is a globe, so a named region is a circle ON A SPHERE, not an
@@ -3076,12 +3065,13 @@ static void DrawLadderCursor(const SurveyCursor& cursor,
 static void DrawCursorCallout(Rectangle r, const char* text, Color tint);
 
 // ---------------------------------------------------------------------------
-// Interactive site selection (--site): the playtest.
+// The level ladder, interactive: Globe -> District (200 km) -> Site
+// (25 km). What bare lunar_map, --site and the web build all open.
 //
-// The same five levels and the same cards as --demo, driven by a real
-// mouse instead of a script. Level 0 is the near-side map (the game's
-// orbital disc); click anywhere to claim -- named feature or not -- then
-// descend, and the region card stays fixed the whole way down.
+// Level 1 is the globe; click anywhere to claim a region -- named feature
+// or not -- then descend, and the region card stays fixed the whole way
+// down. --siteshot drives this same state machine with a scripted
+// pointer.
 // ---------------------------------------------------------------------------
 
 // Headless input injection. --siteshot drives the REAL UpdateSiteSelect
@@ -4336,12 +4326,8 @@ static void UpdateFrame(void* arg)
 }
 
 // ---------------------------------------------------------------------------
-// --ladder: render the descent, one PNG per level, cursor aimed at one
-// fixed target. Each image's cursor frames exactly the ground the next
-// image shows -- which is the whole claim the ladder makes.
-//
-// Levels 2-5 only: level 1 is the projected orbital disc, which lives in
-// the game's render path (OrbitalPickToLatLon), not in this instrument.
+// Flat near-side geometry: the overview picture (--nearside --out) and
+// the screen <-> lat/lon mapping the level-1 highlight shares.
 // ---------------------------------------------------------------------------
 
 // The near-side map is plate carree, square: lon -90..90 across the
@@ -4764,30 +4750,28 @@ int main(int argc, char** argv)
         // is exactly the path that reported lag -- and it is the path
         // the window cache is supposed to make free.
         const Step steps[] = {
-            { 0.62f, 0.48f, false, "1_hover",     false },
-            { 0.44f, 0.56f, false, "2_hover_mare", false },
-            { 0.44f, 0.56f, true,  "3_claim",     false },
-            { 0.52f, 0.62f, false, "4_playfield", false },
-            { 0.52f, 0.62f, true,  "5_descend",   false },
+            // Tags name the LEVEL each image shows, in the ladder's own
+            // words -- globe, district, site -- and the step renders the
+            // state first, then clicks.
+            { 0.62f, 0.48f, false, "1_globe_hover",   false },
+            { 0.44f, 0.56f, false, "2_globe_mare",    false },
+            { 0.44f, 0.56f, true,  "3_globe_claim",   false },
+            { 0.52f, 0.62f, false, "4_district",      false },
+            { 0.52f, 0.62f, true,  "5_district_aim",  false },
             // Zoom out at the site rung: a wider view needs a wider
             // WINDOW built for it, because the camera already frames the
             // sharp one's full width. Two notches out and back, so the
             // swap runs both ways and the sharp window has to return.
             //
             // These sit BEFORE the founding click, and that ordering is
-            // the point: a step renders the state and THEN clicks to
-            // advance, so after "6_descend" the colony is founded and
-            // zooming is frozen. That tag is stale too -- since LOCALITY
-            // and SITE merged there is one descent fewer, so the click it
-            // carries founds, which makes "7_found" a no-op that has been
-            // passing quietly ever since.
+            // the point: once the colony is founded, zooming is frozen.
             // Sit still first: the speculative wide layer needs about
             // 200 ms, and a player looking at the ground gives it that.
-            { 0.46f, 0.68f, false, "5_settle",    false,  0.0f, 400 },
-            { 0.46f, 0.68f, false, "5a_zoomout1", false, -1.0f, 0 },
-            { 0.46f, 0.68f, false, "5b_zoomout2", false, -1.0f },
-            { 0.46f, 0.68f, false, "5c_zoomin",   false,  2.0f },
-            { 0.42f, 0.70f, true,  "6_found",     false, 0.0f },
+            { 0.46f, 0.68f, false, "6_site",          false,  0.0f, 400 },
+            { 0.46f, 0.68f, false, "6a_site_out1",    false, -1.0f, 0 },
+            { 0.46f, 0.68f, false, "6b_site_out2",    false, -1.0f },
+            { 0.46f, 0.68f, false, "6c_site_in",      false,  2.0f },
+            { 0.42f, 0.70f, true,  "7_site_found",    false, 0.0f },
             { 0.46f, 0.68f, false, "8_founded",   false, 0.0f },
             { 0.46f, 0.68f, false, "9_back",      true , 0.0f },
             { 0.46f, 0.68f, false, "10_back",     true , 0.0f },

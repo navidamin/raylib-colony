@@ -1,11 +1,18 @@
-# View-ladder playtest (`colony_viewtest`)
+# Game views walk (`colony_viewtest`)
 
-Walks the game's geographic views — **Orbital → Planet → Colony → Sect** —
+Walks the game's own views — **Orbital → Planet → Colony → Sect** —
 using the real `RenderManager`, and overlays the known issues for whichever
 view is on screen. The annotations are playtest-only commentary; they exist
 in this target alone and never ship in the game.
 
-This is the instrument for judging the *whole descent*, where
+**These are views, not levels.** They are the game as it stands in this
+branch, with its 100 km grid playfield. The site-selection level ladder —
+Globe → District (200 km) → Site (25 km), the only one there is — lives in
+`lunar_map` (see `docs/design/site-selection/README.md`), and is meant to
+replace the Orbital → Planet part of this walk when it is wired into the
+game.
+
+This is the instrument for judging the game's views end to end, where
 `tools/preview` renders a single view in isolation.
 
 ## Build and run

@@ -1,7 +1,15 @@
 # Site Selection — Master Design
 
-**Status: SETTLED** — simplified 2026-08-25. See Appendix A for the
-model this replaced and why.
+**Status: SETTLED and BUILT as three levels** — simplified 2026-08-25,
+rewritten 2026-09-23 so this file describes the ladder that runs, not the
+four- and five-level drafts it passed through. Appendix A is the model
+this replaced.
+
+> **The one ladder: Globe → District (200 km) → Site (25 km).**
+> `SURVEY_LEVEL_COUNT = 3` in `src/TerrainGen/survey_cursor.h` is the
+> authority, and `survey_cursor_test` fails if it changes. Nothing else in
+> this repo is a level — not the game's Planet / Colony / Sect views, not
+> the terrain chain's internal steps, not the crater bench's zoom.
 **Scope:** orbital view → the build footprint, the survey cursor, and
 where resource information lives.
 
@@ -33,63 +41,60 @@ that:
 2. **One verb.** The decision at every level is where you put the cursor
    before you click. Click descends, Esc backs out. No level introduces
    a new interaction; only the question changes.
-3. **Five questions, one commitment.** Only founding the base (level 5)
-   binds. Everything above it is freely revisable — the
-   reversible-descent rule (§3.3) is what makes asking five questions
-   cheap enough to be pleasant, and the player should never be asked to
-   commit to an economy before seeing the ground under it.
+3. **Three questions, one commitment.** Only founding the base (clicking
+   the footprint at level 3) binds. Everything above it is freely
+   revisable — the reversible-descent rule (§3.3) is what makes asking
+   the questions cheap enough to be pleasant, and the player should
+   never be asked to commit to an economy before seeing the ground
+   under it.
 
 ---
 
-## 2. Four levels, four questions
+## 2. Three levels, three questions
 
-| # | Level | Span | Cursor | The question | Answered by |
-|---|-------|------|--------|--------------|-------------|
-| 1 | Orbital | disc | — | **Which economy?** | terrane + named feature + latitude: Fe/Ti/Th, rock type, day/night regime |
-| 2 | Playfield | 100 km | 25 km | **Which mix?** | position against boundaries: mare/highland shore, large craters, PSR craters (polar) |
-| 3 | Colony | 25 km | 5 km | **Which neighbourhood?** | buildable fraction, mean slope, distance to PSR / shore / landmark |
-| 4 | Site | 5 km | 1.5 km | **Which ground?** | live `EvaluateSite` at 59 m: slope, relief, illumination, PSR |
+| # | Level | Window | Cursor | The question | Answered by |
+|---|-------|--------|--------|--------------|-------------|
+| 1 | ORBITAL | the globe (3000 km usable) | 200 km, snapped | **Which economy?** | terrane + named feature + latitude: Fe/Ti/Th, rock type, day/night regime |
+| 2 | DISTRICT | 200 km | 25 km, snapped | **Which mix?** | position against boundaries: mare/highland shore, large craters, PSR craters (polar); district slope, buildable fraction, relief |
+| 3 | SITE | 25 km | 1.5 km, free | **Which ground?** | live `EvaluateSite`: slope, relief, roughness, illumination, PSR, Earth link, and the verdict |
 
-These are the game's own scales: PLANET is 100 km, COLONY 25, SECT 5.
-The ladder has no rung that is not a view the game already has.
+The descent zooms 15× then 8×, and every cursor is the next level's
+window, so the rectangle you aim with becomes the view you land in. The
+site cursor is the base's own footprint; clicking it founds the colony.
+Zoom never changes level: each level is bounded to its own range
+(`SurveyZoomMax` / `SurveyZoomMin`), the site level does not zoom in at
+all, and crossing a level is always a click.
+`src/TerrainGen/survey_cursor.cpp` is the authority.
 
-> **As built (2026-09-03).** The ladder in code is three rungs, not four:
-> ORBITAL (the globe, 200 km cursor) → DISTRICT (200 km window, 25 km
-> cursor) → SITE (25 km window, 1.5 km cursor). Colony and Site merged on
-> 2026-08-29 — one decision was wearing two framings — and the district
-> widened from 100 to 200 km on 2026-09-02, so the descent reads 15× then
-> 8×. The district therefore no longer coincides with the 100 km PLANET
-> playfield, and the cursor floor is 12% (the 8× rung sits at 12.5%).
->
-> Zoom no longer changes level anywhere: each rung is bounded to its own
-> range (`SurveyZoomMax`), crossing one is always a click, and the site
-> rung does not zoom at all — it arrives holding the base's own footprint.
-> `src/TerrainGen/survey_cursor.cpp` is the authority; what the earlier
-> designs did instead is in `docs/graveyard.md`.
+**How it got to three.** The first drafts had five, then four:
 
-The code carried a fifth, 500 km "REGIONAL" rung between the disc and
-the playfield, which was never in this table. It answered no question of
-its own — the region card freezes at level 1 and never refines (§4.6),
-so there was no new mix to read at 500 km — and it matched no game view.
-Removed. The one thing it bought was geometric: a 100 km cursor is 1/55
-of the disc rather than the 15–30% band the ladder holds elsewhere. That
-band exists so a cursor *rectangle* stays legible, and level 1 draws no
-rectangle — it is picked by hovering named regions — so the constraint
-was never binding there. `survey_cursor_test` exempts level 1 explicitly.
+- a 500 km REGIONAL rung between the globe and the district. It answered
+  no question of its own — the region card freezes at level 1 (§4.6), so
+  there was nothing new to read at 500 km — and it went.
+- LOCALITY, a 25 km window choosing a 5 km cell, above a 5 km SITE window
+  placing a 1.5 km base. Choosing a cell and then placing inside it is one
+  decision wearing two framings, so they merged (2026-08-29): the site
+  window holds at 25 km and the cursor is the base's footprint from the
+  moment you arrive.
+- the district widened from 100 to 200 km (2026-09-02), so it no longer
+  coincides with the game's 100 km Planet view, and the cursor band's
+  floor is 12% (the 8× level sits at 12.5%).
 
-**Nothing locks until the base is founded.** Levels 1–3 are all free
-navigation; level 4 is the only commitment, and founding fixes
-everything at once — the terrain anchor, the 20×20 grid, the region.
+Each is in `docs/graveyard.md` with the constants to rebuild it.
+
+**Nothing locks until the base is founded.** Levels 1 and 2 are free
+navigation, and so is moving the footprint at level 3; the founding click
+is the only commitment, and it fixes everything at once — where the base
+is, and the region it belongs to.
 
 This is a correction to an earlier draft that locked the anchor at
 level 2. Committing to an economy *before* seeing whether the ground
 can carry a base is exactly backwards, and it is unnecessary: terrain
 generates deterministically from lat/lon
-(`GenerateTerrainChain`), so there is no boundary at the playfield edge
-to enforce — only a viewport. The 20×20 grid matters once a colony
-exists, not before.
+(`GenerateTerrainChain`), so there is no boundary at a window's edge to
+enforce — only a viewport.
 
-**The player may pan at any level, including past the first 100 km.**
+**The player may pan at any level.**
 If panning crosses into a different named region the region card
 re-labels, with new numbers. That does **not** contradict §4.6: the
 numbers never *refine*, they belong to the region — so different ground
@@ -98,20 +103,20 @@ ones. Crossing a boundary and watching the card flip from mare identity
 to highland identity is the clearest possible teaching of what a region
 *is*: ground, not a menu item.
 
-Panning needs no rule limiting it by scale. At 100 km the view is a map
-and panning is natural; at 5 km and below the frame is following a
-cursor that is placing something, and the player is no longer browsing.
+Panning needs no rule limiting it by scale. At 200 km the view is a map
+and panning is natural; at 25 km the frame is following a cursor that is
+placing something, and the player is no longer browsing.
 
 **Chemistry decides once; geometry decides at every level after.** The
 region panel freezes at level 1 (§4.6) and is never contradicted below.
-What levels 2–4 present instead is **measured geometry** — distances and
+What levels 2 and 3 present instead is **measured geometry** — distances and
 fractions — and those sharpen honestly with zoom, because the *candidate
 position* is sharpening, not the instrument. Distance-to-PSR reads
 differently at level 3 than at level 2 because the player moved, not
 because anything was re-measured.
 
 **The same ladder asks different questions in different geography.** At
-a polar region levels 2–4 are about PSR-and-sunlit-ridge geometry — get
+a polar region levels 2 and 3 are about PSR-and-sunlit-ridge geometry — get
 near the ice without falling into the dark. At a mid-latitude mare they
 are about the mare/highland shore and crater access. Same mechanics,
 same panels, different terrain answering — which is what makes region
@@ -133,30 +138,30 @@ strategy with a visible cost, and the trade-offs are real geochemistry
 | MIXED | the mare **shore** | both Fe and Al at moderate grade, no imports | master of none |
 
 MIXED is worth noticing: it is not chosen at level 1 at all — it
-*emerges at level 2*, by anchoring the playfield on the mare/highland
+*emerges at level 2*, by putting the district on the mare/highland
 boundary so both rock types are inside trucking distance. That is the
 clearest example of a level-2 decision being real: same region, and the
-shore playfield plays differently from the interior one.
+shore district plays differently from the interior one.
 
 ### 2.2 What each level shows
 
 One card per level, few rows, all measured. The frozen region card
 (chemistry + name) stays on screen from level 1 down, unchanged.
 
-- **L1** — region name, terrane, archetype tag, rock, Fe/Ti/Th,
-  latitude and its meaning ("14-day nights" / "polar: ridge sun, PSRs").
-- **L2** — what the playfield touches: shore yes/no, named landmarks
-  inside, PSR count (polar), buildable fraction of the whole field.
-- **L3** — neighbourhood: buildable fraction, mean slope, distance to
-  PSR / shore / landmark, room for how many flat sect cells.
-- **L4** — the cell and its neighbours: cell aggregate, and a small
-  3×3 buildability glyph so expansion room is visible before committing.
-- **L5** — the live site panel and verdict, as already designed (§3.2),
-  then the measured / unknown-until-prospected commit split.
+- **Level 1, globe** — region name, terrane, archetype tag, rock,
+  Fe/Ti/Th, latitude and its meaning ("14-day nights" / "polar: ridge
+  sun, PSRs").
+- **Level 2, district** — district mean slope, buildable fraction,
+  relief.
+- **Level 3, site** — the live site panel under the footprint: mean and
+  peak slope, roughness, relief, illumination, permanent shadow, Earth
+  link, and the verdict (build allowed or refused, and why).
 
-This is deliberately still *not* a new view stack. Levels 2–4 are the
-game's existing Planet → Colony → Sect views; the ladder adds one card
-per level and the cursor, nothing else.
+The ladder is its own view stack, in `lunar_map`. The game's Planet →
+Colony → Sect views are where a colony is *managed* once it exists; they
+are not levels and the ladder does not reuse them. Putting the ladder
+into the game — so that founding happens through it — is the work of the
+`lunarmap-wiring-site-selection` branch, not of this one.
 
 **Cursor sizing rule.** Wherever a cursor is shown it stays between
 **15% and 30%** of the window's smaller dimension, and where it snaps,
@@ -254,7 +259,7 @@ the cursor.
     over tens of km.*
   - *Terrain character.* What kind of ground this region is overall —
     mean slope, and **rock abundance** (§4.7). This is what stops a
-    player anchoring a whole playfield on uniformly unbuildable
+    player putting a whole district on uniformly unbuildable
     highland, and it is a genuinely different question from "is this
     exact spot flat".
 - **Site panel.** Exact terrain at the cursor, updating live: mean and
@@ -314,7 +319,7 @@ Two tiers, both real, no invented nesting:
 | Tier | Where | Source |
 |------|-------|--------|
 | **Terrane** | orbital disc | Jolliff, Gillis & Haskin (2000): PKT, FHT-An, FHT-O, SPAT-inner, SPAT-outer, with published FeO / Th figures |
-| **Named feature** | the 100 km playfield | `src/assets/planet/zones.json` — 73 real features, nearest-feature-within-radius lookup |
+| **Named feature** | the globe, under the cursor | `src/assets/planet/zones.json` — 73 real features, nearest-feature-within-radius lookup |
 
 `src/assets/planet/zones.json` **already ships and no C++ file reads
 it**: 21 maria, 37 craters, 14 landing sites, one basin, each with name,
@@ -358,11 +363,11 @@ produce. Lead every panel with the name.
   region's name over *unmodified* imagery. This project's distinguishing
   asset is that the ground is real: dark mare already *is* the
   iron-rich unit. Tinting hides the best evidence on screen.
-- **No cursor rectangle at orbital or planet.** The lit region *is* the
+- **No cursor rectangle at the globe.** The lit region *is* the
   selection; a rectangle would be a second selection mechanism doing the
   same job.
 - **The named regions are labels, not a menu.** The player clicks
-  anywhere on the disc and the playfield anchors at that exact lat/lon;
+  anywhere on the globe and the district is centred at that exact lat/lon;
   the feature name appears when the click happens to land inside one and
   falls back to the terrane otherwise ("Feldspathic Highlands (polar)").
   There is no snapping to a region and no list to choose from — which is
@@ -392,7 +397,7 @@ is the reverse:
 
 A 1.5 km footprint is *thousands* of multispectral pixels — the richest
 compositional data anywhere in the descent. Meanwhile **one gamma-ray
-pixel is the entire 100 km playfield or larger.** So thorium is the one
+pixel is 100 km or larger — half a district.** So thorium is the one
 quantity that genuinely cannot improve below the top screen.
 
 That gives two independent reasons the region panel is frozen, and
@@ -421,7 +426,7 @@ geometry and maximum temperature, not by rock, and `EvaluateSite` already
 returns `illumination`, `isPsr` and `longestNightDays` from measured
 elevation. A composition row that never narrows reads as unfinished; a
 PSR flag reads as a fact. (Note the cold-trap reasoning is *polar*
-physics — at a mid-latitude mare playfield the honest answer is simply
+physics — at a mid-latitude mare district the honest answer is simply
 that there is no trapped water, which the PSR flag says directly.)
 
 `[?]` **Regions must be trade-offs, not tiers.** On the published figures
@@ -435,7 +440,7 @@ complementarity, not a quality ranking.
 `Colony::GetArchetypeBonus` is declared, defined and **never called
 anywhere in the repository**. Until the generator is inverted so the
 region decides abundance — rather than a label being derived from
-abundance scattered with no reference to where on the Moon the playfield
+abundance scattered with no reference to where on the Moon the colony
 sits — the region panel reports flavour, not fact. Also note thorium is
 currently synthesised as `(Fe + Ca) × 0.5`, making KREEP an artifact of
 iron.
@@ -495,10 +500,11 @@ Grouping into three — volatiles (H2, O2, C), metals (Fe, Ti, Al),
 silicates (Si, Ca) — would read faster, at the cost of hiding which
 metal. Decide by playtest, not in advance.
 
-`[?]` Region size. 100 km = one playfield is the natural choice and needs
-no new machinery. If regions turn out to feel too coarse to choose
-between, the alternative is several regions per playfield — but that
-weakens "one region, one playfield", so try the simple version first.
+`[?]` Region size. A region is what the globe names under the cursor,
+and one district (200 km) sits inside one region. If regions turn out to
+feel too coarse to choose between, the alternative is several regions per
+district — but that weakens "one region per colony", so try the simple
+version first.
 
 ---
 
@@ -555,12 +561,12 @@ answer. Audit of where each dependency stands today:
 
 | Decision | Is real only if | Status today |
 |----------|-----------------|--------------|
-| L1 chemistry mix | construction consumes Al/Ca; alloys/machinery consume Fe/Ti | `CONSTRUCTION_MATERIALS` exists as a type with **zero producers or consumers** — MISSING |
-| L1 latitude | energy scales with sun; the 14-day night forces storage or shutdown | no lunar night in `TimeManager`; `solarIllumination` has **zero consumers** — MISSING |
-| L2/L3 PSR distance | water is extractable from PSR ice, hauling cost grows with distance | WATER is consumed (farming) but **nothing produces it**; no ice extraction — MISSING |
-| L2–L4 distances | transport between sects is priced by distance | transport system exists (auto-balance, deficit) but is **not distance-priced** — PARTIAL |
-| L4 adjacency | expansion onto neighbouring cells | `BuildNewSect` on the grid — PARTIAL |
-| L5 ground | slope/relief/PSR gate the build | `EvaluateSite` + `JudgeSite` — **DONE** |
+| Level 1 chemistry mix | construction consumes Al/Ca; alloys/machinery consume Fe/Ti | `CONSTRUCTION_MATERIALS` exists as a type with **zero producers or consumers** — MISSING |
+| Level 1 latitude | energy scales with sun; the 14-day night forces storage or shutdown | no lunar night in `TimeManager`; `solarIllumination` has **zero consumers** — MISSING |
+| Level 2/3 PSR distance | water is extractable from PSR ice, hauling cost grows with distance | WATER is consumed (farming) but **nothing produces it**; no ice extraction — MISSING |
+| Level 2–3 distances | transport between sects is priced by distance | transport system exists (auto-balance, deficit) but is **not distance-priced** — PARTIAL |
+| Level 3 room | expansion onto neighbouring ground | `BuildNewSect` on the grid — PARTIAL |
+| Level 3 ground | slope/relief/PSR gate the build | `EvaluateSite` + `JudgeSite` — **DONE** |
 | the commit gamble | prospecting reveals local truth after founding | prospecting module implemented — LARGELY DONE |
 
 Two rules follow:
@@ -578,10 +584,10 @@ Two rules follow:
    upgrades became that consumer — they were live, reachable and free.
    `tools/c1test/` asserts the economics behaviourally (see §5.1);
    **C2** lunar night + illumination-scaled energy — makes latitude and
-   level-5 illumination matter;
+   level-3 illumination matter;
    **C3** water chain with PSR ice extraction — makes the polar strategy
    exist at all;
-   **C4** distance-priced transport — makes levels 2–4's geometry bite.
+   **C4** distance-priced transport — makes the geometry of levels 2 and 3 bite.
 
 ### 5.1 C1 — the materials split (done)
 
@@ -642,8 +648,8 @@ first, so a refusal proves the *cost* gate and not the tech gate.
 `src/TerrainGen/survey_cursor.{h,cpp}`: pure geometry, no game or render
 code, shared by the game and the `lunar_map` instrument. Screen ↔ km ↔
 lat/lon, grid snapping, clamping, and the descent stack. Verified by
-`survey_cursor_test` (headless, 30 checks) and visually by
-`lunar_map --ladder`.
+`survey_cursor_test` (headless) and visually by
+`lunar_map --siteshot`, which walks the real flow.
 
 **Simplification note:** the ladder table is now longer than this design
 needs. Leave it — it costs nothing, the tests cover it, and the game
@@ -658,8 +664,8 @@ simply uses the two entries it cares about.
 - Render the region card: **name first**, then metals / building /
   science, one value each. No bounds.
 - Ghosted previous-region panel alongside, for comparison.
-- **Verify:** the values do not change while the cursor moves, or at any
-  level below 100 km.
+- **Verify:** the values do not change while the cursor moves, or at
+  levels 2 and 3.
 
 ### Step 3 — Site terrain panel
 - Live `LolaDem::EvaluateSite` at the cursor's footprint.
@@ -690,11 +696,12 @@ Most of the hard parts are done and should not be rebuilt:
 | Cell → lat/lon | `TerrainGridCellToLatLon` |
 | Orbital click → lat/lon | `OrbitalPickToLatLon` |
 | Continuous zoom on the same ground | `GenerateTerrainChain`, deterministic per lat/lon |
-| Ladder controls + view walking | `colony_viewtest` |
-| Existing site-selection screen | `View::SITE_SELECTION`, `DrawSiteSelectionView` |
+| Ladder controls + walking it headlessly | `lunar_map`, `--siteshot`, `--flyshot` |
+| The game's old site picker (to be replaced by the ladder) | `View::SITE_SELECTION`, `DrawSiteSelectionView` |
 
-The `lunar_map` prototype is effectively a working level 5. Step 5 is
-largely a port of it into the game's render path.
+`lunar_map` is the working ladder. Putting it into the game's render
+path — so a colony is founded through it — is the
+`lunarmap-wiring-site-selection` branch's work.
 
 ---
 
@@ -731,7 +738,9 @@ largely a port of it into the game's render path.
 ## Appendix A — the model this replaced
 
 **Kept as reasoning, not as work.** Nothing in this appendix should be
-built. It is here so the argument is not re-derived from scratch, and so
+built. **Level numbers here are the replaced five-level model's** — its
+level 5 is today's level 3 (site); read them as history, not as the
+ladder. It is here so the argument is not re-derived from scratch, and so
 the reason for the cut is on record.
 
 ### What it was

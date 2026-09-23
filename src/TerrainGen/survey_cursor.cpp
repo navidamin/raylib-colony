@@ -18,8 +18,9 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
 {
     // name          window span                  footprint  snap
     //
-    // Three levels: disc -> 200 -> 25, zooming 15x, 8x and (inside the
-    // site level) 5x. Two rungs were dropped from the original five,
+    // Three levels: disc -> 200 -> 25, zooming 15x then 8x. The site level
+    // does not zoom in (SurveyZoomMax). Two rungs were dropped from the
+    // original five,
     // each for the same reason -- it answered no question of its own. The 500 km "REGIONAL" rung went first (the region card
     // freezes at level 1, so there was no new mix to read at 500 km).
     // LOCALITY went next: a 25 km window choosing a 5 km cell, followed
@@ -28,8 +29,8 @@ const SurveyLevelDef LADDER[SURVEY_LEVEL_COUNT] =
     // 25 km and the cursor is the 1.5 km build footprint directly, so
     // the player places the base instead of clicking down to it.
     //
-    // The district widened from 100 to 200 km on 2026-09-02 so the three
-    // zooms read as 15x / 8x / 5x; it no longer matches the game's
+    // The district widened from 100 to 200 km on 2026-09-02 so the two
+    // zooms read as 15x / 8x; it no longer matches the game's
     // 100 km PLANET playfield, and its 25 km cursor sits at 12.5% of the
     // window -- which is why the band floor is 12%, not 15%.
     // Every rung's footprint is the next rung's window, which is what
