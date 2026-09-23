@@ -107,53 +107,82 @@ What actually happened on iPhone, in order of discovery:
   (`cnv=402x226`) while raylib kept rendering 1280x720 → GL viewport
   anchored bottom-left → only the bottom-left corner of the UI visible.
 
-## The survey console and `renderScale`: supersampling is OFF on the web
+## Resolution: why it jumped, and the buffer sized to the display
 
-The canvas-sizing bug above is about the shell. There is a second failure, in
-the game, that presents the same way -- a page that flashes some chrome and
-then goes black.
+**The jump.** The game lays out in a fixed 1280x720. With a 1280x720 buffer a
+screen bigger than that has two bad options, and the shell picks between them
+by a threshold: snap the upscale to a whole number (1:1 -- sharp, but an
+island in the middle) or keep the fractional fit (fills the screen, soft).
+On a 1920x1200 display the fit sits right on that threshold -- about 1.28x
+with toolbars showing (snaps to 1x, small), 1.5x in fullscreen or with a
+shorter toolbar (does not snap, soft) -- so the same page came up at a
+different size depending on the browser chrome. Neither answer is right; the
+only fix is a bigger buffer.
 
-**Reproduce it natively.** Set `renderScale = 2` in `tools/playtest/
-playtest_main.cpp` and render at the doubled size:
+**The bigger buffer.** The playtest renders the 1280x720 layout through
+`rlScalef(renderScale)` into a buffer `renderScale` times the size, and the
+shell only ever SHRINKS it into the viewport (continuous, never snapped):
+
+| Display (device px) | fit of 1280x720 | `renderScale` | buffer |
+|---|---|---|---|
+| up to ~1344x756 | <= 1.05 | 1 | 1280x720 |
+| 1920x1080, 1920x1200 | ~1.3-1.5 | 2 | 2560x1440 |
+| 2560x1440 | 2.0 | 2 | 2560x1440 |
+| 3840x2160 (4K) | ~2.8-3 | 3 (the cap) | 3840x2160 |
+
+`renderScale = fit > 1.05 ? min(3, ceil(fit - 0.05)) : 1`, chosen once at load
+in `tools/playtest/playtest_main.cpp`. The console's own surfaces do not grow
+with it (`DASH_SS` stays 1 on the web: the design surface is 1536 wide and is
+shown at under 1500 device px on a 1920 screen, so it is already downsampled).
+
+**Why it was off, and the fix.** The console draws through its own render
+textures, and raylib's `EndTextureMode` ends with `rlMatrixMode(RL_MODELVIEW)`,
+which points rlgl's *current matrix* back at the modelview even while the
+caller still has a transform pushed. The playtest's closing `rlPopMatrix` then
+restored into the modelview and left its `x2` sitting in `RLGL.State.transform`;
+the next frame's push saved that and multiplied another onto it -- x2, x4,
+x8. The first frame was right and the run went black a few frames later, which
+is exactly how the page presented. `c2d_unbind` now re-seats the pointer with
+an immediate push/pop after every `EndTextureMode` (no matrix changes; the
+pointer lands where the stack depth says). Verified both ways natively: the
+same `--scale 2 --shot` is black at frame 40 without the two lines and correct
+with them.
+
+(The earlier write-up here blamed rlgl's framebuffer size, which
+`EndTextureMode` does leave at the texture's -- but rlgl only reads that for
+stereo rendering. It was a true observation and not the cause.)
+
+**Reproduce or check it without a browser:**
 
 ```bash
+# idle frame at 2x, the web's path
 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
   xvfb-run -a -s "-screen 0 2560x1440x24" \
-  ./build/src/colony_playtest --shot out.png
+  ./build/src/colony_playtest --scale 2 --shot out.png
+# the click flow at 2x, with a real pointer
+tools/playtest/drive.py --scale 2 build/drive2 "move 640 175" "click" ...
 ```
 
-That is the web path: the playtest draws a 1280x720 layout through
-`rlScalef(renderScale)` into a doubled framebuffer. **With the survey console
-on screen the frame is wrong; with the console branch disabled it is perfect.**
-So the fault is in the console's offscreen rendering meeting a caller-applied
-matrix -- nothing else in the game uses one.
+### Making every display work -- the plan
 
-**What is established, by measurement:**
-
-- `rlgl`'s framebuffer size is left at the console's render-texture size and
-  never restored. `BeginTextureMode` calls `rlSetFramebufferWidth/Height`;
-  `EndTextureMode` restores the viewport and the projection but not those.
-  Probed at frame 30: `screen=2560x1440 render=2560x1440 rlfb=3072x1536`.
-  rlgl re-derives its ortho from that on batch flushes, so one console frame
-  mis-scales the rest of the run.
-- `LoadRenderTexture` returning `id == 0` makes `BeginTextureMode` bind the
-  DEFAULT framebuffer at the texture's viewport -- the canvas, at the wrong
-  size. `c2d_bind` now refuses that, and every lazy allocation in `c2d.c`
-  fails its *effect* instead of returning a broken object.
-
-**What is NOT yet fixed.** Restoring the framebuffer size, and reordering
-c2d's matrix push/pop around `BeginTextureMode`, were both tried and neither
-produced a correct frame at scale 2 -- the reorder broke the working scale-1
-case and was reverted. **The console is not safe at `renderScale != 1`.**
-
-**So the web build forces `renderScale = 1`** (`playtest_main.cpp`), and
-`DASH_SS` is 1 under `__EMSCRIPTEN__` (`src/ui/survey_dash.c`). The canvas is
-1280x720 and the browser upscales it: softer on a dense display, but the
-console is there and playable. Restore the `fit > 1.05f ? 2 : 1` choice once
-the native scale-2 repro above renders correctly.
-
-**If you add an offscreen target**, check its id. The shim's rule is that a
-failed allocation costs an effect, never the frame.
+1. **Done: the playtest.** Buffer sized to the display, 1x-3x, browser only
+   downscales. Sharp and full-size from a laptop to 4K; the size no longer
+   depends on the toolbar.
+2. **Next: the other web builds** (`colony_game`, `viewtest`, `extraction`)
+   still publish a 1280x720 buffer and so still sit on the threshold. Each
+   needs the same three things the playtest has: pick `renderScale` before
+   `InitWindow`, publish `__colonyBufW/H` + `__colonyLogicalW/H`, and draw
+   inside `rlPushMatrix(); rlScalef(...)` with `SetPixelScale` for scissors.
+   The Engine's views that use `Camera2D` need the scale folded into the
+   camera zoom instead of a pushed matrix.
+3. **Then: follow a resize.** `renderScale` is chosen once, at load. Dragging
+   a window from a laptop panel to a 4K monitor keeps the old buffer (still
+   correct, just soft or oversized). Re-pick on resize and resize the canvas
+   (`SetWindowSize`) when the whole-number step changes.
+4. **Later, and only if wanted: aspect.** The layout is 16:9. Other shapes
+   (16:10 like 1920x1200, ultrawide, phones) get bars -- on 1920x1200, 60 px
+   top and bottom. Filling them means a layout that anchors to edges instead
+   of a fixed 1280x720, which touches every panel; not a scaling change.
 
 ## The fix (SHELL v4, in `src/minshell.html`)
 

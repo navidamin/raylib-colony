@@ -77,7 +77,26 @@ static void c2d_unbind(void)
     rlDrawRenderBatchActive();
     rlPopMatrix();
     if (c2d_bind_depth > 0) c2d_bind_depth--;
-    if (c2d_bind_depth < C2D_BIND_MAX && c2d_bind_real[c2d_bind_depth]) EndTextureMode();
+    if (c2d_bind_depth < C2D_BIND_MAX && c2d_bind_real[c2d_bind_depth])
+    {
+        EndTextureMode();
+        /* RE-SEAT rlgl's CURRENT MATRIX. A caller that has pushed a transform
+         * (the web build's supersample: rlPushMatrix + rlScalef) has rlgl
+         * editing RLGL.State.transform. EndTextureMode ends with
+         * rlMatrixMode(RL_MODELVIEW), which points the current matrix back at
+         * the MODELVIEW while the stack is still non-empty -- so the caller's
+         * closing rlPopMatrix restores into the modelview and leaves its scale
+         * sitting in `transform`. The next frame's push saves that scale and
+         * multiplies another onto it: x2, x4, x8 ... a frame that is right
+         * once and then runs away, which is the black web screen of
+         * docs/web-deploy-mobile.md.
+         *
+         * A push immediately popped puts the pointer back where the stack
+         * depth says it belongs -- at `transform` while anything is pushed,
+         * at the modelview when nothing is -- and changes no matrix. */
+        rlPushMatrix();
+        rlPopMatrix();
+    }
 }
 
 /* Composites (clip, group, cache) blit a whole layer in SURFACE space. If the

@@ -6,7 +6,7 @@ reacts to hover, a click sequence or a cursor shape could never be looked at
 before it shipped. This runs the playtest on its own virtual X display, moves
 and clicks a real X pointer with xdotool, and grabs the screen between steps.
 
-    tools/playtest/drive.py out_dir  "move 620 170" "click" "wait 0.5" \\
+    tools/playtest/drive.py [--scale N] out_dir  "move 620 170" "click" "wait 0.5" \\
                                     "move 640 260" "shot stretch" ...
 
 Steps:
@@ -27,7 +27,7 @@ from Xlib import display as xdisplay, X
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BIN = os.path.join(ROOT, "build", "src", "colony_playtest")
 DISP = ":97"
-HOLD = 1.5          # > two software-GL frames, see "click"
+HOLD = 1.5          # > two software-GL frames at 1x, see "click"; x scale
 
 
 def grab(path):
@@ -58,16 +58,25 @@ def xdo(*args):
 
 
 def main():
-    out = sys.argv[1]
-    steps = sys.argv[2:]
+    # --scale N: run the playtest's supersampled path (the web build's), on
+    # an N-times screen. Step coordinates stay in the 1280x720 layout.
+    args = sys.argv[1:]
+    scale = 1
+    if args and args[0] == "--scale":
+        scale = int(args[1]); args = args[2:]
+    global HOLD
+    HOLD *= scale                   # a 2x frame takes about twice as long
+    out = args[0]
+    steps = args[1:]
     os.makedirs(out, exist_ok=True)
 
-    xvfb = subprocess.Popen(["Xvfb", DISP, "-screen", "0", "1280x720x24", "-nolisten", "tcp"],
+    xvfb = subprocess.Popen(["Xvfb", DISP, "-screen", "0", "%dx%dx24" % (1280 * scale, 720 * scale),
+                             "-nolisten", "tcp"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1.0)
     env = {**os.environ, "DISPLAY": DISP, "LIBGL_ALWAYS_SOFTWARE": "1", "GALLIUM_DRIVER": "llvmpipe"}
     log = open(os.path.join(out, "game.log"), "w")
-    game = subprocess.Popen([BIN], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+    game = subprocess.Popen([BIN, "--scale", str(scale)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
     try:
         time.sleep(6.0)                     # window, fonts, ground
         for step in steps:
@@ -77,8 +86,9 @@ def main():
                 # shape (hidden drill -> arrow -> hand), the next single
                 # motion event can be dropped, and xdotool's jump IS a single
                 # event. A real mouse sends dozens; this sends two.
-                xdo("mousemove", str(int(a[1]) - 2), a[2]); time.sleep(HOLD * 0.5)
-                xdo("mousemove", a[1], a[2]); time.sleep(HOLD)
+                x, y = int(a[1]) * scale, int(a[2]) * scale
+                xdo("mousemove", str(x - 2), str(y)); time.sleep(HOLD * 0.5)
+                xdo("mousemove", str(x), str(y)); time.sleep(HOLD)
             elif a[0] == "click":
                 # Software GL draws this screen at ~0.6 s a frame, and raylib
                 # only sees a button that is still down when a frame polls. A

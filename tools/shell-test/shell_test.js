@@ -55,6 +55,11 @@ const DESKTOP_VIEWPORTS = [
     // A supersampling build (SHELL v6): the game publishes a 2x buffer and
     // the fit becomes a continuous downscale that fills the viewport.
     { name: 'desktop-super',  width: 1920, height: 919, bufW: 2560, bufH: 1440 },
+    // 1920x1200 in fullscreen: the height at which a 1x buffer used to flip
+    // from a 1:1 island to a soft 1.5x. The playtest now publishes 2x here.
+    { name: 'desktop-1920x1200-full', width: 1920, height: 1200, bufW: 2560, bufH: 1440 },
+    // A 4K screen gets the 3x buffer.
+    { name: 'desktop-4k-super', width: 3840, height: 2010, bufW: 3840, bufH: 2160 },
 ];
 
 // The shell's fit law (v6): computed in DEVICE pixels against the game's

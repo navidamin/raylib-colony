@@ -468,6 +468,22 @@ int main(int argc, char **argv)
            drill bar that is not a picture. No GL involved. */
         DrillSim d;
         DrillSim_Reset(&d);
+
+        /* THE STRING TURNS ONLY WHEN STARTED: a planned hole is not a
+           running drill, and a click before the start is not a kick. */
+        const float rested = d.rpm;
+        DrillSim_Bite(&d);
+        CHECK(d.rpm == rested, "a click before the start does nothing");
+        DrillSim_SetTarget(&d, 30.0f);
+        for (int i = 0; i < 600; i++) DrillSim_Step(&d, 1.0f / 60.0f);
+        CHECK(d.depthM == 0.0f, "a planned, unstarted drill does not move");
+        CHECK(DrillSim_Start(&d) && d.running, "the start runs it");
+
+        /* free drilling from here on: the whole column, started */
+        DrillSim_Reset(&d);
+        DrillSim_SetTarget(&d, DRILL_TARGET_M);
+        DrillSim_Start(&d);
+        for (int i = 0; i < 200; i++) DrillSim_Step(&d, 1.0f / 60.0f);
         const float idle = d.rpm;
 
         DrillSim_Bite(&d);
@@ -481,6 +497,8 @@ int main(int argc, char **argv)
 
         /* held at a rhythm, heat climbs and the hole deepens */
         DrillSim_Reset(&d);
+        DrillSim_SetTarget(&d, DRILL_TARGET_M);
+        DrillSim_Start(&d);
         float peakHeat = 0.0f;
         for (int i = 0; i < 600; i++)
         {
@@ -496,6 +514,8 @@ int main(int argc, char **argv)
         /* the coupling itself: more spindle, more heat, all else equal */
         DrillSim slow, fast;
         DrillSim_Reset(&slow); DrillSim_Reset(&fast);
+        DrillSim_SetTarget(&slow, DRILL_TARGET_M); DrillSim_Start(&slow);
+        DrillSim_SetTarget(&fast, DRILL_TARGET_M); DrillSim_Start(&fast);
         for (int i = 0; i < 240; i++)
         {
             if (i % 24 == 0) DrillSim_Bite(&slow);
@@ -601,6 +621,7 @@ int main(int argc, char **argv)
         DrillSim d;
         DrillSim_Reset(&d);
         DrillSim_SetTarget(&d, 20.0f);
+        DrillSim_Start(&d);
         int completions = 0;
         for (int i = 0; i < 3000; i++)
         {
@@ -613,9 +634,11 @@ int main(int argc, char **argv)
         CHECK(d.depthM <= 20.05f, "the string stops AT the depth asked for");
         CHECK(d.depthM >= 19.95f, "and reaches it");
         CHECK(completions == 1, "completion fires once, not every frame");
+        CHECK(!d.running, "landing the target stops the string");
 
-        /* and it goes on when a deeper depth is asked for */
+        /* and it goes on when a deeper depth is asked for -- and started */
         DrillSim_SetTarget(&d, 45.0f);
+        CHECK(DrillSim_Start(&d), "a deeper plan can be started");
         for (int i = 0; i < 3000; i++)
         {
             if (i % 8 == 0) DrillSim_Bite(&d);
@@ -623,6 +646,50 @@ int main(int argc, char **argv)
         }
         printf("    then target 45 m -> %.2f m\n", d.depthM);
         CHECK(d.depthM > 44.9f && d.depthM < 45.1f, "a deeper target feeds it on");
+    }
+
+    printf("\n== 18. the dig profile: a reading every 0.5 m ==\n");
+    {
+        DrillSim d;
+        DrillProfile p;
+        DrillSim_Reset(&d);
+        DrillProfile_Clear(&p);
+        DrillSim_SetTarget(&d, 30.0f);
+        DrillProfile_Plan(&p, 3.0f, 4.0f, 30.0f, d.t);
+        CHECK(p.open && p.count == 0, "the plan opens it, empty");
+        for (int i = 0; i < 120; i++) { DrillSim_Step(&d, 0.05f); DrillProfile_Record(&p, &d); }
+        CHECK(p.count == 0 && p.startedT < 0.0f, "nothing is recorded before the start");
+
+        /* long, uneven frames: a bin must never be skipped */
+        DrillSim_Start(&d);
+        for (int i = 0; i < 20000 && d.running; i++)
+        {
+            if (i % 6 == 0) DrillSim_Bite(&d);
+            DrillSim_Step(&d, (i % 3 == 0) ? 0.6f : 0.016f);
+            DrillProfile_Record(&p, &d);
+        }
+        bool exact = true;
+        for (int i = 0; i < p.count; i++)
+            if (p.sample[i].depthM != DRILL_PROFILE_STEP_M * (float)(i + 1)) exact = false;
+        printf("    30 m hole -> %d readings, finished at %.1f s\n", p.count, p.finishedT);
+        CHECK(p.count == 60, "one reading per 0.5 m, 60 for 30 m");
+        CHECK(exact, "each at its own bin depth, none skipped by a long frame");
+        CHECK(p.finishedT >= 0.0f, "the hole's landing is stamped");
+        CHECK(DrillSim_Strata()[p.sample[23].stratum].name[0] == 'R' &&
+              DrillSim_Strata()[p.sample[24].stratum].name[0] == 'M',
+              "12.0 m reads regolith, 12.5 m megaregolith");
+
+        /* deeper is the same hole */
+        DrillSim_SetTarget(&d, 40.0f);
+        DrillProfile_Plan(&p, 3.0f, 4.0f, 40.0f, d.t);
+        DrillSim_Start(&d);
+        for (int i = 0; i < 20000 && d.running; i++)
+        {
+            if (i % 6 == 0) DrillSim_Bite(&d);
+            DrillSim_Step(&d, 0.03f);
+            DrillProfile_Record(&p, &d);
+        }
+        CHECK(p.count == 80, "deepening to 40 m keeps the first 60 and adds 20");
     }
 
     c2d_fonts_unload();

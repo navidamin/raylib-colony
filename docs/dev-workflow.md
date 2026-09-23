@@ -115,6 +115,10 @@ tools/playtest/drive.py build/drive "move 640 175" "shot aim" "click" \
 # game output lands in build/drive/game.log
 ```
 
+`--scale 2` (first argument) runs the playtest's supersampled path -- what
+the web build does on a 1920-wide screen -- on a doubled virtual screen; step
+coordinates stay in the 1280x720 layout.
+
 Needs `Xvfb`, `xdotool`, `python-xlib` and Pillow. Two things it learned the
 hard way: software GL draws the console at ~0.6 s a frame, so a click is held
 across frames (a 1 ms click lands between polls and is lost); and the first

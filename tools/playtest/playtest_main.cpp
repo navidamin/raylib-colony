@@ -25,6 +25,11 @@
 // The Web build (PLATFORM=Web) deploys via .github/workflows/deploy-web.yml
 // and is playable on phone/tablet -- taps map to clicks.
 
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <string>
+
 #include "raylib.h"
 #include "rlgl.h"
 #include "web_mouse.h"
@@ -374,6 +379,9 @@ int main(int argc, char** argv)
     for (int i = 1; i < argc - 1; i++)
     {
         if (std::string(argv[i]) == "--shot") ctx.shotPath = argv[i + 1];
+        // Native only: render through the same matrix scale the web build
+        // uses, so a supersampling bug can be reproduced without a browser.
+        if (std::string(argv[i]) == "--scale") ctx.renderScale = std::max(1, std::atoi(argv[i + 1]));
     }
 
     SetTraceLogLevel(LOG_WARNING);
@@ -390,22 +398,27 @@ int main(int argc, char** argv)
             return Math.round(document.documentElement.clientHeight
                               * (window.devicePixelRatio || 1));
         });
-        /* SUPERSAMPLING IS OFF while the survey console is on screen.
-           The console renders through its own offscreen surface, and the
-           combination of that with a caller-applied rlScalef is not right
-           yet: reproduced natively at renderScale 2, the frame comes out
-           mis-scaled (and, before the c2d state-leak fixes, black). Two real
-           leaks are fixed -- the matrix save/restore order around
-           BeginTextureMode, and rlgl's framebuffer size, which EndTextureMode
-           does not put back -- but a correct frame at 2 is not proven, and
-           shipping a sharper blank screen is not a trade.
+        /* THE BUFFER IS SIZED TO THE DISPLAY, and always at least as big as
+           what the browser will show, so the browser only ever SHRINKS it.
+           A 1280x720 buffer on a 1920x1200 screen has two bad options -- a
+           fractional upscale (soft) or a 1:1 island in the middle (small) --
+           and the shell flips between them as the viewport height changes
+           with toolbars and fullscreen. Rendering the 1280x720 layout through
+           a whole-number scale removes the choice: 1920x1200 gets 2x
+           (2560x1440, shown at ~1870 wide), a 4K screen 3x.
 
-           At 1 the canvas is 1280x720 and the browser upscales it: softer on
-           a dense display, but the console is there and playable. Restore the
-           `fit > 1.05f ? 2 : 1` choice once scale 2 renders correctly in
-           tools/playtest at 2560x1440. */
-        (void)devW; (void)devH;
-        ctx.renderScale = 1;
+           Capped at 3: at 3840x2160 the canvas is 33 MB, and the console's
+           own surfaces do not grow with it (DASH_SS stays 1 on the web).
+
+           This was off for a while: the console reset rlgl's matrix pointer
+           and the scale compounded every frame into a black screen. Fixed in
+           c2d_unbind; see docs/web-deploy-mobile.md. */
+        {
+            const float fit = std::min(devW / static_cast<float>(ctx.screenWidth),
+                                       devH / static_cast<float>(ctx.screenHeight));
+            ctx.renderScale = (fit > 1.05f)
+                ? std::min(3, static_cast<int>(std::ceil(fit - 0.05f))) : 1;
+        }
         EM_ASM({
             window.__colonyBufW = $0; window.__colonyBufH = $1;
             window.__colonyLogicalW = $2; window.__colonyLogicalH = $3;
@@ -416,6 +429,12 @@ int main(int argc, char** argv)
     InitWindow(ctx.screenWidth * ctx.renderScale,
                ctx.screenHeight * ctx.renderScale,
                "Colony - Prospecting Playtest");
+#ifndef __EMSCRIPTEN__
+    // The layout is 1280x720 whatever the buffer; the web shell converts the
+    // pointer for itself, natively raylib has to.
+    if (ctx.renderScale != 1)
+        SetMouseScale(1.0f / ctx.renderScale, 1.0f / ctx.renderScale);
+#endif
     SetTargetFPS(60);
 
     {
