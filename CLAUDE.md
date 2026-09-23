@@ -4,6 +4,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Read this first: there is ONE level ladder
+
+**Globe → District (200 km) → Site (25 km).** It is how a colony is
+sited, and it is the only thing in this repository called a *level*.
+
+| Level | Window | Cursor | Question |
+|-------|--------|--------|----------|
+| 1 ORBITAL | the globe | 200 km, snapped | Which economy? |
+| 2 DISTRICT | 200 km | 25 km, snapped | Which mix? |
+| 3 SITE | 25 km | 1.5 km base footprint, free | Which ground? |
+
+- **Authority:** `SURVEY_LEVEL_COUNT = 3` and the table in
+  `src/TerrainGen/survey_cursor.{h,cpp}`. `survey_cursor_test` fails if
+  it changes.
+- **Where it runs:** `lunar_map` (bare, or `--site`), and `/lunarmap/` on
+  Pages. **Not yet in the game** — the game in this branch still sites
+  colonies through its old grid picker, `View::SITE_SELECTION`. Wiring
+  the ladder into the game is the `lunarmap-wiring-site-selection`
+  branch's work.
+- **Design:** `docs/design/site-selection/README.md`.
+
+**Not levels**, though every one of these has been taken for one:
+
+- the game's **Planet (100 km) → Colony (25 km) → Sect (5 km) views** —
+  where a colony is managed once it exists;
+- the terrain chain's **steps** (the 100 / 25 / 5 km crops
+  `GenerateTerrainChain` walks to build one picture);
+- the **crater bench**'s free zoom (`prototypes/planet_visuals/`,
+  `/regolith/`) — a design prototype.
+
+Four other ladders lived here until 2026-09-23 — a five-level draft, a
+browser descent page, a `--ladder`/`--demo` walker, a flat-map explorer —
+and sessions kept building on them. They are gone; `docs/graveyard.md`
+entry 10 says what each was. **Do not add a second ladder.** If the
+design needs a level changed, change the one table and the tests and
+docs that name it.
+
+---
+
 ## Session Catchup Procedure
 
 **IMPORTANT: At the beginning of each session with this project, follow this procedure:**
@@ -144,7 +183,7 @@ Each level can be viewed and interacted with by zooming in (double-click) or out
 The game operates in different views defined in `game_enums.h`:
 - **Menu** - Initial menu (not yet implemented)
 - **Planet** - Strategic view showing all colonies on the planet surface
-- **Site_Selection** - Orbital survey view for informed colony placement (instrument panels: GRS, Neutron, Thermal, Site Assessment)
+- **Site_Selection** - the game's OLD colony picker (instrument panels: GRS, Neutron, Thermal, Site Assessment). To be replaced by the level ladder — see "Read this first" above
 - **Colony** - Shows all sects within a colony and their connections
 - **Sect** - Shows individual units within a settlement
 - **Unit** - Detailed view of a specific production unit and its modules
@@ -153,7 +192,11 @@ View transitions are handled by `ViewManager::SwitchTo*View()` methods which adj
 
 ### Site Selection System
 
-Colony placement uses an informed site selection flow (src/Engine/gamemanager.cpp):
+**The design is the level ladder** (top of this file,
+`docs/design/site-selection/`), built and running in `lunar_map`. What
+follows is the game's **old** picker, which is what the game in this
+branch still uses until the ladder is wired in:
+
 - Ctrl+click in Planet view enters `View::SITE_SELECTION` instead of placing immediately
 - `DrawSiteSelectionView()` renders orbital instrument panels (GRS bar charts, neutron spectrometer, thermal mapper)
 - Each grid cell is classified with a `SiteArchetype` (MARE_INDUSTRIAL, HIGHLAND_CONSTRUCTION, POLAR_VOLATILE, KREEP_SCIENTIFIC, LAVA_TUBE, MIXED)
@@ -248,8 +291,10 @@ the header and the shader must change with it.
 | SECT view | 1 cell = 5 km |
 
 **One chain feeds three views.** `GenerateTerrainChain` walks
-100 → 25 → 5 km, each level the centre crop of the one above, and emits
-all three: level 0 is the Planet backdrop, 1 the Colony, 2 the Sect.
+100 → 25 → 5 km, each step the centre crop of the one above, and emits
+all three: step 0 is the Planet backdrop, 1 the Colony, 2 the Sect.
+(These are the chain's *steps* and the game's *views* — not levels; the
+code calls them "levels" internally, for historical reasons.)
 Because they are registered to each other by construction, zooming
 approaches the same ground instead of cutting to a different scene.
 `RenderManager` caches one chain per grid cell — the cell you stand on
@@ -314,17 +359,18 @@ The extraction unit view uses `Exo 2` (Regular + Bold) loaded at 48pt texture si
 
 ## Visual Testing Instruments
 
-Never claim a visual result without rendering it. Two headless tools
-drive the real `RenderManager`, so what they export is what the game
-draws:
+Never claim a visual result without rendering it. `preview` and
+`viewtest` drive the game's real `RenderManager`, so what they export is
+what the game draws; `lunar_map` is the level ladder itself, so what it
+exports is what the ladder shows:
 
 | Tool | Use |
 |------|-----|
 | `tools/preview/preview.sh` | one view in isolation (`--view orbital\|planet\|sect`, `--cell X,Y`) |
-| `tools/viewtest/viewtest.sh` | the whole Orbital → Planet → Colony → Sect descent, with per-view issue notes; `--pick LAT,LON` lands it anywhere on the moon |
-| `tools/lunarmap/lunarmap.sh` | the real-coordinates instrument: `--site` walks the globe → district → site survey ladder, `--chain` lays the synthesizer over it, `--siteshot` renders every step. Deploys to `/lunarmap/`. |
+| `tools/lunarmap/lunarmap.sh` | **the level ladder.** Bare `lunar_map` plays Globe → District → Site on the real Moon; `--chain` lays the synthesizer over it, `--siteshot` renders every step. Deploys to `/lunarmap/`. |
+| `tools/viewtest/viewtest.sh` | the game's own views, Orbital → Planet → Colony → Sect, with per-view issue notes; `--pick LAT,LON` lands it anywhere on the moon |
 
-Both need software GL: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+All three need software GL: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
 xvfb-run -a ...` (the scripts apply it). `colony_viewtest` also deploys
 to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
 `tools/viewtest/README.md`.
@@ -445,8 +491,8 @@ without a display:
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
 | `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
-| `tools/lunarmap/` | `lunar_map`: the survey ladder on real lunar coordinates, from the orbital globe down to a 25 km site window. The only harness for the site-selection descent; `--help` lists the flags. |
-| `tools/surveycursor/` | `survey_cursor_test`: headless geometry self-test for the descent ladder. No GL, no DEM — run it after touching `survey_cursor.*`. |
+| `tools/lunarmap/` | `lunar_map`: **the level ladder** on real lunar coordinates, Globe → District (200 km) → Site (25 km). The only harness for it; `--help` lists the flags. |
+| `tools/surveycursor/` | `survey_cursor_test`: headless self-test for the level ladder — its count, spans and geometry. No GL, no DEM — run it after touching `survey_cursor.*`. |
 | `tools/terrainprobe/` | `terrain_probe`: one location's terrain chain built on the GPU and the CPU, timed, every level as PNG, per-level statistics and the mean difference between the two. |
 | `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
 
@@ -473,7 +519,7 @@ Module-specific design planning lives in `docs/design/<module-name>/`. Each modu
 |--------|-----------------|-----------------|
 | Prospecting | `docs/design/prospecting/README.md` | Working on prospecting methods in `unit.cpp`, `DrawProspectingPanel` in `rendermanager.cpp`, or prospecting input handling |
 | Sect View | `docs/design/sect-view/README.md` | Working on `Sect::DrawInSectView` and its visual helpers in `sect.cpp`, `DrawSectView` in `rendermanager.cpp`, or sect view input handling |
-| Site Selection | `docs/design/site-selection/README.md` | Working on `src/TerrainGen/survey_cursor.*`, the survey descent ladder, `View::SITE_SELECTION` / `DrawSiteSelectionView`, or colony placement in `gamemanager.cpp` |
+| Site Selection | `docs/design/site-selection/README.md` | Working on the level ladder (`src/TerrainGen/survey_cursor.*`, `lunar_map`), the old picker (`View::SITE_SELECTION` / `DrawSiteSelectionView`), or colony placement in `gamemanager.cpp` |
 | Core (habitat/command) | `docs/design/core/README.md` | Working on `Sect::core`, crew or life-support logic, the centre dome in `Sect::DrawInSectView`, or Core module panels |
 
 See `docs/design/README.md` for the full planning method explanation.
