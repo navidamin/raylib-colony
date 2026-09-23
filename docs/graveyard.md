@@ -384,3 +384,72 @@ So of the two constants this entry pointed at, one is measured and one
 stays a constant on purpose.
 
 `git log -S'SynthesizeDetail'` for the real code.
+
+---
+
+## 10. The other ladders (removed 2026-09-23)
+
+**Why they all went together.** This branch held four zoom ladders at
+once besides the one that ships, and the docs described old ones as
+current. Sessions kept aiming at the wrong one — including the session
+that removed them. There is now **one** level ladder: Globe → District
+(200 km) → Site (25 km), `SURVEY_LEVEL_COUNT = 3` in
+`src/TerrainGen/survey_cursor.h`. See
+`docs/design/site-selection/README.md`. The game's own grid views
+(Planet 100 km → Colony 25 km → Sect 5 km) are still the game's code in
+this branch and are views, not a ladder; replacing them is the
+`lunarmap-wiring-site-selection` branch's work.
+
+What was removed, and the shape of each if it is ever wanted back:
+
+**`prototypes/planet_visuals/regolith_playtest.html`** (+ `regolith_worker.js`,
+`regolith_gpu.js`), deployed at `/regolith/`. A third descent: 50 km →
+1 km (`SPAN_MAX = 50`, `SPAN_MIN = 1`), log-scaled zoom, tiles built in a
+worker, the per-pixel chain as WebGL shaders. It carried the only
+**supersampling** anywhere: build the tile at N tile pixels per screen
+pixel and let the browser average it down, because the chain's finest
+content (3 px noise, 2.5 px craters) sits at Nyquist and aliases when
+drawn 1:1. Measured at a 2.5 km window against a ratio-3 reference, RMS
+out of 255: ratio 1.0 → 11.07 (2.6 s), 1.3 → 10.05 (4.3 s), 1.6 → 8.40
+(8.3 s), 2.0 → 6.05 (14.8 s); band-limiting the octaves instead → 11.43,
+worse *and* vaguer. `SUPER_STEPS = [0, 1.0, 1.3, 1.6, 2.0, 2.5]`,
+`FINE_MARGIN = 1.04`. Parked by decision (2026-09): the game uses a
+0.8-of-window chain and no supersample. `/regolith/` now serves the
+crater bench, which says on its first line that it is not a level.
+
+**`lunar_map --ladder` and `--demo NAME`** (`RenderLadder`,
+`DrawSurveyCursorNav`, `DrawTestNote`, the `DEMO_SITES` table for
+imbrium / apennine / shackleton, `--maxlevel`). A second walker beside
+`--siteshot`. It drew an older version of the descent: its level 2 card
+read "WHICH GROUND?" where the real one reads "WHICH MIX?", and the
+`--demo` walk began on the retired flat near-side map (entry 1). The
+card's data struct survived as `SiteCard`; `--siteshot` and `--flyshot`
+walk the real flow.
+
+**The map explorer's dive.** `lunar_map` run bare opened the flat
+near-side map (entry 1) as an interactive explorer: click → a 200 km
+window, BACK → the flat map. A two-rung ladder of its own, and it was the
+tool's default. Bare `lunar_map` now opens the site-selection descent;
+`--pick LAT,LON` still opens one window to inspect (tilt, sun,
+exaggeration) with no dive and no BACK; `--nearside --out` still renders
+the flat overview as a picture.
+
+**The pre-imagery planet prototypes.** `generate.py`, `generate_real.py`,
+`biome_compare.py`, `dispersion_sweep.py`, `texture_comparison{,_v2,_v3}.py`,
+`sanity_crater.py`, `SURFACE_DESIGN.md`, `index.html` — the procedural
+planet (biomes, 20×20 archetype grid) from before the surface came from
+the WAC mosaic. `multi_zoom.py`, `game_views.py`, `regional_view.py`,
+`terrain_report.py`, `zone_info_panel.py`, `BUILDABILITY_CPP_SPEC.md` —
+zoom and view prototypes whose successors are `lunar_map`,
+`terrain_probe` and `LolaDem::EvaluateSite`. With them: 62 of the 67
+images in `output/` (the five `SITE_SYNTHESIS.md` shows are kept), and
+`data/aristoteles`, `data/plinius`, `moon_color_1k.jpg`, which nothing
+read. Kept because something current is built from them: `elevation.py`
+(ported as `lola_dem`), `site_synthesis.py` (the chain's origin),
+`asset_bake.py` + `wrap_to_sphere.py` (made `wac_global.jpg`),
+`zones_db.py` (made `zones.json`), and the crater bench.
+
+**`docs/SNAPSHOT_00{1,2,3}_5-Dec-25.md`** — game-state snapshots from
+December 2025 describing the 20×20 world as current.
+
+`git show 138f009:<path>` has every file as it was.

@@ -1268,9 +1268,8 @@ function MakeLiveChain(o){
   }
 
   // Everything up to the point where the window has a macro and a
-  // frame, which is where the CPU and the GPU paths part company: the
-  // rung ladder and the crop stay here, the per-pixel synthesis is what
-  // regolith_gpu.js takes over.
+  // frame. (A GPU twin, regolith_gpu.js, took over from here for the
+  // deleted descent page; the bench never loaded it -- graveyard 10.)
   // The rungs are built with the chain's own tune and carry no sub-floor
   // detail -- they are never the last rung -- so the VIEW's tune can be
   // overridden per call without any of them going stale. That is what

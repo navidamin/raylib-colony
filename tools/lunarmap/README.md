@@ -1,9 +1,15 @@
 # Real-elevation lunar map (`lunar_map`)
 
-Renders the **actual Moon** from NASA's LOLA elevation model — the whole
-near side as a map, or any picked region as terrain — in raylib, with a
-lunar-specific shading pipeline. A standalone instrument beside the
-game: it shares the game's DEM ground truth
+**The site-selection descent — the game's one level ladder — and the
+instrument for it.** Run bare, `lunar_map` opens Globe → District
+(200 km) → Site (25 km), on the real Moon: NASA's LOLA elevation, the
+WAC imagery, and the game's own terrain synthesis laid over it. That
+ladder is the only one; see
+[`docs/design/site-selection/README.md`](../../docs/design/site-selection/README.md).
+Beside it, `--pick` inspects any one region as terrain, and `--out`
+renders a picture headlessly.
+
+It shares the game's DEM ground truth
 (`prototypes/planet_visuals/data/lola/ldem_16_uint.tif`, the CGI Moon
 Kit LDEM_16 derived from LRO/LOLA laser altimetry, 16 px/deg ≈ 1.9 km/px)
 but links no game code.
@@ -49,14 +55,14 @@ Headless rendering uses the same software-GL wrapper as the other
 instruments: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
 xvfb-run -a ...` (the script applies it).
 
-## Site-selection playtest (`--site`)
+## The level ladder (the default)
 
 ```bash
-./build/src/lunar_map --site
+./build/src/lunar_map          # or --site; the same thing
 ```
 
 The three-level site-selection ladder, played rather than rendered.
-Level 1 is the near-side map: move over the moon and the region under
+Level 1 is the globe: turn it, move over the moon and the region under
 the cursor names itself — real named features where there are any,
 a measured mare/highland reading anywhere else — and the region card
 shows its composition, its terrane and its archetype. Click to claim
@@ -132,7 +138,7 @@ craters must sit where the real ones sit.
 
 | Flag | Effect |
 |------|--------|
-| `--nearside` | whole near side (default) |
+| `--nearside` | the whole near side as a flat overview picture (with `--out`) |
 | `--pick LAT,LON` | regional window centred on real coordinates |
 | `--span KM` | regional window size (default 200) |
 | `--style shaded\|color` | photographic relief / LOLA elevation ramp |
@@ -144,12 +150,9 @@ craters must sit where the real ones sit.
 | `--survey` | print a buildability report, no render |
 | `--place DX,DY` | placement cursor, km east/north of the window centre |
 | `--footprint KM` | cursor footprint size (default 1.5) |
-| `--ladder` | walk the survey descent, one PNG per level |
-| `--demo NAME` | annotated descent: `imbrium`, `apennine`, `shackleton` |
-| `--site` | interactive site-selection playtest (the three levels) |
+| `--site` | the level ladder, interactive (also what no arguments does) |
 | `--siteshot PATH` | scripted walk through `--site`, one PNG per step |
 | `--flyshot PATH` | the level-1 descent zoom, one PNG per phase |
-| `--maxlevel N` | stop the descent at this survey level |
 | `--layer N` | data layer 0 = hydrogen, 1 = iron, 2 = rock abundance |
 | `--truth` | draw the layer at full resolution, not on its grid |
 | `--layeralpha N` | layer opacity 0-255 (default 145) |
@@ -170,25 +173,24 @@ craters must sit where the real ones sit.
 
 `--help` is the authoritative list; this table is checked against it.
 
-## Survey ladder
+## Walking the ladder headlessly
 
 ```bash
-tools/lunarmap/lunarmap.sh --pick -43.3,-11.4 --ladder \
-    --out build/lunarmap/ladder/tycho.png
+./build/src/lunar_map --siteshot build/lunarmap/walk/site --chain
+./build/src/lunar_map --flyshot  build/lunarmap/walk/fly
 ```
 
-Walks the site-selection descent — 200 km → 25 km window — with the
-cursor aimed at one fixed target, writing `tycho_2_DISTRICT.png` and
-`tycho_3_SITE.png`. At every level the cursor
-is the footprint of the level *below*, so each image's cursor frames
-exactly the ground the next image shows. `--place DX,DY` moves the
-target (km east/north of `--pick`).
-
-Levels 2–3 only: level 1 is the projected orbital disc, which lives in
-the game's render path, not in this instrument. Geometry comes from
-`src/TerrainGen/survey_cursor.{h,cpp}` (shared with the game;
-`survey_cursor_test` is its headless self-test). Design:
+`--siteshot` plays the real flow — claim a region on the globe, descend
+to the district, the site, found the colony, back out — and writes one
+PNG per step. `--flyshot` records the level-1 → level-2 flight. Both run
+the same code the interactive ladder does, so what they write is what a
+player sees. Geometry comes from `src/TerrainGen/survey_cursor.{h,cpp}`
+(`survey_cursor_test` is its headless self-test). Design:
 `docs/design/site-selection/`.
+
+(A separate `--ladder` / `--demo` walker used to live here. It drew an
+older version of the descent and began on the retired flat map, so it
+was removed — graveyard entry 10.)
 
 ## Interactive controls
 
@@ -234,6 +236,8 @@ the game's render path, not in this instrument. Geometry comes from
 ## What used to be here
 
 Level 1 was a flat plate-carrée map of the near side before it became a
-globe, and the site level used to zoom while its cursor refined. Both are
-written up in [`docs/graveyard.md`](../../docs/graveyard.md), with the
-constants needed to rebuild them.
+globe; the site level used to zoom while its cursor refined; and this tool
+used to open, bare, on that flat map as a click-to-dive explorer, beside a
+second `--ladder`/`--demo` walker. All of it is written up in
+[`docs/graveyard.md`](../../docs/graveyard.md) (entries 1, 6 and 10), with
+the constants needed to rebuild it.

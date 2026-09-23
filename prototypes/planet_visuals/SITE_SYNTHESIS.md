@@ -1,7 +1,7 @@
 # Site Synthesis — zoom-anywhere detail below the WAC floor
 
 Direction set 2026-08-13, after reviewing `zoom_progression.png`: the
-procedural style of `generate.py` was rejected as a *replacement* for
+procedural style of `generate.py` (since removed, graveyard 10) was rejected as a *replacement* for
 real imagery, and the real imagery alone goes blurry at the deepest
 zoom. The resolution:
 
@@ -39,7 +39,7 @@ native crop (≈68 px)                       real WAC 8K, no resize
   → bicubic to 300 px       macro base
   → unsharp 0.40            recover edge contrast
   → adaptive gain ≤2.2      around the crop's own midpoint (maria stay dark)
-detail height = craters (sample_craters/apply_craters from generate.py,
+detail height = craters (sample_craters/apply_craters from the since-removed generate.py,
                 size_scale 0.22, density-filtered by real brightness)
               + quiet pink noise + gentle fbm undulation
 shading = hillshade/flat_ref (normalised: flat ground ⇒ ×1.0)
@@ -166,8 +166,8 @@ at Tycho's latitude). Exact scales (Moon radius 1737.4 km →
 model (`data/lola/ldem_16_uint.tif`, 16 px/deg ≈ 1.9 km/px, decode
 `metres = raw × 0.5 − 10000`, offset calibrated against Apollo 11 and
 Chang'e 4 LOLA elevations). Any (lat, lon) the player zooms to can be
-queried for real elevation, relief, and slope — `terrain_report.py`
-renders amplified view / elevation map / slope map per level with the
+queried for real elevation, relief, and slope — `terrain_report.py` (since removed;
+`terrain_probe` and `lunar_map --survey` do this now) rendered amplified view / elevation map / slope map per level with the
 numbers (`output/site_synthesis_terrain.png`). Copernicus checks out:
 floor −3.5 km, relief 4,081 m, rim wall slopes to 33.5°.
 
@@ -201,7 +201,7 @@ window, now cell-aligned.
 
 `synthesize_chain_spans` generalises the deep-zoom chain to this
 ladder (100 → 25 → 5 km; arbitrary descending spans), and
-`game_views.py` renders it per site with the 20×20 / 5×5 grids and
+`game_views.py` (since removed) rendered it per site with the 20×20 / 5×5 grids and
 sect-core circle overlaid and LOLA stats per view
 (`output/site_synthesis_gameviews.png`).
 

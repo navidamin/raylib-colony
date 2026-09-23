@@ -67,21 +67,17 @@ static const char* DEFAULT_WAC_PATH = "src/assets/planet/wac_global.jpg";
 // Options
 // ---------------------------------------------------------------------------
 
-struct DemoSite
+// What the region card and the level card show about the claimed region.
+// Filled from the live RegionIdentity (SiteFromIdentity). It used to be
+// `SiteCard`, sharing a struct with a hand-written table of demo sites for
+// the --demo walk; the walk is gone and only the card's fields remain.
+struct SiteCard
 {
-    const char* key;
-    double pickLat, pickLon;       // level-1 click
-    double aimDx, aimDy;           // km east/north of pick the player aims at
-    float sunElDeg;                // display sun: grazing at the poles
-    double altHoverLat, altHoverLon;   // extra L1 frame hovering elsewhere
-                                       // (9e9 = none): shows the highlight
-                                       // tracking the mouse, not the target
-    // Which region-card row the L1 screenshot shows hovered, with its
-    // hint open ("titanium" | "rock" | "psr" | nullptr). In the game the
-    // hint appears only while the cursor rests on the row.
+    // Which region-card row is hovered, with its hint open ("titanium" |
+    // "rock" | "psr" | nullptr). The hint appears only while the cursor
+    // rests on the row.
     const char* hintKey;
     float psrDistanceKm;               // for the "psr" hint
-    // region card (fixed from level 1)
     const char* regionName;
     const char* terrane;
     const char* archetype;
@@ -89,67 +85,7 @@ struct DemoSite
     const char* rock;
     float fePct, tiPct, thPpm;     // real values where the data has them
     const char* latitudeNote;
-    // one annotation per level: decision, consequence
-    const char* note[5][2];
 };
-
-static const DemoSite DEMO_SITES[] =
-{
-    { "imbrium", 32.8, -15.6, 13.0, 13.0, 30.0f, 28.0, 17.5, "titanium", 9e9f,
-      "Mare Imbrium", "Procellarum KREEP Terrane", "MARE INDUSTRIAL",
-      Color{ 224, 168, 108, 255 },
-      "mare basalt", 14.0f, 2.5f, 8.0f,
-      "33 N - 14-day nights, strong Earth comms",
-      {
-        { "Claim Mare Imbrium: PKT mare, Fe 14% / Ti 2.5% / Th 8 ppm, flat basalt.",
-          "Metals-and-comms economy. Aluminium must be imported; every site here sleeps 14 days a month." },
-        { "Position the playfield deep in the mare interior - no highland shore in reach.",
-          "Pure industrial play: maximum flat ground, zero local access to Al/Ca rock." },
-        { "Pick a neighbourhood on smooth plain, clear of wrinkle ridges.",
-          "Nearly every cell is buildable, so expansion is unconstrained - the choice is cheap here, by design." },
-        { "Anchor cell with all eight neighbours flat.",
-          "Roads and later sects can go any direction. No terrain tax on growth." },
-        { "Footprint on level ground - the verdict is green almost anywhere.",
-          "Build allowed. What is UNDER this exact spot - hydrogen, regolith depth - stays unknown until prospected." },
-      } },
-
-    { "apennine", 26.10, 3.60, -3.0, 1.0, 24.0f, 9e9, 9e9, "rock", 9e9f,
-      "Palus Putredinis", "PKT - Apennine boundary", "MIXED (SHORE)",
-      Color{ 150, 200, 150, 255 },
-      "mare basalt / highland breccia", 12.0f, 1.8f, 5.0f,
-      "26 N - mare meets the Apennine front",
-      {
-        { "Claim the Imbrium rim where the mare laps the Apennine front (Apollo 15 country).",
-          "Both rock types in one playfield: no imports - but nothing at top grade, and mountains eat buildable ground." },
-        { "Anchor the playfield ON the shore, not the interior. Same region, different game.",
-          "This is the MIXED economy chosen by position alone - the level-2 decision at its clearest." },
-        { "Neighbourhood on the mare side with the front in trucking reach.",
-          "Flat plain for sects, highland material a short haul east - and slopes cap expansion that way." },
-        { "A cell on the plain, rougher ground southward where the front rises.",
-          "Expansion prefers north and west - the neighbour glyph shows which sides a road should leave." },
-        { "Footprint on the open plain, the Apennine front one neighbourhood south.",
-          "Green here - and the closer to the front you push, the sooner the verdict flips." },
-      } },
-
-    { "shackleton", -89.7, 110.0, 0.0, 10.5, 4.0f, 9e9, 9e9, "psr", 4.0f,
-      "Shackleton rim", "Feldspathic Highlands (polar)", "POLAR VOLATILE",
-      Color{ 140, 190, 235, 255 },
-      "anorthosite breccia", 5.0f, 0.4f, 1.0f,
-      "89 S - PSR floors + near-constant crest sun",
-      {
-        { "Claim the south polar rim: poor metals, brutal ground - and the only water on the Moon.",
-          "The whole economy inverts: sunlight and ice replace iron. Earth comms are marginal at best." },
-        { "Playfield straddling the crater rim: permanently shadowed floor and lit crest in one field.",
-          "POLAR VOLATILE play. Nearly all other ground in the field is unbuildable slope." },
-        { "Neighbourhood along the rim crest, the ice one ridge away.",
-          "Short haul to the PSR - but the buildable strip is thin, so growth will be a line, not a disc." },
-        { "The one workable crest cell; neighbours fall away into shadow.",
-          "Single-file expansion. Every road leaves along the ridge or not at all." },
-        { "Footprint on the lit crest, metres from permanent shadow.",
-          "Sun for power, ice next door: the knife-edge this strategy exists for. (PSR flag from 1.9 km/px data - coarse until a polar SLDEM crop lands.)" },
-      } },
-};
-static const int DEMO_SITE_COUNT = (int)(sizeof(DEMO_SITES) / sizeof(DEMO_SITES[0]));
 
 // One question per level (docs/design/site-selection SS2).
 //
@@ -200,11 +136,6 @@ struct MapOptions
     double placeDxKm = 0.0;        // cursor offset east of window centre
     double placeDyKm = 0.0;        // cursor offset north of window centre
     double footprintKm = 1.5;
-    // Survey ladder: walk the descent (500 km -> 5 km window) with the
-    // cursor aimed at one target, one PNG per level.
-    bool ladder = false;
-    int demo = -1;                 // --demo NAME: annotated ladder walk
-    int maxLevel = 5;              // --maxlevel N: stop the demo after Ln
     bool siteMode = false;         // --site: interactive site selection
     std::string siteShot;          // --siteshot PATH: scripted walk, PNGs
     std::string flyShot;           // --flyshot PATH: the descent zoom, PNGs
@@ -241,7 +172,7 @@ static void PrintUsage()
     std::cout
         << "Usage: lunar_map [options]\n"
         << "\n"
-        << "  --nearside        whole near side map (default)\n"
+        << "  --nearside        whole near side, flat (an overview; needs --out)\n"
         << "  --pick LAT,LON    regional window centred on real coordinates\n"
         << "  --span KM         regional window size    (default: 200)\n"
         << "  --style NAME      shaded | color          (default: shaded)\n"
@@ -254,9 +185,7 @@ static void PrintUsage()
         << "  --survey          print a buildability report, no render\n"
         << "  --place DX,DY     placement cursor, km east/north of centre\n"
         << "  --footprint KM    cursor footprint size    (default: 1.5)\n"
-        << "  --ladder          walk the survey descent, one PNG per level\n"
-        << "  --demo NAME       annotated descent: imbrium|apennine|shackleton\n"
-        << "  --site            interactive site selection (playtest)\n"
+        << "  --site            the site-selection descent (the default)\n"
         << "  --siteshot PATH   scripted walk through --site, one PNG per step\n"
         << "  --flyshot PATH    the level-1 descent zoom, one PNG per phase\n"
         << "  --layer N         data layer 0=hydrogen 1=iron 2=rock abundance\n"
@@ -276,12 +205,13 @@ static void PrintUsage()
         << "  --chain           route A: synthesizer texture over the site window\n"
         << "  --chain-strength F  how hard it is laid on (default 1.0)\n"
         << "  --subfloor 0|1    the chain's regolith, off or on (default 1)\n"
-        << "  --maxlevel N      stop the descent at this survey level\n"
         << "  --help            show this message\n"
         << "\n"
-        << "Interactive: click the near-side map to dive into a 200 km\n"
-        << "window; on-screen buttons or keys (TAB style, T tilt, arrows\n"
-        << "sun, Q/E exaggeration, wheel zoom, drag orbit in tilt).\n";
+        << "With no arguments this opens the site-selection descent:\n"
+        << "Globe -> District (200 km) -> Site (25 km). That is the only\n"
+        << "level ladder there is; see docs/design/site-selection/README.md.\n"
+        << "--pick LAT,LON opens one window to inspect (TAB style, T tilt,\n"
+        << "arrows sun, Q/E exaggeration, wheel zoom, drag orbit in tilt).\n";
 }
 
 static bool ParseArgs(int argc, char** argv, MapOptions& options)
@@ -330,8 +260,6 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
             }
         }
         else if (arg == "--footprint" && hasNext) { options.footprintKm = std::atof(argv[++i]); }
-        else if (arg == "--ladder") { options.ladder = true; }
-        else if (arg == "--maxlevel" && hasNext) { options.maxLevel = std::atoi(argv[++i]); }
         else if (arg == "--site") { options.siteMode = true; options.nearside = true; }
         else if (arg == "--flyshot" && hasNext)
         {
@@ -344,27 +272,6 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
             options.siteMode = true;
             options.nearside = true;
             options.siteShot = argv[++i];
-        }
-        else if (arg == "--demo" && hasNext)
-        {
-            std::string name = argv[++i];
-            for (int d = 0; d < DEMO_SITE_COUNT; d++)
-            {
-                if (name == DEMO_SITES[d].key) options.demo = d;
-            }
-            if (options.demo < 0)
-            {
-                std::cerr << "Unknown --demo site: " << name << "\n";
-                return false;
-            }
-            options.ladder = true;
-            options.nearside = false;
-            options.pickLat = DEMO_SITES[options.demo].pickLat;
-            options.pickLon = DEMO_SITES[options.demo].pickLon;
-            options.place = true;
-            options.placeDxKm = DEMO_SITES[options.demo].aimDx;
-            options.placeDyKm = DEMO_SITES[options.demo].aimDy;
-            options.sunElevationDeg = DEMO_SITES[options.demo].sunElDeg;
         }
         else if (arg == "--layer" && hasNext) { options.layer = std::atoi(argv[++i]); }
         else if (arg == "--truth") { options.truth = true; }
@@ -435,9 +342,9 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
             // parses correctly, it just gets the vaguer message.
             static const char* kNeedsValue[] = {
                 "--ambient", "--chain-strength", "--dem", "--demdecim",
-                "--demo", "--demres", "--exag", "--flyshot",
+                "--demres", "--exag", "--flyshot",
                 "--footprint", "--globe", "--interp", "--layer",
-                "--layeralpha", "--maxlevel", "--meshres", "--orbit",
+                "--layeralpha", "--meshres", "--orbit",
                 "--out", "--pick", "--place", "--siteshot", "--size",
                 "--span", "--style", "--sun",
             };
@@ -460,6 +367,14 @@ static bool ParseArgs(int argc, char** argv, MapOptions& options)
         return false;
     }
     options.meshRes = std::clamp(options.meshRes, 8, 256);
+    // Run bare, this is the site-selection descent -- the one level ladder
+    // (Globe -> District 200 km -> Site 25 km). It used to open a flat
+    // near-side map you clicked to dive from: the rung the globe replaced
+    // (graveyard 1), still reachable as the tool's default, and exactly
+    // the kind of second ladder that sent sessions the wrong way.
+    if (!options.siteMode && options.nearside && options.outPath.empty()
+        && !options.survey)
+        options.siteMode = true;
     return true;
 }
 
@@ -1794,13 +1709,6 @@ static void DrawHud(const TerrainScene& scene, const MapOptions& options,
                         options.exaggeration,
                         (styleMode == 1) ? "COLOR ELEVATION" : "SHADED RELIEF"),
              14, 34, 14, dim);
-    if (scene.nearside && options.outPath.empty() && !options.siteMode)
-    {
-        // The map explorer's own instruction. Site selection claims a
-        // region here instead, and says so on its own prompt strip.
-        DrawText("click / tap the map to dive into a 200 km window",
-                 14, 52, 14, dim);
-    }
 
     // Scale bar (bottom left) — round to a tidy km length.
     float kmPerPx = scene.worldHeightKm / (screenH * zoom);
@@ -2329,7 +2237,7 @@ static void DrawMiniBar(int x, int y, int w, float frac, Color tint)
 
 // The frozen region card. Drawn IDENTICALLY at every level -- the whole
 // design in one visual fact: this panel never changes below level 1.
-static void DrawRegionCard(const DemoSite& site, int level, int px, int py,
+static void DrawRegionCard(const SiteCard& site, int level, int px, int py,
                            const char* hoverKey = nullptr, int pw = 336)
 {
     int hintRowY = -1;
@@ -2437,7 +2345,7 @@ static void DrawPendingHintTooltip()
 }
 
 // The per-level question card: the level's own measured geometry.
-static void DrawLevelCard(const DemoSite& site, int level,
+static void DrawLevelCard(const SiteCard& site, int level,
                           const GroundStats& g, const GroundStats* cells,
                           const TerrainBuildability* siteB,
                           const PlacementVerdict* verdict,
@@ -2553,22 +2461,6 @@ static void DrawLevelCard(const DemoSite& site, int level,
     }
 }
 
-// Test-only annotation strip. Deliberately NOT styled like the cards, so
-// it cannot be mistaken for game UI.
-static void DrawTestNote(const DemoSite& site, int level,
-                         int screenW, int screenH)
-{
-    Color amber = Color{ 240, 195, 110, 255 };
-    int h = 66, y = screenH - h;
-    DrawRectangle(0, y, screenW, h, Color{ 26, 20, 8, 232 });
-    DrawRectangle(0, y, screenW, 2, amber);
-    DrawText("TEST ANNOTATION", 14, y + 8, 12, amber);
-    DrawText(TextFormat("DECISION     %s", site.note[level][0]),
-             14, y + 24, 14, Color{ 235, 225, 205, 255 });
-    DrawText(TextFormat("CONSEQUENCE  %s", site.note[level][1]),
-             14, y + 44, 14, Color{ 185, 175, 155, 255 });
-}
-
 // The rect the window span is drawn into. The top-down camera's fovy is
 // the vertical world extent, so the span maps onto the screen HEIGHT --
 // this is the centred square that span occupies.
@@ -2621,102 +2513,6 @@ static float ZoomApproach(float zoomK, float ratio)
     float e = std::log(zoomK) / std::log(ratio);
     if (e > 1.0f) e = 1.0f;
     return 1.0f - (1.0f - e) / zoomK;
-}
-
-static void DrawSurveyCursorNav(const SurveyCursor& cursor,
-                                const SurveyViewport& viewport,
-                                int screenW, int screenH)
-{
-    const SurveyLevelDef* ladder = GetSurveyLadder();
-    Color tint = Color{ 232, 238, 255, 255 };
-    Rectangle r = SurveyCursorRect(cursor, viewport);
-
-    DrawRectangleRec(r, Color{ tint.r, tint.g, tint.b, 26 });
-    DrawRectangleLinesEx(r, 2.0f, Color{ tint.r, tint.g, tint.b, 180 });
-
-    float t = r.width * 0.5f * 0.35f;
-    for (int i = 0; i < 4; i++)
-    {
-        float ox = (i & 1) ? r.x + r.width : r.x;
-        float oy = (i & 2) ? r.y + r.height : r.y;
-        float sx = (i & 1) ? -1.0f : 1.0f;
-        float sy = (i & 2) ? -1.0f : 1.0f;
-        DrawLineEx(Vector2{ ox, oy }, Vector2{ ox + sx * t, oy }, 4.0f, tint);
-        DrawLineEx(Vector2{ ox, oy }, Vector2{ ox, oy + sy * t }, 4.0f, tint);
-    }
-    float cx = r.x + r.width * 0.5f;
-    float cy = r.y + r.height * 0.5f;
-    DrawCircleV(Vector2{ cx, cy }, 3.0f, tint);
-
-    double lat = 0.0, lon = 0.0;
-    SurveyCursorLatLon(cursor, &lat, &lon);
-
-    // Readout on the far side of the frame, so the panel never covers
-    // the ground it is describing.
-    int pw = 396, ph = 258;
-    int px = (cx < screenW * 0.5f) ? screenW - pw - 16 : 16;
-    int py = 78;    // below the HUD title, clear of the scale bar
-    Color dim = Color{ 205, 210, 220, 255 };
-    Color faint = Color{ 128, 134, 146, 255 };
-    DrawRectangle(px, py, pw, ph, Color{ 12, 12, 16, 218 });
-    DrawRectangleLinesEx(Rectangle{ (float)px, (float)py, (float)pw,
-                                    (float)ph }, 2.0f,
-                         Color{ tint.r, tint.g, tint.b, 150 });
-    DrawText(TextFormat("LEVEL %d  %s", cursor.level + 1,
-                        ladder[cursor.level].name), px + 12, py + 10, 19, tint);
-
-    // What this level is FOR. The instrument floors mean the levels ask
-    // different questions, not the same question at five resolutions.
-    bool regionLevel = (cursor.level <= SURVEY_LEVEL_COUNT - 3);
-    DrawText(regionLevel ? "WHICH REGION?" : "WHICH GROUND?",
-             px + pw - 12 - MeasureText(regionLevel ? "WHICH REGION?"
-                                                    : "WHICH GROUND?", 15),
-             py + 14, 15, Color{ 150, 190, 255, 255 });
-    DrawText(TextFormat("%.0f km window   cursor %.1f km   %+.3f %+.3f",
-                        cursor.windowSpanKm, cursor.footprintKm, lat, lon),
-             px + 12, py + 36, 14, faint);
-
-    // One row per instrument: value, band, and the footprint it was
-    // measured over. A row whose instrument is coarser than the cursor
-    // has stopped sharpening -- it is drawn dimmed and says so.
-    int rowY = py + 62;
-    for (int i = 0; i < LAYER_COUNT; i++)
-    {
-        const SurveyInstrument& ins = INSTRUMENTS[i];
-        double window = (ins.footprintKm > cursor.footprintKm)
-                        ? ins.footprintKm : cursor.footprintKm;
-        float v01 = FieldMean(i, lat, lon, window, 7);
-        float b01 = FieldBand(i, lat, lon, ins.footprintKm, cursor.footprintKm);
-        float value = ins.lo + (ins.hi - ins.lo) * v01;
-        float band = (ins.hi - ins.lo) * b01;
-        bool frozen = (ins.footprintKm > cursor.footprintKm);
-        Color rowTint = frozen ? faint : dim;
-
-        DrawText(TextFormat("%-14s %s", ins.quantity,
-                            frozen ? "" : ""), px + 12, rowY, 15, rowTint);
-        int dec = ((ins.hi - ins.lo) < 40.0f) ? 1 : 0;
-        DrawText(TextFormat("%.*f +- %.*f %s", dec, value, dec, band, ins.unit),
-                 px + 150, rowY, 15, frozen ? Color{ 255, 190, 120, 255 }
-                                            : Color{ 150, 230, 170, 255 });
-        DrawText(TextFormat("%s %s", ins.name,
-                            frozen ? TextFormat("%.3g km avg", ins.footprintKm)
-                                   : "resolved"),
-                 px + 12, rowY + 18, 12, rowTint);
-
-        // The band as a bar, so the widening is visible rather than read.
-        float barW = (float)pw - 24.0f;
-        float bx = (float)px + 12.0f, by = (float)rowY + 34.0f;
-        DrawRectangle((int)bx, (int)by, (int)barW, 7, Color{ 34, 36, 42, 255 });
-        float mid = Clamp(v01, 0.0f, 1.0f);
-        float halfBand = Clamp(b01, 0.0f, 0.5f);
-        DrawRectangle((int)(bx + (mid - halfBand) * barW), (int)by,
-                      (int)(2.0f * halfBand * barW + 1.0f), 7,
-                      frozen ? Color{ 190, 130, 60, 210 }
-                             : Color{ 70, 150, 95, 210 });
-        DrawRectangle((int)(bx + mid * barW) - 1, (int)by - 2, 3, 11,
-                      Color{ 235, 240, 255, 255 });
-        rowY += 62;
-    }
 }
 
 static void DrawScene(TerrainScene& scene, const MapOptions& options,
@@ -2982,13 +2778,12 @@ static RegionIdentity IdentifyRegion(const LolaDem& dem, double lat, double lon)
     return r;
 }
 
-// A DemoSite view of a live identity, so the card and hint drawing
+// A SiteCard view of a live identity, so the card and hint drawing
 // written for --demo serves the interactive playtest unchanged.
-static DemoSite SiteFromIdentity(const RegionIdentity& id, const char* hintKey,
+static SiteCard SiteFromIdentity(const RegionIdentity& id, const char* hintKey,
                                  float psrKm)
 {
-    DemoSite d = {};
-    d.key = "live";
+    SiteCard d = {};
     d.regionName = id.name;
     d.terrane = id.terrane;
     d.archetype = id.archetype;
@@ -3000,9 +2795,6 @@ static DemoSite SiteFromIdentity(const RegionIdentity& id, const char* hintKey,
     d.latitudeNote = id.latitudeNote;
     d.hintKey = hintKey;
     d.psrDistanceKm = psrKm;
-    d.altHoverLat = 9e9; d.altHoverLon = 9e9;
-    d.sunElDeg = 30.0f;
-    for (int i = 0; i < 5; i++) { d.note[i][0] = ""; d.note[i][1] = ""; }
     return d;
 }
 
@@ -4109,7 +3901,7 @@ static void UpdateSiteSelect(AppState& app)
         ? RegionCardHintAt(m, regionX, regionY, cardW) : nullptr;
     // PSR proximity: real, from the site level's own measurement.
     float psrKm = (std::fabs(shown.name[0] ? hoverLat : 0.0) > 80.0) ? 4.0f : 999.0f;
-    DemoSite site = SiteFromIdentity(shown, hintKey, psrKm);
+    SiteCard site = SiteFromIdentity(shown, hintKey, psrKm);
 
     // ---------- measured ground for the level card ----------
     GroundStats g;
@@ -4508,8 +4300,6 @@ static void UpdateFrame(void* arg)
         "EXAG -",
         "EXAG +",
     };
-    bool hasBack = !app.scene.nearside;
-    if (hasBack) labels.insert(labels.begin(), "BACK");
     bool pointerOnUi = false;
     int clicked = DrawButtons(labels, screenW, screenH, &pointerOnUi);
     app.pressOnUi = pointerOnUi;
@@ -4519,16 +4309,10 @@ static void UpdateFrame(void* arg)
 #endif
     EndDrawing();
 
-    int base = hasBack ? 1 : 0;
+    const int base = 0;
     if (clicked >= 0)
     {
-        if (hasBack && clicked == 0)
-        {
-            options.nearside = true;
-            BuildScene(options, app.dem, app.scene);
-            app.zoom = 1.0f;
-        }
-        else if (clicked == base + 0) { app.styleMode = 1 - app.styleMode; }
+        if (clicked == base + 0) { app.styleMode = 1 - app.styleMode; }
         else if (clicked == base + 1) { app.tilt = !app.tilt; }
         else if (clicked == base + 2)
         {
@@ -4547,27 +4331,6 @@ static void UpdateFrame(void* arg)
             app.pendingExag = Clamp(app.pendingExag + 0.5f, 0.5f, 12.0f);
             options.exaggeration = app.pendingExag;
             BuildSceneGeometry(app.scene, options);
-        }
-    }
-    else if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && !pointerOnUi &&
-             app.scene.nearside && !app.tilt)
-    {
-        // A short click (not a drag) on the near-side map dives into a
-        // regional window at the clicked coordinates.
-        Vector2 p = GetMousePosition();
-        if (Vector2Distance(p, app.pressPos) < 8.0f)
-        {
-            double lat, lon;
-            if (ScreenToLatLon(app.scene, app.zoom, screenW, screenH, p,
-                               &lat, &lon))
-            {
-                options.nearside = false;
-                options.pickLat = lat;
-                options.pickLon = lon;
-                options.spanKm = 200.0;
-                BuildScene(options, app.dem, app.scene);
-                app.zoom = 1.0f;
-            }
         }
     }
 }
@@ -4792,282 +4555,6 @@ static void DrawLadderCursor(const SurveyCursor& cursor,
     }
     DrawCircleV(Vector2{ r.x + r.width * 0.5f, r.y + r.height * 0.5f },
                 3.0f, tint);
-}
-
-static int RenderLadder(AppState& app)
-{
-    MapOptions opts = app.options;
-    opts.nearside = false;
-    const DemoSite* demo = (opts.demo >= 0) ? &DEMO_SITES[opts.demo] : nullptr;
-
-    // The target the player is aiming at, as real coordinates: --place
-    // gives its offset from --pick, otherwise a default off-centre spot
-    // so the cursor is visibly tracking rather than parked in the middle.
-    double targetDxKm = opts.place ? opts.placeDxKm : 74.0;
-    double targetDyKm = opts.place ? opts.placeDyKm : -52.0;
-    SurveyCursor seed = MakeSurveyCursor(1, opts.pickLat, opts.pickLon);
-    seed.offsetXKm = targetDxKm;
-    seed.offsetYKm = targetDyKm;
-    double targetLat = 0.0, targetLon = 0.0;
-    SurveyCursorLatLon(seed, &targetLat, &targetLon);
-
-    SurveyDescent descent = MakeSurveyDescent(opts.pickLat, opts.pickLon);
-    descent.levels[1] = MakeSurveyCursor(1, opts.pickLat, opts.pickLon);
-    descent.depth = 2;
-
-    std::string stem = opts.outPath;
-    size_t dot = stem.find_last_of('.');
-    std::string ext = (dot == std::string::npos) ? ".png" : stem.substr(dot);
-    if (dot != std::string::npos) stem = stem.substr(0, dot);
-
-    SurveyViewport viewport = LadderViewport(opts.width, opts.height);
-    const SurveyLevelDef* table = GetSurveyLadder();
-    int written = 0;
-
-    // ---- Level 1: the orbital pick, rendered as the near-side map ----
-    // The disc is a map of regions: terranes colour-washed, named
-    // features outlined, and whatever is under the cursor LIT UP with
-    // its name -- the highlight is the selection mechanism, so there is
-    // no cursor rectangle at this level. An optional extra frame hovers
-    // somewhere else first, to show the highlight tracking the mouse.
-    if (demo)
-    {
-        MapOptions l1 = opts;
-        l1.nearside = true;
-        // The map keeps a map sun: the demo's grazing polar sun is for
-        // the surface windows, and under it the whole disc goes black.
-        l1.sunElevationDeg = 30.0f;
-        if (BuildScene(l1, app.dem, app.scene))
-        {
-            int passes = (demo->altHoverLat < 1e8) ? 2 : 1;
-            for (int pass = 0; pass < passes; pass++)
-            {
-                bool alt = (passes == 2 && pass == 0);
-                double hLat = alt ? demo->altHoverLat : opts.pickLat;
-                double hLon = alt ? demo->altHoverLon : opts.pickLon;
-                int hover = FeatureAt(hLat, hLon);
-                bool hoverPkt = InPkt(hLat, hLon);
-                Color tint = alt ? Color{ 235, 240, 255, 255 }
-                                 : demo->archetypeTint;
-
-                RenderTexture2D target = LoadRenderTexture(opts.width,
-                                                           opts.height);
-                BeginTextureMode(target);
-                Camera3D camera = TopDownCamera(app.scene, 1.0f);
-                DrawScene(app.scene, l1, app.styleMode, camera);
-                DrawDiscFeatureOutlines(opts.width, opts.height, hover, tint,
-                                        1.0f);
-                DrawHud(app.scene, l1, app.styleMode, opts.width,
-                        opts.height, 1.0f);
-
-                // Cursor position on the map (clamped with an arrow for
-                // polar picks rather than drawn at a false latitude).
-                float mx = 0.0f, my = 0.0f;
-                DiscToScreen(hLat, hLon, opts.width, opts.height, &mx, &my);
-                // A pick past the map edge (|lon| > 90 on plate carree)
-                // gets clamped with an arrow, not drawn at a false spot.
-                if (mx > opts.width - 44.0f)
-                {
-                    float ax = opts.width - 40.0f;
-                    DrawLineEx(Vector2{ ax - 28.0f, my }, Vector2{ ax, my },
-                               3.0f, tint);
-                    DrawLineEx(Vector2{ ax - 10.0f, my - 8.0f },
-                               Vector2{ ax, my }, 3.0f, tint);
-                    DrawLineEx(Vector2{ ax - 10.0f, my + 8.0f },
-                               Vector2{ ax, my }, 3.0f, tint);
-                    mx = ax - 44.0f;
-                }
-                bool clamped = (my > opts.height - 96.0f);
-                if (clamped)
-                {
-                    float ay = opts.height - 100.0f;
-                    DrawLineEx(Vector2{ mx, ay - 28.0f }, Vector2{ mx, ay },
-                               3.0f, tint);
-                    DrawLineEx(Vector2{ mx - 8.0f, ay - 10.0f },
-                               Vector2{ mx, ay }, 3.0f, tint);
-                    DrawLineEx(Vector2{ mx + 8.0f, ay - 10.0f },
-                               Vector2{ mx, ay }, 3.0f, tint);
-                    my = ay - 44.0f;
-                }
-                DrawCircleLinesV(Vector2{ mx, my }, 6.0f, tint);
-                DrawLineEx(Vector2{ mx - 16.0f, my }, Vector2{ mx - 7.0f, my },
-                           2.0f, tint);
-                DrawLineEx(Vector2{ mx + 7.0f, my }, Vector2{ mx + 16.0f, my },
-                           2.0f, tint);
-                DrawLineEx(Vector2{ mx, my - 16.0f }, Vector2{ mx, my - 7.0f },
-                           2.0f, tint);
-                DrawLineEx(Vector2{ mx, my + 7.0f }, Vector2{ mx, my + 16.0f },
-                           2.0f, tint);
-
-                if (alt)
-                {
-                    const char* hn = (hover >= 0)
-                        ? Features()[hover].name
-                        : (hoverPkt ? "Procellarum KREEP Terrane"
-                                    : "Feldspathic Highlands");
-                    DrawHoverChip(mx, my, hn,
-                                  hoverPkt ? "PKT  ·  hover to inspect"
-                                           : "FHT  ·  hover to inspect",
-                                  tint, opts.width);
-                }
-                else
-                {
-                    if (!demo->hintKey)
-                    {
-                        DrawHoverChip(mx, my, demo->regionName,
-                                      demo->terrane, tint, opts.width);
-                    }
-                    DrawRegionCard(*demo, 0, 16, 64, demo->hintKey);
-                }
-                DrawLevelCard(*demo, 0, GroundStats(), nullptr, nullptr,
-                              nullptr, opts.width - 352, 64, 336);
-                DrawPendingHintTooltip();
-                if (alt)
-                {
-                    Color amber = Color{ 240, 195, 110, 255 };
-                    int nh = 66, ny = opts.height - nh;
-                    DrawRectangle(0, ny, opts.width, nh,
-                                  Color{ 26, 20, 8, 232 });
-                    DrawRectangle(0, ny, opts.width, 2, amber);
-                    DrawText("TEST ANNOTATION", 14, ny + 8, 12, amber);
-                    DrawText("DECISION     None yet - the cursor is elsewhere. The region under it lights up and names itself.",
-                             14, ny + 24, 14, Color{ 235, 225, 205, 255 });
-                    DrawText("CONSEQUENCE  The highlight IS the selection: no rectangle, no numbers, just lit ground with a name.",
-                             14, ny + 44, 14, Color{ 185, 175, 155, 255 });
-                }
-                else
-                {
-                    DrawTestNote(*demo, 0, opts.width, opts.height);
-                }
-                EndTextureMode();
-
-                Image shot = LoadImageFromTexture(target.texture);
-                ImageFlipVertical(&shot);
-                std::string path = alt
-                    ? std::string(TextFormat("%s_L1_HOVER%s", stem.c_str(),
-                                             ext.c_str()))
-                    : std::string(TextFormat("%s_%s%s", stem.c_str(),
-                                             LEVEL_FILE[0], ext.c_str()));
-                ExportImage(shot, path.c_str());
-                std::cerr << "lunar_map: wrote " << path << "\n";
-                UnloadImage(shot);
-                UnloadRenderTexture(target);
-                written++;
-            }
-        }
-    }
-
-    for (;;)
-    {
-        SurveyCursor* cursor = SurveyCurrent(&descent);
-
-        // Aim the cursor at the target through the same path the mouse
-        // takes: ground -> km -> screen -> track. If the helpers
-        // disagree anywhere, the cursor lands off the target and the
-        // render shows it.
-        double dx = 0.0, dy = 0.0;
-        SurveyLatLonToOffsetKm(*cursor, targetLat, targetLon, &dx, &dy);
-        float mouseX = 0.0f, mouseY = 0.0f;
-        SurveyOffsetKmToScreen(viewport, cursor->windowSpanKm, dx, dy,
-                               &mouseX, &mouseY);
-        SurveyCursorTrack(cursor, viewport, mouseX, mouseY);
-
-        opts.pickLat = cursor->windowLatDeg;
-        opts.pickLon = cursor->windowLonDeg;
-        opts.spanKm = cursor->windowSpanKm;
-
-        // BuildScene releases the previous level's GPU resources itself.
-        if (!BuildScene(opts, app.dem, app.scene)) return 1;
-
-        // The level's own measured geometry, from the real window.
-        int level = cursor->level;    // 1..4 -> L2..L5
-        GroundStats g = CursorGroundStats(app.scene.window,
-                                          cursor->offsetXKm,
-                                          cursor->offsetYKm,
-                                          cursor->footprintKm);
-        GroundStats cells[9];
-        if (level == SITE_LEVELS - 2)
-        {
-            // Neighbour cells of the candidate 5 km cell. Sampled from a
-            // fresh 15 km window centred on the CELL, not from the display
-            // window: the game's grid continues past the view edge, so a
-            // corner cell's neighbours are real ground, not blanks.
-            double cLat = 0.0, cLon = 0.0;
-            SurveyCursorLatLon(*cursor, &cLat, &cLon);
-            LolaWindow neigh = app.dem.Window(cLat, cLon, 15.0, 240);
-            for (int j = 0; j < 3; j++)
-            {
-                for (int i = 0; i < 3; i++)
-                {
-                    cells[j * 3 + i] = CursorGroundStats(neigh,
-                                                         (i - 1) * 5.0,
-                                                         (1 - j) * 5.0, 5.0);
-                }
-            }
-        }
-        TerrainBuildability siteB;
-        PlacementVerdict verdict;
-        bool haveVerdict = false;
-        if (level == SITE_LEVELS - 1)
-        {
-            double cLat = 0.0, cLon = 0.0;
-            SurveyCursorLatLon(*cursor, &cLat, &cLon);
-            siteB = app.dem.EvaluateSite(cLat, cLon, cursor->footprintKm, 30.0);
-            verdict = JudgeSite(siteB);
-            haveVerdict = true;
-        }
-
-        RenderTexture2D target = LoadRenderTexture(opts.width, opts.height);
-        BeginTextureMode(target);
-        Camera3D camera = TopDownCamera(app.scene, 1.0f);
-        DrawScene(app.scene, opts, app.styleMode, camera);
-        DrawHud(app.scene, opts, app.styleMode, opts.width, opts.height, 1.0f);
-
-        if (demo)
-        {
-            if (level == 1)
-            {
-                DrawFeatureArcsInWindow(opts.pickLat, opts.pickLon,
-                                        opts.spanKm, opts.width, opts.height);
-            }
-            Color tint = haveVerdict
-                ? (verdict.allowed ? Color{ 60, 235, 120, 255 }
-                                   : Color{ 255, 70, 70, 255 })
-                : Color{ 232, 238, 255, 255 };
-            DrawLadderCursor(*cursor, viewport, tint);
-            DrawRegionCard(*demo, level, 16, 64);
-            DrawLevelCard(*demo, level, g,
-                          level == SITE_LEVELS - 2 ? cells : nullptr,
-                          haveVerdict ? &siteB : nullptr,
-                          haveVerdict ? &verdict : nullptr,
-                          opts.width - 352, 64, 336);
-            DrawTestNote(*demo, level, opts.width, opts.height);
-        }
-        else
-        {
-            DrawSurveyCursorNav(*cursor, viewport, opts.width, opts.height);
-        }
-        EndTextureMode();
-
-        Image shot = LoadImageFromTexture(target.texture);
-        ImageFlipVertical(&shot);
-        std::string path = demo
-            ? std::string(TextFormat("%s_%s%s", stem.c_str(),
-                                     LEVEL_FILE[level], ext.c_str()))
-            : std::string(TextFormat("%s_%d_%s%s%s", stem.c_str(),
-                                     cursor->level + 1,
-                                     table[cursor->level].name,
-                                     opts.truth ? "_truth" : "", ext.c_str()));
-        ExportImage(shot, path.c_str());
-        std::cerr << "lunar_map: wrote " << path << "\n";
-        UnloadImage(shot);
-        UnloadRenderTexture(target);
-        written++;
-
-        if (demo && cursor->level + 1 >= opts.maxLevel) break;
-        if (!SurveyDescend(&descent)) break;
-    }
-    return written > 0 ? 0 : 1;
 }
 
 int main(int argc, char** argv)
@@ -5415,23 +4902,6 @@ int main(int argc, char** argv)
         SpeculationJoinAtExit();   // never outlive the process
     CloseWindow();
         return 0;
-    }
-
-    if (app.options.ladder)
-    {
-        if (app.options.outPath.empty())
-        {
-            std::cerr << "--ladder needs --out PATH (one PNG per level)\n";
-            SpeculationJoinAtExit();   // never outlive the process
-    CloseWindow();
-            return 1;
-        }
-        app.styleMode = (app.options.style == "color") ? 1 : 0;
-        int rc = RenderLadder(app);
-        UnloadSceneGpu(app.scene);
-        SpeculationJoinAtExit();   // never outlive the process
-    CloseWindow();
-        return rc;
     }
 
     // Site mode opens on the globe, which needs no DEM window -- so do
