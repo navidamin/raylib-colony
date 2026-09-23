@@ -50,6 +50,15 @@ typedef struct H3DView {
 
 typedef struct H3DHud {
     bool brackets, base, reticle, callouts;
+
+    /* WHERE THE RETICLE SITS. Unset, it is the reference's: the centre of
+     * the cap, radius 0.16, with its DRILL SITE callout -- which is what the
+     * visual diff measures. Set, it is drawn at (reticleU, reticleV) in 0..1
+     * cap coordinates at radius reticleR (a fraction of the block's width),
+     * without the callout: the console uses it as the drill's tip on the
+     * ground, where a label riding the pointer would only be clutter. */
+    bool  reticleAt;
+    float reticleU, reticleV, reticleR;
 } H3DHud;
 H3DHud Holo3D_HudAll(void);
 

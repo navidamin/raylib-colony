@@ -106,6 +106,11 @@
   #define DASH_SS 2
 #endif
 
+/* The tip reticle's radius, as a fraction of the block's width: about the
+ * size the target mark it replaced read at, with its ticks clear of the
+ * drill's point. */
+#define DASH_TIP_RETICLE_R 0.10f
+
 /* THE ONLY FILE STATICS LEFT, and they are the process's, not a console's:
  * one render surface, one set of fonts, one block geometry, shared by every
  * console that draws. Everything a console remembers is in SurveyDashState. */
@@ -646,9 +651,8 @@ static void DashDrawCursor(const SurveyDashState *s)
     {
         Vector2 tip = s->pointer;
         if (s->aimOn && g_model) tip = Holo3D_CapPoint(g_model, s->aimU, s->aimV);
+        /* the reticle under the tip is drawn with the block, on the ground */
         ToolRack_DrawDrillCursor(tip.x, tip.y, 0.85f, s->aimOn);
-        if (s->aimOn)
-            DashTargetMark(tip, 9.0f, s->drill.t * 0.9f, cyan, 1.7f);
     }
 }
 
@@ -728,8 +732,20 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
 
     /* drawBlock3D (1611): callouts, brackets and the base ring are OFF in the
      * dashboard -- they belong to the block's own full-screen view. */
+    /* THE RETICLE IS THE DRILL'S TIP. The reference parks it at the centre
+     * of the cap, where on real ground it read as a site already chosen and
+     * never moved. It is drawn only where the drill would collar -- under the
+     * pointer, laid on the ground so it follows the terrain and the view --
+     * and only while the drill is in hand over the cap. */
     H3DHud hud = {0};
-    hud.reticle = true;
+    if (s->aimOn && SurveyDash_Cursor(s) == SDC_HIDDEN)
+    {
+        hud.reticle   = true;
+        hud.reticleAt = true;
+        hud.reticleU  = s->aimU;
+        hud.reticleV  = s->aimV;
+        hud.reticleR  = DASH_TIP_RETICLE_R;
+    }
     Holo3D_Render(g_model, &s->block, &s->view);
     Holo3D_DrawHud(g_model, &s->block, &s->view, &hud);
 

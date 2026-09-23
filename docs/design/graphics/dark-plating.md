@@ -429,10 +429,23 @@ Three rules, learned by rendering it wrong first:
   the cursor translates by that offset. Everything else about the icon is
   untouched.
 
-**The target mark** that annotates the spot is one shape family used at three
-sizes: riding the bit's tip while aiming, left on the ground once the site is
-taken, and carried by the cursor on its way to the next control. Ring, four
-ticks turning slowly, centre dot. It carries **one shared glow layer**
+**Under the tip, the block's own reticle — laid on the ground.** Holo3D's HUD
+reticle (ring, dashed inner ring, cross ticks, two sweeping glow arcs, a
+pulsing centre dot) was parked at the centre of the cap, where on real ground
+it read as a site already chosen and never moved. It now marks where the
+drill would collar: `H3DHud.reticleAt` centres it on the aim point at
+radius 0.10 of the block's width, built on the cap's real surface
+(`h3d_cap_world`, the same surface `Holo3D_HitCap` picks on), so it is an
+ellipse that follows the terrain and the view rather than a flat screen
+ring. It is drawn with the block, so the drill icon sits over it; the moved
+reticle drops the DRILL SITE callout, which would only ride the pointer.
+Unmoved it is byte-for-byte the reference (visual diff unchanged at 1.15%).
+Below 0.10 it hides under the drill's point.
+
+**The target mark** that annotates a chosen spot is one shape family used at
+three sizes: left on the ground once the site is taken, at the end of the
+stretched borehole, and at the planned bottom. Ring, four ticks turning
+slowly, centre dot. It carries **one shared glow layer**
 (`c2d_shadow_begin`/`end` around the whole mark, never a halo per shape) —
 the cap it sits on is imagery, grid and grain, and unglowed line work
 disappears into it. Stacking per-shape halos fills the gaps between the ticks

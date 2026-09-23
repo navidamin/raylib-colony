@@ -670,14 +670,13 @@ bool Holo3D_HitCap(const Holo3DModel *m, float x, float y, float *u, float *v)
     return false;
 }
 
-Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v)
+/* A point on the cap's actual surface -- bilinear across its grid, so it sits
+ * ON the ground rather than on the nearest node, and on whatever ground the
+ * model carries (the reference's profile, or the real one from SetGround). */
+static V3 h3d_cap_world(const Holo3DModel *m, float u, float v)
 {
-    if (!m) return (Vector2){0.0f, 0.0f};
     if (u < 0.0f) u = 0.0f; if (u > 1.0f) u = 1.0f;
     if (v < 0.0f) v = 0.0f; if (v > 1.0f) v = 1.0f;
-
-    /* bilinear across the cap's grid, so the marker sits ON the ground
-       rather than on the nearest node */
     const float fi = u * (float)m->NX, fj = v * (float)m->NZ;
     int i = (int)fi, j = (int)fj;
     if (i >= m->NX) i = m->NX - 1;
@@ -690,7 +689,13 @@ Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v)
     w.x = (a.x * (1 - s) + b.x * s) * (1 - t) + (c.x * (1 - s) + d.x * s) * t;
     w.y = (a.y * (1 - s) + b.y * s) * (1 - t) + (c.y * (1 - s) + d.y * s) * t;
     w.z = (a.z * (1 - s) + b.z * s) * (1 - t) + (c.z * (1 - s) + d.z * s) * t;
-    return h3d_proj_dy(m, w, h3d_offY(m, 0));
+    return w;
+}
+
+Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v)
+{
+    if (!m) return (Vector2){0.0f, 0.0f};
+    return h3d_proj_dy(m, h3d_cap_world(m, u, v), h3d_offY(m, 0));
 }
 
 Vector2 Holo3D_ColumnPoint(const Holo3DModel *m, float u, float v, float depth01)
@@ -820,9 +825,18 @@ void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3D
     if (hud->reticle)
     {
         const float dy0 = h3d_offY(m, 0) + 2.0f;
-        #define ONSURF(X, Z) h3d_proj_dy(m, (V3){((X) - 0.5f) * m->W, \
-            -h3d_field(&m->profile[0], (X), (Z)) * m->D, ((Z) - 0.5f) * m->W}, dy0)
-        const float rr = 0.16f, a0 = t * 0.9f;
+        /* The ring is built about (0.5, 0.5). Unmoved it rides the
+         * reference's profile, exactly as the JS does and the visual diff
+         * measures; moved, it is shifted to its centre and laid on the cap's
+         * real surface -- the same one Holo3D_HitCap picked the point on. */
+        const bool at = hud->reticleAt;
+        const float rcu = at ? hud->reticleU - 0.5f : 0.0f;
+        const float rcv = at ? hud->reticleV - 0.5f : 0.0f;
+        #define ONSURF(X, Z) (at \
+            ? h3d_proj_dy(m, h3d_cap_world(m, (X) + rcu, (Z) + rcv), dy0) \
+            : h3d_proj_dy(m, (V3){((X) - 0.5f) * m->W, \
+                  -h3d_field(&m->profile[0], (X), (Z)) * m->D, ((Z) - 0.5f) * m->W}, dy0))
+        const float rr = hud->reticleAt ? hud->reticleR : 0.16f, a0 = t * 0.9f;
         Vector2 buf[64];
         #define RING(RAD, A1, A2, N) do { \
             for (int _i = 0; _i <= (N); _i++) { \
@@ -862,7 +876,7 @@ void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3D
         RING(rr * (0.12f + 0.35f * pulse), 0.0f, TAU, 40);
         c2d_polyline(buf, 41, (Color){95, 240, 255,
                      (unsigned char)lroundf((0.7f - 0.6f * pulse) * 255.0f)}, 1.5f);
-        if (!small)
+        if (!small && !hud->reticleAt)
         {
             const Vector2 lead[3] = {c, {c.x + 70.0f * s, c.y - 95.0f * s},
                                         {c.x + 150.0f * s, c.y - 95.0f * s}};
