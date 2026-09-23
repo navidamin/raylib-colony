@@ -130,8 +130,8 @@ shell only ever SHRINKS it into the viewport (continuous, never snapped):
 | 2560x1440 | 2.0 | 2 | 2560x1440 |
 | 3840x2160 (4K) | ~2.8-3 | 3 (the cap) | 3840x2160 |
 
-`renderScale = fit > 1.05 ? min(3, ceil(fit - 0.05)) : 1`, chosen once at load
-in `tools/playtest/playtest_main.cpp`. The console's own surfaces do not grow
+`step = fit > 1.05 ? min(3, ceil(fit - 0.05)) : 1` -- `DisplayScale_StepForFit`
+in `src/display_scale.cpp`, the one owner of the scale for every build. The console's own surfaces do not grow
 with it (`DASH_SS` stays 1 on the web: the design surface is 1536 wide and is
 shown at under 1500 device px on a 1920 screen, so it is already downsampled).
 
@@ -163,26 +163,52 @@ LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
 tools/playtest/drive.py --scale 2 build/drive2 "move 640 175" "click" ...
 ```
 
-### Making every display work -- the plan
+### Every build, and following a resize: `src/display_scale.h`
 
-1. **Done: the playtest.** Buffer sized to the display, 1x-3x, browser only
-   downscales. Sharp and full-size from a laptop to 4K; the size no longer
-   depends on the toolbar.
-2. **Next: the other web builds** (`colony_game`, `viewtest`, `extraction`)
-   still publish a 1280x720 buffer and so still sit on the threshold. Each
-   needs the same three things the playtest has: pick `renderScale` before
-   `InitWindow`, publish `__colonyBufW/H` + `__colonyLogicalW/H`, and draw
-   inside `rlPushMatrix(); rlScalef(...)` with `SetPixelScale` for scissors.
-   The Engine's views that use `Camera2D` need the scale folded into the
-   camera zoom instead of a pushed matrix.
-3. **Then: follow a resize.** `renderScale` is chosen once, at load. Dragging
-   a window from a laptop panel to a 4K monitor keeps the old buffer (still
-   correct, just soft or oversized). Re-pick on resize and resize the canvas
-   (`SetWindowSize`) when the whole-number step changes.
-4. **Later, and only if wanted: aspect.** The layout is 16:9. Other shapes
-   (16:10 like 1920x1200, ultrawide, phones) get bars -- on 1920x1200, 60 px
-   top and bottom. Filling them means a layout that anchors to edges instead
-   of a fixed 1280x720, which touches every panel; not a scaling change.
+**All four web builds** -- the game, the playtest, the view test and the
+extraction sandbox -- choose, publish and draw through one module. Before it
+only the playtest supersampled, with its own copy of the logic; the rest
+shipped a 1280x720 buffer and sat on the threshold above.
+
+A pushed `rlScalef` is not enough on its own, because raylib takes the matrix
+away or ignores it in five places. Each has a counterpart, and game code must
+use it -- **never the raylib call directly**:
+
+| raylib | why it breaks at 2x | use |
+|---|---|---|
+| `BeginMode2D` / `EndMode2D` | load an identity matrix: the camera views drew at 1x, then everything after them did too | `DisplayScale_BeginMode2D` / `EndMode2D` (scale folded into a copy of the camera) |
+| `BeginTextureMode` / `EndTextureMode` | inside: the frame's scale still applies (texture drawn 2x); after: rlgl's matrix pointer left on the modelview (the runaway above) | `DisplayScale_BeginTextureMode` / `EndTextureMode` |
+| `BeginScissorMode` | clips in raw buffer pixels | `DisplayScale_BeginScissor` (logical rect; 1:1 inside a texture) |
+| `GetMouseDelta` | buffer pixels on every platform -- drags ran twice as fast | `DisplayScale_MouseDelta` (InputManager uses it) |
+| `GetScreenWidth` / `Height` | the buffer, 2560 -- layout would spread across four screens' worth | `DisplayScale_LogicalW` / `H` |
+
+`GetMousePosition` is already covered: game code reads `ColonyGetMousePosition`,
+which the shell (web) or `SetMouseScale` (native) keeps in logical units. The
+build stamps deliberately keep `GetScreenWidth`: they report the buffer.
+
+**Following a resize.** `DisplayScale_Poll`, once a frame outside the draw,
+re-measures the viewport every 0.5 s (the same smallest-of-all-sources
+measurement the shell fits with). When the step it wants has held for 0.6 s
+it republishes `__colonyBufW/H` and calls `SetWindowSize`; raylib's own size
+callback moves the viewport, and the shell's fit picks up the new buffer on
+its next pass. The settle time is there because dragging a window edge
+crosses a threshold many times a second and each resize clears the canvas.
+Within one step nothing is resized -- the shell's CSS fit handles it.
+Natively the window is not resizable, so Poll does nothing; `--scale-to N`
+drives the same `DisplayScale_Apply` at frame 20 so the path can be tested.
+
+**Verified natively** (2560x1440 and 3840x2160 virtual screens): the playtest
+at 2x and 3x; a live 1x -> 2x and 2x -> 1x resize mid-run; all four game
+views through the view test at 1x and 2x, identical in layout; the main game
+from its menu to the planet view with the hovered cell under the pointer;
+and a middle-button pan at 2x moving 59.5 logical units for a 60-unit drag
+(raw would read 119). Not verifiable here: a real browser resize -- that is
+the first thing to try on the deployed page.
+
+**Still open: aspect.** The layout is 16:9. Other shapes (16:10 like
+1920x1200, ultrawide, phones) get bars -- on 1920x1200, 60 px top and bottom.
+Filling them means a layout that anchors to edges instead of a fixed
+1280x720, which touches every panel; it is a layout change, not a scaling one.
 
 ## The fix (SHELL v4, in `src/minshell.html`)
 

@@ -2,6 +2,7 @@
 #include "survey_dash.h"
 #include "rlgl.h"
 #include "web_mouse.h"
+#include "display_scale.h"
 #include "resource_manager.h"
 #include "terrain_synthesis.h"
 #include "resource_types.h"
@@ -189,10 +190,12 @@ void RenderManager::BeginDraw() {
     pointerClaimed = false;
     BeginDrawing();
     ClearBackground(RAYWHITE);
+    DisplayScale_BeginFrame();
 }
 
 void RenderManager::EndDraw() {
     RestorePointerIfUnclaimed();
+    DisplayScale_EndFrame();
     EndDrawing();
 }
 
@@ -220,15 +223,15 @@ void RenderManager::DrawMenuView() {
     int fontSize = 60;
     Texture2D image = LoadTexture("src/assets/Logo.png");
 
-    int textX = GetScreenWidth()/2 - MeasureText("COLONY", 60)/2;
-    int textY = GetScreenHeight()/3;
+    int textX = DisplayScale_LogicalW()/2 - MeasureText("COLONY", 60)/2;
+    int textY = DisplayScale_LogicalH()/3;
     int imageX = textX - image.width + 30;  // Position image 10 pixels to the left of the text
-    int imageY = GetScreenHeight()/2;  // Center the image vertically with the text
+    int imageY = DisplayScale_LogicalH()/2;  // Center the image vertically with the text
 
     ClearBackground(IVORY);
     DrawTexture(image, imageX, imageY, WHITE);  // Draw the image on the left
-    DrawText("COLONY", GetScreenWidth()/2 - MeasureText("COLONY", 60)/2, GetScreenHeight()/3, 60, BLACK);
-    DrawText("Press ENTER to start", GetScreenWidth()/2 - MeasureText("Press ENTER to start", 20)/2, GetScreenHeight()/2, 20, GRAY);
+    DrawText("COLONY", DisplayScale_LogicalW()/2 - MeasureText("COLONY", 60)/2, DisplayScale_LogicalH()/3, 60, BLACK);
+    DrawText("Press ENTER to start", DisplayScale_LogicalW()/2 - MeasureText("Press ENTER to start", 20)/2, DisplayScale_LogicalH()/2, 20, GRAY);
 }
 
 void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<Colony*>& colonies,
@@ -242,7 +245,7 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
 
     bool terrainReady = false;
 
-    BeginMode2D(camera);
+    DisplayScale_BeginMode2D(camera);
 
     if (planet) {  // Guard against null planet
         ClearBackground(BLACK);
@@ -329,7 +332,7 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
         planet->DrawResourceDebug(camera.zoom);
     }
 
-    EndMode2D();
+    DisplayScale_EndMode2D();
 
     // Show the Cell info if Ctrl+I is held
     if (inputManager.IsInfoKeyPressed()) {
@@ -380,7 +383,7 @@ void RenderManager::DrawPlanetView(Camera2D camera, Planet* planet, std::vector<
                         terrainLevels[0].id),
              10, screenHeight - 62, 14, DARKGRAY);
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
-    DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
+    DrawText("Press Ctrl+I to see map info", 10, DisplayScale_LogicalH() - 40, 20, DARKGRAY);
 }
 
 void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* planet,
@@ -389,7 +392,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
                                    bool buildRoadMode, Sect* roadBuildStartSect) {
     ServicePendingTerrain();
     // Start drawing with camera transformation
-    BeginMode2D(camera);
+    DisplayScale_BeginMode2D(camera);
 
     if (colony) {
         // Ground: level 1 of the chain (25 km) centred on the colony —
@@ -502,7 +505,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
         planet->DrawResourceDebug(camera.zoom);
     }
 
-    EndMode2D();
+    DisplayScale_EndMode2D();
 
     // Draw road info panel (screen-space, after EndMode2D)
     if (selectedRoad) {
@@ -620,7 +623,7 @@ void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* plan
     DrawText("Press P for Planet View", 10, 70, 20, GRAY);
 
     DrawText(TextFormat("Zoom: %.2f", camera.zoom), 10, screenHeight - 20, 20, GRAY);
-    DrawText("Press Ctrl+I to see map info", 10, GetScreenHeight() - 40, 20, DARKGRAY);
+    DrawText("Press Ctrl+I to see map info", 10, DisplayScale_LogicalH() - 40, 20, DARKGRAY);
 
     // Draw colony reserve dashboard (left side)
     if (colony)
@@ -842,8 +845,8 @@ void RenderManager::ServicePendingTerrain()
 
 void RenderManager::DrawTerrainLoadingNotice()
 {
-    int w = GetScreenWidth();
-    int h = GetScreenHeight();
+    int w = DisplayScale_LogicalW();
+    int h = DisplayScale_LogicalH();
     DrawRectangle(0, 0, w, h, Color{8, 10, 14, 255});
 
     const char* title = "GENERATING TERRAIN";
@@ -1116,8 +1119,8 @@ void RenderManager::DrawCellInfo(Vector2 mousePosition, Camera2D camera, Planet*
     int boxHeight = (lineHeight * infoLines.size()) + (padding * 2);
 
     // Adjust popup position to stay within screen bounds
-    int screenWidth = GetScreenWidth();
-    int screenHeight = GetScreenHeight();
+    int screenWidth = DisplayScale_LogicalW();
+    int screenHeight = DisplayScale_LogicalH();
     Vector2 popupPos = mousePosition;
     popupPos.x += 20; // Offset from cursor
     popupPos.y += 20;
@@ -2538,22 +2541,12 @@ static void ExtDrawSegBar(float x, float y, float w, float h, float value, Color
     }
 }
 
-// Scissor rects are framebuffer-pixel, not matrix-transformed: under a
-// supersampled web build every BeginScissorMode multiplies by this.
-static float gPixelScale = 1.0f;
-void RenderManager::SetPixelScale(float scale)
-{
-    gPixelScale = scale > 0.0f ? scale : 1.0f;
-}
-
 // Diagonal hazard stripes clipped to a rectangle (danger button edges).
 static void ExtDrawHazardStripes(Rectangle r, Color c)
 {
     const float stride = 14.0f;
-    BeginScissorMode(static_cast<int>(r.x * gPixelScale),
-                     static_cast<int>(r.y * gPixelScale),
-                     static_cast<int>(r.width * gPixelScale),
-                     static_cast<int>(r.height * gPixelScale));
+    DisplayScale_BeginScissor(static_cast<int>(r.x), static_cast<int>(r.y),
+                              static_cast<int>(r.width), static_cast<int>(r.height));
     for (float sx = r.x - r.height; sx < r.x + r.width; sx += stride)
     {
         DrawLineEx({sx, r.y + r.height}, {sx + r.height, r.y}, 4.0f, c);
@@ -2589,7 +2582,7 @@ void RenderManager::DrawSiteSelectionView(Camera2D camera, Planet* planet, Vecto
     DrawRectangle(0, 0, screenWidth, screenHeight, EXT_SCREEN_BG);
 
     // --- World-space: the survey map -------------------------------------
-    BeginMode2D(camera);
+    DisplayScale_BeginMode2D(camera);
 
     if (tilesLoaded)
     {
@@ -2667,7 +2660,7 @@ void RenderManager::DrawSiteSelectionView(Camera2D camera, Planet* planet, Vecto
         DrawRectangleRec({wx + cellSize - tw, wy + cellSize - tick, tw, tick}, acc);
     }
 
-    EndMode2D();
+    DisplayScale_EndMode2D();
 
     // --- Screen-space chrome ---------------------------------------------
 
@@ -3531,7 +3524,7 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(dash, console, mouse);
             if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
             {
-                const Vector2 d = GetMouseDelta();
+                const Vector2 d = DisplayScale_MouseDelta();
                 if (d.x != 0.0f || d.y != 0.0f) SurveyDash_Drag(dash, console, d);
             }
             const float wheel = GetMouseWheelMove();
@@ -5505,10 +5498,8 @@ static void ProsDrawBoreholeDock(Unit* unit, ProspectingSystem* ps,
         prosSpin += 2.4f * dt;
     }
 
-    BeginScissorMode(static_cast<int>(dg.x * gPixelScale),
-                     static_cast<int>(clipTop * gPixelScale),
-                     static_cast<int>(dg.w * gPixelScale),
-                     static_cast<int>((clipBot - clipTop) * gPixelScale));
+    DisplayScale_BeginScissor(static_cast<int>(dg.x), static_cast<int>(clipTop),
+                              static_cast<int>(dg.w), static_cast<int>(clipBot - clipTop));
 
     // The stage shakes with the work (redline): a rumble scaling with the
     // spindle, a jolt when the bit lets go. The whole dock translates as one
@@ -7042,8 +7033,8 @@ void RenderManager::DrawProspectingPanel(Unit* unit, int x, int y, int w, int h)
        past the bottom, and a control drawn outside its panel is both ugly and
        still clickable. */
     auto InPanel = [&](Rectangle box, auto&& draw) {
-        BeginScissorMode(static_cast<int>(box.x), static_cast<int>(box.y),
-                         static_cast<int>(box.width), static_cast<int>(box.height));
+        DisplayScale_BeginScissor(static_cast<int>(box.x), static_cast<int>(box.y),
+                                  static_cast<int>(box.width), static_cast<int>(box.height));
         draw(box);
         EndScissorMode();
     };
@@ -7646,10 +7637,8 @@ static void ExcDrawShaftDock(ExcavationSystem* es, const DockGeom& dg,
     excHeatAmt = es->bitHeat;
     excHeatBitY = faceY;
 
-    BeginScissorMode(static_cast<int>(dg.x * gPixelScale),
-                     static_cast<int>(clipTop * gPixelScale),
-                     static_cast<int>(dg.w * gPixelScale),
-                     static_cast<int>((clipBot - clipTop) * gPixelScale));
+    DisplayScale_BeginScissor(static_cast<int>(dg.x), static_cast<int>(clipTop),
+                              static_cast<int>(dg.w), static_cast<int>(clipBot - clipTop));
 
     // sky
     DrawRectangleRec({dg.x, clipTop, dg.w, surfY - clipTop}, {10, 16, 24, 255});
@@ -8808,14 +8797,14 @@ void RenderManager::DrawOrbitalView() {
     // If the screen is smaller in either dimension, the texture overflows
     // the visible area — that's fine, the disc is still centred.
     if (orbitalNearTexture.id != 0) {
-        int x = (GetScreenWidth()  - orbitalNearTexture.width)  / 2;
-        int y = (GetScreenHeight() - orbitalNearTexture.height) / 2;
+        int x = (DisplayScale_LogicalW()  - orbitalNearTexture.width)  / 2;
+        int y = (DisplayScale_LogicalH() - orbitalNearTexture.height) / 2;
         DrawTexture(orbitalNearTexture, x, y, WHITE);
     }
 
     DrawText("Lunar Orbit",            20, 20, 26, RAYWHITE);
     DrawText("ENTER  descend to surface",
-             20, GetScreenHeight() - 60, 18, LIGHTGRAY);
+             20, DisplayScale_LogicalH() - 60, 18, LIGHTGRAY);
     DrawText("ESC    return to menu",
-             20, GetScreenHeight() - 36, 18, LIGHTGRAY);
+             20, DisplayScale_LogicalH() - 36, 18, LIGHTGRAY);
 }

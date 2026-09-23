@@ -3,6 +3,7 @@
 
 #include "raylib.h"
 #include "web_mouse.h"
+#include "display_scale.h"
 #include "raymath.h"
 #include <iostream>
 
@@ -18,7 +19,8 @@ public:
     bool IsCommandPressed() const { return IsKeyDown(KEY_LEFT_CONTROL); }
 
     Vector2 GetMousePosition() const { return ::ColonyGetMousePosition(); }
-    Vector2 GetMouseDelta() const { return ::GetMouseDelta(); }
+    // logical units: raylib's own delta is in buffer pixels
+    Vector2 GetMouseDelta() const { return DisplayScale_MouseDelta(); }
     bool IsMouseDragging() const { return isDragging; }
     Vector2 GetDragStart() const { return dragStart; }
 

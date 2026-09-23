@@ -1,5 +1,6 @@
 #include "Engine.h"
 #include "survey_dash.h"
+#include "display_scale.h"
 #include <ctime>
 #include <cmath>
 
@@ -15,7 +16,10 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
       gameManager(),
       renderManager(screenWidth, screenHeight)
 {
-    InitWindow(screenWidth, screenHeight, title);
+    // The layout is screenWidth x screenHeight; the window is that times the
+    // display scale (1x-3x), and every frame is drawn through the scale.
+    InitWindow(DisplayScale_BufferW(), DisplayScale_BufferH(), title);
+    DisplayScale_AfterWindow();
     SetTargetFPS(60);
     renderManager.LoadFonts();
 }
@@ -41,6 +45,8 @@ void Engine::InitGame() {
 }
 
 void Engine::UpdateFrame() {
+    // Outside the frame: a resize clears the canvas and changes the buffer.
+    DisplayScale_Poll(GetFrameTime());
     HandleInput();
     Update();
     Draw();

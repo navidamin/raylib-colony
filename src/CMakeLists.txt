@@ -50,6 +50,7 @@ set(COLONY_CORE_SOURCES
     Excavation/excavation_system.cpp
     transport_types.cpp
     web_mouse.cpp
+    display_scale.cpp
 )
 
 set(COLONY_INCLUDE_DIRS
@@ -368,6 +369,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Survey/survey_block.cpp
         Survey/survey_console.cpp
         Survey/survey_rig.cpp
+        display_scale.cpp
         Excavation/site_view.cpp
         Excavation/estimate_engine.cpp
         Excavation/dig_engine.cpp

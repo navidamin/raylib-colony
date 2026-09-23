@@ -1,4 +1,5 @@
 #include "sect.h"
+#include "display_scale.h"
 #include "colony.h"
 #include <iostream>
 
@@ -706,7 +707,7 @@ namespace
 
 void Sect::DrawInSectView(Vector2 position) {
     // Dome-station layout: hex-glass domes, connector arms, ring road, entry rails
-    float h = (float)GetScreenHeight();
+    float h = (float)DisplayScale_LogicalH();
     Vector2 center = {position.x, position.y - h * 0.04f};
     float domeRadius = h * 0.15f;                    // Central dome
     float collarOut = domeRadius * 1.22f;            // Hub bezel outer edge
@@ -838,10 +839,10 @@ void Sect::DrawResourceStats(Vector2 position, float coreRadius) {
 void Sect::DrawTransparentRightPanel() {
     int panelWidth = 100;
     Rectangle panel = {
-        (float)GetScreenWidth() - panelWidth,
+        (float)DisplayScale_LogicalW() - panelWidth,
         0,
         (float)panelWidth,
-        (float)GetScreenHeight()
+        (float)DisplayScale_LogicalH()
     };
     DrawRectangleRec(panel, Fade(Color{12, 15, 17, 255}, 0.72f));
     DrawLineEx(Vector2{panel.x, 0.0f}, Vector2{panel.x, panel.height}, 1.0f,
@@ -849,7 +850,7 @@ void Sect::DrawTransparentRightPanel() {
 
     // Draw panel content (e.g., notifications, alerts)
     DrawText("UPDATES",
-            GetScreenWidth() - panelWidth + 10,
+            DisplayScale_LogicalW() - panelWidth + 10,
             10,
             16,
             Color{180, 230, 200, 255});

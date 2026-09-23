@@ -19,6 +19,8 @@
 #include "raylib.h"
 
 #include "rendermanager.h"
+#include "display_scale.h"
+#include "web_mouse.h"
 #include "planet.h"
 #include "colony.h"
 #include "sect.h"
@@ -340,7 +342,7 @@ static void DrawOrbitalPickMarker(const ViewTestContext& ctx)
         // Hovering: a translucent playfield box follows the cursor
         // wherever it is over the moon, so you can see exactly what
         // region you would be taking before committing to it.
-        Vector2 m = GetMousePosition();
+        Vector2 m = ColonyGetMousePosition();
         double lat, lon;
         if (OrbitalPickToLatLon(m.x, m.y, VT_WIDTH, VT_HEIGHT, &lat, &lon))
         {
@@ -369,7 +371,7 @@ static void DrawOrbitalPickMarker(const ViewTestContext& ctx)
 
     // The cursor keeps its ghost box while the prompt is open, so it
     // reads as "you can still point somewhere else".
-    Vector2 hm = GetMousePosition();
+    Vector2 hm = ColonyGetMousePosition();
     if (!CheckCollisionPointRec(hm, pr.panel))
     {
         double hlat, hlon;
@@ -389,7 +391,7 @@ static void DrawOrbitalPickMarker(const ViewTestContext& ctx)
              (int)pr.panel.x + 14, (int)pr.panel.y + 36, 14,
              Color{170, 190, 215, 255});
 
-    Vector2 m = GetMousePosition();
+    Vector2 m = ColonyGetMousePosition();
     bool overYes = CheckCollisionPointRec(m, pr.yes);
     bool overNo = CheckCollisionPointRec(m, pr.no);
 
@@ -463,7 +465,7 @@ static void HandleInput(ViewTestContext& ctx)
                   || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
 
     // Clicks inside the note panel or nav bar should not navigate.
-    Vector2 m = GetMousePosition();
+    Vector2 m = ColonyGetMousePosition();
     if (descend && (m.y > VT_HEIGHT - 44
                     || (ctx.showIssues && m.x > VT_WIDTH - 500 && m.y < 320)))
     {
@@ -585,6 +587,7 @@ static void DrawFrame(ViewTestContext& ctx)
     ApplyViewCamera(ctx);
     BeginDrawing();
     ClearBackground(BLACK);
+    DisplayScale_BeginFrame();
 
     switch (ctx.level)
     {
@@ -610,12 +613,14 @@ static void DrawFrame(ViewTestContext& ctx)
     if (ctx.showIssues) DrawIssuePanel(ctx);
     DrawNavBar(ctx);
 
+    DisplayScale_EndFrame();
     EndDrawing();
 }
 
 static void UpdateFrame(void* arg)
 {
     ViewTestContext& ctx = *(ViewTestContext*)arg;
+    DisplayScale_Poll(GetFrameTime());   // outside the frame: may resize the buffer
     HandleInput(ctx);
     ctx.timeManager->Update(GetFrameTime());
     DrawFrame(ctx);
@@ -649,7 +654,9 @@ int main(int argc, char** argv)
     }
 
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(VT_WIDTH, VT_HEIGHT, "Colony - View Ladder Playtest");
+    DisplayScale_Init(VT_WIDTH, VT_HEIGHT, argc, argv);
+    InitWindow(DisplayScale_BufferW(), DisplayScale_BufferH(), "Colony - View Ladder Playtest");
+    DisplayScale_AfterWindow();
 
     int status = 0;
     {

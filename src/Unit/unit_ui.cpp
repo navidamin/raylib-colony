@@ -1,10 +1,11 @@
 #include "unit.h"
+#include "display_scale.h"
 #include "web_mouse.h"
 #include "unlock_registry.h"
 
 void Unit::DrawTopBar() {
     const int barHeight = 60;
-    DrawRectangle(0, 0, GetScreenWidth(), barHeight, DARKGRAY);
+    DrawRectangle(0, 0, DisplayScale_LogicalW(), barHeight, DARKGRAY);
 
     // Draw title
     //DrawText(("Unit Type: " + unit_type).c_str(), 20, 20, 20, WHITE);
@@ -19,18 +20,18 @@ void Unit::DrawTopBar() {
         titleText = TextFormat("Unit Control Panel");
     }
 
-    DrawText(titleText, GetScreenWidth()/2 - MeasureText(titleText,26)/2, 20, 28, BLACK);
+    DrawText(titleText, DisplayScale_LogicalW()/2 - MeasureText(titleText,26)/2, 20, 28, BLACK);
 
     // Draw day number
     const char* dayText = TextFormat("Day %d", timeManager.GetCurrentDay());
-    DrawText(dayText, GetScreenWidth() - MeasureText(dayText, 20) - 20, 20, 20, WHITE);
+    DrawText(dayText, DisplayScale_LogicalW() - MeasureText(dayText, 20) - 20, 20, 20, WHITE);
 }
 
 void Unit::DrawBottomBar() {
     const int barHeight = 40;
-    const int startY = GetScreenHeight() - barHeight;
+    const int startY = DisplayScale_LogicalH() - barHeight;
 
-    DrawRectangle(0, startY, GetScreenWidth(), barHeight, DARKGRAY);
+    DrawRectangle(0, startY, DisplayScale_LogicalW(), barHeight, DARKGRAY);
 
     // Draw message with fade effect
     if (currentMessage.opacity > 0) {
@@ -46,7 +47,7 @@ void Unit::DrawBottomBar() {
 void Unit::DrawResourcePanel() {
     const int leftPanelWidth = 300;
     const int rightPanelWidth = 300;
-    const int middlePanelWidth = GetScreenWidth() - leftPanelWidth - rightPanelWidth;
+    const int middlePanelWidth = DisplayScale_LogicalW() - leftPanelWidth - rightPanelWidth;
     const int topMargin = 80;
 
     // Calculate middle panel start X position
@@ -54,7 +55,7 @@ void Unit::DrawResourcePanel() {
 
     // Optional: Draw a subtle background for the middle panel
     DrawRectangle(middlePanelX, topMargin,
-                 middlePanelWidth, GetScreenHeight() - topMargin - 40,  // -40 for bottom bar
+                 middlePanelWidth, DisplayScale_LogicalH() - topMargin - 40,  // -40 for bottom bar
                  Fade(RAYWHITE, 0.5f));
 
     // Call modified DrawResourceStats with position parameters
@@ -201,7 +202,7 @@ void Unit::DrawControlPanel() {
         // Draw build button if not built
         if (!module.isBuilt) {
             Rectangle buildButton = {
-                static_cast<float>(GetScreenWidth() - rightPanelWidth + padding),
+                static_cast<float>(DisplayScale_LogicalW() - rightPanelWidth + padding),
                 static_cast<float>(topMargin + padding),
                 static_cast<float>(rightPanelWidth - padding * 2),
                 40
@@ -225,7 +226,7 @@ void Unit::DrawControlPanel() {
         // Draw upgrade button if built and not max level
         else if (module.level < 5) {
             Rectangle upgradeButton = {
-                static_cast<float>(GetScreenWidth() - rightPanelWidth + padding),
+                static_cast<float>(DisplayScale_LogicalW() - rightPanelWidth + padding),
                 static_cast<float>(topMargin + padding),
                 static_cast<float>(rightPanelWidth - padding * 2),
                 40
@@ -255,7 +256,7 @@ void Unit::DrawControlPanel() {
         // Draw activate/deactivate button if built
         if (module.isBuilt) {
             Rectangle toggleButton = {
-                static_cast<float>(GetScreenWidth() - rightPanelWidth + padding),
+                static_cast<float>(DisplayScale_LogicalW() - rightPanelWidth + padding),
                 static_cast<float>(topMargin + padding + 50),
                 static_cast<float>(rightPanelWidth - padding * 2),
                 40
@@ -290,13 +291,13 @@ void Unit::DrawControlPanel() {
         const int labelWidth = 100;
         const int controlWidth = rightPanelWidth - labelWidth - padding * 3;
         const Vector2 panelPos = {
-            static_cast<float>(GetScreenWidth() - rightPanelWidth),
+            static_cast<float>(DisplayScale_LogicalW() - rightPanelWidth),
             static_cast<float>(topMargin)
         };
 
         // Draw panel background
         DrawRectangle(panelPos.x, panelPos.y,
-                     rightPanelWidth, GetScreenHeight() - topMargin - 40,
+                     rightPanelWidth, DisplayScale_LogicalH() - topMargin - 40,
                      Fade(LIGHTGRAY, 0.2f));
 
         // Title
@@ -509,7 +510,7 @@ void Unit::DrawModuleDetails() {
     }
 
     const UnitModule& module = modules[selectedModuleIndex];
-    const int screenHeight = GetScreenHeight();
+    const int screenHeight = DisplayScale_LogicalH();
     const int bottomMargin = 80;  // Increased to make room for stats button
     const int leftMargin = 300;
     const int topMargin = 80;
@@ -666,7 +667,7 @@ void Unit::DrawModuleDetails() {
     const int buttonWidth = 100;
     const int horizontalPadding = 20;  // Padding from panel edges
     Rectangle statsButton = {
-        static_cast<float>(GetScreenWidth()/2 - 50),  // Start after left panel
+        static_cast<float>(DisplayScale_LogicalW()/2 - 50),  // Start after left panel
         static_cast<float>(screenHeight - bottomMargin + 10),
         static_cast<float>(buttonWidth),  // Fill width between panels
         30

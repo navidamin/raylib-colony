@@ -459,6 +459,13 @@ rendering it first.
 
 ## Web Builds & Mobile
 
+**Every frame is drawn at a display scale** (1x-3x, `src/display_scale.h`):
+the layout is 1280x720 logical, the buffer is bigger. In game code never call
+`BeginMode2D`/`EndMode2D`, `Begin/EndTextureMode`, `BeginScissorMode`,
+`GetMouseDelta` or `GetScreenWidth/Height` directly — use the `DisplayScale_*`
+counterparts, or the view breaks on any screen larger than 1280x720. Test with
+`--scale 2` on the playtest, view test, extraction sandbox or game.
+
 Before touching `src/minshell.html`, the Pages deploy workflow, or
 anything about the web/phone builds, read `docs/web-deploy-mobile.md` —
 it documents the three-layer canvas sizing problem (CSS size vs

@@ -115,9 +115,12 @@ tools/playtest/drive.py build/drive "move 640 175" "shot aim" "click" \
 # game output lands in build/drive/game.log
 ```
 
-`--scale 2` (first argument) runs the playtest's supersampled path -- what
-the web build does on a 1920-wide screen -- on a doubled virtual screen; step
-coordinates stay in the 1280x720 layout.
+`--scale 2` runs the supersampled path -- what the web build does on a
+1920-wide screen -- on a doubled virtual screen; step coordinates stay in the
+1280x720 layout. `--bin colony_game` (or `colony_viewtest`,
+`colony_extraction`) drives another build. Keys (`key Return`) are held
+across frames like clicks, and `mdown`/`mup` work the middle button (the
+map's pan).
 
 Needs `Xvfb`, `xdotool`, `python-xlib` and Pillow. Two things it learned the
 hard way: software GL draws the console at ~0.6 s a frame, so a click is held

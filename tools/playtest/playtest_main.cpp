@@ -32,6 +32,7 @@
 
 #include "raylib.h"
 #include "rlgl.h"
+#include "display_scale.h"
 #include "web_mouse.h"
 
 #include "rendermanager.h"
@@ -83,13 +84,12 @@ struct PlaytestContext
 
     int screenWidth = 1280;
     int screenHeight = 720;
-    // Web supersampling: on a screen larger than the layout the buffer is
-    // renderScale x bigger and every frame draws through a matrix scale, so
-    // the browser only ever DOWNSCALES -- sharp at any fraction, where
-    // stretching the 1280 buffer smeared every small glyph. Layout, input
-    // and all game code stay in 1280x720 logical space.
-    int renderScale = 1;
+    // The buffer is 1x-3x the layout, chosen and followed by
+    // src/display_scale.h; everything here stays in 1280x720 logical space.
     int frame = 0;
+    // --scale-to N: natively, change the scale at frame 20 -- the same
+    // DisplayScale_Apply a web resize goes through (0 = never).
+    int scaleTo = 0;
     const char* shotPath = nullptr;
     bool statementOpen = false;
     bool done = false;
@@ -253,6 +253,9 @@ static void UpdateDrawFrame(void* arg)
     PlaytestContext& ctx = *static_cast<PlaytestContext*>(arg);
 
     float deltaTime = GetFrameTime();
+    // Outside the frame: following a resize changes the buffer.
+    DisplayScale_Poll(deltaTime);
+    if (ctx.scaleTo > 0 && ctx.frame == 20) DisplayScale_Apply(ctx.scaleTo);
     ctx.timeManager->Update(deltaTime);
     ctx.unit->Update(deltaTime);
 
@@ -268,15 +271,9 @@ static void UpdateDrawFrame(void* arg)
 
     BeginDrawing();
     ClearBackground(BLACK);
-    // Everything draws in 1280x720 logical space; the matrix carries it into
-    // the (possibly supersampled) buffer. Scissors don't ride the matrix --
-    // RenderManager scales those itself via SetPixelScale.
-    rlPushMatrix();
-    if (ctx.renderScale != 1)
-    {
-        rlScalef(static_cast<float>(ctx.renderScale),
-                 static_cast<float>(ctx.renderScale), 1.0f);
-    }
+    // Everything draws in 1280x720 logical space; the display scale carries
+    // it into the (possibly bigger) buffer.
+    DisplayScale_BeginFrame();
     ctx.renderManager->DrawUnitView(ctx.unit.get(), *ctx.timeManager);
 
     // On-screen controls (touch-friendly), tucked into the top bar
@@ -316,7 +313,7 @@ static void UpdateDrawFrame(void* arg)
                  Color{90, 110, 130, 255});
     }
 
-    rlPopMatrix();
+    DisplayScale_EndFrame();
     EndDrawing();
     ctx.frame++;
 
@@ -379,67 +376,19 @@ int main(int argc, char** argv)
     for (int i = 1; i < argc - 1; i++)
     {
         if (std::string(argv[i]) == "--shot") ctx.shotPath = argv[i + 1];
-        // Native only: render through the same matrix scale the web build
-        // uses, so a supersampling bug can be reproduced without a browser.
-        if (std::string(argv[i]) == "--scale") ctx.renderScale = std::max(1, std::atoi(argv[i + 1]));
+        if (std::string(argv[i]) == "--scale-to") ctx.scaleTo = std::atoi(argv[i + 1]);
     }
 
     SetTraceLogLevel(LOG_WARNING);
-#ifdef __EMSCRIPTEN__
-    // Choose the supersample before the window exists, and tell the shell
-    // (SHELL v6 reads __colonyBufW/H to pin the framebuffer, and
-    // __colonyLogicalW/H to keep pointer coordinates in layout space).
-    {
-        int devW = EM_ASM_INT({
-            return Math.round(document.documentElement.clientWidth
-                              * (window.devicePixelRatio || 1));
-        });
-        int devH = EM_ASM_INT({
-            return Math.round(document.documentElement.clientHeight
-                              * (window.devicePixelRatio || 1));
-        });
-        /* THE BUFFER IS SIZED TO THE DISPLAY, and always at least as big as
-           what the browser will show, so the browser only ever SHRINKS it.
-           A 1280x720 buffer on a 1920x1200 screen has two bad options -- a
-           fractional upscale (soft) or a 1:1 island in the middle (small) --
-           and the shell flips between them as the viewport height changes
-           with toolbars and fullscreen. Rendering the 1280x720 layout through
-           a whole-number scale removes the choice: 1920x1200 gets 2x
-           (2560x1440, shown at ~1870 wide), a 4K screen 3x.
-
-           Capped at 3: at 3840x2160 the canvas is 33 MB, and the console's
-           own surfaces do not grow with it (DASH_SS stays 1 on the web).
-
-           This was off for a while: the console reset rlgl's matrix pointer
-           and the scale compounded every frame into a black screen. Fixed in
-           c2d_unbind; see docs/web-deploy-mobile.md. */
-        {
-            const float fit = std::min(devW / static_cast<float>(ctx.screenWidth),
-                                       devH / static_cast<float>(ctx.screenHeight));
-            ctx.renderScale = (fit > 1.05f)
-                ? std::min(3, static_cast<int>(std::ceil(fit - 0.05f))) : 1;
-        }
-        EM_ASM({
-            window.__colonyBufW = $0; window.__colonyBufH = $1;
-            window.__colonyLogicalW = $2; window.__colonyLogicalH = $3;
-        }, ctx.screenWidth * ctx.renderScale, ctx.screenHeight * ctx.renderScale,
-           ctx.screenWidth, ctx.screenHeight);
-    }
-#endif
-    InitWindow(ctx.screenWidth * ctx.renderScale,
-               ctx.screenHeight * ctx.renderScale,
+    // Web: the step comes from the display; natively from --scale N.
+    DisplayScale_Init(ctx.screenWidth, ctx.screenHeight, argc, argv);
+    InitWindow(DisplayScale_BufferW(), DisplayScale_BufferH(),
                "Colony - Prospecting Playtest");
-#ifndef __EMSCRIPTEN__
-    // The layout is 1280x720 whatever the buffer; the web shell converts the
-    // pointer for itself, natively raylib has to.
-    if (ctx.renderScale != 1)
-        SetMouseScale(1.0f / ctx.renderScale, 1.0f / ctx.renderScale);
-#endif
+    DisplayScale_AfterWindow();
     SetTargetFPS(60);
 
     {
         RenderManager renderManager(ctx.screenWidth, ctx.screenHeight);
-        renderManager.SetPixelScale(static_cast<float>(ctx.renderScale));
         renderManager.LoadFonts();
 
         // The constructor only allocates the grids; Planet normally calls this

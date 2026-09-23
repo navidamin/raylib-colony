@@ -2,6 +2,7 @@
 #include "survey_console.h"
 
 #include "rlgl.h"
+#include "display_scale.h"
 
 #include <algorithm>
 #include <cmath>
@@ -595,10 +596,10 @@ void SurveyRigDraw::Draw(const SurveyConsole& console, const SurveyCamera& cam,
         // to the one that was in hand a moment ago.
         DrawGlyphRing(std::round(p.cx - ox), std::round(p.collarY - oy),
                       -rig.clock * 1.9f, Fade2(G_CY, 0.7f), GLY_U);
-        BeginScissorMode(static_cast<int>(p.cx - ox - 46.0f * DRILL_S),
-                         static_cast<int>(blockRect.y - oy),
-                         static_cast<int>(92.0f * DRILL_S),
-                         static_cast<int>(p.collarY - blockRect.y));
+        DisplayScale_BeginScissor(static_cast<int>(p.cx - ox - 46.0f * DRILL_S),
+                                  static_cast<int>(blockRect.y - oy),
+                                  static_cast<int>(92.0f * DRILL_S),
+                                  static_cast<int>(p.collarY - blockRect.y));
         DrawRigBody(p.cx - ox, p.tipY - oy, lit, p.tail, rig.feed, p.head - oy, rig.clock);
         EndScissorMode();
     };
@@ -608,10 +609,10 @@ void SurveyRigDraw::Draw(const SurveyConsole& console, const SurveyCamera& cam,
         EnsureFadeBuf(blockRect);
         if (fadeBuf.id != 0)
         {
-            BeginTextureMode(fadeBuf);
+            DisplayScale_BeginTextureMode(fadeBuf);
             ClearBackground(BLANK);
             paint(blockRect.x, blockRect.y);
-            EndTextureMode();
+            DisplayScale_EndTextureMode();
             // Render textures come back y-flipped, hence the negative height.
             DrawTextureRec(fadeBuf.texture,
                            { 0.0f, 0.0f, blockRect.width, -blockRect.height },

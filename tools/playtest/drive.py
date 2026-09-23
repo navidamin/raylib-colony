@@ -6,13 +6,14 @@ reacts to hover, a click sequence or a cursor shape could never be looked at
 before it shipped. This runs the playtest on its own virtual X display, moves
 and clicks a real X pointer with xdotool, and grabs the screen between steps.
 
-    tools/playtest/drive.py [--scale N] out_dir  "move 620 170" "click" "wait 0.5" \\
+    tools/playtest/drive.py [--scale N] [--bin colony_game] out_dir  "move 620 170" "click" "wait 0.5" \\
                                     "move 640 260" "shot stretch" ...
 
 Steps:
     move X Y        pointer to window coordinates (1280x720 game space)
     click           left press + release
     down / up       left press, left release (for drags)
+    mdown / mup     the same with the middle button
     wait S          seconds
     shot NAME       write out_dir/NAME.png of the whole window
     key K           an xdotool key name (Escape, t, r ...)
@@ -62,8 +63,13 @@ def main():
     # an N-times screen. Step coordinates stay in the 1280x720 layout.
     args = sys.argv[1:]
     scale = 1
-    if args and args[0] == "--scale":
-        scale = int(args[1]); args = args[2:]
+    binary = BIN
+    while args and args[0].startswith("--"):
+        if args[0] == "--scale":
+            scale = int(args[1])
+        elif args[0] == "--bin":           # e.g. colony_game, colony_viewtest
+            binary = os.path.join(ROOT, "build", "src", args[1])
+        args = args[2:]
     global HOLD
     HOLD *= scale                   # a 2x frame takes about twice as long
     out = args[0]
@@ -76,7 +82,7 @@ def main():
     time.sleep(1.0)
     env = {**os.environ, "DISPLAY": DISP, "LIBGL_ALWAYS_SOFTWARE": "1", "GALLIUM_DRIVER": "llvmpipe"}
     log = open(os.path.join(out, "game.log"), "w")
-    game = subprocess.Popen([BIN, "--scale", str(scale)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+    game = subprocess.Popen([binary, "--scale", str(scale)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
     try:
         time.sleep(6.0)                     # window, fonts, ground
         for step in steps:
@@ -96,7 +102,10 @@ def main():
                 xdo("mousedown", "1"); time.sleep(HOLD); xdo("mouseup", "1"); time.sleep(HOLD)
             elif a[0] == "down":  xdo("mousedown", "1")
             elif a[0] == "up":    xdo("mouseup", "1")
-            elif a[0] == "key":   xdo("key", a[1])
+            elif a[0] == "mdown": xdo("mousedown", "2")    # middle: the map's pan
+            elif a[0] == "mup":   xdo("mouseup", "2")
+            elif a[0] == "key":            # held across frames, as "click"
+                xdo("keydown", a[1]); time.sleep(HOLD); xdo("keyup", a[1]); time.sleep(HOLD)
             elif a[0] == "wait":  time.sleep(float(a[1]))
             elif a[0] == "shot":
                 time.sleep(HOLD)            # let a frame or two land

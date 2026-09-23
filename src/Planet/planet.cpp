@@ -1,4 +1,5 @@
 #include "planet.h"
+#include "display_scale.h"
 #include <iostream>
 
 Planet::Planet() :
@@ -155,8 +156,8 @@ void Planet::DrawPlanetGrid() {
     // Implement planet grid drawing logic here
     // For example:
     /*for (int i = 0; i < 20; i++) {
-        DrawLine(i * 10, 0, i * 10, GetScreenHeight(), LIGHTGRAY);
-        DrawLine(0, i * 10, GetScreenWidth(), i * 10, LIGHTGRAY);
+        DrawLine(i * 10, 0, i * 10, DisplayScale_LogicalH(), LIGHTGRAY);
+        DrawLine(0, i * 10, DisplayScale_LogicalW(), i * 10, LIGHTGRAY);
     }*/
 }
 

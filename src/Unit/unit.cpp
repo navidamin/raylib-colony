@@ -1,4 +1,5 @@
 #include "unit.h"
+#include "display_scale.h"
 #include "unlock_registry.h"
 #include <iostream>
 #include <cmath>
@@ -206,8 +207,8 @@ void Unit::DrawInSectView(Vector2 corePosition, float coreRadius, int index) {
 }
 
 void Unit::DrawInUnitView() {
-    const int screenWidth = GetScreenWidth();
-    const int screenHeight = GetScreenHeight();
+    const int screenWidth = DisplayScale_LogicalW();
+    const int screenHeight = DisplayScale_LogicalH();
 
     // Draw main background
     DrawRectangle(0, 0, screenWidth, screenHeight, RAYWHITE);

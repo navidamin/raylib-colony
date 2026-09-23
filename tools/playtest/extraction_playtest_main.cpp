@@ -24,6 +24,7 @@
 
 #include "raylib.h"
 #include "web_mouse.h"
+#include "display_scale.h"
 #include "rendermanager.h"
 #include "resource_manager.h"
 #include "time_manager.h"
@@ -168,6 +169,7 @@ static void UpdateDrawFrame(void* arg)
     Ctx& ctx = *static_cast<Ctx*>(arg);
 
     float deltaTime = GetFrameTime();
+    DisplayScale_Poll(deltaTime);     // outside the frame: may resize the buffer
 
     // Time acceleration is stepped rather than scaled into one big Update:
     // the dig engine works per tick, and a single 20x step would deplete a
@@ -196,6 +198,7 @@ static void UpdateDrawFrame(void* arg)
 
     BeginDrawing();
     ClearBackground(BLACK);
+    DisplayScale_BeginFrame();
     ctx.renderManager->DrawUnitView(ctx.unit.get(), *ctx.timeManager);
 
     // Sandbox controls along the top bar. Kept clear of "Press S for Sect
@@ -234,9 +237,10 @@ static void UpdateDrawFrame(void* arg)
                                          static_cast<int>(mouse.x), static_cast<int>(mouse.y),
                                          GetScreenWidth(), GetScreenHeight(),
                                          GetRenderWidth(), GetRenderHeight());
-        DrawText(readout, 8, GetScreenHeight() - 18, 12, probe);
+        DrawText(readout, 8, DisplayScale_LogicalH() - 18, 12, probe);
     }
 
+    DisplayScale_EndFrame();
     EndDrawing();
     ctx.frame++;
 
@@ -283,7 +287,10 @@ int main(int argc, char** argv)
     }
 
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(ctx.screenWidth, ctx.screenHeight, "Colony - Extraction Unit Playtest");
+    DisplayScale_Init(ctx.screenWidth, ctx.screenHeight, argc, argv);
+    InitWindow(DisplayScale_BufferW(), DisplayScale_BufferH(),
+               "Colony - Extraction Unit Playtest");
+    DisplayScale_AfterWindow();
     SetTargetFPS(60);
 
     {
