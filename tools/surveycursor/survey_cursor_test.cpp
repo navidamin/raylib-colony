@@ -11,6 +11,7 @@
 #include "survey_cursor.h"
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 // MSVC does not expose M_PI without _USE_MATH_DEFINES, and this test
 // broke the Windows build for three weeks because nothing else here
@@ -24,9 +25,59 @@ static void Check(bool ok, const char* what)
     if (!ok) failures++;
 }
 
+// 0. The ladder is THE ladder -- three levels, these spans, these names.
+//
+// This check is a tripwire, not a tautology. Five levels, then four, then
+// three: each time the ladder changed, the design docs and CLAUDE.md went
+// on describing the old one, and new sessions built against what they
+// read. If this fails, the ladder has changed on purpose or by accident.
+// Either way, before touching this test, change these to match:
+//
+//   CLAUDE.md                                   "Read this first" table
+//   docs/design/site-selection/README.md        "The one level ladder"
+//   docs/design/site-selection/site-selection-master-design.md  section 2
+//   src/TerrainGen/survey_cursor.h              the table in its header
+//   tools/lunarmap/lunarmap_main.cpp            LEVEL_QUESTION
+//
+// and never by adding a second ladder beside this one (graveyard 10).
+static void CheckTheOneLadder(const SurveyLevelDef* ladder)
+{
+    struct Expect { const char* name; double windowKm, cursorKm; bool snaps; };
+    static const Expect EXPECT[] = {
+        { "ORBITAL",  3000.0, 200.0, true  },
+        { "DISTRICT",  200.0,  25.0, true  },
+        { "SITE",       25.0,   1.5, false },
+    };
+    const int n = (int)(sizeof(EXPECT) / sizeof(EXPECT[0]));
+    bool ok = (SURVEY_LEVEL_COUNT == n);
+    Check(ok, "the one ladder has three levels (if not: read CheckTheOneLadder in tools/surveycursor/survey_cursor_test.cpp)");
+    if (!ok) return;
+    for (int i = 0; i < n; i++)
+    {
+        const Expect& e = EXPECT[i];
+        bool same = std::strcmp(ladder[i].name, e.name) == 0
+                 && std::fabs(ladder[i].windowSpanKm - e.windowKm) < 1e-9
+                 && std::fabs(ladder[i].footprintKm - e.cursorKm) < 1e-9
+                 && ladder[i].snapToGrid == e.snaps;
+        printf("   ladder %d %-9s window %7.1f km  cursor %6.1f km  %s\n",
+               i + 1, ladder[i].name, ladder[i].windowSpanKm,
+               ladder[i].footprintKm, same ? "" : "<-- differs from the docs");
+        Check(same, "level matches the documented ladder (if not: read CheckTheOneLadder)");
+        // Every cursor is the next level's window: what you frame is
+        // what you arrive in. The site cursor is the base, not a window.
+        if (i + 1 < n)
+            Check(std::fabs(ladder[i].footprintKm - ladder[i + 1].windowSpanKm) < 1e-9,
+                  "cursor is the next level's window");
+    }
+    Check(std::fabs(ladder[n - 1].footprintKm - SURVEY_BUILD_FOOTPRINT_KM) < 1e-9,
+          "the site cursor is the base's own footprint");
+}
+
 int main()
 {
     const SurveyLevelDef* ladder = GetSurveyLadder();
+
+    CheckTheOneLadder(ladder);
 
     // 1. Every ladder level sits inside the 15-30% band.
     for (int i = 0; i < SURVEY_LEVEL_COUNT; i++)

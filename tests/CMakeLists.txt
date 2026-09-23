@@ -83,3 +83,13 @@ target_link_libraries(colony_tests PRIVATE colony_testlib Catch2::Catch2WithMain
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(colony_tests)
+
+# ---- The level ladder's self-test ----
+# survey_cursor_test (tools/surveycursor) is built in src/, but it was never
+# registered here, so CI's ctest never ran it: the one test that knows the
+# shape of the level ladder -- three levels, Globe -> District (200 km) ->
+# Site (25 km) -- could fail without anyone seeing. It is plain main() with
+# an exit code, not Catch2, so it is registered as a command.
+if(TARGET survey_cursor_test)
+    add_test(NAME level_ladder COMMAND survey_cursor_test)
+endif()

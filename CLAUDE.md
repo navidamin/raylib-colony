@@ -41,6 +41,25 @@ entry 10 says what each was. **Do not add a second ladder.** If the
 design needs a level changed, change the one table and the tests and
 docs that name it.
 
+**Before touching the ladder, the terrain or site-selection code, check
+for other branches doing the same:**
+`git fetch -q && git branch -r --sort=-committerdate | head`, then look
+at anything recent touching `src/TerrainGen`, `src/SiteSelection` or
+`tools/lunarmap`. If there is one, tell the user before starting. On
+2026-09-23 two branches had diverged on exactly this code for five days
+without either knowing, and a bug fixed on one was still live on the
+other.
+
+**The Pages site is shared.** Every branch that deploys replaces every
+URL on it, so `/lunarmap/` shows whichever branch pushed last. Before
+judging a playtest, check which branch the latest "Deploy to GitHub
+Pages" run came from.
+
+Two checks guard the ladder: `survey_cursor_test` (run by CI's ctest as
+`level_ladder`) fails if the ladder's shape changes, and
+`tools/lunarmap/web_site_level_test.mjs` (run before every deploy) fails
+if the site level comes up without its ground in a browser at 1656×960.
+
 ---
 
 ## Session Catchup Procedure
