@@ -1,4 +1,5 @@
-// View-ladder playtest: Orbital -> Planet -> Colony -> Sect.
+// Game views walk: Orbital -> Planet -> Colony -> Sect. These are the game's
+// views, not the level ladder (that is lunar_map: Globe -> District -> Site).
 //
 // Walks the game's real geographic views with the real RenderManager, and
 // overlays the KNOWN ISSUES for whichever view you are looking at. The
@@ -663,7 +664,7 @@ int main(int argc, char** argv)
     }
 
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(VT_WIDTH, VT_HEIGHT, "Colony - View Ladder Playtest");
+    InitWindow(VT_WIDTH, VT_HEIGHT, "Colony - Game Views Walk");
 
     int status = 0;
     {

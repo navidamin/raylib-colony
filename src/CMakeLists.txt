@@ -269,7 +269,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
 endif()
 
 # ---------------------------------------------------------------------------
-# colony_viewtest: view-ladder playtest (Orbital -> Planet -> Colony -> Sect)
+# colony_viewtest: the game views walk (Orbital -> Planet -> Colony -> Sect)
 #
 # Playable build that walks the geographic views and overlays the known
 # issues per view. Annotations are playtest-only commentary.

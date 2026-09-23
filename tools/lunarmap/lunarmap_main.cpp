@@ -3600,7 +3600,7 @@ static bool RunDescentZoom(AppState& app, const MapOptions& options,
 // So pin the CSS size to the buffer size and turn the clamps off, for
 // this page only. The shell's own enforcer is told to stand down at
 // start-up (window.COLONY_CANVAS_FREE); it keeps working unchanged for
-// the game and the view-ladder playtest, whose framebuffers are fixed.
+// the game and the game views walk, whose framebuffers are fixed.
 //
 // The remembered size also matters: comparing against GetScreenWidth()
 // could never settle on a HiDPI display, where the buffer and the CSS

@@ -78,7 +78,7 @@ jobs:
         if [ -f build/src/colony_game.data ]; then
           cp build/src/colony_game.data deploy/colony_game.data
         fi
-        # View-ladder playtest at /viewtest/ (annotated Orbital->Sect walk)
+        # The game views walk at /viewtest/ (annotated Orbital->Sect views; not the level ladder)
         mkdir -p deploy/viewtest
         cp build/src/colony_viewtest.html deploy/viewtest/index.html
         cp build/src/colony_viewtest.js deploy/viewtest/colony_viewtest.js

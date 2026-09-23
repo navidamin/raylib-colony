@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Headless screenshots of the whole view ladder.
+# Headless screenshots of the game views walk (Orbital -> Sect views; not the level ladder).
 #   tools/viewtest/viewtest.sh            -> build/viewtest/vt_*.png
 #   tools/viewtest/viewtest.sh myprefix
 set -euo pipefail
