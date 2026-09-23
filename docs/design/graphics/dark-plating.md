@@ -439,14 +439,34 @@ disappears into it. Stacking per-shape halos fills the gaps between the ticks
 and turns the mark into a blob; this is the same lesson as the rack's dashed
 ellipse.
 
-**Handing off between controls.** Choosing a site does not finish anything —
-the hole still needs a depth — so the mark *flies once* from the site to the
-control that is next, on an ease-out over about half a second, and then goes
-back to following the pointer. It does not park there: a cursor parked on a
-control is a cursor you cannot use that control with. What stays is a small
-plated sign anchored at the control, and a dimmer copy of the mark under it,
-so the sign points at something. Text that crosses rock needs the plate;
-unbacked line text over the strata bands is unreadable.
+**Choosing depth on the thing itself.** A depth is a place in the ground, so
+it is chosen on the block, not on a remote control. Once a site is taken a
+dashed borehole runs straight down from it to the pointer's height, and the
+pointer carries a plated label — `DIG TO 52 m`. The line stays vertical when
+the pointer drifts sideways, because the drill goes straight down; only the
+label follows the hand. This works for one reason worth knowing: the camera
+has no world-y term in screen x, so a vertical in the block is a vertical on
+screen at every yaw and pitch, and depth along it is linear. Once committed
+the plan stays as a quieter dashed line with what has actually been drilled
+drawn solid over it, in the drill's amber.
+
+Text that crosses rock needs the plate; unbacked line text over the strata is
+unreadable. (An earlier version flew the target mark to the drill bar's ruler
+and left a sign there. It asked the player to look away from the hole to
+decide how deep the hole goes; see
+`docs/design/graveyard/console-depth-handoff.md`.)
+
+**A scale beside the block.** The drill bar's depth ruler is stood against the
+block's rightmost vertical edge — exact rather than approximate, for the same
+no-world-y reason — so 12 m on the block and 12 m in the borehole read as one
+scale. Depths only: `SURFACE` and `TARGET` are the hole's words, and at block
+scale `SURFACE` lands on the 12 m label.
+
+**Texture that reads as data.** Holo3D's reference scatters small hashed motes
+over its cap and walls. On invented ground they are texture; on a picture of
+real ground they read as spots that mean something. `H3DBuildOpts.plain`
+leaves them out. Ornament on a data surface has to be unmistakably ornament,
+or absent.
 
 ### 6.5 The crown — a rotary bit as an elliptical annulus
 

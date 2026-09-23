@@ -127,6 +127,7 @@ struct Holo3DModel {
 
     C2DGroup *ghost[2];
     int ghostW, ghostH;
+    bool plain;                     /* no hashed motes, see H3DBuildOpts */
 
     /* Holo3D_SetGround's own copy: the geometry comes from the caller, the
      * colours from LAYERS, and the text from the caller when it supplies
@@ -165,6 +166,7 @@ Holo3DModel *Holo3D_Build(const H3DBuildOpts *opts)
     if (m->NZ > H3D_NZ_MAX) m->NZ = H3D_NZ_MAX;
     m->layers = LAYERS;
     m->layerCount = H3D_LAYERS;
+    m->plain = opts && opts->plain;
     m->ghostW = opts && opts->surfaceW > 0 ? opts->surfaceW : 1536;
     m->ghostH = opts && opts->surfaceH > 0 ? opts->surfaceH : 1024;
 
@@ -367,7 +369,7 @@ static void h3d_paint_layer(Holo3DModel *m, int k, const H3DState *st,
                                     top[t].y + (bot[t].y - top[t].y) * q};
             c2d_polyline(line, len, h3d_rgba(ly->mesh, 0.14f * f), 1.0f);
         }
-        if (!fast)
+        if (!fast && !m->plain)
         {
             for (int t = 0; t < len - 1; t++)
                 for (int row = 0; row < rows; row++)
@@ -418,7 +420,7 @@ static void h3d_paint_layer(Holo3DModel *m, int k, const H3DState *st,
                 const Vector2 cell[4] = {P[i][j], P[i+1][j], P[i+1][j+1], P[i][j+1]};
                 c2d_fill_poly(cell, 4, shadeK);
 
-                if (!fast && c2d_hash(i + 3, j + 5, 99 + k) < 0.12f)
+                if (!fast && !m->plain && c2d_hash(i + 3, j + 5, 99 + k) < 0.12f)
                 {
                     #define MM(u, pa, pb) (Vector2){(pa).x + ((pb).x - (pa).x) * (u), \
                                                     (pa).y + ((pb).y - (pa).y) * (u)}
@@ -688,6 +690,16 @@ Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v)
     w.x = (a.x * (1 - s) + b.x * s) * (1 - t) + (c.x * (1 - s) + d.x * s) * t;
     w.y = (a.y * (1 - s) + b.y * s) * (1 - t) + (c.y * (1 - s) + d.y * s) * t;
     w.z = (a.z * (1 - s) + b.z * s) * (1 - t) + (c.z * (1 - s) + d.z * s) * t;
+    return h3d_proj_dy(m, w, h3d_offY(m, 0));
+}
+
+Vector2 Holo3D_ColumnPoint(const Holo3DModel *m, float u, float v, float depth01)
+{
+    if (!m) return (Vector2){0.0f, 0.0f};
+    V3 w;
+    w.x = (u - 0.5f) * m->W;
+    w.z = (v - 0.5f) * m->W;
+    w.y = -depth01 * m->D;
     return h3d_proj_dy(m, w, h3d_offY(m, 0));
 }
 

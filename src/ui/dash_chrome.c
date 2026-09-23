@@ -805,6 +805,11 @@ static void DcRulerSpan(float x, float y, float w, float h,
     if (ry1) *ry1 = fy + fh - 10.0f;
 }
 
+void Dash_DepthRuler(float x, float y0, float y1, const DashDepth *depths, int n)
+{
+    DcRuler(x, y0, y1, depths, n, 0.0f);
+}
+
 void Dash_DrillBarSpan(float x, float y, float w, float h,
                        float *rx, float *ry0, float *ry1)
 {

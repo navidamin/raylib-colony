@@ -59,6 +59,12 @@ typedef struct H3DBuildOpts {
     /* The ghost buffers are design-sized, matching the JS _buf[0]/_buf[1]
      * which are the canvas's own size (spec 2.6). */
     int   surfaceW, surfaceH;
+    /* The reference scatters small hashed motes over ~12% of cap cells and
+     * ~18% of wall cells, dark and light. On a picture of REAL ground they
+     * read as data -- spots that mean something -- when they are texture.
+     * `plain` leaves them out. Zero keeps the reference, so the visual diff
+     * harness is unaffected. */
+    bool  plain;
 } H3DBuildOpts;
 
 typedef struct Holo3DModel Holo3DModel;
@@ -104,6 +110,13 @@ int  Holo3D_Hit    (const Holo3DModel *m, float x, float y);
  * ground -- past the horizon of the top face, or on a wall. */
 bool Holo3D_HitCap  (const Holo3DModel *m, float x, float y, float *u, float *v);
 Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v);
+
+/* A point on the vertical through (u, v), `depth01` of the way from the
+ * datum (0) to the base of the column (1). The camera has no world-y term
+ * in screen x, so a vertical line in the block is a vertical line on screen
+ * at every yaw and pitch -- which is what lets a flat ruler sit beside the
+ * block and a borehole be drawn straight down it. */
+Vector2 Holo3D_ColumnPoint(const Holo3DModel *m, float u, float v, float depth01);
 
 /* The controller from the JS `attach`, minus the DOM: the caller feeds it
  * pointer events in DESIGN space and it keeps the same easing. */

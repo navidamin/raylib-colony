@@ -142,16 +142,11 @@ typedef struct SurveyDashState {
     bool          sited;         /* a site has been committed            */
     float         siteU, siteV;  /* it, in the same 0..1 cap coordinates */
 
-    /* THE GUIDED HAND-OFF. Choosing a site does not finish anything -- the
-     * hole still needs a depth -- so the console says where to go next: the
-     * cursor becomes a target and travels to the borehole ruler, and waits
-     * there with a line of text until a depth is picked.
-     *  0      not running
-     *  0..1   flying from the site to the ruler
-     *  >=1    parked at the ruler, prompting */
-    float         guideT;
-    Vector2       guideFrom;     /* design-space, where the site was     */
-    bool          depthPicked;   /* clears the prompt                    */
+    /* THE STRETCH. Choosing a site does not finish anything -- the hole
+     * still needs a depth -- so once a site is taken a dashed borehole runs
+     * down from it to the depth the pointer is at, and the next tap commits
+     * that depth. While `sited && !depthPicked` the console is stretching. */
+    bool          depthPicked;
 
     Vector2       pointer;       /* design space, last known            */
     bool          pointerIn;     /* inside the console at all           */

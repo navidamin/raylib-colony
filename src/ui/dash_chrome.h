@@ -72,6 +72,12 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
 void Dash_DrillBarFace(float x, float y, float w, float h,
                        float *fx, float *fy, float *fw, float *fh);
 
+/* The depth ruler itself, free-standing: a vertical line from y0 (the
+ * surface) to y1 (the base of the column) at x, graduated every 5 m of real
+ * depth, labelled to the RIGHT. The drill bar draws one; the block draws one
+ * beside itself so the two read as the same scale. */
+void Dash_DepthRuler(float x, float y0, float y1, const DashDepth *depths, int n);
+
 /* Where the depth ruler runs, so a caller can point at it. Design-space,
  * same x/y/w/h as Dash_DrillBar. */
 void Dash_DrillBarSpan(float x, float y, float w, float h,

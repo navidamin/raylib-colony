@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [The depth hand-off to the ruler](console-depth-handoff.md) — the target flying to the drill bar with SELECT THE DEPTH | Stretch-to-depth | the stretched borehole on the block, `DashDrawBorehole` |
 | [The C++ twin of the knowledge model](survey-knowledge-cpp-twin.md) — `survey_knowledge.{h,cpp}` and its six duplicated constants | Real-data integration, P3 and P5c | `src/ui/dash_knowledge.c`, called directly |
 | [The four exploded plates](prospecting-exploded-plates.md) — prospecting's block model, and its two-click deviated aim | Survey console port, C1 | `src/Survey/survey_block.cpp` — one solid body, four beds |
 | [The pre-manager Engine monolith](engine-monolith.md) — `Engine_copy.cpp`, never compiled | Excavation branch polish | the four `src/Engine/` managers |
