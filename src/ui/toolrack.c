@@ -22,80 +22,86 @@
  * the source line by line. */
 #define RGB(r, g, b)      ((Color){(r), (g), (b), 255})
 #define RGBA(r, g, b, a)  ((Color){(r), (g), (b), (unsigned char)((a) * 255.0f + 0.5f)})
+/* The same colours as brace initializers. A compound literal like (Color){..}
+ * is not a constant expression in C, and MSVC refuses one in a static
+ * initializer (GCC and Clang allow it as an extension, which is how it
+ * shipped); static tables and constants use these spellings. */
+#define RGB_K(r, g, b)     {(r), (g), (b), 255}
+#define RGBA_K(r, g, b, a) {(r), (g), (b), (unsigned char)((a) * 255.0f + 0.5f)}
 
-static const Color PB_bg          = RGB(0x02, 0x11, 0x1a);
-static const Color PB_metal       = RGB(0x26, 0x3c, 0x50);
-static const Color PB_metalLo     = RGB(0x1f, 0x33, 0x45);
-static const Color PB_metalHi     = RGB(0x5f, 0x7c, 0x9b);
-static const Color PB_metalBand   = RGB(0x1a, 0x2d, 0x3e);
-static const Color PB_edge        = RGB(0xe0, 0xef, 0xf8);
-static const Color PB_bodyEdge    = RGB(0x68, 0x8a, 0xaf);
-static const Color PB_railShort   = RGB(0x2f, 0x46, 0x5c);
-static const Color PB_railShortR  = RGB(0x1e, 0x32, 0x47);
-static const Color PB_railShortTop  = RGB(0xf3, 0xfa, 0xfd);
-static const Color PB_railShortTop2 = RGB(0x6a, 0x86, 0xa5);
-static const Color PB_railLong    = RGB(0x1a, 0x36, 0x49);
-static const Color PB_railLongL   = RGB(0x24, 0x3d, 0x58);
-static const Color PB_railLongR   = RGB(0x14, 0x44, 0x58);
-static const Color PB_railEdge    = RGB(0x7f, 0x97, 0xb2);
-static const Color PB_bar         = RGB(0x18, 0x2c, 0x3c);
-static const Color PB_barLo       = RGB(0x12, 0x24, 0x33);
-static const Color PB_barHi       = RGB(0x4c, 0x67, 0x81);
-static const Color PB_barBand     = RGB(0x1e, 0x34, 0x44);
-static const Color PB_barEdge     = RGB(0x3f, 0x5a, 0x74);
-static const Color PB_frame       = RGB(0x2c, 0x42, 0x58);
-static const Color PB_frameLo     = RGB(0x1c, 0x31, 0x44);
-static const Color PB_frameHi     = RGB(0x70, 0x94, 0xb2);
-static const Color PB_frameHi2    = RGB(0x38, 0x51, 0x67);
-static const Color PB_frameBand   = RGB(0x1e, 0x33, 0x45);
-static const Color PB_boxIn       = RGB(0x01, 0x0c, 0x13);
-static const Color PB_boxInSel    = RGB(0x00, 0x09, 0x0f);
-static const Color PB_sel         = RGB(0x01, 0xfb, 0xfe);
-static const Color PB_selHalo     = RGBA(0x01, 0x45, 0x58, 0.9f);
-static const Color PB_socket      = RGB(0x00, 0x03, 0x06);
-static const Color PB_socketEdge  = RGB(0x08, 0x20, 0x2c);
-static const Color PB_label       = RGB(0x00, 0x14, 0x1f);
-static const Color PB_labelEdge   = RGB(0x08, 0x4a, 0x6a);
-static const Color PB_labelOff    = RGB(0x04, 0x14, 0x1e);
-static const Color PB_labelOffEdge= RGB(0x20, 0x3b, 0x54);
-static const Color PB_name        = RGB(0x08, 0xf8, 0xfc);
-static const Color PB_type        = RGB(0x96, 0xcb, 0xf9);
-static const Color PB_nameOff     = RGB(0x58, 0x7e, 0xa6);
-static const Color PB_typeOff     = RGB(0x3f, 0x5f, 0x82);
-static const Color PB_iconOff     = RGB(0x5f, 0x7a, 0x96);
-static const Color PB_iconOffDk   = RGB(0x34, 0x50, 0x6b);
-static const Color PB_pip         = RGB(0x00, 0xf5, 0xfe);
-static const Color PB_pipEdge     = RGB(0x05, 0xdb, 0xf6);
-static const Color PB_pipOff      = RGB(0x1d, 0x32, 0x46);
-static const Color PB_pipOffEdge  = RGB(0x3c, 0x5a, 0x78);
-static const Color PB_hole        = RGB(0x00, 0x08, 0x0d);
-static const Color PB_holeRim     = RGB(0x0a, 0x24, 0x32);
-static const Color PB_sock        = RGB(0x00, 0x03, 0x06);
-static const Color PB_face        = RGB(0x5a, 0x79, 0x9b);
-static const Color PB_faceHi      = RGB(0x8a, 0xa6, 0xc4);
-static const Color PB_faceEdge    = RGB(0x3f, 0x5c, 0x7c);
-static const Color PB_core        = RGB(0x00, 0xf8, 0xff);
-static const Color PB_coreEdge    = RGB(0x03, 0xdb, 0xe9);
-static const Color PB_glow        = RGB(0x00, 0xe6, 0xf6);
-static const Color PB_underline   = RGB(0x01, 0xf8, 0xfc);
-static const Color PB_head        = RGB(0x02, 0xf8, 0xfe);
-static const Color PB_stripe      = RGB(0x07, 0xf7, 0xfd);
-static const Color PB_ellipseCol  = RGB(0x0d, 0xf8, 0xfd);
-static const Color PB_trace       = RGB(0xcd, 0xfb, 0xfc);
-static const Color PB_screwHead   = RGB(0x0e, 0x1c, 0x2a);
-static const Color PB_screwRim    = RGB(0x3d, 0x5a, 0x76);
-static const Color PB_nut         = RGB(0x24, 0x3b, 0x54);
-static const Color PB_nutHi       = RGB(0xf4, 0xf8, 0xfc);
+static const Color PB_bg          = RGB_K(0x02, 0x11, 0x1a);
+static const Color PB_metal       = RGB_K(0x26, 0x3c, 0x50);
+static const Color PB_metalLo     = RGB_K(0x1f, 0x33, 0x45);
+static const Color PB_metalHi     = RGB_K(0x5f, 0x7c, 0x9b);
+static const Color PB_metalBand   = RGB_K(0x1a, 0x2d, 0x3e);
+static const Color PB_edge        = RGB_K(0xe0, 0xef, 0xf8);
+static const Color PB_bodyEdge    = RGB_K(0x68, 0x8a, 0xaf);
+static const Color PB_railShort   = RGB_K(0x2f, 0x46, 0x5c);
+static const Color PB_railShortR  = RGB_K(0x1e, 0x32, 0x47);
+static const Color PB_railShortTop  = RGB_K(0xf3, 0xfa, 0xfd);
+static const Color PB_railShortTop2 = RGB_K(0x6a, 0x86, 0xa5);
+static const Color PB_railLong    = RGB_K(0x1a, 0x36, 0x49);
+static const Color PB_railLongL   = RGB_K(0x24, 0x3d, 0x58);
+static const Color PB_railLongR   = RGB_K(0x14, 0x44, 0x58);
+static const Color PB_railEdge    = RGB_K(0x7f, 0x97, 0xb2);
+static const Color PB_bar         = RGB_K(0x18, 0x2c, 0x3c);
+static const Color PB_barLo       = RGB_K(0x12, 0x24, 0x33);
+static const Color PB_barHi       = RGB_K(0x4c, 0x67, 0x81);
+static const Color PB_barBand     = RGB_K(0x1e, 0x34, 0x44);
+static const Color PB_barEdge     = RGB_K(0x3f, 0x5a, 0x74);
+static const Color PB_frame       = RGB_K(0x2c, 0x42, 0x58);
+static const Color PB_frameLo     = RGB_K(0x1c, 0x31, 0x44);
+static const Color PB_frameHi     = RGB_K(0x70, 0x94, 0xb2);
+static const Color PB_frameHi2    = RGB_K(0x38, 0x51, 0x67);
+static const Color PB_frameBand   = RGB_K(0x1e, 0x33, 0x45);
+static const Color PB_boxIn       = RGB_K(0x01, 0x0c, 0x13);
+static const Color PB_boxInSel    = RGB_K(0x00, 0x09, 0x0f);
+static const Color PB_sel         = RGB_K(0x01, 0xfb, 0xfe);
+static const Color PB_selHalo     = RGBA_K(0x01, 0x45, 0x58, 0.9f);
+static const Color PB_socket      = RGB_K(0x00, 0x03, 0x06);
+static const Color PB_socketEdge  = RGB_K(0x08, 0x20, 0x2c);
+static const Color PB_label       = RGB_K(0x00, 0x14, 0x1f);
+static const Color PB_labelEdge   = RGB_K(0x08, 0x4a, 0x6a);
+static const Color PB_labelOff    = RGB_K(0x04, 0x14, 0x1e);
+static const Color PB_labelOffEdge= RGB_K(0x20, 0x3b, 0x54);
+static const Color PB_name        = RGB_K(0x08, 0xf8, 0xfc);
+static const Color PB_type        = RGB_K(0x96, 0xcb, 0xf9);
+static const Color PB_nameOff     = RGB_K(0x58, 0x7e, 0xa6);
+static const Color PB_typeOff     = RGB_K(0x3f, 0x5f, 0x82);
+static const Color PB_iconOff     = RGB_K(0x5f, 0x7a, 0x96);
+static const Color PB_iconOffDk   = RGB_K(0x34, 0x50, 0x6b);
+static const Color PB_pip         = RGB_K(0x00, 0xf5, 0xfe);
+static const Color PB_pipEdge     = RGB_K(0x05, 0xdb, 0xf6);
+static const Color PB_pipOff      = RGB_K(0x1d, 0x32, 0x46);
+static const Color PB_pipOffEdge  = RGB_K(0x3c, 0x5a, 0x78);
+static const Color PB_hole        = RGB_K(0x00, 0x08, 0x0d);
+static const Color PB_holeRim     = RGB_K(0x0a, 0x24, 0x32);
+static const Color PB_sock        = RGB_K(0x00, 0x03, 0x06);
+static const Color PB_face        = RGB_K(0x5a, 0x79, 0x9b);
+static const Color PB_faceHi      = RGB_K(0x8a, 0xa6, 0xc4);
+static const Color PB_faceEdge    = RGB_K(0x3f, 0x5c, 0x7c);
+static const Color PB_core        = RGB_K(0x00, 0xf8, 0xff);
+static const Color PB_coreEdge    = RGB_K(0x03, 0xdb, 0xe9);
+static const Color PB_glow        = RGB_K(0x00, 0xe6, 0xf6);
+static const Color PB_underline   = RGB_K(0x01, 0xf8, 0xfc);
+static const Color PB_head        = RGB_K(0x02, 0xf8, 0xfe);
+static const Color PB_stripe      = RGB_K(0x07, 0xf7, 0xfd);
+static const Color PB_ellipseCol  = RGB_K(0x0d, 0xf8, 0xfd);
+static const Color PB_trace       = RGB_K(0xcd, 0xfb, 0xfc);
+static const Color PB_screwHead   = RGB_K(0x0e, 0x1c, 0x2a);
+static const Color PB_screwRim    = RGB_K(0x3d, 0x5a, 0x76);
+static const Color PB_nut         = RGB_K(0x24, 0x3b, 0x54);
+static const Color PB_nutHi       = RGB_K(0xf4, 0xf8, 0xfc);
 
 /* variant A's palette, for the rover icon the dashboard's data selects */
-static const Color P_rover        = RGB(0x4b, 0x69, 0x84);
-static const Color P_roverHi      = RGB(0x68, 0x83, 0xa5);
-static const Color P_roverLo      = RGB(0x2f, 0x4b, 0x66);
-static const Color P_roverDk      = RGB(0x17, 0x2a, 0x3e);
-static const Color P_cyan         = RGB(0x00, 0xfb, 0xfe);
-static const Color P_cyanEdge     = RGB(0x00, 0xbd, 0xd3);
-static const Color P_cyanGlow     = RGB(0x00, 0xe5, 0xf5);
-static const Color P_white        = RGB(0xf7, 0xfc, 0xfd);
+static const Color P_rover        = RGB_K(0x4b, 0x69, 0x84);
+static const Color P_roverHi      = RGB_K(0x68, 0x83, 0xa5);
+static const Color P_roverLo      = RGB_K(0x2f, 0x4b, 0x66);
+static const Color P_roverDk      = RGB_K(0x17, 0x2a, 0x3e);
+static const Color P_cyan         = RGB_K(0x00, 0xfb, 0xfe);
+static const Color P_cyanEdge     = RGB_K(0x00, 0xbd, 0xd3);
+static const Color P_cyanGlow     = RGB_K(0x00, 0xe5, 0xf5);
+static const Color P_white        = RGB_K(0xf7, 0xfc, 0xfd);
 
 /* ---------- geometry GB (dashboard.html:466) ----------------------------- */
 static const float GB_railW     = 22.0f;
@@ -350,7 +356,7 @@ static TrRailSegs TrRailSegments(int slots)
 
 /* ---------- 5 body, 2 top bracket, 8 bottom bracket (506) ---------------- */
 static const TrSlab METAL_B = {
-    RGB(0x26, 0x3c, 0x50), RGB(0x1f, 0x33, 0x45), RGB(0x5f, 0x7c, 0x9b), RGB(0x1a, 0x2d, 0x3e),
+    RGB_K(0x26, 0x3c, 0x50), RGB_K(0x1f, 0x33, 0x45), RGB_K(0x5f, 0x7c, 0x9b), RGB_K(0x1a, 0x2d, 0x3e),
     2.0f, 1.5f, false, 0.0f, {0, 0, 0, 0}, false
 };
 

@@ -16,29 +16,35 @@
 
 #define RGB(r, g, b)     ((Color){(r), (g), (b), 255})
 #define RGBA(r, g, b, a) ((Color){(r), (g), (b), (unsigned char)((a) * 255.0f + 0.5f)})
+/* The same colours as brace initializers. A compound literal like (Color){..}
+ * is not a constant expression in C, and MSVC refuses one in a static
+ * initializer (GCC and Clang allow it as an extension, which is how it
+ * shipped); static tables and constants use these spellings. */
+#define RGB_K(r, g, b)     {(r), (g), (b), 255}
+#define RGBA_K(r, g, b, a) {(r), (g), (b), (unsigned char)((a) * 255.0f + 0.5f)}
 
 /* palette C (1299) */
-static const Color C_bg        = RGB(0x03, 0x12, 0x1d);
-static const Color C_line      = RGB(0x1a, 0x4a, 0x5c);
-static const Color C_accent    = RGB(0x35, 0xd8, 0xee);
-static const Color C_accentDim = RGB(0x1c, 0x7f, 0x95);
-static const Color C_title     = RGB(0x62, 0xb3, 0xf5);
-static const Color C_underline = RGB(0x21, 0xe3, 0xf0);
-static const Color C_logText   = RGB(0xa8, 0xbd, 0xd2);
-static const Color C_logTime   = RGB(0x6b, 0x86, 0xa3);
-static const Color C_sep       = RGB(0x10, 0x30, 0x3f);
-static const Color C_tagFill   = RGB(0x0a, 0x24, 0x31);
-static const Color C_tagEdge   = RGB(0x2c, 0x7d, 0x95);
-static const Color C_tagText   = RGB(0x86, 0xe3, 0xf4);
-static const Color C_chipFill  = RGB(0x09, 0x1a, 0x27);
-static const Color C_depth     = RGB(0x8f, 0xbf, 0xe6);
-static const Color C_boxFill   = RGB(0x05, 0x18, 0x26);
-static const Color C_boxEdge   = RGB(0x1f, 0x4d, 0x60);
-static const Color C_track     = RGB(0x0a, 0x22, 0x30);
+static const Color C_bg        = RGB_K(0x03, 0x12, 0x1d);
+static const Color C_line      = RGB_K(0x1a, 0x4a, 0x5c);
+static const Color C_accent    = RGB_K(0x35, 0xd8, 0xee);
+static const Color C_accentDim = RGB_K(0x1c, 0x7f, 0x95);
+static const Color C_title     = RGB_K(0x62, 0xb3, 0xf5);
+static const Color C_underline = RGB_K(0x21, 0xe3, 0xf0);
+static const Color C_logText   = RGB_K(0xa8, 0xbd, 0xd2);
+static const Color C_logTime   = RGB_K(0x6b, 0x86, 0xa3);
+static const Color C_sep       = RGB_K(0x10, 0x30, 0x3f);
+static const Color C_tagFill   = RGB_K(0x0a, 0x24, 0x31);
+static const Color C_tagEdge   = RGB_K(0x2c, 0x7d, 0x95);
+static const Color C_tagText   = RGB_K(0x86, 0xe3, 0xf4);
+static const Color C_chipFill  = RGB_K(0x09, 0x1a, 0x27);
+static const Color C_depth     = RGB_K(0x8f, 0xbf, 0xe6);
+static const Color C_boxFill   = RGB_K(0x05, 0x18, 0x26);
+static const Color C_boxEdge   = RGB_K(0x1f, 0x4d, 0x60);
+static const Color C_track     = RGB_K(0x0a, 0x22, 0x30);
 
 static const Color C_strata[5] = {
-    RGB(0x7a, 0x52, 0x30), RGB(0x9f, 0xb8, 0xcf), RGB(0x36, 0x52, 0x69),
-    RGB(0x2c, 0x5f, 0x9e), RGB(0x1d, 0x27, 0x31)
+    RGB_K(0x7a, 0x52, 0x30), RGB_K(0x9f, 0xb8, 0xcf), RGB_K(0x36, 0x52, 0x69),
+    RGB_K(0x2c, 0x5f, 0x9e), RGB_K(0x1d, 0x27, 0x31)
 };
 
 Color DashC_Bg(void)     { return C_bg; }
@@ -212,12 +218,12 @@ static void GlyphBricks(float x, float y, float s, Color c)
 /* CHIP (1470) */
 typedef struct DcChip { const char *key, *name; Color col; void (*glyph)(float, float, float, Color); } DcChip;
 static const DcChip DC_CHIPS[] = {
-    {"power",        "Power",        RGB(0xf2, 0xc9, 0x4c), GlyphBolt},
-    {"water",        "Water",        RGB(0x58, 0xa8, 0xff), GlyphDrop},
-    {"propellant",   "Propellant",   RGB(0xa9, 0x8c, 0xff), GlyphRocket},
-    {"farming",      "Farming",      RGB(0x4f, 0xe5, 0x7a), GlyphLeaf},
-    {"life",         "Life Support", RGB(0xff, 0x62, 0x62), GlyphHeart},
-    {"construction", "Construction", RGB(0x9f, 0xb6, 0xcc), GlyphBricks},
+    {"power",        "Power",        RGB_K(0xf2, 0xc9, 0x4c), GlyphBolt},
+    {"water",        "Water",        RGB_K(0x58, 0xa8, 0xff), GlyphDrop},
+    {"propellant",   "Propellant",   RGB_K(0xa9, 0x8c, 0xff), GlyphRocket},
+    {"farming",      "Farming",      RGB_K(0x4f, 0xe5, 0x7a), GlyphLeaf},
+    {"life",         "Life Support", RGB_K(0xff, 0x62, 0x62), GlyphHeart},
+    {"construction", "Construction", RGB_K(0x9f, 0xb6, 0xcc), GlyphBricks},
 };
 
 static float DcChipDraw(float x, float y, const char *key)
@@ -368,8 +374,8 @@ static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
 #define RIG_CONE_LEN   21.0f
 #define RIG_THREAD_LEN (RIG_PITCH * 6.2f)
 
-static const Color RIG_OUT  = RGB(0x0a, 0x0e, 0x14);
-static const Color RIG_OUTB = RGB(0x10, 0x18, 0x20);
+static const Color RIG_OUT  = RGB_K(0x0a, 0x0e, 0x14);
+static const Color RIG_OUTB = RGB_K(0x10, 0x18, 0x20);
 
 typedef struct DcRig { float cx, surfY, bitY, heat, phase; } DcRig;
 
@@ -908,19 +914,19 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
 /* the two stats blocks (dashboard.html 1348-1372, 1376-1390, 1577-1590)  */
 /* ====================================================================== */
 
-static const Color C_barOn  = RGB(0x24, 0xdc, 0xf2);
-static const Color C_barOff = RGB(0x0a, 0x22, 0x30);
-static const Color C_barEg  = RGB(0x15, 0x37, 0x47);
-static const Color C_bright = RGB(0xbc, 0xd2, 0xe6);
-static const Color C_label  = RGB(0xa3, 0xb8, 0xcc);
-static const Color C_dim    = RGB(0x5f, 0x7a, 0x96);
-static const Color C_btnEdge = RGB(0x24, 0x5a, 0x6c);
-static const Color C_btnText = RGB(0x4d, 0x9c, 0xb4);
+static const Color C_barOn  = RGB_K(0x24, 0xdc, 0xf2);
+static const Color C_barOff = RGB_K(0x0a, 0x22, 0x30);
+static const Color C_barEg  = RGB_K(0x15, 0x37, 0x47);
+static const Color C_bright = RGB_K(0xbc, 0xd2, 0xe6);
+static const Color C_label  = RGB_K(0xa3, 0xb8, 0xcc);
+static const Color C_dim    = RGB_K(0x5f, 0x7a, 0x96);
+static const Color C_btnEdge = RGB_K(0x24, 0x5a, 0x6c);
+static const Color C_btnText = RGB_K(0x4d, 0x9c, 0xb4);
 /* the drill's own severity ramp, keyed by the letters in its stat codes */
-static const Color C_sev_g  = RGB(0x3f, 0xe3, 0x6e);
-static const Color C_sev_y  = RGB(0xe9, 0xe3, 0x4b);
-static const Color C_sev_o  = RGB(0xff, 0xa4, 0x41);
-static const Color C_sev_r  = RGB(0xff, 0x5a, 0x5a);
+static const Color C_sev_g  = RGB_K(0x3f, 0xe3, 0x6e);
+static const Color C_sev_y  = RGB_K(0xe9, 0xe3, 0x4b);
+static const Color C_sev_o  = RGB_K(0xff, 0xa4, 0x41);
+static const Color C_sev_r  = RGB_K(0xff, 0x5a, 0x5a);
 
 static Color DcSeverity(char code)
 {
