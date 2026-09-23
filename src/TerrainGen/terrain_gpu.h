@@ -36,14 +36,32 @@ const char* GetTerrainPathName();
 // phone memory.
 int GetTerrainPathResolution();
 
-// Whether this machine should build the site-level chain layer at all,
-// and the one-line reason. Decided by the same probe that picks the path:
-// a GPU path can afford it, a CPU path can where there is a thread to put
-// it on, and a browser falling back to a software rasteriser should not
-// have it -- that is the case this exists for, where "WebGL is a real
-// GPU" used to send the layer into a 44 second build.
-bool TerrainLayerAffordable();
-const char* TerrainLayerWhy();
+
+// How long one CPU chain at `res` would take here, in milliseconds.
+//
+// Exists because "can this machine afford the site layer" and "which path
+// builds it" drifted apart: on the web the shaders cannot run the regolith
+// (GLSL ES 1.00), so the layer is always built on the CPU -- while the gate
+// deciding whether to build it was reading a GPU measurement. The browser
+// was being asked a 1523 px CPU chain on the strength of a 12 ms GPU probe.
+//
+// Measured once, at 256, the first time it is asked; scaled from there.
+// The chain is superlinear in resolution -- more octaves fit under the
+// data floor as pixels shrink, and the crater and clast populations grow
+// with area -- so this scales by a measured exponent, not by res^2. From
+// one browser's ?chainbench=1 on a software rasteriser:
+//
+//   256 px   620 ms      512 -> 256 ratio 5.72  (exponent 2.52)
+//   512 px  3546 ms     1024 -> 512 ratio 6.35  (exponent 2.67)
+//  1024 px 22532 ms
+//
+// Returns 0 when the mosaic is not loaded and there is nothing to measure.
+double TerrainCpuChainMs(int res);
+
+// The largest resolution whose CPU chain fits `budgetMs`, or 0 if even the
+// floor (256) does not. Use it to SIZE the layer rather than to veto it:
+// a smaller chain resampled up is worth far more than no chain at all.
+int TerrainCpuChainResFor(double budgetMs);
 
 // One generated chain: PLANET (100 km), COLONY (25 km), SECT (5 km),
 // each a res x res colour render target. Caller owns all three.

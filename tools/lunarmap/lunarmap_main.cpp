@@ -1152,13 +1152,58 @@ static const double CHAIN_RES_RATIO = 0.8;
 
 // COLONY_CHAIN_RES overrides, for measuring the ratio again if the shape of
 // the synthesis changes.
+// Who is going to build the layer. Asked by the cost model and by the
+// builder, so the two cannot disagree about it -- which is exactly what
+// went wrong: on WebGL1 the shaders compile the regolith to a stub, so the
+// layer is always CPU-built there, while the gate that decided whether to
+// build it was still reading the GPU probe.
+static bool ChainLayerOnGpu()
+{
+    const bool gpuKeepsTheRegolith =
+        !IsSubFloorEnabled() || TerrainGpuCanSubFloor();
+    return gpuKeepsTheRegolith && (GetTerrainPath() == TERRAIN_PATH_GPU);
+}
+
+// What a rung's arrival may spend building the layer. It is a one-off per
+// level and the level is cached after, so this buys a pause, not frames.
+const double CHAIN_BUDGET_MS = 1200.0;
+
 static int ChainLayerRes()
 {
     const char* env = std::getenv("COLONY_CHAIN_RES");
     if (env) { int r = std::atoi(env); if (r >= 128 && r <= 4096) return r; }
-    return std::clamp((int)std::lround(CHAIN_RES_RATIO * SiteFullRes()),
-                      256, 2048);
+    int want = std::clamp((int)std::lround(CHAIN_RES_RATIO * SiteFullRes()),
+                          256, 2048);
+    if (ChainLayerOnGpu()) return want;
+
+    // CPU-built: ask what this machine can actually do in the budget
+    // rather than what the window would like. A 1656 px viewport wants
+    // 1523, and a 1024 CPU chain in wasm measured 22.5 SECONDS -- so the
+    // browser was being handed a build it could never finish, which is
+    // why the site rung came up with no chain on it at all.
+    int fits = TerrainCpuChainResFor(CHAIN_BUDGET_MS);
+    if (fits <= 0) return want;        // unmeasurable; the gate decides
+    return std::min(want, fits);
 }
+
+// Whether to build the layer at all.
+//
+// TerrainLayerAffordable() answers for the GAME's nine-cell grid, where a
+// slow path means a stall every time the player moves. This tool builds one
+// window per rung arrival and caches it, so the question is different and
+// the answer is usually yes: a 256 px chain resampled up is worth far more
+// than a bare 1.9 km DEM, which is what "no layer" actually looks like.
+//
+// This is the second half of the same mistake. The gate was reading a GPU
+// probe on a browser that would build on the CPU; where that probe said
+// "software rasteriser, CPU path" it turned the layer off outright, and the
+// site rung came up as flat grey with no explanation on screen.
+static bool ChainLayerWanted()
+{
+    if (ChainLayerOnGpu()) return true;
+    return TerrainCpuChainResFor(CHAIN_BUDGET_MS) > 0;
+}
+
 
 static void ResampleField(const std::vector<float>& src, int sw,
                           std::vector<float>& dst, int dw)
@@ -1209,10 +1254,7 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
     // GPU there would trade every crater for a few hundred milliseconds.
     // The CPU builds the same fields, wasm included; it is the slower half
     // of a one-off per level, and the level is cached afterwards.
-    const bool gpuKeepsTheRegolith =
-        !IsSubFloorEnabled() || TerrainGpuCanSubFloor();
-    bool onGpu = allowGpu && gpuKeepsTheRegolith
-              && (GetTerrainPath() == TERRAIN_PATH_GPU)
+    bool onGpu = allowGpu && ChainLayerOnGpu()
               && GenerateTerrainFieldsGPU(lat, lon, R, spanKm, &fields,
                                           nullptr, nativeKm);
     if (!onGpu && !GenerateTerrainFields(lat, lon, R, spanKm, &fields,
@@ -1489,14 +1531,16 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     scene.chainSpanKm = 0.0f;
     // Say once why a machine that asked for the layer is not getting it,
     // rather than leaving --chain looking broken.
-    if (options.chain && !TerrainLayerAffordable())
+    if (options.chain && !ChainLayerWanted())
     {
         static bool said = false;
         if (!said)
         {
             said = true;
-            std::fprintf(stderr, "CHAIN: layer off -- %s\n",
-                         TerrainLayerWhy());
+            std::fprintf(stderr,
+                         "CHAIN: layer off -- even a %d px chain overruns "
+                         "the %.0f ms budget here (%.0f ms measured)\n",
+                         256, CHAIN_BUDGET_MS, TerrainCpuChainMs(256));
         }
     }
     // Every km window, not just the site rung. The old gate stopped at
@@ -1509,7 +1553,7 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
     //
     // The near side is still excluded: it is the globe, drawn as a
     // projection, and nothing below the data floor is visible there.
-    if (options.chain && !options.nearside && TerrainLayerAffordable())
+    if (options.chain && !options.nearside && ChainLayerWanted())
     {
         scene.chainSpanKm = scene.worldWidthKm;
         bool built = false;

@@ -1413,8 +1413,6 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
 int g_path = -1;
 int g_gpuRes = 1024;
 std::string g_pathWhy;
-int g_layerOk = -1;              // -1 until the probe has run
-std::string g_layerWhy;
 
 // One 512 px chain, timed to completion (the read-back is what forces
 // the GPU to finish). A discrete GPU does it in a couple of
@@ -1437,11 +1435,51 @@ double ProbeMs()
     return ms;
 }
 
+// Measured once, the first time anyone asks. 256 is small enough that a
+// slow machine is not punished for the question and big enough that the
+// answer means something.
+const int CPU_PROBE_RES = 256;
+double g_cpuChainMs = -1.0;
+
+// Doubling the resolution costs about 6x, not 4x -- see the table on
+// TerrainCpuChainMs. Measured on one machine, but the superlinearity is
+// the algorithm's (octaves and populations both grow), not that machine's.
+const double CPU_CHAIN_EXPONENT = 2.6;
+
 } // namespace
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+double TerrainCpuChainMs(int res)
+{
+    if (res < 1) return 0.0;
+    if (g_cpuChainMs < 0.0)
+    {
+        TerrainChainFields f;
+        double t0 = GetTime();
+        bool ok = GenerateTerrainFields(TERRAIN_ANCHOR_LAT, TERRAIN_ANCHOR_LON,
+                                        CPU_PROBE_RES, 25.0, &f, nullptr, 0.0);
+        g_cpuChainMs = ok ? (GetTime() - t0) * 1000.0 : 0.0;
+        if (ok)
+            TraceLog(LOG_INFO, "TERRAIN: CPU chain %d px in %.0f ms",
+                     CPU_PROBE_RES, g_cpuChainMs);
+    }
+    if (g_cpuChainMs <= 0.0) return 0.0;
+    return g_cpuChainMs * std::pow((double)res / CPU_PROBE_RES,
+                                   CPU_CHAIN_EXPONENT);
+}
+
+int TerrainCpuChainResFor(double budgetMs)
+{
+    double base = TerrainCpuChainMs(CPU_PROBE_RES);
+    if (base <= 0.0) return 0;                  // nothing measured
+    if (base > budgetMs) return 0;              // the floor already overruns
+    double scale = std::pow(budgetMs / base, 1.0 / CPU_CHAIN_EXPONENT);
+    int res = (int)(CPU_PROBE_RES * scale);
+    return std::clamp(res - (res % 64), CPU_PROBE_RES, 2048);
+}
 
 // Whether this device's shaders can run the world-anchored regolith. GLSL
 // ES 1.00 cannot: no uint, no bitwise operators, and a highp int only
@@ -1494,66 +1532,17 @@ TerrainPath GetTerrainPath()
             else g_path = TERRAIN_PATH_CPU;
             g_pathWhy = TextFormat("512 px chain in %.1f ms", ms);
 
-            // Whether the site-level layer is worth building at all, read
-            // against the same 512 px costs 3.2 measured: 22 ms on a real
-            // GPU, 77 on llvmpipe, 276 on a laptop CPU, 1162 under
-            // SwiftShader. A GPU path can afford it. A CPU path can too
-            // where there are threads to put it on -- but the browser has
-            // none, so there it would block the page, and a machine that
-            // slow should simply not have the layer.
-#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
-            const bool threads = false;
-#else
-            const bool threads = true;
-#endif
-            if (g_path == TERRAIN_PATH_GPU)
-            {
-                g_layerOk = 1;
-                g_layerWhy = TextFormat("GPU chain, %.0f ms at 512", ms);
-            }
-            else if (threads && ms <= 400.0)
-            {
-                g_layerOk = 1;
-                g_layerWhy = TextFormat("CPU chain, %.0f ms at 512", ms);
-            }
-            else
-            {
-                g_layerOk = 0;
-                g_layerWhy = threads
-                    ? TextFormat("too slow: %.0f ms for a 512 chain", ms)
-                    : TextFormat("browser with no GPU worth the name: "
-                                 "%.0f ms at 512, and no worker thread to "
-                                 "hide it on", ms);
-            }
         }
     }
-    if (g_layerOk < 0)                 // an env override skipped the probe
-    {
-        g_layerOk = 1;
-        g_layerWhy = "not probed (COLONY_TERRAIN override)";
-    }
-    TraceLog(LOG_INFO, "TERRAIN: %s path (%s), %d px; site layer %s (%s)",
+    TraceLog(LOG_INFO, "TERRAIN: %s path (%s), %d px",
              GetTerrainPathName(), g_pathWhy.c_str(),
-             GetTerrainPathResolution(),
-             g_layerOk ? "on" : "OFF", g_layerWhy.c_str());
+             GetTerrainPathResolution());
     return (TerrainPath)g_path;
 }
 
 const char* GetTerrainPathName()
 {
     return (GetTerrainPath() == TERRAIN_PATH_GPU) ? "GPU" : "CPU";
-}
-
-bool TerrainLayerAffordable()
-{
-    GetTerrainPath();                  // runs the probe if it has not
-    return g_layerOk != 0;
-}
-
-const char* TerrainLayerWhy()
-{
-    GetTerrainPath();
-    return g_layerWhy.c_str();
 }
 
 int GetTerrainPathResolution()
