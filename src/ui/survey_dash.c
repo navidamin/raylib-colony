@@ -321,6 +321,7 @@ void SurveyDash_Reset(SurveyDashState *s)
 
     s->rack = ToolRack_Demo();
     DrillSim_Reset(&s->drill);
+    DrillProfile_Clear(&s->profile);
     DashKnow_Clear(&s->own);
 
     /* NOTHING IS SITED until the player sites it. The console used to open
@@ -332,7 +333,7 @@ void SurveyDash_Reset(SurveyDashState *s)
     s->toolPick = -1;
     s->know = &s->own;
 
-    DashLog_Push(s, 0.0f, "Console online. Tap the cap to set a site, the ruler to set a depth.", NULL);
+    DashLog_Push(s, 0.0f, "Console online. Select the DRILL, then tap the block to site a hole.", NULL);
     s->started = true;
 }
 
@@ -488,11 +489,17 @@ static void DashDrawBorehole(const SurveyDashState *s)
         return;
     }
 
-    /* planned */
+    /* Planned. It was drawn at 0.55 alpha and 1.4 wide, which the letterbox
+     * shrinks to two-thirds of a pixel: it existed and could not be seen. The
+     * plan is what the player is about to spend a drill run on, so it gets
+     * the stretch's own weight, and its bottom keeps the mark the stretch
+     * ended on. */
     const float plan = (s->drill.targetM >= 0.0f ? s->drill.targetM : DRILL_TARGET_M) / DRILL_TARGET_M;
     const Vector2 end = DashLerp(top, bot, plan);
     const Vector2 line[2] = {top, end};
-    c2d_dashed_polyline(line, 2, 5.0f, 4.0f, RGBA8(0x35, 0xd8, 0xee, 0.55f), 1.4f);
+    const Color planCol = RGBA8(0x35, 0xd8, 0xee, 0.85f);
+    c2d_dashed_polyline(line, 2, 5.0f, 4.0f, planCol, 1.8f);
+    DashTargetMark(end, 4.5f, 0.0f, planCol, 1.3f);
 
     /* drilled -- the string's real depth, out of the same simulation that
        turns the auger in the drill bar */
@@ -504,48 +511,182 @@ static void DashDrawBorehole(const SurveyDashState *s)
     }
 }
 
+/* ---- THE PHASE ------------------------------------------------------- */
+
+SurveyDashPhase SurveyDash_Phase(const SurveyDashState *s)
+{
+    if (!s || !s->sited)             return SDP_AIM;
+    if (!s->depthPicked)             return SDP_STRETCH;
+    if (s->drill.running)            return SDP_DRILLING;
+    if (s->drill.depthM >= s->drill.targetM) return SDP_COMPLETE;
+    return SDP_PLANNED;
+}
+
+/* The drill bar is dead until there is a hole to drill: a site AND a depth.
+ * Before that it would only be a second way to choose a depth for a hole
+ * that has no site. */
+static bool DashBarLive(const SurveyDashState *s)
+{
+    const SurveyDashPhase ph = SurveyDash_Phase(s);
+    return ph != SDP_AIM && ph != SDP_STRETCH;
+}
+
+/* The drill bar's face -- the hole and the string, the part a click starts
+ * and drives. The same rect the press tests. */
+static bool DashOverFace(Vector2 p)
+{
+    float fx, fy, fw, fh;
+    Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &fx, &fy, &fw, &fh);
+    return p.x >= fx && p.x <= fx + fw && p.y >= fy && p.y <= fy + fh;
+}
+
+static bool DashInMid(Vector2 p)
+{
+    return p.x >= MID_X && p.x <= MID_X + MID_W && p.y >= PANE_TOP && p.y <= PANE_TOP + PANE_H;
+}
+
+SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
+{
+    if (!s || !s->started || !s->pointerIn) return SDC_ARROW;
+    switch (SurveyDash_Phase(s))
+    {
+        /* The drill is the pointer where it can site a hole -- over the
+         * block's pane. Over the rack or the bar it would be pointing at
+         * things it cannot collar. */
+        case SDP_AIM:
+        case SDP_COMPLETE:
+            return (s->aimArmed && DashInMid(s->pointer)) ? SDC_HIDDEN : SDC_ARROW;
+        /* the arrow is the precise thing to pick a height with */
+        case SDP_STRETCH:
+            return SDC_ARROW;
+        /* the bar is now a button: the hand says so */
+        case SDP_PLANNED:
+        case SDP_DRILLING:
+            return DashOverFace(s->pointer) ? SDC_HAND : SDC_ARROW;
+    }
+    return SDC_ARROW;
+}
+
+/* ---- THE CURSOR TAG ----------------------------------------------------
+ *
+ * What the next tap will do, hung off the pointer, because the pointer is
+ * where the eye already is. Two lines: a small caption that names the act,
+ * and the value or the verb large under it. It was one 12-unit line and at
+ * the console's letterbox scale that is 8 pixels -- present, and missed. */
+#define DASH_TAG_CAP_FS  12.0f
+#define DASH_TAG_MAIN_FS 21.0f
+
+static void DashDrawTag(Vector2 at, const char *caption, const char *main, Color mainCol)
+{
+    const float cw = c2d_measure(C2D_W500, DASH_TAG_CAP_FS, caption);
+    const float mw = c2d_measure(C2D_W700, DASH_TAG_MAIN_FS, main);
+    const float pw = fmaxf(cw, mw) + 24.0f, ph = 54.0f;
+
+    /* up and to the right of the tip; flipped to the left near the right
+       edge, and kept inside the surface at the top */
+    float px = at.x + 20.0f, py = at.y - ph - 10.0f;
+    if (px + pw > (float)SURVEY_DASH_DESIGN_W - 8.0f) px = at.x - 20.0f - pw;
+    if (py < 8.0f) py = at.y + 24.0f;
+
+    const C2DCorner cr[4] = {{px, py, 6.0f}, {px + pw, py, 6.0f},
+                             {px + pw, py + ph, 6.0f}, {px, py + ph, 6.0f}};
+    Vector2 plate[64];
+    const int pn = c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, plate, 63);
+    c2d_fill_poly(plate, pn, RGBA8(0x03, 0x14, 0x20, 0.94f));
+    plate[pn] = plate[0];
+    c2d_polyline(plate, pn + 1, RGBA8(mainCol.r, mainCol.g, mainCol.b, 0.75f), 1.4f);
+    c2d_text(C2D_W500, DASH_TAG_CAP_FS, caption, px + 12.0f, py + 19.0f,
+             RGBA8(0x8f, 0xbf, 0xe6, 0.95f), C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
+    c2d_text(C2D_W700, DASH_TAG_MAIN_FS, main, px + 12.0f, py + 44.0f,
+             mainCol, C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
+}
+
 /* ---- THE CURSOR --------------------------------------------------------
  *
  * With the drill in hand the pointer IS the drill, tip down, and the spot it
  * would collar is marked at the tip. That is the whole reason the rack has a
  * tool in it.
  *
- * While a depth is being stretched the console gives the pointer back and
- * hangs the depth off it instead: the system arrow is the precise thing to
- * pick a height with, and a label on it is where the eye already is. */
+ * Once a site is taken the console gives the pointer back and hangs the next
+ * act off it instead: the depth while one is being chosen, then START
+ * DIGGING until the drill bar is started. */
 static void DashDrawCursor(const SurveyDashState *s)
 {
     if (!s->pointerIn) return;
+    const Color cyan  = RGBA8(0x35, 0xd8, 0xee, 1.0f);
+    const Color amber = RGBA8(0xff, 0xc8, 0x4d, 1.0f);
 
-    if (DashStretching(s))
+    switch (SurveyDash_Phase(s))
     {
-        char msg[32];
-        snprintf(msg, sizeof(msg), "DIG TO  %d m", (int)DashStretchMetres(s, s->pointer));
-        const float fs = 12.0f;
-        const float tw = c2d_measure(C2D_W500, fs, msg);
-        const float pw = tw + 20.0f, ph = 24.0f;
-        const float px = s->pointer.x + 18.0f, py = s->pointer.y - ph - 6.0f;
-
-        const C2DCorner cr[4] = {{px, py, 5.0f}, {px + pw, py, 5.0f},
-                                 {px + pw, py + ph, 5.0f}, {px, py + ph, 5.0f}};
-        Vector2 plate[64];
-        const int pn = c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, plate, 63);
-        c2d_fill_poly(plate, pn, RGBA8(0x03, 0x14, 0x20, 0.92f));
-        plate[pn] = plate[0];
-        c2d_polyline(plate, pn + 1, RGBA8(0x1c, 0x7f, 0x95, 0.9f), 1.2f);
-        c2d_text(C2D_W500, fs, msg, px + 10.0f, py + 16.0f,
-                 RGBA8(0x35, 0xd8, 0xee, 0.95f), C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-        return;
+        case SDP_STRETCH:
+        {
+            char m[24];
+            snprintf(m, sizeof(m), "%d m", (int)DashStretchMetres(s, s->pointer));
+            DashDrawTag(s->pointer, "SELECT DEPTH", m, cyan);
+            return;
+        }
+        case SDP_PLANNED:
+        {
+            char cap[32];
+            if (DashOverFace(s->pointer))
+                snprintf(cap, sizeof(cap), "%d m HOLE", (int)(s->drill.targetM + 0.5f));
+            else
+                snprintf(cap, sizeof(cap), "TAP THE DRILL BAR");
+            DashDrawTag(s->pointer, cap, "START DIGGING", amber);
+            return;
+        }
+        case SDP_DRILLING:
+            return;
+        case SDP_AIM:
+        case SDP_COMPLETE:
+            break;
     }
 
-    if (s->aimArmed)
+    if (SurveyDash_Cursor(s) == SDC_HIDDEN)
     {
         Vector2 tip = s->pointer;
         if (s->aimOn && g_model) tip = Holo3D_CapPoint(g_model, s->aimU, s->aimV);
         ToolRack_DrawDrillCursor(tip.x, tip.y, 0.85f, s->aimOn);
         if (s->aimOn)
-            DashTargetMark(tip, 9.0f, s->drill.t * 0.9f, RGBA8(0x35, 0xd8, 0xee, 0.95f), 1.7f);
+            DashTargetMark(tip, 9.0f, s->drill.t * 0.9f, cyan, 1.7f);
     }
+}
+
+/* ---- THE DRILL BAR'S STATE ---------------------------------------------
+ *
+ * Dimmed while there is nothing to drill, so the player's eye goes to the
+ * block, where the next act is. Once a hole is planned the face breathes
+ * amber until it is started: the bar has become the button. */
+static void DashDrawBarState(const SurveyDashState *s)
+{
+    if (!DashBarLive(s))
+    {
+        const C2DCorner cr[4] = {{RIGHT_X, PANE_TOP, 12.0f}, {RIGHT_X + RIGHT_W, PANE_TOP, 12.0f},
+                                 {RIGHT_X + RIGHT_W, PANE_TOP + MAIN_H, 12.0f},
+                                 {RIGHT_X, PANE_TOP + MAIN_H, 12.0f}};
+        Vector2 v[64];
+        const Color bg = DashC_Bg();
+        c2d_fill_poly(v, c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, v, 64),
+                      RGBA8(bg.r, bg.g, bg.b, 0.66f));
+        return;
+    }
+    if (SurveyDash_Phase(s) != SDP_PLANNED) return;
+
+    /* the face below the gauges -- Dash_DrillBar's own inset */
+    float fx, fy, fw, fh;
+    Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &fx, &fy, &fw, &fh);
+    fy += 44.0f; fh -= 44.0f;
+    const float a = 0.55f + 0.40f * (0.5f + 0.5f * sinf(s->drill.t * 4.0f));
+    const C2DCorner cr[4] = {{fx, fy, 8.0f}, {fx + fw, fy, 8.0f},
+                             {fx + fw, fy + fh, 8.0f}, {fx, fy + fh, 8.0f}};
+    Vector2 v[64];
+    const int n = c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, v, 63);
+    v[n] = v[0];
+    const Color c = RGBA8(0xff, 0xc8, 0x4d, a);
+    c2d_shadow_begin();
+    c2d_polyline(v, n + 1, c, 2.0f);
+    c2d_shadow_end(c, 8.0f);
+    c2d_polyline(v, n + 1, c, 2.0f);
 }
 
 void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
@@ -606,10 +747,13 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     }
     {
         const DrillSim *dr = &s->drill;
-        const char *status = dr->tripping ? "TRIPPING"
-                           : dr->done     ? "HOLE COMPLETE"
-                           : (dr->targetM >= 0.0f && dr->depthM >= dr->targetM) ? "AT TARGET"
-                           : (dr->rate > 0.05f) ? "DRILLING" : "IDLE";
+        const SurveyDashPhase ph = SurveyDash_Phase(s);
+        const char *status = dr->tripping         ? "TRIPPING"
+                           : dr->done             ? "HOLE COMPLETE"
+                           : ph == SDP_DRILLING   ? "DRILLING"
+                           : ph == SDP_COMPLETE   ? "AT TARGET"
+                           : ph == SDP_PLANNED    ? "READY"
+                           : "IDLE";
         Dash_DrillStats(RIGHT_X, STATS_Y, RIGHT_W, STATS_H, dr, status);
     }
 
@@ -625,6 +769,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, s->log.entry, s->log.count);
 
     DrillSim_Step(&s->drill, dt);
+    DrillProfile_Record(&s->profile, &s->drill);
     if (s->drill.completed)
     {
         /* C5+C6 meet here: a finished hole is what the model learns from. */
@@ -633,6 +778,9 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
         snprintf(msg, sizeof(msg), "Hole to %d m logged at site %d/%d in ",
                  (int)(s->drill.completedAtM + 0.5f), (int)s->siteI, (int)s->siteJ);
         DashLog_Push(s, s->drill.t, msg, DrillSim_At(s->drill.completedAtM)->name);
+        snprintf(msg, sizeof(msg), "Profile: %d readings, one every %.1f m.",
+                 s->profile.count, DRILL_PROFILE_STEP_M);
+        DashLog_Push(s, s->drill.t, msg, NULL);
         /* announced ONCE -- it fires on a completion, and every later hole
          * is also a completion with the model still measured */
         if (!s->saidMeasured && DashKnow_IsMeasured(s->know, DK_LATTICE, DRILL_TARGET_M))
@@ -643,6 +791,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     }
     Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, "DRILL BAR",
                   SurveyDash_Ruler(), DASH_RULER_TICKS, &s->drill, dt);
+    DashDrawBarState(s);
 
     DashDrawCursor(s);
 
@@ -667,33 +816,43 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     s->onBlock = (d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 &&
                   d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1);
 
-    /* C6: the ruler is the depth control. Checked before the face, because
-     * it sits inside the bar and a click on it must arm rather than drill. */
+    /* Nothing on the drill bar answers until a hole is planned -- it is
+     * drawn dimmed until then, and a dimmed control that still worked would
+     * be lying. */
+    if (!DashBarLive(s)) return;
+
+    /* C6: the ruler re-plans the depth -- deeper from where the bit stopped,
+     * or shorter before it gets there. Checked before the face, because it
+     * sits inside the bar and a click on it must re-plan rather than drill. */
     const float pick = Dash_DrillBarPickDepth(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, d.x, d.y);
     if (pick >= 0.0f)
     {
-        DrillSim_SetTarget(&s->drill, pick);
-        s->depthPicked = true;
+        const float m = fmaxf(roundf(pick), DASH_MIN_HOLE_M);
+        DrillSim_SetTarget(&s->drill, m);
+        DrillProfile_Plan(&s->profile, s->siteI, s->siteJ, s->drill.targetM, s->drill.t);
         char msg[96];
-        snprintf(msg, sizeof(msg), "String set to %d m. Tap the hole to feed it down.",
-                 (int)(pick + 0.5f));
+        snprintf(msg, sizeof(msg), "Hole re-planned to %d m.", (int)m);
         DashLog_Push(s, s->drill.t, msg, NULL);
         return;
     }
 
-    /* The drill takes its input on PRESS, not release: the whole loop is a
-     * rhythm the player keeps, and waiting for the button to come up puts a
-     * lag between the tap and the kick. */
-    float fx, fy, fw, fh;
-    Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &fx, &fy, &fw, &fh);
-    if (d.x >= fx && d.x <= fx + fw && d.y >= fy && d.y <= fy + fh)
-        DrillSim_Bite(&s->drill);
-}
-
-bool SurveyDash_OwnsCursor(const SurveyDashState *s)
-{
-    if (!s || !s->started) return false;
-    return s->aimArmed && !DashStretching(s);
+    /* The first tap on the face STARTS the drill; every later one drives
+     * it. Input on PRESS, not release: the loop is a rhythm the player
+     * keeps, and waiting for the button to come up puts a lag between the
+     * tap and the kick. */
+    if (!DashOverFace(d)) return;
+    if (SurveyDash_Phase(s) == SDP_PLANNED)
+    {
+        if (DrillSim_Start(&s->drill))
+        {
+            char msg[96];
+            snprintf(msg, sizeof(msg), "Drilling to %d m. Tap the bar to drive the bit.",
+                     (int)(s->drill.targetM + 0.5f));
+            DashLog_Push(s, s->drill.t, msg, NULL);
+        }
+        return;
+    }
+    DrillSim_Bite(&s->drill);
 }
 
 void SurveyDash_Hover(SurveyDashState *s, Rectangle region, Vector2 screenPt)
@@ -747,8 +906,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     if (!s || !s->started) return;
     const Vector2 d = SurveyDash_ToDesign(region, screenPt);
     s->block.fast = false;
-    const bool inMid = (d.x >= MID_X && d.x <= MID_X + MID_W &&
-                        d.y >= PANE_TOP && d.y <= PANE_TOP + PANE_H);
+    const bool inMid = DashInMid(d);
     if (s->down && !s->moved && DashStretching(s) && inMid)
     {
         /* The tap that ends the stretch. Anywhere in the middle pane, not
@@ -757,8 +915,11 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
         const float m = DashStretchMetres(s, d);
         DrillSim_SetTarget(&s->drill, m);
         s->depthPicked = true;
+        /* THE PLAN EXISTS BEFORE THE FIRST TURN: the profile is opened here,
+           with its site and target, and fills once the drill is started. */
+        DrillProfile_Plan(&s->profile, s->siteI, s->siteJ, m, s->drill.t);
         char msg[96];
-        snprintf(msg, sizeof(msg), "Hole planned to %d m. Tap the hole in the drill bar to drill.",
+        snprintf(msg, sizeof(msg), "Hole planned to %d m. Tap the drill bar to start digging.",
                  (int)m);
         DashLog_Push(s, s->drill.t, msg, NULL);
     }
@@ -782,6 +943,14 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                 DashLog_Push(s, s->drill.t,
                              "Select the DRILL in the rack before siting a hole.", NULL);
             }
+            else if (s->drill.running)
+            {
+                /* A running string is not abandoned by a stray tap. */
+                char msg[96];
+                snprintf(msg, sizeof(msg), "Drill running to %d m. Site the next hole when it lands.",
+                         (int)(s->drill.targetM + 0.5f));
+                DashLog_Push(s, s->drill.t, msg, NULL);
+            }
             else
             {
                 /* ON THE GROUND, not across the panel. The old mapping took
@@ -797,8 +966,10 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                     s->drill.depthM = 0.0f;      /* a new site is a new hole */
                     s->drill.lift = 0.0f;
                     s->drill.done = false;
+                    s->drill.running = false;
                     s->depthPicked = false;       /* and now: how deep */
                     s->drill.targetM = -1.0f;
+                    DrillProfile_Clear(&s->profile);
                     char msg[96];
                     snprintf(msg, sizeof(msg), "Site set at %d/%d. Pull down to choose a depth.",
                              (int)s->siteI, (int)s->siteJ);

@@ -871,8 +871,8 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
     const float gaugeH = 44.0f;
     const DrillStratum *g = DrillSim_At(sim ? sim->depthM : 0.0f);
     DcGauge(x + 30.0f, y + 62.0f, (w - 76.0f) * 0.5f, "SPINDLE",
-            sim ? sim->rpm / 1.35f : 0.0f, RGB(0x24, 0xdc, 0xf2),
-            g->bandLo / 1.35f, g->bandHi / 1.35f);
+            sim ? sim->rpm / DRILL_RPM_MAX : 0.0f, RGB(0x24, 0xdc, 0xf2),
+            g->bandLo / DRILL_RPM_MAX, g->bandHi / DRILL_RPM_MAX);
     DcGauge(x + 30.0f + (w - 76.0f) * 0.5f + 16.0f, y + 62.0f, (w - 76.0f) * 0.5f,
             "BIT TEMP", sim ? sim->heat : 0.0f,
             (sim && sim->heat > 0.75f) ? RGB(0xff, 0x5a, 0x28) : RGB(0xff, 0xc8, 0x4d),
@@ -1087,14 +1087,10 @@ void Dash_DrillStats(float x, float y, float w, float h,
     /* The reference's five rows are static strings of severity letters. Ours
      * read the simulation, so the ramp is computed from the value: the bars
      * move while the bit turns, which is the whole reason the block is here. */
-    const float rpm  = sim ? sim->rpm / 1.35f : 0.0f;
-    const float heat = sim ? sim->heat : 0.0f;
-    const float wear = sim ? (1.0f - sim->wear) : 0.0f;
-    const float vib  = sim ? Clampf01(sim->shake * 0.7f + rpm * 0.35f) : 0.0f;
-    /* "Load" is what the rock pushes back: hardness carried by spindle speed. */
-    const float load = sim ? Clampf01(rpm * (0.4f + DrillSim_At(sim->depthM)->hard * 0.9f)) : 0.0f;
-
-    const float vals[5]  = {rpm, load, heat, wear, vib};
+    /* One reading, shared with the dig profile (DrillSim_Read), so what the
+     * panel shows and what the hole records are the same numbers. */
+    const DrillReadout r = sim ? DrillSim_Read(sim) : (DrillReadout){0};
+    const float vals[5]  = {r.rpm, r.load, r.heat, r.wear, r.vib};
     const char *names[5] = {"Rotary Speed", "Load", "Temperature", "Bit Wear", "Vibration"};
 
     Color cells[8];

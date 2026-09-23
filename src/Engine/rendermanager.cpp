@@ -186,12 +186,33 @@ void RenderManager::BeginDraw() {
     // Any terrain a view asked for last frame is built here, before the
     // frame draws -- see RequestTerrainForCell.
     ServicePendingTerrain();
+    pointerClaimed = false;
     BeginDrawing();
     ClearBackground(RAYWHITE);
 }
 
 void RenderManager::EndDraw() {
+    RestorePointerIfUnclaimed();
     EndDrawing();
+}
+
+void RenderManager::ApplyPointer(int kind)
+{
+    pointerClaimed = true;
+    if (kind == pointerApplied) return;
+    if (kind == SDC_HIDDEN) HideCursor();
+    else
+    {
+        ShowCursor();
+        SetMouseCursor(kind == SDC_HAND ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
+    }
+    pointerApplied = kind;
+}
+
+void RenderManager::RestorePointerIfUnclaimed()
+{
+    if (!pointerClaimed && pointerApplied != SDC_ARROW) ApplyPointer(SDC_ARROW);
+    pointerClaimed = false;
 }
 
 void RenderManager::DrawMenuView() {
@@ -1025,7 +1046,12 @@ void RenderManager::DrawUnitView(Unit* unit, TimeManager& timeManager) {
 
     // Every unit type shares the dark-themed modular chrome. Modules without a
     // bespoke centre panel fall back to DrawGenericModulePanel.
+    pointerClaimed = false;
     DrawModularUnitView(unit, timeManager);
+    // The harnesses draw this view without BeginDraw/EndDraw, so the pointer
+    // is settled here as well: another module tab must not inherit the hand.
+    RestorePointerIfUnclaimed();
+    pointerClaimed = true;
 }
 
 void RenderManager::DrawCellInfo(Vector2 mousePosition, Camera2D camera, Planet* planet, std::vector<Colony*>& colonies) {
@@ -3487,21 +3513,19 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
            real ground. */
         ps->Survey().Step(GetFrameTime());
         FeedSurveyConsole(ps, dash);
+        /* ColonyGetMousePosition, not raylib's: on a touch screen the shell
+           publishes the last touch and never clears it, so a tap reads as a
+           hover that stays -- which is the only hover a phone has. Read
+           BEFORE the draw, so the tag on the pointer is this frame's. */
+        const Vector2 mouse = ColonyGetMousePosition();
+        SurveyDash_Hover(dash, console, mouse);
         SurveyDash_Draw(dash, console, GetFrameTime());
 
         /* IMGUI, like the rest of this file: the console's input is handled
            here, next to its draw. Every hit test goes through design space --
            SurveyDash_* take screen points and convert internally, because
            hit-testing in screen space is the mistake the port spec names. */
-        /* ColonyGetMousePosition, not raylib's: on a touch screen the shell
-           publishes the last touch and never clears it, so a tap reads as a
-           hover that stays -- which is the only hover a phone has. */
-        const Vector2 mouse = ColonyGetMousePosition();
-        SurveyDash_Hover(dash, console, mouse);
-        /* The console draws its own pointer while it owns one, so the system
-           arrow would be a second cursor standing next to the first. */
-        if (CheckCollisionPointRec(mouse, console) && SurveyDash_OwnsCursor(dash)) HideCursor();
-        else ShowCursor();
+        ApplyPointer(CheckCollisionPointRec(mouse, console) ? SurveyDash_Cursor(dash) : SDC_ARROW);
         if (CheckCollisionPointRec(mouse, console))
         {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(dash, console, mouse);

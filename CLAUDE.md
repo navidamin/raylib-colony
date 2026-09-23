@@ -447,7 +447,7 @@ without a display:
 | Tool | Use it for |
 |------|-----------|
 | `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so the ground is reproducible. The **pixels are not** — animation eases on frame time, so two runs differ; judge by looking, not by diffing (see `docs/dev-workflow.md`). |
-| `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
+| `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. `drive.py` plays it headlessly with a **real pointer** and captures the OS cursor too — use it for anything hover-, click-sequence- or cursor-driven. |
 | `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
 | `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |

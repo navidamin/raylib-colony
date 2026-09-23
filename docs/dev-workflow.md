@@ -72,7 +72,6 @@ refactor), check the *diff* is identifier-only rather than the output.
 Making it bit-exact needs a fixed frame time driven through the preview
 harness, which nothing needs yet.
 
-### 2. `tools/playtest/` — interactive sandbox + phone build
 ### 2. `tools/sectwalk/` — walk every unit and module
 
 Boots straight into the Sect view. Click a socket or the Core dome to open a
@@ -101,6 +100,26 @@ cmake --build build --target colony_playtest && ./build/src/colony_playtest
 
 Deployed with the game to GitHub Pages at **`/playtest/`**. Full docs:
 `tools/playtest/README.md`.
+
+**Driving it with a real pointer — `tools/playtest/drive.py`.** Preview and
+`--shot` render frames with no pointer at all, so hover, click sequences and
+the cursor's own shape could never be looked at before they shipped. This
+runs the playtest on its own virtual X display, moves and clicks a real X
+pointer with `xdotool`, and captures the screen *with the OS cursor
+composited in* (from XFixes), so a hidden, arrow or hand cursor is visible in
+the PNG:
+
+```bash
+tools/playtest/drive.py build/drive "move 640 175" "shot aim" "click" \
+    "move 660 280" "shot stretch" "click" "move 1000 330" "shot bar"
+# game output lands in build/drive/game.log
+```
+
+Needs `Xvfb`, `xdotool`, `python-xlib` and Pillow. Two things it learned the
+hard way: software GL draws the console at ~0.6 s a frame, so a click is held
+across frames (a 1 ms click lands between polls and is lost); and the first
+motion event after the game changes the cursor's shape can be dropped, so a
+move arrives as two events.
 
 ### 4. `tools/inspect/` — terminal dump of generated data
 

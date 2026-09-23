@@ -66,13 +66,40 @@ typedef struct DrillSim {
     float targetM;
     bool  completed;            /* set for ONE step when the target lands  */
     float completedAtM;
+
+    /* THE STRING TURNS ONLY WHEN IT HAS BEEN TOLD TO. Planning a hole and
+     * drilling it are two acts: a depth is chosen, and then the player starts
+     * the drill. Until DrillSim_Start the spindle is still and nothing
+     * advances; landing the target stops it again, so going deeper is another
+     * plan and another start. */
+    bool  running;
 } DrillSim;
+
+/* The spindle's full scale -- what the gauges divide by. */
+#define DRILL_RPM_MAX 1.35f
+
+/* What the drill reports, each 0..1: one reading, used by DRILL STATS and by
+ * the profile, so the panel and the record cannot disagree. */
+typedef struct DrillReadout {
+    float rpm;                  /* rotary speed, of DRILL_RPM_MAX         */
+    float load;                 /* what the rock pushes back              */
+    float heat;
+    float wear;                 /* 0 = fresh bit, 1 = spent               */
+    float vib;
+} DrillReadout;
+
+DrillReadout DrillSim_Read(const DrillSim *s);
 
 void DrillSim_Reset(DrillSim *s);
 void DrillSim_Step (DrillSim *s, float dt);
 
-/* One click on the face. This is the whole input. */
+/* One click on the face. This is the whole input -- once the drill is
+ * running. Before that a click is ignored: see DrillSim_Start. */
 void DrillSim_Bite (DrillSim *s);
+
+/* Start the string down toward targetM. False, and nothing happens, when
+ * there is no target or the bit is already at it. */
+bool DrillSim_Start(DrillSim *s);
 
 /* Pull the string and change the bit: costs time that scales with depth. */
 void DrillSim_BeginTrip(DrillSim *s, bool broken);
@@ -83,6 +110,51 @@ void DrillSim_SetTarget(DrillSim *s, float depthM);
 /* Where the spindle sits relative to the current rock's band:
  * -1 rubbing, 0 in band, +1 over-driving. Drives the motor-pod lamp. */
 int  DrillSim_BandState(const DrillSim *s);
+
+/* ---- THE DIG PROFILE ----------------------------------------------------
+ *
+ * What the hole said on the way down: the drill's readout every
+ * DRILL_PROFILE_STEP_M of depth, so the log of a hole is the rock as the bit
+ * felt it rather than a single number at the bottom. Opened when a depth is
+ * committed -- the plan exists before the first turn -- and filled while the
+ * string runs. Not drawn yet; the core log will read it.
+ *
+ * A fixed array, not a heap one, so the console state stays one flat,
+ * copyable object. */
+/* Two bins a metre, so one every 0.5 m. Counted in bins rather than metres
+ * because C sizes an array only from an integer constant expression, and a
+ * float division is not one. */
+#define DRILL_PROFILE_PER_M  2
+#define DRILL_PROFILE_STEP_M (1.0f / (float)DRILL_PROFILE_PER_M)
+#define DRILL_PROFILE_MAX    ((int)DRILL_TARGET_M * DRILL_PROFILE_PER_M)
+
+typedef struct DrillSample {
+    float depthM;               /* the bin's own depth: 0.5, 1.0, ...     */
+    float t;                    /* sim seconds when the bit reached it    */
+    DrillReadout read;
+    unsigned char stratum;      /* index into DrillSim_Strata()           */
+} DrillSample;
+
+typedef struct DrillProfile {
+    bool  open;                 /* a plan exists for this hole            */
+    float siteI, siteJ;         /* lattice coordinates                    */
+    float targetM;
+    float plannedT, startedT, finishedT;   /* sim seconds; <0 = not yet   */
+    int   count;
+    DrillSample sample[DRILL_PROFILE_MAX];
+} DrillProfile;
+
+/* A new hole at a new site: forget the old one. */
+void DrillProfile_Clear(DrillProfile *p);
+
+/* Commit a depth. The first plan at a site opens the profile; a later one
+ * (drilling deeper from where the last one stopped) moves the target and
+ * keeps what is already recorded -- it is the same hole. */
+void DrillProfile_Plan(DrillProfile *p, float siteI, float siteJ, float targetM, float t);
+
+/* Call after every DrillSim_Step. Writes one sample per bin the bit has
+ * crossed, so a long frame cannot skip a bin. Returns how many it wrote. */
+int  DrillProfile_Record(DrillProfile *p, const DrillSim *s);
 
 #ifdef __cplusplus
 }

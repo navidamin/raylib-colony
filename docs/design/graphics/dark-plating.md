@@ -442,13 +442,38 @@ ellipse.
 **Choosing depth on the thing itself.** A depth is a place in the ground, so
 it is chosen on the block, not on a remote control. Once a site is taken a
 dashed borehole runs straight down from it to the pointer's height, and the
-pointer carries a plated label — `DIG TO 52 m`. The line stays vertical when
-the pointer drifts sideways, because the drill goes straight down; only the
-label follows the hand. This works for one reason worth knowing: the camera
-has no world-y term in screen x, so a vertical in the block is a vertical on
-screen at every yaw and pitch, and depth along it is linear. Once committed
-the plan stays as a quieter dashed line with what has actually been drilled
-drawn solid over it, in the drill's amber.
+pointer carries a plated tag — `SELECT DEPTH` over `52 m`. The line stays
+vertical when the pointer drifts sideways, because the drill goes straight
+down; only the tag follows the hand. This works for one reason worth knowing:
+the camera has no world-y term in screen x, so a vertical in the block is a
+vertical on screen at every yaw and pitch, and depth along it is linear. Once
+committed the plan stays as a dashed line ending in a small target mark,
+with what has actually been drilled drawn solid over it, in the drill's
+amber.
+
+**Weight that survives the letterbox.** The console is drawn at 1536 units
+wide and shown at about two-thirds of that. A 12-unit label is then 8 screen
+pixels, and a 1.4-unit line at 0.55 alpha is under one pixel — both were
+drawn, and neither was seen; the first playtest reported the depth label
+missing. Anything the player must read to act gets at least a 21-unit main
+line and a 1.8-unit stroke at 0.85 alpha. Check it on a real-pointer capture
+(`tools/playtest/drive.py`), not on a design-space render, where it looks
+fine.
+
+**The cursor tag says what the next tap does.** Two lines on one plate: a
+small caption naming the act, and the value or the verb large beneath it —
+`SELECT DEPTH / 52 m`, then `TAP THE DRILL BAR / START DIGGING`, and over the
+bar itself `52 m HOLE / START DIGGING`. The main line takes the colour of the
+thing it acts on: cyan while measuring, amber once it is the drill's turn.
+It flips to the pointer's left near the right edge rather than leave the
+surface.
+
+**A control that is not yet a control is dimmed, and does nothing.** The
+drill bar sits under a 0.66 veil of the background until a hole has a site and
+a depth; dimmed and still answering would be lying. When the plan exists the
+veil lifts and the bar's face breathes an amber outline, glowing through one
+shadow layer, until the drill is started — the bar has become the button, and
+the pointer over it becomes the system's pointing hand.
 
 Text that crosses rock needs the plate; unbacked line text over the strata is
 unreadable. (An earlier version flew the target mark to the drill bar's ruler

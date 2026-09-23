@@ -148,6 +148,10 @@ typedef struct SurveyDashState {
      * that depth. While `sited && !depthPicked` the console is stretching. */
     bool          depthPicked;
 
+    /* The hole as the bit felt it, every 0.5 m. Opened when the depth is
+     * committed, filled while the string runs. */
+    DrillProfile  profile;
+
     Vector2       pointer;       /* design space, last known            */
     bool          pointerIn;     /* inside the console at all           */
 
@@ -188,9 +192,34 @@ void SurveyDash_Press  (SurveyDashState *s, Rectangle region, Vector2 screenPt);
  * behaves as a hover that stays (docs/web-deploy-mobile.md). */
 void SurveyDash_Hover  (SurveyDashState *s, Rectangle region, Vector2 screenPt);
 
-/* True while the console is drawing a pointer of its own, so the caller can
- * take the system one away. */
-bool SurveyDash_OwnsCursor(const SurveyDashState *s);
+/* WHERE THE HOLE IS in its life. Derived from the state every time it is
+ * asked, never stored, so it cannot disagree with the drill:
+ *
+ *   AIM       the drill is in hand and no site is taken
+ *   STRETCH   a site is taken; the pointer's height is choosing a depth
+ *   PLANNED   a depth is committed; the drill bar waits to be started
+ *   DRILLING  the string is running
+ *   COMPLETE  the bit is at the planned depth -- site again, or deepen */
+typedef enum SurveyDashPhase {
+    SDP_AIM = 0,
+    SDP_STRETCH,
+    SDP_PLANNED,
+    SDP_DRILLING,
+    SDP_COMPLETE
+} SurveyDashPhase;
+
+SurveyDashPhase SurveyDash_Phase(const SurveyDashState *s);
+
+/* The pointer the console wants, for the caller to apply: the console draws
+ * the drill itself (HIDDEN), wants the ordinary arrow, or wants the hand that
+ * says "this starts something". */
+typedef enum SurveyDashCursor {
+    SDC_ARROW = 0,
+    SDC_HIDDEN,
+    SDC_HAND
+} SurveyDashCursor;
+
+SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s);
 
 /* Wheel notches (or pinch steps) over the block. Positive zooms in. */
 void SurveyDash_Zoom   (SurveyDashState *s, Rectangle region, Vector2 screenPt, float steps);

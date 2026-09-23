@@ -55,6 +55,16 @@ public:
     void DrawRoadInfoPanel(Road* selectedRoad, Colony* colony);
 
 private:
+    /* THE POINTER IS SET IN ONE PLACE. The survey console asks for the
+       arrow, the hand, or none (it draws the drill itself); ApplyPointer
+       changes the OS cursor only when the ask changes, and a frame in which
+       nobody asked puts the arrow back -- so leaving the console can never
+       strand a hidden pointer. `kind` is a SurveyDashCursor. */
+    void ApplyPointer(int kind);
+    void RestorePointerIfUnclaimed();
+    int  pointerApplied = 0;
+    bool pointerClaimed = false;
+
     int screenWidth;
     int screenHeight;
 

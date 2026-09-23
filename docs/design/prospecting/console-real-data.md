@@ -199,6 +199,43 @@ undulating INFERRED ground to 100% MEASURED with the interfaces visibly
 re-fitted, and Holo3D's visual diff stays at 1.15% because the harness never
 calls `Holo3D_SetGround` — the reference's five beds are still what it draws.
 
+## A hole's life on the console
+
+Siting, choosing a depth and drilling were one blur: the drill turned from the
+first frame and the bar answered at any time. They are now five phases,
+**derived** from the state (`SurveyDash_Phase`) rather than stored beside it,
+so the phase cannot disagree with the drill.
+
+| Phase | Entered by | Pointer | Tag on the pointer | Drill bar |
+|-------|-----------|---------|--------------------|-----------|
+| AIM | the DRILL picked in the rack | the drill, tip on the cap | — | dimmed, inert |
+| STRETCH | a tap on the cap | arrow | SELECT DEPTH / *n* m | dimmed, inert |
+| PLANNED | a tap in the middle pane | arrow; **hand** over the bar | TAP THE DRILL BAR / START DIGGING | lit, face pulses amber |
+| DRILLING | a tap on the bar's face (`DrillSim_Start`) | arrow; hand over the bar | — | live — taps drive the bit |
+| COMPLETE | the bit reaching the target | the drill again, to site the next hole | — | lit; the ruler can deepen it |
+
+**The dig profile.** `DrillProfile` (`drill_sim.h`) is opened at the depth
+commit — the plan exists before the first turn, with its site and target —
+and written by `DrillProfile_Record` after every step: one `DrillSample` per
+0.5 m bin the bit crosses, holding the same `DrillReadout` DRILL STATS shows
+(rotary speed, load, temperature, bit wear, vibration) and the stratum the
+bin sits in. A long frame writes every bin it crossed rather than skipping
+one. Re-planning deeper keeps the samples — it is the same hole; a new site
+clears them. It is not drawn yet; the log reports the count when a hole
+lands, which is how it is checked in a playtest.
+
+**The pointer is applied in one place.** The console reports the cursor it
+wants (`SurveyDash_Cursor`); `RenderManager::ApplyPointer` changes the OS
+cursor only when that changes, and any frame in which nothing claimed it puts
+the arrow back — so leaving the console with the drill cursor up can no
+longer strand a hidden pointer, which it could before.
+
+**Verified with a real pointer.** `tools/playtest/drive.py` runs the playtest
+on a virtual X display, moves and clicks a real pointer, and composites the
+real OS cursor into each capture. It found both defects the design-space
+renders could not: the depth label was drawn but 8 px tall, and the planned
+line was drawn but under a pixel wide.
+
 ## What P5 deliberately does not do
 
 Both of these are in #15's settled design and are being deferred with reasons,
@@ -224,6 +261,7 @@ else needs yet.
 | P5a | Render the console and **look at the ruler** — labels must not collide |
 | P5b | Render at each tier; the rack shows two tools and three empty bays |
 | P5c | Drill holes in the preview and confirm the beds move; Holo3D visdiff still 1.15% (the harness passes five beds) |
+| phases | `drive.py` through AIM → STRETCH → PLANNED → bar hover → DRILLING; look at each capture, cursor included |
 | all | `c2dtest` 69/69, `colony_sim` 18/18, all targets build, `sectwalk` opens all 40 modules |
 
 ## Cross-references

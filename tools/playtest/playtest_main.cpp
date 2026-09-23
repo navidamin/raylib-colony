@@ -117,8 +117,8 @@ static std::unique_ptr<Unit> MakeUnit(PlaytestContext& ctx)
     // a tap IS the hover. That is worth saying out loud on the one build
     // people actually use on a phone; an unreachable feature is not a
     // feature (docs/guides/feature-completeness.md).
-    unit->PublicShowMessage("[PLAYTEST] Tap the block to set a site, the ruler for a depth, "
-                            "then the hole to drill it. RESOURCE opens the statement.");
+    unit->PublicShowMessage("[PLAYTEST] Tap the block to site a hole, pull down for a depth, "
+                            "then tap the drill bar to dig. RESOURCE opens the statement.");
     return unit;
 }
 

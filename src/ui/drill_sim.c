@@ -13,7 +13,7 @@
 /* game rules (redline.html:251-264) */
 #define IDLE_RPM      0.14f
 #define CLICK_KICK    0.26f
-#define RPM_MAX       1.35f
+#define RPM_MAX       DRILL_RPM_MAX
 #define RPM_TAU       0.65f
 #define FEED          0.55f
 #define CUT_RATE      5.0f
@@ -65,9 +65,33 @@ void DrillSim_SetTarget(DrillSim *s, float depthM)
     if (s->targetM > s->depthM) s->done = false;
 }
 
+bool DrillSim_Start(DrillSim *s)
+{
+    if (!s || s->running || s->targetM < 0.0f || s->depthM >= s->targetM) return false;
+    s->running = true;
+    s->done = false;
+    /* the first turn is a kick, the same as every later one */
+    s->rpm = fminf(RPM_MAX, fmaxf(s->rpm, IDLE_RPM) + CLICK_KICK);
+    s->shake = 1.0f;
+    return true;
+}
+
+DrillReadout DrillSim_Read(const DrillSim *s)
+{
+    DrillReadout r = {0};
+    if (!s) return r;
+    r.rpm  = Clampf(s->rpm / RPM_MAX, 0.0f, 1.0f);
+    r.heat = s->heat;
+    r.wear = 1.0f - s->wear;
+    r.vib  = Clampf(s->shake * 0.7f + r.rpm * 0.35f, 0.0f, 1.0f);
+    /* "Load" is what the rock pushes back: hardness carried by spindle speed */
+    r.load = Clampf(r.rpm * (0.4f + DrillSim_At(s->depthM)->hard * 0.9f), 0.0f, 1.0f);
+    return r;
+}
+
 void DrillSim_Bite(DrillSim *s)
 {
-    if (!s || s->done || s->tripping) return;
+    if (!s || !s->running || s->done || s->tripping) return;
     s->rpm = fminf(RPM_MAX, s->rpm + CLICK_KICK);
     s->shake = 1.0f;
 }
@@ -97,8 +121,12 @@ void DrillSim_Step(DrillSim *s, float dt)
     s->t += dt;
     s->shake = fmaxf(0.0f, s->shake - dt * 7.0f);
 
-    if (s->done)
+    /* Stopped -- not yet started, or the target landed. The spindle runs
+     * down and the bit cools; nothing cuts. */
+    if (s->done || (!s->running && !s->tripping))
     {
+        s->completed = false;
+        s->rate = 0.0f;
         s->rpm = fmaxf(0.0f, s->rpm - dt * 0.9f);
         s->heat = Clampf(s->heat - dt * 0.22f, 0.0f, 1.0f);
         s->phase -= s->rpm * 9.0f * dt;
@@ -163,8 +191,59 @@ void DrillSim_Step(DrillSim *s, float dt)
         /* the hole is finished, and the model is about to learn from it */
         s->completed = true;
         s->completedAtM = s->depthM;
+        s->running = false;
         if (s->depthM >= DRILL_TARGET_M) s->done = true;
     }
 
     s->phase -= s->rpm * 9.0f * dt;
+}
+
+/* ---- the dig profile -------------------------------------------------- */
+
+void DrillProfile_Clear(DrillProfile *p)
+{
+    if (!p) return;
+    memset(p, 0, sizeof(*p));
+    p->plannedT = p->startedT = p->finishedT = -1.0f;
+}
+
+void DrillProfile_Plan(DrillProfile *p, float siteI, float siteJ, float targetM, float t)
+{
+    if (!p) return;
+    if (!p->open)
+    {
+        DrillProfile_Clear(p);
+        p->open = true;
+        p->siteI = siteI;
+        p->siteJ = siteJ;
+        p->plannedT = t;
+    }
+    p->targetM = targetM;
+    p->finishedT = -1.0f;       /* a deeper plan reopens a finished hole */
+}
+
+int DrillProfile_Record(DrillProfile *p, const DrillSim *s)
+{
+    if (!p || !s || !p->open) return 0;
+    if (s->running && p->startedT < 0.0f) p->startedT = s->t;
+
+    int wrote = 0;
+    const DrillReadout r = DrillSim_Read(s);
+    const DrillStratum *S = DrillSim_Strata();
+    for (;;)
+    {
+        if (p->count >= DRILL_PROFILE_MAX) break;
+        const float bin = (float)(p->count + 1) * DRILL_PROFILE_STEP_M;
+        /* a hair of tolerance: 60.0 must fill the 60.0 bin */
+        if (s->depthM + 1e-4f < bin) break;
+        DrillSample *d = &p->sample[p->count++];
+        d->depthM = bin;
+        d->t = s->t;
+        d->read = r;
+        const DrillStratum *g = DrillSim_At(bin - DRILL_PROFILE_STEP_M * 0.5f);
+        d->stratum = (unsigned char)(g - S);
+        wrote++;
+    }
+    if (s->completed) p->finishedT = s->t;
+    return wrote;
 }
