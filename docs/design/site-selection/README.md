@@ -1,7 +1,9 @@
 # Site Selection — Design Documents
 
-**Status: SETTLED, and built as three levels in `lunar_map`.** Not yet
-the game's founding flow — see "Where it runs" below.
+**Status: SETTLED, BUILT, and in the game** — the three levels are how a
+colony is founded (since 2026-09-21 on the wiring branch, merged here
+2026-09-23; see [game-integration-plan.md](game-integration-plan.md) §8
+"As built"). `lunar_map` runs the same controller as an instrument.
 
 ## The one level ladder
 
@@ -19,8 +21,8 @@ the game's founding flow — see "Where it runs" below.
 
 **Not levels**, though each has been mistaken for one:
 
-- the game's **Planet (100 km) / Colony (25 km) / Sect (5 km) views** —
-  where a colony is managed once it exists;
+- the game's **Colony (25 km) / Sect (5 km) views** once a colony
+  exists — where it is managed (the Colony view shares level 3's window);
 - the terrain chain's **internal steps** in `terrain_synthesis.cpp`
   (100 → 25 → 5 km crops it walks to build one picture);
 - the **crater bench**'s free zoom at `/regolith/` (a design prototype).
@@ -50,10 +52,10 @@ there is no band to read, no ring to interpret, no instrument to learn.
 
 | | |
 |---|---|
-| `lunar_map` (bare, or `--site`) | the ladder, interactive, on the real Moon |
-| `/lunarmap/` on Pages | the same, in a browser — the playtest |
+| the game (`src/Engine/`) | **the founding flow.** `View::Orbital` is level 1, `View::District` level 2, `View::Colony` with no colony under it level 3; a green click there founds the colony |
+| `colony_viewtest`, `/viewtest/` on Pages | the game walked: the three levels through `SurveyFlow`, the founding, then the colony's Colony → Sect views |
+| `lunar_map` (bare, or `--site`), `/lunarmap/` on Pages | the same controller as an instrument over the LOLA DEM |
 | `lunar_map --siteshot` / `--flyshot` | the ladder walked headlessly, one PNG per step |
-| the game (`src/Engine/`) | **not yet.** The game in this branch still sites colonies through its old grid picker (`View::SITE_SELECTION`). Putting the ladder into the game is the `lunarmap-wiring-site-selection` branch's work. |
 
 ## Documents
 
@@ -62,15 +64,17 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | [site-selection-master-design.md](site-selection-master-design.md) | The three levels, cursor behaviour, where resource information lives, the coherency contract | SETTLED |
 | ↳ Appendix A | The five-level instrument-floor model this replaced, kept as reasoning, not as work | ARCHIVED |
 | [site-ground-texture.md](site-ground-texture.md) | Why the site level looked like grey noise over 99.8 % of the Moon, and laying the terrain synthesizer over it — platform tiers by measured cost, web memory | BUILT — `--chain`, on by default in the web build |
+| [game-integration-plan.md](game-integration-plan.md) | Two parts, in order. **A:** retire the 20x20 playfield — the globe is the planet, every colony and sect lives at a real lat/lon, ground truth is a function of location, colonies anywhere at once. **B:** the ladder becomes the game's founding flow (Globe → District → Site, then the colony's Colony → Sect views), freely walkable up and down. Inventory of every grid dependency, decisions with recommendations, phases with acceptance criteria, symbol-by-symbol inventory of the tool file, and §8 what was built differently | IMPLEMENTED 2026-09-21 |
+| [playtest.md](playtest.md) | What to play, where (desktop, annotated harness, phone), the controls, a nine-step script through the founding flow and what to report | LIVE |
 
 ## Progress
 
 | Step | State |
 |------|-------|
-| 1 — Cursor infrastructure | **done** — `survey_cursor.{h,cpp}`, self-test |
-| 2 — Region identity + panel | **done in `lunar_map`** — named regions from `zones.json`, terranes, the frozen region card, hover hints |
-| 3 — Site terrain panel | **done in `lunar_map`** — live `EvaluateSite` under the footprint, the verdict |
-| 4 — Placement and commit | **done in `lunar_map`**; not in the game (see "Where it runs") |
+| 1 — Cursor infrastructure | **done** — `survey_cursor.{h,cpp}`, self-test (`level_ladder` in ctest) |
+| 2 — Region identity + panel | **done, in the game** — `src/SiteSelection/region_identity.*`, `RenderManager::SurveyDrawRegionCard` (shared with `lunar_map --site`) |
+| 3 — Site terrain panel | **done, in the game** — `site_verdict.*`, `SurveyDrawLevelCard`, the verdict-tinted cursor |
+| 4 — Placement and commit | **done** — `GameManager::FoundColony(point, windowCentre, claimed)` from `SurveyFlow`; any number of colonies, anywhere outside the polar cap (plan D7) |
 
 ## Cross-references
 
@@ -80,12 +84,15 @@ there is no band to read, no ring to interpret, no instrument to learn.
 |------|-----------|
 | `src/TerrainGen/lola_dem.{h,cpp}` | `EvaluateSite` / `TerrainBuildability` — the real terrain gate |
 | `src/TerrainGen/survey_cursor.{h,cpp}` | **The ladder itself** — the level table, cursor geometry, screen ↔ km ↔ lat/lon, snapping, stack |
-| `src/TerrainGen/terrain_synthesis.h` | `TerrainGridCellToLatLon`, `OrbitalPickToLatLon`, `SetTerrainAnchor`, `TERRAIN_CELL_KM` |
-| `src/ResourceManager/resource_manager.{h,cpp}` | `OrbitalSurveyData`, `GetSiteArchetype` — the region's holdings |
-| `src/Engine/gamemanager.cpp` | The game's OLD grid picker, `View::SITE_SELECTION` — to be replaced by the ladder |
-| `src/Engine/rendermanager.cpp` | `DrawSiteSelectionView` — the old picker's panels |
-| `tools/surveycursor/survey_cursor_test.cpp` | Headless self-test for the cursor geometry |
-| `tools/lunarmap/lunarmap_main.cpp` | The ladder, interactive and headless (`--site`, `--siteshot`, `--flyshot`); `--layer` prototyped the archived model |
+| `src/TerrainGen/terrain_synthesis.h` | `OrbitalPickToLatLon`, `OrbitalLatLonToScreen`, `TERRAIN_CELL_KM` |
+| `src/TerrainGen/lunar_frame.h` | `LunarPoint` maths: `LunarOffsetKm`, `LunarDistanceKm`, `LunarQuantise`, `LocalFrame` |
+| `src/ResourceManager/resource_manager.{h,cpp}` | `GroundAt`, `SurveyAt`, `ArchetypeAt` — the ground truth as a function of the place |
+| `src/SiteSelection/` | `SiteSelectionController` (the ladder's state machine), `region_identity`, `site_verdict`, `survey_input`, `survey_script`, the constants and the shared card layout |
+| `src/Engine/survey_flow.{h,cpp}` | Runs the controller a frame at a time for the Engine, `colony_viewtest` and `colony_preview` |
+| `src/Engine/gamemanager.cpp` | `FoundColony`, `FoundSect`, `ColonyInWindow` |
+| `src/Engine/rendermanager_survey.cpp` | The ladder as the game draws it: globe, district and site windows, cards, strip, markers, flights |
+| `tools/surveycursor/survey_cursor_test.cpp` | Headless self-test for the ladder's shape and cursor geometry |
+| `tools/lunarmap/lunarmap_main.cpp` | The ladder as an instrument, on the same controller, over the LOLA DEM (`--site`, `--siteshot`, `--flyshot`, `--chain`); `--place` prototyped the site panel; `--layer` prototyped the archived model |
 
 **Related design docs**
 

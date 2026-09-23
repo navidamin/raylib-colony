@@ -82,6 +82,19 @@ all, and crossing a level is always a click.
 
 Each is in `docs/graveyard.md` with the constants to rebuild it.
 
+**In the game (2026-09-21, merged 2026-09-23).** The three levels are
+the game's own view stack: `View::Orbital` (level 1) → `View::District`
+(level 2) → the Colony view, which with no colony under it *is* level 3.
+There is no 100 km Planet playfield any more: every colony, sect and unit
+carries a real lat/lon and the views draw in local frames
+(`game-integration-plan.md`, Part A; `docs/graveyard.md` entry 11).
+Founding calls `GameManager::FoundColony(point, windowCentre, claimed
+region)`; the colony's 25 km window is the site window, so the picture
+does not change at the click. Claims inside 80° of latitude are refused
+until a tangent-plane frame exists (plan D7, measured at Shackleton).
+After founding, the Colony and Sect views are where the colony is
+managed — views, not levels.
+
 **Nothing locks until the base is founded.** Levels 1 and 2 are free
 navigation, and so is moving the footprint at level 3; the founding click
 is the only commitment, and it fixes everything at once — where the base
@@ -157,11 +170,11 @@ One card per level, few rows, all measured. The frozen region card
   peak slope, roughness, relief, illumination, permanent shadow, Earth
   link, and the verdict (build allowed or refused, and why).
 
-The ladder is its own view stack, in `lunar_map`. The game's Planet →
-Colony → Sect views are where a colony is *managed* once it exists; they
-are not levels and the ladder does not reuse them. Putting the ladder
-into the game — so that founding happens through it — is the work of the
-`lunarmap-wiring-site-selection` branch, not of this one.
+The ladder is the game's founding flow: `View::Orbital` (level 1),
+`View::District` (level 2), and the Colony view with no colony under it
+(level 3). Once a colony exists, the Colony → Sect views are where it is
+*managed*; they are views, not levels. `lunar_map` runs the same
+controller as an instrument over the DEM.
 
 **Cursor sizing rule.** Wherever a cursor is shown it stays between
 **15% and 30%** of the window's smaller dimension, and where it snaps,
@@ -693,15 +706,13 @@ Most of the hard parts are done and should not be rebuilt:
 |------|-------------------|
 | Cursor rect + verdict colouring + readout panel | `lunar_map --place` (`DrawPlacementCursor`, `JudgeSite`) |
 | Real terrain gating | `LolaDem::EvaluateSite`, `TerrainBuildability` |
-| Cell → lat/lon | `TerrainGridCellToLatLon` |
 | Orbital click → lat/lon | `OrbitalPickToLatLon` |
 | Continuous zoom on the same ground | `GenerateTerrainChain`, deterministic per lat/lon |
-| Ladder controls + walking it headlessly | `lunar_map`, `--siteshot`, `--flyshot` |
-| The game's old site picker (to be replaced by the ladder) | `View::SITE_SELECTION`, `DrawSiteSelectionView` |
+| The ladder's state machine | `SiteSelectionController` (`src/SiteSelection/`), run by `SurveyFlow` in the game |
+| Walking it headlessly | `colony_viewtest --shots` (the game), `lunar_map --siteshot` / `--flyshot` (the instrument) |
 
-`lunar_map` is the working ladder. Putting it into the game's render
-path — so a colony is founded through it — is the
-`lunarmap-wiring-site-selection` branch's work.
+The ladder is in the game: a colony is founded through it
+(`game-integration-plan.md`, §8 "As built").
 
 ---
 

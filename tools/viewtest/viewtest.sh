@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Headless screenshots of the game views walk (Orbital -> Sect views; not the level ladder).
+# Headless screenshots of the game walk: the level ladder as the game runs it
+# (Globe -> District -> Site), then the founded colony's Colony and Sect views.
 #   tools/viewtest/viewtest.sh            -> build/viewtest/vt_*.png
 #   tools/viewtest/viewtest.sh myprefix
 set -euo pipefail
@@ -9,4 +10,4 @@ mkdir -p "$(dirname "$PREFIX")"
 cmake --build build --target colony_viewtest -j"$(nproc)"
 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
     xvfb-run -a ./build/src/colony_viewtest --shots "$PREFIX"
-echo "wrote ${PREFIX}_{orbital,planet,colony,sect}.png"
+echo "wrote ${PREFIX}_{orbital,district,site,colony,sect,orbital_two}.png"

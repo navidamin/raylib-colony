@@ -5,16 +5,25 @@
 #include <map>
 #include "prospecting_types.h"
 #include "resource_manager.h"
+#include "game_structs.h"
 
 class ProspectingGrid
 {
 public:
-    ProspectingGrid(int tier, int parentGridX, int parentGridY, ResourceManager& resourceManager);
+    // The sub-cell lattice inside one sect's footprint, at `parent`. The
+    // same point always yields the same lattice: its hot-spots are hashed
+    // from the coordinates, so nothing about it depends on which process
+    // asked or in what order.
+    ProspectingGrid(int tier, const LunarPoint& parent, ResourceManager& resourceManager);
 
     int GetGridSize() const;
     int GetTier() const;
-    int GetParentGridX() const;
-    int GetParentGridY() const;
+    const LunarPoint& GetParentPoint() const;
+    // The place as two integers (its coordinates quantised to ~3 m), for
+    // the sweep noise and sample visuals to hash against so two sects
+    // never share them.
+    int GetPlaceKeyLat() const;
+    int GetPlaceKeyLon() const;
 
     const SubCell& GetSubCell(int x, int y) const;
     SubCell& GetSubCellMut(int x, int y);
@@ -45,8 +54,7 @@ public:
 private:
     int tier;
     int gridSize;
-    int parentGridX;
-    int parentGridY;
+    LunarPoint parent;
     ResourceManager& resourceManager;
 
     std::vector<std::vector<SubCell>> cells;
@@ -64,6 +72,6 @@ private:
     void GenerateLayerDistribution(DepthLayer depth,
                                     const std::vector<std::pair<ResourceType, float>>& parentResources);
 
-    static uint32_t HashSeed(int px, int py, int depth, int resourceIdx);
+    static uint32_t HashSeed(const LunarPoint& parent, int depth, int resourceIdx);
     static uint32_t LCG(uint32_t seed);
 };

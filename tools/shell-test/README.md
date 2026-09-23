@@ -13,6 +13,17 @@ Exits non-zero on failure. `--shots` writes PNGs to `build/shell-test/`.
 
 **Run this after any change to `minshell.html`.**
 
+`mouse_units_test.js` beside it covers the other half of the canvas contract,
+the input: emscripten 3.1.64's GLFW reports the mouse in CSS pixels, and
+`InputManager::FixWebPointerUnits()` scales it back to the 1280x720 frame.
+The test extracts that JS from `src/Engine/inputmanager.cpp` and runs it in
+Chromium against emscripten's exact function at three canvas fits. Run it
+after touching that function or bumping emsdk:
+
+```bash
+NODE_PATH=/opt/node22/lib/node_modules node tools/shell-test/mouse_units_test.js
+```
+
 ## What it does
 
 Builds a page from the *real* shell, replacing the `{{{ SCRIPT }}}` placeholder

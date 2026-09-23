@@ -1,62 +1,35 @@
 #ifndef PLANET_H
 #define PLANET_H
 
-#include "raylib.h"
-#include "raymath.h"
 #include <vector>
-#include <map>
 #include <utility>
-#include <optional>
-#include <memory>
-#include <random>
 
 #include "colony.h"
 #include "resource_manager.h"
-#include "game_constants.h"
 #include "game_structs.h"
 
-
+// The Moon, as far as the game is concerned: the owner of the ground
+// truth (ResourceManager) and of the colonies on it. It has no size and
+// no grid; a place on it is a LunarPoint, and each view draws in a local
+// frame around whatever it is looking at (TerrainGen/lunar_frame.h).
 class Planet {
 public:
     Planet();
     ~Planet();
 
-    struct ActiveArea {
-        Vector2 centroid;
-        float radius;  // Distance from centroid to furthest colony
-    };
-
-    void GenerateMap();
+    // Seed the ground truth. 0 = a different Moon each run.
+    void GenerateMap(unsigned int worldSeed = 0);
+    // The planet owns the colony from here on.
     void AddColony(Colony* colony);
-    std::vector<std::pair<ResourceType, float>> GetResourceInfo(Vector2 location) const;
+    std::vector<std::pair<ResourceType, float>> GetResourceInfo(const LunarPoint& point) const;
     void Update();
-    void Draw(Camera2D &camera);
-    void DrawPlanetGrid();
-    void UpdateActiveArea(const std::vector<Colony*>& colonies);
-    Vector2 GetRandomValidPosition() const;
-    void NotifyFirstSectPosition(Vector2 position);
-    Vector2 GetActiveCentroid() const;
-    float GetActiveRadius() const;
-    void DrawResourceDebug(float scale);
-    Vector2 GetWorldPosition(Vector2 gridPos) const;
-    ResourceManager& GetResourceManager()  { return resourceManager; }
-    std::vector<Colony*> GetColonies() const { return colonies;}
-
+    ResourceManager& GetResourceManager() { return resourceManager; }
+    const std::vector<Colony*>& GetColonies() const { return colonies; }
 
 private:
-    std::vector<std::vector<int>> map; // 2D grid representing the planet's surface
     std::vector<Colony*> colonies;
     ResourceManager resourceManager;
-    std::map<std::pair<int, int>, std::vector<std::string>> resources; // Resources at each location
-    std::pair<int, int> size; // Planet dimensions
     int time; // Game time
-
-    std::optional<ActiveArea> activeArea;
-
-    ActiveArea CalculateActiveArea(const std::vector<Colony*>&) const;
-    Vector2 GridToWorld(int gridX, int gridY) const;
-    Vector2 WorldToGrid(Vector2 worldPos) const;
-
 };
 
 #endif // PLANET_H

@@ -1,6 +1,6 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-09-18
+**Last Updated:** 2026-09-23
 **Current Sprint:** Terrain Synthesis & the Site-Selection Descent
 **Timeline:** Phase 0 graphics track — the planet surface and how a colony is sited on it
 
@@ -25,14 +25,16 @@ PHASE 1.5: Extraction Unit Overhaul ██████████████�
 ├─ Extraction UI redesign (dark sci-fi kit) ✅ COMPLETE (2026-08)
 └─ Balance pass ✅ MOSTLY COMPLETE (upgrade costs still untuned)
 
-TERRAIN SYNTHESIS & SITE SELECTION ███████████████████░ ~95% (2026-08-25 → 09-18)
+TERRAIN SYNTHESIS & SITE SELECTION ████████████████████ ~100% (2026-08-25 → 09-21)
 ├─ Real-imagery chain (WAC mosaic → 100/25/5 km) ✅ COMPLETE
 ├─ World-anchored regolith below the data floor ✅ COMPLETE (CPU + GPU)
 ├─ Measured roughness field (mare vs ejecta) ✅ COMPLETE (2026-09-18)
 ├─ Orbital globe + 3-level survey ladder ✅ COMPLETE
 ├─ GPU synthesis path w/ CPU fallback ✅ COMPLETE
 ├─ Web/iPad build (271 MB heap, was 783) ✅ COMPLETE
-├─ Descent wired into the game's colony placement ❌ NOT DONE
+├─ The Moon is the world: no 20x20 grid, places are lat/lon ✅ COMPLETE (2026-09-21)
+├─ Descent wired into the game's colony placement ✅ COMPLETE (2026-09-21)
+├─ Polar windows (tangent-plane frame) ❌ NOT DONE — claims past 80° refused
 └─ Height-field Hurst exponent 📋 BLOCKED — needs LOLA, see graveyard 9
 
 PROSPECTING REWRITE ████████████████░░░░ ~75% (design Phases 1-6 of 8)
@@ -52,6 +54,73 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 ```
 
 ---
+
+## Recent Completions (2026-09-23)
+
+### One Ladder, in the Game, With Its Ground on the Web ✅ COMPLETE
+
+- **One level ladder.** Globe → District (200 km) → Site (25 km) is the
+  only thing called a level; four other ladders were removed (graveyard
+  entry 10), and `survey_cursor_test` runs in ctest as `level_ladder`.
+- **The wiring branch merged in.** `lunarmap-wiring-site-selection`
+  (the entry below) is now this branch: the game founds colonies through
+  the ladder, and `lunar_map` is the same controller as an instrument.
+- **The site level's ground on the web, in both places.** `lunar_map`'s
+  layer came up grey in the browser (the cost model read the GPU probe
+  while the CPU built it); the game's site level came up craterless on
+  any device with a real GPU (WebGL1 cannot draw the regolith). One
+  question now decides who builds a chain, `TerrainChainOnGpu()`, and
+  the CPU build is sized to a measured 1.2 s budget. Desktop renders are
+  byte-identical.
+- **Guarded before every deploy:** a browser at 1656×960 walks to the
+  site level in `lunar_map`, the game, and the game with `?terrain=gpu`,
+  and fails if the regolith is missing. It was seen failing on the bug.
+- The title screen starts on a tap as well as ENTER, so a tablet can
+  play the game at `/`.
+- **Still open:** the iPad itself — heap on the shell badge, and how the
+  CPU-built site level feels there (~0.5 s per level arrival measured in
+  a software browser).
+
+## Recent Completions (2026-09-21)
+
+### The Moon is the World; the Descent Founds Colonies ✅ COMPLETE
+
+Five commits on `claude/lunarmap-wiring-site-selection-b9lwaw`, following
+`docs/design/site-selection/game-integration-plan.md` in its order
+(B0, A1, A2, B1, B2–B4; §8 there is the as-built record). Merged into
+`claude/lunar-elevation-lola-dem-1dcdtj` on 2026-09-23, on top of that
+branch's one-ladder cleanup and the web site-level fix.
+
+- **The 100 km playfield is gone** (graveyard entry 11). Every colony,
+  sect and unit carries a `LunarPoint`; the resource ground truth is a
+  function of the place (`ResourceManager::GroundAt`: region composition
+  from `IdentifyRegion`, a hashed 20 km variation, the depth-bias table,
+  one world seed); each view draws in a `LocalFrame` about what it looks
+  at at the same 50 m a unit; the terrain cache is keyed by (place, span).
+  Two colonies can stand on opposite sides of the Moon at once; sects are
+  placed freely, 5 km apart, inside a 25 km window.
+- **The descent is the founding flow.** Orbital (hover names the region,
+  click claims) → District (`View::District`, 200 km, 25 km cursor, LOLA
+  statistics on the level card) → the site rung (the Colony view with no
+  colony under it: 1.5 km cursor, live `EvaluateSite` + `JudgeSite`
+  verdict) → a green click founds; the Colony view opens on the same
+  texture with the base under the cursor. Esc walks back up the rungs
+  it came by. `SiteSelectionController` is shared with `lunar_map`;
+  `SurveyFlow` runs it for the Engine, `colony_viewtest` and
+  `colony_preview`; `rendermanager_survey.cpp` draws it.
+- **D7 measured at Shackleton:** past 80° the equirectangular windows
+  smear and the two frames disagree about east, so polar claims are
+  refused with a strip message naming the picture. The tangent-plane
+  frame is the open item.
+- **Web:** the LDEM_16 model ships in `src/assets/planet/lola/` (the game
+  and the harness preload it); the globe's albedo comes from the
+  synthesizer's one grey decode of the mosaic (debt item 13 closed). The
+  device heap is still to be read off the shell badge.
+- **Instruments:** `colony_inspect LAT LON`, `colony_preview --view
+  survey --rung … --hint …`, `colony_viewtest --shots --pick --aim`
+  (claim → district → site → found → colony → sect, flight frames at
+  25/50/80 %, a second colony on the far side); tests
+  `test_ground_truth.cpp`, `test_site_founding.cpp` (ctest 181).
 
 ## Recent Completions (2026-09-18)
 
@@ -411,7 +480,9 @@ Replaced opaque scanCount/3 extraction formula with transparent **Survey Progres
 10. **CI is only watched when someone looks** - Windows was red for 23 days and 22 commits over a one-line `M_PI` portability break, while the other five workflows stayed green. Nothing surfaces a single red platform; check `actions_list` per workflow, not just the latest run.
 11. **The regolith takes two different paths on the web** - GLSL ES 1.00 cannot run the lattice hash, so WebGL1 builds the sub-floor on the CPU. Correct, and measured, but it means the browser and the desktop reach the same picture by different routes. WebGL2 would end the split.
 12. **Tycho's sect rung saturates the roughness mask** - 100% on the upper bound, so within-window variation is lost there. Honest (5 km inside a fresh crater floor really is uniformly extreme) but it is the one place the new mask behaves like the old one.
-13. **The mosaic is decoded twice** - `terrain_synthesis`'s `EnsureWacLoaded` and `lunar_globe`'s `LoadAlbedo` each decode `wac_global.jpg`, ~190 MB of the web build's 271 MB. Sharing one decode would recover most of it.
+13. ~~**The mosaic is decoded twice**~~ ✅ RESOLVED 2026-09-21 - the globe builds its albedo from `TerrainWacGrey`, the synthesizer's one grey decode; the JPEG is decoded once. The heap gain is still to be read off the shell badge on a device.
+14. **Polar windows are refused, not drawn** - Past 80° of latitude the equirectangular window crop smears the ground and the survey cursor's cos(lat) floor (0.05) disagrees with the local frame's (0.2) about where east is (measured at Shackleton, `docs/design/site-selection/figures/b1pole_*.jpg`). A claim there is refused at the globe. A tangent-plane frame for the chain crop, the survey cursor and `LocalFrame` together would lift it.
+15. **The survey cards keep the instrument's default-font drawing** - `rendermanager_survey.cpp` ports `lunar_map`'s cards as they were; the restyle to the game's fonts and the dark-kit tokens (`docs/guides/ui-panels.md`) is not done. The layout is shared through `SurveyLayout`, so it is one place to restyle.
 
 ---
 
@@ -422,10 +493,12 @@ real costs, no dead ends) and the globe → site descent (real coordinates,
 real elevation, the synthesizer over it). Both deploy to Pages and run on a
 phone. Candidate next moves, roughly in order of value:
 
-0. **Playtest the descent on device** — `/lunarmap/` has been loaded but not
-   *played*. Unverified from here: whether the arrival pause at each rung is
-   acceptable on an iPad, and whether the roughness variation reads at all
-   at sect scale on a small screen.
+0. **Playtest founding on device** — the game itself now runs the descent
+   at `/` (and the annotated ladder at `/viewtest/`), with the 32 MB DEM in
+   the preload. Unverified from here: the heap on an iPad with the DEM and
+   the one shared decode (the shell badge says), whether the flights and
+   the arrival pause read well, and whether tap-to-aim then tap-to-commit
+   feels right with a thumb.
 1. **Playtest prospecting on device** — the loop has never had a real session
    with working data and enforced costs. Do this before tuning anything.
 2. **Prospecting Phase 8: Objectives** — gives the loop goals and reward
@@ -444,14 +517,18 @@ phone. Candidate next moves, roughly in order of value:
 - **A real Hurst exponent** needs a height field; the mosaic's luminance
   cannot give one (measured, graveyard 9). LOLA can, but the game's web
   build ships no DEM, so this is a bigger change than it looks.
-- **Share one mosaic decode** between `terrain_synthesis` and `lunar_globe`
-  — ~190 MB of the web build's 271 MB.
+- **A tangent-plane frame for polar windows** — the chain's macro crop,
+  the survey cursor and `LocalFrame` all widen longitude by 1/cos(lat)
+  with a floor; past 80° the pictures smear and the frames disagree, so
+  claims there are refused (plan D7). Lifting that needs all three to
+  agree on one frame.
 - **WebGL2** would let the shader run the regolith everywhere and end the
   CPU/GPU split on the web.
-- **Connect the descent to the game.** `lunar_map` owns the survey ladder;
-  `src/Engine/` still sites colonies through `View::SITE_SELECTION` and its
-  instrument panels. These are two different site-selection experiences and
-  only one of them is on the roadmap as finished.
+- **Restyle the survey cards** to the game's fonts and tokens; add the
+  labels toggle and the ghosted previous-region card (master design §4.5).
+- **Generator tuning by play** — the per-place ground truth is tuned
+  against `colony_inspect` at named regions and held by `c1_test`; whether
+  a mare and a highland colony *feel* different in play is untested.
 
 ### Future Prospecting Ideas (not scheduled)
 - Global AI Manager that sets policies across all extraction units colony-wide

@@ -147,7 +147,7 @@ SweepResult SweepEngine::ExecuteSweep(ProspectingGrid& grid, int frequencyBand,
             if (!grid.IsInReach(x, y)) continue;
 
             uint32_t seed = HashNoise(x, y, frequencyBand,
-                                       grid.GetParentGridX(), grid.GetParentGridY());
+                                       grid.GetPlaceKeyLat(), grid.GetPlaceKeyLon());
             float noise = ((seed % 2001) - 1000) / 1000.0f * noiseFactor;
             float finalSignal = std::clamp(blurred[y][x] + noise, 0.0f, 1.0f);
 

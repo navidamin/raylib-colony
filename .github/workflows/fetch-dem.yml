@@ -3,7 +3,10 @@ name: Fetch DEM data
 # Fetches high-resolution SLDEM2015 crops from the NASA PDS (the dev
 # containers cannot reach those hosts) and commits them back to the
 # branch that asked. Trigger: edit prototypes/planet_visuals/data/lola/
-# REQUEST and push, or dispatch manually.
+# REQUEST and push, or dispatch manually. The crops are optional
+# desktop overlays and stay here; the global LDEM_16 model the game and
+# every tool read lives with the game's assets
+# (src/assets/planet/lola/ldem_16_uint.tif).
 
 on:
   workflow_dispatch:

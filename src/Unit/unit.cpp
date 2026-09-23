@@ -3,7 +3,7 @@
 #include <iostream>
 #include <cmath>
 
-Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
+Unit::Unit(std::string type, const LunarPoint& point, ResourceManager &resource,
            TimeManager &time, std::map<ResourceType, float> &storage,
            std::map<ResourceType, float> &capacity) :
     unit_type(type),
@@ -15,7 +15,7 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
     timeManager(time),
     resourceStorage(storage),
     storageCapacity(capacity),
-    parentSectPosition(position),
+    parentPoint(point),
     isInModuleView(false),
     selectedModuleIndex(-1),
     lastClickTime(0),
@@ -28,9 +28,6 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
 
     if (unit_type == "Extraction")
     {
-        Vector2 gp = GetGridPosition();
-        int gx = static_cast<int>(gp.x);
-        int gy = static_cast<int>(gp.y);
         int prosTier = 0;
         for (const auto& m : modules)
         {
@@ -41,7 +38,7 @@ Unit::Unit(std::string type, Vector2 &position, ResourceManager &resource,
             }
         }
         prospectingSystem = std::make_unique<ProspectingSystem>(
-            prosTier, gx, gy, resourceManager);
+            prosTier, parentPoint, resourceManager);
     }
 }
 
@@ -513,7 +510,6 @@ void Unit::InitializeExtractionModules() {
     // Initialize first excavator (Tier 0: 1 excavator)
     Excavator firstExcavator;
     firstExcavator.id = 0;
-    firstExcavator.gridPos = WorldToGrid(parentSectPosition);
     firstExcavator.method = "scoop";
     firstExcavator.depth = 0.0f;
     firstExcavator.rate = 30.0f;
@@ -1147,7 +1143,6 @@ bool Unit::UpgradeModuleTier(int moduleIndex) {
         {
             Excavator exc;
             exc.id = static_cast<int>(excavators.size());
-            exc.gridPos = WorldToGrid(parentSectPosition);
             exc.method = module.tier >= 3 ? "drone" :
                          module.tier >= 2 ? "percussive" :
                          module.tier >= 1 ? "bucket_wheel" : "scoop";
@@ -1303,7 +1298,6 @@ bool Unit::DebugUpgradeModuleTier(int moduleIndex)
         {
             Excavator exc;
             exc.id = static_cast<int>(excavators.size());
-            exc.gridPos = WorldToGrid(parentSectPosition);
             exc.method = module.tier >= 3 ? "drone" :
                          module.tier >= 2 ? "percussive" :
                          module.tier >= 1 ? "bucket_wheel" : "scoop";
@@ -1467,10 +1461,6 @@ void Unit::ProcessModuleEffects(float deltaTime, ResourceManager& resourceManage
 void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) {
     if (activeModuleIndices.empty()) return;
 
-    Vector2 gridPos = WorldToGrid(parentSectPosition);
-    int gridX = static_cast<int>(gridPos.x);
-    int gridY = static_cast<int>(gridPos.y);
-
     // --- Determine depth layer from first excavator ---
     DepthLayer activeLayer = DepthLayer::SURFACE;
     if (!excavators.empty())
@@ -1482,7 +1472,7 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
     }
 
     // Get available resources at this location and depth layer
-    auto availableResources = resourceManager.GetResourcesAtGridLayer(gridX, gridY, activeLayer);
+    auto availableResources = resourceManager.GetResourcesAtLayer(parentPoint, activeLayer);
 
     // --- Survey-gated extraction efficiency ---
     float scanMultiplier = SURVEY_UNSCANNED_EFFICIENCY;
@@ -1589,8 +1579,8 @@ void Unit::ProcessExtraction(float deltaTime, ResourceManager& resourceManager) 
         }
         extractionAmount *= std::max(1, activeExcavators);
 
-        // Deplete from planet
-        resourceManager.UpdateResourceDepletion(gridX, gridY, resourceType, extractionAmount);
+        // Deplete from the ground under this sect
+        resourceManager.Deplete(parentPoint, resourceType, extractionAmount);
 
         rawRegolith[resourceType] = extractionAmount;
     }
@@ -1880,14 +1870,6 @@ void Unit::UpdateStorage(){
     // Implement if needed
 }
 
-Vector2 Unit::WorldToGrid(Vector2 worldPos) const {
-    // Convert to grid coordinates
-    return {
-        std::floor(worldPos.x / (SECT_CORE_RADIUS * 2.0f)),
-        std::floor(worldPos.y / (SECT_CORE_RADIUS * 2.0f))
-    };
-}
-
 bool Unit::ActivateModule(int moduleIndex) {
     // Validate module index
     if (moduleIndex < 0 || moduleIndex >= modules.size()) {
@@ -1955,19 +1937,6 @@ bool Unit::DeactivateModule(int moduleIndex) {
 }
 
 // --- Excavation Methods ---
-
-void Unit::MoveExcavator(int excavatorId, int gridX, int gridY) {
-    for (auto& exc : excavators)
-    {
-        if (exc.id == excavatorId)
-        {
-            exc.gridPos = {static_cast<float>(gridX), static_cast<float>(gridY)};
-            std::cout << "[EXCAVATION] Excavator " << excavatorId
-                      << " moved to (" << gridX << "," << gridY << ")" << std::endl;
-            return;
-        }
-    }
-}
 
 void Unit::SetExcavatorDepth(int excavatorId, float depth) {
     for (auto& exc : excavators)

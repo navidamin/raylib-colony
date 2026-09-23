@@ -84,8 +84,11 @@ if [ "${1:-}" = "--all" ]; then
 
     Render --module sprites --out "$OUT_DIR/crystal-sheet.png"
 
-    for view in orbital planet; do
+    for view in orbital colony sect; do
         Render --view "$view" --out "$OUT_DIR/view-$view.png"
+    done
+    for rung in orbital district site; do
+        Render --view survey --rung "$rung" --out "$OUT_DIR/survey-$rung.png"
     done
 
     echo "Done:"

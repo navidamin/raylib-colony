@@ -38,8 +38,37 @@ Colony::~Colony() {
     }
 }
 
+void Colony::SetCentre(const LunarPoint& point) {
+    centre = point;
+    hasCentre = true;
+    RefreshLocalPositions();
+}
+
+void Colony::RefreshLocalPositions() {
+    LocalFrame frame = GetFrame();
+    for (Sect* sect : sects) {
+        if (sect) sect->SetPosition(frame.ToLocal(sect->GetPoint()));
+    }
+    CalculateCentroid();
+    CalculateRadius();
+}
+
+bool Colony::Contains(const LunarPoint& point) const {
+    if (!hasCentre) return false;
+    // The jurisdiction is a disc about the centroid; in km, from the real
+    // point of the centroid, so two colonies far apart compare honestly.
+    LunarPoint centroidPoint = GetFrame().FromLocal(centroid);
+    return LunarDistanceKm(centroidPoint, point) <= GetRadiusKm();
+}
+
 void Colony::AddSect(Sect* sect) {
+    if (!sect) return;
+    if (!hasCentre) {
+        centre = sect->GetPoint();
+        hasCentre = true;
+    }
     sects.push_back(sect);
+    sect->SetPosition(GetFrame().ToLocal(sect->GetPoint()));
     std::cout << "New sect added to the colony." << std::endl;
     CalculateCentroid();
     CalculateRadius();
@@ -117,57 +146,6 @@ void Colony::UpgradeReserves() {
 }
 
 
-
-void Colony::Draw(Camera2D& camera) {
-    // Translate the drawing to center the colony
-//    Vector2 screenCenter = { GetScreenWidth() / 2.0f, GetScreenHeight() / 2.0f };
-//    Vector2 translation = { screenCenter.x - centroid.x, screenCenter.y - centroid.y };
-
-    // Draw each sect inside the colony
-    for (const auto& sect : sects) {
-        Vector2 worldPos = sect->GetPosition();  // This should already be in world coordinates
-        sect->DrawInColonyView(worldPos);
-        DrawText(TextFormat("R_c: %f", GetRadius()), worldPos.x-10, worldPos.y-20, 20, GRAY);
-
-    }
-
-    // Draw jurisdiction circle when mouse is hovering over it
-    Vector2 mouseScreenPos = GetMousePosition();
-    Vector2 mouseWorldPos = GetScreenToWorld2D(mouseScreenPos, camera);
-
-    if (CheckCollisionPointCircle(mouseWorldPos, centroid, jurisdiction_radius)) {
-        DrawJurisdiction();
-    }
-
-
-}
-
-void Colony::DrawJurisdiction() {
-    // Draw dashed circle showing jurisdiction area
-    const int numSegments = 36;  // Number of segments in the circle
-    const float angleStep = 2.0f * PI / numSegments;
-    const float dashLength = 10.0f;  // Length of each dash in the circle
-
-    for (int i = 0; i < numSegments; i++) {
-        float startAngle = i * angleStep;
-        float endAngle = startAngle + angleStep / 2;  // Draw half of each segment for dashed effect
-
-        Vector2 start = {
-            centroid.x + jurisdiction_radius * cosf(startAngle),
-            centroid.y + jurisdiction_radius * sinf(startAngle)
-        };
-        Vector2 end = {
-            centroid.x + jurisdiction_radius * cosf(endAngle),
-            centroid.y + jurisdiction_radius * sinf(endAngle)
-        };
-
-        // Draw the dash in red with transparency
-        DrawLineEx(start, end, 2.0f, ColorAlpha(RED, 0.5f));
-    }
-
-    // Optional: Draw a transparent fill
-    DrawCircleV(centroid, jurisdiction_radius, ColorAlpha(RED, 0.1f));
-}
 
 void Colony::CalculateCentroid() {
     // If there are no sects, return zero vector

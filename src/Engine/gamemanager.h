@@ -4,12 +4,14 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "game_constants.h"
+#include "game_structs.h"
 #include "planet.h"
 #include "colony.h"
 #include "sect.h"
 #include "unit.h"
 #include "time_manager.h"
 #include "inputmanager.h"
+#include "region_identity.h"
 #include <vector>
 
 class GameManager {
@@ -26,13 +28,36 @@ public:
     Sect* GetCurrentSect() const { return currentSect; }
     Unit* GetCurrentUnit() const { return currentUnit; }
 
-    void SelectColony(Vector2 mousePosition);
+    // Make a colony (one the globe marker was clicked on) the current
+    // one; its first sect becomes the current sect.
+    void SetCurrentColony(Colony* colony);
     void SelectSect(Vector2 mousePosition, Camera2D camera);
     void SelectUnit(Vector2 mousePosition);
     void SelectDefaultUnit();  // Auto-select Extraction unit or first available
 
-    void BuildNewColony(Vector2 worldPos);
-    void BuildNewSect(Vector2 worldPos);
+    // Founding. A colony is founded at a place on the Moon: its first sect
+    // stands at `point` and the colony's 25 km window is centred on
+    // `windowCentre` -- the site rung's window, so the picture does not
+    // change at the click. `claimed` is the region card the player read
+    // (its archetype becomes the colony's); nullptr takes the ground's
+    // own. Refused (nullptr, reason printed) inside another colony's
+    // territory. This is the one call the descent makes at FOUND.
+    Colony* FoundColony(const LunarPoint& point, const LunarPoint& windowCentre,
+                        const RegionIdentity* claimed);
+    // The same with the window centred on the sect: tools and tests.
+    Colony* FoundColony(const LunarPoint& point);
+    // The colony whose centre lies inside a square window of spanKm on
+    // `centre`, or nullptr: what the descent finds when it lands on
+    // ground that is already someone's.
+    Colony* ColonyInWindow(const LunarPoint& centre, double spanKm) const;
+    // A new sect of the current colony: not in another colony's
+    // territory, a footprint's spacing from every existing sect, and with
+    // its whole footprint inside the colony's window. Refused otherwise.
+    Sect* FoundSect(const LunarPoint& point);
+
+    // FoundSect from the Colony view's drawing frame (the current
+    // colony's local frame).
+    Sect* BuildNewSect(Vector2 localPos);
 
     // Test functions for transport
     void BuildAllRoads();
@@ -51,17 +76,7 @@ public:
     bool IsBuildRoadMode() const { return buildRoadMode; }
     Sect* GetRoadBuildStartSect() const { return roadBuildStartSect; }
 
-    void UpdatePlanetActiveArea();
     TimeManager& GetTimeManager() { return timeManager; }
-
-    // Site selection
-    bool IsInSiteSelection() const { return inSiteSelection; }
-    Vector2 GetHoveredGridPos() const { return hoveredGridPos; }
-    Vector2 GetSelectedSite() const { return selectedSite; }
-    void EnterSiteSelection();
-    void UpdateSiteSelectionHover(Vector2 worldPos);
-    void ConfirmSiteSelection();
-    void CancelSiteSelection();
 
 private:
     Planet* planet;
@@ -74,11 +89,6 @@ private:
     // Road construction mode
     bool buildRoadMode;
     Sect* roadBuildStartSect;
-
-    // Site selection mode
-    bool inSiteSelection;
-    Vector2 hoveredGridPos;
-    Vector2 selectedSite;
 
     TimeManager timeManager;
     float lastUpdateTime;

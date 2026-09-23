@@ -1,7 +1,7 @@
 // Real-elevation lunar map tool (`lunar_map`).
 //
 // Renders the actual Moon from the LOLA LDEM_16 elevation model
-// (prototypes/planet_visuals/data/lola/ldem_16_uint.tif) — the whole
+// (src/assets/planet/lola/ldem_16_uint.tif) — the whole
 // near side, or any picked region — as a 3D heightmap mesh with a
 // lunar-specific shading model:
 //
@@ -15,7 +15,12 @@
 // Two styles: `shaded` (photographic hillshade look) and `color`
 // (LOLA-style rainbow elevation map, hillshade-modulated).
 //
-// Standalone tool beside the game: only raylib + LolaDem, no game code.
+// An instrument beside the game. It shares the game's site-selection
+// module (src/SiteSelection: region identity, verdict, the descent's
+// controller) and the shared elevation model, and links none of the
+// game's engine or entities. --site drives the same controller
+// colony_game does, which is what makes --siteshot a test of the shipping
+// state machine rather than of a copy.
 // Builds for the desktop (native + headless PNG export) and for the
 // web (PLATFORM=Web; deployed to GitHub Pages at /lunarmap/). The
 // shading avoids float textures and ships the fragment shader in both
@@ -45,6 +50,12 @@
 #include "lunar_regions.h"
 #include "terrain_gpu.h"
 #include "survey_hints.h"
+#include "lunar_dem_shared.h"
+#include "region_identity.h"
+#include "site_selection_constants.h"
+#include "site_selection_controller.h"
+#include "site_verdict.h"
+#include "survey_input.h"
 
 #if defined(PLATFORM_WEB)
 #include <emscripten/emscripten.h>
@@ -60,7 +71,7 @@
 #include <vector>
 
 static const char* DEFAULT_DEM_PATH =
-    "prototypes/planet_visuals/data/lola/ldem_16_uint.tif";
+    "src/assets/planet/lola/ldem_16_uint.tif";
 static const char* DEFAULT_WAC_PATH = "src/assets/planet/wac_global.jpg";
 
 // ---------------------------------------------------------------------------
@@ -98,17 +109,13 @@ struct SiteCard
 // with LOCALITY: picking the 5 km cell and judging the ground inside it
 // are one move, made by refining the cursor rather than by descending
 // again.
-static const int SITE_LEVELS = SURVEY_LEVEL_COUNT;
-static const char* LEVEL_QUESTION[SITE_LEVELS] =
-{
-    "WHICH ECONOMY?", "WHICH MIX?", "WHICH GROUND?"
-};
+// SITE_LEVELS and the level questions come from
+// src/SiteSelection/site_selection_constants.h. Only the file stems are
+// this renderer's own.
 static const char* LEVEL_FILE[SITE_LEVELS] =
 {
     "L1_ECONOMY", "L2_MIX", "L3_GROUND"
 };
-static_assert(SITE_LEVELS == SURVEY_LEVEL_COUNT,
-              "the HUD's level count must track the survey ladder");
 
 
 struct MapOptions
@@ -1071,17 +1078,13 @@ static const double CHAIN_RES_RATIO = 0.8;
 // builder, so the two cannot disagree about it -- which is exactly what
 // went wrong: on WebGL1 the shaders compile the regolith to a stub, so the
 // layer is always CPU-built there, while the gate that decided whether to
-// build it was still reading the GPU probe.
-static bool ChainLayerOnGpu()
-{
-    const bool gpuKeepsTheRegolith =
-        !IsSubFloorEnabled() || TerrainGpuCanSubFloor();
-    return gpuKeepsTheRegolith && (GetTerrainPath() == TERRAIN_PATH_GPU);
-}
+// build it was still reading the GPU probe. The game's terrain cache asks
+// the same function (terrain_gpu.h).
+static bool ChainLayerOnGpu() { return TerrainChainOnGpu(); }
 
-// What a rung's arrival may spend building the layer. It is a one-off per
-// level and the level is cached after, so this buys a pause, not frames.
-const double CHAIN_BUDGET_MS = 1200.0;
+// What a rung's arrival may spend building the layer: shared with the
+// game, TERRAIN_CHAIN_BUDGET_MS.
+const double CHAIN_BUDGET_MS = TERRAIN_CHAIN_BUDGET_MS;
 
 static int ChainLayerRes()
 {
@@ -1103,16 +1106,15 @@ static int ChainLayerRes()
 
 // Whether to build the layer at all.
 //
-// TerrainLayerAffordable() answers for the GAME's nine-cell grid, where a
-// slow path means a stall every time the player moves. This tool builds one
-// window per rung arrival and caches it, so the question is different and
-// the answer is usually yes: a 256 px chain resampled up is worth far more
+// This tool builds one window per rung arrival and caches it, so the
+// answer is usually yes: a 256 px chain resampled up is worth far more
 // than a bare 1.9 km DEM, which is what "no layer" actually looks like.
 //
-// This is the second half of the same mistake. The gate was reading a GPU
-// probe on a browser that would build on the CPU; where that probe said
-// "software rasteriser, CPU path" it turned the layer off outright, and the
-// site rung came up as flat grey with no explanation on screen.
+// This is the second half of the same mistake. The gate used to read a
+// GPU probe (the since-removed TerrainLayerAffordable) on a browser that
+// would build on the CPU; where that probe said "software rasteriser, CPU
+// path" it turned the layer off outright, and the site rung came up as
+// flat grey with no explanation on screen.
 static bool ChainLayerWanted()
 {
     if (ChainLayerOnGpu()) return true;
@@ -1808,24 +1810,8 @@ static bool ScreenToLatLon(const TerrainScene& scene, float zoom,
 // specific limit that failed rather than just refusing.
 // ---------------------------------------------------------------------------
 
-struct PlacementVerdict
-{
-    bool allowed = false;
-    const char* reason = "";
-};
-
-static PlacementVerdict JudgeSite(const TerrainBuildability& b)
-{
-    PlacementVerdict v;
-    if (b.meanSlopeDeg > 8.0f) { v.reason = "TOO STEEP (mean slope)"; return v; }
-    if (b.maxSlopeDeg > 25.0f) { v.reason = "TOO STEEP (local face)"; return v; }
-    if (b.roughnessM > 40.0f)  { v.reason = "GROUND TOO BROKEN";      return v; }
-    if (b.reliefM > 400.0f)    { v.reason = "RELIEF TOO GREAT";       return v; }
-    if (b.isPsr)               { v.reason = "PERMANENT SHADOW";       return v; }
-    v.allowed = true;
-    v.reason = "SITE OK - BUILD ALLOWED";
-    return v;
-}
+// PlacementVerdict / JudgeSite: src/SiteSelection/site_verdict.*, shared with
+// the game. Thresholds in site_selection_constants.h.
 
 static void DrawPlacementCursor(const MapOptions& options, const LolaDem& dem,
                                 int screenW, int screenH)
@@ -2081,7 +2067,7 @@ static Color LayerColor(int layer, float v01)
 // The survey cursor (src/TerrainGen/survey_cursor.*)
 //
 // At every zoom the cursor is the footprint of the level BELOW, so it is
-// always "the thing you are about to enter". Levels 1-4 are navigation
+// always "the thing you are about to enter". Levels 1-2 are navigation
 // and draw neutral -- nothing is being judged yet; the verdict colouring
 // belongs to the site level, where a base is actually being placed
 // (DrawPlacementCursor above). Design:
@@ -2089,49 +2075,8 @@ static Color LayerColor(int layer, float v01)
 // ---------------------------------------------------------------------------
 
 
-// Ground statistics over a sub-square of the real window: what the
-// level cards report. Everything measured, nothing synthetic.
-struct GroundStats
-{
-    float meanSlope = 0.0f;
-    float maxSlope = 0.0f;
-    float buildableFrac = 0.0f;    // slope under the 8 deg gate
-    float reliefM = 0.0f;
-};
-
-static GroundStats CursorGroundStats(const LolaWindow& window,
-                                     double offXKm, double offYKm,
-                                     double sizeKm)
-{
-    GroundStats g;
-    int res = window.resolution;
-    if (res <= 0 || window.spanKm <= 0.0) return g;
-    double half = sizeKm / window.spanKm * res * 0.5;
-    int cx = (int)(res * 0.5 + offXKm / window.spanKm * res);
-    int cy = (int)(res * 0.5 - offYKm / window.spanKm * res);
-    int x0 = std::max(0, (int)(cx - half)), x1 = std::min(res - 1, (int)(cx + half));
-    int y0 = std::max(0, (int)(cy - half)), y1 = std::min(res - 1, (int)(cy + half));
-    if (x1 <= x0 || y1 <= y0) return g;
-    double sum = 0.0; int n = 0, buildable = 0;
-    float lo = 1e9f, hi = -1e9f;
-    for (int y = y0; y <= y1; y++)
-    {
-        for (int x = x0; x <= x1; x++)
-        {
-            float s = window.slopeDeg[y * res + x];
-            sum += s; n++;
-            if (s > g.maxSlope) g.maxSlope = s;
-            if (s < 8.0f) buildable++;
-            float e = window.elevationM[y * res + x];
-            if (e < lo) lo = e;
-            if (e > hi) hi = e;
-        }
-    }
-    g.meanSlope = (float)(sum / n);
-    g.buildableFrac = (float)buildable / (float)n;
-    g.reliefM = hi - lo;
-    return g;
-}
+// GroundStats / CursorGroundStats: src/SiteSelection/site_verdict.*, shared
+// with the game.
 
 // ---------------------------------------------------------------------------
 // The two cards + annotation strip: this IS the intended first-stage
@@ -2354,7 +2299,7 @@ static void DrawLevelCard(const SiteCard& site, int level,
     DrawRectangleLinesEx(Rectangle{ (float)px, (float)py, (float)pw,
                                     (float)ph }, 2.0f, line);
     DrawText(TextFormat("LEVEL %d / %d", level + 1, SITE_LEVELS), px + 12, py + 10, 15, faint);
-    DrawText(LEVEL_QUESTION[level], px + 12, py + 30, 21, line);
+    DrawText(SiteLevelQuestion(level), px + 12, py + 30, 21, line);
 
     int rowY = py + 64;
     if (level == 0)
@@ -2450,59 +2395,8 @@ static void DrawLevelCard(const SiteCard& site, int level,
     }
 }
 
-// The rect the window span is drawn into. The top-down camera's fovy is
-// the vertical world extent, so the span maps onto the screen HEIGHT --
-// this is the centred square that span occupies.
-static SurveyViewport LadderViewport(int screenW, int screenH)
-{
-    SurveyViewport viewport;
-    viewport.x = (screenW - screenH) * 0.5f;
-    viewport.y = 0.0f;
-    viewport.width = (float)screenH;
-    viewport.height = (float)screenH;
-    return viewport;
-}
-
-// The same viewport after zooming in by zoomK about a camera centred
-// camXKm east / camYKm north of the window centre.
-//
-// Everything that maps between screen and ground goes through the
-// viewport, so scaling and shifting it is all continuous zoom needs --
-// the cursor, its readout and its snapping keep working untouched.
-// pixels-per-km scales with zoomK; the origin shifts so the ground under
-// the camera lands on the screen centre.
-static SurveyViewport LadderViewportZoomed(int screenW, int screenH,
-                                           float zoomK, double camXKm,
-                                           double camYKm, double windowSpanKm)
-{
-    SurveyViewport v;
-    v.width = (float)screenH * zoomK;
-    v.height = (float)screenH * zoomK;
-    if (windowSpanKm <= 0.0) { v.x = 0.0f; v.y = 0.0f; return v; }
-
-    float pxPerKm = v.height / (float)windowSpanKm;
-    // SurveyOffsetKmToScreen puts north at smaller y, hence the signs.
-    float centreX = screenW * 0.5f - (float)camXKm * pxPerKm;
-    float centreY = screenH * 0.5f + (float)camYKm * pxPerKm;
-    v.x = centreX - v.width * 0.5f;
-    v.y = centreY - v.height * 0.5f;
-    return v;
-}
-
-// How far the camera has travelled toward the cursor at a given zoom.
-//
-// The same law the descent flight uses: a point sits on screen at
-// (P - centre) * zoom, so panning the centre on a clock while the zoom
-// climbs exponentially makes the destination swing outward before it
-// arrives. Driving the centre from the zoom instead keeps the approach
-// straight. 0 at zoomK = 1, 1 at zoomK = ratio.
-static float ZoomApproach(float zoomK, float ratio)
-{
-    if (ratio <= 1.0f || zoomK <= 1.0f) return 0.0f;
-    float e = std::log(zoomK) / std::log(ratio);
-    if (e > 1.0f) e = 1.0f;
-    return 1.0f - (1.0f - e) / zoomK;
-}
+// The ladder viewport and the zoom-in approach law live in the shared
+// controller (SurveyLadderViewport, SiteSelectionController).
 
 static void DrawScene(TerrainScene& scene, const MapOptions& options,
                       int styleMode, const Camera3D& camera)
@@ -2517,255 +2411,17 @@ static void DrawScene(TerrainScene& scene, const MapOptions& options,
 // ---------------------------------------------------------------------------
 // Level-1 region highlighting: the mechanism itself.
 //
-// The disc is a MAP OF REGIONS, not ground with a crosshair. Terranes
-// are colour-washed; the named features are outlined; whatever is under
-// the cursor lights up with its name on a chip. No cursor rectangle at
-// this level -- the lit region IS the selection.
+// The disc is a MAP OF REGIONS, not ground with a crosshair. The named
+// features are outlined; whatever is under the cursor lights up with its
+// name on a chip. No cursor rectangle at this level -- the lit region IS
+// the selection.
 //
-// Feature circles carry real centres and radii from
-// src/assets/planet/zones.json. The PKT boundary is traced approximately
-// from Jolliff, Gillis & Haskin (2000) Fig. 1 -- test-grade, not
-// survey-grade; the game will classify from its own composition once the
-// generator is inverted.
+// Who a place is -- named feature, terrane, mare or highland, archetype --
+// is answered by src/SiteSelection/region_identity.* (IdentifyRegion),
+// shared with the game. The feature list is src/assets/planet/zones.json
+// through lunar_regions.*, with the composition table that used to sit
+// here folded into it.
 // ---------------------------------------------------------------------------
-
-struct DiscFeature
-{
-    const char* name;
-    double lat, lon, radiusKm;
-    // Fe/Ti wt%, Th ppm from src/assets/planet/zones.json where that
-    // entry carries them; -1 means "derive from terrane + ground type"
-    // (RegionIdentity below), which is what most of the Moon needs.
-    float fePct, tiPct, thPpm;
-};
-
-static const DiscFeature BUILTIN_FEATURES[] =
-{
-    { "Oceanus Procellarum", 18.4, -57.4, 1296, 13.5f, 3.0f, 6.0f },
-    { "Mare Frigoris", 55.0, 0.0, 723, 12.0f, 1.5f, 3.0f },
-    { "Mare Imbrium", 32.8, -15.6, 573, 14.0f, 2.5f, 8.0f },
-    { "Mare Fecunditatis", -7.8, 51.3, 454, 14.0f, 2.0f, 1.5f },
-    { "Mare Tranquillitatis", 8.5, 31.4, 436, 15.5f, 8.0f, 1.5f },
-    { "Mare Nubium", -21.3, -16.5, 358, 14.0f, 2.0f, 4.0f },
-    { "Mare Serenitatis", 28.0, 17.5, 354, 14.5f, 3.5f, 2.5f },
-    { "Mare Crisium", 17.0, 59.1, 278, 13.0f, 1.5f, 1.0f },
-    { "Mare Humorum", -24.4, -38.6, 194, 14.5f, 3.0f, 4.5f },
-    { "Mare Cognitum", -10.0, -23.1, 175, 14.5f, 3.5f, 5.0f },
-    { "Mare Nectaris", -15.2, 35.3, 170, 12.5f, 2.0f, 1.0f },
-    { "Sinus Medii", 2.4, 1.7, 144, 12.0f, 2.0f, 3.0f },
-    { "Sinus Iridum", 44.1, -31.5, 124, 13.0f, 2.0f, 6.0f },
-    { "Mare Vaporum", 13.3, 3.6, 122, 13.5f, 3.0f, 5.5f },
-    { "Clavius", -58.4, -14.4, 116, 5.0f, 0.5f, 1.0f },
-    { "Ptolemaeus", -9.3, -1.9, 76, 6.5f, 0.8f, 2.0f },
-    { "Copernicus", 9.6, -20.1, 47, 8.0f, 1.2f, 5.0f },
-    { "Tycho", -43.3, -11.4, 43, 6.0f, 0.8f, 1.5f },
-    { "Plato", 51.6, -9.4, 50, 12.5f, 2.0f, 4.0f },
-};
-static const int BUILTIN_FEATURE_COUNT =
-    (int)(sizeof(BUILTIN_FEATURES) / sizeof(BUILTIN_FEATURES[0]));
-
-// The live table: zones.json supplies the names, positions and sizes --
-// all 105 regions of them, far side included -- and the table above
-// supplies composition for the entries the dataset leaves null. Those
-// numbers were hand-entered here before anything read the asset, and
-// dropping them would lose real figures for most of the near side. Where
-// both carry a value the asset wins; it is the documented one.
-//
-// Names point into the loaded regions, which are parsed once and never
-// moved, so the pointers stay good for the life of the process.
-static std::vector<DiscFeature> g_features;
-
-static const std::vector<DiscFeature>& Features()
-{
-    if (!g_features.empty()) return g_features;
-
-    const std::vector<LunarRegion>& regions = GetLunarRegions();
-    if (regions.empty())
-    {
-        // No asset: the instrument still works, on the near side only.
-        for (int i = 0; i < BUILTIN_FEATURE_COUNT; i++)
-            g_features.push_back(BUILTIN_FEATURES[i]);
-        return g_features;
-    }
-    for (const LunarRegion& r : regions)
-    {
-        DiscFeature f;
-        f.name = r.name.c_str();
-        f.lat = r.latDeg;
-        f.lon = r.lonDeg;
-        f.radiusKm = r.radiusKm;
-        f.fePct = r.fePct;
-        f.tiPct = r.tiPct;
-        f.thPpm = r.thPpm;
-        for (int i = 0; i < BUILTIN_FEATURE_COUNT; i++)
-        {
-            if (r.name != BUILTIN_FEATURES[i].name) continue;
-            if (f.fePct < 0.0f) f.fePct = BUILTIN_FEATURES[i].fePct;
-            if (f.tiPct < 0.0f) f.tiPct = BUILTIN_FEATURES[i].tiPct;
-            if (f.thPpm < 0.0f) f.thPpm = BUILTIN_FEATURES[i].thPpm;
-            break;
-        }
-        g_features.push_back(f);
-    }
-    return g_features;
-}
-
-// PKT outline, lat/lon vertices. Everything else on the near side is
-// FHT for this instrument; SPA is essentially a far-side terrane.
-static const double PKT_POLY[][2] =
-{
-    { 52, -72 }, { 57, -45 }, { 52, -20 }, { 47, -2 }, { 38, 8 },
-    { 28, 17 }, { 18, 14 }, { 8, 10 }, { -2, 7 }, { -12, 2 },
-    { -22, -6 }, { -30, -18 }, { -32, -33 }, { -26, -48 },
-    { -14, -60 }, { -2, -70 }, { 12, -78 }, { 28, -80 }, { 42, -79 },
-};
-static const int PKT_POLY_COUNT =
-    (int)(sizeof(PKT_POLY) / sizeof(PKT_POLY[0]));
-
-static bool InPkt(double lat, double lon)
-{
-    bool inside = false;
-    for (int i = 0, j = PKT_POLY_COUNT - 1; i < PKT_POLY_COUNT; j = i++)
-    {
-        double yi = PKT_POLY[i][0], xi = PKT_POLY[i][1];
-        double yj = PKT_POLY[j][0], xj = PKT_POLY[j][1];
-        if (((yi > lat) != (yj > lat)) &&
-            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
-        {
-            inside = !inside;
-        }
-    }
-    return inside;
-}
-
-static double FeatureDistKm(const DiscFeature& f, double lat, double lon)
-{
-    double la1 = lat * DEG2RAD, la2 = f.lat * DEG2RAD;
-    double c = std::sin(la1) * std::sin(la2) +
-               std::cos(la1) * std::cos(la2) *
-               std::cos((lon - f.lon) * DEG2RAD);
-    return std::acos(Clamp((float)c, -1.0f, 1.0f)) * LOLA_MOON_RADIUS_M / 1000.0;
-}
-
-// Smallest named feature containing the point, or -1.
-static int FeatureAt(double lat, double lon)
-{
-    const std::vector<DiscFeature>& all = Features();
-    int best = -1;
-    double bestR = 1e18;
-    for (int i = 0; i < (int)all.size(); i++)
-    {
-        if (all[i].radiusKm < bestR &&
-            FeatureDistKm(all[i], lat, lon) <= all[i].radiusKm)
-        {
-            best = i;
-            bestR = all[i].radiusKm;
-        }
-    }
-    return best;
-}
-
-// Region identity for ANY point, not just the annotated ones -- the
-// player clicks wherever they like, so unnamed ground must work too.
-//
-// Named feature -> its real figures where zones.json carries them.
-// Otherwise derived from the terrane plus whether the ground is mare or
-// highland, and that test is real measured data: mare floors sit 2-3 km
-// below the reference radius, highlands above it. Elevation is the
-// proxy, so an unnamed basalt plain reads as basalt.
-struct RegionIdentity
-{
-    char name[64];
-    const char* terrane;
-    const char* archetype;
-    Color archetypeTint;
-    const char* rock;
-    float fePct, tiPct, thPpm;
-    char latitudeNote[96];
-    bool isMare;
-    int featureIndex;          // -1 when the ground is unnamed
-};
-
-static RegionIdentity IdentifyRegion(const LolaDem& dem, double lat, double lon)
-{
-    RegionIdentity r;
-    r.featureIndex = FeatureAt(lat, lon);
-    bool pkt = InPkt(lat, lon);
-    float elevM = dem.IsLoaded() ? dem.ElevationM(lat, lon) : 0.0f;
-    r.isMare = (elevM < -500.0f);
-    bool polar = (std::fabs(lat) > 80.0);
-
-    r.terrane = pkt ? "Procellarum KREEP Terrane"
-                    : (polar ? "Feldspathic Highlands (polar)"
-                             : "Feldspathic Highlands");
-    r.rock = r.isMare ? "mare basalt" : "anorthosite breccia";
-
-    // Derived from the ground itself: mafic ground carries iron and
-    // titanium, feldspathic ground does not; thorium is the terrane's to
-    // give. This is the answer for unnamed ground -- and for the many
-    // named regions nobody has measured, which is most of them.
-    const float derivedFe = r.isMare ? 13.0f : 5.0f;
-    const float derivedTi = r.isMare ? 2.5f : 0.5f;
-    const float derivedTh = pkt ? 5.0f : 1.0f;
-
-    if (r.featureIndex >= 0)
-    {
-        const DiscFeature& f = Features()[r.featureIndex];
-        std::snprintf(r.name, sizeof(r.name), "%s", f.name);
-        r.fePct = (f.fePct >= 0.0f) ? f.fePct : derivedFe;
-        r.tiPct = (f.tiPct >= 0.0f) ? f.tiPct : derivedTi;
-        r.thPpm = (f.thPpm >= 0.0f) ? f.thPpm : derivedTh;
-    }
-    else
-    {
-        std::snprintf(r.name, sizeof(r.name), "%s %s",
-                      r.isMare ? "Unnamed mare" : "Unnamed highland",
-                      polar ? "(polar)" : "");
-        r.fePct = derivedFe;
-        r.tiPct = derivedTi;
-        r.thPpm = derivedTh;
-    }
-
-    if (polar)
-    {
-        std::snprintf(r.latitudeNote, sizeof(r.latitudeNote),
-                      "%.0f %c - PSR floors + near-constant crest sun",
-                      std::fabs(lat), lat < 0 ? 'S' : 'N');
-    }
-    else
-    {
-        std::snprintf(r.latitudeNote, sizeof(r.latitudeNote),
-                      "%.0f %c - 14-day nights, %s Earth comms",
-                      std::fabs(lat), lat < 0 ? 'S' : 'N',
-                      std::fabs(lon) < 50.0 ? "strong" : "grazing");
-    }
-
-    // Archetype: the strategy tag, from the composition just derived.
-    if (polar)
-    {
-        r.archetype = "POLAR VOLATILE";
-        r.archetypeTint = Color{ 140, 190, 235, 255 };
-    }
-    else if (r.thPpm >= 5.0f && !r.isMare)
-    {
-        // KREEP tags the ground whose ONLY standout is thorium. A
-        // thorium-rich mare is still flat, iron-rich, easy ground, and
-        // that is what a colony there is built for -- so mare wins.
-        r.archetype = "KREEP SCIENTIFIC";
-        r.archetypeTint = Color{ 196, 150, 220, 255 };
-    }
-    else if (r.isMare)
-    {
-        r.archetype = "MARE INDUSTRIAL";
-        r.archetypeTint = Color{ 224, 168, 108, 255 };
-    }
-    else
-    {
-        r.archetype = "HIGHLAND CONSTRUCTION";
-        r.archetypeTint = Color{ 150, 200, 150, 255 };
-    }
-    return r;
-}
 
 // A SiteCard view of a live identity: what the region and level cards
 // draw from.
@@ -2775,8 +2431,9 @@ static SiteCard SiteFromIdentity(const RegionIdentity& id, const char* hintKey,
     SiteCard d = {};
     d.regionName = id.name;
     d.terrane = id.terrane;
-    d.archetype = id.archetype;
-    d.archetypeTint = id.archetypeTint;
+    const SiteArchetypeDescriptor& arch = GetSiteArchetypeDescriptor(id.archetype);
+    d.archetype = arch.name;
+    d.archetypeTint = arch.tint;
     d.rock = id.rock;
     d.fePct = id.fePct;
     d.tiPct = id.tiPct;
@@ -2790,7 +2447,9 @@ static SiteCard SiteFromIdentity(const RegionIdentity& id, const char* hintKey,
 struct AppState
 {
     MapOptions options;
-    LolaDem dem;
+    // The process's one elevation model (lunar_dem_shared). Loaded in
+    // main; nullptr never reaches here.
+    const LolaDem* dem = nullptr;
     TerrainScene scene;
     int styleMode = 0;
     bool tilt = false;
@@ -2802,15 +2461,13 @@ struct AppState
     bool pressOnUi = false;
 
     // --- interactive site selection (--site) ---
-    bool claimed = false;
-    RegionIdentity region = {};      // fixed at the moment of claiming
-    SurveyDescent descent;
-    int siteLevel = 0;               // 0 orbital, 1..4 = ladder levels 2..5
+    //
+    // Which rung, what is claimed, where the cursor is, what the verdict
+    // says, whether a flight is running: the shared controller's. This
+    // instrument owns only what it draws with -- the DEM scene, its
+    // resolution ladder, the wider window for zooming out, the labels.
+    SiteSelectionController ctl;
     bool sceneDirty = true;
-    bool founded = false;
-    // Descent transition: the previous level's texture is already on the
-    // GPU, so zooming into the cursor with it costs nothing but redraws
-    // and covers the gap before the build blocks the loop.
     float sceneAspect = 1.0f;        // how much wider the window is built
 
     // --- zoom-out: a second, wider window ---------------------------
@@ -2824,25 +2481,9 @@ struct AppState
     double wideSpanKm = 0.0;         // 0 = no wide window for this site
     bool wideActive = false;         // is app.scene the wide one?
     double pointerStillSince = 0.0;  // when the cursor last stopped moving
-    bool transActive = false;
-    int transKind = 0;               // 1 = claim a region, 2 = descend
-    RegionIdentity transRegion = {};
-    double transLat = 0.0, transLon = 0.0;
-    float transT = 0.0f;
-    float transSeconds = 0.45f;      // set per flight from its zoom span
-    float transFromZoom = 1.0f, transToZoom = 1.0f;
-    // The level 1 -> 2 flight happens on the globe, so it interpolates a
-    // sub-point and an orbital zoom rather than a flat camera.
-    double transFromLat = 0.0, transFromLon = 0.0;
-    double transFromGZoom = 1.0, transToGZoom = 1.0;
-    Vector3 transFromTarget = { 0.0f, 0.0f, 0.0f };
-    Vector3 transToTarget = { 0.0f, 0.0f, 0.0f };
     int userDemRes = 0;              // --demres, if the caller set one
     bool sceneDraft = false;         // a sharper rung is still owed
     int sceneStage = 0;              // rung of the resolution ladder
-    Vector2 lastPointer = { 0.0f, 0.0f };
-    bool havePointer = false;        // a settled pointer exists to click with
-    bool touchStyle = false;         // a jumped click was seen -> tapping
     // Everything drawn OVER the moon that is commentary rather than
     // control: the HUD, the cards, the hover chip, the region outlines.
     // Off leaves the ground, the cursor and the strip -- enough to keep
@@ -2852,18 +2493,6 @@ struct AppState
     // away from the pointer is not one you can aim at. Right-click puts
     // it back on for a look around.
     bool globeSpin = false;
-
-    // Zoom within the rung.
-    //
-    // zoomK is how far the camera has pushed in past the current rung's
-    // window: 1 is the whole window, and the ceiling is the rung's own
-    // (see zoomMax in UpdateSiteSelect). It is bounded at both ends so
-    // that zooming can read the ground closely without ever arriving at
-    // a neighbouring level's view -- crossing a rung is a click, not a
-    // scroll. The cursor keeps the ladder's footprint at every rung, so
-    // it never leaves the 15-30% band.
-    float zoomK = 1.0f;
-    double camXKm = 0.0, camYKm = 0.0;   // camera centre within the window
 
     // Cached terrain frame.
     //
@@ -2913,12 +2542,12 @@ static void RefreshSceneCache(AppState& app, const MapOptions& options,
     }
 
     bool stale = !app.sceneCacheValid
-              || app.cacheLevel != app.siteLevel
+              || app.cacheLevel != app.ctl.Level()
               || app.cacheStage != app.sceneStage
               || app.cacheStyle != app.styleMode
               || app.cacheZoom != sceneZoom
-              || app.cacheCamX != app.camXKm
-              || app.cacheCamY != app.camYKm;
+              || app.cacheCamX != app.ctl.CamXKm()
+              || app.cacheCamY != app.ctl.CamYKm();
 
     if (stale)
     {
@@ -2926,12 +2555,12 @@ static void RefreshSceneCache(AppState& app, const MapOptions& options,
         DrawScene(app.scene, options, app.styleMode, camera);
         EndTextureMode();
         app.sceneCacheValid = true;
-        app.cacheLevel = app.siteLevel;
+        app.cacheLevel = app.ctl.Level();
         app.cacheStage = app.sceneStage;
         app.cacheStyle = app.styleMode;
         app.cacheZoom = sceneZoom;
-        app.cacheCamX = app.camXKm;
-        app.cacheCamY = app.camYKm;
+        app.cacheCamX = app.ctl.CamXKm();
+        app.cacheCamY = app.ctl.CamYKm();
     }
 }
 
@@ -2994,15 +2623,15 @@ static void DrawGlobeFeatureOutlines(int w, int h, int hoverFeature,
 {
     const int N = 48;
     Vector2 pts[N]; bool vis[N];
-    const std::vector<DiscFeature>& all = Features();
+    const std::vector<LunarRegion>& all = GetLunarRegions();
     for (int i = 0; i < (int)all.size(); i++)
     {
-        const DiscFeature& f = all[i];
+        const LunarRegion& f = all[i];
         // The globe reaches the far side, so unlike the flat map there is
         // no reason to drop high latitudes -- only what is turned away.
         float cx = 0.0f, cy = 0.0f;
-        if (!OrbitalLatLonToScreen(f.lat, f.lon, w, h, &cx, &cy)) continue;
-        GlobeCircleAt(f.lat, f.lon, f.radiusKm, w, h, pts, vis, N);
+        if (!OrbitalLatLonToScreen(f.latDeg, f.lonDeg, w, h, &cx, &cy)) continue;
+        GlobeCircleAt(f.latDeg, f.lonDeg, f.radiusKm, w, h, pts, vis, N);
         if (i == hoverFeature)
         {
             // The one shape that is both real data and pickable, so the
@@ -3100,49 +2729,24 @@ static Vector2 SitePointer()
 {
     return g_fake.active ? g_fake.pos : GetMousePosition();
 }
-// A press that travels is a drag, not a click.
-//
-// The globe made this rule necessary -- turning the moon must not also
-// pick a district -- but it was never the globe's rule. Below the globe
-// a press was acted on the instant it went down, so sliding the mouse
-// across the ground descended a level before it had moved a pixel, and
-// the map could not be dragged at all. The gesture is tracked once here
-// and every level reads the same answer.
-struct PressGesture
-{
-    bool down = false;
-    bool moved = false;          // travelled past the threshold this press
-    Vector2 from = { 0.0f, 0.0f };
-};
-static PressGesture g_press;
-
-// Far enough to mean it, close enough that a firm click still counts.
-static const float SITE_DRAG_THRESHOLD_PX = 5.0f;
+// A press that travels is a drag, not a click. The rule lives in
+// survey_input.h (SurveyPressGesture) so the game applies the same one;
+// here it is fed raylib's button state.
+static SurveyPressGesture g_press;
 
 static void UpdatePressGesture(Vector2 m)
 {
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-    {
-        g_press.down = true;
-        g_press.moved = false;   // cleared on press, so it survives release
-        g_press.from = m;
-    }
-    if (g_press.down &&
-        Vector2Distance(m, g_press.from) > SITE_DRAG_THRESHOLD_PX)
-    {
-        g_press.moved = true;
-    }
-    if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) g_press.down = false;
+    g_press.Update(m, IsMouseButtonPressed(MOUSE_BUTTON_LEFT),
+                   IsMouseButtonDown(MOUSE_BUTTON_LEFT),
+                   IsMouseButtonReleased(MOUSE_BUTTON_LEFT));
 }
-
-static bool SiteDragged() { return g_press.moved; }
 
 // Commit on RELEASE, and only if the press stayed put. The scripted
 // harness has no drag, so it keeps its instantaneous click.
 static bool SiteClick()
 {
     if (g_fake.active) return g_fake.click;
-    return IsMouseButtonReleased(MOUSE_BUTTON_LEFT) && !SiteDragged();
+    return g_press.Click(IsMouseButtonReleased(MOUSE_BUTTON_LEFT));
 }
 // The two view switches, top right.
 //
@@ -3174,26 +2778,6 @@ static bool SiteEscape()
                             IsMouseButtonPressed(MOUSE_BUTTON_RIGHT));
 }
 
-// Which region-card row the pointer is on, matching DrawRegionCard's
-// layout. Returns nullptr when the pointer is elsewhere.
-static const char* RegionCardHintAt(Vector2 m, int px, int py, int pw)
-{
-    if (m.x < px || m.x > px + pw) return nullptr;
-    struct Row { int y; const char* key; };
-    const Row rows[] = {
-        { py + 58,  "rock" },
-        { py + 112, "iron" },
-        { py + 144, "titanium" },
-        { py + 176, "thorium" },
-        { py + 210, "psr" },
-    };
-    for (const Row& r : rows)
-    {
-        if (m.y >= r.y && m.y <= r.y + 26) return r.key;
-    }
-    return nullptr;
-}
-
 // Build the wider window for the current site into app.spare. Same
 // centre, same texture budget, more ground -- so coarser synthesis, which
 // is the whole price of zooming out and is only paid by the view that
@@ -3212,14 +2796,14 @@ static int WideDemRes(const MapOptions& options)
 
 static bool BuildWideWindow(AppState& app)
 {
-    double zmin = SurveyZoomMin(app.siteLevel);
-    if (app.siteLevel <= 0 || zmin >= 1.0) return false;
+    double zmin = SurveyZoomMin(app.ctl.Level());
+    if (app.ctl.Level() <= 0 || zmin >= 1.0) return false;
 
     MapOptions wide = app.options;
     wide.spanKm = app.options.spanKm / zmin;
     wide.demRes = WideDemRes(app.options);   // match what was built ahead
     double t0 = GetTime();
-    if (!BuildScene(wide, app.dem, app.spare)) return false;
+    if (!BuildScene(wide, *app.dem, app.spare)) return false;
     app.wideSpanKm = wide.spanKm;
     // The number that matters: what the player waits for at the moment
     // they scroll. With the layer built ahead this is the DEM window and
@@ -3241,7 +2825,8 @@ static void DropWideWindow(AppState& app)
     }
     UnloadSceneGpu(app.spare);
     app.wideSpanKm = 0.0;
-    if (app.zoomK < 1.0f) app.zoomK = 1.0f;
+    // The controller clamps its zoom back to the window on the next frame,
+    // now that zooming out is no longer allowed.
     SpeculationCancel();           // anything in flight is for the old site
 }
 
@@ -3255,11 +2840,11 @@ static void SpeculationStart(AppState& app)
     (void)app;                     // no threads in a browser at all
 #else
     if (g_spec.running || g_specSatisfied) return;
-    if (app.siteLevel != SITE_LEVELS - 1) return;
+    if (app.ctl.Level() != SITE_LEVELS - 1) return;
     if (app.wideSpanKm > 0.0) return;
-    if (app.sceneDirty || app.sceneDraft || app.transActive || app.founded)
+    if (app.sceneDirty || app.sceneDraft || app.ctl.FlightActive() || app.ctl.Founded())
         return;
-    double zmin = SurveyZoomMin(app.siteLevel);
+    double zmin = SurveyZoomMin(app.ctl.Level());
     if (zmin >= 1.0) return;
 
     // The GPU path cannot use the worker -- shader passes need the main
@@ -3268,7 +2853,7 @@ static void SpeculationStart(AppState& app)
     // after the ladder settled, rather than in the one where the player
     // scrolls. It is a hitch either way; this is the one they did not
     // ask for anything in.
-    if (GetTerrainPath() != TERRAIN_PATH_CPU)
+    if (ChainLayerOnGpu())
     {
         g_specSatisfied = true;
         BuildWideWindow(app);
@@ -3289,7 +2874,7 @@ static void SpeculationStart(AppState& app)
     g_spec.done.store(false);
     g_spec.running = true;
     double nativeKm = app.scene.nativeKm;
-    const LolaDem* dem = &app.dem;
+    const LolaDem* dem = app.dem;
     g_spec.worker = std::thread([nativeKm, dem]() {
         // The DEM window first: it is the expensive half by an order of
         // magnitude. A cold one at this resolution measured 4.6 s against
@@ -3359,24 +2944,22 @@ static void BuildSiteScene(AppState& app)
     // Written back into app.options, not a local copy: DrawHud reads the
     // live options for its span and coordinate readout, so a local copy
     // leaves the HUD claiming the window it started with.
-    if (app.siteLevel == 0)
+    if (app.ctl.Level() == 0)
     {
         app.options.nearside = true;
         app.options.spanAspect = 1.0f;
     }
     else
     {
-        SurveyCursor* c = SurveyCurrent(&app.descent);
+        const SurveyCursor* c = app.ctl.Cursor();
         app.options.nearside = false;
         app.options.pickLat = c->windowLatDeg;
         app.options.pickLon = c->windowLonDeg;
         app.options.spanKm = c->windowSpanKm * app.sceneAspect;
         app.options.spanAspect = app.sceneAspect;
-        // What is on screen, per axis. Across is the widened window the
-        // camera frames whole; down is the rung's own span. Zoom scales
-        // both, and UpdateSiteSelect refreshes them each frame.
-        c->reachAcrossKm = app.options.spanKm;
-        c->reachDownKm = c->windowSpanKm;
+        // What is on screen per axis -- the widened window across, the
+        // rung's span down -- is told to the controller each frame as
+        // the ground aspect; it sets the cursor's reach from it.
     }
     // Sharpen in steps rather than one jump. Window cost is quadratic in
     // texture resolution, so 384 is 1/28th of the full build and lands
@@ -3398,7 +2981,7 @@ static void BuildSiteScene(AppState& app)
     int rung = std::clamp(app.sceneStage, 0, SITE_RES_RUNGS - 1);
     app.options.demRes = app.userDemRes ? app.userDemRes
                                         : SITE_RES_LADDER[rung];
-    BuildScene(app.options, app.dem, app.scene, rung > 0);
+    BuildScene(app.options, *app.dem, app.scene, rung > 0);
     app.options.demRes = app.userDemRes;
     app.sceneDirty = false;
     // A forced --demres has no ladder to climb; it is already final.
@@ -3406,181 +2989,48 @@ static void BuildSiteScene(AppState& app)
     app.sceneStage = rung + 1;
 }
 
-// How long the descent zoom takes. Long enough to read as travel, short
-// enough that it is not itself the wait.
-// Descents are not all the same size: level 1 -> 2 is a 24x zoom, the
-// rest are 4-5x. A fixed duration makes the big one feel rushed and the
-// small ones dawdle, so the flight holds a constant RATE of approach --
-// octaves of zoom per second -- and takes as long as its distance needs.
-static const float SITE_TRANS_OCTAVES_PER_SEC = 1.8f;
-static const float SITE_TRANS_MIN_SECONDS = 1.00f;
-static const float SITE_TRANS_MAX_SECONDS = 3.00f;
-
-// Aim the transition at the ground the next level will show. Everything
-// is expressed against the CURRENT scene, because the current scene's
-// texture is what the animation draws.
-// The descent off the globe. Same idea as the flight below it -- dive
-// straight at the target while the zoom climbs -- but on a sphere the
-// "pan" is a rotation of the sub-point, so that is what gets driven by
-// the zoom instead of by the clock.
+// Draw the frame of a descent in flight.
 //
-// It ends at the zoom where the district exactly fills the viewport, so
-// when level 2 takes over on the next frame it opens on the same ground
-// at the same scale: the handover is a change of SOURCE (mosaic to DEM),
-// not a change of framing.
-static void BeginGlobeDescent(AppState& app, double targetLat,
-                              double targetLon, double districtKm)
+// The flight's law -- how long it takes, where the camera is at each
+// moment -- is the shared controller's (SiteSelectionController), so the
+// game and this instrument fly the same path. What differs is the
+// picture under it: leaving the globe, the controller drives the orbital
+// camera and this draws the globe; diving into a window, it hands over a
+// zoom and a centre in km and this maps them onto its own top-down
+// camera. The current level's texture is already on the GPU, so the
+// flight costs nothing but redraws -- and on a single-threaded WASM main
+// loop the build itself blocks everything, so the gap BEFORE it is the
+// only free time there is.
+static void DrawFlightFrame(AppState& app, const MapOptions& options,
+                            int screenW, int screenH)
 {
-    const OrbitalCamera& cam = GetOrbitalCamera();
-    app.transFromLat = cam.subLatDeg;
-    app.transFromLon = cam.subLonDeg;
-    app.transFromGZoom = cam.zoom;
-    app.transToGZoom = OrbitalZoomForSpan(districtKm);
-    app.transLat = targetLat;
-    app.transLon = targetLon;
-
-    if (g_fake.active && !g_fake.fly)
+    const SiteSelectionController& ctl = app.ctl;
+    if (!g_fake.active) BeginDrawing();
+    if (ctl.FlightKind() == 1)
     {
-        // The step harness does not fly, but it still reports where the
-        // flight WOULD land, so the geometry stays checkable headlessly.
-        std::fprintf(stderr, "GLOBECHK sub=(%.2f,%.2f) -> (%.2f,%.2f) "
-                             "zoom %.2f -> %.2f (district %.0f km)\n",
-                     app.transFromLat, app.transFromLon, targetLat, targetLon,
-                     app.transFromGZoom, app.transToGZoom, districtKm);
-        return;
-    }
-    app.transT = 0.0f;
-    app.transSeconds = std::clamp(
-        std::log2((float)std::max(1.001, app.transToGZoom / app.transFromGZoom))
-            / SITE_TRANS_OCTAVES_PER_SEC,
-        SITE_TRANS_MIN_SECONDS, SITE_TRANS_MAX_SECONDS);
-    app.transActive = true;
-}
-
-static void BeginDescentZoom(AppState& app, float fromZoom,
-                             double targetXKm, double targetYKm,
-                             double fromSpanKm, double toSpanKm)
-{
-    float sc = app.scene.worldScale;
-    if (g_fake.active && !g_fake.fly)
-    {
-        // The step harness does not fly, but it still reports where the
-        // flight WOULD land, so the geometry is checkable without
-        // rendering 27 frames per descent.
-        float toZ = fromZoom * (float)(fromSpanKm / toSpanKm);
-        std::fprintf(stderr, "ZOOMCHK from=%.0fkm to=%.0fkm endVisible=%.2fkm "
-                             "targetKm=(%.2f,%.2f)\n",
-                     fromSpanKm, toSpanKm,
-                     app.scene.worldHeightKm / toZ, targetXKm, targetYKm);
-        std::fprintf(stderr, "        zoom=%.1fx flight=%.2fs\n",
-                     toZ / fromZoom,
-                     std::clamp(std::log2(std::max(1.001f, toZ / fromZoom))
-                                / SITE_TRANS_OCTAVES_PER_SEC,
-                                SITE_TRANS_MIN_SECONDS,
-                                SITE_TRANS_MAX_SECONDS));
-        return;
-    }
-    app.transFromZoom = fromZoom;
-    app.transToZoom = fromZoom * (float)(fromSpanKm / toSpanKm);
-    app.transFromTarget = Vector3{ 0.0f, 0.0f, 0.0f };
-    // +z is south in this frame (the camera's up is -z), so north
-    // negates.
-    app.transToTarget = Vector3{ (float)(targetXKm * sc), 0.0f,
-                                 (float)(-targetYKm * sc) };
-    float octaves = std::log2(std::max(1.001f,
-                                      app.transToZoom / app.transFromZoom));
-    app.transSeconds = std::clamp(octaves / SITE_TRANS_OCTAVES_PER_SEC,
-                                  SITE_TRANS_MIN_SECONDS,
-                                  SITE_TRANS_MAX_SECONDS);
-    app.transT = 0.0f;
-    app.transActive = true;
-}
-
-// Draw the current scene from a camera partway to the next level's
-// framing. Returns true while the flight is still running.
-static bool RunDescentZoom(AppState& app, const MapOptions& options,
-                           int screenW, int screenH)
-{
-    float dt = GetFrameTime();
-    if (dt <= 0.0f || dt > 0.25f) dt = 1.0f / 60.0f;   // first frame, or a stall
-    app.transT += dt / app.transSeconds;
-    float t = std::clamp(app.transT, 0.0f, 1.0f);
-    float e = t * t * (3.0f - 2.0f * t);               // smoothstep
-
-    // Leaving the globe: turn and zoom rather than pan and zoom.
-    if (app.transKind == 1)
-    {
-        double zoom = app.transFromGZoom *
-                      std::pow(app.transToGZoom / app.transFromGZoom, (double)e);
-        // The same straight-dive law the flat flight uses: drive the
-        // rotation from the zoom, so the target falls to the centre
-        // instead of swinging out and coming back.
-        double k = 1.0 - (1.0 - e) * (app.transFromGZoom / zoom);
-        double dLon = app.transLon - app.transFromLon;
-        while (dLon > 180.0) dLon -= 360.0;            // take the short way round
-        while (dLon < -180.0) dLon += 360.0;
-
-        OrbitalCamera cam;
-        cam.subLatDeg = app.transFromLat + (app.transLat - app.transFromLat) * k;
-        cam.subLonDeg = app.transFromLon + dLon * k;
-        cam.zoom = zoom;
-        SetOrbitalCamera(cam);
-
-        if (!g_fake.active) BeginDrawing();
         ClearBackground(Color{ 6, 7, 12, 255 });
         DrawLunarGlobe(screenW, screenH);
-        int hh = 40, yy = screenH - hh;
-        DrawRectangle(0, yy, screenW, hh, Color{ 12, 12, 16, 220 });
-        DrawRectangle(0, yy, screenW, 1, Color{ 90, 110, 150, 255 });
-        DrawText("Descending...", 16, yy + 12, 16, Color{ 150, 190, 255, 255 });
-        if (!g_fake.active) EndDrawing();
-
-        if (app.transT < 1.0f) return true;
-        app.transActive = false;
-        return false;
     }
-
-    // Zoom interpolates in log space: a linear ramp between 1x and 11x
-    // spends most of its time already deep and reads as a lurch.
-    float zoom = app.transFromZoom *
-                 std::pow(app.transToZoom / app.transFromZoom, e);
-
-    // The camera centre must follow the zoom, not the clock.
-    //
-    // A point sits on screen at (P - centre) * zoom. Panning the centre
-    // linearly while the zoom climbs exponentially multiplies a shrinking
-    // offset by a growing scale, and the destination swings AWAY before
-    // it returns -- out to 2.8x its starting offset on the 24x level 1->2
-    // descent, which is the arc that reads as a curved, helical approach
-    // instead of a dive.
-    //
-    // Solve for the centre that makes the destination's screen offset
-    // fall straight to zero: (P - centre) * zoom == startOffset * (1 - e),
-    // which with centre = from + (to - from) * k gives
-    //   k = 1 - (1 - e) * fromZoom / zoom.
-    // k is 0 at e=0 and 1 at e=1, so the endpoints are unchanged; only
-    // the path between them straightens.
-    float k = 1.0f - (1.0f - e) * (app.transFromZoom / zoom);
-    Vector3 tgt = {
-        app.transFromTarget.x + (app.transToTarget.x - app.transFromTarget.x) * k,
-        0.0f,
-        app.transFromTarget.z + (app.transToTarget.z - app.transFromTarget.z) * k };
-
-    if (!g_fake.active) BeginDrawing();
-    Camera3D camera = TopDownCamera(app.scene, zoom);
-    camera.position = Vector3{ tgt.x, camera.position.y, tgt.z };
-    camera.target = tgt;
-    DrawScene(app.scene, options, app.styleMode, camera);
+    else
+    {
+        // +z is south in this frame (the camera's up is -z), so north
+        // negates. The zoom includes the aspect the window was built
+        // wider by, the same as the settled camera's does.
+        float sc = app.scene.worldScale;
+        float zoom = app.sceneAspect * ctl.FlightZoomK();
+        Vector3 tgt = { (float)(ctl.FlightCamXKm() * sc), 0.0f,
+                        (float)(-ctl.FlightCamYKm() * sc) };
+        Camera3D camera = TopDownCamera(app.scene, zoom);
+        camera.position = Vector3{ tgt.x, camera.position.y, tgt.z };
+        camera.target = tgt;
+        DrawScene(app.scene, options, app.styleMode, camera);
+    }
     // The strip stays put so the frame does not read as a different UI.
     int h = 40, y = screenH - h;
     DrawRectangle(0, y, screenW, h, Color{ 12, 12, 16, 220 });
     DrawRectangle(0, y, screenW, 1, Color{ 90, 110, 150, 255 });
     DrawText("Descending...", 16, y + 12, 16, Color{ 150, 190, 255, 255 });
     if (!g_fake.active) EndDrawing();
-
-    if (app.transT < 1.0f) return true;
-    app.transActive = false;
-    return false;
 }
 
 #if defined(PLATFORM_WEB)
@@ -3600,7 +3050,7 @@ static bool RunDescentZoom(AppState& app, const MapOptions& options,
 // So pin the CSS size to the buffer size and turn the clamps off, for
 // this page only. The shell's own enforcer is told to stand down at
 // start-up (window.COLONY_CANVAS_FREE); it keeps working unchanged for
-// the game and the game views walk, whose framebuffers are fixed.
+// the game and the game walk, whose framebuffers are fixed.
 //
 // The remembered size also matters: comparing against GetScreenWidth()
 // could never settle on a HiDPI display, where the buffer and the CSS
@@ -3635,151 +3085,71 @@ static void UpdateSiteSelect(AppState& app)
     MapOptions& options = app.options;
     int screenW = GetScreenWidth(), screenH = GetScreenHeight();
     Vector2 m = SitePointer();
-    SurveyViewport viewport = LadderViewport(screenW, screenH);
+    SiteSelectionController& ctl = app.ctl;
+    const SurveyLevelDef* ladder = GetSurveyLadder();
 
     SpeculationPoll(app);          // yesterday's answer, if it is still ours
     SpeculationStart(app);         // and tomorrow's, if the rung has settled
 
-    // ---------- zoom within the rung ----------
-    const SurveyLevelDef* ladder = GetSurveyLadder();
-    // The last rung has nowhere below it and nothing left to refine: it
-    // places the base in the window it arrived in, which is the whole of
-    // what used to be two levels.
-    bool siteRung = (app.siteLevel == SITE_LEVELS - 1);
-    // How far this rung may zoom, in or out.
+    // ---------- zoom-out needs a wider window, built before the wheel lands ----------
     //
-    // Zooming reads the ground; it does not change rung. Both ends are
-    // the rung's own geometry, so no amount of scrolling can arrive at a
-    // neighbouring level's view:
-    //
-    //   out  1x  - the rung's whole window. Wider than this is the rung
-    //              ABOVE, which is reached by backing out, not scrolling.
-    //   in   the zoom at which the cursor fills the top of the design's
-    //        15-30% legibility band. Past that the cursor is most of the
-    //        screen and there is nothing left to choose between -- and it
-    //        lands far short of the next rung's window either way.
-    //
-    // District: 0.30 * 200 / 25 = 2.4x, so the view bottoms out at 83 km
-    // against the site rung's 25 km window. Site: 1x -- it already holds
-    // the base's footprint over the ground being chosen within, and
-    // zooming there could only take the surroundings away from the
-    // decision.
-    float zoomMax = 1.0f, zoomMin = 1.0f;
-    if (app.siteLevel > 0)
-    {
-        zoomMax = (float)SurveyZoomMax(app.siteLevel);
-        // Zooming out is free as far as the ground already built: the
-        // window is spanKm * aspect square and only spanKm of it is
-        // shown, so the rest is generated and simply out of frame.
-        // The floor only exists once the wider window does.
-        if (app.wideSpanKm > 0.0)
-            zoomMin = (float)SurveyZoomMin(app.siteLevel);
-    }
-    bool zoomable = (app.siteLevel > 0) && !app.transActive && !app.founded;
+    // Zooming out is free as far as the ground already built: the window
+    // is spanKm * aspect square and only spanKm of it is shown. Wider than
+    // that needs a second, wider window. The first scroll outward builds
+    // it, synchronously for now; the speculative build usually fills it
+    // in before the wheel is touched.
+    bool zoomable = (ctl.Level() > 0) && !ctl.FlightActive() && !ctl.Founded();
     float wheel = zoomable ? SiteWheel() : 0.0f;
-
-    // First scroll outward builds the wider window. Synchronous for now;
-    // the speculative build fills it in before the wheel is touched.
-    if (wheel < 0.0f && app.zoomK <= 1.0f + 1e-4f && app.wideSpanKm <= 0.0
-        && SurveyZoomMin(app.siteLevel) < 1.0)
+    if (wheel < 0.0f && ctl.ZoomK() <= 1.0f + 1e-4f && app.wideSpanKm <= 0.0
+        && SurveyZoomMin(ctl.Level()) < 1.0)
     {
-        if (BuildWideWindow(app)) zoomMin = (float)SurveyZoomMin(app.siteLevel);
+        BuildWideWindow(app);
     }
-    if (wheel != 0.0f && zoomMax > zoomMin)
-    {
-        app.zoomK = std::clamp(app.zoomK * std::pow(1.25f, wheel),
-                               zoomMin, zoomMax);
-    }
-
-    // Swap, do not branch: everything downstream draws app.scene.
-    bool wantWide = (app.zoomK < 1.0f - 1e-4f) && app.wideSpanKm > 0.0;
-    if (wantWide != app.wideActive)
-    {
-        std::swap(app.scene, app.spare);
-        app.wideActive = wantWide;
-        app.sceneCacheValid = false;
-    }
-    // The viewport for THIS frame uses last frame's camera, which breaks
-    // the circle between "where the cursor is" and "where the camera is
-    // looking". One frame of lag, invisible at 60 Hz.
-    // Any zoom that is not 1, in either direction: zooming OUT has to
-    // move the cursor's frame too, or the rectangle stops following the
-    // mouse the moment the ground gets wider than the window.
-    if (app.siteLevel > 0 && std::fabs(app.zoomK - 1.0f) > 1e-4f)
-    {
-        viewport = LadderViewportZoomed(screenW, screenH, app.zoomK,
-                                        app.camXKm, app.camYKm,
-                                        ladder[app.siteLevel].windowSpanKm);
-    }
-
-    // A touch screen has no hover: the finger arrives and clicks in the
-    // same frame, which would claim whatever it landed on before the
-    // player ever saw the card. So a click only counts once the pointer
-    // has settled -- a mouse always has, a tap needs a second tap.
-    bool jumped = !app.havePointer
-                  || Vector2Distance(m, app.lastPointer) > 24.0f;
-    if (!app.havePointer || Vector2Distance(m, app.lastPointer) > 2.0f)
-        app.pointerStillSince = GetTime();
-    app.lastPointer = m;
-    app.havePointer = true;
 
     if (app.sceneDirty)
     {
-        // Level 1 is the globe: there is no DEM window to build. This
-        // used to extract a 2048 px plate-carree window of the whole
-        // near side and shade it, ~1.9 s a visit, only for the globe to
-        // be drawn straight over the top of it. The flag is cleared so
-        // the scripted harness's settle loop still terminates.
-        // See docs/graveyard.md for what that map was.
-        if (app.siteLevel > 0) BuildSiteScene(app);
+        // Level 1 is the globe: there is no DEM window to build. The flag
+        // is cleared so the scripted harness's settle loop terminates.
+        if (ctl.Level() > 0) BuildSiteScene(app);
         else { app.sceneDirty = false; app.sceneDraft = false; }
-    }
-
-    // A descent in flight owns the frame: the old texture is still the
-    // right picture, and no input should land mid-move.
-    if (app.transActive)
-    {
-        if (RunDescentZoom(app, options, screenW, screenH)) return;
-        if (app.transKind == 1)
-        {
-            app.region = app.transRegion;
-            app.claimed = true;
-            app.descent = MakeSurveyDescent(app.transLat, app.transLon);
-            app.descent.levels[1] = MakeSurveyCursor(1, app.transLat,
-                                                     app.transLon);
-            app.descent.depth = 2;
-            app.siteLevel = 1;
-        }
-        else
-        {
-            SurveyDescend(&app.descent);
-            app.siteLevel++;
-        }
-        app.transKind = 0;
-        app.zoomK = 1.0f;
-        app.camXKm = 0.0;
-        app.camYKm = 0.0;
-        app.sceneStage = 0;
-        app.sceneDirty = true;
-        return;
     }
 
     // Level 1 is the globe: drag turns it, the wheel zooms it. Done
     // before the pointer is read so the hover lands on this frame's
-    // orientation, not the last one's.
-    if (app.siteLevel == 0 && !g_fake.active && !app.transActive)
+    // orientation, not the last one's. Not during a flight: the flight
+    // owns the camera.
+    if (ctl.Level() == 0 && !g_fake.active && !ctl.FlightActive())
         UpdateLunarGlobeInput(screenW, screenH, GetFrameTime());
 
-    UpdatePressGesture(m);
-    bool rawClick = SiteClick();
-    bool descend = rawClick;
-    bool ascend = SiteEscape();
-    if (descend && jumped) { descend = false; app.touchStyle = true; }
+    // ---------- compose the input ----------
+    //
+    // Everything that is this instrument's own UI -- the BACK button, the
+    // view toggles, the prompt strip, the card rows -- is resolved here,
+    // so the controller only ever sees a click that means "the ground".
+    SurveyInput in;
+    in.pointer = m;
+    in.wheel = wheel;
+    in.dt = GetFrameTime();
+    in.zoomOutAllowed = (app.wideSpanKm > 0.0);
+    in.groundAspect = app.sceneAspect;
+    in.instant = g_fake.active && !g_fake.fly;
+    in.reportGeometry = in.instant;
+
+    bool rawClick = false;
+    bool descend = false;
+    bool ascend = false;
+    if (!ctl.FlightActive())
+    {
+        UpdatePressGesture(m);
+        rawClick = SiteClick();
+        descend = rawClick;
+        ascend = SiteEscape();
+    }
 
     // Esc has no key on a phone, so the strip carries a Back button. A
     // button is not a preview: one tap is enough, jumped or not.
     Rectangle backBtn = { 8.0f, (float)screenH - 32.0f, 66.0f, 24.0f };
-    bool backShown = (app.siteLevel > 0) || app.founded;
+    bool backShown = (ctl.Level() > 0) || ctl.Founded();
     if (backShown && rawClick && CheckCollisionPointRec(m, backBtn))
     {
         ascend = true;
@@ -3789,7 +3159,7 @@ static void UpdateSiteSelect(AppState& app)
     Rectangle annBtn = ViewToggleRect(screenW, 0);
     Rectangle spinBtn = ViewToggleRect(screenW, 1);
     Rectangle resetBtn = ViewToggleRect(screenW, 2);
-    bool spinShown = (app.siteLevel == 0);   // nothing to spin below the globe
+    bool spinShown = (ctl.Level() == 0);   // nothing to spin below the globe
     auto toggleSpin = [&app]() {
         app.globeSpin = !app.globeSpin;
         SetLunarGlobeSpin(app.globeSpin ? GLOBE_SPIN_DEG_PER_SEC : 0.0);
@@ -3828,48 +3198,6 @@ static void UpdateSiteSelect(AppState& app)
     }
     if (!g_fake.active && IsKeyPressed(KEY_L)) app.showLabels = !app.showLabels;
 
-    // ---------- state that depends on the pointer ----------
-    RegionIdentity hoverId = app.region;
-    double hoverLat = 0.0, hoverLon = 0.0;
-    bool onGround = false;
-
-    if (app.siteLevel == 0)
-    {
-        // The same projection the globe's shader draws with, inverted --
-        // so the region named is the region under the pointer.
-        if (OrbitalPickToLatLon(m.x, m.y, screenW, screenH,
-                                &hoverLat, &hoverLon))
-        {
-            onGround = true;
-            hoverId = IdentifyRegion(app.dem, hoverLat, hoverLon);
-        }
-    }
-    else
-    {
-        SurveyCursor* c = SurveyCurrent(&app.descent);
-        // What is on screen right now, which zoom changes: the widened
-        // window across and the rung's own span down, both opened up by
-        // however far the view has zoomed out.
-        c->reachAcrossKm = app.options.spanKm / app.zoomK;
-        c->reachDownKm = c->windowSpanKm / app.zoomK;
-        SurveyCursorTrack(c, viewport, m.x, m.y);
-        SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
-        onGround = true;
-
-        // Fly the camera at the cursor as the zoom deepens, so the ground
-        // being aimed at is the ground that fills the screen when the
-        // next rung takes over.
-        // Lean the camera onto the cursor as the zoom deepens, reaching
-        // it at this rung's own limit rather than at the next rung's
-        // window, which the zoom no longer travels to.
-        float approach = ZoomApproach(app.zoomK, zoomMax);
-        app.camXKm = c->offsetXKm * approach;
-        app.camYKm = c->offsetYKm * approach;
-    }
-
-    // The card is fixed from the claim; before claiming it previews.
-    const RegionIdentity& shown = app.claimed ? app.region : hoverId;
-
     // A phone is narrower than the two 336 px cards side by side, so on a
     // narrow screen one card gets the full width and the other collapses
     // to a name strip. The region card wins level 1 (it is the decision
@@ -3877,10 +3205,10 @@ static void UpdateSiteSelect(AppState& app)
     bool narrow = screenW < 720;
     int cardX = narrow ? 8 : 16;
     int cardW = narrow ? screenW - 16 : 336;
-    bool fullRegionCard = (app.siteLevel == 0) || !narrow;
+    bool fullRegionCard = (ctl.Level() == 0) || !narrow;
     int regionX = narrow ? cardX : 16;
     int regionY = narrow ? 56 : 64;
-    if (narrow && app.siteLevel == 0)
+    if (narrow && ctl.Level() == 0)
     {
         // Full width means the card covers a third of the moon. Put it in
         // whichever half the pointer is not in, so the ground being read
@@ -3888,44 +3216,73 @@ static void UpdateSiteSelect(AppState& app)
         regionY = (m.y < screenH * 0.5f) ? (screenH - 40 - 252 - 8) : 56;
     }
     const char* hintKey = fullRegionCard
-        ? RegionCardHintAt(m, regionX, regionY, cardW) : nullptr;
+        ? SurveyRegionCardHintAt(m, regionX, regionY, cardW) : nullptr;
+
+    in.click = descend;
+    in.escape = ascend;
+    in.hintKey = hintKey;
+    // The prompt strip along the bottom is not ground.
+    in.uiConsumedClick = (m.y >= screenH - 40);
+
+    // The level card's ground statistics come from the window on screen,
+    // which is this renderer's to know.
+    const LolaWindow* statsWindow = (ctl.Level() > 0) ? &app.scene.window : nullptr;
+    ctl.Update(in, screenW, screenH, app.dem, statsWindow);
+    if (ctl.PointerMovedThisFrame()) app.pointerStillSince = GetTime();
+
+    // A descent in flight owns the frame: the old texture is still the
+    // right picture, and no input should land mid-move.
+    if (ctl.FlightActive())
+    {
+        DrawFlightFrame(app, options, screenW, screenH);
+        return;
+    }
+    if (ctl.LandedThisFrame())
+    {
+        app.sceneStage = 0;
+        app.sceneDirty = true;
+        return;
+    }
+
+    // Swap, do not branch: everything downstream draws app.scene.
+    bool wantWide = (ctl.ZoomK() < 1.0f - 1e-4f) && app.wideSpanKm > 0.0;
+    if (wantWide != app.wideActive)
+    {
+        std::swap(app.scene, app.spare);
+        app.wideActive = wantWide;
+        app.sceneCacheValid = false;
+    }
+
+    // ---------- what the controller found ----------
+    const SurveyViewport& viewport = ctl.Viewport();
+    bool siteRung = ctl.AtSiteRung();
+    const RegionIdentity& hoverId = ctl.Hover();
+    const RegionIdentity& shown = ctl.Shown();
+    bool onGround = ctl.OnGround();
+    double hoverLat = ctl.HoverLat();
+    Color hoverTint = GetSiteArchetypeDescriptor(hoverId.archetype).tint;
     // PSR proximity: real, from the site level's own measurement.
     float psrKm = (std::fabs(shown.name[0] ? hoverLat : 0.0) > 80.0) ? 4.0f : 999.0f;
     SiteCard site = SiteFromIdentity(shown, hintKey, psrKm);
-
-    // ---------- measured ground for the level card ----------
-    GroundStats g;
-    TerrainBuildability b;
-    PlacementVerdict verdict;
-    bool haveVerdict = false;
-    if (app.siteLevel > 0)
-    {
-        const SurveyCursor* c = SurveyCurrent(&app.descent);
-        g = CursorGroundStats(app.scene.window, c->offsetXKm, c->offsetYKm,
-                              c->footprintKm);
-        if (app.siteLevel == SITE_LEVELS - 1)
-        {
-            b = app.dem.EvaluateSite(hoverLat, hoverLon, c->footprintKm, 30.0);
-            verdict = JudgeSite(b);
-            haveVerdict = true;
-        }
-    }
+    const GroundStats& g = ctl.Ground();
+    const TerrainBuildability& b = ctl.Buildability();
+    const PlacementVerdict& verdict = ctl.Verdict();
+    bool haveVerdict = ctl.HaveVerdict();
 
     // ---------- draw ----------
     // The wide window is 1/zmin bigger, so the same zoomK has to be
     // divided by zmin to mean the same framing: at zoomK == zmin the wide
     // window fills the width exactly as the sharp one does at 1.
-    float zmin = (app.siteLevel > 0) ? (float)SurveyZoomMin(app.siteLevel)
-                                     : 1.0f;
+    float zmin = (ctl.Level() > 0) ? (float)SurveyZoomMin(ctl.Level()) : 1.0f;
     float sceneZoom = app.wideActive
-        ? app.sceneAspect * app.zoomK / zmin
-        : app.sceneAspect * app.zoomK;
+        ? app.sceneAspect * ctl.ZoomK() / zmin
+        : app.sceneAspect * ctl.ZoomK();
     Camera3D camera = TopDownCamera(app.scene, sceneZoom);
-    if (app.siteLevel > 0 && app.zoomK > 1.0f)
+    if (ctl.Level() > 0 && ctl.ZoomK() > 1.0f)
     {
         float sc = app.scene.worldScale;
-        Vector3 tgt = { (float)(app.camXKm * sc), 0.0f,
-                        (float)(-app.camYKm * sc) };
+        Vector3 tgt = { (float)(ctl.CamXKm() * sc), 0.0f,
+                        (float)(-ctl.CamYKm() * sc) };
         camera.position = Vector3{ tgt.x, camera.position.y, tgt.z };
         camera.target = tgt;
     }
@@ -3939,11 +3296,11 @@ static void UpdateSiteSelect(AppState& app)
     // silently redirects everything drawn afterwards and exports a black
     // frame. It renders straight instead -- the cache is a pass-through,
     // so what it exports is still what the playtest draws.
-    if (!g_fake.active && app.siteLevel > 0)
+    if (!g_fake.active && ctl.Level() > 0)
         RefreshSceneCache(app, options, camera, sceneZoom, screenW, screenH);
 
     if (!g_fake.active) BeginDrawing();
-    if (app.siteLevel == 0)
+    if (ctl.Level() == 0)
     {
         // A globe, not a DEM window: no mesh, no scene cache, and the
         // whole moon including the far side is reachable.
@@ -3952,14 +3309,14 @@ static void UpdateSiteSelect(AppState& app)
         if (app.showLabels)
         {
             DrawGlobeFeatureOutlines(screenW, screenH, hoverId.featureIndex,
-                                     hoverId.archetypeTint);
+                                     hoverTint);
         }
         // The cursor stays whatever the labels do: it is what you are
         // about to take, not a note about it.
         if (onGround)
         {
-            DrawGlobeCursorBox(hoverLat, hoverLon, ladder[0].footprintKm,
-                               screenW, screenH, hoverId.archetypeTint);
+            DrawGlobeCursorBox(hoverLat, ctl.HoverLon(), ladder[0].footprintKm,
+                               screenW, screenH, hoverTint);
         }
         if (app.showLabels) DrawGlobeHud(screenW, screenH);
     }
@@ -3969,11 +3326,11 @@ static void UpdateSiteSelect(AppState& app)
         else               BlitSceneCache(app);
     }
 
-    if (app.siteLevel == 0)
+    if (ctl.Level() == 0)
     {
         if (onGround)
         {
-            Color tint = hoverId.archetypeTint;
+            Color tint = hoverTint;
             DrawCircleLinesV(m, 6.0f, tint);
             DrawLineEx(Vector2{ m.x - 16, m.y }, Vector2{ m.x - 7, m.y }, 2.0f, tint);
             DrawLineEx(Vector2{ m.x + 7, m.y }, Vector2{ m.x + 16, m.y }, 2.0f, tint);
@@ -3981,6 +3338,7 @@ static void UpdateSiteSelect(AppState& app)
             DrawLineEx(Vector2{ m.x, m.y + 7 }, Vector2{ m.x, m.y + 16 }, 2.0f, tint);
             if (!hintKey && app.showLabels)
             {
+                double hoverLon = ctl.HoverLon();
                 const char* coord = TextFormat(
                     "%.1f%c  %.1f%c",
                     std::fabs(hoverLat), (hoverLat >= 0.0) ? 'N' : 'S',
@@ -3994,7 +3352,7 @@ static void UpdateSiteSelect(AppState& app)
     }
     else
     {
-        const SurveyCursor* c = SurveyCurrent(&app.descent);
+        const SurveyCursor* c = ctl.Cursor();
         if (app.showLabels && c->windowSpanKm >= 25.0)
         {
             DrawFeatureArcsInWindow(c->windowLatDeg, c->windowLonDeg,
@@ -4006,7 +3364,7 @@ static void UpdateSiteSelect(AppState& app)
             : Color{ 232, 238, 255, 255 };
         DrawLadderCursor(*c, viewport, tint);
         // Say what a click will do, next to the thing it will do it to.
-        if (siteRung && !app.founded && app.showLabels)
+        if (siteRung && !ctl.Founded() && app.showLabels)
         {
             const char* say = (haveVerdict && verdict.allowed)
                 ? "Click to build the colony here"
@@ -4036,11 +3394,11 @@ static void UpdateSiteSelect(AppState& app)
         }
         else
         {
-            DrawRegionCard(site, app.siteLevel, 16, 64, hintKey);
+            DrawRegionCard(site, ctl.Level(), 16, 64, hintKey);
         }
         if (app.showLabels)
         {
-            DrawLevelCard(site, app.siteLevel, g, nullptr,
+            DrawLevelCard(site, ctl.Level(), g, nullptr,
                           haveVerdict ? &b : nullptr,
                           haveVerdict ? &verdict : nullptr,
                           narrow ? cardX : screenW - 352, levelY, cardW);
@@ -4071,15 +3429,15 @@ static void UpdateSiteSelect(AppState& app)
         // Narrow screens get the short forms: the long sentence would run
         // under the level counter, and the counter is already on the card.
         const char* msg;
-        if (app.founded)
+        if (ctl.Founded())
             msg = narrow ? "COLONY FOUNDED." : "COLONY FOUNDED.  Esc to start over.";
-        else if (app.siteLevel == 0)
-            msg = app.touchStyle
+        else if (ctl.Level() == 0)
+            msg = ctl.TouchStyle()
                 ? (narrow ? "Tap to aim, tap again to claim."
                           : "Tap to aim - the region under the mark names itself.  Tap again to claim it.")
                 : (narrow ? "Click a region to claim it."
                           : "Move over the moon - the region under the cursor names itself.  Click to claim it.");
-        else if (app.siteLevel == SITE_LEVELS - 1)
+        else if (siteRung)
         {
             // One question, one answer: the cursor is already the base's
             // footprint, so the prompt only has to say whether this
@@ -4092,7 +3450,7 @@ static void UpdateSiteSelect(AppState& app)
                              : "Red: this ground is refused. Move to better ground.  Esc to back out.";
         }
         else
-            msg = app.touchStyle
+            msg = ctl.TouchStyle()
                 ? (narrow ? "Tap to aim, tap again to descend."
                           : "Tap to aim, tap again to descend into the cursor.  Esc to back out.")
                 : (narrow ? "Click to descend." : "Click to descend into the cursor.  Esc to back out.");
@@ -4112,7 +3470,7 @@ static void UpdateSiteSelect(AppState& app)
                  Color{ 210, 218, 232, 255 });
         if (!narrow)
         {
-            const char* lvl = TextFormat("LEVEL %d / %d", app.siteLevel + 1, SITE_LEVELS);
+            const char* lvl = TextFormat("LEVEL %d / %d", ctl.Level() + 1, SITE_LEVELS);
             DrawText(lvl, screenW - MeasureText(lvl, 16) - 16, y + 12, 16,
                      Color{ 150, 190, 255, 255 });
         }
@@ -4141,88 +3499,16 @@ static void UpdateSiteSelect(AppState& app)
         }
     }
 
-    // The rungs used to hand over to each other when the zoom reached
-    // the next window, and to hand back when it fell below 1x. They do
-    // not any more: the zoom is bounded to this rung (see zoomMax), so
-    // changing level is always a deliberate act -- a click to go down, a
-    // click on BACK or Esc to come up -- and never something the wheel
-    // does to you while you are reading the ground.
-
     // ---------- transitions ----------
-    if (app.founded)
+    //
+    // The controller decided in Update what this frame's click or escape
+    // does; the frame above was drawn against the state it was judged in.
+    // Now it happens. A rung change means the scene on screen describes
+    // other ground: rebuild from the draft rung up.
+    if (ctl.Commit())
     {
-        if (ascend) { app.founded = false; app.claimed = false;
-                      app.siteLevel = 0; app.sceneStage = 0;
-                      app.zoomK = 1.0f;
-                      app.camXKm = 0.0; app.camYKm = 0.0;
-                      app.sceneDirty = true; }
-        return;
-    }
-    if (ascend)
-    {
-        if (app.siteLevel > 0)
-        {
-            if (!SurveyAscend(&app.descent)) { }
-            app.siteLevel--;
-            if (app.siteLevel == 0) app.claimed = false;
-            app.zoomK = 1.0f;
-            app.camXKm = 0.0;
-            app.camYKm = 0.0;
-            app.sceneStage = 0;
-            app.sceneDirty = true;
-        }
-        return;
-    }
-    if (descend && onGround && m.y < screenH - 40)
-    {
-        if (hintKey) return;               // clicking a card row is not a move
-        if (app.siteLevel == 0)
-        {
-            app.transKind = 1;
-            app.transRegion = hoverId;
-            app.transLat = hoverLat;
-            app.transLon = hoverLon;
-            SurveyCursor next = MakeSurveyCursor(1, hoverLat, hoverLon);
-            // Off the globe, not across a flat map: turn the sub-point to
-            // what was clicked while the orbital zoom climbs, landing at
-            // the framing level 2 opens on.
-            BeginGlobeDescent(app, hoverLat, hoverLon, next.windowSpanKm);
-            if (!app.transActive)      // headless: no flight, act now
-            {
-                app.region = hoverId;
-                app.claimed = true;
-                app.descent = MakeSurveyDescent(hoverLat, hoverLon);
-                app.descent.levels[1] = next;
-                app.descent.depth = 2;
-                app.siteLevel = 1;
-                app.sceneStage = 0;
-                app.sceneDirty = true;
-            }
-        }
-        else if (app.siteLevel == SITE_LEVELS - 1)
-        {
-            // The cursor here IS the base's footprint, so a click is
-            // always "build here" and the verdict it commits to is
-            // measured over exactly the ground the rectangle covers.
-            // (Until 2026-09-03 a click on an unrefined 5 km cursor
-            // zoomed instead of founding -- docs/graveyard.md, 6.)
-            if (verdict.allowed) app.founded = true;
-        }
-        else
-        {
-            const SurveyCursor* c = SurveyCurrent(&app.descent);
-            app.transKind = 2;
-            BeginDescentZoom(app, app.sceneAspect,
-                             c->offsetXKm, c->offsetYKm,
-                             c->windowSpanKm, c->footprintKm);
-            if (!app.transActive)
-            {
-                SurveyDescend(&app.descent);
-                app.siteLevel++;
-                app.sceneStage = 0;
-                app.sceneDirty = true;
-            }
-        }
+        app.sceneStage = 0;
+        app.sceneDirty = true;
     }
 }
 
@@ -4372,16 +3658,16 @@ static void DiscToScreen(double lat, double lon, int w, int h,
 static void DrawDiscFeatureOutlines(int w, int h, int hoverFeature,
                                     Color hoverTint, float zoom)
 {
-    const std::vector<DiscFeature>& all = Features();
+    const std::vector<LunarRegion>& all = GetLunarRegions();
     for (int i = 0; i < (int)all.size(); i++)
     {
-        const DiscFeature& f = all[i];
-        if (std::fabs(f.lat) > 80.0) continue;
+        const LunarRegion& f = all[i];
+        if (std::fabs(f.latDeg) > 80.0) continue;
         float cx = 0.0f, cy = 0.0f;
-        DiscToScreen(f.lat, f.lon, w, h, &cx, &cy, zoom);
+        DiscToScreen(f.latDeg, f.lonDeg, w, h, &cx, &cy, zoom);
         double rDeg = f.radiusKm / (LOLA_M_PER_DEG / 1000.0);
         float ry = (float)(rDeg * DiscPxPerDeg(h, zoom));
-        float rx = (float)(ry / Clamp((float)std::cos(f.lat * DEG2RAD),
+        float rx = (float)(ry / Clamp((float)std::cos(f.latDeg * DEG2RAD),
                                       0.2f, 1.0f));
         if (i == hoverFeature)
         {
@@ -4453,15 +3739,15 @@ static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
     double kmPerDeg = LOLA_M_PER_DEG / 1000.0;
     double cosC = Clamp((float)std::cos(cLat * DEG2RAD), 0.05f, 1.0f);
     const char* insideName = nullptr;
-    const std::vector<DiscFeature>& all = Features();
+    const std::vector<LunarRegion>& all = GetLunarRegions();
     for (int i = 0; i < (int)all.size(); i++)
     {
-        const DiscFeature& f = all[i];
-        double dist = FeatureDistKm(f, cLat, cLon);
+        const LunarRegion& f = all[i];
+        double dist = LunarRegionDistanceKm(f, cLat, cLon);
         if (dist > f.radiusKm + spanKm) continue;       // far outside
         if (dist < f.radiusKm - spanKm)                 // deep inside
         {
-            if (!insideName) insideName = f.name;
+            if (!insideName) insideName = f.name.c_str();
             continue;
         }
         double rDeg = f.radiusKm / kmPerDeg;
@@ -4472,8 +3758,8 @@ static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
         for (int k = 0; k <= 720; k++)
         {
             double t = k / 720.0 * 2.0 * PI;
-            double la = f.lat + rDeg * std::cos(t);
-            double lo = f.lon + rDeg * std::sin(t) /
+            double la = f.latDeg + rDeg * std::cos(t);
+            double lo = f.lonDeg + rDeg * std::sin(t) /
                         Clamp((float)std::cos(la * DEG2RAD), 0.2f, 1.0f);
             float x = (float)(w * 0.5 + (lo - cLon) * kmPerDeg * cosC * pxPerKm);
             float y = (float)(h * 0.5 - (la - cLat) * kmPerDeg * pxPerKm);
@@ -4494,7 +3780,7 @@ static void DrawFeatureArcsInWindow(double cLat, double cLon, double spanKm,
         }
         if (bestD < h * 0.7f)
         {
-            DrawText(f.name, (int)best.x + 8, (int)best.y + 6, 15,
+            DrawText(f.name.c_str(), (int)best.x + 8, (int)best.y + 6, 15,
                      Color{ 240, 244, 255, 200 });
         }
     }
@@ -4632,20 +3918,17 @@ int main(int argc, char** argv)
     else
         LolaSetInterpolation(LolaInterp::CATROM);
 
-    if (!app.dem.Load(app.options.demPath))
+    // One model for the process, shared with everything else that reads
+    // elevation. --dem points it elsewhere before the first load; the
+    // SLDEM overlays beside it (fetch-dem) load with it.
+    SetLunarDemPath(app.options.demPath.c_str());
+    app.dem = GetLunarDem();
+    if (app.dem == nullptr)
     {
+        std::cerr << "lunar_map: could not load " << app.options.demPath << "\n";
         SpeculationJoinAtExit();   // never outlive the process
     CloseWindow();
         return 1;
-    }
-    // High-resolution SLDEM2015 crops (fetched by the fetch-dem
-    // workflow) refine any window that lands on them.
-    {
-        std::string lolaDir = app.options.demPath.substr(
-            0, app.options.demPath.find_last_of("/\\"));
-        int n = app.dem.LoadOverlays(lolaDir);
-        if (n > 0) std::cerr << "lunar_map: " << n
-                             << " high-res overlay(s) active\n";
     }
 
     if (!app.options.flyShot.empty())
@@ -4690,10 +3973,10 @@ int main(int argc, char** argv)
         // tenth and the strip would show nothing moving.
         int frame = 0, shot = 0;
         const float marks[3] = { 0.25f, 0.50f, 0.80f };
-        while (app.transActive && frame < 400)
+        while (app.ctl.FlightActive() && frame < 400)
         {
             frame++;
-            if (shot < 3 && app.transT >= marks[shot])
+            if (shot < 3 && app.ctl.FlightT() >= marks[shot])
             {
                 Shot(TextFormat("2_fly%02d", (int)(marks[shot] * 100.0f)));
                 shot++;
@@ -4708,7 +3991,7 @@ int main(int argc, char** argv)
             }
         }
         std::cerr << "lunar_map: flight took " << frame << " frames, level "
-                  << app.siteLevel + 1 << "\n";
+                  << app.ctl.Level() + 1 << "\n";
         for (int guard = 0;
              (app.sceneDirty || app.sceneDraft) && guard < 10; guard++)
         {
@@ -4829,7 +4112,7 @@ int main(int argc, char** argv)
                                           steps[i].tag, ext.c_str());
             ExportImage(shot, path.c_str());
             std::cerr << "lunar_map: wrote " << path << "  (level "
-                      << app.siteLevel + 1 << ")\n";
+                      << app.ctl.Level() + 1 << ")\n";
             UnloadImage(shot);
             UnloadRenderTexture(target);
 
@@ -4864,7 +4147,7 @@ int main(int argc, char** argv)
 
     if (app.options.survey)
     {
-        TerrainBuildability b = app.dem.EvaluateSite(
+        TerrainBuildability b = app.dem->EvaluateSite(
             app.options.pickLat, app.options.pickLon, app.options.spanKm);
         std::printf("SITE  %.3f %.3f   footprint %.1f km\n",
                     app.options.pickLat, app.options.pickLon,
@@ -4892,7 +4175,7 @@ int main(int argc, char** argv)
     // not spend a near-side window build on the way in. The first
     // descent builds the window it actually lands in. Every other mode
     // draws a scene immediately and cannot start without one.
-    if (!app.options.siteMode && !BuildScene(app.options, app.dem, app.scene))
+    if (!app.options.siteMode && !BuildScene(app.options, *app.dem, app.scene))
     {
         SpeculationJoinAtExit();   // never outlive the process
     CloseWindow();
@@ -5001,7 +4284,7 @@ int main(int argc, char** argv)
                 app.options.height, app.zoom);
         if (app.options.place)
         {
-            DrawPlacementCursor(app.options, app.dem, app.options.width,
+            DrawPlacementCursor(app.options, *app.dem, app.options.width,
                                 app.options.height);
         }
         EndTextureMode();

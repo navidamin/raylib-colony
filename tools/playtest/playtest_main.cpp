@@ -19,6 +19,7 @@
 // and is playable on phone/tablet -- taps map to clicks.
 
 #include "raylib.h"
+#include "inputmanager.h"
 
 #include "rendermanager.h"
 #include "unit.h"
@@ -69,8 +70,10 @@ static const float PLAYTEST_ENERGY_CAP = 1500.0f;
 
 static std::unique_ptr<Unit> MakeUnit(PlaytestContext& ctx)
 {
-    // Mid-grid position so the unit sits on a populated resource cell
-    Vector2 position = {SECT_CORE_RADIUS * 2.0f * 5.0f, SECT_CORE_RADIUS * 2.0f * 5.0f};
+    // Mare Imbrium: populated mare ground for the unit to prospect.
+    LunarPoint position;
+    position.latDeg = 32.8;
+    position.lonDeg = -15.6;
 
     auto unit = std::make_unique<Unit>("Extraction", position, *ctx.resourceManager,
                                        *ctx.timeManager, ctx.storage, ctx.capacity);
@@ -165,17 +168,15 @@ int main(int argc, char** argv)
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(ctx.screenWidth, ctx.screenHeight, "Colony - Prospecting Playtest");
+    InputManager::FixWebPointerUnits();
     SetTargetFPS(60);
 
     {
         RenderManager renderManager(ctx.screenWidth, ctx.screenHeight);
         renderManager.LoadFonts();
 
-        // The constructor only allocates the grids; Planet normally calls this
-        // to populate them. Without it the whole map is empty and every sample
-        // reads 0% richness.
-        ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
-        resourceManager.GenerateResourceMap();
+        // Seed 0: a different Moon each run, as in the game.
+        ResourceManager resourceManager(0);
         TimeManager timeManager;
 
         ctx.renderManager = &renderManager;

@@ -14,6 +14,10 @@
 #include "unit.h"
 #include "planet.h"
 #include "colony.h"
+#include "survey_flow.h"
+#include "survey_script.h"
+#include "lunar_dem_shared.h"
+#include "lunar_frame.h"
 #include "sect.h"
 #include "inputmanager.h"
 #include "resource_manager.h"
@@ -52,8 +56,13 @@ struct PreviewOptions
 
     // View mode (--view): empty means panel mode
     std::string view;
-    int cellX = 10;    // planet grid cell for --view sect
-    int cellY = 10;
+    double pickLat = 32.8;    // where the colony stands (Mare Imbrium)
+    double pickLon = -15.6;
+    // --view survey: which rung to render, and where the cursor is aimed
+    // (km east/north of the pick) below the globe.
+    std::string rung = "orbital";
+    double aimDxKm = 30.0, aimDyKm = -20.0;
+    std::string hint;          // rest the pointer on this region-card row
     std::string tune;  // named terrain tuning preset (sect view)
     // Orbital globe: a fixed camera makes a screenshot reproducible,
     // which a drifting one never is.
@@ -106,11 +115,14 @@ static void PrintUsage()
         << "\n"
         << "View mode (renders a whole game view instead of a module panel):\n"
         << "\n"
-        << "  --view <name>     orbital | planet | sect\n"
+        << "  --view <name>     orbital | survey | colony | sect\n"
+        << "  --rung <name>     survey: orbital | district | site (default: orbital)\n"
+        << "  --aim <DX,DY>     survey: cursor target, km east/north of --pick (default: 30,-20)\n"
+        << "  --hint <row>      survey: rest the pointer on a card row (rock|iron|titanium|thorium|psr)\n"
         << "  --globe LAT,LON[,ZOOM]  orbital: fix the globe camera (stops the drift)\n"
         << "  --globe-sun MIX[,LON[,LAT]]  orbital: 0 flat mosaic .. 1 full terminator\n"
         << "  --globe-marks     orbital: crosshair known craters (projection check)\n"
-        << "  --cell <X,Y>      planet grid cell for sect view (default: 10,10)\n"
+        << "  --pick <LAT,LON>  where the colony stands (default: 32.8,-15.6, Mare Imbrium)\n"
         << "  --tune <name>     terrain preset: baseline|silky|rough|rolling|\n"
         << "                    boulders|dramatic              (sect view)\n";
 }
@@ -200,15 +212,29 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         {
             options.tune = argv[++i];
         }
-        else if (arg == "--cell" && hasNext)
+        else if (arg == "--pick" && hasNext)
         {
-            std::string value = argv[++i];
-            size_t sep = value.find(',');
-            if (sep != std::string::npos)
+            if (std::sscanf(argv[++i], "%lf,%lf", &options.pickLat, &options.pickLon) != 2)
             {
-                options.cellX = TextToInteger(value.substr(0, sep).c_str());
-                options.cellY = TextToInteger(value.substr(sep + 1).c_str());
+                std::cerr << "--pick wants LAT,LON\n";
+                return false;
             }
+        }
+        else if (arg == "--rung" && hasNext)
+        {
+            options.rung = argv[++i];
+        }
+        else if (arg == "--aim" && hasNext)
+        {
+            if (std::sscanf(argv[++i], "%lf,%lf", &options.aimDxKm, &options.aimDyKm) != 2)
+            {
+                std::cerr << "--aim wants DX,DY\n";
+                return false;
+            }
+        }
+        else if (arg == "--hint" && hasNext)
+        {
+            options.hint = argv[++i];
         }
         else if (arg == "--out" && hasNext)
         {
@@ -552,7 +578,7 @@ static void DrawGlobeMarks(const PreviewOptions& options)
         { "Copernicus",      9.6,  -20.1 },
         { "Mare Crisium",   17.0,   59.1 },
         { "Grimaldi",       -5.5,  -68.3 },
-        { "Imbrium anchor", 32.8,  -15.6 },   // where the playfield sits
+        { "Mare Imbrium",   32.8,  -15.6 },
         { "Tsiolkovskiy",  -21.2,  128.9 },   // far side: hidden until turned
     };
     for (const Mark& m : marks)
@@ -588,22 +614,28 @@ static int RenderGameView(const PreviewOptions& options)
         InputManager inputManager;
 
         Planet planet;
+        planet.GenerateMap(PREVIEW_MAP_SEED);   // reproducible ground
         std::vector<Colony*> colonies;
 
-        // Sect standing on its real grid cell (sect view only)
-        ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+        // A colony of one sect at the picked place, for the colony and
+        // sect views. The colony owns the sect.
+        Colony* colony = nullptr;
         Sect* sect = nullptr;
+        LunarPoint here;
+        here.latDeg = options.pickLat;
+        here.lonDeg = options.pickLon;
+        if (options.view == "sect" || options.view == "colony")
+        {
+            colony = new Colony();
+            sect = new Sect(here, planet.GetResourceManager(), timeManager);
+            colony->AddSect(sect);
+            colonies.push_back(colony);
+            std::cout << "Colony at lat " << here.latDeg << ", lon " << here.lonDeg << "\n";
+        }
         if (options.view == "sect")
         {
-            Vector2 sectPos = {
-                (options.cellX + 0.5f) * SECT_CORE_RADIUS * 2.0f,
-                (options.cellY + 0.5f) * SECT_CORE_RADIUS * 2.0f};
-            sect = new Sect(sectPos, resourceManager, timeManager);
-            double lat, lon;
-            TerrainGridCellToLatLon(options.cellX, options.cellY, &lat, &lon);
-            std::cout << "Sect on cell (" << options.cellX << ","
-                      << options.cellY << ") -> lat " << lat
-                      << ", lon " << lon << "\n";
+            double lat = here.latDeg;
+            double lon = here.lonDeg;
             // Raw terrain dump alongside the composed view, for style
             // comparison. Named presets vary the non-crater surface layers.
             TerrainTuning tune;
@@ -662,11 +694,13 @@ static int RenderGameView(const PreviewOptions& options)
             UnloadImage(ground);
         }
 
+        // The colony view draws in the colony's frame (origin at its
+        // centre); fit the 25 km window across the width.
         Camera2D camera = {0};
-        camera.target = {PLANET_WIDTH / 2.0f, PLANET_HEIGHT / 2.0f};
+        camera.target = {0.0f, 0.0f};
         camera.offset = {options.width / 2.0f, options.height / 2.0f};
         camera.rotation = 0.0f;
-        camera.zoom = 1.0f;
+        camera.zoom = options.width / (float)(COLONY_WINDOW_KM * LOCAL_UNITS_PER_KM);
 
         if (options.globeFixed)
         {
@@ -681,15 +715,74 @@ static int RenderGameView(const PreviewOptions& options)
             SetLunarGlobeSun(options.globeSunLon, options.globeSunLat,
                              options.globeSun);
 
+        // The descent, driven to the asked rung by the shared script with
+        // instant flights, then one frame of it drawn by the game's own
+        // renderer with the pointer resting on the target.
+        SurveyFlow flow;
+        if (options.view == "survey")
+        {
+            const LolaDem* dem = GetLunarDem();
+            SiteSelectionController& ctl = flow.Controller();
+            SetLunarGlobeSpin(0.0);
+            if (!options.globeFixed) SurveyScript::FaceGlobe(options.pickLat, options.pickLon);
+            LunarPoint target = LunarOffsetPoint(here, options.aimDxKm, options.aimDyKm);
+            if (options.rung == "district" || options.rung == "site")
+            {
+                if (!SurveyScript::ClickAt(ctl, options.width, options.height, dem,
+                                           options.pickLat, options.pickLon))
+                    std::cerr << "survey: the pick is not on the visible globe\n";
+            }
+            if (options.rung == "site" && ctl.Level() == 1)
+            {
+                SurveyScript::ClickAt(ctl, options.width, options.height, dem,
+                                      target.latDeg, target.lonDeg);
+            }
+            Vector2 pointer;
+            double aimLat = (ctl.Level() == 0) ? options.pickLat : target.latDeg;
+            double aimLon = (ctl.Level() == 0) ? options.pickLon : target.lonDeg;
+            bool havePointer = SurveyScript::PointerFor(ctl, options.width, options.height,
+                                                        aimLat, aimLon, &pointer);
+            if (!options.hint.empty())
+            {
+                // The pointer on a row of the (fixed) region card, so the
+                // row's hint opens. Below the globe the card is always
+                // drawn; on the globe it needs ground under the pointer.
+                SurveyLayout l = ComputeSurveyLayout(options.width, options.height, pointer,
+                                                     ctl.Level(), false);
+                int count = 0;
+                const SurveyCardRow* rows = GetRegionCardRows(&count);
+                for (int r = 0; r < count; r++)
+                {
+                    if (options.hint == rows[r].hintKey)
+                    {
+                        pointer = Vector2{ (float)(l.regionX + 20),
+                                           (float)(l.regionY + rows[r].yOffset + 5) };
+                        havePointer = true;
+                    }
+                }
+            }
+            if (havePointer)
+            {
+                SurveyScript::Settle(ctl, options.width, options.height, dem, pointer);
+                SurveyInput in = SurveyScript::Base(pointer);
+                flow.BeginFrame(in, options.width, options.height, colonies);
+            }
+            std::cout << "survey rung " << ctl.Level() << " (" << options.rung << ")\n";
+        }
+
         // Draw twice: the first frame lets fonts and textures settle.
         for (int frame = 0; frame < 2; frame++)
         {
             BeginDrawing();
             ClearBackground(BLACK);
 
-            if (options.view == "planet")
+            if (options.view == "survey")
             {
-                renderManager.DrawPlanetView(camera, &planet, colonies,
+                flow.Draw(renderManager, &planet, colonies, nullptr);
+            }
+            else if (options.view == "colony")
+            {
+                renderManager.DrawColonyView(camera, colony, &planet, colonies,
                                               inputManager, timeManager);
             }
             else if (options.view == "sect")
@@ -705,7 +798,7 @@ static int RenderGameView(const PreviewOptions& options)
             EndDrawing();
         }
 
-        delete sect;
+        delete colony;      // frees the sect too
 
         Image screenshot = LoadImageFromScreen();
         bool exported = ExportImage(screenshot, options.outPath.c_str());
@@ -747,20 +840,16 @@ int main(int argc, char** argv)
     RenderManager renderManager(options.width, options.height);
     renderManager.LoadFonts();
 
-    // The constructor only allocates the grids; Planet normally calls this to
-    // populate them. Without it the whole map is empty and every sample reads
-    // 0% richness. A fixed seed keeps previews reproducible -- the default
-    // seed (0) uses random_device, which would make every screenshot show a
-    // different planet and defeat visual comparison.
-    ResourceManager resourceManager(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
-    resourceManager.GenerateResourceMap(PREVIEW_MAP_SEED);
+    // A fixed seed keeps previews reproducible -- the default seed (0) uses
+    // random_device, which would make every screenshot show a different
+    // Moon and defeat visual comparison.
+    ResourceManager resourceManager(PREVIEW_MAP_SEED);
     TimeManager timeManager;
 
-    // Place the unit mid-grid so it samples a populated resource cell.
-    Vector2 unitPosition = {
-        SECT_CORE_RADIUS * 2.0f * 5.0f,
-        SECT_CORE_RADIUS * 2.0f * 5.0f
-    };
+    // The unit stands on Mare Imbrium: populated mare ground to sample.
+    LunarPoint unitPosition;
+    unitPosition.latDeg = 32.8;
+    unitPosition.lonDeg = -15.6;
 
     std::map<ResourceType, float> storage;
     std::map<ResourceType, float> capacity;

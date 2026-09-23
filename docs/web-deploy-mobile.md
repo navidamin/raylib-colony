@@ -75,6 +75,45 @@ first frame (see `SyncWebCanvasToViewport` in `lunarmap_main.cpp`), and
 `fitCanvas` then leaves both the framebuffer and the CSS box to it. The
 game and the playtest never set it and are unaffected.
 
+## The mouse arrives in CSS pixels (emscripten 3.1.64 GLFW)
+
+Found on the first desktop-browser playtest of the founding flow (Sep
+2026): the globe's crosshair landed past the mouse by 1.25x, uniformly.
+Under a plain X display the desktop build was exact, so the fault was the
+web input path, and it is emscripten's, not ours:
+
+- `library_glfw.js` in 3.1.64 installs, in `glfwInit`, a
+  `Browser.calculateMouseCoords` that scales page coordinates by
+  `canvas.clientWidth / rect.width`. Both are CSS measures of the same
+  box, so the factor is 1 and GLFW hands raylib the mouse in **CSS
+  pixels**. raylib's `MouseMoveCallback` stores that as the screen
+  position, in a frame that is 1280x720 framebuffer pixels.
+- The enforcer above CSS-fits that frame to the viewport, so on any
+  desktop window the CSS box is not 1280x720 and every mouse position is
+  off by the fit: 1600 px box → 1.25x past the cursor; 1024 px box →
+  0.8x short of it.
+- Touch never showed it: raylib's own `EmscriptenTouchCallback` scales
+  `targetX` by screen / CSS size itself. Phones were fine, which is why
+  it survived every phone playtest.
+- `lunar_map` never showed it either: it sizes its framebuffer to the
+  viewport (`COLONY_CANVAS_FREE`), so frame and CSS box agree.
+
+The fix is `InputManager::FixWebPointerUnits()`, called once after
+`InitWindow` by every web-built main: an `EM_ASM` that puts the
+pre-3.1.5x behaviour back, scaling by `canvas.width / rect.width`
+(framebuffer over CSS box). `glfwInit` has already run by then, so the
+override sticks. Verified in the preinstalled Chromium against 3.1.64's
+exact function for the 1600, 1024 and 1280 px boxes
+(`tools/shell-test/mouse_units_test.js`: it extracts the JS from
+`inputmanager.cpp`, so the test and the game cannot drift).
+If emsdk is ever bumped, re-check: `main` scales by
+`GLFW.active.width / rect.width` when not HiDPI-aware, which is correct,
+and the override then changes nothing.
+
+`F9` in the game draws a ring where the game thinks the pointer is, with
+the mouse, screen, render, DPI and CSS-box numbers: a screenshot with the
+OS cursor visible reads any remaining factor straight off.
+
 ## The diagnostic badge
 
 `#shellDebug` overlays live geometry:
@@ -101,6 +140,21 @@ attributes and stomping the style with 'important'), then screenshot at
 mobile viewports and assert the framebuffer stays pinned and
 `getBoundingClientRect` fits. See the session that produced this doc for
 the exact harness shape.
+
+## The site level's ground in a browser
+
+Before every deploy, `tools/lunarmap/web_site_level_test.mjs` opens the
+built pages in headless Chromium at 1656×960, walks Globe → District →
+Site, and fails unless the site level was built with its regolith: once
+for `lunar_map`, once for the game, and once for the game with
+`?terrain=gpu`. The last one matters because the CI browser renders
+WebGL in software (SwiftShader), so it takes the CPU path — while an
+iPad takes the GPU path, where WebGL1 cannot draw the regolith. Both
+halves of that were live bugs on 2026-09-23. `?terrain=cpu|gpu` works on
+any page as the browser's `COLONY_TERRAIN`, for trying either path on a
+device. Run it locally against a web build directory:
+
+    node tools/lunarmap/web_site_level_test.mjs build/src colony_game gpu
 
 ## Ops gotchas
 

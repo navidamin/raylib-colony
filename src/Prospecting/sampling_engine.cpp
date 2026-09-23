@@ -67,18 +67,18 @@ Sample SamplingEngine::CreateSample(const ProspectingGrid& grid,
     s.trueComposition = grid.GetGroundTruth(subX, subY, depth);
     s.richness = CalculateRichnessFromQuantity(grid.GetQuantity(subX, subY, depth));
     s.state = SampleState::IN_TRAY;
-    s.visual = AssignCrystalVisual(s, grid.GetParentGridX(), grid.GetParentGridY());
+    s.visual = AssignCrystalVisual(s, grid.GetPlaceKeyLat(), grid.GetPlaceKeyLon());
     return s;
 }
 
 CrystalVisual SamplingEngine::AssignCrystalVisual(const Sample& sample,
-                                                    int parentGridX, int parentGridY)
+                                                    int placeLat, int placeLon)
 {
     CrystalVisual v;
 
     uint32_t seed = HashVisual(sample.subCellX, sample.subCellY,
                                 static_cast<int>(sample.depthLayer),
-                                parentGridX, parentGridY);
+                                placeLat, placeLon);
 
     // Shape family: 70% primary (depth-based), 30% random
     seed = LCG(seed);

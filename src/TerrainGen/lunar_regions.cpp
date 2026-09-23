@@ -166,8 +166,79 @@ struct Reader
     }
 };
 
+// Published compositions for near-side features the dataset leaves null
+// (Fe/Ti wt%, Th ppm), plus enough geometry to stand in for the whole list
+// when the asset is missing. Lifted from lunar_map's hand-entered table.
+struct BuiltinFeature
+{
+    const char* name;
+    double latDeg, lonDeg, radiusKm;
+    float fePct, tiPct, thPpm;
+};
+
+const BuiltinFeature BUILTIN_FEATURES[] =
+{
+    { "Oceanus Procellarum", 18.4, -57.4, 1296, 13.5f, 3.0f, 6.0f },
+    { "Mare Frigoris", 55.0, 0.0, 723, 12.0f, 1.5f, 3.0f },
+    { "Mare Imbrium", 32.8, -15.6, 573, 14.0f, 2.5f, 8.0f },
+    { "Mare Fecunditatis", -7.8, 51.3, 454, 14.0f, 2.0f, 1.5f },
+    { "Mare Tranquillitatis", 8.5, 31.4, 436, 15.5f, 8.0f, 1.5f },
+    { "Mare Nubium", -21.3, -16.5, 358, 14.0f, 2.0f, 4.0f },
+    { "Mare Serenitatis", 28.0, 17.5, 354, 14.5f, 3.5f, 2.5f },
+    { "Mare Crisium", 17.0, 59.1, 278, 13.0f, 1.5f, 1.0f },
+    { "Mare Humorum", -24.4, -38.6, 194, 14.5f, 3.0f, 4.5f },
+    { "Mare Cognitum", -10.0, -23.1, 175, 14.5f, 3.5f, 5.0f },
+    { "Mare Nectaris", -15.2, 35.3, 170, 12.5f, 2.0f, 1.0f },
+    { "Sinus Medii", 2.4, 1.7, 144, 12.0f, 2.0f, 3.0f },
+    { "Sinus Iridum", 44.1, -31.5, 124, 13.0f, 2.0f, 6.0f },
+    { "Mare Vaporum", 13.3, 3.6, 122, 13.5f, 3.0f, 5.5f },
+    { "Clavius", -58.4, -14.4, 116, 5.0f, 0.5f, 1.0f },
+    { "Ptolemaeus", -9.3, -1.9, 76, 6.5f, 0.8f, 2.0f },
+    { "Copernicus", 9.6, -20.1, 47, 8.0f, 1.2f, 5.0f },
+    { "Tycho", -43.3, -11.4, 43, 6.0f, 0.8f, 1.5f },
+    { "Plato", 51.6, -9.4, 50, 12.5f, 2.0f, 4.0f },
+};
+const int BUILTIN_FEATURE_COUNT =
+    (int)(sizeof(BUILTIN_FEATURES) / sizeof(BUILTIN_FEATURES[0]));
+
 std::vector<LunarRegion> g_regions;
 bool g_loaded = false;
+
+// The asset is missing: the built-in table is the list.
+void LoadBuiltinOnly()
+{
+    for (int i = 0; i < BUILTIN_FEATURE_COUNT; i++)
+    {
+        const BuiltinFeature& b = BUILTIN_FEATURES[i];
+        LunarRegion e;
+        e.name = b.name;
+        e.featureType = (b.radiusKm > 100.0) ? "mare" : "crater";
+        e.dominantRock = (b.fePct >= 10.0f) ? "mare basalt" : "anorthosite breccia";
+        e.latDeg = b.latDeg;
+        e.lonDeg = b.lonDeg;
+        e.radiusKm = b.radiusKm;
+        e.fePct = b.fePct;
+        e.tiPct = b.tiPct;
+        e.thPpm = b.thPpm;
+        g_regions.push_back(std::move(e));
+    }
+}
+
+// Fill compositions the asset left null from the table, by name.
+void FillBuiltinCompositions()
+{
+    for (LunarRegion& r : g_regions)
+    {
+        for (int i = 0; i < BUILTIN_FEATURE_COUNT; i++)
+        {
+            if (r.name != BUILTIN_FEATURES[i].name) continue;
+            if (r.fePct < 0.0f) r.fePct = BUILTIN_FEATURES[i].fePct;
+            if (r.tiPct < 0.0f) r.tiPct = BUILTIN_FEATURES[i].tiPct;
+            if (r.thPpm < 0.0f) r.thPpm = BUILTIN_FEATURES[i].thPpm;
+            break;
+        }
+    }
+}
 
 void Load()
 {
@@ -178,7 +249,9 @@ void Load()
     char* text = LoadFileText(path);
     if (text == nullptr)
     {
-        TraceLog(LOG_WARNING, "REGIONS: %s not found; no named regions", path);
+        TraceLog(LOG_WARNING, "REGIONS: %s not found; using the built-in "
+                              "near-side table", path);
+        LoadBuiltinOnly();
         return;
     }
 
@@ -191,6 +264,7 @@ void Load()
     {
         TraceLog(LOG_WARNING, "REGIONS: %s is not a JSON array", path);
         UnloadFileText(text);
+        LoadBuiltinOnly();
         return;
     }
     for (;;)
@@ -235,6 +309,7 @@ void Load()
         g_regions.push_back(std::move(e));
     }
     UnloadFileText(text);
+    FillBuiltinCompositions();
 
     int far = 0, withComp = 0;
     for (const LunarRegion& e : g_regions)

@@ -11,7 +11,7 @@ TEST_CASE("ProspectingGrid lattice size is fixed across tiers", "[grid]")
     // 8x8 sub-cell grid, and tier instead widens the reachable window.
     for (int tier = 0; tier <= 3; tier++)
     {
-        ProspectingGrid grid(tier, 5, 5, rm);
+        ProspectingGrid grid(tier, TestPoint(5, 5), rm);
         REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
         REQUIRE(grid.GetReach() == PROSPECTING_REACH_PER_TIER[tier]);
     }
@@ -24,38 +24,39 @@ TEST_CASE("ProspectingGrid reach window is centred and grows with tier", "[grid]
     // Centre sub-cells are reachable at every tier, corners only at tier 3.
     for (int tier = 0; tier <= 3; tier++)
     {
-        ProspectingGrid grid(tier, 5, 5, rm);
+        ProspectingGrid grid(tier, TestPoint(5, 5), rm);
         REQUIRE(grid.IsInReach(3, 3));
         REQUIRE(grid.IsInReach(4, 4));
     }
 
-    ProspectingGrid t0(0, 5, 5, rm);
+    ProspectingGrid t0(0, TestPoint(5, 5), rm);
     REQUIRE_FALSE(t0.IsInReach(0, 0));
     REQUIRE_FALSE(t0.IsInReach(PROSPECTING_GRID_SIZE - 1, PROSPECTING_GRID_SIZE - 1));
 
-    ProspectingGrid t3(3, 5, 5, rm);
+    ProspectingGrid t3(3, TestPoint(5, 5), rm);
     REQUIRE(t3.IsInReach(0, 0));
     REQUIRE(t3.IsInReach(PROSPECTING_GRID_SIZE - 1, PROSPECTING_GRID_SIZE - 1));
 }
 
-TEST_CASE("ProspectingGrid stores parent cell coordinates", "[grid]")
+TEST_CASE("ProspectingGrid stores the place it stands on", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 7, 12, rm);
+    LunarPoint here = TestPoint(7, 12);
+    ProspectingGrid grid(1, here, rm);
 
-    REQUIRE(grid.GetParentGridX() == 7);
-    REQUIRE(grid.GetParentGridY() == 12);
+    REQUIRE_THAT(grid.GetParentPoint().latDeg, Catch::Matchers::WithinAbs(here.latDeg, 1e-9));
+    REQUIRE_THAT(grid.GetParentPoint().lonDeg, Catch::Matchers::WithinAbs(here.lonDeg, 1e-9));
 }
 
 TEST_CASE("ProspectingGrid sub-cell distribution averages near parent value", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    int px = 10, py = 10;
+    LunarPoint parent = TestPoint(10, 10);
 
-    ProspectingGrid grid(2, px, py, rm);
+    ProspectingGrid grid(2, parent, rm);
     int size = grid.GetGridSize();
 
-    auto parentResources = rm.GetResourcesAtGridLayer(px, py, DepthLayer::SURFACE);
+    auto parentResources = rm.GetResourcesAtLayer(parent, DepthLayer::SURFACE);
 
     // The grid reports composition fractions while ResourceManager reports
     // absolute quantities, so compare against the parent's own fraction.
@@ -97,7 +98,7 @@ TEST_CASE("ProspectingGrid sub-cell distribution averages near parent value", "[
 TEST_CASE("ProspectingGrid ground truth is a normalized composition", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 10, 10, rm);
+    ProspectingGrid grid(3, TestPoint(10, 10), rm);
     int size = grid.GetGridSize();
 
     for (int y = 0; y < size; y++)
@@ -125,7 +126,7 @@ TEST_CASE("ProspectingGrid ground truth is a normalized composition", "[grid]")
 TEST_CASE("ProspectingGrid sub-cells have spatial variation", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm); // 6x6 grid
+    ProspectingGrid grid(3, TestPoint(5, 5), rm); // 6x6 grid
     int size = grid.GetGridSize();
 
     // Check that across all sub-cells, at least some spatial variation exists
@@ -157,10 +158,10 @@ TEST_CASE("ProspectingGrid sub-cells have spatial variation", "[grid]")
 TEST_CASE("ProspectingGrid values are within clamped range", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     int size = grid.GetGridSize();
 
-    auto parentResources = rm.GetResourcesAtGridLayer(8, 8, DepthLayer::SURFACE);
+    auto parentResources = rm.GetResourcesAtLayer(TestPoint(8, 8), DepthLayer::SURFACE);
 
     float parentTotal = 0.0f;
     for (const auto& [type, parentAbundance] : parentResources)
@@ -200,7 +201,7 @@ TEST_CASE("ProspectingGrid values are within clamped range", "[grid]")
 TEST_CASE("ProspectingGrid out-of-bounds returns empty", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
+    ProspectingGrid grid(0, TestPoint(5, 5), rm);
 
     auto gt = grid.GetGroundTruth(-1, 0, DepthLayer::SURFACE);
     REQUIRE(gt.empty());
@@ -215,7 +216,7 @@ TEST_CASE("ProspectingGrid out-of-bounds returns empty", "[grid]")
 TEST_CASE("ProspectingGrid ResizeForTier widens reach and preserves the lattice", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
+    ProspectingGrid grid(0, TestPoint(5, 5), rm);
     REQUIRE(grid.GetGridSize() == PROSPECTING_GRID_SIZE);
     REQUIRE(grid.GetReach() == PROSPECTING_REACH_PER_TIER[0]);
     REQUIRE_FALSE(grid.IsInReach(1, 1));
@@ -236,11 +237,11 @@ TEST_CASE("ProspectingGrid ResizeForTier widens reach and preserves the lattice"
     (void)gt;
 }
 
-TEST_CASE("ProspectingGrid deterministic: same inputs produce same results", "[grid]")
+TEST_CASE("ProspectingGrid deterministic: the same place yields the same lattice", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid1(2, 10, 10, rm);
-    ProspectingGrid grid2(2, 10, 10, rm);
+    ProspectingGrid grid1(2, TestPoint(10, 10), rm);
+    ProspectingGrid grid2(2, TestPoint(10, 10), rm);
 
     int size = grid1.GetGridSize();
     for (int y = 0; y < size; y++)
@@ -261,7 +262,7 @@ TEST_CASE("ProspectingGrid deterministic: same inputs produce same results", "[g
 TEST_CASE("ProspectingGrid sweep history tracking", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
 
     REQUIRE(grid.GetSweepHistory().empty());
     REQUIRE_FALSE(grid.HasSweptFrequency(0));
@@ -279,7 +280,7 @@ TEST_CASE("ProspectingGrid sweep history tracking", "[grid]")
 TEST_CASE("ProspectingGrid SubCell starts unswept", "[grid]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
 
     const auto& cell = grid.GetSubCell(0, 0);
     REQUIRE_FALSE(cell.hasBeenSwept);

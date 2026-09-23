@@ -22,26 +22,14 @@
 // The playfield anchor maps the 20x20 planet grid onto a real 100 km
 // region of the moon; each grid cell has real lat/lon coordinates.
 
-// Default playfield anchor: centre of the 20x20 planet grid on the real
-// moon. Mare Imbrium — flat mare with a distinctive crater nearby. The
-// live anchor is settable, so the player can pick a region from orbit
-// and the whole grid re-registers there.
-const double TERRAIN_ANCHOR_LAT = 32.8;
-const double TERRAIN_ANCHOR_LON = -15.6;
+// The reference location the terrain path probe and terrain_probe time:
+// Mare Imbrium — flat mare with a distinctive crater nearby. Nothing in
+// the game is anchored here; a colony stands wherever it was founded.
+const double TERRAIN_REFERENCE_LAT = 32.8;
+const double TERRAIN_REFERENCE_LON = -15.6;
 
 const double MOON_KM_PER_DEG = 30.32268;   // pi * 1737.4 / 180
-const double TERRAIN_CELL_KM = 5.0;        // one grid cell, sect diameter
-
-// The playfield's current centre on the moon. Setting it invalidates any
-// cached terrain (RenderManager re-generates on the next draw).
-void SetTerrainAnchor(double latDeg, double lonDeg);
-void GetTerrainAnchor(double* latDeg, double* lonDeg);
-// Bumped whenever the anchor moves — cheap cache-invalidation token.
-unsigned int GetTerrainAnchorVersion();
-
-// Real lat/lon of a planet grid cell centre (gx, gy in 0..19; gy grows
-// south, matching the game grid's y-down convention).
-void TerrainGridCellToLatLon(int gx, int gy, double* latDeg, double* lonDeg);
+const double TERRAIN_CELL_KM = 5.0;        // one sect footprint
 
 // Where the orbital view is looking from.
 //
@@ -180,6 +168,13 @@ TerrainChainSpans TerrainChainSpansForWindow(double spanKm);
 // for it in the middle of a descent. Cheap and idempotent afterwards.
 // Returns false if the mosaic is missing.
 bool TerrainWarmMosaic();
+
+// The decoded mosaic, one grey byte per texel, equirectangular, owned
+// here for the life of the process. The globe builds its albedo texture
+// from this rather than decoding the JPEG a second time -- on the web
+// that second decode was most of the heap. Loads on first call; false
+// if the mosaic is missing.
+bool TerrainWacGrey(const unsigned char** data, int* width, int* height);
 
 // spans == nullptr walks the game's own 100 / 25 / 5.
 // Declared below, next to the levers it holds; named here because the

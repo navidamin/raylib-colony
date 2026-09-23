@@ -1,13 +1,13 @@
 #include "prospecting_grid.h"
+#include "lunar_frame.h"
 #include <cmath>
 #include <algorithm>
 
-ProspectingGrid::ProspectingGrid(int tier, int parentGridX, int parentGridY,
+ProspectingGrid::ProspectingGrid(int tier, const LunarPoint& parent,
                                   ResourceManager& resourceManager)
     : tier(tier)
     , gridSize(GetGridSizeForTier(tier))
-    , parentGridX(parentGridX)
-    , parentGridY(parentGridY)
+    , parent(parent)
     , resourceManager(resourceManager)
 {
     AllocateGrid();
@@ -16,8 +16,9 @@ ProspectingGrid::ProspectingGrid(int tier, int parentGridX, int parentGridY,
 
 int ProspectingGrid::GetGridSize() const { return gridSize; }
 int ProspectingGrid::GetTier() const { return tier; }
-int ProspectingGrid::GetParentGridX() const { return parentGridX; }
-int ProspectingGrid::GetParentGridY() const { return parentGridY; }
+const LunarPoint& ProspectingGrid::GetParentPoint() const { return parent; }
+int ProspectingGrid::GetPlaceKeyLat() const { return (int)LunarQuantise(parent).lat; }
+int ProspectingGrid::GetPlaceKeyLon() const { return (int)LunarQuantise(parent).lon; }
 
 const SubCell& ProspectingGrid::GetSubCell(int x, int y) const
 {
@@ -115,8 +116,7 @@ void ProspectingGrid::GenerateSubCellDistribution()
     for (int d = 0; d < maxDepth; d++)
     {
         DepthLayer depth = static_cast<DepthLayer>(d);
-        auto parentResources = resourceManager.GetResourcesAtGridLayer(
-            parentGridX, parentGridY, depth);
+        auto parentResources = resourceManager.GetResourcesAtLayer(parent, depth);
         GenerateLayerDistribution(depth, parentResources);
     }
 
@@ -166,7 +166,7 @@ void ProspectingGrid::GenerateLayerDistribution(
             continue;
         }
 
-        uint32_t seed = HashSeed(parentGridX, parentGridY, d, resourceIdx);
+        uint32_t seed = HashSeed(parent, d, resourceIdx);
 
         // Generate 1-2 hot-spot cluster centers for this resource
         seed = LCG(seed);
@@ -228,12 +228,15 @@ void ProspectingGrid::GenerateLayerDistribution(
     }
 }
 
-uint32_t ProspectingGrid::HashSeed(int px, int py, int depth, int resourceIdx)
+uint32_t ProspectingGrid::HashSeed(const LunarPoint& parent, int depth, int resourceIdx)
 {
+    // The coordinates quantised to ~3 m, so the same spot seeds the same
+    // lattice and a neighbouring sect a different one.
+    LunarKey key = LunarQuantise(parent);
     uint32_t h = 2166136261u;
-    h ^= static_cast<uint32_t>(px);
+    h ^= static_cast<uint32_t>(key.lat & 0xffffffffu);
     h *= 16777619u;
-    h ^= static_cast<uint32_t>(py);
+    h ^= static_cast<uint32_t>(key.lon & 0xffffffffu);
     h *= 16777619u;
     h ^= static_cast<uint32_t>(depth);
     h *= 16777619u;

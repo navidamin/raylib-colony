@@ -1,9 +1,15 @@
 #include "Engine.h"
+#include "region_identity.h"
+#include "site_selection_constants.h"
+#include "terrain_synthesis.h"
+#include "lunar_globe.h"
 #include <ctime>
 #include <cmath>
+#include <cstdlib>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
 #endif
 
 Engine::Engine(int screenWidth, int screenHeight, const char* title)
@@ -12,10 +18,27 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
       inputManager(),
       viewManager(screenWidth, screenHeight),
       gameManager(),
-      renderManager(screenWidth, screenHeight)
+      renderManager(screenWidth, screenHeight),
+      survey(),
+      surveyFrame(false),
+      pointerDiag(false),
+      mouseScale(1.0f)
 {
     InitWindow(screenWidth, screenHeight, title);
+    InputManager::FixWebPointerUnits();
     SetTargetFPS(60);
+    // A compositor that magnifies the window but hands the pointer over in
+    // magnified pixels (WSLg and some fractional-scaling desktops) puts the
+    // game's pointer past the real one by the same factor. Until the
+    // platform is fixed, COLONY_MOUSE_SCALE=0.8 undoes a 125 % display;
+    // F11 shows what the game receives so the factor can be read off.
+    if (const char* env = std::getenv("COLONY_MOUSE_SCALE")) {
+        float k = static_cast<float>(std::atof(env));
+        if (k > 0.0f) {
+            mouseScale = k;
+            SetMouseScale(k, k);
+        }
+    }
     renderManager.LoadFonts();
 }
 
@@ -26,11 +49,16 @@ Engine::~Engine() {
 void Engine::InitGame() {
     gameManager.InitGame();
 
-    // No colony exists at startup - center camera on planet
-    viewManager.GetCamera().target = {PLANET_WIDTH / 2, PLANET_HEIGHT / 2};
+    // The Colony view's camera lives in the colony's own frame, whose
+    // origin is the colony's centre.
+    viewManager.GetCamera().target = {0.0f, 0.0f};
     viewManager.GetCamera().offset = {static_cast<float>(screenWidth)/2, static_cast<float>(screenHeight)/2};
     viewManager.GetCamera().rotation = 0.0f;
     viewManager.GetCamera().zoom = 1.0f;
+
+    // Decode the mosaic where a pause is expected, not in the middle of
+    // the first descent.
+    TerrainWarmMosaic();
 
     // Set initial view to Menu
     viewManager.SetCurrentView(View::Menu);
@@ -54,8 +82,18 @@ void Engine::Run() {
 #endif
 }
 
+// The descent runs the Orbital and District views, and the Colony view
+// while no colony stands under it -- that is the site rung.
+bool Engine::SurveyActive() const {
+    View v = viewManager.GetCurrentView();
+    if (v == View::Orbital || v == View::District) return true;
+    return v == View::Colony && gameManager.GetCurrentColony() == nullptr;
+}
+
 void Engine::HandleInput() {
     inputManager.Update();
+    surveyFrame = false;
+    float dt = GetFrameTime();
 
     // Screenshot functionality (F12) - works in all views
     if (IsKeyPressed(KEY_F12)) {
@@ -66,6 +104,12 @@ void Engine::HandleInput() {
         strftime(filename, sizeof(filename), "screenshots/screenshot_%Y%m%d_%H%M%S.png", timeinfo);
         TakeScreenshot(filename);
         std::cout << "[SCREENSHOT] Saved: " << filename << std::endl;
+    }
+
+    // F9: pointer diagnostic overlay, all views (F11 is the browser's
+    // fullscreen key).
+    if (IsKeyPressed(KEY_F9)) {
+        pointerDiag = !pointerDiag;
     }
 
     // DEBUG: F5 - Cycle through tech unlocks
@@ -86,38 +130,43 @@ void Engine::HandleInput() {
         registry.PrintStatus();
     }
 
-    // DEBUG: F6 - Print orbital survey data at cursor position
-    if (IsKeyPressed(KEY_F6) && viewManager.GetCurrentView() == View::Planet) {
-        Vector2 worldPos = viewManager.GetWorldMousePosition();
+    // DEBUG: F6 - Print the orbital survey of the ground under the cursor
+    // (on the globe, or in the colony's window).
+    if (IsKeyPressed(KEY_F6)) {
         Planet* planet = gameManager.GetPlanet();
-        if (planet) {
-            Vector2 gridPos = {
-                std::floor(worldPos.x / (SECT_CORE_RADIUS * 2.0f)),
-                std::floor(worldPos.y / (SECT_CORE_RADIUS * 2.0f))
-            };
-            int gx = static_cast<int>(gridPos.x);
-            int gy = static_cast<int>(gridPos.y);
-            auto survey = planet->GetResourceManager().GetOrbitalSurveyAt(gx, gy);
-            auto archetype = planet->GetResourceManager().GetSiteArchetype(gx, gy);
+        LunarPoint point;
+        bool have = false;
+        if (viewManager.GetCurrentView() == View::Orbital) {
+            Vector2 m = GetMousePosition();
+            have = OrbitalPickToLatLon(m.x, m.y, GetScreenWidth(), GetScreenHeight(),
+                                       &point.latDeg, &point.lonDeg);
+        } else if (viewManager.GetCurrentView() == View::Colony && gameManager.GetCurrentColony()) {
+            point = gameManager.GetCurrentColony()->GetFrame().FromLocal(viewManager.GetWorldMousePosition());
+            have = true;
+        } else if (survey.Controller().Level() > 0) {
+            point.latDeg = survey.Controller().HoverLat();
+            point.lonDeg = survey.Controller().HoverLon();
+            have = true;
+        }
+        if (planet && have) {
+            ResourceManager& rm = planet->GetResourceManager();
+            auto surveyData = rm.SurveyAt(point);
+            const RegionIdentity& region = rm.GroundAt(point).region;
 
-            const char* archetypeNames[] = {
-                "MARE_INDUSTRIAL", "HIGHLAND_CONSTRUCTION", "POLAR_VOLATILE",
-                "KREEP_SCIENTIFIC", "LAVA_TUBE", "MIXED"
-            };
-
-            std::cout << "\n=== ORBITAL SURVEY at (" << gx << "," << gy << ") ===" << std::endl;
-            std::cout << "  Fe: " << (survey.fePercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Ti: " << (survey.tiPercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Si: " << (survey.siPercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Al: " << (survey.alPercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Ca: " << (survey.caPercent * 100.0f) << "%" << std::endl;
-            std::cout << "  Th: " << survey.thPpm << " ppm" << std::endl;
-            std::cout << "  K:  " << survey.kPpm << " ppm" << std::endl;
-            std::cout << "  H signal: " << (survey.hydrogenSignal * 100.0f) << "%" << std::endl;
-            std::cout << "  Solar: " << (survey.solarIllumination * 100.0f) << "%" << std::endl;
-            std::cout << "  Slope: " << survey.terrainSlope << " deg" << std::endl;
-            std::cout << "  Earth vis: " << (survey.earthVisibility * 100.0f) << "%" << std::endl;
-            std::cout << "  Archetype: " << archetypeNames[static_cast<int>(archetype)] << std::endl;
+            std::cout << "\n=== ORBITAL SURVEY at " << point.latDeg << ", " << point.lonDeg
+                      << " (" << (region.name[0] ? region.name : "unnamed ground") << ") ===" << std::endl;
+            std::cout << "  Fe: " << (surveyData.fePercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Ti: " << (surveyData.tiPercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Si: " << (surveyData.siPercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Al: " << (surveyData.alPercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Ca: " << (surveyData.caPercent * 100.0f) << "%" << std::endl;
+            std::cout << "  Th: " << surveyData.thPpm << " ppm" << std::endl;
+            std::cout << "  K:  " << surveyData.kPpm << " ppm" << std::endl;
+            std::cout << "  H signal: " << (surveyData.hydrogenSignal * 100.0f) << "%" << std::endl;
+            std::cout << "  Solar: " << (surveyData.solarIllumination * 100.0f) << "%" << std::endl;
+            std::cout << "  Slope: " << surveyData.terrainSlope << " deg" << std::endl;
+            std::cout << "  Earth vis: " << (surveyData.earthVisibility * 100.0f) << "%" << std::endl;
+            std::cout << "  Archetype: " << GetSiteArchetypeDescriptor(region.archetype).name << std::endl;
             std::cout << "================================\n" << std::endl;
         }
     }
@@ -133,65 +182,30 @@ void Engine::HandleInput() {
         }
     }
 
+    // ---------- the descent ----------
+    if (SurveyActive()) {
+        const SiteSelectionController& ctl = survey.Controller();
+        SurveyInput in = inputManager.Survey(dt);
+        bool atGlobe = (ctl.Level() == 0) && !ctl.FlightActive();
+        if (atGlobe && IsKeyPressed(KEY_ENTER)) {
+            survey.ClaimAtCentre(GetScreenWidth(), GetScreenHeight());
+        } else {
+            survey.BeginFrame(in, GetScreenWidth(), GetScreenHeight(), gameManager.GetColonies());
+        }
+        surveyFrame = true;
+        // At the globe there is nowhere to back out to but the menu.
+        if (atGlobe && IsKeyPressed(KEY_ESCAPE)) {
+            viewManager.SetCurrentView(View::Menu);
+        }
+        viewManager.UpdateCamera(inputManager);
+        return;
+    }
+
     switch (viewManager.GetCurrentView()) {
         case View::Menu:
-            if (IsKeyPressed(KEY_ENTER)) {
-                // Menu → Orbital. From there, ENTER descends into the
-                // existing Planet view. Phase B: orbital is just a static
-                // disc; rotation + region click come in later phases.
-                viewManager.SwitchToOrbitalView();
-            }
-            break;
-        case View::Orbital:
-            if (IsKeyPressed(KEY_ENTER)) {
-                viewManager.SwitchToPlanetView(gameManager.GetCurrentColony());
-                viewManager.ResetCameraForCurrentView(View::Planet,
-                                                     gameManager.GetColonies(),
-                                                     gameManager.GetCurrentColony(),
-                                                     gameManager.GetPlanet());
-            }
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                viewManager.SetCurrentView(View::Menu);
-            }
-            break;
-        case View::SITE_SELECTION:
-            // Update hover position as mouse moves
-            gameManager.UpdateSiteSelectionHover(viewManager.GetWorldMousePosition());
-
-            // Click to select a cell
-            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                gameManager.UpdateSiteSelectionHover(viewManager.GetWorldMousePosition());
-            }
-
-            // Enter to confirm
-            if (IsKeyPressed(KEY_ENTER)) {
-                gameManager.ConfirmSiteSelection();
-                if (!gameManager.IsInSiteSelection()) {
-                    // Successfully placed - switch to colony view
-                    viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
-                    viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
-                                                         gameManager.GetColonies(),
-                                                         gameManager.GetCurrentColony(),
-                                                         gameManager.GetPlanet());
-                }
-            }
-
-            // Escape to cancel
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                gameManager.CancelSiteSelection();
-                viewManager.SetCurrentView(View::Planet);
-            }
-            break;
-        case View::Planet:
-            if (IsKeyPressed(KEY_C)) {
-                viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
-                viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
-                                                     gameManager.GetColonies(),
-                                                     gameManager.GetCurrentColony(),
-                                                     gameManager.GetPlanet());
-            }
-            if (IsKeyPressed(KEY_ESCAPE)) {
-                // Planet ← ESC ← Orbital (climb back up the zoom hierarchy)
+            // A tablet has no ENTER. On release, so the globe does not
+            // also read the tap as a claim.
+            if (IsKeyPressed(KEY_ENTER) || IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
                 viewManager.SwitchToOrbitalView();
             }
             break;
@@ -200,12 +214,16 @@ void Engine::HandleInput() {
                 viewManager.SwitchToSectView(gameManager.GetCurrentColony(), gameManager.GetCurrentSect());
                 gameManager.SelectDefaultUnit();  // Auto-select default unit
             }
-            if (IsKeyPressed(KEY_P)) {
-                viewManager.SwitchToPlanetView(gameManager.GetCurrentColony());
-                viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
-                                                     gameManager.GetColonies(),
-                                                     gameManager.GetCurrentColony(),
-                                                     gameManager.GetPlanet());
+            if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_P)) {
+                // Up one rung: the district the descent came through, or
+                // the globe turned to face this colony.
+                if (survey.Controller().Level() > 0
+                    && survey.Escape(GetScreenWidth(), GetScreenHeight())) {
+                    SyncViewToRung();
+                } else {
+                    Colony* colony = gameManager.GetCurrentColony();
+                    viewManager.SwitchToOrbitalView(colony ? &colony->GetCentre() : nullptr);
+                }
             }
             // TEST: Press R to build roads between all sects
             if (IsKeyPressed(KEY_R)) {
@@ -243,56 +261,34 @@ void Engine::HandleInput() {
             break;
         case View::Sect:
             if (IsKeyPressed(KEY_U)) {
-                std::cout << "KEY_U pressed in Sect view!" << std::endl;
                 viewManager.SwitchToUnitView(gameManager.GetCurrentColony(),
                                            gameManager.GetCurrentSect(),
                                            gameManager.GetCurrentUnit());
             }
-            if (IsKeyPressed(KEY_C)) {
-                std::cout << "KEY_C pressed in Sect view!" << std::endl;
+            if (IsKeyPressed(KEY_C) || IsKeyPressed(KEY_ESCAPE)) {
                 viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
-                viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
-                                                     gameManager.GetColonies(),
-                                                     gameManager.GetCurrentColony(),
-                                                     gameManager.GetPlanet());
-            }
-            // Test if mouse is working at all
-            if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                std::cout << "LEFT MOUSE CLICKED in Sect view!" << std::endl;
             }
             break;
         case View::Unit:
-            if (IsKeyPressed(KEY_S)) {
+            if (IsKeyPressed(KEY_S) || IsKeyPressed(KEY_ESCAPE)) {
                 viewManager.SwitchToSectView(gameManager.GetCurrentColony(), gameManager.GetCurrentSect());
             }
             break;
+        default:
+            break;
     }
 
-    // Handle double-click selection of specific colonies, sects, and units
+    // Handle double-click selection of sects and units
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-        std::cout << "Mouse button pressed in view: " << static_cast<int>(viewManager.GetCurrentView()) << std::endl;
         if (inputManager.IsDoubleClick()) {
-            std::cout << "Double-click confirmed!" << std::endl;
             Vector2 mousePosition = inputManager.GetMousePosition();
             switch (viewManager.GetCurrentView()) {
-                case View::Planet:
-                    if (!inputManager.IsCommandPressed()){
-                        gameManager.SelectColony(viewManager.GetWorldMousePosition());
-                        viewManager.SwitchToColonyView(gameManager.GetCurrentColony());
-                        viewManager.ResetCameraForCurrentView(viewManager.GetCurrentView(),
-                                                             gameManager.GetColonies(),
-                                                             gameManager.GetCurrentColony(),
-                                                             gameManager.GetPlanet());
-                    }
-                    break;
                 case View::Colony:
-                    std::cout << "Colony view double-click handler" << std::endl;
                     gameManager.SelectSect(mousePosition, viewManager.GetCamera());
                     viewManager.SwitchToSectView(gameManager.GetCurrentColony(), gameManager.GetCurrentSect());
                     gameManager.SelectDefaultUnit();  // Auto-select default unit
                     break;
                 case View::Sect:
-                    std::cout << "Sect view double-click handler" << std::endl;
                     gameManager.SelectUnit(mousePosition);
                     viewManager.SwitchToUnitView(gameManager.GetCurrentColony(),
                                                gameManager.GetCurrentSect(),
@@ -304,33 +300,19 @@ void Engine::HandleInput() {
         }
     }
 
-    // Handle build commands
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && inputManager.IsCommandPressed()) {
-        switch (viewManager.GetCurrentView()) {
-            case View::Planet:
-                gameManager.BuildNewColony(viewManager.GetWorldMousePosition());
-                viewManager.SetCurrentView(View::SITE_SELECTION);
-                viewManager.ResetCameraForCurrentView(View::SITE_SELECTION,
-                                                     gameManager.GetColonies(),
-                                                     gameManager.GetCurrentColony(),
-                                                     gameManager.GetPlanet());
-                break;
-            case View::Colony:
-                gameManager.BuildNewSect(viewManager.GetWorldMousePosition());
-                break;
-            default:
-                break;
-        }
+    // Ctrl+click in the Colony view founds a sect at the pointer.
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && inputManager.IsCommandPressed()
+        && viewManager.GetCurrentView() == View::Colony) {
+        gameManager.BuildNewSect(viewManager.GetWorldMousePosition());
     }
 
     // Update camera based on input
-    viewManager.UpdateCamera(inputManager, gameManager.GetColonies(), gameManager.GetPlanet());
+    viewManager.UpdateCamera(inputManager);
 }
 
 void Engine::Update() {
     float deltaTime = GetFrameTime();
     gameManager.Update(deltaTime);
-    gameManager.UpdatePlanetActiveArea();
 }
 
 void Engine::Draw() {
@@ -341,32 +323,26 @@ void Engine::Draw() {
             renderManager.DrawMenuView();
             break;
         case View::Orbital:
-            renderManager.DrawOrbitalView();
-            break;
-        case View::SITE_SELECTION:
-            renderManager.DrawSiteSelectionView(
-                viewManager.GetCamera(),
-                gameManager.GetPlanet(),
-                gameManager.GetHoveredGridPos(),
-                gameManager.GetTimeManager());
-            break;
-        case View::Planet:
-            renderManager.DrawPlanetView(viewManager.GetCamera(),
-                                       gameManager.GetPlanet(),
-                                       gameManager.GetColonies(),
-                                       inputManager,
-                                       gameManager.GetTimeManager());
+        case View::District:
+            survey.Draw(renderManager, gameManager.GetPlanet(), gameManager.GetColonies(),
+                        gameManager.GetCurrentColony());
             break;
         case View::Colony:
-            renderManager.DrawColonyView(viewManager.GetCamera(),
-                                       gameManager.GetCurrentColony(),
-                                       gameManager.GetPlanet(),
-                                       gameManager.GetColonies(),
-                                       inputManager,
-                                       gameManager.GetTimeManager(),
-                                       gameManager.GetSelectedRoad(),
-                                       gameManager.IsBuildRoadMode(),
-                                       gameManager.GetRoadBuildStartSect());
+            if (gameManager.GetCurrentColony()) {
+                renderManager.DrawColonyView(viewManager.GetCamera(),
+                                           gameManager.GetCurrentColony(),
+                                           gameManager.GetPlanet(),
+                                           gameManager.GetColonies(),
+                                           inputManager,
+                                           gameManager.GetTimeManager(),
+                                           gameManager.GetSelectedRoad(),
+                                           gameManager.IsBuildRoadMode(),
+                                           gameManager.GetRoadBuildStartSect());
+            } else {
+                // The site rung: this window, no colony under it yet.
+                survey.Draw(renderManager, gameManager.GetPlanet(), gameManager.GetColonies(),
+                            nullptr);
+            }
             break;
         case View::Sect:
             renderManager.DrawSectView(gameManager.GetCurrentSect(),
@@ -377,5 +353,85 @@ void Engine::Draw() {
             break;
     }
 
+    if (pointerDiag) {
+        DrawPointerDiagnostic();
+    }
     renderManager.EndDraw();
+
+    // The frame above was drawn against the state the input was judged
+    // in; now the click or escape it decided happens.
+    if (surveyFrame) {
+        ApplySurveyFrame(survey.EndFrame(renderManager));
+        surveyFrame = false;
+    }
+}
+
+// Where the game thinks the pointer is, and the numbers behind it. A
+// screenshot with the OS cursor visible then says whether the platform
+// scales the pointer differently from the window.
+void Engine::DrawPointerDiagnostic() {
+    Vector2 m = GetMousePosition();
+    Vector2 dpi = GetWindowScaleDPI();
+    Color ink = Color{ 80, 255, 120, 255 };
+    DrawCircleLines(static_cast<int>(m.x), static_cast<int>(m.y), 14.0f, ink);
+    DrawLine(static_cast<int>(m.x) - 22, static_cast<int>(m.y), static_cast<int>(m.x) + 22, static_cast<int>(m.y), ink);
+    DrawLine(static_cast<int>(m.x), static_cast<int>(m.y) - 22, static_cast<int>(m.x), static_cast<int>(m.y) + 22, ink);
+
+    int x = GetScreenWidth() - 300, y = 12, line = 16;
+    DrawRectangle(x - 8, y - 6, 296, line * 7 + 12, Color{ 0, 0, 0, 190 });
+    DrawText("POINTER DIAGNOSTIC  (F9)", x, y, 13, ink);
+    DrawText(TextFormat("mouse    %.0f, %.0f   (ring)", m.x, m.y), x, y + line, 13, RAYWHITE);
+    DrawText(TextFormat("screen   %d x %d", GetScreenWidth(), GetScreenHeight()), x, y + line * 2, 13, RAYWHITE);
+    DrawText(TextFormat("render   %d x %d", GetRenderWidth(), GetRenderHeight()), x, y + line * 3, 13, RAYWHITE);
+    DrawText(TextFormat("dpi      %.2f, %.2f", dpi.x, dpi.y), x, y + line * 4, 13, RAYWHITE);
+    DrawText(TextFormat("scale    %.2f  (COLONY_MOUSE_SCALE)", mouseScale), x, y + line * 5, 13, RAYWHITE);
+#ifdef __EMSCRIPTEN__
+    double cssW = 0.0, cssH = 0.0;
+    emscripten_get_element_css_size("#canvas", &cssW, &cssH);
+    DrawText(TextFormat("css box  %.0f x %.0f", cssW, cssH), x, y + line * 6, 13, RAYWHITE);
+#endif
+}
+
+void Engine::ApplySurveyFrame(const SurveyFlow::Frame& frame) {
+    if (frame.openedColony) {
+        gameManager.SetCurrentColony(frame.openedColony);
+        viewManager.SwitchToColonyView(frame.openedColony);
+        return;
+    }
+    if (frame.founded) {
+        Colony* colony = gameManager.FoundColony(frame.foundPoint, frame.windowCentre, &frame.region);
+        if (colony) {
+            viewManager.SwitchToColonyView(colony);
+        } else {
+            viewManager.SwitchToOrbitalView(&frame.foundPoint);
+        }
+        return;
+    }
+    if (frame.rungChanged) SyncViewToRung();
+}
+
+// The view follows the rung: the globe, the district, and at the site
+// rung either the colony that already stands in this window or the
+// window itself, waiting to be founded on.
+void Engine::SyncViewToRung() {
+    const SiteSelectionController& ctl = survey.Controller();
+    switch (ctl.Level()) {
+        case 0:
+            viewManager.SetCurrentView(View::Orbital);
+            break;
+        case 1:
+            viewManager.SetCurrentView(View::District);
+            break;
+        default: {
+            Colony* here = gameManager.ColonyInWindow(survey.WindowCentre(), survey.WindowSpanKm());
+            if (here) {
+                gameManager.SetCurrentColony(here);
+                viewManager.SwitchToColonyView(here);
+            } else {
+                gameManager.SetCurrentColony(nullptr);
+                viewManager.SetCurrentView(View::Colony);
+            }
+            break;
+        }
+    }
 }

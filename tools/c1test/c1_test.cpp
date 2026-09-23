@@ -13,6 +13,7 @@
 #include "ResourceManager/resource_manager.h"
 #include "TimeManager/time_manager.h"
 #include "game_constants.h"
+#include "game_structs.h"
 #include "UnlockRegistry/unlock_registry.h"
 
 #include <cstdio>
@@ -37,9 +38,12 @@ static Unit* FindUnit(Sect& sect, const std::string& type)
 int main()
 {
     SetTraceLogLevel(LOG_ERROR);
-    ResourceManager rm(PLANET_SIZE, SECT_CORE_RADIUS * 2.0f);
+    // A fixed Moon, and a sect on Mare Imbrium.
+    ResourceManager rm(42);
     TimeManager tm;
-    Vector2 pos = { 500.0f, 500.0f };
+    LunarPoint pos;
+    pos.latDeg = 32.8;
+    pos.lonDeg = -15.6;
     Sect sect(pos, rm, tm);
 
     Unit* mfg = FindUnit(sect, "Manufacture");

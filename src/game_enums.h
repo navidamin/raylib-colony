@@ -15,14 +15,18 @@ enum class UnitType {
 };
 
 
+// The ladder: the Moon as a globe (where a region is claimed), the 200 km
+// district (which mix of ground), a colony's 25 km window (which, with no
+// colony under it yet, is the site rung: where the base goes), a sect's
+// 5 km footprint, a unit. The first three are the site-selection descent
+// (src/SiteSelection); founding happens at the third.
 enum class View {
     Menu,
-    Planet,
-    SITE_SELECTION,
     Colony,
     Sect,
     Unit,
-    Orbital   // Moon-from-orbit view, sits above Planet in the zoom hierarchy
+    Orbital,
+    District
 };
 
 

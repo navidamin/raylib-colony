@@ -44,6 +44,10 @@
 #include <string>
 #include <unordered_map>
 
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
+
 namespace
 {
 
@@ -1424,7 +1428,7 @@ double ProbeMs()
 {
     TerrainGpuChain chain;
     double t0 = GetTime();
-    if (!GenerateTerrainChainGPU(TERRAIN_ANCHOR_LAT, TERRAIN_ANCHOR_LON, 512,
+    if (!GenerateTerrainChainGPU(TERRAIN_REFERENCE_LAT, TERRAIN_REFERENCE_LON, 512,
                                  &chain, nullptr))
         return 1e9;
     void* px = rlReadTexturePixels(chain.color[2].texture.id, 512, 512,
@@ -1459,7 +1463,7 @@ double TerrainCpuChainMs(int res)
     {
         TerrainChainFields f;
         double t0 = GetTime();
-        bool ok = GenerateTerrainFields(TERRAIN_ANCHOR_LAT, TERRAIN_ANCHOR_LON,
+        bool ok = GenerateTerrainFields(TERRAIN_REFERENCE_LAT, TERRAIN_REFERENCE_LON,
                                         CPU_PROBE_RES, 25.0, &f, nullptr, 0.0);
         g_cpuChainMs = ok ? (GetTime() - t0) * 1000.0 : 0.0;
         if (ok)
@@ -1488,20 +1492,41 @@ int TerrainCpuChainResFor(double budgetMs)
 // and stays off the GPU rather than doing without.
 bool TerrainGpuCanSubFloor() { return !UseEs100(); }
 
+bool TerrainChainOnGpu()
+{
+    const bool gpuKeepsTheRegolith = !IsSubFloorEnabled() || TerrainGpuCanSubFloor();
+    return gpuKeepsTheRegolith && (GetTerrainPath() == TERRAIN_PATH_GPU);
+}
+
 TerrainPath GetTerrainPath()
 {
     if (g_path >= 0) return (TerrainPath)g_path;
 
     const char* env = std::getenv("COLONY_TERRAIN");
+    const char* envName = "COLONY_TERRAIN";
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+    // A browser has no environment: ?terrain=cpu|gpu is the same switch.
+    // It is how a test puts a software-rendered browser on the GPU path
+    // that a real device's browser takes.
+    if (!env)
+    {
+        int v = EM_ASM_INT({
+            var m = /[?&]terrain=(cpu|gpu)/.exec(window.location.search);
+            return m ? (m[1] == 'gpu' ? 2 : 1) : 0;
+        });
+        if (v != 0) env = (v == 2) ? "gpu" : "cpu";
+        envName = "?terrain";
+    }
+#endif
     if (env && (std::strcmp(env, "cpu") == 0 || std::strcmp(env, "CPU") == 0))
     {
         g_path = TERRAIN_PATH_CPU;
-        g_pathWhy = "COLONY_TERRAIN=cpu";
+        g_pathWhy = std::string(envName) + "=cpu";
     }
     else if (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "GPU") == 0))
     {
         g_path = InitGpu() ? TERRAIN_PATH_GPU : TERRAIN_PATH_CPU;
-        g_pathWhy = InitGpu() ? "COLONY_TERRAIN=gpu" : "COLONY_TERRAIN=gpu, but shaders failed";
+        g_pathWhy = std::string(envName) + (InitGpu() ? "=gpu" : "=gpu, but shaders failed");
     }
     else
     {

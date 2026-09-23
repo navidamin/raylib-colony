@@ -34,8 +34,13 @@ struct LunarRegion
     float thPpm = -1.0f;
 };
 
-// Parsed once on first call. Empty if the asset is missing or malformed,
-// which the caller should treat as "fall back to whatever you have".
+// Parsed once on first call. Where zones.json leaves a composition null,
+// a built-in table of published figures for 19 near-side features fills
+// it in (those numbers were hand-entered before anything read the asset,
+// and dropping them would lose real figures for most of the near side;
+// where both carry a value the asset wins). If the asset is missing or
+// malformed, that same table IS the region list: the near side stays
+// nameable, the far side does not.
 const std::vector<LunarRegion>& GetLunarRegions();
 
 // Great-circle distance from a point to a region's centre, in km.

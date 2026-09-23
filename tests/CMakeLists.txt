@@ -2,6 +2,8 @@
 # We link raylib for types (Vector2, Color, etc.) but don't open a window.
 add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/Colony/colony.cpp
+    # Founding lives in GameManager; it needs no window, so it tests.
+    ${CMAKE_SOURCE_DIR}/src/Engine/gamemanager.cpp
     ${CMAKE_SOURCE_DIR}/src/Sect/sect.cpp
     ${CMAKE_SOURCE_DIR}/src/Unit/unit.cpp
     ${CMAKE_SOURCE_DIR}/src/Unit/unit_ui.cpp
@@ -22,7 +24,16 @@ add_library(colony_testlib STATIC
     # so the test library needs them to link. Added on the merge: this
     # target was written before that dependency existed.
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/lola_dem.cpp
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen/lunar_dem_shared.cpp
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen/lunar_frame.cpp
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/terrain_synthesis.cpp
+    # The site-selection controller and what it reads: pure geometry and
+    # data, so it tests without a display.
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen/survey_cursor.cpp
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen/lunar_regions.cpp
+    ${CMAKE_SOURCE_DIR}/src/SiteSelection/region_identity.cpp
+    ${CMAKE_SOURCE_DIR}/src/SiteSelection/site_verdict.cpp
+    ${CMAKE_SOURCE_DIR}/src/SiteSelection/site_selection_controller.cpp
 )
 
 set_target_properties(colony_testlib PROPERTIES
@@ -44,6 +55,7 @@ target_include_directories(colony_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src/UnlockRegistry
     ${CMAKE_SOURCE_DIR}/src/Prospecting
     ${CMAKE_SOURCE_DIR}/src/TerrainGen
+    ${CMAKE_SOURCE_DIR}/src/SiteSelection
 )
 
 target_link_libraries(colony_testlib PUBLIC raylib tomlplusplus::tomlplusplus)
@@ -65,6 +77,9 @@ add_executable(colony_tests
     test_prospecting_integration.cpp
     test_survey_progress.cpp
     test_prospecting_wiring.cpp
+    test_site_selection.cpp
+    test_ground_truth.cpp
+    test_site_founding.cpp
 )
 
 set_target_properties(colony_tests PROPERTIES
@@ -82,7 +97,10 @@ target_link_libraries(colony_tests PRIVATE colony_testlib Catch2::Catch2WithMain
 # Register tests with CTest
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 include(Catch)
-catch_discover_tests(colony_tests)
+# From the repository root, so the tests that read shipped data
+# (zones.json, the LOLA model) find it by the same relative paths the
+# game uses.
+catch_discover_tests(colony_tests WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 # ---- The level ladder's self-test ----
 # survey_cursor_test (tools/surveycursor) is built in src/, but it was never

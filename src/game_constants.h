@@ -7,10 +7,16 @@
 #include <iostream>
 #include "resource_types.h"
 
+// The sect's footprint: radius in local drawing units (1 unit = 50 m, see
+// TerrainGen/lunar_frame.h), so a sect is 5 km across.
 const float SECT_CORE_RADIUS = 50.0f;
-const int PLANET_SIZE = 20;  // 20x20 grid of possible sect locations
-const float PLANET_WIDTH = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f;  // Total width of planet
-const float PLANET_HEIGHT = PLANET_SIZE * SECT_CORE_RADIUS * 2.0f; // Total height of planet
+const double SECT_FOOTPRINT_KM = 5.0;
+// Two sect centres may not sit closer than one footprint: their ground
+// would overlap, and each sect's terrain and resources are its own.
+const double SECT_MIN_SPACING_KM = SECT_FOOTPRINT_KM;
+// The colony view is a 25 km window on the colony's centre -- the same
+// window the site-selection descent's last rung shows.
+const double COLONY_WINDOW_KM = 25.0;
 
 const float TICK_DURATION = 1.0f;
 // TICKS_PER_DAY

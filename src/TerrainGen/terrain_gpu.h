@@ -9,12 +9,13 @@
 // that have a GPU to spare -- which is every target except a software
 // GL stack (WSL without /dev/dri, a headless CI box).
 //
-// The two paths are picked between once, by GetTerrainPath(): an env
-// override (COLONY_TERRAIN=cpu|gpu), else always GPU in the browser
-// (no worker threads there, and WebGL is always a real GPU), else a
-// timed probe -- a software rasterizer takes hundreds of milliseconds
-// for what a GPU does in a few, so the threshold is not delicate.
-// Everything that draws terrain asks the path, never the platform.
+// The two paths are picked between once, by GetTerrainPath(): an
+// override (COLONY_TERRAIN=cpu|gpu; in a browser, ?terrain=cpu|gpu),
+// else a timed probe on every platform -- a software rasterizer takes
+// hundreds of milliseconds for what a GPU does in a few, so the
+// threshold is not delicate, and a browser's WebGL can be one.
+// Everything that draws terrain asks TerrainChainOnGpu(), never the
+// platform.
 
 enum TerrainPath
 {
@@ -62,6 +63,23 @@ double TerrainCpuChainMs(int res);
 // floor (256) does not. Use it to SIZE the layer rather than to veto it:
 // a smaller chain resampled up is worth far more than no chain at all.
 int TerrainCpuChainResFor(double budgetMs);
+
+// What one blocking CPU build may cost when a view arrives: a pause, not
+// frames, and the result is cached after.
+const double TERRAIN_CHAIN_BUDGET_MS = 1200.0;
+
+// Who builds a chain: the GPU when the probe chose it AND this device's
+// shaders can run the regolith, the CPU otherwise. On WebGL1 the shaders
+// compile the regolith to a stub, so a GPU-built chain there is the vague
+// picture with no craters in it.
+//
+// Every consumer asks this one question -- the game's terrain cache and
+// lunar_map's layer alike -- so the cost model and the builder cannot
+// disagree about who builds. They did on 2026-09-23, twice: lunar_map's
+// site layer came up grey in the browser, and the game's site level,
+// once the ladder was wired in, came up without its craters on any
+// device with a real GPU.
+bool TerrainChainOnGpu();
 
 // One generated chain: PLANET (100 km), COLONY (25 km), SECT (5 km),
 // each a res x res colour render target. Caller owns all three.

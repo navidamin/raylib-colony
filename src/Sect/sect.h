@@ -10,6 +10,7 @@
 
 #include "resource_manager.h"
 #include "game_enums.h"
+#include "game_structs.h"
 
 // CLITERAL is raylib's portability shim: it expands to `(Color)` in C and
 // to nothing in C++. Writing the C compound literal `(Color){...}` directly
@@ -19,8 +20,9 @@
 
 class Sect {
 public:
-    // constructor
-    Sect(Vector2& position, ResourceManager& resource, TimeManager& time);
+    // A sect stands at a place on the Moon. Its ground -- terrain and
+    // resources -- is that place's, generated for it alone.
+    Sect(const LunarPoint& point, ResourceManager& resource, TimeManager& time);
 
     // deconstructor
     ~Sect();
@@ -37,11 +39,16 @@ public:
     void DrawInColonyView(Vector2 position);
     void DrawInSectView(Vector2 position);
 
-    // Setters
-    void SetPosition(Vector2 position) {SectPosition = position;}
+    // Where on the Moon.
+    const LunarPoint& GetPoint() const { return point; }
+    void SetPoint(const LunarPoint& p) { point = p; }
 
-    // Getters
+    // Where in the owning colony's local drawing frame (1 unit = 50 m,
+    // origin at the colony's centre). Set by Colony when it adopts the
+    // sect and whenever its frame is re-laid; {0, 0} for a sect no colony
+    // holds. Roads, the colony view and the transport packets draw in it.
     Vector2 GetPosition() const {return SectPosition;}
+    void SetPosition(Vector2 position) {SectPosition = position;}
     const std::vector<Unit*>& GetUnits() const { return units; }
     float GetRadius() const { return coreRadius; }
     const std::map<ResourceType, float>& GetResourceStorage() const { return resourceStorage; }
@@ -102,8 +109,8 @@ private:
     std::map<std::string, Texture2D> unitTextures;  // Unit type -> texture mapping
 
     // Position/Location data
-    Vector2 SectPosition;           // Position in world space
-    std::pair<int, int> location;   // Grid location
+    LunarPoint point;               // on the Moon
+    Vector2 SectPosition;           // in the colony's local frame
 
     // Core gameplay elements
     std::vector<Unit*> units;       // Collection of units
@@ -121,7 +128,7 @@ private:
     static const int TYPED_RESOURCE_CAPACITY = 50;  // Max items per type
 
     // Private member functions
-    void CreateInitialUnits(Vector2 &position);
+    void CreateInitialUnits();
     void DrawTransparentRightPanel();
     void DrawResourceStats(Vector2 position, float coreRadius);
 

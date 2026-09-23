@@ -1,18 +1,21 @@
 # Real-elevation lunar map (`lunar_map`)
 
-**The site-selection descent — the game's one level ladder — and the
-instrument for it.** Run bare, `lunar_map` opens Globe → District
-(200 km) → Site (25 km), on the real Moon: NASA's LOLA elevation, the
-WAC imagery, and the game's own terrain synthesis laid over it. That
-ladder is the only one; see
+**The level ladder as an instrument.** Run bare, `lunar_map` opens
+Globe → District (200 km) → Site (25 km) on the real Moon: NASA's LOLA
+elevation, the WAC imagery, and the game's own terrain synthesis laid
+over it. It is the same ladder the game founds colonies with — the same
+`SiteSelectionController` (`src/SiteSelection/`), region identity and
+verdict — drawn over the DEM rather than the game's views. That ladder
+is the only one; see
 [`docs/design/site-selection/README.md`](../../docs/design/site-selection/README.md).
 Beside it, `--pick` inspects any one region as terrain, and `--out`
 renders a picture headlessly.
 
 It shares the game's DEM ground truth
-(`prototypes/planet_visuals/data/lola/ldem_16_uint.tif`, the CGI Moon
-Kit LDEM_16 derived from LRO/LOLA laser altimetry, 16 px/deg ≈ 1.9 km/px)
-but links no game code.
+(`src/assets/planet/lola/ldem_16_uint.tif`, the CGI Moon
+Kit LDEM_16 derived from LRO/LOLA laser altimetry, 16 px/deg ≈ 1.9 km/px,
+through `src/TerrainGen/lunar_dem_shared.*`) and the game's
+site-selection module, and links none of the game's engine or entities.
 
 ```
 REAL MOON -> LOLA DEM (billions of laser shots)
@@ -92,9 +95,10 @@ Headless verification of the same state machine:
 tools/lunarmap/lunarmap.sh --siteshot build/lunarmap/step.png
 ```
 
-`--siteshot` drives the real `UpdateSiteSelect` with a scripted
-pointer, one PNG per step, so what is checked is the shipping flow and
-not a re-implementation of it. It settles the two-pass build before each
+`--siteshot` drives the real `UpdateSiteSelect` -- and through it the
+game's own `SiteSelectionController` -- with a scripted pointer, one PNG
+per step, so what is checked is the shipping flow and not a
+re-implementation of it. It settles the two-pass build before each
 export, and does **not** fly the descent zoom (a click would need ~27
 more frames to land) — but it does print where each flight *would* end,
 so the geometry stays checkable cheaply:
@@ -110,7 +114,7 @@ part arithmetic cannot answer.
 
 The deploy workflow (.github/workflows/deploy-web.yml) also builds this
 tool with Emscripten and publishes it at **/lunarmap/**, alongside the
-game and the game views walk (/viewtest/), preloading the LOLA DEM + WAC albedo
+game and the game walk (/viewtest/), preloading the LOLA DEM + WAC albedo
 (~45 MB download). The browser has no argv, so **the web build comes up
 in `--site`**: opening /lunarmap/ on a phone lands straight in site
 selection. Shading avoids float textures and uses a GLSL ES 100 shader,

@@ -1,22 +1,41 @@
 #ifndef RESOURCE_MANAGER_H
 #define RESOURCE_MANAGER_H
 
+// What is in the ground, anywhere on the Moon.
+//
+// Ground truth is a function of location, not a cell in an array. Ask for
+// a point and the manager answers with the resources under one sect
+// footprint there, generated deterministically from the point itself:
+// the region's composition (a named feature, its terrane, mare or
+// highland -- SiteSelection/region_identity) sets the baseline for each
+// element, a smooth variation with a 10-30 km wavelength makes
+// neighbouring sects differ and nearby ones correlate, and the depth-bias
+// table scales the deposit per layer (iron richer deep down, hydrogen at
+// the surface; the layers are views of one deposit, not a partition of
+// it). Nothing is stored until it is asked for; the same point always
+// answers the same, from any process, for one world seed. Depletion is
+// remembered per point.
+//
+// Design: docs/design/site-selection/site-selection-master-design.md SS4.6
+// ("resources belong to the region") and game-integration-plan.md A-D3.
+
 #include <vector>
 #include <map>
-#include <iostream>
-#include <random>
-#include <algorithm>
-#include <iomanip>  // for std::setw and std::setprecision
+#include <utility>
 #include "raylib.h"
-#include "raymath.h"
 
 #include "game_constants.h"
 #include "game_enums.h"
+#include "game_structs.h"
+#include "region_identity.h"
+#include "lunar_frame.h"
 
 class ResourceManager {
 public:
+    // What an orbital survey says about a place: the region's composition
+    // (one value per region, never refining) and measured terrain.
     struct OrbitalSurveyData {
-        // Elemental composition (percentages, 0.0 - 1.0)
+        // Elemental composition, weight fraction (wt% / 100)
         float fePercent = 0.0f;
         float tiPercent = 0.0f;
         float siPercent = 0.0f;
@@ -34,102 +53,50 @@ public:
         float earthVisibility = 0.0f;   // 0-1, line-of-sight fraction
     };
 
-    struct ResourceTile {
-        std::map<ResourceType, float> resources;  // Resource type -> abundance (0.0 to 1.0)
-        bool isExploited;
+    // The ground under one sect footprint (TERRAIN_CELL_KM across).
+    struct Ground {
+        LunarPoint point;
+        RegionIdentity region;
+        std::map<ResourceType, float> resources;   // absolute quantities, all depths
+        bool isExploited = false;
     };
 
-    // Depth layer system — 4 layers per cell
-    struct LayeredResourceTile {
-        std::map<ResourceType, float> layers[4];  // Indexed by DepthLayer
-    };
+    // 0 seeds from random_device: a different Moon every run. Tools and
+    // tests pass a fixed seed so their numbers are reproducible.
+    explicit ResourceManager(unsigned int worldSeed = 0);
 
-    // Constructor
-    ResourceManager(int gridSize, float cellSize);
+    // Re-seed and forget every ground generated so far.
+    void SetWorldSeed(unsigned int worldSeed);
+    unsigned int GetWorldSeed() const { return worldSeed; }
 
-    void GenerateResourceMap(unsigned int seed = 0);
-    std::vector<std::pair<ResourceType, float>> GetResourcesAt(Vector2 worldPos) const;
-    std::vector<std::pair<ResourceType, float>> GetResourcesAtGrid(int gridX, int gridY) const;
-    void DrawResourceDebug(float scale);  // For debugging resource distribution
-    void EnsureBasicResources(int x, int y);  // Ensures starting location has basic resources
-    void UpdateResourceDepletion(int gridX , int gridY, ResourceType type, float amount);
+    // The ground at a point, generated on first ask and remembered.
+    const Ground& GroundAt(const LunarPoint& point) const;
 
-    // Depth layer system
-    std::vector<std::pair<ResourceType, float>> GetResourcesAtGridLayer(int gridX, int gridY, DepthLayer layer) const;
+    // Absolute quantities of the deposit, entries above zero only.
+    std::vector<std::pair<ResourceType, float>> GetResourcesAt(const LunarPoint& point) const;
+    // The deposit as one depth layer sees it: each element scaled by its
+    // bias for that depth (shallow = 1.0).
+    std::vector<std::pair<ResourceType, float>> GetResourcesAtLayer(const LunarPoint& point,
+                                                                    DepthLayer layer) const;
+    void Deplete(const LunarPoint& point, ResourceType type, float amount);
+    // The founding floor: a first sect never starts on empty ground.
+    void EnsureBasicResources(const LunarPoint& point);
 
-    // Orbital survey system
-    OrbitalSurveyData GetOrbitalSurveyAt(int gridX, int gridY) const;
-    SiteArchetype GetSiteArchetype(int gridX, int gridY) const;
-    void GenerateOrbitalSurveyData();
+    // Orbital survey of a point: composition from the region, terrain rows
+    // from real elevation where the model is present.
+    OrbitalSurveyData SurveyAt(const LunarPoint& point) const;
+    SiteArchetype ArchetypeAt(const LunarPoint& point) const;
 
+    // Surface (0-10 cm), shallow (10-30), mid (30-100), deep (100-300 cm):
+    // the multiplier a layer applies to an element, shallow being 1.0.
+    static float DepthBias(ResourceType type, DepthLayer layer);
 
-    void DisplayResourceGrid(Vector2& wordlPos) {
-        Vector2 gridPos = WorldToGrid(wordlPos);
-        int centerX = static_cast<int>(gridPos.x);
-        int centerY = static_cast<int>(gridPos.y);
-
-        std::cout << "\nResource abundances around position (" << centerX << "," << centerY << "):\n";
-        std::cout << "Format for each cell: H2 | Si\n\n";
-
-
-        // Check each cell in a 3x3 grid
-        for(int y = centerY - 1; y <= centerY + 1; y++) {
-            // Print top border for this row
-            std::cout << "+-------------+-------------+-------------+\n";
-
-            for(int x = centerX - 1; x <= centerX + 1; x++) {
-                std::cout << "|";
-
-                auto resources = GetResourcesAtGrid(x, y);
-                float h2_abundance = 0.0f;
-                float si_abundance = 0.0f;
-
-
-                for(const auto& resource : resources) {
-
-                    // Check what enum value corresponds to H2 and Si in your ResourceType
-                    if(resource.first == ResourceType::H2) {
-                        h2_abundance = resource.second;
-                    }
-                    if(resource.first == ResourceType::Si) {
-                        si_abundance = resource.second;
-                    }
-                }
-
-                // Format numbers to 2 decimal places
-                std::cout << std::fixed << std::setprecision(2);
-
-                // Highlight center cell with different format
-                if(x == centerX && y == centerY) {
-                    std::cout << "*";
-                    std::cout << std::setw(5) << h2_abundance << "|";
-                    std::cout << std::setw(5) << si_abundance;
-                    std::cout << "*";
-                } else {
-                    std::cout << " ";
-                    std::cout << std::setw(5) << h2_abundance << "|";
-                    std::cout << std::setw(5) << si_abundance;
-                    std::cout << " ";
-                }
-            }
-            std::cout << "|\n";
-        }
-        std::cout << "+-------------+-------------+-------------+\n";
-    }
 private:
-    int gridSize;                    // Size of the grid (20x20)
-    float cellSize;                  // Size of each cell in world units
-    std::vector<std::vector<ResourceTile>> resourceGrid;
-    std::vector<std::vector<OrbitalSurveyData>> surveyGrid;
-    std::vector<std::vector<LayeredResourceTile>> layeredGrid;
+    Ground Generate(const LunarPoint& point) const;
 
-    void GenerateResourceCluster(ResourceType type, Vector2 center, float radius, float maxAbundance);
-    void GenerateLayeredResources();
-    Vector2 GridToWorld(int x, int y) const;
-    Vector2 WorldToGrid(Vector2 worldPos) const;
-
-
-
+    unsigned int worldSeed;
+    mutable std::map<LunarKey, Ground> grounds;
+    mutable std::map<LunarKey, OrbitalSurveyData> surveys;
 };
 
 #endif // RESOURCE_MANAGER_H

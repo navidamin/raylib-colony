@@ -20,7 +20,9 @@
 class Unit {
 public:
     // Constructor
-    Unit(std::string type, Vector2& position, ResourceManager& resource, TimeManager &time,
+    // `point` is the parent sect's place on the Moon: the ground this unit
+    // extracts from and prospects.
+    Unit(std::string type, const LunarPoint& point, ResourceManager& resource, TimeManager &time,
          std::map<ResourceType, float> &storage, std::map<ResourceType, float> &capacity);
 
     // Destrructor
@@ -59,8 +61,7 @@ public:
     void SetInitialParameters();
 
     // Sect info functions
-    Vector2 GetParentSectPosition() {return parentSectPosition;}
-    void SetParentSectPosition(Vector2 position) {parentSectPosition = position;}
+    const LunarPoint& GetParentPoint() const { return parentPoint; }
 
     // State checking
     bool IsActive() const { return status == "active"; }
@@ -107,7 +108,6 @@ public:
     // Excavation system
     struct Excavator {
         int id;
-        Vector2 gridPos;
         std::string method;    // "scoop", "bucket_wheel", "percussive", "drone"
         float depth = 0.0f;    // Current excavation depth (cm)
         float rate = 30.0f;    // kg/hr
@@ -121,18 +121,10 @@ public:
 
     // Excavation getters
     const std::vector<Excavator>& GetExcavators() const { return excavators; }
-    void MoveExcavator(int excavatorId, int gridX, int gridY);
     void SetExcavatorDepth(int excavatorId, float depth);
     void SetExcavatorRate(int excavatorId, float rate);
     const std::vector<UnitModule>& GetModules() const { return modules; }
 
-    // Grid position getter (derived from parentSectPosition)
-    Vector2 GetGridPosition() const {
-        return {
-            std::floor(parentSectPosition.x / (SECT_CORE_RADIUS * 2.0f)),
-            std::floor(parentSectPosition.y / (SECT_CORE_RADIUS * 2.0f))
-        };
-    }
     // Beneficiation
     const std::vector<SeparationNode>& GetSeparationChain() const { return separationChain; }
     void SwapSeparationNodes(int indexA, int indexB);
@@ -186,7 +178,7 @@ private:
     // Include UI-related members
     UNIT_UI_PRIVATE_MEMBERS
 
-    Vector2 parentSectPosition;
+    LunarPoint parentPoint;
     ResourceManager& resourceManager;
     TimeManager& timeManager;
     std::map<ResourceType, float>& resourceStorage;
@@ -241,10 +233,6 @@ private:
     void InitializeGenericModules();
 
     void UpdateUnitStatus();
-
-    Vector2 WorldToGrid(Vector2 worldPos) const;
-
-
 };
 
 #endif // UNIT_H

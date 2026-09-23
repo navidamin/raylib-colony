@@ -40,7 +40,7 @@ TEST_CASE("SamplingEngine GetDrillCost matches constants", "[sampling]")
 TEST_CASE("SamplingEngine CollectSample adds to tray", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SampleTray tray(2);
     SamplingEngine engine(2);
 
@@ -53,7 +53,7 @@ TEST_CASE("SamplingEngine CollectSample adds to tray", "[sampling]")
 TEST_CASE("SamplingEngine CollectSample fails on full tray", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
+    ProspectingGrid grid(0, TestPoint(5, 5), rm);
     SampleTray tray(0);
     SamplingEngine engine(0);
 
@@ -73,7 +73,7 @@ TEST_CASE("SamplingEngine CollectSample fails on full tray", "[sampling]")
 TEST_CASE("SamplingEngine CollectSample fails outside tier reach", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
+    ProspectingGrid grid(0, TestPoint(5, 5), rm);
     SampleTray tray(0);
     SamplingEngine engine(0);
 
@@ -86,7 +86,7 @@ TEST_CASE("SamplingEngine CollectSample fails outside tier reach", "[sampling]")
 TEST_CASE("SamplingEngine CollectSample fails on inaccessible depth", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(0, 5, 5, rm);
+    ProspectingGrid grid(0, TestPoint(5, 5), rm);
     SampleTray tray(0);
     SamplingEngine engine(0);
 
@@ -98,7 +98,7 @@ TEST_CASE("SamplingEngine CollectSample fails on inaccessible depth", "[sampling
 TEST_CASE("SamplingEngine CollectSample fails on out-of-bounds", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SamplingEngine engine(1);
 
@@ -110,7 +110,7 @@ TEST_CASE("SamplingEngine CollectSample fails on out-of-bounds", "[sampling]")
 TEST_CASE("Collected sample has ground truth composition", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SampleTray tray(2);
     SamplingEngine engine(2);
 
@@ -131,7 +131,7 @@ TEST_CASE("Collected sample has ground truth composition", "[sampling]")
 TEST_CASE("Collected sample starts with zero confidence", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SamplingEngine engine(1);
 
@@ -147,7 +147,7 @@ TEST_CASE("Collected sample starts with zero confidence", "[sampling]")
 TEST_CASE("Collected sample richness is in valid range", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SampleTray tray(2);
     SamplingEngine engine(2);
 
@@ -167,7 +167,7 @@ TEST_CASE("Collected sample richness is in valid range", "[sampling]")
 TEST_CASE("Collected sample records correct position and depth", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 10, 12, rm);
+    ProspectingGrid grid(3, TestPoint(10, 12), rm);
     SampleTray tray(3);
     SamplingEngine engine(3);
 
@@ -183,7 +183,7 @@ TEST_CASE("Collected sample records correct position and depth", "[sampling]")
 TEST_CASE("Collected sample registered in sub-cell sampleIds", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SampleTray tray(2);
     SamplingEngine engine(2);
 
@@ -199,7 +199,7 @@ TEST_CASE("Collected sample registered in sub-cell sampleIds", "[sampling]")
 TEST_CASE("Crystal visual glow starts at 0", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(1, 5, 5, rm);
+    ProspectingGrid grid(1, TestPoint(5, 5), rm);
     SampleTray tray(1);
     SamplingEngine engine(1);
 
@@ -211,7 +211,7 @@ TEST_CASE("Crystal visual glow starts at 0", "[sampling]")
 TEST_CASE("Crystal visual size matches richness", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SampleTray tray(2);
     SamplingEngine engine(2);
 
@@ -226,7 +226,7 @@ TEST_CASE("Crystal visual size matches richness", "[sampling]")
 TEST_CASE("Crystal visual template index is valid", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(3, 5, 5, rm);
+    ProspectingGrid grid(3, TestPoint(5, 5), rm);
     SampleTray tray(3);
     SamplingEngine engine(3);
 
@@ -254,7 +254,7 @@ TEST_CASE("Crystal visual shape family favors primary 70%", "[sampling]")
     {
         for (int py = 0; py < 10; py++)
         {
-            ProspectingGrid grid(3, px, py, rm);
+            ProspectingGrid grid(3, TestPoint(px, py), rm);
             SampleTray tray(3);
 
             int size = grid.GetGridSize();
@@ -284,7 +284,7 @@ TEST_CASE("Crystal visual shape family favors primary 70%", "[sampling]")
 TEST_CASE("Crystal visual element color matches dominant element", "[sampling]")
 {
     auto rm = MakeTestResourceManager();
-    ProspectingGrid grid(2, 8, 8, rm);
+    ProspectingGrid grid(2, TestPoint(8, 8), rm);
     SampleTray tray(2);
     SamplingEngine engine(2);
 
