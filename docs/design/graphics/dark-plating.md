@@ -492,6 +492,34 @@ made OF the block. See `docs/design/graveyard/console-section-slice.md`.
 The tilt is still limited (0.15-0.80 rad), for the cap and the column to
 stay readable, not for the depth.
 
+**Unknown rock is wire, not haze.** The fog is drawn by leaving things out:
+where the model is not confident a wall gets no fill, no mesh and no bed
+boundary, only the instrument's own wire -- a column line every other sample
+and dashed depth rings every eighth of the column, in the HUD cyan at
+1 - confidence, their dashes stepping at 6 Hz so the unknown reads as live
+rather than unloaded. Known rock is the reference wall exactly. In between, a
+wall is drawn a column at a time at that column's confidence, each quad grown
+a third of a pixel so abutting translucent quads leave no hairline. The
+surface is never fogged: it is seen. An undrilled block is therefore the real
+terrain standing on a wire cage, which reads immediately as unmeasured
+ground. A cut face is a wall and fogs identically -- they share one painter.
+
+**A finished hole is a turning core barrel on its collar.** Three dashed
+staves round a vertical axis between two dashed ellipses, the near staves
+bright (0.80) and the far dim (0.24), turning slowly, the dashes crawling --
+the prototype's `DrawBores`, ported. Height says depth (18 + 28 x fraction of
+the column). Cyan for a finished hole, amber for an aborted one. It is the
+handle for the hole's log: hover shows the card, click pins it, and the
+pointer becomes the hand over it.
+
+**The log card** is opaque (the height log's bright labels sit behind it), 
+with a 19-unit title and nothing smaller than 12 -- the letterbox rule above.
+Down its left a strip coloured by the rock each half-metre went through, in
+the drill bar's own strata colours; beside it LOAD (cyan), TEMP (amber) and
+VIB (pale) traced down the depth against a half-scale guide. Each point is an
+interval mean over three bins; plotting the instant at each crossing made the
+lines saw-tooth with the player's tapping.
+
 **ABORT is red and small, and exists only while it can do something.** A
 plate in the drill bar's title row, stop square plus the word, drawn only
 while the string runs; hover brightens it and the pointer becomes the hand.

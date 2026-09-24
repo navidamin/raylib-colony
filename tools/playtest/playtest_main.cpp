@@ -90,6 +90,10 @@ struct PlaytestContext
     // --scale-to N: natively, change the scale at frame 20 -- the same
     // DisplayScale_Apply a web resize goes through (0 = never).
     int scaleTo = 0;
+    // --holes N: start with N finished holes, drilled by the console's own
+    // drill (SurveyDash_DrillNow), so the fog, barrels and logs can be
+    // played with without drilling them by hand first.
+    int seedHoles = 0;
     const char* shotPath = nullptr;
     bool statementOpen = false;
     bool done = false;
@@ -377,6 +381,7 @@ int main(int argc, char** argv)
     {
         if (std::string(argv[i]) == "--shot") ctx.shotPath = argv[i + 1];
         if (std::string(argv[i]) == "--scale-to") ctx.scaleTo = std::atoi(argv[i + 1]);
+        if (std::string(argv[i]) == "--holes") ctx.seedHoles = std::atoi(argv[i + 1]);
     }
 
     SetTraceLogLevel(LOG_WARNING);
@@ -402,6 +407,18 @@ int main(int argc, char** argv)
         ctx.resourceManager = &resourceManager;
         ctx.timeManager = &timeManager;
         ctx.unit = MakeUnit(ctx);
+        if (ctx.seedHoles > 0)
+        {
+            // spread over the block, at varied depths, as the preview seeds
+            static const float kDepth[9] = {120.0f, 70.0f, 100.0f, 45.0f, 120.0f,
+                                            85.0f, 30.0f, 110.0f, 60.0f};
+            const int side = ctx.seedHoles <= 1 ? 1 : (ctx.seedHoles <= 4 ? 2 : 3);
+            int placed = 0;
+            for (int a = 0; a < side && placed < ctx.seedHoles; a++)
+                for (int b = 0; b < side && placed < ctx.seedHoles; b++, placed++)
+                    SurveyDash_DrillNow(&ctx.unit->GetProspectingSystem()->Dash(),
+                                        (a + 0.5f) / side, (b + 0.5f) / side, kDepth[placed % 9]);
+        }
 
 #ifdef __EMSCRIPTEN__
         emscripten_set_main_loop_arg(UpdateDrawFrame, &ctx, 0, 1);

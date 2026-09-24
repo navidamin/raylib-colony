@@ -998,7 +998,6 @@ int main(int argc, char** argv)
             if (options.holes > 0)
             {
                 SurveyConsole& console = system->Survey();
-                const int n = console.Ground().Lattice();
                 const int side = options.holes <= 1 ? 1
                                : (options.holes <= 4 ? 2 : 3);
                 int placed = 0;
@@ -1006,9 +1005,13 @@ int main(int argc, char** argv)
                 {
                     for (int b = 0; b < side && placed < options.holes; b++)
                     {
-                        const float fi = (a + 0.5f) / side * n;
-                        const float fj = (b + 0.5f) / side * n;
-                        console.RecordHole(fi, fj, console.Ground().ColumnM());
+                        /* the console's own drill, run to depth: the same
+                           knowledge update, plus the barrel and the log a
+                           played hole leaves. Depths vary so the barrels do. */
+                        static const float kDepth[9] = {120.0f, 70.0f, 100.0f, 45.0f, 120.0f,
+                                                        85.0f, 30.0f, 110.0f, 60.0f};
+                        SurveyDash_DrillNow(&system->Dash(), (a + 0.5f) / side, (b + 0.5f) / side,
+                                            kDepth[placed % 9]);
                         placed++;
                     }
                 }

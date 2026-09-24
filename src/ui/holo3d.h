@@ -101,8 +101,19 @@ typedef float (*H3DDepthFn)(void *ctx, int boundary, float u, float v);
 
 typedef struct H3DBedText { const char *name, *range, *tag; } H3DBedText;
 
+/* THE FOG. How well the ground is known at a point, 0..1 -- (u, v) across
+ * the cap, depth as a fraction of the column. The block draws only what it
+ * has measured: known rock gets its bed colours, fills and mesh; unknown rock
+ * gets no fill and no boundaries, only the instrument's wire with a slow
+ * crawl (survey-dashboard-design.md, decision 2). The surface is known for
+ * free, because you can see it. NULL -- the default -- is a fully known
+ * block, which is what the reference draws and the visual diff measures. */
+typedef float (*H3DFogFn)(void *ctx, float u, float v, float depth01);
+
 void Holo3D_SetGround(Holo3DModel *m, int beds, H3DDepthFn fn, void *ctx,
                       const H3DBedText *text);
+
+void Holo3D_SetFog (Holo3DModel *m, H3DFogFn fn, void *ctx);
 
 void Holo3D_Render (Holo3DModel *m, const H3DState *st, H3DView *view);
 void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3DHud *hud);
@@ -152,6 +163,10 @@ void            Holo3D_ScreenAcross (const Holo3DModel *m, float *du, float *dv)
  * exploded, where the beds are apart and there is no solid to cut. */
 void            Holo3D_DrawCutaway  (Holo3DModel *m, const H3DState *st,
                                      float u, float v, Color clear);
+
+/* The cap corner nearest the viewer, in cap coordinates (each 0 or 1): the
+ * corner the cutaway cuts toward. */
+void            Holo3D_NearCorner   (const Holo3DModel *m, float *cu, float *cv);
 
 /* The controller from the JS `attach`, minus the DOM: the caller feeds it
  * pointer events in DESIGN space and it keeps the same easing. */

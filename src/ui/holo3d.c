@@ -138,6 +138,10 @@ struct Holo3DModel {
      * colours from LAYERS, and the text from the caller when it supplies
      * any. `layers` points here once real ground is set. */
     H3DLayer own[H3D_LAYERS];
+
+    /* the fog (Holo3D_SetFog); NULL is a fully known block */
+    H3DFogFn fogFn;
+    void    *fogCtx;
 };
 
 static float h3d_field(const H3DProfile *p, float x, float z)
@@ -226,6 +230,13 @@ void Holo3D_SetGround(Holo3DModel *m, int beds, H3DDepthFn fn, void *ctx,
             }
 }
 
+void Holo3D_SetFog(Holo3DModel *m, H3DFogFn fn, void *ctx)
+{
+    if (!m) return;
+    m->fogFn = fn;
+    m->fogCtx = ctx;
+}
+
 void Holo3D_Free(Holo3DModel *m)
 {
     if (!m) return;
@@ -309,6 +320,160 @@ static void h3d_stroke(bool fast, const Vector2 *pts, int n, Color c, float w, f
     c2d_glow_stroke(pts, n, c, w, fast ? 0.0f : blur);
 }
 
+/* ---- the fog --------------------------------------------------------- */
+
+/* Confidence at a world point: 1 without a fog function. */
+static float h3d_conf(const Holo3DModel *m, V3 w)
+{
+    if (!m->fogFn) return 1.0f;
+    const float c = m->fogFn(m->fogCtx, w.x / m->W + 0.5f, w.z / m->W + 0.5f, -w.y / m->D);
+    return c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
+}
+
+/* Depth rings under the fog, as a fraction of the column: the instrument's
+ * graduation, not the ground's. 250 m on the 2 km block the design was
+ * written for, so an eighth of the column. */
+#define H3D_FOG_RING    0.125f
+#define H3D_FOG_FULL    0.99f        /* at or above: drawn as a known band   */
+#define H3D_FOG_WIRE    (Color){0x5f, 0xf0, 0xff, 255}
+
+/* A polyline whose opacity follows the fog point by point, drawn in runs of
+ * equal (quantised) opacity so the glow is laid once per run, not per
+ * segment -- per-segment glows stack at every joint. */
+static void h3d_stroke_fog(bool fast, const Vector2 *pts, const float *conf, int n,
+                           Color c, float w, float blur)
+{
+    int start = 0;
+    while (start < n - 1)
+    {
+        const float a0 = fminf(conf[start], conf[start + 1]);
+        const int q = (int)(a0 * 8.0f + 0.5f);
+        int end = start + 1;
+        while (end < n - 1 && (int)(fminf(conf[end], conf[end + 1]) * 8.0f + 0.5f) == q) end++;
+        if (q > 0)
+        {
+            c2d_push_alpha((float)q / 8.0f);
+            h3d_stroke(fast, &pts[start], end - start + 1, c, w, blur);
+            c2d_pop_alpha();
+        }
+        start = end;
+    }
+}
+
+/* ONE BAND of one bed, between world samples wt[] (its top) and wb[] (its
+ * bottom), lit by `f`, at the bed's offset `dy`. The walls and the cutaway's
+ * faces both go through here, so a cut face fogs exactly as a wall does.
+ *
+ * Known everywhere: the one polygon the reference draws, byte for byte.
+ * Anywhere unknown: one quad per column at the column's confidence (a
+ * gradient cannot carry a second, horizontal ramp), grown a third of a pixel
+ * so abutting translucent quads leave no hairline; then the wire -- a column
+ * line every other sample and the depth rings -- at 1 - confidence, the
+ * rings' dashes stepping at 6 Hz so the unknown reads as live. */
+static void h3d_paint_band(Holo3DModel *m, const H3DState *st, int k,
+                           const V3 *wt, const V3 *wb, int len, float dy, float f,
+                           Vector2 *top, Vector2 *bot, bool record)
+{
+    const H3DLayer *ly = &m->layers[k];
+    Vector2 poly[WALL_MAX * 2];
+    float cs[WALL_MAX];                    /* per column, at the band's middle */
+    bool known = true;
+    for (int t = 0; t < len; t++)
+    {
+        top[t] = h3d_proj_dy(m, wt[t], dy);
+        bot[t] = h3d_proj_dy(m, wb[t], dy);
+        const V3 mid = {wt[t].x, (wt[t].y + wb[t].y) * 0.5f, wt[t].z};
+        cs[t] = h3d_conf(m, mid);
+        if (cs[t] < H3D_FOG_FULL) known = false;
+    }
+    int pn = 0;
+    for (int t = 0; t < len; t++) poly[pn++] = top[t];
+    for (int t = len - 1; t >= 0; t--) poly[pn++] = bot[t];
+    float y0 = poly[0].y, y1 = poly[0].y;
+    for (int t = 1; t < pn; t++) { if (poly[t].y < y0) y0 = poly[t].y; if (poly[t].y > y1) y1 = poly[t].y; }
+
+    /* spec 2.2: four stops over the polygon's screen-y extent, and
+     * spec 2.1: the polygon is concave, so this must not be a fan */
+    C2DGradient g = c2d_gradient_linear(y0, y1);
+    c2d_gradient_stop(&g, 0.00f, h3d_shade(ly->neon, f));
+    c2d_gradient_stop(&g, 0.20f, h3d_shade(ly->mid,  f));
+    c2d_gradient_stop(&g, 0.75f, h3d_shade(ly->deep, f));
+    c2d_gradient_stop(&g, 1.00f, h3d_shade(ly->deep, f));
+    if (known)
+        c2d_fill_poly_gradient(poly, pn, &g);
+    else
+    {
+        for (int t = 0; t < len - 1; t++)
+        {
+            const float a = 0.5f * (cs[t] + cs[t + 1]);
+            if (a < 0.02f) continue;
+            Vector2 q[4] = {top[t], top[t + 1], bot[t + 1], bot[t]};
+            const Vector2 c = {(q[0].x + q[1].x + q[2].x + q[3].x) * 0.25f,
+                               (q[0].y + q[1].y + q[2].y + q[3].y) * 0.25f};
+            for (int i = 0; i < 4; i++)
+            {
+                const float dx = q[i].x - c.x, dyy = q[i].y - c.y;
+                const float l = sqrtf(dx * dx + dyy * dyy);
+                if (l > 1e-4f) { q[i].x += dx / l * 0.33f; q[i].y += dyy / l * 0.33f; }
+            }
+            c2d_push_alpha(a);
+            c2d_fill_poly_gradient(q, 4, &g);
+            c2d_pop_alpha();
+        }
+    }
+    if (record) h3d_record_hit(m, k, poly, pn);
+
+    /* mesh. The JS clips it to the wall; spec 2.4 case 1 says not to,
+     * because every point below is a lerp between top[i] and bot[i] and
+     * is therefore inside the wall by construction. Under fog it fades with
+     * the fill. */
+    const int rows = (int)fmaxf(2.0f, lroundf((y1 - y0) / 26.0f));
+    for (int t = 1; t < len - 1; t++)
+    {
+        const Vector2 seg[2] = {top[t], bot[t]};
+        c2d_polyline(seg, 2, h3d_rgba(ly->mesh, 0.22f * f * cs[t]), 1.0f);
+    }
+    for (int row = 1; row < rows; row++)
+    {
+        const float q = (float)row / rows;
+        Vector2 line[WALL_MAX];
+        for (int t = 0; t < len; t++)
+            line[t] = (Vector2){top[t].x + (bot[t].x - top[t].x) * q,
+                                top[t].y + (bot[t].y - top[t].y) * q};
+        if (known)
+            c2d_polyline(line, len, h3d_rgba(ly->mesh, 0.14f * f), 1.0f);
+        else
+            for (int t = 0; t < len - 1; t++)
+                c2d_polyline(&line[t], 2, h3d_rgba(ly->mesh, 0.14f * f * 0.5f * (cs[t] + cs[t + 1])), 1.0f);
+    }
+    if (known) return;
+
+    /* ---- the wire under the fog ---- */
+    for (int t = 0; t < len; t += 2)
+    {
+        const float a = (1.0f - cs[t]) * 0.26f;
+        if (a < 0.02f) continue;
+        const Vector2 seg[2] = {top[t], bot[t]};
+        c2d_polyline(seg, 2, h3d_rgba(H3D_FOG_WIRE, a), 1.0f);
+    }
+    const float crawl = floorf(st->time * 6.0f) * 1.7f;
+    for (float r = H3D_FOG_RING; r < 1.0f - 1e-3f; r += H3D_FOG_RING)
+    {
+        const float ry = -r * m->D;
+        for (int t = 0; t < len - 1; t++)
+        {
+            /* only where this bed spans the ring's depth at both ends */
+            if (!(wt[t].y >= ry && wb[t].y <= ry && wt[t + 1].y >= ry && wb[t + 1].y <= ry)) continue;
+            const float a = (1.0f - 0.5f * (cs[t] + cs[t + 1])) * 0.34f;
+            if (a < 0.02f) continue;
+            const V3 p0 = {wt[t].x, ry, wt[t].z}, p1 = {wt[t + 1].x, ry, wt[t + 1].z};
+            const Vector2 seg[2] = {h3d_proj_dy(m, p0, dy), h3d_proj_dy(m, p1, dy)};
+            c2d_dashed_polyline_phase(seg, 2, 4.0f, 4.0f, crawl + (float)t * 3.1f,
+                                      h3d_rgba(H3D_FOG_WIRE, a), 1.0f);
+        }
+    }
+}
+
 /* Paint one bed, fully OPAQUE. The JS takes the context as an argument so
  * the same function can paint into a ghost buffer; here the buffer is bound
  * by the caller, which comes to the same thing and is the reason spec 2.6
@@ -338,44 +503,20 @@ static void h3d_paint_layer(Holo3DModel *m, int k, const H3DState *st,
         }
         if (!h3d_facing(m, w->n)) continue;
 
-        Vector2 poly[WALL_MAX * 2];
-        int pn = 0;
-        for (int t = 0; t < len; t++) poly[pn++] = top[t];
-        for (int t = len - 1; t >= 0; t--) poly[pn++] = bot[t];
-        const float f = h3d_lit(m, w->n);
-        float y0 = poly[0].y, y1 = poly[0].y;
-        for (int t = 1; t < pn; t++) { if (poly[t].y < y0) y0 = poly[t].y; if (poly[t].y > y1) y1 = poly[t].y; }
-
-        /* spec 2.2: four stops over the polygon's screen-y extent, and
-         * spec 2.1: the polygon is concave, so this must not be a fan */
-        C2DGradient g = c2d_gradient_linear(y0, y1);
-        c2d_gradient_stop(&g, 0.00f, h3d_shade(ly->neon, f));
-        c2d_gradient_stop(&g, 0.20f, h3d_shade(ly->mid,  f));
-        c2d_gradient_stop(&g, 0.75f, h3d_shade(ly->deep, f));
-        c2d_gradient_stop(&g, 1.00f, h3d_shade(ly->deep, f));
-        c2d_fill_poly_gradient(poly, pn, &g);
-        h3d_record_hit(m, k, poly, pn);
-
-        /* mesh. The JS clips it to the wall; spec 2.4 case 1 says not to,
-         * because every point below is a lerp between top[i] and bot[i] and
-         * is therefore inside the wall by construction. */
-        const int rows = (int)fmaxf(2.0f, lroundf((y1 - y0) / 26.0f));
-        for (int t = 1; t < len - 1; t++)
+        V3 wt[WALL_MAX], wb[WALL_MAX];
+        for (int t = 0; t < len; t++)
         {
-            const Vector2 seg[2] = {top[t], bot[t]};
-            c2d_polyline(seg, 2, h3d_rgba(ly->mesh, 0.22f * f), 1.0f);
+            wt[t] = h3d_wall_pt(m, w, k, t);
+            wb[t] = h3d_wall_pt(m, w, k + 1, t);
         }
-        for (int row = 1; row < rows; row++)
-        {
-            const float q = (float)row / rows;
-            Vector2 line[WALL_MAX];
-            for (int t = 0; t < len; t++)
-                line[t] = (Vector2){top[t].x + (bot[t].x - top[t].x) * q,
-                                    top[t].y + (bot[t].y - top[t].y) * q};
-            c2d_polyline(line, len, h3d_rgba(ly->mesh, 0.14f * f), 1.0f);
-        }
+        h3d_paint_band(m, st, k, wt, wb, len, dy, h3d_lit(m, w->n), top, bot, true);
+
+        /* the reference's hashed motes; `plain` (real ground) leaves them out */
         if (!fast && !m->plain)
         {
+            float y0 = top[0].y, y1 = bot[0].y;
+            for (int t = 1; t < len; t++) { if (top[t].y < y0) y0 = top[t].y; if (bot[t].y > y1) y1 = bot[t].y; }
+            const int rows = (int)fmaxf(2.0f, lroundf((y1 - y0) / 26.0f));
             for (int t = 0; t < len - 1; t++)
                 for (int row = 0; row < rows; row++)
                 {
@@ -469,18 +610,29 @@ static void h3d_paint_layer(Holo3DModel *m, int k, const H3DState *st,
         const H3DWall *w = &walls[wi];
         const int len = h3d_wall_len(m, w);
         Vector2 top[WALL_MAX];
-        for (int t = 0; t < len; t++) top[t] = h3d_proj_dy(m, h3d_wall_pt(m, w, k, t), dy);
+        float conf[WALL_MAX];
+        for (int t = 0; t < len; t++)
+        {
+            top[t] = h3d_proj_dy(m, h3d_wall_pt(m, w, k, t), dy);
+            /* a boundary appears where knowledge reaches its depth; the
+               surface is known because it is seen */
+            conf[t] = (k == 0) ? 1.0f : h3d_conf(m, h3d_wall_pt(m, w, k, t));
+        }
         const bool vis = h3d_facing(m, w->n);
         if (vis)
-            h3d_stroke(fast, top, len, k == 0 ? (Color){0xe6,0xff,0xff,255} : ly->line,
-                   k == 0 ? 2.2f : 1.5f, k == 0 ? 16.0f : 10.0f);
+            h3d_stroke_fog(fast, top, conf, len, k == 0 ? (Color){0xe6,0xff,0xff,255} : ly->line,
+                           k == 0 ? 2.2f : 1.5f, k == 0 ? 16.0f : 10.0f);
         else if (showTop)
-            h3d_stroke(fast, top, len, h3d_rgba(ly->mesh, 0.45f), 1.0f, 0.0f);
+            h3d_stroke_fog(fast, top, conf, len, h3d_rgba(ly->mesh, 0.45f), 1.0f, 0.0f);
         if (k == m->layerCount - 1 && vis)
         {
             Vector2 bot[WALL_MAX];
-            for (int t = 0; t < len; t++) bot[t] = h3d_proj_dy(m, h3d_wall_pt(m, w, k + 1, t), dy);
-            h3d_stroke(fast, bot, len, (Color){160, 190, 215, 153}, 1.1f, 3.0f);
+            for (int t = 0; t < len; t++)
+            {
+                bot[t] = h3d_proj_dy(m, h3d_wall_pt(m, w, k + 1, t), dy);
+                conf[t] = h3d_conf(m, h3d_wall_pt(m, w, k + 1, t));
+            }
+            h3d_stroke_fog(fast, bot, conf, len, (Color){160, 190, 215, 153}, 1.1f, 3.0f);
         }
     }
     /* vertical corner edges: bright where two visible walls meet */
@@ -734,11 +886,13 @@ static Vector2 h3d_cut_pt(const Holo3DModel *m, int k, int bed, float u, float v
 /* One cut face: from (u0, v0) to (u1, v1) along the cap, every bed down it,
  * painted as h3d_paint_layer paints a wall. `n` is the face's outward
  * normal, which is what lights it. */
-static void h3d_cut_face(const Holo3DModel *m, const H3DState *st,
+static void h3d_cut_face(Holo3DModel *m, const H3DState *st,
                          float u0, float v0, float u1, float v1, const float n[3])
 {
     const float f = h3d_lit(m, n);
-    Vector2 top[H3D_CUT_N], bot[H3D_CUT_N], poly[H3D_CUT_N * 2];
+    V3 wt[H3D_CUT_N], wb[H3D_CUT_N];
+    Vector2 top[H3D_CUT_N], bot[H3D_CUT_N];
+    float conf[H3D_CUT_N];
     for (int k = 0; k < m->layerCount; k++)
     {
         const H3DLayer *ly = &m->layers[k];
@@ -746,46 +900,37 @@ static void h3d_cut_face(const Holo3DModel *m, const H3DState *st,
         {
             const float t = (float)i / (float)(H3D_CUT_N - 1);
             const float u = u0 + (u1 - u0) * t, v = v0 + (v1 - v0) * t;
-            top[i] = h3d_cut_pt(m, k, k, u, v);
-            bot[i] = h3d_cut_pt(m, k + 1, k, u, v);
+            wt[i] = h3d_boundary_world(m, k, u, v);
+            wb[i] = h3d_boundary_world(m, k + 1, u, v);
         }
-        int pn = 0;
-        for (int i = 0; i < H3D_CUT_N; i++) poly[pn++] = top[i];
-        for (int i = H3D_CUT_N - 1; i >= 0; i--) poly[pn++] = bot[i];
-        float y0 = poly[0].y, y1 = poly[0].y;
-        for (int i = 1; i < pn; i++) { if (poly[i].y < y0) y0 = poly[i].y; if (poly[i].y > y1) y1 = poly[i].y; }
+        /* the walls' own painter, fog and all -- a cut face is a wall */
+        h3d_paint_band(m, st, k, wt, wb, H3D_CUT_N, h3d_offY(m, k), f, top, bot, false);
 
-        /* the wall's own four stops (spec 2.2) */
-        C2DGradient g = c2d_gradient_linear(y0, y1);
-        c2d_gradient_stop(&g, 0.00f, h3d_shade(ly->neon, f));
-        c2d_gradient_stop(&g, 0.20f, h3d_shade(ly->mid,  f));
-        c2d_gradient_stop(&g, 0.75f, h3d_shade(ly->deep, f));
-        c2d_gradient_stop(&g, 1.00f, h3d_shade(ly->deep, f));
-        c2d_fill_poly_gradient(poly, pn, &g);
-
-        /* its mesh, as on the walls */
-        const int rows = (int)fmaxf(2.0f, lroundf((y1 - y0) / 26.0f));
-        for (int i = 3; i < H3D_CUT_N - 1; i += 3)
-        {
-            const Vector2 seg[2] = {top[i], bot[i]};
-            c2d_polyline(seg, 2, h3d_rgba(ly->mesh, 0.22f * f), 1.0f);
-        }
-        for (int row = 1; row < rows; row++)
-        {
-            const float q = (float)row / rows;
-            Vector2 line[H3D_CUT_N];
-            for (int i = 0; i < H3D_CUT_N; i++)
-                line[i] = (Vector2){top[i].x + (bot[i].x - top[i].x) * q,
-                                    top[i].y + (bot[i].y - top[i].y) * q};
-            c2d_polyline(line, H3D_CUT_N, h3d_rgba(ly->mesh, 0.14f * f), 1.0f);
-        }
-
-        /* the bed's top interface, bright as the walls draw theirs */
-        h3d_stroke(st->fast, top, H3D_CUT_N, k == 0 ? (Color){0xe6, 0xff, 0xff, 255} : ly->line,
-                   k == 0 ? 2.2f : 1.5f, k == 0 ? 16.0f : 10.0f);
+        for (int i = 0; i < H3D_CUT_N; i++) conf[i] = (k == 0) ? 1.0f : h3d_conf(m, wt[i]);
+        h3d_stroke_fog(st->fast, top, conf, H3D_CUT_N,
+                       k == 0 ? (Color){0xe6, 0xff, 0xff, 255} : ly->line,
+                       k == 0 ? 2.2f : 1.5f, k == 0 ? 16.0f : 10.0f);
         if (k == m->layerCount - 1)
-            h3d_stroke(st->fast, bot, H3D_CUT_N, (Color){160, 190, 215, 153}, 1.1f, 3.0f);
+        {
+            for (int i = 0; i < H3D_CUT_N; i++) conf[i] = h3d_conf(m, wb[i]);
+            h3d_stroke_fog(st->fast, bot, conf, H3D_CUT_N, (Color){160, 190, 215, 153}, 1.1f, 3.0f);
+        }
     }
+}
+
+void Holo3D_NearCorner(const Holo3DModel *m, float *cu, float *cv)
+{
+    /* the one drawn lowest on screen, since screen y grows as
+       h = x*f0 + z*f1 shrinks */
+    float bu = 0.0f, bv = 0.0f, best = 1e9f;
+    for (int c = 0; m && c < 4; c++)
+    {
+        const float qu = (float)(c & 1), qv = (float)(c >> 1);
+        const float h = (qu - 0.5f) * m->W * m->f0 + (qv - 0.5f) * m->W * m->f1;
+        if (h < best) { best = h; bu = qu; bv = qv; }
+    }
+    if (cu) *cu = bu;
+    if (cv) *cv = bv;
 }
 
 void Holo3D_DrawCutaway(Holo3DModel *m, const H3DState *st, float u, float v, Color clear)
@@ -795,15 +940,8 @@ void Holo3D_DrawCutaway(Holo3DModel *m, const H3DState *st, float u, float v, Co
     if (v < 0.0f) v = 0.0f; if (v > 1.0f) v = 1.0f;
     const int last = m->layerCount - 1;
 
-    /* the corner nearest the viewer: the one drawn lowest on screen, since
-       screen y grows as h = x*f0 + z*f1 shrinks */
-    float cu = 0.0f, cv = 0.0f, best = 1e9f;
-    for (int c = 0; c < 4; c++)
-    {
-        const float qu = (float)(c & 1), qv = (float)(c >> 1);
-        const float h = (qu - 0.5f) * m->W * m->f0 + (qv - 0.5f) * m->W * m->f1;
-        if (h < best) { best = h; cu = qu; cv = qv; }
-    }
+    float cu, cv;
+    Holo3D_NearCorner(m, &cu, &cv);
     if (fabsf(cu - u) < 1e-3f || fabsf(cv - v) < 1e-3f) return;   /* nothing to take out */
 
     /* 1. PAINT OUT THE QUARTER: its patch of cap and its two pieces of front

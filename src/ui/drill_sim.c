@@ -240,7 +240,20 @@ int DrillProfile_Record(DrillProfile *p, const DrillSim *s)
     if (s->running && p->startedT < 0.0f) p->startedT = s->t;
 
     int wrote = 0;
-    const DrillReadout r = DrillSim_Read(s);
+    const DrillReadout now = DrillSim_Read(s);
+    if (s->running && !s->tripping)
+    {
+        p->acc.rpm += now.rpm; p->acc.load += now.load; p->acc.heat += now.heat;
+        p->acc.wear += now.wear; p->acc.vib += now.vib;
+        p->accN++;
+    }
+    DrillReadout r = now;
+    if (p->accN > 0)
+    {
+        const float k = 1.0f / (float)p->accN;
+        r.rpm = p->acc.rpm * k; r.load = p->acc.load * k; r.heat = p->acc.heat * k;
+        r.wear = p->acc.wear * k; r.vib = p->acc.vib * k;
+    }
     const DrillStratum *S = DrillSim_Strata();
     for (;;)
     {
@@ -256,6 +269,8 @@ int DrillProfile_Record(DrillProfile *p, const DrillSim *s)
         d->stratum = (unsigned char)(g - S);
         wrote++;
     }
+    /* the interval closes with the bin it filled */
+    if (wrote > 0) { memset(&p->acc, 0, sizeof(p->acc)); p->accN = 0; }
     if (s->completed) p->finishedT = s->t;
     return wrote;
 }
@@ -266,4 +281,39 @@ void DrillProfile_Abort(DrillProfile *p, const DrillSim *s)
     p->aborted = true;
     p->targetM = s->depthM;
     p->finishedT = s->t;
+}
+
+/* ---- the core log ------------------------------------------------------ */
+
+static unsigned char DrillPack(float v)
+{
+    return (unsigned char)(Clampf(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+}
+
+void DrillCoreLog_From(DrillCoreLog *out, const DrillProfile *p,
+                       float u, float v, float depthM)
+{
+    if (!out || !p) return;
+    memset(out, 0, sizeof(*out));
+    out->u = u; out->v = v;
+    out->siteI = p->siteI; out->siteJ = p->siteJ;
+    out->depthM = depthM;
+    out->aborted = p->aborted;
+    out->count = p->count;
+    for (int i = 0; i < p->count; i++)
+    {
+        const DrillReadout *r = &p->sample[i].read;
+        out->read[i][0] = DrillPack(r->rpm);
+        out->read[i][1] = DrillPack(r->load);
+        out->read[i][2] = DrillPack(r->heat);
+        out->read[i][3] = DrillPack(r->wear);
+        out->read[i][4] = DrillPack(r->vib);
+        out->stratum[i] = p->sample[i].stratum;
+    }
+}
+
+float DrillCoreLog_Read(const DrillCoreLog *l, int bin, int which)
+{
+    if (!l || bin < 0 || bin >= l->count || which < 0 || which >= DRILL_READ_N) return 0.0f;
+    return (float)l->read[bin][which] / 255.0f;
 }

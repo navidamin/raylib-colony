@@ -712,6 +712,35 @@ int main(int argc, char **argv)
         CHECK(!DrillSim_Abort(&d), "nothing to abort once stopped");
     }
 
+    printf("\n== 19. a log reading is the interval's mean, not an instant ==\n");
+    {
+        /* a steady rhythm in one rock: the instant at each crossing lands at
+           a random point in the tap cycle and saw-tooths; the mean does not */
+        DrillSim d;
+        DrillProfile p;
+        DrillSim_Reset(&d);
+        DrillProfile_Clear(&p);
+        DrillSim_SetTarget(&d, 11.0f);                 /* all regolith */
+        DrillProfile_Plan(&p, 1.0f, 1.0f, 11.0f, d.t);
+        DrillSim_Start(&d);
+        for (int i = 0; i < 20000 && d.running; i++)
+        {
+            if (i % 7 == 0) DrillSim_Bite(&d);
+            DrillSim_Step(&d, 1.0f / 60.0f);
+            DrillProfile_Record(&p, &d);
+        }
+        float worst = 0.0f;
+        for (int i = 4; i + 1 < p.count; i++)          /* past the spin-up */
+            worst = fmaxf(worst, fabsf(p.sample[i + 1].read.vib - p.sample[i].read.vib));
+        printf("    %d bins, largest step in vibration between neighbours %.3f\n", p.count, worst);
+        CHECK(worst < 0.15f, "neighbouring bins in one rock read alike");
+
+        DrillCoreLog log;
+        DrillCoreLog_From(&log, &p, 0.2f, 0.3f, d.depthM);
+        CHECK(log.count == p.count && fabsf(DrillCoreLog_Read(&log, 3, 4) - p.sample[3].read.vib) < 0.01f,
+              "a kept log reads back what was recorded, to a byte's precision");
+    }
+
     c2d_fonts_unload();
     c2d_surface_destroy(&s);
     CloseWindow();

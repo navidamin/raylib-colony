@@ -42,6 +42,10 @@ extern "C" {
 
 #define SURVEY_DASH_LOG_MAX 6
 
+/* Finished holes kept with their readings (1.4 KB each). The knowledge
+ * model saturates well before this; past it the oldest log goes. */
+#define SURVEY_DASH_CORES_MAX 32
+
 /* The log is written by what happens, not by a table. The strings are stored
  * inline so the whole console state is one flat, copyable object; `entry` is
  * the view Dash_Log wants and is rebuilt from them on every draw rather than
@@ -152,6 +156,17 @@ typedef struct SurveyDashState {
      * committed, filled while the string runs. */
     DrillProfile  profile;
 
+    /* EVERY FINISHED HOLE, KEPT: its site, its depth and its readings a bin
+     * at a time. Each stands on the block as a turning core barrel, and its
+     * log opens from the barrel. `coreOpen` is the log belonging to the hole
+     * at the current site (deepening it updates the log rather than adding
+     * one), -1 until that hole first lands. */
+    DrillCoreLog  cores[SURVEY_DASH_CORES_MAX];
+    int           coreCount;
+    int           coreOpen;
+    int           coreHover;     /* barrel under the pointer, or -1      */
+    int           corePinned;    /* log held open by a click, or -1      */
+
     Vector2       pointer;       /* design space, last known            */
     bool          pointerIn;     /* inside the console at all           */
 
@@ -230,6 +245,12 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt);
  * back to choosing a depth, a site back to aiming. A running drill is not
  * undone by it -- that is ABORT, on the drill bar. */
 void SurveyDash_Cancel (SurveyDashState *s);
+
+/* A HARNESS HOLE: the real drill, run to `depthM` at (u, v) in one call --
+ * the same DrillSim, profile, core log and knowledge update a played hole
+ * goes through, with the player's rhythm stood in by a steady tap. For
+ * previews and tests that need drilled ground without minutes of play. */
+void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM);
 
 #ifdef __cplusplus
 }

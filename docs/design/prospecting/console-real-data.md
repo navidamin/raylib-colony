@@ -234,6 +234,40 @@ the chosen depth. Without it a depth line from a site near the back of the
 block read up to half a column off against the front wall -- see
 dark-plating.md, 6.5b.
 
+**Fog, barrels and logs.** Three things the prototype had and the port had
+lost, brought back together because they are one idea -- what the drilling
+has told you:
+
+- **Fog.** `Holo3D_SetFog` takes a confidence function; the console passes
+  `DashKnow_Confidence(DashKnow_KnowAt(i, j, depth))` on its own knowledge
+  model -- the same function `DashKnow_Delineation` averages over the volume
+  for the DELINEATION monitor, so the block and the bar are one model read two
+  ways and cannot disagree. Walls and cut faces go through one band painter
+  (`h3d_paint_band`): known everywhere, the reference polygon exactly (visual
+  diff unchanged); anywhere unknown, a quad per column at its confidence, the
+  mesh fading with it, and the instrument's wire -- a column line every other
+  sample and depth rings every eighth of the column -- at 1 - confidence, the
+  rings' dashes stepping at 6 Hz. Bed boundaries fade in with knowledge of
+  their depth. The surface is always known. Rendered at 0 / 1 / 3 / 9 holes:
+  0% INFERRED wire cage, 61% and 78% INDICATED with the beds filling in round
+  the holes, 96% MEASURED solid.
+- **Barrels.** Every finished hole keeps a `DrillCoreLog` (1.4 KB: site,
+  depth, aborted, each bin's readings packed to a byte) on the console state,
+  up to 32; deepening a hole updates its log instead of adding one. Each
+  stands on its collar as a turning core barrel, taller the deeper it went,
+  amber if aborted; barrels in the cutaway's removed quarter, and the one
+  where the rig stands, are not drawn.
+- **Logs.** Hovering a barrel opens its log card -- a strip coloured by the
+  rock each half-metre went through, with LOAD, TEMP and VIB traced down the
+  depth; clicking pins it, clicking again or right-clicking lets it go. Each
+  bin now holds the MEAN of the readings over its interval
+  (`DrillProfile_Record`), as a drilling log does: the reading at the instant
+  of crossing aliased against the tapping and saw-toothed bin to bin.
+
+`SurveyDash_DrillNow` runs the real drill to a depth in one call -- same
+simulation, profile, log and knowledge update as a played hole -- and backs
+`--holes N` on the preview and the playtest.
+
 **The dig profile.** `DrillProfile` (`drill_sim.h`) is opened at the depth
 commit — the plan exists before the first turn, with its site and target —
 and written by `DrillProfile_Record` after every step: one `DrillSample` per
@@ -261,12 +295,8 @@ line was drawn but under a pixel wide.
 Both of these are in #15's settled design and are being deferred with reasons,
 not dropped.
 
-**Fog as unresolved wireframe.** #15 settles that "the console draws only what
-it has measured" — unknown volume gets no fill and no boundary, leaving a wire
-cage that retreats as the block is drilled. The C++ `SurveyBlock` does this;
-Holo3D has no concept of it. Feeding real surfaces delivers the *re-fitting*
-half of the idea for free and the *fog* half not at all. Porting the cage into
-Holo3D is a visual feature with its own diff gate and belongs in its own step.
+**Fog as unresolved wireframe -- done since, see "Fog, barrels and logs"
+below.** It was deferred here because Holo3D had no concept of it.
 
 **Grade tint.** Colouring beds by `ProspectingGrid::GetTotalRichness` would
 replace Holo3D's depth-ramped palette, which is part of the port's visual

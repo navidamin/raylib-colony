@@ -147,6 +147,11 @@ typedef struct DrillProfile {
     float targetM;
     float plannedT, startedT, finishedT;   /* sim seconds; <0 = not yet   */
     bool  aborted;              /* stopped short of targetM by the player */
+    /* the readings since the last bin closed: each bin keeps their MEAN, as
+     * a drilling log does -- the reading at the instant of crossing would
+     * alias against the player's tapping and saw-tooth bin to bin */
+    DrillReadout acc;
+    int   accN;
     int   count;
     DrillSample sample[DRILL_PROFILE_MAX];
 } DrillProfile;
@@ -159,9 +164,33 @@ void DrillProfile_Clear(DrillProfile *p);
  * keeps what is already recorded -- it is the same hole. */
 void DrillProfile_Plan(DrillProfile *p, float siteI, float siteJ, float targetM, float t);
 
-/* Call after every DrillSim_Step. Writes one sample per bin the bit has
- * crossed, so a long frame cannot skip a bin. Returns how many it wrote. */
+/* Call after every DrillSim_Step. Accumulates the readout while the bit is
+ * cutting and writes one sample per bin the bit has crossed -- the mean over
+ * that interval -- so a long frame cannot skip a bin. Returns how many it
+ * wrote. */
 int  DrillProfile_Record(DrillProfile *p, const DrillSim *s);
+
+/* ---- THE CORE LOG: a finished hole, kept ------------------------------
+ *
+ * The live profile is floats and belongs to the hole being drilled. A
+ * finished hole is kept as this: the same readings a bin at a time, packed to
+ * a byte each (0..255 for 0..1), so a console can keep every hole it has
+ * drilled -- 1.4 KB a hole -- and show any of them again. */
+#define DRILL_READ_N 5              /* rpm, load, heat, wear, vib */
+
+typedef struct DrillCoreLog {
+    float u, v;                     /* cap coordinates, 0..1               */
+    float siteI, siteJ;             /* lattice coordinates                 */
+    float depthM;                   /* how deep it went                    */
+    bool  aborted;
+    int   count;                    /* bins recorded                       */
+    unsigned char read[DRILL_PROFILE_MAX][DRILL_READ_N];
+    unsigned char stratum[DRILL_PROFILE_MAX];
+} DrillCoreLog;
+
+void  DrillCoreLog_From(DrillCoreLog *out, const DrillProfile *p,
+                        float u, float v, float depthM);
+float DrillCoreLog_Read(const DrillCoreLog *l, int bin, int which);   /* 0..1 */
 
 /* The player stopped the string: the profile ends where the bit is, short
  * of its plan, and says so. What was recorded is kept. */

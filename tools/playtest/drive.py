@@ -65,11 +65,14 @@ def main():
     args = sys.argv[1:]
     scale = 1
     binary = BIN
+    extra = []
     while args and args[0].startswith("--"):
         if args[0] == "--scale":
             scale = int(args[1])
         elif args[0] == "--bin":           # e.g. colony_game, colony_viewtest
             binary = os.path.join(ROOT, "build", "src", args[1])
+        elif args[0] == "--args":          # extra game arguments, one string
+            extra = args[1].split()
         args = args[2:]
     global HOLD
     HOLD *= scale                   # a 2x frame takes about twice as long
@@ -83,7 +86,7 @@ def main():
     time.sleep(1.0)
     env = {**os.environ, "DISPLAY": DISP, "LIBGL_ALWAYS_SOFTWARE": "1", "GALLIUM_DRIVER": "llvmpipe"}
     log = open(os.path.join(out, "game.log"), "w")
-    game = subprocess.Popen([binary, "--scale", str(scale)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+    game = subprocess.Popen([binary, "--scale", str(scale)] + extra, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
     try:
         time.sleep(6.0)                     # window, fonts, ground
         for step in steps:
