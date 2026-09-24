@@ -481,7 +481,10 @@ edges are stroked, the inner one brightest. The site IS that inner edge, so
 the borehole runs down it with the beds on both sides. Painting the quarter
 out and drawing the faces over it covers exactly the removed piece's
 footprint, because a box's three far faces project onto the same outline as
-its three near ones.
+its three near ones. Paint it out in small quads -- a grid over the
+cap patch, strips down the two wall pieces -- never as one outline: the
+outline's joins repeat a vertex, ear clipping gave up on it, and for a
+release the whole patch of cap stood in the notch as a pale sheet.
 
 The first answer was a flat slice drawn over the block, facing the viewer.
 It measured right and read wrong -- "a new rectangle put on top, irrelevant

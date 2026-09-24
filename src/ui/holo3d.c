@@ -953,32 +953,45 @@ void Holo3D_DrawCutaway(Holo3DModel *m, const H3DState *st, float u, float v, Co
     if (fabsf(cu - u) < 1e-3f || fabsf(cv - v) < 1e-3f) return;   /* nothing to take out */
 
     /* 1. PAINT OUT THE QUARTER: its patch of cap and its two pieces of front
-          wall. Their union is exactly what the removed piece covered. */
-    Vector2 poly[H3D_CUT_N * 4 + 4];
-    int pn = 0;
-    #define EDGE(k, bed, ua, va, ub, vb) \
-        for (int i = 0; i < H3D_CUT_N; i++) { \
-            const float t = (float)i / (float)(H3D_CUT_N - 1); \
-            poly[pn++] = h3d_cut_pt(m, (k), (bed), (ua) + ((ub) - (ua)) * t, (va) + ((vb) - (va)) * t); }
-    EDGE(0, 0, u, v, cu, v)  EDGE(0, 0, cu, v, cu, cv)
-    EDGE(0, 0, cu, cv, u, cv) EDGE(0, 0, u, cv, u, v)
-    c2d_fill_poly(poly, pn, clear);
-    pn = 0;
-    EDGE(0, 0, cu, v, cu, cv) EDGE(last + 1, last, cu, cv, cu, v)
-    c2d_fill_poly(poly, pn, clear);
-    pn = 0;
-    EDGE(0, 0, u, cv, cu, cv) EDGE(last + 1, last, cu, cv, u, cv)
-    c2d_fill_poly(poly, pn, clear);
+          wall. Their union is exactly what the removed piece covered.
+          Painted as small quads -- a grid over the patch, strips down the
+          walls -- not as one outline: the outline's ear clipping failed on
+          the joins and left the whole patch of cap standing in the notch. */
+    {
+        const int N = H3D_CUT_N - 1;
+        for (int i = 0; i < N; i++)
+            for (int j = 0; j < N; j++)
+            {
+                const float ua = u + (cu - u) * (float)i / N, ub = u + (cu - u) * (float)(i + 1) / N;
+                const float va = v + (cv - v) * (float)j / N, vb = v + (cv - v) * (float)(j + 1) / N;
+                const Vector2 q[4] = {h3d_cut_pt(m, 0, 0, ua, va), h3d_cut_pt(m, 0, 0, ub, va),
+                                      h3d_cut_pt(m, 0, 0, ub, vb), h3d_cut_pt(m, 0, 0, ua, vb)};
+                c2d_fill_poly(q, 4, clear);
+            }
+        for (int i = 0; i < N; i++)
+        {
+            const float ta = (float)i / N, tb = (float)(i + 1) / N;
+            /* the wall at u = cu, v from v to cv */
+            const float va = v + (cv - v) * ta, vb = v + (cv - v) * tb;
+            const Vector2 w1[4] = {h3d_cut_pt(m, 0, 0, cu, va), h3d_cut_pt(m, 0, 0, cu, vb),
+                                   h3d_cut_pt(m, last + 1, last, cu, vb), h3d_cut_pt(m, last + 1, last, cu, va)};
+            c2d_fill_poly(w1, 4, clear);
+            /* the wall at v = cv, u from u to cu */
+            const float ua = u + (cu - u) * ta, ub = u + (cu - u) * tb;
+            const Vector2 w2[4] = {h3d_cut_pt(m, 0, 0, ua, cv), h3d_cut_pt(m, 0, 0, ub, cv),
+                                   h3d_cut_pt(m, last + 1, last, ub, cv), h3d_cut_pt(m, last + 1, last, ua, cv)};
+            c2d_fill_poly(w2, 4, clear);
+        }
+    }
 
     /* 2. THE FLOOR of the notch: the block's base over the quarter, dark,
           with the base's own grid */
-    pn = 0;
-    EDGE(last + 1, last, u, v, cu, v)   EDGE(last + 1, last, cu, v, cu, cv)
-    EDGE(last + 1, last, cu, cv, u, cv) EDGE(last + 1, last, u, cv, u, v)
-    #undef EDGE
     {
+        /* the base is flat: its four corners are the whole of it */
+        const Vector2 fl[4] = {h3d_cut_pt(m, last + 1, last, u, v), h3d_cut_pt(m, last + 1, last, cu, v),
+                               h3d_cut_pt(m, last + 1, last, cu, cv), h3d_cut_pt(m, last + 1, last, u, cv)};
         const H3DLayer *ly = &m->layers[last];
-        c2d_fill_poly(poly, pn, h3d_shade(ly->mid, 0.62f));
+        c2d_fill_poly(fl, 4, h3d_shade(ly->mid, 0.62f));
         for (int i = 1; i < 4; i++)
         {
             const float q = (float)i / 4.0f;
