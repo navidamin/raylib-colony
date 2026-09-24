@@ -503,6 +503,20 @@ float LolaDem::GlobalElevationM(double latDeg, double lonDeg) const
     return Interp1D(rows, fy);
 }
 
+float LolaDem::GlobalBilinearM(double latDeg, double lonDeg) const
+{
+    if (width <= 0) return 0.0f;
+    double x = (lonDeg + 180.0) / 360.0 * width - 0.5;
+    double y = (90.0 - latDeg) / 180.0 * height - 0.5;
+    int x0 = (int)std::floor(x);
+    int y0 = (int)std::floor(y);
+    float fx = (float)(x - x0);
+    float fy = (float)(y - y0);
+    float top = Sample(x0, y0) * (1.0f - fx) + Sample(x0 + 1, y0) * fx;
+    float bot = Sample(x0, y0 + 1) * (1.0f - fx) + Sample(x0 + 1, y0 + 1) * fx;
+    return top * (1.0f - fy) + bot * fy;
+}
+
 float LolaDem::ElevationM(double latDeg, double lonDeg) const
 {
     float feather = 0.0f;

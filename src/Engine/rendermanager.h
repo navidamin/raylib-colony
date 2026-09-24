@@ -138,6 +138,10 @@ private:
         TerrainKey key;
         unsigned int lastUsed = 0;          // LRU stamp
         bool valid = false;
+        // A district window built before its real-relief tiles had all
+        // arrived (the browser): built without them, rebuilt when they are
+        // in (relief.h).
+        bool reliefPending = false;
     };
     TerrainCacheEntry terrainCache[TERRAIN_CACHE_SLOTS];
     unsigned int terrainClock;          // increments per lookup

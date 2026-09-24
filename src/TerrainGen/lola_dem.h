@@ -118,6 +118,12 @@ public:
     // Bilinear-interpolated elevation in metres vs the reference radius.
     float ElevationM(double latDeg, double lonDeg) const;
 
+    // The global model alone, plain bilinear between its pixel centres (no
+    // overlays, none of ElevationM's wider filter). What the real-relief
+    // tiles are stored above (relief.h): the builder samples the same way,
+    // so base + detail rebuilds the measured height to the 7 m step.
+    float GlobalBilinearM(double latDeg, double lonDeg) const;
+
     // Resample a window square in km (lon span widened by 1/cos(lat))
     // to res x res. Slope is computed at the DEM's native resolution,
     // then resampled — resampling first would flatten it.

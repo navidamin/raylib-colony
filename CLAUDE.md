@@ -59,7 +59,8 @@ other.
 the excavation branch deploys too; each copies the other's folders from
 its last good deploy. This branch publishes `/` (an index of the
 playtests, `tools/pages/index.html`), `/ladder/` (the game),
-`/ladder/walk/` (the game with notes), `/lunarmap/` and `/regolith/`;
+`/ladder/walk/` (the game with notes), `/lunarmap/`, `/regolith/` and
+`/relief/` (the district's height tiles, which the three games fetch);
 the excavation branch `/playtest/` and `/extraction/`. **Hand out
 `/ladder/`** — no other branch builds one. `/` is still contested: the
 excavation branch builds its own month-old game there (and an old walk
@@ -379,7 +380,7 @@ textures, the height field is never stored — and its noise is hashed
 rather than drawn from the CPU's xorshift stream, so it has the same
 texture statistics without the same pixels. `terrain_probe` builds a
 location both ways and reports the difference; run it after touching
-either synthesizer (CPU vs GPU currently 3.4 / 7.5 / 3.5 out of 255).
+either synthesizer (CPU vs GPU currently 3.3 / 9.2 / 3.5 out of 255).
 
 **The web build is WebGL2** (`-s MAX_WEBGL_VERSION=2`), falling back to
 WebGL1 where a browser has nothing better. The regolith's hash needs
@@ -402,6 +403,20 @@ keep `GetTerrainPathResolution()`. On 2026-09-23 the site level came up
 grey in `lunar_map` and craterless in the game (the question asked the
 wrong way); on 2026-09-24 it came up blurred — WebGL1, 512 px on the
 CPU, drawn 3x stretched. WebGL2 ended the split.
+
+**The district is real relief, not synthesis.** A window at least
+`RELIEF_MIN_SPAN_KM` (150 km) tall — level 2 — is drawn from the Moon's
+measured heights: Kaguya stereo DTMs at 237 m/px, stored as detail above
+the shipped LOLA model in 4° JPEG tiles (`data/relief/`, built by
+`tools/relief/build_relief.py`), lit by the chain's own fixed north-west
+sun and coloured by the mosaic blurred 2.5 km, with no synthesized
+detail at that scale (`relief.{h,cpp}`; `uReliefOn` in
+`terrain_gpu.cpp`; `TextureModulate`'s `reliefM`). Tiles are streamed,
+never preloaded: read from disk on the desktop, fetched one at a time
+from `/relief/` in the browser; a district built before its tiles arrive
+is built again when they do (`reliefPending`). The log line says
+`real relief`, and the browser test requires it. Design and the
+lighting decision: `docs/design/site-selection/level2-relief.md`.
 
 **Real coordinates.** Everything is a real lat/lon: a click on the
 globe is inverted by `OrbitalPickToLatLon`, and the chain is built for

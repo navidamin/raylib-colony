@@ -64,6 +64,7 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | [site-selection-master-design.md](site-selection-master-design.md) | The three levels, cursor behaviour, where resource information lives, the coherency contract | SETTLED |
 | ↳ Appendix A | The five-level instrument-floor model this replaced, kept as reasoning, not as work | ARCHIVED |
 | [site-ground-texture.md](site-ground-texture.md) | Why the site level looked like grey noise over 99.8 % of the Moon, and laying the terrain synthesizer over it — platform tiers by measured cost, web memory | BUILT — `--chain`, on by default in the web build |
+| [level2-relief.md](level2-relief.md) | The district (200 km) drawn from the Moon's measured relief instead of synthesis: what was compared, the lighting (the game's fixed north-west sun, the mosaic's albedo), the data and how it is built, streamed and used | BUILT 2026-09-24 |
 | [game-integration-plan.md](game-integration-plan.md) | Two parts, in order. **A:** retire the 20x20 playfield — the globe is the planet, every colony and sect lives at a real lat/lon, ground truth is a function of location, colonies anywhere at once. **B:** the ladder becomes the game's founding flow (Globe → District → Site, then the colony's Colony → Sect views), freely walkable up and down. Inventory of every grid dependency, decisions with recommendations, phases with acceptance criteria, symbol-by-symbol inventory of the tool file, and §8 what was built differently | IMPLEMENTED 2026-09-21 |
 | [playtest.md](playtest.md) | What to play, where (desktop, annotated harness, phone), the controls, a nine-step script through the founding flow and what to report | LIVE |
 
@@ -76,6 +77,7 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | 3 — Site terrain panel | **done, in the game** — `site_verdict.*`, `SurveyDrawLevelCard`, the verdict-tinted cursor |
 | 4 — Placement and commit | **done** — `GameManager::FoundColony(point, windowCentre, claimed)` from `SurveyFlow`; any number of colonies, anywhere outside the polar cap (plan D7) |
 | 5 — Panning ("the player may pan at any level", master design §2) | **done in the game, 2026-09-24** — a drag at levels 2 and 3 slides the view (the globe shows past the built ground's edge) and the release moves the window there; the region card re-labels across a border; Esc comes back up centred where the view is. In the controller (`SurveyInput::held`), so `lunar_map` can take it by feeding the button; it does not yet |
+| 6 — The district's ground | **done, 2026-09-24** — level 2 is drawn from the Moon's measured relief (Kaguya stereo, 237 m) lit by the game's sun, not synthesized; streamed tiles, desktop and browser — [level2-relief.md](level2-relief.md) |
 
 ## Cross-references
 

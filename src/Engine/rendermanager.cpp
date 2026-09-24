@@ -6,6 +6,7 @@
 #include "site_selection_constants.h"
 #include "terrain_synthesis.h"
 #include "terrain_gpu.h"
+#include "relief.h"
 #include "lunar_globe.h"
 #include "resource_types.h"
 #include "survey_progress_engine.h"
@@ -70,14 +71,34 @@ int GpuResFor(const RenderManager::TerrainKey& key)
                                 : GetTerrainPathResolution();
 }
 
+// A window the district draws from real relief (relief.h).
+bool ReliefEligible(const RenderManager::TerrainKey& key)
+{
+    return key.spanTenths > 0 && key.spanTenths / 10.0 >= RELIEF_MIN_SPAN_KM;
+}
+
+// Built before all its relief tiles were in, so built without them.
+bool ReliefPendingAfterBuild(const RenderManager::TerrainKey& key, const LunarPoint& p)
+{
+    return ReliefEligible(key)
+        && !ReliefWindowSettled(p.latDeg, p.lonDeg, key.spanTenths / 10.0);
+}
+
 // One line per chain that enters the cache, however it got there: what
-// was built, by whom, and whether the regolith is in it. It is the line
+// was built, by whom, and whether the regolith -- or, at the district, the
+// real relief -- is in it. It is the line
 // tools/lunarmap/web_site_level_test.mjs reads, so a build path that does
 // not print it is a build path the test cannot see.
-void LogTerrainBuilt(const RenderManager::TerrainKey& key, int res, bool gpu, double ms)
+void LogTerrainBuilt(const RenderManager::TerrainKey& key, const LunarPoint& p,
+                     int res, bool gpu, double ms)
 {
     const bool regolith = IsSubFloorEnabled() && (!gpu || TerrainGpuCanSubFloor());
-    if (key.spanTenths > 0)
+    const bool relief = ReliefEligible(key)
+        && ReliefWindowCovered(p.latDeg, p.lonDeg, key.spanTenths / 10.0);
+    if (key.spanTenths > 0 && relief)
+        TraceLog(LOG_INFO, "TERRAIN: %.1f km window at %d px, %s, real relief, %.0f ms",
+                 key.spanTenths / 10.0, res, gpu ? "GPU" : "CPU", ms);
+    else if (key.spanTenths > 0)
         TraceLog(LOG_INFO, "TERRAIN: %.1f km window at %d px, %s, regolith %s, %.0f ms",
                  key.spanTenths / 10.0, res, gpu ? "GPU" : "CPU",
                  regolith ? "on" : "OFF", ms);
@@ -97,6 +118,7 @@ struct TerrainRequest
 struct TerrainJob
 {
     RenderManager::TerrainKey key;
+    LunarPoint point;
     Image levels[3] = {};
     int levelCount = 0;
     double ms = 0.0;            // how long the worker took
@@ -203,6 +225,7 @@ private:
     {
         TerrainJob job;
         job.key = req.key;
+        job.point = req.point;
         auto t0 = std::chrono::steady_clock::now();
         BuildChainCpu(req, CPU_TERRAIN_RES, job.levels, &job.levelCount);
         job.ms = std::chrono::duration<double, std::milli>(
@@ -797,7 +820,7 @@ void RenderManager::UploadReadyTerrain()
             TerrainGpuChain chain;
             if (!BuildChainGpu(req, GpuResFor(req.key), &chain))
                 return;
-            LogTerrainBuilt(req.key, GpuResFor(req.key), true,
+            LogTerrainBuilt(req.key, req.point, GpuResFor(req.key), true,
                             (GetTime() - t0) * 1000.0);
 
             int slot = ClaimTerrainSlot();
@@ -811,6 +834,7 @@ void RenderManager::UploadReadyTerrain()
             e.key = req.key;
             e.lastUsed = 0;         // prefetched: evict before the bound chain
             e.valid = true;
+            e.reliefPending = ReliefPendingAfterBuild(req.key, req.point);
             return;                 // one per frame
         }
         return;
@@ -844,7 +868,8 @@ void RenderManager::UploadReadyTerrain()
         }
         e.levelCount = job.levelCount;
         e.key = job.key;
-        LogTerrainBuilt(job.key, CPU_TERRAIN_RES, false, job.ms);
+        LogTerrainBuilt(job.key, job.point, CPU_TERRAIN_RES, false, job.ms);
+        e.reliefPending = ReliefPendingAfterBuild(job.key, job.point);
         // Prefetched, not yet looked at: leave it low in the LRU order so
         // it is evicted before the chain the player is actually looking at.
         e.lastUsed = 0;
@@ -860,6 +885,7 @@ void RenderManager::RequestTerrainAt(const LunarPoint& point, float spanKm)
     TerrainRequest req;
     req.key = MakeTerrainKey(point, spanKm);
     req.point = point;
+    if (ReliefEligible(req.key)) ReliefPrefetch(point.latDeg, point.lonDeg, spanKm);
     if (FindTerrainSlot(req.key) >= 0) return;
     if (TerrainChainOnGpu())
     {
@@ -894,6 +920,23 @@ void RenderManager::EnsureTerrainAt(const LunarPoint& point, float spanKm)
     req.key = MakeTerrainKey(point, spanKm);
     req.point = point;
     int slot = FindTerrainSlot(req.key);
+    if (ReliefEligible(req.key))
+    {
+        ReliefPrefetch(point.latDeg, point.lonDeg, spanKm);
+        // Built while its relief tiles were still on their way: now they
+        // are in, build it again, this time from real relief -- unless
+        // what arrived is too little of it, and the build stands.
+        if (slot >= 0 && terrainCache[slot].reliefPending
+            && ReliefWindowSettled(point.latDeg, point.lonDeg, spanKm))
+        {
+            terrainCache[slot].reliefPending = false;
+            if (ReliefWindowCovered(point.latDeg, point.lonDeg, spanKm))
+            {
+                ReleaseTerrainEntry(terrainCache[slot]);
+                slot = -1;
+            }
+        }
+    }
     if (slot < 0)
     {
         // Miss. Build it here — the caller needs ground this frame.
@@ -938,7 +981,8 @@ void RenderManager::EnsureTerrainAt(const LunarPoint& point, float spanKm)
         }
         e.key = req.key;
         e.valid = true;
-        LogTerrainBuilt(req.key, res, gpu, (GetTime() - t0) * 1000.0);
+        e.reliefPending = ReliefPendingAfterBuild(req.key, req.point);
+        LogTerrainBuilt(req.key, req.point, res, gpu, (GetTime() - t0) * 1000.0);
     }
 
     BindTerrainSlot(slot);

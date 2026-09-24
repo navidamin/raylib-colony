@@ -15,6 +15,7 @@
 
 #include "lunar_dem_shared.h"
 #include "lunar_globe.h"
+#include "relief.h"
 #include "lunar_regions.h"
 #include "region_identity.h"
 #include "site_selection_constants.h"
@@ -426,7 +427,16 @@ void RenderManager::SurveyDrawWindowRung(const SiteSelectionController& ctl,
     bool haveVerdict = ctl.HaveVerdict();
     const PlacementVerdict& verdict = ctl.Verdict();
 
-    if (ctl.Panning()) SurveyDrawPanBackdrop(ctl, w, h);
+    if (ctl.Panning())
+    {
+        SurveyDrawPanBackdrop(ctl, w, h);
+        // The ground the release will build: have its relief tiles on the
+        // way while the hand is still moving (relief.h; free on the desktop).
+        double vLat = 0.0, vLon = 0.0;
+        ctl.ViewCentreLatLon(&vLat, &vLon);
+        double span = WindowTextureSpanKm(c->windowSpanKm);
+        if (span >= RELIEF_MIN_SPAN_KM) ReliefPrefetch(vLat, vLon, span);
+    }
     SurveyDrawGround(*c, vp, ctl.ZoomK(), w, h);
     if (c->windowSpanKm >= 25.0) FeatureArcsInWindow(*c, vp, w, h);
     SurveyDrawWindowMarkers(*c, vp, colonies, current);

@@ -88,3 +88,8 @@ notes
 build/
 build_*/
 build-web/
+
+# tools/relief: the builder's inputs and working files (the tiles ship in data/relief)
+tools/relief/*.parquet
+tools/relief/tiles/
+tools/relief/done/

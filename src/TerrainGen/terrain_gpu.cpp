@@ -35,6 +35,7 @@
 // manager draws CPU and GPU chains the same way.
 
 #include "terrain_gpu.h"
+#include "relief.h"
 #include "rlgl.h"
 
 #include <algorithm>
@@ -815,6 +816,9 @@ uniform sampler2D uMeans;
 uniform float uShadowSteps;
 uniform vec2 uSeedS;
 uniform sampler2D uHeightTex;
+// The district level (relief.h): uHeightTex holds the moon's measured
+// relief, packed as below, and nothing is invented on top of it.
+uniform float uReliefOn;
 // One height lookup, from wherever this run keeps it. With the world stack
 // on it is a texture read of the pass above; otherwise it is the shipped
 // chain's per-pixel evaluation, unchanged.
@@ -826,6 +830,7 @@ float texH(vec2 pix)
 }
 float H(vec2 pix, float tone, float hmean, float grainAmp)
 {
+    if (uReliefOn > 0.5) return texH(pix);
     if (uSubOn > 0.5)
     {
         // The CPU blurs its height by 0.6 px before differencing it for the
@@ -896,7 +901,7 @@ void main()
 
     float speckle = fbm(world(pix), 4.0, 0.5, 2, uSeedS);
     float lum = m * (0.62 + 0.38 * rel) * (0.45 + 0.55 * light);
-    lum *= 1.0 + 0.04 * min(uAmp, 1.6) * (speckle - 0.5) * rough;
+    lum *= 1.0 + 0.04 * min(uAmp, 1.6) * (speckle - 0.5) * rough * (1.0 - uReliefOn);
     lum = clamp(lum, 0.0, 1.0);
     float sc = lum * lum * (3.0 - 2.0 * lum);
     lum = clamp(sc * 0.20 + lum * 0.80, 0.0, 1.0);
@@ -913,6 +918,14 @@ void main()
 const char* FS_FIELDS = R"GLSL(
 uniform sampler2D uMeans;
 uniform vec2 uSeedS;
+uniform sampler2D uHeightTex;   // measured relief, when uReliefOn (relief.h)
+uniform float uReliefOn;
+float texHF(vec2 pix)
+{
+    vec4 t = TEX(uHeightTex, rtuv(pix));
+    return (floor(t.r * 255.0 + 0.5) * 256.0
+          + floor(t.g * 255.0 + 0.5)) / 65535.0 - 0.5;
+}
 vec2 unpackMeansF()
 {
     vec4 m = TEX(uMeans, vec2(0.5, 0.5));
@@ -936,14 +949,15 @@ void main()
 
     // One height call per pixel here -- no hillshade taps, no march -- so
     // the world stack goes straight in rather than through a target.
-    float h = (uSubOn > 0.5)
+    float h = (uReliefOn > 0.5) ? texHF(pix)
+        : (uSubOn > 0.5)
         ? heightCommon(pix, tone, hmean, 1.0,
                        subFloorM(pix, roughMeasured(pix, m))
                          / uHeightScaleM)
         : heightAt(pix, tone, hmean, 1.0);
     float speckle = fbm(world(pix), 4.0, 0.5, 2, uSeedS);
     float alb = clamp(m * (1.0 + 0.04 * min(uAmp, 1.6)
-                               * (speckle - 0.5) * rough), 0.0, 1.0);
+                               * (speckle - 0.5) * rough * (1.0 - uReliefOn)), 0.0, 1.0);
 
     // Height packed 16-bit across R:G, the way the macro crop travels.
     // Eight bits would be torn apart by the caller's high-pass, which
@@ -990,6 +1004,7 @@ struct Gpu
     // destination, and the two luminance targets the levels ping-pong.
     RenderTexture2D A = {}, B = {}, C = {}, D = {}, L0 = {}, L1 = {};
     RenderTexture2D H = {};       // the packed height, when the world stack is on
+    Texture2D reliefTex = {};     // the district's measured relief, packed the same way
     SmallSet small[3];
     RenderTexture2D means = {};
     Texture2D cropTex = {};
@@ -1417,6 +1432,7 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
 {
     SetTex(sh, "uMacro", macro.texture);
     SetTex(sh, "uRelief", relief.texture);
+    SetF(sh, "uReliefOn", 0.0f);         // the district branch turns it on
     SetF(sh, "uAmp", amp);
     SetF(sh, "uK", k);
     TerrainTuning tune;
@@ -1460,6 +1476,42 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
     SeedVec(salt, 19.0f, v); SetV2(sh, "uSeedL", v[0], v[1]);
     SeedVec(salt, 29.0f, v); SetV2(sh, "uSeedF", v[0], v[1]);
     SeedVec(salt, 41.0f, v); SetV2(sh, "uSeedB", v[0], v[1]);
+}
+
+// The district's measured relief (relief.h) as the fused pass reads a height:
+// height units (metres over 110 x the level's metres per pixel, the scale the
+// hillshade's z-factor assumes), about the window's mean, packed 16-bit over
+// R:G with zero at 0.5, and rows stored south first because the passes read
+// through rtuv(), which flips them.
+void UploadReliefHeights(const std::vector<float>& metres, int res, float kmPerPx)
+{
+    double mean = 0.0;
+    for (float v : metres) mean += v;
+    mean /= (double)metres.size();
+    const double toUnits = 1.0 / (110.0 * kmPerPx * 1000.0);
+    Image img = GenImageColor(res, res, BLANK);
+    ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8);
+    unsigned char* p = (unsigned char*)img.data;
+    for (int y = 0; y < res; y++)
+    {
+        unsigned char* row = p + (size_t)(res - 1 - y) * res * 4;
+        const float* src = metres.data() + (size_t)y * res;
+        for (int x = 0; x < res; x++)
+        {
+            double e = std::clamp((src[x] - mean) * toUnits + 0.5, 0.0, 1.0);
+            double q = std::floor(e * 65535.0 + 0.5);
+            double hi = std::floor(q / 256.0);
+            row[x * 4 + 0] = (unsigned char)hi;
+            row[x * 4 + 1] = (unsigned char)(q - hi * 256.0);
+            row[x * 4 + 2] = 0;
+            row[x * 4 + 3] = 255;
+        }
+    }
+    if (G.reliefTex.id != 0) UnloadTexture(G.reliefTex);
+    G.reliefTex = LoadTextureFromImage(img);
+    SetTextureFilter(G.reliefTex, TEXTURE_FILTER_POINT);
+    SetTextureWrap(G.reliefTex, TEXTURE_WRAP_CLAMP);
+    UnloadImage(img);
 }
 
 // ---------------------------------------------------------------------------
@@ -1763,6 +1815,16 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
     for (int i = 0; i < levelCount; i++)
         out->color[i] = MakeTarget(res, res, true);
 
+    // The district level: the moon's measured relief instead of the
+    // synthesizer, when the tiles are there (relief.h). A window, so one
+    // level and no site.
+    std::vector<float> reliefM;
+    const bool useRelief = levelCount == 1 && site == nullptr
+                        && ladder.km[0] >= RELIEF_MIN_SPAN_KM
+                        && ReliefWindowM(latDeg, lonDeg, ladder.km[0], res, &reliefM);
+    if (useRelief)
+        UploadReliefHeights(reliefM, res, (float)(ladder.km[0] / (double)res));
+
     RenderTexture2D* lumPrev = &G.L0;
     RenderTexture2D* lumCur = &G.L1;
     for (int lvl = 0; lvl < levelCount; lvl++)
@@ -1801,8 +1863,13 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
             else SetV3(G.sharpenSh, "uGainMid", 1.0f, 0.5f, 0.0f);
         });
 
-        // 3. The relief proxy: the macro smoothed.
-        RenderTexture2D& relief = Blur(G.C, G.D, G.B, 2.5f * k);
+        // 3. The relief proxy: the macro smoothed. With measured relief
+        //    it is the albedo instead: blurred until the light the mosaic
+        //    was photographed under is gone, so the relief's is the only
+        //    light on the ground (RELIEF_ALBEDO_BLUR_KM).
+        float reliefBlurPx = (float)(RELIEF_ALBEDO_BLUR_KM * res / levelSpanKm[lvl]);
+        RenderTexture2D& relief = Blur(G.C, G.D, G.B, useRelief ? reliefBlurPx : 2.5f * k);
+        RenderTexture2D& tone = useRelief ? relief : G.C;
 
         // 4. Site geometry and its means; boulders on the sect level.
         float pxPerKm = (float)res / levelSpanKm[lvl];
@@ -1835,7 +1902,7 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
                 boulderAmp = 0.010f * tune.boulderAmp;
             }
         }
-        float amp = 1.0f + 0.7f * lvl;
+        float amp = useRelief ? 0.0f : 1.0f + 0.7f * lvl;
         if (su.enabled)
         {
             Pass(G.meansSh, G.means, [&]() {
@@ -1851,9 +1918,14 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
         if (outFields && lvl == levelCount - 1)
         {
             Pass(G.fieldsSh, out->color[lvl], [&]() {
-                BindHeight(G.fieldsSh, G.C, relief, amp, k, su,
+                BindHeight(G.fieldsSh, tone, relief, amp, k, su,
                            boulderCell, boulderAmp, lvlSalt,
                            frame, kmPerPx);
+                if (useRelief)
+                {
+                    SetTex(G.fieldsSh, "uHeightTex", G.reliefTex);
+                    SetF(G.fieldsSh, "uReliefOn", 1.0f);
+                }
                 SetTex(G.fieldsSh, "uMeans", G.means.texture);
                 float v[2];
                 SeedVec(lvlSalt, 53.0f, v);
@@ -1878,7 +1950,7 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
 
         // The height field, once, when the world stack is on. The fused
         // pass reads it instead of rebuilding the height 69 times a pixel.
-        if (IsSubFloorEnabled())
+        if (IsSubFloorEnabled() && !useRelief)
         {
             Pass(G.hpackSh, G.H, [&]() {
                 BindHeight(G.hpackSh, G.C, relief, amp, k, su,
@@ -1889,10 +1961,11 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
         }
 
         Pass(G.fusedSh, *lumCur, [&]() {
-            BindHeight(G.fusedSh, G.C, relief, amp, k, su,
+            BindHeight(G.fusedSh, tone, relief, amp, k, su,
                        boulderCell, boulderAmp, lvlSalt,
                        frame, kmPerPx);
-            SetTex(G.fusedSh, "uHeightTex", G.H.texture);
+            SetTex(G.fusedSh, "uHeightTex", useRelief ? G.reliefTex : G.H.texture);
+            if (useRelief) SetF(G.fusedSh, "uReliefOn", 1.0f);
             SetTex(G.fusedSh, "uMeans", G.means.texture);
             SetF(G.fusedSh, "uShadowSteps", (float)(int)(22.0f * k / 1.5f));
             float v[2];
@@ -1909,8 +1982,9 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
     }
 
     RestoreGl(saved);
-    TraceLog(LOG_INFO, "TERRAIN: GPU chain at (%.3f, %.3f) %d px submitted in %.1f ms",
-             latDeg, lonDeg, res, (GetTime() - t0) * 1000.0);
+    TraceLog(LOG_INFO, "TERRAIN: GPU chain at (%.3f, %.3f) %d px%s submitted in %.1f ms",
+             latDeg, lonDeg, res, useRelief ? ", real relief," : "",
+             (GetTime() - t0) * 1000.0);
     return true;
 }
 
@@ -1961,6 +2035,7 @@ void UnloadTerrainGpu()
     for (auto& s : G.small) { for (auto& r : s.rt) FreeTarget(r); s.size = 0; }
     FreeTarget(G.means);
     if (G.cropTex.id != 0) { UnloadTexture(G.cropTex); G.cropTex = {}; }
+    if (G.reliefTex.id != 0) { UnloadTexture(G.reliefTex); G.reliefTex = {}; }
     if (G.white.id != 0) { UnloadTexture(G.white); G.white = {}; }
     if (G.ok)
     {

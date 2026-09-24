@@ -25,6 +25,7 @@ set(COLONY_CORE_SOURCES
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
+    TerrainGen/relief.cpp
     TerrainGen/terrain_gpu.cpp
     TerrainGen/lunar_globe.cpp
     TerrainGen/lunar_regions.cpp
@@ -288,6 +289,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         TerrainGen/lunar_dem_shared.cpp
         TerrainGen/lunar_frame.cpp
         TerrainGen/terrain_synthesis.cpp
+        TerrainGen/relief.cpp
         TerrainGen/terrain_gpu.cpp
         TerrainGen/lunar_globe.cpp
         TerrainGen/lunar_regions.cpp
@@ -333,6 +335,7 @@ target_sources(colony_viewtest PRIVATE
     TimeManager/time_manager.cpp
     GameTypes/game_types_loader.cpp
     TerrainGen/terrain_synthesis.cpp
+    TerrainGen/relief.cpp
     TerrainGen/terrain_gpu.cpp
     TerrainGen/lunar_globe.cpp
     TerrainGen/lunar_regions.cpp
@@ -402,6 +405,7 @@ target_sources(lunar_map PRIVATE
     # Level 1 is the orbital globe now: the shader and the shared orbital
     # camera the projection reads.
     TerrainGen/terrain_synthesis.cpp
+    TerrainGen/relief.cpp
     TerrainGen/terrain_gpu.cpp
     TerrainGen/lunar_globe.cpp
     TerrainGen/lunar_regions.cpp
@@ -455,6 +459,9 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
     target_sources(terrain_probe PRIVATE
         "${CMAKE_SOURCE_DIR}/tools/terrainprobe/terrainprobe_main.cpp"
         TerrainGen/terrain_synthesis.cpp
+        TerrainGen/relief.cpp
+        TerrainGen/lola_dem.cpp
+        TerrainGen/lunar_dem_shared.cpp
         TerrainGen/terrain_gpu.cpp
         TerrainGen/lunar_globe.cpp
         TerrainGen/lunar_regions.cpp
@@ -529,6 +536,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         TimeManager/time_manager.cpp
         GameTypes/game_types_loader.cpp
         TerrainGen/terrain_synthesis.cpp
+        TerrainGen/relief.cpp
         TerrainGen/terrain_gpu.cpp
         TerrainGen/lunar_globe.cpp
         TerrainGen/lunar_regions.cpp

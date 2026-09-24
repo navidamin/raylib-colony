@@ -1,4 +1,5 @@
 #include "terrain_synthesis.h"
+#include "relief.h"
 #include "detail_noise.h"
 
 #include <algorithm>
@@ -1553,11 +1554,53 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
                             Field* outHeight = nullptr,
                             Field* outAlbedo = nullptr,
                             bool lastRung = false,
-                            const RoughField* rough = nullptr)
+                            const RoughField* rough = nullptr,
+                            const std::vector<float>* reliefM = nullptr)
 {
     // Pixel-based sizes below are tuned at 300 px; k rescales them so
     // physical feature sizes stay fixed at other resolutions.
     float k = res / 300.0f;
+
+    if (reliefM)
+    {
+        // The district level (relief.h): the moon's measured relief, and
+        // the mosaic blurred until the light it was photographed under is
+        // gone, so the relief's is the only light on the ground. Nothing is
+        // invented -- no grain, no world stack, no speckle; that detail is
+        // for the scales below, where the measurements run out.
+        const double kmPerPx = frame.kmPerPx;
+        GaussianBlur(macro, res, res, (float)(RELIEF_ALBEDO_BLUR_KM / kmPerPx));
+        double mean = 0.0;
+        for (float v : *reliefM) mean += v;
+        mean /= (double)reliefM->size();
+        const double toUnits = 1.0 / (110.0 * kmPerPx * 1000.0);
+        Field height((size_t)res * res);
+        for (size_t i = 0; i < height.size(); i++)
+            height[i] = (float)(((*reliefM)[i] - mean) * toUnits);
+        if (outHeight && outAlbedo)
+        {
+            *outHeight = std::move(height);
+            *outAlbedo = macro;
+            return;
+        }
+        const float z = 110.0f;
+        Field hs = Hillshade(height, res, z, 0.0f, tune.sunAz, tune.sunAlt);
+        float flatRef = std::sin(tune.sunAlt * (float)DEG2RAD);
+        Field light;
+        if (tune.shadows == 0) light.assign((size_t)res * res, 1.0f);
+        else light = CastShadows(height, res, z, 22.0f * k, 1.5f,
+                                 tune.sunAz, tune.sunAlt, 0.8f);
+        for (size_t i = 0; i < macro.size(); i++)
+        {
+            float rel = std::clamp(hs[i] / flatRef, 0.0f, 1.6f);
+            float lum = macro[i] * ((1.0f - tune.relWeight) + tune.relWeight * rel)
+                        * ((1.0f - tune.lightWeight) + tune.lightWeight * light[i]);
+            lum = std::clamp(lum, 0.0f, 1.0f);
+            float sc = lum * lum * (3.0f - 2.0f * lum);
+            macro[i] = std::clamp(sc * tune.sCurve + lum * (1.0f - tune.sCurve), 0.0f, 1.0f);
+        }
+        return;
+    }
     // The world-anchored stack runs only on the rung being LOOKED at.
     // Each rung's macro is the LIT output of the rung above, and
     // formRelief reads that shading back as height -- so relief carved at
@@ -1916,6 +1959,13 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
 
     Field lum = CropMacro(latDeg, lonDeg, spans[0], res);
     SharpenAdaptive(lum, res);
+
+    // The district level: measured relief instead of the synthesizer, when
+    // the tiles are there (relief.h). A window: one level, no site.
+    std::vector<float> reliefM;
+    const bool useRelief = levelCount == 1 && site == nullptr
+                        && levelSpanKm[0] >= RELIEF_MIN_SPAN_KM
+                        && ReliefWindowM(latDeg, lonDeg, levelSpanKm[0], res, &reliefM);
     // The fields belong to the LAST level; every level above it still
     // has to be lit, because the next one down is a crop of its output.
     const bool wantFields = (outHeight != nullptr && outAlbedo != nullptr);
@@ -1933,7 +1983,7 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                                        0x9E3779B9u * (uint32_t)lvl),
                         1.0f + 0.7f * lvl, tune, boulderBase, siteForLevel[lvl],
                         (float)res / levelSpanKm[lvl], oh, oa, lastRung,
-                        &rough);
+                        &rough, useRelief ? &reliefM : nullptr);
     };
 
     auto emit = [&](int level, const Field& src)

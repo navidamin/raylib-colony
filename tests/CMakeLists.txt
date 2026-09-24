@@ -27,6 +27,7 @@ add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/lunar_dem_shared.cpp
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/lunar_frame.cpp
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/terrain_synthesis.cpp
+    ${CMAKE_SOURCE_DIR}/src/TerrainGen/relief.cpp
     # The site-selection controller and what it reads: pure geometry and
     # data, so it tests without a display.
     ${CMAKE_SOURCE_DIR}/src/TerrainGen/survey_cursor.cpp

@@ -49,6 +49,7 @@
 #include "lunar_globe.h"
 #include "lunar_regions.h"
 #include "terrain_gpu.h"
+#include "relief.h"
 #include "survey_hints.h"
 #include "lunar_dem_shared.h"
 #include "region_identity.h"
@@ -618,6 +619,7 @@ struct TerrainScene
     double chainMs = 0.0;            // what it cost to make
     float chainSpanKm = 0.0f;        // the ground it actually covers
     float chainReliefM = 0.0f;       // what the height actually added
+    bool chainReliefPending = false; // a district built before its relief arrived
     Shader shader = { 0 };
     bool nearside = true;
     double nativeKm = 0.0;         // finest data actually feeding this window
@@ -1035,6 +1037,12 @@ struct ChainLayer
     float reliefRms = 0.0f;
     double buildMs = 0.0;
     bool onGpu = false;
+    // The district: heightM is the moon's measured height (relief.h), which
+    // replaces the window's elevation instead of adding to it.
+    bool measured = false;
+    // Built before the window's relief tiles had all arrived (the browser),
+    // so built without them; built again once they are in.
+    bool reliefPending = false;
 };
 
 struct ChainCacheEntry
@@ -1186,6 +1194,20 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
     // chain is here for.
     double kmPerPx = spanKm / (double)R;
     float sigmaPx = (float)std::max(1.0, 0.5 * nativeKm / kmPerPx);
+
+    // The district is not synthesized: it is the moon's measured relief
+    // (relief.h), which is the window's height outright -- LOLA and what
+    // LOLA is too coarse to see. Not band-limited and scaled to a slope
+    // like a synthesis, and not added to this window's LOLA, whose own
+    // 1.9 km facets it already contains: added, they showed twice, as a
+    // checkerboard in every deep crater.
+    std::vector<float> measured;
+    out->measured = spanKm >= RELIEF_MIN_SPAN_KM
+                 && ReliefWindowM(lat, lon, spanKm, R, &measured);
+    if (out->measured) fields.height = std::move(measured);
+    out->reliefPending = spanKm >= RELIEF_MIN_SPAN_KM
+                      && !ReliefWindowSettled(lat, lon, spanKm);
+
     std::vector<float> coarse = fields.height;
     BoxBlurField(coarse, R, R, sigmaPx);
 
@@ -1224,8 +1246,11 @@ static bool BuildChainLayer(double lat, double lon, double spanKm,
     double rms = 0.0;
     for (size_t i = 0; i < out->heightM.size(); i++)
     {
-        float add = (fields.height[i] - coarse[i]) * scaleM;
-        out->heightM[i] = add;
+        // Measured: the height itself; its reliefRms is still what it has
+        // below the data floor, to compare with a synthesis.
+        float add = out->measured ? fields.height[i] - coarse[i]
+                                  : (fields.height[i] - coarse[i]) * scaleM;
+        out->heightM[i] = out->measured ? fields.height[i] : add;
         rms += (double)add * add;
     }
     out->reliefRms = (float)std::sqrt(rms / out->heightM.size());
@@ -1260,7 +1285,20 @@ static const ChainLayer* ChainLayerFor(double lat, double lon, double spanKm,
             && std::fabs(e.lonDeg - lon) < 1e-9
             && std::fabs(e.spanKm - spanKm) < 1e-6
             && std::fabs(e.strength - strength) < 1e-6)
+        {
+            // Built while its relief tiles were on their way: now they are
+            // in, build it again from them -- unless they are too few.
+            if (e.layer.reliefPending && ReliefWindowSettled(lat, lon, spanKm))
+            {
+                e.layer.reliefPending = false;
+                if (ReliefWindowCovered(lat, lon, spanKm))
+                {
+                    g_chainCache.erase(g_chainCache.begin() + (&e - g_chainCache.data()));
+                    break;
+                }
+            }
             return &e.layer;
+        }
     }
     ChainCacheEntry e;
     e.latDeg = lat; e.lonDeg = lon; e.spanKm = spanKm; e.strength = strength;
@@ -1491,7 +1529,8 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
             float lo = 1e30f, hi = -1e30f;
             for (size_t i = 0; i < scene.window.elevationM.size(); i++)
             {
-                scene.window.elevationM[i] += h[i];
+                if (layer->measured) scene.window.elevationM[i] = h[i];
+                else scene.window.elevationM[i] += h[i];
                 lo = std::min(lo, scene.window.elevationM[i]);
                 hi = std::max(hi, scene.window.elevationM[i]);
             }
@@ -1502,6 +1541,7 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
             scene.window.maxElevationM = hi;
             scene.chainReliefM = layer->reliefRms;
             scene.chainMs = layer->buildMs;
+            scene.chainReliefPending = layer->reliefPending;
 
             Image img = GenImageColor(texRes, texRes, BLACK);
             ImageFormat(&img, PIXELFORMAT_UNCOMPRESSED_GRAYSCALE);
@@ -1521,9 +1561,9 @@ static bool BuildScene(const MapOptions& options, const LolaDem& dem,
 
             std::fprintf(stderr,
                          "CHAIN: %.1f km layer at %d px -> rung %d  "
-                         "(relief %.1f m rms, %s)\n",
+                         "(%srelief %.1f m rms, %s)\n",
                          scene.chainSpanKm, layer->res, texRes,
-                         scene.chainReliefM,
+                         layer->measured ? "real " : "", scene.chainReliefM,
                          built ? TextFormat("built in %.0f ms on the %s",
                                             layer->buildMs,
                                             layer->onGpu ? "GPU" : "CPU")
@@ -3104,6 +3144,16 @@ static void UpdateSiteSelect(AppState& app)
         && SurveyZoomMin(ctl.Level()) < 1.0)
     {
         BuildWideWindow(app);
+    }
+
+    // The district's relief tiles arrived after its layer was built (the
+    // browser fetches them a tile at a time): build it again from them.
+    if (!app.sceneDirty && app.scene.chainReliefPending && ctl.Level() > 0
+        && ReliefWindowSettled(app.options.pickLat, app.options.pickLon,
+                               app.scene.chainSpanKm))
+    {
+        app.scene.chainReliefPending = false;
+        app.sceneDirty = true;
     }
 
     if (app.sceneDirty)

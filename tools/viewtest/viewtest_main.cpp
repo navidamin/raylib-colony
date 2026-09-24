@@ -98,8 +98,9 @@ static ViewNotes NotesForView(int level, bool hasColony)
         return {
             "DISTRICT", "200 km window, 25 km cursor",
             {
-                {"OK",   "The chain's ground for a 200 km window at"},
-                {"OK",   "  the claimed place - WHICH MIX of ground."},
+                {"OK",   "The moon's real relief (Kaguya stereo, 237 m)"},
+                {"OK",   "  lit by the game's sun - WHICH MIX of ground."},
+                {"OK",   "  No synthesized detail at this scale."},
                 {"OK",   "The cursor is the next rung's window: it"},
                 {"OK",   "  snaps to a 25 km grid; click descends."},
                 {"OK",   "Level card: the cursor's mean slope,"},

@@ -34,12 +34,20 @@
 //                 when a level's synthesis is built, "CHAIN: layer off -- ..."
 //                 when it is refused;
 //   colony_game:  "TERRAIN: <span> km window at <res> px, CPU|GPU, regolith on|OFF,
-//                 <ms> ms" when a level's window is built.
+//                 <ms> ms" when a level's window is built -- "real relief" in
+//                 place of the regolith when the district is drawn from the
+//                 moon's measured heights, which the game must reach too.
+//
+// The relief tiles are served at /relief/ from data/relief, as the deploy
+// serves them beside the pages.
 
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+const RELIEF_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/relief');
 
 const [dir, target = 'lunar_map', mode = ''] = process.argv.slice(2);
 const game = target === 'colony_game';
@@ -63,10 +71,13 @@ catch {
 }
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript',
-                '.wasm': 'application/wasm', '.data': 'application/octet-stream' };
+                '.wasm': 'application/wasm', '.data': 'application/octet-stream',
+                '.jpg': 'image/jpeg' };
 const server = http.createServer((req, res) => {
-  const f = path.join(dir, decodeURIComponent(req.url.split('?')[0]));
-  if (!f.startsWith(path.resolve(dir)) && !f.startsWith(dir)) { res.writeHead(403); res.end(); return; }
+  const rel = decodeURIComponent(req.url.split('?')[0]);
+  const root = rel.startsWith('/relief/') ? RELIEF_DIR : dir;
+  const f = path.join(root, rel.startsWith('/relief/') ? rel.slice('/relief/'.length) : rel);
+  if (!f.startsWith(path.resolve(root)) && !f.startsWith(root)) { res.writeHead(403); res.end(); return; }
   fs.readFile(f, (err, buf) => {
     if (err) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream' });
@@ -86,7 +97,7 @@ tab.on('pageerror', e => log.push('PAGEERROR ' + e.message));
 
 // What each page says when it builds a level's ground, and when it refuses.
 const built = game
-  ? /TERRAIN: ([\d.]+) km window at (\d+) px, (CPU|GPU), regolith (on|OFF), (\d+) ms/
+  ? /TERRAIN: ([\d.]+) km window at (\d+) px, (CPU|GPU), (regolith on|regolith OFF|real relief), (\d+) ms/
   : /CHAIN: ([\d.]+) km layer at (\d+) px .* built in (\d+) ms/;
 const refused = game ? /TERRAIN: [\d.]+ km window .* regolith OFF/ : /CHAIN: layer off/;
 const ready = game ? /TERRAIN: WAC loaded/ : /CHAIN: mosaic warmed/;
@@ -135,6 +146,14 @@ try {
   })();
   if (!district && !log.some(l => refused.test(l)))
     throw new Error('the district level never built its ground (no level over 100 km)');
+  // The game draws the district from the moon's real relief: built first
+  // without it while the tiles arrive, then again with it.
+  if (game) {
+    const relief = /TERRAIN: ([\d.]+) km window at (\d+) px, (CPU|GPU), real relief, (\d+) ms/;
+    const hit = await waitFor(relief, 120000, 'the district to be drawn from real relief', atGlobe);
+    const [, span, res, by, ms] = hit.match(relief);
+    console.log(`district: ${span} km window at ${res} px on the ${by}, real relief, ${ms} ms`);
+  }
   const before = log.length;
   await tap(0.50, 0.50);                                  // descend to the site
   const end = deadline(240000);

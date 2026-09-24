@@ -131,6 +131,12 @@ jobs:
         # page here used to walk its own 50 km -> 1 km descent; it was a
         # third ladder beside the game's and lunar_map's, and it went --
         # graveyard 10.)
+        # The moon's real relief at /relief/: the district level's heights,
+        # one 4 x 4 degree JPEG per tile, fetched by the game and lunar_map
+        # a tile at a time as a window needs them (src/TerrainGen/relief.h,
+        # tools/relief/). Shared by all three pages; each is told where.
+        cp -r data/relief deploy/relief
+        [ "$(ls deploy/relief | wc -l)" -gt 1000 ] || { echo "relief tiles missing"; exit 1; }
         mkdir -p deploy/regolith
         cp prototypes/planet_visuals/regolith_craters.html  deploy/regolith/index.html
         cp prototypes/planet_visuals/regolith_chain.js      deploy/regolith/
@@ -158,9 +164,11 @@ jobs:
           # tag is rewritten here; the shell's locateFile adds the same
           # to the .wasm and .data (src/minshell.html).
           sha=$(git rev-parse --short HEAD)
-          sed -i -e "s#<head>#<head><script>window.COLONY_ASSET_QS='?v=${sha}';</script>#" \
+          relief=$(case "$page" in ladder/walk/*) echo "../../relief/";; *) echo "../relief/";; esac)
+          sed -i -e "s#<head>#<head><script>window.COLONY_ASSET_QS='?v=${sha}';window.COLONY_RELIEF_URL='${relief}';</script>#" \
                  -e "s#src=\"\?\([a-z_]*\)\.js\"\?\([ >]\)#src=\"\1.js?v=${sha}\"\2#" "deploy/$page"
           grep -q "COLONY_ASSET_QS='?v=${sha}'" "deploy/$page" && grep -q "\.js?v=${sha}\"" "deploy/$page" \
+            && grep -q "COLONY_RELIEF_URL='${relief}'" "deploy/$page" \
             || { echo "game files not versioned in $page"; exit 1; }
         done
 
