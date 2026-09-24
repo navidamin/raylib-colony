@@ -2,6 +2,13 @@
 
 Two prompts. Run phase 1 once. Run phase 2 for every module, forever.
 
+> **Phase 1 is done**, and phase 2 has since been turned into a standing
+> protocol: [`docs/guides/js-graphics-port.md`](guides/js-graphics-port.md),
+> loaded automatically by the `port-js-graphics` project skill whenever
+> Claude is handed JS graphics. The prompts below are kept as the original
+> brief. For a new port, "port `js/<file>` following the protocol" is
+> enough.
+
 ---
 
 ## Phase 1 — build the shim (once)

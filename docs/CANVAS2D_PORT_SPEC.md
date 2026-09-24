@@ -7,6 +7,11 @@ This file is the source of truth. If a port looks flatter, dimmer or
 more geometric than the JS reference, the cause is almost always a rule
 below that was skipped.
 
+**The step-by-step procedure for a new port** (intake, scan, inventory,
+shim, harness, port, gate, wire-in, record) is
+[`docs/guides/js-graphics-port.md`](guides/js-graphics-port.md). This file
+is the *what*; that one is the *order*.
+
 ---
 
 ## 0. The core problem
@@ -382,6 +387,19 @@ if a module's row comes back much shorter, it skimmed instead of grepping.
 | `measureText` | 1 | 0 | 0 | 5 | 6 |
 | `drawImage` | 0 | 0 | 1 | 1 | 2 |
 | `createPattern` | 1 | 0 | 0 | 0 | 1 |
+
+**Three corrections to this table**, each verified by re-counting
+(`tools/jsport/gapscan.py` reproduces the corrected figures):
+
+- The `ellipse` row splits **2/1/0/2**, not 4/1/0/0. Two Dashboard sites
+  were attributed to ToolRack. The total of 5 is right.
+- The glow and `globalAlpha` rows count **code sites**, not textual
+  occurrences: Holo3D's block stroke is one site called with five blur
+  values. A grep will read high against those two rows, and that's
+  expected.
+- There are **15** `glowOn` call sites (14 ToolRack, 1 Dashboard), not 16.
+  The 16 came from `grep 'glowOn(ctx'`, which also matches the helper's
+  own definition. The glow total is 26, not 27.
 
 Two `drawImage` sites, and they are different things:
 

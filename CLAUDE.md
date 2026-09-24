@@ -289,6 +289,14 @@ to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
 UI modules are ported from procedural Canvas 2D JS in `js/`. This is a
 1:1 API translation, never a redesign.
 
+**When you are handed JS graphics** (a `.js`/`.html` that draws with Canvas
+2D) to bring into the game, follow the protocol in
+[`docs/guides/js-graphics-port.md`](docs/guides/js-graphics-port.md):
+intake → `tools/jsport/gapscan.py` → inventory (show the user) → close
+shim gaps with tests → diff harness → port → under 2% → wire in → record.
+The `port-js-graphics` project skill (`.claude/skills/`) loads it. The rules
+below are the standing ones.
+
 - Read [`docs/CANVAS2D_PORT_SPEC.md`](docs/CANVAS2D_PORT_SPEC.md) before
   touching anything in `src/ui/`.
 - All drawing goes through [`src/ui/c2d.h`](src/ui/c2d.h). Do not call raylib
@@ -315,16 +323,9 @@ UI modules are ported from procedural Canvas 2D JS in `js/`. This is a
   or the path is dashed. Stacking put the rack's dashed ellipse at 0.81 in
   the gaps where the reference reads 0.16.
 
-Two corrections to the spec's own S3.5 count table, verified by grepping all
-four modules (7 of its 10 rows, and every total, match exactly):
-
-- The `ellipse` row splits 4/1/0/0 across ToolRack/HoloBlock/Holo3D/Dashboard.
-  Actual is 2/1/0/2 -- two Dashboard sites are attributed to ToolRack. The
-  total of 5 is right.
-- The glow and `globalAlpha` rows count **code sites**, not textual
-  occurrences: Holo3D's block stroke is one site called with five blur
-  values. Grep counts will read high against those two rows and that is
-  expected, not a sign you over-grepped.
+The spec's §3.5 count table carries three corrections (ellipse split,
+code sites vs occurrences, 15 not 16 `glowOn` calls). They're written into
+§3.5 itself, and `gapscan.py` reproduces the corrected figures.
 
 The shim's own acceptance tests are `tools/c2dtest/c2dtest.sh` — run them
 after any change to `c2d.c`. What each of the twelve gaps costs when it is
@@ -425,6 +426,7 @@ extraction UI. Read the relevant one **before** starting, not after.
 |-------|-----------|
 | [`docs/guides/ui-panels.md`](docs/guides/ui-panels.md) | Building or restyling any module panel — design tokens, semantic colours, widget helpers, control semantics, touch feedback, IMGUI discipline |
 | [`docs/guides/module-architecture.md`](docs/guides/module-architecture.md) | Starting a new module or unit — **a 13-aspect design brief to work through before writing code** (loop, contract, multi-scale control, tier arc, economy, friction, decision texture, scale, AI hook), then the implementation shape: engine/facade structure, **declaring units at data boundaries**, tier tables, hero visuals |
+| [`docs/guides/js-graphics-port.md`](docs/guides/js-graphics-port.md) | **You are given JS graphics to put in the game** — the nine-step port protocol, the diff harness recipe, heatmap failure signatures, 16 traps with their commits, and the port registry |
 | [`docs/guides/feature-completeness.md`](docs/guides/feature-completeness.md) | You think a feature is done — the six questions that catch "engine-implemented but not player-reachable" |
 | [`docs/dev-workflow.md`](docs/dev-workflow.md) | Any UI or gameplay work — the testing instruments and the working loop |
 | [`docs/web-deploy-mobile.md`](docs/web-deploy-mobile.md) | Touching `minshell.html`, the Pages deploy, or the phone build |
@@ -449,6 +451,7 @@ without a display:
 | `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so the ground is reproducible. The **pixels are not** — animation eases on frame time, so two runs differ; judge by looking, not by diffing (see `docs/dev-workflow.md`). |
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. `drive.py` plays it headlessly with a **real pointer** and captures the OS cursor too — use it for anything hover-, click-sequence- or cursor-driven. |
 | `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
+| `tools/jsport/` | `gapscan.py`: enumerate every Canvas 2D feature in a JS source and flag what the c2d shim lacks — step 1 of porting JS graphics |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
 | `tools/shell-test/` | Canvas-fit regression test for `minshell.html`. Run after any shell change. |
 
