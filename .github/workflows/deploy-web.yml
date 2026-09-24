@@ -5,12 +5,21 @@ on:
   push:
     # One repo has one Pages site, and the excavation branch deploys to it
     # too; every deploy publishes the WHOLE site, and each branch carries
-    # the other's folders from its last good deploy. Who owns what:
-    #   this branch   /  /viewtest/  /ladder/  /lunarmap/  /regolith/
-    #   excavation    /playtest/  /extraction/  /excavation/
-    # (Until 2026-09-24 the excavation branch also built / and /viewtest/
-    # from its own month-old game, and whichever branch pushed last owned
-    # them -- a playtest of this branch's ladder turned out to be that.)
+    # the other's folders from its last good deploy. What this branch
+    # publishes:
+    #   /           an index of the playtests (tools/pages/index.html)
+    #   /ladder/    the game; /ladder/walk/ the game with notes
+    #   /lunarmap/  /regolith/
+    # and carries the excavation branch's /playtest/ and /extraction/.
+    # /viewtest/ is retired (2026-09-24): it was /ladder/walk/ twice over.
+    #
+    # STILL CONTESTED: the excavation branch builds its own month-old game
+    # at / and its old Planet-view walk at /viewtest/, so after one of its
+    # deploys those two addresses are its build, not this one's -- a
+    # playtest of this branch's ladder on 2026-09-24 turned out to be
+    # that. /ladder/ is never contested (no other branch builds one), and
+    # every page names its build in its tab title. Ending it needs that
+    # branch's deploy changed, or the branches merged.
     # This branch is listed while the site-selection playtest is being
     # tried on a phone. (lunarmap-wiring-site-selection was merged into it
     # on 2026-09-23 and is no longer listed.)
@@ -89,30 +98,20 @@ jobs:
     - name: Prepare deployment directory
       run: |
         mkdir -p deploy
-        cp build/src/colony_game.html deploy/index.html
-        cp build/src/colony_game.js deploy/colony_game.js
-        cp build/src/colony_game.wasm deploy/colony_game.wasm
-        # .data file contains preloaded assets
-        if [ -f build/src/colony_game.data ]; then
-          cp build/src/colony_game.data deploy/colony_game.data
-        fi
-        # This branch's game at /ladder/ too, and its walk at /ladder/walk/.
-        # / and /viewtest/ can be replaced by any branch that deploys; no
-        # other branch builds a /ladder/, so their deploys carry this one
-        # instead of overwriting it. The address for playtesting the ladder.
+        # / is the index of the playtests: what each address is and which
+        # branch builds it. Not a game -- / is the address another branch's
+        # deploy can replace, so a game there is the sign that it has.
+        cp tools/pages/index.html deploy/index.html
+        sed -i -e "s|BUILD_STAMP|${STAMP}|g" -e "s|BUILD_SHA|$(git rev-parse --short HEAD)|g" deploy/index.html
+        grep -q "BUILD_STAMP\|BUILD_SHA" deploy/index.html && { echo "index not stamped"; exit 1; } || true
+        # The game at /ladder/, its walk at /ladder/walk/. No other branch
+        # builds a /ladder/, so their deploys carry this one instead of
+        # overwriting it. The address for playtesting the ladder.
         mkdir -p deploy/ladder/walk
         cp build/src/colony_game.html deploy/ladder/index.html
         cp build/src/colony_game.js build/src/colony_game.wasm build/src/colony_game.data deploy/ladder/
         cp build/src/colony_viewtest.html deploy/ladder/walk/index.html
         cp build/src/colony_viewtest.js build/src/colony_viewtest.wasm build/src/colony_viewtest.data deploy/ladder/walk/
-        # The game walk at /viewtest/ (annotated: the level ladder, then Colony -> Sect)
-        mkdir -p deploy/viewtest
-        cp build/src/colony_viewtest.html deploy/viewtest/index.html
-        cp build/src/colony_viewtest.js deploy/viewtest/colony_viewtest.js
-        cp build/src/colony_viewtest.wasm deploy/viewtest/colony_viewtest.wasm
-        if [ -f build/src/colony_viewtest.data ]; then
-          cp build/src/colony_viewtest.data deploy/viewtest/colony_viewtest.data
-        fi
         # Real-elevation lunar map (LOLA DEM) at /lunarmap/
         mkdir -p deploy/lunarmap
         cp build/src/lunar_map.html deploy/lunarmap/index.html
@@ -139,12 +138,15 @@ jobs:
         sed -i "s|BUILD_STAMP|${STAMP}|" deploy/regolith/index.html
         grep -q BUILD_STAMP deploy/regolith/index.html && { echo "stamp not applied"; exit 1; } || true
         # And into every built page's tab title, so the tab says whose build
-        # it is before the page has even loaded.
-        for page in index.html ladder/index.html ladder/walk/index.html viewtest/index.html lunarmap/index.html; do
+        # it is before the page has even loaded. The names are the window
+        # titles: once a page starts, its window title replaces the tab
+        # title, stamped the same way (StampedTitle, src/build_stamp.h).
+        # (The index at / carries the stamp in its own title already.)
+        for page in ladder/index.html ladder/walk/index.html lunarmap/index.html; do
           name=$(case "$page" in
-            index.html|ladder/index.html) echo "Colony";;
-            ladder/walk/index.html|viewtest/index.html) echo "Colony walk";;
-            lunarmap/index.html) echo "Lunar map";; esac)
+            ladder/index.html) echo "Colony - Planet Colonization Game";;
+            ladder/walk/index.html) echo "Colony - Game Walk";;
+            lunarmap/index.html) echo "lunar_map - LOLA elevation";; esac)
           sed -i "s|<title>[^<]*</title>|<title>${name} - ${STAMP}</title>|" "deploy/$page"
           grep -q "<title>${name} - ${STAMP}</title>" "deploy/$page" || { echo "title stamp not applied to $page"; exit 1; }
         done
@@ -174,6 +176,12 @@ jobs:
           tar -xf _other/artifact.tar -C _other_x || continue
           for d in _other_x/*/; do
             name=$(basename "$d")
+            # Retired here, so not taken back from the other branch either:
+            # a folder one branch stops publishing otherwise returns from
+            # the other's last deploy, which carried it from this one.
+            case "$name" in
+              viewtest) echo "not carrying /$name/ (retired: use /ladder/walk/)"; continue;;
+            esac
             if [ ! -e "deploy/$name" ]; then
               echo "carrying /$name/ from $BR"
               cp -r "$d" "deploy/$name"

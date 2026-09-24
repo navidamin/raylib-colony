@@ -53,6 +53,7 @@
 #include "lunar_dem_shared.h"
 #include "region_identity.h"
 #include "site_selection_constants.h"
+#include "build_stamp.h"
 #include "site_selection_controller.h"
 #include "site_verdict.h"
 #include "survey_input.h"
@@ -3890,7 +3891,7 @@ int main(int argc, char** argv)
 
     SetTraceLogLevel(LOG_WARNING);
     InitWindow(app.options.width, app.options.height,
-               "lunar_map - LOLA elevation");
+               StampedTitle("lunar_map - LOLA elevation"));
 
     // The chain's first build was dominated by decoding one 8192x4096
     // JPEG, not by any chain work -- a pause in the middle of a descent

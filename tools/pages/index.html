@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Colony playtests - BUILD_STAMP</title>
+<!--
+  The front page of the Pages site: what each address is, and which branch
+  builds it. Deployed at / by .github/workflows/deploy-web.yml, which
+  replaces BUILD_STAMP (branch, commit, time) and BUILD_SHA (the commit,
+  as a cache-buster on every link, so a tap always fetches the build
+  this page was published with).
+
+  It is a list, not a game, on purpose: / is the address another branch's
+  deploy can replace, so if it ever shows a game instead of this page,
+  that is another branch's build -- the one to play is /ladder/.
+-->
+<style>
+  :root {
+    --bg: #0b0d14; --card: #141926; --line: #2c3a58; --text: #e6e9f2;
+    --dim: #9aa4ba; --accent: #8fb0ff; --own: #7fd3a0; --other: #e0b070;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 16px 40px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .02em; }
+  .stamp { color: var(--dim); font: 12px/1.4 ui-monospace, Menlo, monospace;
+    margin: 0 0 22px; word-break: break-all; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--dim); margin: 28px 0 10px; font-weight: 600; }
+  a.card { display: block; text-decoration: none; color: inherit;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; margin: 0 0 10px; }
+  a.card:hover, a.card:focus { border-color: var(--accent); outline: none; }
+  a.card:active { background: #1b2233; }
+  .row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .name { font-size: 18px; font-weight: 600; color: var(--accent); }
+  .path { color: var(--dim); font: 13px ui-monospace, Menlo, monospace; }
+  .who { margin-left: auto; font-size: 12px; padding: 1px 8px; border-radius: 10px;
+    border: 1px solid currentColor; white-space: nowrap; }
+  .who.own { color: var(--own); }
+  .who.other { color: var(--other); }
+  .what { color: var(--dim); margin-top: 4px; font-size: 15px; }
+  .note { color: var(--dim); font-size: 14px; border-top: 1px solid var(--line);
+    margin-top: 28px; padding-top: 14px; }
+  .note b { color: var(--text); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Colony playtests</h1>
+  <p class="stamp">this page: BUILD_STAMP</p>
+
+  <h2>The game</h2>
+  <a class="card" href="ladder/?v=BUILD_SHA">
+    <div class="row"><span class="name">Play</span><span class="path">/ladder/</span>
+      <span class="who own">lunar-elevation</span></div>
+    <div class="what">Found a colony through the level ladder &mdash; Globe &rarr;
+      District (200&nbsp;km) &rarr; Site (25&nbsp;km) &mdash; then run it in the
+      Colony and Sect views. Tap to start.</div>
+  </a>
+  <a class="card" href="ladder/walk/?v=BUILD_SHA">
+    <div class="row"><span class="name">Play, with notes</span><span class="path">/ladder/walk/</span>
+      <span class="who own">lunar-elevation</span></div>
+    <div class="what">The same game, with playtest notes on every screen and tabs
+      to jump between Orbital, District, Colony and Sect.</div>
+  </a>
+
+  <h2>Instruments</h2>
+  <a class="card" href="lunarmap/?v=BUILD_SHA">
+    <div class="row"><span class="name">Lunar map</span><span class="path">/lunarmap/</span>
+      <span class="who own">lunar-elevation</span></div>
+    <div class="what">The level ladder as a measuring tool, over NASA's LOLA
+      elevation. Not the game.</div>
+  </a>
+  <a class="card" href="regolith/?v=BUILD_SHA">
+    <div class="row"><span class="name">Crater bench</span><span class="path">/regolith/</span>
+      <span class="who own">lunar-elevation</span></div>
+    <div class="what">A design prototype: the terrain synthesis beside the real
+      imagery over eight regions, with a free zoom. Not a level.</div>
+  </a>
+
+  <h2>Sandboxes</h2>
+  <a class="card" href="playtest/?v=BUILD_SHA">
+    <div class="row"><span class="name">Prospecting</span><span class="path">/playtest/</span>
+      <span class="who other">excavation</span></div>
+    <div class="what">The prospecting module on its own.</div>
+  </a>
+  <a class="card" href="extraction/?v=BUILD_SHA">
+    <div class="row"><span class="name">Extraction unit</span><span class="path">/extraction/</span>
+      <span class="who other">excavation</span></div>
+    <div class="what">The whole extraction unit on its own.</div>
+  </a>
+
+  <p class="note">Every page names the build that made it, in its tab title
+    (and the game on its title screen). Two branches deploy to this one
+    site. <b>If this address ever shows a game instead of this list</b>, that
+    is the excavation branch's older build &mdash; play at <b>/ladder/</b>.</p>
+</main>
+</body>
+</html>

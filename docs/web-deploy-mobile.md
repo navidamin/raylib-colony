@@ -13,13 +13,17 @@ Pages deploy.
   `--preload-file src/assets@src/assets`.
 - `.github/workflows/deploy-web.yml` builds the pages and publishes them
   to GitHub Pages. Each Pages deploy replaces the whole site, and two
-  branches deploy, so each builds only its own folders and carries the
-  other's from its last good deploy: `claude/lunar-elevation-lola-dem-1dcdtj`
-  owns `/` (the game), `/viewtest/`, `/ladder/` (the same game again, at
-  an address no other branch builds — the one to hand out),
-  `/ladder/walk/`, `/lunarmap/`, `/regolith/`;
-  `claude/excavation-module-design-jhp3v1` owns `/playtest/`,
-  `/extraction/` and `/excavation/` (its own copy of the game).
+  branches deploy, so each copies the other's folders from its last good
+  deploy. `claude/lunar-elevation-lola-dem-1dcdtj` publishes `/` (an index
+  of the playtests, `tools/pages/index.html`), `/ladder/` (the game — the
+  address to hand out, since no other branch builds one), `/ladder/walk/`,
+  `/lunarmap/` and `/regolith/`; `claude/excavation-module-design-jhp3v1`
+  publishes `/playtest/` and `/extraction/` — and also its own month-old
+  game at `/` and an old walk at `/viewtest/`, so those two addresses are
+  its build after each of its deploys. `/viewtest/` is retired on this
+  branch (not published, and skipped when copying the other branch's
+  folders). A folder one branch stops publishing otherwise comes back
+  from the other's last deploy; retiring one needs that skip.
 - Every deployed page names its build: the browser-tab title, and the
   game's title screen (`COLONY_BUILD_STAMP`, `src/build_stamp.h`), read
   `<branch> <commit> <time> UTC`. A page without it is not from this

@@ -114,7 +114,7 @@ part arithmetic cannot answer.
 
 The deploy workflow (.github/workflows/deploy-web.yml) also builds this
 tool with Emscripten and publishes it at **/lunarmap/**, alongside the
-game and the game walk (/viewtest/), preloading the LOLA DEM + WAC albedo
+game (/ladder/) and the game walk (/ladder/walk/), preloading the LOLA DEM + WAC albedo
 (~45 MB download). The browser has no argv, so **the web build comes up
 in `--site`**: opening /lunarmap/ on a phone lands straight in site
 selection. Shading avoids float textures and uses a GLSL ES 100 shader,

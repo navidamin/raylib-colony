@@ -1,6 +1,6 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-09-23
+**Last Updated:** 2026-09-24
 **Current Sprint:** Terrain Synthesis & the Site-Selection Descent
 **Timeline:** Phase 0 graphics track — the planet surface and how a colony is sited on it
 
@@ -55,6 +55,23 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 
 ---
 
+## Recent Completions (2026-09-24)
+
+### The Playtest Site Says Whose Build It Is ✅ COMPLETE
+
+- A playtest of the ladder showed the old Planet view and grid picker:
+  it was the excavation branch's month-old game, which that branch
+  still publishes at `/` on the shared Pages site.
+- `/ladder/` (the game) and `/ladder/walk/` (with notes) — no other
+  branch builds them, so they are always this branch's.
+- `/` is now an index of the playtests (`tools/pages/index.html`): what
+  each address is and which branch builds it. `/viewtest/` retired.
+- Every page names its build (branch, commit, time) in its tab title;
+  the game also on its title screen.
+- **Still open:** the excavation branch's deploy still builds `/` and
+  `/viewtest/` from its old game; changing it needs that branch (its
+  session, or a permission rule). The real end is merging the branches.
+
 ## Recent Completions (2026-09-23)
 
 ### One Ladder, in the Game, With Its Ground on the Web ✅ COMPLETE
@@ -76,7 +93,7 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
   site level in `lunar_map`, the game, and the game with `?terrain=gpu`,
   and fails if the regolith is missing. It was seen failing on the bug.
 - The title screen starts on a tap as well as ENTER, so a tablet can
-  play the game at `/`.
+  play the game (now at `/ladder/`, see 2026-09-24).
 - **Still open:** the iPad itself — heap on the shell badge, and how the
   CPU-built site level feels there (~0.5 s per level arrival measured in
   a software browser).

@@ -56,16 +56,18 @@ without either knowing, and a bug fixed on one was still live on the
 other.
 
 **The Pages site is shared.** Every deploy publishes the whole site, and
-the excavation branch deploys too. Each branch builds only its own
-folders and carries the other's: this branch owns `/`, `/viewtest/`,
-`/ladder/`, `/lunarmap/` and `/regolith/`; the excavation branch
-`/playtest/`, `/extraction/` and `/excavation/` (its own copy of the
-game). Every page's browser-tab title — and the game's title screen —
-names the branch and commit that built it: read it before judging a
-playtest. `/ladder/` is the address to hand out for the ladder, because
-no other branch builds one. (On 2026-09-24 a playtest of the ladder
-turned out to be the excavation branch's month-old game at `/`, which it
-used to build too.)
+the excavation branch deploys too; each copies the other's folders from
+its last good deploy. This branch publishes `/` (an index of the
+playtests, `tools/pages/index.html`), `/ladder/` (the game),
+`/ladder/walk/` (the game with notes), `/lunarmap/` and `/regolith/`;
+the excavation branch `/playtest/` and `/extraction/`. **Hand out
+`/ladder/`** — no other branch builds one. `/` is still contested: the
+excavation branch builds its own month-old game there (and an old walk
+at the retired `/viewtest/`), so after its deploys `/` is a game instead
+of the index — which is the tell. Every page's browser-tab title, and
+the game's title screen, name the branch and commit that built it: read
+it before judging a playtest. (On 2026-09-24 a playtest of the ladder
+turned out to be that old game at `/`.)
 
 Two checks guard the ladder: `survey_cursor_test` (run by CI's ctest as
 `level_ladder`) fails if the ladder's shape changes, and
@@ -435,7 +437,7 @@ exports is what the ladder shows:
 
 All three need software GL: `LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
 xvfb-run -a ...` (the scripts apply it). `colony_viewtest` also deploys
-to `/viewtest/` on GitHub Pages for phone/tablet playtesting — see
+to `/ladder/walk/` on GitHub Pages for phone/tablet playtesting — see
 `tools/viewtest/README.md`.
 
 ## Coding Conventions

@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "build_stamp.h"
 #include "region_identity.h"
 #include "site_selection_constants.h"
 #include "terrain_synthesis.h"
@@ -24,7 +25,7 @@ Engine::Engine(int screenWidth, int screenHeight, const char* title)
       pointerDiag(false),
       mouseScale(1.0f)
 {
-    InitWindow(screenWidth, screenHeight, title);
+    InitWindow(screenWidth, screenHeight, StampedTitle(title));
     InputManager::FixWebPointerUnits();
     SetTargetFPS(60);
     // A compositor that magnifies the window but hands the pointer over in

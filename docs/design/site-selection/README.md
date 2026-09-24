@@ -53,7 +53,7 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | | |
 |---|---|
 | the game (`src/Engine/`) | **the founding flow.** `View::Orbital` is level 1, `View::District` level 2, `View::Colony` with no colony under it level 3; a green click there founds the colony |
-| `colony_viewtest`, `/viewtest/` on Pages | the game walked: the three levels through `SurveyFlow`, the founding, then the colony's Colony → Sect views |
+| `colony_viewtest`, `/ladder/walk/` on Pages | the game walked: the three levels through `SurveyFlow`, the founding, then the colony's Colony → Sect views |
 | `lunar_map` (bare, or `--site`), `/lunarmap/` on Pages | the same controller as an instrument over the LOLA DEM |
 | `lunar_map --siteshot` / `--flyshot` | the ladder walked headlessly, one PNG per step |
 

@@ -39,6 +39,7 @@
 #include "lunar_globe.h"
 #include "survey_flow.h"
 #include "survey_script.h"
+#include "build_stamp.h"
 
 #include <cstdlib>
 #include <string>
@@ -575,7 +576,7 @@ int main(int argc, char** argv)
     }
 
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(VT_WIDTH, VT_HEIGHT, "Colony - Game Walk");
+    InitWindow(VT_WIDTH, VT_HEIGHT, StampedTitle("Colony - Game Walk"));
 
     InputManager::FixWebPointerUnits();
     int status = 0;
