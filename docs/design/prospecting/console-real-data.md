@@ -214,6 +214,24 @@ so the phase cannot disagree with the drill.
 | DRILLING | a tap on the bar's face (`DrillSim_Start`) | arrow; hand over the bar | — | live — taps drive the bit |
 | COMPLETE | the bit reaching the target | the drill again, to site the next hole | — | lit; the ruler can deepen it |
 
+**Undo and abort.** Right-click undoes the last choice: in PLANNED it takes
+back the depth (back to STRETCH at the same site; for a deeper re-plan of a
+hole already drilled it restores the hole's depth and keeps its readings),
+in STRETCH it takes back the site (back to AIM). While DRILLING right-click
+only points at ABORT, a red control in the drill bar's title row that exists
+only while the string runs: `DrillSim_Abort` stops the string where it is,
+makes that depth the target (so the phase reads COMPLETE and DRILL STATS
+says ABORTED), `DrillProfile_Abort` closes the profile short and marks it,
+and a hole of at least 2 m is logged into the knowledge model at the depth
+reached -- the hole is real. Touch screens have no right-click; undo there
+is still to be designed.
+
+**The section.** Once a site exists, a vertical slice through it, facing the
+viewer, shows the beds at that spot (`Holo3D_BedSpan`, `Holo3D_ScreenAcross`)
+and the tag names the bed under the chosen depth. Without it a depth line
+from a site near the back of the block read up to half a column off against
+the front wall -- see dark-plating.md, 6.5b.
+
 **The dig profile.** `DrillProfile` (`drill_sim.h`) is opened at the depth
 commit — the plan exists before the first turn, with its site and target —
 and written by `DrillProfile_Record` after every step: one `DrillSample` per

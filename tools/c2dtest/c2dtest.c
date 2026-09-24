@@ -690,6 +690,26 @@ int main(int argc, char **argv)
             DrillProfile_Record(&p, &d);
         }
         CHECK(p.count == 80, "deepening to 40 m keeps the first 60 and adds 20");
+
+        /* ABORT: the string stops where it is, the hole is what was drilled */
+        DrillSim_SetTarget(&d, 90.0f);
+        DrillProfile_Plan(&p, 3.0f, 4.0f, 90.0f, d.t);
+        DrillSim_Start(&d);
+        for (int i = 0; i < 400; i++)
+        {
+            if (i % 6 == 0) DrillSim_Bite(&d);
+            DrillSim_Step(&d, 0.03f);
+            DrillProfile_Record(&p, &d);
+        }
+        const float at = d.depthM;
+        const int kept = p.count;
+        CHECK(at > 40.0f && at < 90.0f, "mid-hole when aborted");
+        CHECK(DrillSim_Abort(&d) && !d.running, "abort stops the string");
+        DrillProfile_Abort(&p, &d);
+        for (int i = 0; i < 300; i++) { DrillSim_Step(&d, 0.03f); DrillProfile_Record(&p, &d); }
+        CHECK(d.depthM == at && d.targetM == at, "and the hole stays at the depth reached");
+        CHECK(p.aborted && p.count == kept, "the profile ends there, keeping what it read");
+        CHECK(!DrillSim_Abort(&d), "nothing to abort once stopped");
     }
 
     c2d_fonts_unload();

@@ -101,6 +101,12 @@ void DrillSim_Bite (DrillSim *s);
  * there is no target or the bit is already at it. */
 bool DrillSim_Start(DrillSim *s);
 
+/* Stop a running string where it is. The hole stays at the depth the bit
+ * reached -- that depth becomes the target, so the hole reads as finished
+ * there -- and a trip in progress ends with the string back on bottom.
+ * False when nothing was running. */
+bool DrillSim_Abort(DrillSim *s);
+
 /* Pull the string and change the bit: costs time that scales with depth. */
 void DrillSim_BeginTrip(DrillSim *s, bool broken);
 
@@ -140,6 +146,7 @@ typedef struct DrillProfile {
     float siteI, siteJ;         /* lattice coordinates                    */
     float targetM;
     float plannedT, startedT, finishedT;   /* sim seconds; <0 = not yet   */
+    bool  aborted;              /* stopped short of targetM by the player */
     int   count;
     DrillSample sample[DRILL_PROFILE_MAX];
 } DrillProfile;
@@ -155,6 +162,10 @@ void DrillProfile_Plan(DrillProfile *p, float siteI, float siteJ, float targetM,
 /* Call after every DrillSim_Step. Writes one sample per bin the bit has
  * crossed, so a long frame cannot skip a bin. Returns how many it wrote. */
 int  DrillProfile_Record(DrillProfile *p, const DrillSim *s);
+
+/* The player stopped the string: the profile ends where the bit is, short
+ * of its plan, and says so. What was recorded is kept. */
+void DrillProfile_Abort(DrillProfile *p, const DrillSim *s);
 
 #ifdef __cplusplus
 }

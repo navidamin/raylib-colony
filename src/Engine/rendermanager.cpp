@@ -3531,6 +3531,10 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
             if (wheel != 0.0f) SurveyDash_Zoom(dash, console, mouse, wheel);
         }
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) SurveyDash_Release(dash, console, mouse);
+        /* the secondary button undoes the last choice (the web shell keeps
+           the browser's context menu off the canvas) */
+        if (CheckCollisionPointRec(mouse, console) && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+            SurveyDash_Cancel(dash);
 
         /* The game owns the selection: the console reports the bay, we set it,
            and the next frame's feed hands it back. */

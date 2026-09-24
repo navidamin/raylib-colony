@@ -76,6 +76,17 @@ bool DrillSim_Start(DrillSim *s)
     return true;
 }
 
+bool DrillSim_Abort(DrillSim *s)
+{
+    if (!s || !s->running) return false;
+    s->running = false;
+    s->tripping = false;
+    s->lift = 0.0f;
+    s->rate = 0.0f;
+    s->targetM = s->depthM;     /* the hole is what was drilled */
+    return true;
+}
+
 DrillReadout DrillSim_Read(const DrillSim *s)
 {
     DrillReadout r = {0};
@@ -220,6 +231,7 @@ void DrillProfile_Plan(DrillProfile *p, float siteI, float siteJ, float targetM,
     }
     p->targetM = targetM;
     p->finishedT = -1.0f;       /* a deeper plan reopens a finished hole */
+    p->aborted = false;
 }
 
 int DrillProfile_Record(DrillProfile *p, const DrillSim *s)
@@ -246,4 +258,12 @@ int DrillProfile_Record(DrillProfile *p, const DrillSim *s)
     }
     if (s->completed) p->finishedT = s->t;
     return wrote;
+}
+
+void DrillProfile_Abort(DrillProfile *p, const DrillSim *s)
+{
+    if (!p || !s || !p->open) return;
+    p->aborted = true;
+    p->targetM = s->depthM;
+    p->finishedT = s->t;
 }

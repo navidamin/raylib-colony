@@ -14,6 +14,7 @@ Steps:
     click           left press + release
     down / up       left press, left release (for drags)
     mdown / mup     the same with the middle button
+    rclick          a right-click (the console's undo)
     wait S          seconds
     shot NAME       write out_dir/NAME.png of the whole window
     key K           an xdotool key name (Escape, t, r ...)
@@ -102,6 +103,8 @@ def main():
                 xdo("mousedown", "1"); time.sleep(HOLD); xdo("mouseup", "1"); time.sleep(HOLD)
             elif a[0] == "down":  xdo("mousedown", "1")
             elif a[0] == "up":    xdo("mouseup", "1")
+            elif a[0] == "rclick":         # right button, held as "click"
+                xdo("mousedown", "3"); time.sleep(HOLD); xdo("mouseup", "3"); time.sleep(HOLD)
             elif a[0] == "mdown": xdo("mousedown", "2")    # middle: the map's pan
             elif a[0] == "mup":   xdo("mouseup", "2")
             elif a[0] == "key":            # held across frames, as "click"

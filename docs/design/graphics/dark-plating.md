@@ -464,6 +464,29 @@ committed the plan stays as a dashed line ending in a small target mark,
 with what has actually been drilled drawn solid over it, in the drill's
 amber.
 
+**A depth is read against its own section.** The block's camera tilts, so a
+point deep inside it is drawn higher the further back it sits: a line dropped
+from a site near the back ends well above the same depth on the front wall --
+by up to half the column at the default tilt -- and the playtest read that as
+"the depth line does not match the strata". Limiting the tilt cannot fix it
+(only tilt 0, where the cap disappears, would); what does is a vertical slice
+through the site, cut along the screen's horizontal so it faces the viewer
+square on, with the beds drawn on it as the block carries them. The line sits
+in the rock it will go through at every yaw and tilt. The slice is a cut, so
+it has a dark backing (0.70) that hides the walls behind it; each bed is
+filled halfway between the wall's lit and mid tones at 0.80, and its top
+interface is stroked in the wall's own line colour -- a bed on the slice is
+visibly the same bed on the wall. It appears once a site exists and stays
+while the hole does. The tilt is still limited (0.15-0.80 rad), for the cap
+and the column to stay readable, not for the depth.
+
+**ABORT is red and small, and exists only while it can do something.** A
+plate in the drill bar's title row, stop square plus the word, drawn only
+while the string runs; hover brightens it and the pointer becomes the hand.
+It is deliberately not the undo: right-click takes back a CHOICE (a depth,
+then a site) and costs nothing; ABORT ends WORK under way and leaves a hole.
+Two different acts, two different controls, and only the costly one is red.
+
 **Weight that survives the letterbox.** The console is drawn at 1536 units
 wide and shown at about two-thirds of that. A 12-unit label is then 8 screen
 pixels, and a 1.4-unit line at 0.55 alpha is under one pixel — both were

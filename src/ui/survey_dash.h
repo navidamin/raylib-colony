@@ -226,6 +226,11 @@ void SurveyDash_Zoom   (SurveyDashState *s, Rectangle region, Vector2 screenPt, 
 void SurveyDash_Drag   (SurveyDashState *s, Rectangle region, Vector2 delta);
 void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt);
 
+/* The secondary button (right-click): undo the last choice. A depth goes
+ * back to choosing a depth, a site back to aiming. A running drill is not
+ * undone by it -- that is ABORT, on the drill bar. */
+void SurveyDash_Cancel (SurveyDashState *s);
+
 #ifdef __cplusplus
 }
 #endif

@@ -76,6 +76,8 @@
 #define DASH_ZOOM_MIN   0.15f
 #define DASH_ZOOM_MAX   1.30f
 #define DASH_ZOOM_STEP  1.12f
+#define DASH_PITCH_MIN  0.15f
+#define DASH_PITCH_MAX  0.80f
 
 /* the rect inside which a drag rotates the block */
 #define DASH_BLOCK_X0 (MID_X + 20.0f)
@@ -431,6 +433,115 @@ static void DashDrawSite(const SurveyDashState *s)
     DashTargetMark(p, 7.0f * pulse, s->drill.t * 0.6f, RGBA8(0xff, 0xc8, 0x4d, 0.95f), 1.6f);
 }
 
+/* ---- THE SECTION -------------------------------------------------------
+ *
+ * A vertical slice through the site, cut square to the screen, with the beds
+ * drawn on it as the block carries them. It is what makes a depth on the
+ * block readable at all: the camera tilts, so a point deep inside the block
+ * is drawn higher the further back it sits, and a line dropped from a site
+ * near the back ends well above the same depth on the front wall -- by up to
+ * half the column at the default tilt. Against its own slice the line sits
+ * among the rock it will go through, at every yaw and tilt.
+ *
+ * Cut along the screen's horizontal (Holo3D_ScreenAcross), so the slice is
+ * a flat panel facing the viewer and never a sliver seen edge on. */
+#define DASH_SECTION_N 28
+
+static void DashDrawSection(const SurveyDashState *s)
+{
+    if (!g_model || !s->sited) return;
+    const int beds = Holo3D_LayerCount(g_model);
+    if (beds < 1) return;
+
+    /* where the cut crosses the block: the line through the site along
+       (du, dv), clipped to the unit square */
+    float du, dv;
+    Holo3D_ScreenAcross(g_model, &du, &dv);
+    float t0 = -1e9f, t1 = 1e9f;
+    const float o[2] = {s->siteU, s->siteV}, d[2] = {du, dv};
+    for (int a = 0; a < 2; a++)
+    {
+        if (fabsf(d[a]) < 1e-5f) continue;
+        float ta = (0.0f - o[a]) / d[a], tb = (1.0f - o[a]) / d[a];
+        if (ta > tb) { const float x = ta; ta = tb; tb = x; }
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+    }
+    if (!(t1 > t0)) return;
+
+    Vector2 top[DASH_SECTION_N], bot[DASH_SECTION_N];
+    Vector2 poly[DASH_SECTION_N * 2 + 1];
+
+    /* a dark backing first -- the slice is a cut through the block, and the
+       walls behind it would otherwise show through the beds */
+    for (int i = 0; i < DASH_SECTION_N; i++)
+    {
+        const float t = t0 + (t1 - t0) * (float)i / (float)(DASH_SECTION_N - 1);
+        Holo3D_BedSpan(g_model, 0, s->siteU + du * t, s->siteV + dv * t, &top[i], NULL);
+        Holo3D_BedSpan(g_model, beds - 1, s->siteU + du * t, s->siteV + dv * t, NULL, &bot[i]);
+    }
+    int n = 0;
+    for (int i = 0; i < DASH_SECTION_N; i++) poly[n++] = top[i];
+    for (int i = DASH_SECTION_N - 1; i >= 0; i--) poly[n++] = bot[i];
+    const Color bg = DashC_Bg();
+    c2d_fill_poly(poly, n, RGBA8(bg.r, bg.g, bg.b, 0.70f));
+
+    for (int k = 0; k < beds; k++)
+    {
+        const H3DLayer *ly = Holo3D_Layer(g_model, k);
+        if (!ly) continue;
+        for (int i = 0; i < DASH_SECTION_N; i++)
+        {
+            const float t = t0 + (t1 - t0) * (float)i / (float)(DASH_SECTION_N - 1);
+            Holo3D_BedSpan(g_model, k, s->siteU + du * t, s->siteV + dv * t, &top[i], &bot[i]);
+        }
+        n = 0;
+        for (int i = 0; i < DASH_SECTION_N; i++) poly[n++] = top[i];
+        for (int i = DASH_SECTION_N - 1; i >= 0; i--) poly[n++] = bot[i];
+        /* between the wall's lit and mid tones, so each bed keeps the hue
+           it has on the block and neighbours stay apart */
+        c2d_fill_poly(poly, n, RGBA8((ly->neon.r + ly->mid.r) / 2, (ly->neon.g + ly->mid.g) / 2,
+                                     (ly->neon.b + ly->mid.b) / 2, 0.80f));
+        /* the bed's top interface, in the line colour the block's own walls
+           use, so a bed on the slice reads as the same bed on the wall */
+        c2d_polyline(top, DASH_SECTION_N,
+                     k == 0 ? RGBA8(0xe6, 0xff, 0xff, 0.9f)
+                            : RGBA8(ly->line.r, ly->line.g, ly->line.b, 0.95f),
+                     k == 0 ? 1.6f : 1.3f);
+        if (k == beds - 1)
+            c2d_polyline(bot, DASH_SECTION_N, RGBA8(160, 190, 215, 0.7f), 1.1f);
+    }
+
+    /* the slice's two ends */
+    Vector2 e0t, e0b, e1t, e1b;
+    Holo3D_BedSpan(g_model, 0, s->siteU + du * t0, s->siteV + dv * t0, &e0t, NULL);
+    Holo3D_BedSpan(g_model, beds - 1, s->siteU + du * t0, s->siteV + dv * t0, NULL, &e0b);
+    Holo3D_BedSpan(g_model, 0, s->siteU + du * t1, s->siteV + dv * t1, &e1t, NULL);
+    Holo3D_BedSpan(g_model, beds - 1, s->siteU + du * t1, s->siteV + dv * t1, NULL, &e1b);
+    const Vector2 l0[2] = {e0t, e0b}, l1[2] = {e1t, e1b};
+    c2d_polyline(l0, 2, RGBA8(0x9f, 0xd8, 0xee, 0.6f), 1.1f);
+    c2d_polyline(l1, 2, RGBA8(0x9f, 0xd8, 0xee, 0.6f), 1.1f);
+}
+
+/* The bed a point on the site's borehole is in, by the block's own ground
+ * at the site -- the name the tag gives the depth being chosen. */
+static const char *DashBedAt(const SurveyDashState *s, float screenY)
+{
+    if (!g_model) return NULL;
+    const int beds = Holo3D_LayerCount(g_model);
+    for (int k = 0; k < beds; k++)
+    {
+        Vector2 top, bot;
+        Holo3D_BedSpan(g_model, k, s->siteU, s->siteV, &top, &bot);
+        if (screenY <= bot.y + 0.5f || k == beds - 1)
+        {
+            const H3DLayer *ly = Holo3D_Layer(g_model, k);
+            return ly ? ly->name : NULL;
+        }
+    }
+    return NULL;
+}
+
 /* ---- THE STRETCH -------------------------------------------------------
  *
  * How deep a hole goes is chosen ON THE BLOCK, where the hole is. The ruler
@@ -550,6 +661,8 @@ static bool DashInMid(Vector2 p)
     return p.x >= MID_X && p.x <= MID_X + MID_W && p.y >= PANE_TOP && p.y <= PANE_TOP + PANE_H;
 }
 
+static bool DashOverAbort(Vector2 p);     /* the ABORT control, below */
+
 SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
 {
     if (!s || !s->started || !s->pointerIn) return SDC_ARROW;
@@ -566,8 +679,9 @@ SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
             return SDC_ARROW;
         /* the bar is now a button: the hand says so */
         case SDP_PLANNED:
-        case SDP_DRILLING:
             return DashOverFace(s->pointer) ? SDC_HAND : SDC_ARROW;
+        case SDP_DRILLING:
+            return (DashOverFace(s->pointer) || DashOverAbort(s->pointer)) ? SDC_HAND : SDC_ARROW;
     }
     return SDC_ARROW;
 }
@@ -625,9 +739,16 @@ static void DashDrawCursor(const SurveyDashState *s)
     {
         case SDP_STRETCH:
         {
-            char m[24];
-            snprintf(m, sizeof(m), "%d m", (int)DashStretchMetres(s, s->pointer));
-            DashDrawTag(s->pointer, "SELECT DEPTH", m, cyan);
+            char m[24], cap[48];
+            const float metres = DashStretchMetres(s, s->pointer);
+            snprintf(m, sizeof(m), "%d m", (int)metres);
+            /* name the rock at that depth, read off the slice the line is on */
+            const Vector2 top = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
+            const Vector2 bot = Holo3D_ColumnPoint(g_model, s->siteU, s->siteV, 1.0f);
+            const char *bed = DashBedAt(s, top.y + (bot.y - top.y) * (metres / DRILL_TARGET_M));
+            if (bed) snprintf(cap, sizeof(cap), "SELECT DEPTH  \xc2\xb7  %s", bed);
+            else     snprintf(cap, sizeof(cap), "SELECT DEPTH");
+            DashDrawTag(s->pointer, cap, m, cyan);
             return;
         }
         case SDP_PLANNED:
@@ -654,6 +775,41 @@ static void DashDrawCursor(const SurveyDashState *s)
         /* the reticle under the tip is drawn with the block, on the ground */
         ToolRack_DrawDrillCursor(tip.x, tip.y, 0.85f, s->aimOn);
     }
+}
+
+/* ---- ABORT ---------------------------------------------------------------
+ *
+ * Stopping a running string is its own control, on the drill bar where the
+ * string is, and only there while it runs. It is not the right-click undo:
+ * undo takes back a choice, ABORT ends work already under way and leaves
+ * the hole at the depth the bit reached. */
+#define DASH_ABORT_W 104.0f
+#define DASH_ABORT_H  30.0f
+#define DASH_ABORT_X (RIGHT_X + RIGHT_W - DASH_ABORT_W - 24.0f)
+#define DASH_ABORT_Y (PANE_TOP + 18.0f)
+
+static bool DashOverAbort(Vector2 p)
+{
+    return p.x >= DASH_ABORT_X && p.x <= DASH_ABORT_X + DASH_ABORT_W &&
+           p.y >= DASH_ABORT_Y && p.y <= DASH_ABORT_Y + DASH_ABORT_H;
+}
+
+static void DashDrawAbort(const SurveyDashState *s)
+{
+    if (SurveyDash_Phase(s) != SDP_DRILLING) return;
+    const bool hot = s->pointerIn && DashOverAbort(s->pointer);
+    const float x = DASH_ABORT_X, y = DASH_ABORT_Y, w = DASH_ABORT_W, h = DASH_ABORT_H;
+    const C2DCorner cr[4] = {{x, y, 6.0f}, {x + w, y, 6.0f}, {x + w, y + h, 6.0f}, {x, y + h, 6.0f}};
+    Vector2 v[64];
+    const int n = c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, v, 63);
+    c2d_fill_poly(v, n, hot ? RGBA8(0x5a, 0x14, 0x14, 0.95f) : RGBA8(0x2a, 0x0c, 0x10, 0.92f));
+    v[n] = v[0];
+    const Color red = RGBA8(0xff, 0x5a, 0x5a, hot ? 1.0f : 0.85f);
+    c2d_polyline(v, n + 1, red, hot ? 1.8f : 1.4f);
+    /* a stop square, then the word */
+    c2d_rect(x + 12.0f, y + h * 0.5f - 5.0f, 10.0f, 10.0f, red);
+    c2d_text(C2D_W700, 14.0f, "ABORT", x + 32.0f, y + h * 0.5f + 5.0f, red,
+             C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
 }
 
 /* ---- THE DRILL BAR'S STATE ---------------------------------------------
@@ -767,12 +923,14 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
         const char *status = dr->tripping         ? "TRIPPING"
                            : dr->done             ? "HOLE COMPLETE"
                            : ph == SDP_DRILLING   ? "DRILLING"
+                           : (ph == SDP_COMPLETE && s->profile.aborted) ? "ABORTED"
                            : ph == SDP_COMPLETE   ? "AT TARGET"
                            : ph == SDP_PLANNED    ? "READY"
                            : "IDLE";
         Dash_DrillStats(RIGHT_X, STATS_Y, RIGHT_W, STATS_H, dr, status);
     }
 
+    DashDrawSection(s);
     DashDrawHeightLog();
     DashDrawBorehole(s);
     DashDrawSite(s);
@@ -808,6 +966,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, "DRILL BAR",
                   SurveyDash_Ruler(), DASH_RULER_TICKS, &s->drill, dt);
     DashDrawBarState(s);
+    DashDrawAbort(s);
 
     DashDrawCursor(s);
 
@@ -836,6 +995,28 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
      * drawn dimmed until then, and a dimmed control that still worked would
      * be lying. */
     if (!DashBarLive(s)) return;
+
+    if (SurveyDash_Phase(s) == SDP_DRILLING && DashOverAbort(d))
+    {
+        const float at = s->drill.depthM;
+        if (DrillSim_Abort(&s->drill))
+        {
+            DrillProfile_Abort(&s->profile, &s->drill);
+            char msg[96];
+            /* the hole is real to the depth it reached, and the model learns
+               from it the same as from one that landed on its plan */
+            if (at >= DASH_MIN_HOLE_M)
+            {
+                DashKnow_Add(s->know, s->siteI, s->siteJ, at);
+                snprintf(msg, sizeof(msg), "Drilling aborted. Hole left at %d m and logged.",
+                         (int)(at + 0.5f));
+            }
+            else
+                snprintf(msg, sizeof(msg), "Drilling aborted at the collar. Nothing to log.");
+            DashLog_Push(s, s->drill.t, msg, NULL);
+        }
+        return;
+    }
 
     /* C6: the ruler re-plans the depth -- deeper from where the bit stopped,
      * or shorter before it gets there. Checked before the face, because it
@@ -912,8 +1093,12 @@ void SurveyDash_Drag(SurveyDashState *s, Rectangle region, Vector2 delta)
     if (fabsf(delta.x) + fabsf(delta.y) > 0.0f) s->moved = true;
     s->block.yaw   += delta.x * k * 0.006f;
     s->block.pitch += delta.y * k * 0.004f;
-    if (s->block.pitch < 0.05f) s->block.pitch = 0.05f;
-    if (s->block.pitch > 1.30f) s->block.pitch = 1.30f;
+    /* THE TILT IS LIMITED. Near top-down (the old limit was 1.30 rad, 74
+       degrees) the column collapses to a few pixels and no depth can be
+       picked on it; near edge-on the cap vanishes and no site can. The
+       band keeps both readable -- the section does the rest. */
+    if (s->block.pitch < DASH_PITCH_MIN) s->block.pitch = DASH_PITCH_MIN;
+    if (s->block.pitch > DASH_PITCH_MAX) s->block.pitch = DASH_PITCH_MAX;
     s->block.fast = true;
 }
 
@@ -935,7 +1120,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
            with its site and target, and fills once the drill is started. */
         DrillProfile_Plan(&s->profile, s->siteI, s->siteJ, m, s->drill.t);
         char msg[96];
-        snprintf(msg, sizeof(msg), "Hole planned to %d m. Tap the drill bar to start digging.",
+        snprintf(msg, sizeof(msg), "Hole planned to %d m. Tap the drill bar to dig; right-click undoes.",
                  (int)m);
         DashLog_Push(s, s->drill.t, msg, NULL);
     }
@@ -987,7 +1172,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                     s->drill.targetM = -1.0f;
                     DrillProfile_Clear(&s->profile);
                     char msg[96];
-                    snprintf(msg, sizeof(msg), "Site set at %d/%d. Pull down to choose a depth.",
+                    snprintf(msg, sizeof(msg), "Site set at %d/%d. Pull down for a depth; right-click undoes.",
                              (int)s->siteI, (int)s->siteJ);
                     DashLog_Push(s, s->drill.t, msg, NULL);
                 }
@@ -1013,4 +1198,43 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     }
     s->down = false;
     s->moved = false;
+}
+
+void SurveyDash_Cancel(SurveyDashState *s)
+{
+    if (!s || !s->started) return;
+    char msg[96];
+    switch (SurveyDash_Phase(s))
+    {
+        case SDP_STRETCH:
+            /* the site goes; the drill is back in hand */
+            s->sited = false;
+            DrillProfile_Clear(&s->profile);
+            DashLog_Push(s, s->drill.t, "Site cancelled.", NULL);
+            return;
+        case SDP_PLANNED:
+            if (s->drill.depthM > 0.05f)
+            {
+                /* a deeper plan for a hole already drilled: the hole stays
+                   where it stopped, and so does what it recorded */
+                s->drill.targetM = s->drill.depthM;
+                s->profile.targetM = s->drill.depthM;
+                snprintf(msg, sizeof(msg), "Deeper plan cancelled. Hole stays at %d m.",
+                         (int)(s->drill.depthM + 0.5f));
+                DashLog_Push(s, s->drill.t, msg, NULL);
+                return;
+            }
+            /* back to choosing the depth, at the same site */
+            s->depthPicked = false;
+            s->drill.targetM = -1.0f;
+            DrillProfile_Clear(&s->profile);
+            DashLog_Push(s, s->drill.t, "Depth cancelled. Pull down to choose again.", NULL);
+            return;
+        case SDP_DRILLING:
+            DashLog_Push(s, s->drill.t, "The drill is running. ABORT on the drill bar stops it.", NULL);
+            return;
+        case SDP_AIM:
+        case SDP_COMPLETE:
+            return;
+    }
 }

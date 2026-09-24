@@ -678,7 +678,7 @@ bool Holo3D_HitCap(const Holo3DModel *m, float x, float y, float *u, float *v)
 /* A point on the cap's actual surface -- bilinear across its grid, so it sits
  * ON the ground rather than on the nearest node, and on whatever ground the
  * model carries (the reference's profile, or the real one from SetGround). */
-static V3 h3d_cap_world(const Holo3DModel *m, float u, float v)
+static V3 h3d_boundary_world(const Holo3DModel *m, int k, float u, float v)
 {
     if (u < 0.0f) u = 0.0f; if (u > 1.0f) u = 1.0f;
     if (v < 0.0f) v = 0.0f; if (v > 1.0f) v = 1.0f;
@@ -688,13 +688,48 @@ static V3 h3d_cap_world(const Holo3DModel *m, float u, float v)
     if (j >= m->NZ) j = m->NZ - 1;
     const float s = fi - (float)i, t = fj - (float)j;
 
-    const V3 a = m->pts[0][i][j],     b = m->pts[0][i + 1][j];
-    const V3 c = m->pts[0][i][j + 1], d = m->pts[0][i + 1][j + 1];
+    const V3 a = m->pts[k][i][j],     b = m->pts[k][i + 1][j];
+    const V3 c = m->pts[k][i][j + 1], d = m->pts[k][i + 1][j + 1];
     V3 w;
     w.x = (a.x * (1 - s) + b.x * s) * (1 - t) + (c.x * (1 - s) + d.x * s) * t;
     w.y = (a.y * (1 - s) + b.y * s) * (1 - t) + (c.y * (1 - s) + d.y * s) * t;
     w.z = (a.z * (1 - s) + b.z * s) * (1 - t) + (c.z * (1 - s) + d.z * s) * t;
     return w;
+}
+
+static V3 h3d_cap_world(const Holo3DModel *m, float u, float v)
+{
+    return h3d_boundary_world(m, 0, u, v);
+}
+
+int Holo3D_LayerCount(const Holo3DModel *m) { return m ? m->layerCount : 0; }
+
+const H3DLayer *Holo3D_Layer(const Holo3DModel *m, int k)
+{
+    if (!m || k < 0 || k >= m->layerCount) return NULL;
+    return &m->layers[k];
+}
+
+void Holo3D_BedSpan(const Holo3DModel *m, int k, float u, float v,
+                    Vector2 *top, Vector2 *bottom)
+{
+    if (!m || k < 0 || k >= m->layerCount) return;
+    /* bed k runs from surface k to surface k + 1, both drawn at bed k's
+       offset -- see h3d_paint_layer */
+    const float dy = h3d_offY(m, k);
+    if (top)    *top    = h3d_proj_dy(m, h3d_boundary_world(m, k, u, v), dy);
+    if (bottom) *bottom = h3d_proj_dy(m, h3d_boundary_world(m, k + 1, u, v), dy);
+}
+
+void Holo3D_ScreenAcross(const Holo3DModel *m, float *du, float *dv)
+{
+    /* screen x = x*r0 + z*r1, and u, v are x, z over the width: the
+       direction that moves along screen x and not into it is (r0, r1) */
+    float a = m ? m->r0 : 1.0f, b = m ? m->r1 : 0.0f;
+    const float n = sqrtf(a * a + b * b);
+    if (n > 1e-6f) { a /= n; b /= n; }
+    if (du) *du = a;
+    if (dv) *dv = b;
 }
 
 Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v)

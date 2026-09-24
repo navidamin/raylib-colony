@@ -127,6 +127,19 @@ Vector2 Holo3D_CapPoint(const Holo3DModel *m, float u, float v);
  * block and a borehole be drawn straight down it. */
 Vector2 Holo3D_ColumnPoint(const Holo3DModel *m, float u, float v, float depth01);
 
+/* THE BEDS AT A POINT, for drawing a cross-section. Bed k's top and bottom
+ * at cap coordinates (u, v), exactly as the block draws them: on whatever
+ * ground the model carries, and with the bed's own offset when exploded. */
+int             Holo3D_LayerCount(const Holo3DModel *m);
+const H3DLayer *Holo3D_Layer     (const Holo3DModel *m, int k);
+void            Holo3D_BedSpan   (const Holo3DModel *m, int k, float u, float v,
+                                  Vector2 *top, Vector2 *bottom);
+
+/* The direction, in cap coordinates, that runs straight across the screen at
+ * the current yaw -- a section cut along it faces the viewer square on. Unit
+ * length in (u, v). */
+void            Holo3D_ScreenAcross (const Holo3DModel *m, float *du, float *dv);
+
 /* The controller from the JS `attach`, minus the DOM: the caller feeds it
  * pointer events in DESIGN space and it keeps the same easing. */
 void Holo3D_Tick  (H3DState *st, float dt, float now);
