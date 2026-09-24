@@ -426,6 +426,7 @@ void RenderManager::SurveyDrawWindowRung(const SiteSelectionController& ctl,
     bool haveVerdict = ctl.HaveVerdict();
     const PlacementVerdict& verdict = ctl.Verdict();
 
+    if (ctl.Panning()) SurveyDrawPanBackdrop(ctl, w, h);
     SurveyDrawGround(*c, vp, ctl.ZoomK(), w, h);
     if (c->windowSpanKm >= 25.0) FeatureArcsInWindow(*c, vp, w, h);
     SurveyDrawWindowMarkers(*c, vp, colonies, current);
@@ -513,6 +514,23 @@ void RenderManager::SurveyDrawGround(const SurveyCursor& cursor, const SurveyVie
     DrawTexturePro(*tex, src, dst, Vector2{ 0, 0 }, 0.0f, WHITE);
 }
 
+// While the ground is dragged, the picture built for the window slides
+// with it, and the edge it uncovers shows the globe beneath: the mosaic
+// the ground was made from, turned to the middle of the screen at the
+// view's own scale, so the two meet where they should (at a 200 km view
+// an orthographic globe and the flat window differ by under a pixel).
+// Coarse -- the mosaic is 1.3 km a pixel -- and only until the release
+// builds the ground where the view now is.
+void RenderManager::SurveyDrawPanBackdrop(const SiteSelectionController& ctl, int w, int h)
+{
+    if (!LunarGlobeReady()) return;
+    OrbitalCamera cam;
+    ctl.ViewCentreLatLon(&cam.subLatDeg, &cam.subLonDeg);
+    double pxPerKm = (double)h * ctl.ZoomK() / ctl.Cursor()->windowSpanKm;
+    cam.zoom = pxPerKm * 1737.4 / (std::min(w, h) * 0.46);
+    DrawLunarGlobeView(cam, w, h);
+}
+
 // A descent in flight: leaving the globe, the globe under the moving
 // camera; diving into a window, the rung being left under the zoom.
 void RenderManager::SurveyDrawFlight(const SiteSelectionController& ctl,
@@ -551,8 +569,10 @@ void RenderManager::SurveyDrawFlight(const SiteSelectionController& ctl,
 // ---------------------------------------------------------------------------
 // Cards
 
-// The frozen region card. Drawn IDENTICALLY at every rung -- the whole
-// design in one visual fact: this panel never changes below the globe.
+// The region card. Drawn IDENTICALLY at every rung -- the whole design in
+// one visual fact: below the globe its numbers never refine. They belong
+// to the region, so they change only when a drag takes the window into
+// another one (master design SS2: different ground, different numbers).
 void RenderManager::SurveyDrawRegionCard(const RegionIdentity& id, int level, int px, int py,
                                          int pw, const char* hoverKey, float psrKm)
 {
@@ -565,7 +585,7 @@ void RenderManager::SurveyDrawRegionCard(const RegionIdentity& id, int level, in
 
     DrawRectangle(px, py, pw, ph, SV_CARD_BG);
     DrawRectangleLinesEx(Rectangle{ (float)px, (float)py, (float)pw, (float)ph }, 2.0f, SV_LINE);
-    DrawText(level == 0 ? "REGION - CLAIMING" : "REGION - FIXED AT LEVEL 1",
+    DrawText(level == 0 ? "REGION - CLAIMING" : "REGION - UNDER THIS WINDOW",
              px + 12, py + 10, 15, SV_LINE);
     DrawText(name.c_str(), px + 12, py + 32, 25, WHITE);
     DrawText(sub.c_str(), px + 12, py + 62, 13, SV_FAINT);
@@ -747,18 +767,18 @@ void RenderManager::SurveyDrawStrip(const SiteSelectionController& ctl, const Su
     else if (siteRung)
     {
         if (ctl.HaveVerdict() && ctl.Verdict().allowed)
-            msg = narrow ? "Found the colony here." : "Click to found the colony here.  Esc to back out.";
+            msg = narrow ? "Found the colony here." : "Click to found the colony here.  Drag to move.  Esc to back out.";
         else if (ctl.HaveVerdict())
             msg = narrow ? "Refused - move to better ground."
-                         : "Red: this ground is refused. Move to better ground.  Esc to back out.";
+                         : "Red: this ground is refused. Move to better ground, or drag to look further.  Esc to back out.";
         else
             msg = "No elevation model: this ground cannot be judged.  Esc to back out.";
     }
     else
         msg = ctl.TouchStyle()
             ? (narrow ? "Tap to aim, tap again to descend."
-                      : "Tap to aim, tap again to descend into the cursor.  Esc to back out.")
-            : (narrow ? "Click to descend." : "Click to descend into the cursor.  Esc to back out.");
+                      : "Tap to aim, tap again to descend into the cursor.  Drag to move.  Esc to back out.")
+            : (narrow ? "Click to descend." : "Click to descend into the cursor.  Drag to move.  Esc to back out.");
 
     int sh = SURVEY_STRIP_H, y = h - sh;
     DrawRectangle(0, y, w, sh, SV_CARD_BG);

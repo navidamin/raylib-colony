@@ -345,9 +345,13 @@ bool LunarGlobeReady() { return Init(); }
 
 void DrawLunarGlobe(int screenWidth, int screenHeight)
 {
+    DrawLunarGlobeView(GetOrbitalCamera(), screenWidth, screenHeight);
+}
+
+void DrawLunarGlobeView(const OrbitalCamera& cam, int screenWidth, int screenHeight)
+{
     if (!Init()) return;
 
-    const OrbitalCamera& cam = GetOrbitalCamera();
     float lat0 = (float)(cam.subLatDeg * DEG2RAD);
     float lon0 = (float)(cam.subLonDeg * DEG2RAD);
     float turn[4] = { std::cos(lat0), std::sin(lat0),
@@ -364,7 +368,10 @@ void DrawLunarGlobe(int screenWidth, int screenHeight)
 
     float resolution[2] = { (float)screenWidth, (float)screenHeight };
     float centre[2] = { screenWidth * 0.5f, screenHeight * 0.5f };
-    float radius = (float)OrbitalDiscRadiusPx(screenWidth, screenHeight);
+    // OrbitalDiscRadiusPx's formula, on this camera: the global one is
+    // clamped to the descent's zoom range, and a view drawn behind a
+    // 25 km window needs far past it.
+    float radius = (float)(std::min(screenWidth, screenHeight) * 0.46 * cam.zoom);
 
     BeginShaderMode(g.shader);
     if (g.locAlbedo >= 0) SetShaderValueTexture(g.shader, g.locAlbedo, g.albedo);

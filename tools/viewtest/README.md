@@ -37,6 +37,7 @@ Headless rendering needs the software-GL wrapper the script already applies:
 |-------|--------|
 | hover / click | the descent's own: the region under the pointer names itself; click claims, descends, founds |
 | click / tap, ↓ | colony → sect |
+| drag (district, site) | move the window over the moon; Esc then comes back up centred where you are |
 | Esc, right-click, ↑, BACK | up one rung, all the way to the globe — which comes back zoomed out and still, facing the place left |
 | right-click on the globe | spin on / off (off to start) |
 | `1` `3` `4` | jump to the globe / the colony / the sect |

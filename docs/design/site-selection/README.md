@@ -75,6 +75,7 @@ there is no band to read, no ring to interpret, no instrument to learn.
 | 2 — Region identity + panel | **done, in the game** — `src/SiteSelection/region_identity.*`, `RenderManager::SurveyDrawRegionCard` (shared with `lunar_map --site`) |
 | 3 — Site terrain panel | **done, in the game** — `site_verdict.*`, `SurveyDrawLevelCard`, the verdict-tinted cursor |
 | 4 — Placement and commit | **done** — `GameManager::FoundColony(point, windowCentre, claimed)` from `SurveyFlow`; any number of colonies, anywhere outside the polar cap (plan D7) |
+| 5 — Panning ("the player may pan at any level", master design §2) | **done in the game, 2026-09-24** — a drag at levels 2 and 3 slides the view (the globe shows past the built ground's edge) and the release moves the window there; the region card re-labels across a border; Esc comes back up centred where the view is. In the controller (`SurveyInput::held`), so `lunar_map` can take it by feeding the button; it does not yet |
 
 ## Cross-references
 

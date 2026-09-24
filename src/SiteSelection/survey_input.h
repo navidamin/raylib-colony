@@ -19,6 +19,10 @@ struct SurveyInput
     // A completed click: a release whose press did not travel, or the
     // harness's scripted click. Never a raw press.
     bool click = false;
+    // The button (or finger) is down this frame. On a window rung a press
+    // that travels drags the ground; the globe turns itself (lunar_globe).
+    // A caller that leaves it false simply has no dragging.
+    bool held = false;
     // Back out one rung: Esc, right-click below the globe, the BACK button.
     bool escape = false;
     // A right-click AT the globe, where there is nowhere to back out to:
@@ -37,7 +41,8 @@ struct SurveyInput
     // card row opens its hint and is not a move.
     const char* hintKey = nullptr;
     // The click landed on the caller's own controls (a toggle, the prompt
-    // strip): consumed there, not a navigation.
+    // strip): consumed there, not a navigation -- and a press there does
+    // not start a drag.
     bool uiConsumedClick = false;
     // No flights: a transition lands the same frame it is asked for.
     // The headless step harness runs this way, and a build with no clock

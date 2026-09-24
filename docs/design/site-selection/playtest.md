@@ -27,6 +27,7 @@ them, flight frames included, in half a minute.
 | Globe | right-click | spin on / off (still to start, and still again whenever you come back) |
 | District | move | the 25 km cursor snaps; the level card reads LOLA elevation and slope under it |
 | District | click | descend into the cursor (the dive) |
+| District, Site | drag | move the window over the moon: the ground slides with the pointer (the globe shows past its edge) and is rebuilt where you let go; the region card re-labels if you cross a border |
 | Site | move | the 1.5 km cursor is the base's own footprint, judged live, coloured by the verdict |
 | Site | click on green | found the colony here: the picture stays, the first sect stands at the click |
 | Any rung | `Esc`, right-click, BACK | up one rung, all the way to the globe, which comes back zoomed out (most of the moon in view) facing the place you left |

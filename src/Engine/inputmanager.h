@@ -32,8 +32,9 @@ public:
     void StopDragging();
 
     // The survey descent's input for this frame: the pointer, a click
-    // (a release whose press did not travel -- a drag turns the globe,
-    // it does not claim), Esc or right-click as escape, right-click as
+    // (a release whose press did not travel -- a drag turns the globe or
+    // moves a window rung, it does not claim), the button held (for that
+    // drag), Esc or right-click as escape, right-click as
     // the globe's spin switch too (it means that at level 1), the wheel.
     SurveyInput Survey(float dt) const;
     bool SurveyClick() const { return pressGesture.Click(IsMouseButtonReleased(MOUSE_BUTTON_LEFT)); }

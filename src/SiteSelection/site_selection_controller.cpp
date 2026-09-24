@@ -160,17 +160,70 @@ void SiteSelectionController::Update(const SurveyInput& in, int screenW, int scr
     {
         zoomK = std::clamp(zoomK * std::pow((float)SURVEY_ZOOM_NOTCH, wheel),
                            zoomMin, zoomMax);
+        leanHeld = false;           // a zoom leans onto the cursor again
     }
     // The caller can withdraw zoom-out between frames (its wider ground is
     // rebuilt or dropped); the view then comes back to the window at once.
     if (zoomK < zoomMin) zoomK = zoomMin;
+
+    // ---------- dragging the ground ----------
+    //
+    // "The player may pan at any level" (master design SS2): nothing locks
+    // until the base is founded, and the ground is a function of lat/lon,
+    // so a window has no edge to enforce. A press on a window rung that
+    // travels slides the view with the pointer -- the ground under it
+    // stays under it -- and the release moves the window itself there, so
+    // the rung's ground is built about the new place and the region card
+    // re-labels if a border was crossed. The globe turns itself.
+    bool pannable = (level > 0) && !flight.active && !founded;
+    if (pannable && in.held)
+    {
+        if (!pressOnGround)
+        {
+            // A press on the caller's controls or a card row is theirs.
+            if (!in.uiConsumedClick && !in.hintKey)
+            {
+                pressOnGround = true;
+                pressAt = in.pointer;
+            }
+        }
+        else if (!panning &&
+                 Vector2Distance(in.pointer, pressAt) > SURVEY_DRAG_THRESHOLD_PX)
+        {
+            panning = true;
+        }
+        if (panning)
+        {
+            double pxPerKm = (double)screenH * zoomK / ladder[level].windowSpanKm;
+            panXKm = -(in.pointer.x - pressAt.x) / pxPerKm;
+            panYKm = (in.pointer.y - pressAt.y) / pxPerKm;
+            // Not into the polar cap, whose windows are not drawn
+            // truthfully yet (D7): the view stops at its edge.
+            const SurveyCursor* c = Cursor();
+            double dx = 0.0, northKm = 0.0, southKm = 0.0;
+            SurveyLatLonToOffsetKm(*c, SITE_POLAR_FRAME_LAT_DEG, c->windowLonDeg, &dx, &northKm);
+            SurveyLatLonToOffsetKm(*c, -SITE_POLAR_FRAME_LAT_DEG, c->windowLonDeg, &dx, &southKm);
+            panYKm = std::clamp(panYKm, std::min(southKm, 0.0), std::max(northKm, 0.0));
+        }
+    }
+    else
+    {
+        if (panning && pannable) MoveWindowByPan(dem);
+        pressOnGround = false;
+        panning = false;
+        panXKm = 0.0;
+        panYKm = 0.0;
+    }
+
     // Any zoom that is not 1, in either direction, moves the cursor's
     // frame too, or the rectangle stops following the mouse the moment
-    // the ground gets wider than the window. This frame's viewport uses
-    // last frame's camera: one frame of lag, invisible at 60 Hz.
-    if (level > 0 && std::fabs(zoomK - 1.0f) > 1e-4f)
+    // the ground gets wider than the window; so does a drag. This frame's
+    // viewport uses last frame's camera: one frame of lag, invisible at
+    // 60 Hz.
+    if (level > 0 && (std::fabs(zoomK - 1.0f) > 1e-4f || panning))
     {
-        viewport = LadderViewportZoomed(screenW, screenH, zoomK, camXKm, camYKm,
+        viewport = LadderViewportZoomed(screenW, screenH, zoomK,
+                                        camXKm + panXKm, camYKm + panYKm,
                                         ladder[level].windowSpanKm);
     }
 
@@ -220,15 +273,26 @@ void SiteSelectionController::Update(const SurveyInput& in, int screenW, int scr
         // however far the view has zoomed out.
         c->reachAcrossKm = c->windowSpanKm * (double)in.groundAspect / zoomK;
         c->reachDownKm = c->windowSpanKm / zoomK;
-        SurveyCursorTrack(c, viewport, in.pointer.x, in.pointer.y);
+        // During a drag the cursor rides the ground like a pin on a map,
+        // and the camera holds still under the hand; the pointer takes the
+        // cursor back on release.
+        if (!panning)
+        {
+            SurveyCursorTrack(c, viewport, in.pointer.x, in.pointer.y);
+
+            // Lean the camera onto the cursor as the zoom deepens,
+            // reaching it at this rung's own limit -- unless a drag has
+            // just put the view where the player wants it, in which case
+            // it holds until the next zoom.
+            if (!leanHeld)
+            {
+                float approach = ZoomApproach(zoomK, zoomMax);
+                camXKm = c->offsetXKm * approach;
+                camYKm = c->offsetYKm * approach;
+            }
+        }
         SurveyCursorLatLon(*c, &hoverLat, &hoverLon);
         onGround = true;
-
-        // Lean the camera onto the cursor as the zoom deepens, reaching
-        // it at this rung's own limit.
-        float approach = ZoomApproach(zoomK, zoomMax);
-        camXKm = c->offsetXKm * approach;
-        camYKm = c->offsetYKm * approach;
     }
 
     // ---------- measured ground ----------
@@ -291,15 +355,41 @@ bool SiteSelectionController::Commit()
         return true;
 
     case Pending::ASCEND:
+    {
+        // Where the rung being left was looking. Undragged, that is the
+        // parent's cursor, and the parent comes back exactly as it was
+        // left; dragged, the parent comes back centred on it instead of
+        // where the descent had been.
+        double childLat = Cursor()->windowLatDeg;
+        double childLon = Cursor()->windowLonDeg;
         SurveyAscend(&descent);
         level--;
         if (level == 0)
         {
             claimed = false;
+            OrbitalCamera cam = GetOrbitalCamera();
+            cam.subLatDeg = childLat;
+            cam.subLonDeg = childLon;
+            SetOrbitalCamera(cam);
             PullGlobeOut();
+        }
+        else
+        {
+            SurveyCursor* parent = CursorMut();
+            double xKm = 0.0, yKm = 0.0;
+            SurveyLatLonToOffsetKm(*parent, childLat, childLon, &xKm, &yKm);
+            if (std::fabs(xKm - parent->offsetXKm) > 0.1 ||
+                std::fabs(yKm - parent->offsetYKm) > 0.1)
+            {
+                parent->windowLatDeg = childLat;
+                parent->windowLonDeg = childLon;
+                parent->offsetXKm = 0.0;
+                parent->offsetYKm = 0.0;
+            }
         }
         ArriveAtRung();
         return true;
+    }
 
     case Pending::FOUND:
         founded = true;
@@ -360,11 +450,56 @@ void SiteSelectionController::PullGlobeOut()
     }
 }
 
+void SiteSelectionController::MoveWindowByPan(const LolaDem* dem)
+{
+    // The window moves to what is on screen: the zoom's lean and the drag
+    // both, so the view does not move at the release and the ground is
+    // rebuilt centred on it. The lean then holds at zero until the next
+    // zoom; recomputed at once from the cursor, it would slide the view
+    // away from where the drag left it.
+    double moveXKm = camXKm + panXKm;
+    double moveYKm = camYKm + panYKm;
+    SurveyCursor* c = CursorMut();
+    SurveyCursor there = *c;
+    there.offsetXKm = moveXKm;
+    there.offsetYKm = moveYKm;
+    double lat = 0.0, lon = 0.0;
+    SurveyCursorLatLon(there, &lat, &lon);
+    // The drag stops at the polar cap; the lean it carries must not push
+    // the window over.
+    lat = std::clamp(lat, -SITE_POLAR_FRAME_LAT_DEG, SITE_POLAR_FRAME_LAT_DEG);
+    c->windowLatDeg = lat;
+    c->windowLonDeg = lon;
+    // The cursor stays on the ground it rode in on; the pointer takes it
+    // from there this same frame.
+    c->offsetXKm -= moveXKm;
+    c->offsetYKm -= moveYKm;
+    camXKm = 0.0;
+    camYKm = 0.0;
+    leanHeld = true;
+    // Different ground, different numbers: the card re-labels (master
+    // design SS2, "The player may pan at any level").
+    region = IdentifyRegion(dem, lat, lon);
+}
+
+void SiteSelectionController::ViewCentreLatLon(double* latDeg, double* lonDeg) const
+{
+    SurveyCursor view = *Cursor();
+    view.offsetXKm = (level > 0) ? camXKm + panXKm : 0.0;
+    view.offsetYKm = (level > 0) ? camYKm + panYKm : 0.0;
+    SurveyCursorLatLon(view, latDeg, lonDeg);
+}
+
 void SiteSelectionController::ArriveAtRung()
 {
     zoomK = 1.0f;
     camXKm = 0.0;
     camYKm = 0.0;
+    pressOnGround = false;
+    panning = false;
+    panXKm = 0.0;
+    panYKm = 0.0;
+    leanHeld = false;
     rungChanged = true;
 }
 

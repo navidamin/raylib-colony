@@ -253,8 +253,10 @@ harness and the preview tool; `rendermanager_survey.cpp` draws it. The
 levels' ground is the terrain chain's (a window keyed by place and span in
 the terrain cache); the DEM only judges. Claims inside the polar cap
 (`SITE_POLAR_FRAME_LAT_DEG`) are refused until a tangent-plane frame
-exists (plan D7). The old grid picker (`View::SITE_SELECTION`) and the
-100 km Planet view are gone.
+exists (plan D7). Levels 2 and 3 can be dragged: the view slides, the
+release moves the window there (and the region card re-labels across a
+border), and Esc comes back up centred where the view is. The old grid
+picker (`View::SITE_SELECTION`) and the 100 km Planet view are gone.
 - Each place is classified with a `SiteArchetype` (MARE_INDUSTRIAL, HIGHLAND_CONSTRUCTION, POLAR_VOLATILE, KREEP_SCIENTIFIC, LAVA_TUBE, MIXED) from its region's real composition
 - `FoundSect(point)` refuses a sect inside another colony's territory, closer than `SECT_MIN_SPACING_KM` to any sect, or with its footprint outside the `COLONY_WINDOW_KM` window
 - Sect placement within a Colony shows a resource preview tooltip (Ctrl+hover)

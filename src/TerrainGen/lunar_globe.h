@@ -33,6 +33,11 @@ bool LunarGlobeReady();
 // simply lands on top.
 void DrawLunarGlobe(int screenWidth, int screenHeight);
 
+// The same, through a given camera rather than the orbital one, and at any
+// zoom -- the orbital camera stops at ORBITAL_ZOOM_MAX. What a window rung
+// shows past the edge of its ground while it is dragged.
+void DrawLunarGlobeView(const OrbitalCamera& camera, int screenWidth, int screenHeight);
+
 // Turn and zoom from the mouse: left-drag spins, the wheel zooms about
 // the centre, and the globe drifts on its own when left alone if
 // SetLunarGlobeSpin has asked it to. dtSeconds drives the drift.

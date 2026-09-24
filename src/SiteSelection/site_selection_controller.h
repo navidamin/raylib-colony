@@ -99,6 +99,16 @@ public:
     const SurveyCursor* Cursor() const;
     SurveyCursor* CursorMut();
 
+    // ---- dragging the ground (a window rung) ---------------------------
+    // While the button is down the view slides by the pan, km east/north;
+    // on release the window itself moves there.
+    bool Panning() const { return panning; }
+    double PanXKm() const { return panXKm; }
+    double PanYKm() const { return panYKm; }
+    // Where the middle of the screen is on the moon: the window centre,
+    // moved by the zoom's lean and the drag.
+    void ViewCentreLatLon(double* latDeg, double* lonDeg) const;
+
     // ---- zoom within the rung -----------------------------------------
     float ZoomK() const { return zoomK; }
     double CamXKm() const { return camXKm; }
@@ -166,6 +176,7 @@ private:
     void LandFlight();
     void ArriveAtRung();
     void PullGlobeOut();
+    void MoveWindowByPan(const LolaDem* dem);
 
     int level = 0;
     bool claimed = false;
@@ -178,6 +189,12 @@ private:
     float zoomK = 1.0f;
     double camXKm = 0.0, camYKm = 0.0;
     SurveyViewport viewport;
+
+    bool pressOnGround = false;     // the button went down on the ground
+    Vector2 pressAt = { 0.0f, 0.0f };
+    bool panning = false;           // ...and has travelled: a drag
+    double panXKm = 0.0, panYKm = 0.0;
+    bool leanHeld = false;          // a drag placed the view; no lean till a zoom
 
     bool havePointer = false;
     Vector2 lastPointer = { 0.0f, 0.0f };

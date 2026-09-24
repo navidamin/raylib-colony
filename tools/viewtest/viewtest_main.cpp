@@ -104,7 +104,9 @@ static ViewNotes NotesForView(int level, bool hasColony)
                 {"OK",   "  snaps to a 25 km grid; click descends."},
                 {"OK",   "Level card: the cursor's mean slope,"},
                 {"OK",   "  buildable fraction and relief from LOLA."},
-                {"OK",   "Region card fixed from the claim."},
+                {"OK",   "DRAG moves the window over the moon; the"},
+                {"OK",   "  ground is rebuilt there on release, and the"},
+                {"OK",   "  region card re-labels if a border is crossed."},
                 {"TODO", "Named-feature arcs are drawn at the rung's"},
                 {"TODO", "  framing; zooming moves the ground, not them."},
             }};
@@ -129,6 +131,8 @@ static ViewNotes NotesForView(int level, bool hasColony)
                 {"OK",   "  names the limit that failed."},
                 {"OK",   "Verdict from real LOLA slope, roughness,"},
                 {"OK",   "  relief and permanent shadow."},
+                {"OK",   "DRAG moves the window; Esc comes back up to"},
+                {"OK",   "  a district centred where you now are."},
                 {"OK",   "Colonies already here are marked; landing"},
                 {"OK",   "  on one opens it instead."},
                 {"GAP",  "Past 80 deg the window smears (D7, measured"},
@@ -339,7 +343,7 @@ static void HandleInput(ViewTestContext& ctx)
     if (SurveyOwnsLevel(ctx))
     {
         SurveyInput in = ctx.inputManager->Survey(GetFrameTime());
-        if (onHarnessUi) in.click = false;
+        if (onHarnessUi) { in.click = false; in.uiConsumedClick = true; }
         ctx.flow.BeginFrame(in, VT_WIDTH, VT_HEIGHT, ctx.game->GetColonies());
         ctx.surveyFrame = true;
         return;

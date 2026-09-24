@@ -185,6 +185,7 @@ private:
                               int w, int h);
     void SurveyDrawFlight(const SiteSelectionController& ctl, std::vector<Colony*>& colonies,
                           const Colony* current, int w, int h);
+    void SurveyDrawPanBackdrop(const SiteSelectionController& ctl, int w, int h);
     void SurveyDrawGround(const SurveyCursor& cursor, const SurveyViewport& viewport,
                           float zoomK, int w, int h);
     void SurveyDrawRegionCard(const RegionIdentity& id, int level, int px, int py, int pw,

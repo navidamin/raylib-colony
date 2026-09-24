@@ -94,6 +94,21 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
   cap, so that laptop builds it at the screen's 1280.
 - **Still open:** the iPad — which path it takes, speed, memory.
 
+### Dragging Levels 2 and 3 ✅ COMPLETE
+
+- The master design says the player may pan at any level; the retired
+  `/regolith/` descent and `lunar_map`'s flat-map explorer could, the one
+  ladder never had. Now a drag at levels 2 and 3 slides the view with the
+  pointer (the globe drawn at the view's scale fills the uncovered edge),
+  and the release moves the window there: ground rebuilt, region card
+  re-labelled if a border was crossed ("REGION - UNDER THIS WINDOW"), and
+  Esc comes back up to a district, or a globe, centred on where you are.
+- Checked in the browser: a 300 x 150 px drag moved the district 64.4 km
+  east / 32.2 km north, exactly the drag's ground; the rebuilt ground
+  lines up with the old shifted by the drag; zoomed in, the view no
+  longer drifts after the release (the lean holds until the next zoom).
+- `lunar_map` does not feed the button yet, so it cannot drag.
+
 ### The Globe, Coming Back to It ✅ COMPLETE
 
 - Back from the district (or out of a colony) the globe was left at the

@@ -110,7 +110,7 @@ void SurveyFlow::BeginFrame(SurveyInput in, int w, int h, std::vector<Colony*>& 
         in.click = false;
         in.escape = true;
     }
-    in.uiConsumedClick = layout.pointerOnStrip;
+    in.uiConsumedClick = in.uiConsumedClick || layout.pointerOnStrip;
     if (level == 0 && in.click && !ctl.FlightActive())
     {
         markerHit = MarkerAt(in.pointer, colonies, w, h);
