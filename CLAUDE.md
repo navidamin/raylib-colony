@@ -22,8 +22,8 @@ sited, and it is the only thing in this repository called a *level*.
   `View::District` level 2, and `View::Colony` with no colony under it is
   level 3, where a click founds the colony — and in `lunar_map`, the
   instrument, on the same `SiteSelectionController`
-  (`src/SiteSelection/`). On Pages: `/viewtest/` walks the game,
-  `/lunarmap/` is the instrument. (The wiring was built on
+  (`src/SiteSelection/`). On Pages: `/ladder/` is the game,
+  `/ladder/walk/` walks it with notes, `/lunarmap/` is the instrument. (The wiring was built on
   `lunarmap-wiring-site-selection` and merged here on 2026-09-23; the old
   grid picker and the 100 km Planet view went with it.)
 - **Design:** `docs/design/site-selection/README.md`; how it went into
@@ -55,10 +55,17 @@ at anything recent touching `src/TerrainGen`, `src/SiteSelection` or
 without either knowing, and a bug fixed on one was still live on the
 other.
 
-**The Pages site is shared.** Every branch that deploys replaces every
-URL on it, so `/lunarmap/` shows whichever branch pushed last. Before
-judging a playtest, check which branch the latest "Deploy to GitHub
-Pages" run came from.
+**The Pages site is shared.** Every deploy publishes the whole site, and
+the excavation branch deploys too. Each branch builds only its own
+folders and carries the other's: this branch owns `/`, `/viewtest/`,
+`/ladder/`, `/lunarmap/` and `/regolith/`; the excavation branch
+`/playtest/`, `/extraction/` and `/excavation/` (its own copy of the
+game). Every page's browser-tab title — and the game's title screen —
+names the branch and commit that built it: read it before judging a
+playtest. `/ladder/` is the address to hand out for the ladder, because
+no other branch builds one. (On 2026-09-24 a playtest of the ladder
+turned out to be the excavation branch's month-old game at `/`, which it
+used to build too.)
 
 Two checks guard the ladder: `survey_cursor_test` (run by CI's ctest as
 `level_ladder`) fails if the ladder's shape changes, and

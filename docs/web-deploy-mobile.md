@@ -11,9 +11,19 @@ Pages deploy.
   `PLATFORM=Web` (emscripten). `src/CMakeLists.txt` shares
   `web_link_flags` between them: `--shell-file src/minshell.html`,
   `--preload-file src/assets@src/assets`.
-- `.github/workflows/deploy-web.yml` builds both and publishes to GitHub
-  Pages: game at `/`, playtest at `/playtest/`. Each Pages deploy
-  replaces the whole site.
+- `.github/workflows/deploy-web.yml` builds the pages and publishes them
+  to GitHub Pages. Each Pages deploy replaces the whole site, and two
+  branches deploy, so each builds only its own folders and carries the
+  other's from its last good deploy: `claude/lunar-elevation-lola-dem-1dcdtj`
+  owns `/` (the game), `/viewtest/`, `/ladder/` (the same game again, at
+  an address no other branch builds — the one to hand out),
+  `/ladder/walk/`, `/lunarmap/`, `/regolith/`;
+  `claude/excavation-module-design-jhp3v1` owns `/playtest/`,
+  `/extraction/` and `/excavation/` (its own copy of the game).
+- Every deployed page names its build: the browser-tab title, and the
+  game's title screen (`COLONY_BUILD_STAMP`, `src/build_stamp.h`), read
+  `<branch> <commit> <time> UTC`. A page without it is not from this
+  branch's deploy.
 - The `github-pages` **environment** restricts which branches may
   deploy. A branch deploy failing in ~2s with no steps run = branch not
   in the environment's allowlist (Settings → Environments →

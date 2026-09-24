@@ -63,7 +63,10 @@ locations; see the random-site sweeps in `prototypes/planet_visuals/`.
 
 ## Web
 
-The deploy workflow publishes this target to `/viewtest/` alongside the game,
-so the ladder can be walked on a phone or tablet. Deploys run from `main`;
-a feature branch also needs adding to the `github-pages` environment's
-allowed branches before its deploy job will run.
+The deploy workflow publishes this target to `/ladder/walk/` (and
+`/viewtest/`) alongside the game at `/ladder/`, so the ladder can be walked
+on a phone or tablet. `/ladder/walk/` is the one to use: no other branch
+builds under `/ladder/`, so it is always this branch's build, and the
+browser-tab title names it. A feature branch also needs adding to the
+`github-pages` environment's allowed branches before its deploy job will
+run.

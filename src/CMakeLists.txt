@@ -1,3 +1,12 @@
+# Which build this is, drawn on the game's title screen
+# (src/build_stamp.h) so a playtester can tell whose build a shared Pages
+# URL is serving. The Pages deploy sets it to "<branch> <commit> <time>";
+# empty -- every local build -- draws nothing.
+set(COLONY_BUILD_STAMP "" CACHE STRING "Build identity drawn on the title screen")
+if(COLONY_BUILD_STAMP)
+    add_compile_definitions(COLONY_BUILD_STAMP="${COLONY_BUILD_STAMP}")
+endif()
+
 # Core game sources shared by the game executable and the offscreen preview tool
 set(COLONY_CORE_SOURCES
     Colony/colony.cpp

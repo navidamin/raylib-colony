@@ -11,7 +11,7 @@ them, flight frames included, in half a minute.
 |-------|-----|-------|
 | Desktop game | `cmake -B build && cmake --build build --target colony_game && ./build/src/colony_game` | the shipping flow |
 | Desktop, annotated | `cmake --build build --target colony_viewtest && ./build/src/colony_viewtest` | the same descent through the same `SurveyFlow`, plus the known-issue overlay (`I`) and rung jumps (`1` `3` `4`) |
-| Phone / tablet | `https://navidamin.github.io/raylib-colony/` (game), `/viewtest/` (annotated) | deployed from `claude/lunar-elevation-lola-dem-1dcdtj` (this branch was merged into it on 2026-09-23). Bust the cache with `?v=N`; `?terrain=cpu` or `?terrain=gpu` forces the terrain path. |
+| Phone / tablet | `https://navidamin.github.io/raylib-colony/ladder/` (game), `/ladder/walk/` (annotated) | deployed from `claude/lunar-elevation-lola-dem-1dcdtj`; no other branch builds `/ladder/`, so it is always this branch's. The title screen and the tab title name the build. Bust the cache with `?v=N`; `?terrain=cpu` or `?terrain=gpu` forces the terrain path. |
 
 ## Controls
 

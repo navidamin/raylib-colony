@@ -1,4 +1,5 @@
 #include "rendermanager.h"
+#include "build_stamp.h"
 #include "resource_manager.h"
 #include "region_identity.h"
 #include "lunar_dem_shared.h"
@@ -399,6 +400,7 @@ void RenderManager::DrawMenuView() {
     DrawTexture(image, imageX, imageY, WHITE);  // Draw the image on the left
     DrawText("COLONY", GetScreenWidth()/2 - MeasureText("COLONY", 60)/2, GetScreenHeight()/3, 60, BLACK);
     DrawText("Press ENTER or tap to start", GetScreenWidth()/2 - MeasureText("Press ENTER or tap to start", 20)/2, GetScreenHeight()/2, 20, GRAY);
+    DrawBuildStamp(GetScreenWidth()/2, GetScreenHeight()/2 + 34, 14, Color{ 140, 136, 120, 255 });
 }
 
 void RenderManager::DrawColonyView(Camera2D camera, Colony* colony, Planet* planet,

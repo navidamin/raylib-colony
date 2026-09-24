@@ -4,13 +4,16 @@ on:
   workflow_dispatch:
   push:
     # One repo has one Pages site, and the excavation branch deploys to it
-    # too. Whichever branch pushes last owns the site until the other one
-    # pushes again -- the builds also cancel each other (concurrency group
-    # "pages", cancel-in-progress). This branch is listed while the
-    # site-selection playtest (the game at /, /viewtest/, /lunarmap/) is
-    # being tried on a phone. Drop it from this list again once that is
-    # done. (lunarmap-wiring-site-selection was merged into it on
-    # 2026-09-23 and is no longer listed.)
+    # too; every deploy publishes the WHOLE site, and each branch carries
+    # the other's folders from its last good deploy. Who owns what:
+    #   this branch   /  /viewtest/  /ladder/  /lunarmap/  /regolith/
+    #   excavation    /playtest/  /extraction/  /excavation/
+    # (Until 2026-09-24 the excavation branch also built / and /viewtest/
+    # from its own month-old game, and whichever branch pushed last owned
+    # them -- a playtest of this branch's ladder turned out to be that.)
+    # This branch is listed while the site-selection playtest is being
+    # tried on a phone. (lunarmap-wiring-site-selection was merged into it
+    # on 2026-09-23 and is no longer listed.)
     branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj]
     paths:
       - 'src/**'
@@ -50,8 +53,14 @@ jobs:
         version: 3.1.64
         actions-cache-folder: 'emsdk-cache'
 
+    # The Pages site is shared, so every page says which build it is: on
+    # the game's title screen (COLONY_BUILD_STAMP, src/build_stamp.h) and
+    # in the browser-tab title (written into each index.html below).
+    - name: Build stamp
+      run: echo "STAMP=${GITHUB_REF_NAME} $(git rev-parse --short HEAD) $(date -u '+%Y-%m-%d %H:%M') UTC" >> "$GITHUB_ENV"
+
     - name: Configure with CMake (Emscripten)
-      run: emcmake cmake -B build -DPLATFORM=Web -DCMAKE_BUILD_TYPE=Release
+      run: emcmake cmake -B build -DPLATFORM=Web -DCMAKE_BUILD_TYPE=Release "-DCOLONY_BUILD_STAMP=${STAMP}"
 
     - name: Build
       run: cmake --build build
@@ -87,6 +96,15 @@ jobs:
         if [ -f build/src/colony_game.data ]; then
           cp build/src/colony_game.data deploy/colony_game.data
         fi
+        # This branch's game at /ladder/ too, and its walk at /ladder/walk/.
+        # / and /viewtest/ can be replaced by any branch that deploys; no
+        # other branch builds a /ladder/, so their deploys carry this one
+        # instead of overwriting it. The address for playtesting the ladder.
+        mkdir -p deploy/ladder/walk
+        cp build/src/colony_game.html deploy/ladder/index.html
+        cp build/src/colony_game.js build/src/colony_game.wasm build/src/colony_game.data deploy/ladder/
+        cp build/src/colony_viewtest.html deploy/ladder/walk/index.html
+        cp build/src/colony_viewtest.js build/src/colony_viewtest.wasm build/src/colony_viewtest.data deploy/ladder/walk/
         # The game walk at /viewtest/ (annotated: the level ladder, then Colony -> Sect)
         mkdir -p deploy/viewtest
         cp build/src/colony_viewtest.html deploy/viewtest/index.html
@@ -118,9 +136,18 @@ jobs:
         cp prototypes/planet_visuals/regolith_blocks.js     deploy/regolith/
         # Stamp the build into the page. Without it there is no telling a
         # stale tab from a deploy that has not landed.
-        STAMP="$(git rev-parse --short HEAD) · $(date -u '+%Y-%m-%d %H:%M') UTC"
         sed -i "s|BUILD_STAMP|${STAMP}|" deploy/regolith/index.html
         grep -q BUILD_STAMP deploy/regolith/index.html && { echo "stamp not applied"; exit 1; } || true
+        # And into every built page's tab title, so the tab says whose build
+        # it is before the page has even loaded.
+        for page in index.html ladder/index.html ladder/walk/index.html viewtest/index.html lunarmap/index.html; do
+          name=$(case "$page" in
+            index.html|ladder/index.html) echo "Colony";;
+            ladder/walk/index.html|viewtest/index.html) echo "Colony walk";;
+            lunarmap/index.html) echo "Lunar map";; esac)
+          sed -i "s|<title>[^<]*</title>|<title>${name} - ${STAMP}</title>|" "deploy/$page"
+          grep -q "<title>${name} - ${STAMP}</title>" "deploy/$page" || { echo "title stamp not applied to $page"; exit 1; }
+        done
 
     # One repo has one Pages site and every deploy replaces ALL of it. The
     # excavation branch serves /playtest/ and /extraction/; this step pulls
