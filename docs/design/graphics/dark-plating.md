@@ -492,8 +492,9 @@ to everything else" -- because nothing in it belonged to the solid: its own
 fill, its own edges, floating in front of the walls it described. A cut is
 made OF the block. See `docs/design/graveyard/console-section-slice.md`.
 
-The tilt is still limited (0.15-0.80 rad), for the cap and the column to
-stay readable, not for the depth.
+The tilt is now fixed at 0.42 rad and the zoom at 0.37: the block turns
+about its vertical axis and nothing else. See
+`docs/design/graveyard/console-block-zoom-and-tilt.md`.
 
 **Unknown rock is wire, not haze.** The fog is drawn by leaving things out:
 where the model is not confident a wall gets no fill, no mesh and no bed
@@ -600,6 +601,21 @@ over its cap and walls. On invented ground they are texture; on a picture of
 real ground they read as spots that mean something. `H3DBuildOpts.plain`
 leaves them out. Ornament on a data surface has to be unmistakably ornament,
 or absent.
+
+**Where the drill cannot go, the hand.** The block's sides cannot be
+drilled, so over them the pointer does not show the drill switched off: it
+shows what the sides *can* do, which is turn. An open hand over a wall
+(`overBody`: on the block, off the cap), a closed fist while the block is
+being dragged round, from any start point. Drawn by the console
+(`DashDrawHand`): neither raylib nor GLFW has a grab cursor. It is the
+classic cursor build rather than the plating's line art -- a pale hand
+(`#e6f7ff`) over a dark ink outline (`#021018`), built from a rounded palm
+and capsule fingers, three ink creases for the fist's knuckles -- because it
+has to read on the bright cap and the dark rock alike, and a cyan stroke
+disappears into the cyan wire. The palm is the hotspot; while the hand
+is up the drill's reticle is not drawn. Bar hover and a barrel still take
+the pointer first, and in STRETCH the arrow keeps it, because there it is
+picking a depth.
 
 ### 6.5 The crown — a rotary bit as an elliptical annulus
 

@@ -302,6 +302,13 @@ one. Re-planning deeper keeps the samples — it is the same hole; a new site
 clears them. It is not drawn yet; the log reports the count when a hole
 lands, which is how it is checked in a playtest.
 
+**The block turns, and only turns.** A drag turns it about its vertical
+axis; the tilt (0.42 rad) and the zoom (0.37) are fixed, and the wheel does
+nothing. Over its sides the pointer is a grab hand -- open, then a fist
+while dragging -- instead of the drill switched off, because the sides
+cannot be drilled but can be turned (dark-plating §6.5b). The zoom and the
+tilt band are in the graveyard, `console-block-zoom-and-tilt.md`.
+
 **The pointer is applied in one place.** The console reports the cursor it
 wants (`SurveyDash_Cursor`); `RenderManager::ApplyPointer` changes the OS
 cursor only when that changes, and any frame in which nothing claimed it puts

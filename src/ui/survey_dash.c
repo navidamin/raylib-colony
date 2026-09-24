@@ -70,14 +70,15 @@
 
 /* The block was drawn at a fifth of its size in a pane seven hundred units
  * wide -- the reference's zoom, carried over without re-fitting it to a pane
- * that is a different shape. At 0.42 it fills the space it has. The player
- * can move it: see DASH_ZOOM_MIN/MAX. */
-#define DASH_BLOCK_ZOOM 0.37f
-#define DASH_ZOOM_MIN   0.15f
-#define DASH_ZOOM_MAX   1.30f
-#define DASH_ZOOM_STEP  1.12f
-#define DASH_PITCH_MIN  0.15f
-#define DASH_PITCH_MAX  0.80f
+ * that is a different shape. At 0.37 it fills the space it has.
+ *
+ * THE VIEW IS FIXED BUT FOR YAW. The block turns about its vertical axis
+ * and nothing else: no zoom, no tilt. Every depth reading on it -- the
+ * height log, the stretch, the cutaway -- is read at this one tilt, and a
+ * view that moved in three ways gave three ways to lose the thread (see the
+ * graveyard, console-block-zoom-and-tilt.md). */
+#define DASH_BLOCK_ZOOM  0.37f
+#define DASH_BLOCK_PITCH 0.42f
 
 /* the rect inside which a drag rotates the block */
 #define DASH_BLOCK_X0 (MID_X + 20.0f)
@@ -356,7 +357,7 @@ void SurveyDash_Reset(SurveyDashState *s)
     memset(s, 0, sizeof(*s));
 
     s->block.yaw = -0.1f;
-    s->block.pitch = 0.42f;
+    s->block.pitch = DASH_BLOCK_PITCH;
     s->block.selected = -1;
 
     s->view.cx = DASH_BLOCK_CX;
@@ -466,6 +467,7 @@ static void DashDrawHeightLog(void)
  * the cap so it rides the block's rotation and zoom. */
 static bool DashCutActive(const SurveyDashState *s);
 static bool DashClosing(const SurveyDashState *s);
+static bool DashWantsGrab(const SurveyDashState *s);
 
 static void DashDrawSite(const SurveyDashState *s)
 {
@@ -924,6 +926,7 @@ SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
 {
     if (!s || !s->started || !s->pointerIn) return SDC_ARROW;
     if (s->coreHover >= 0 && SurveyDash_Phase(s) != SDP_STRETCH) return SDC_HAND;
+    if (DashWantsGrab(s)) return SDC_HIDDEN;           /* the console draws the hand */
     switch (SurveyDash_Phase(s))
     {
         /* The drill is the pointer where it can site a hole -- over the
@@ -942,6 +945,76 @@ SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
             return (DashOverFace(s->pointer) || DashOverAbort(s->pointer)) ? SDC_HAND : SDC_ARROW;
     }
     return SDC_ARROW;
+}
+
+/* ---- THE GRAB HAND -----------------------------------------------------
+ *
+ * The block turns about its vertical axis, and the pointer says so: an open
+ * hand over its sides, a closed one while it is being dragged round. Drawn
+ * by the console because neither raylib nor GLFW has a grab cursor. The
+ * classic cursor build -- a light hand with a dark outline -- so it reads on
+ * the bright cap and the dark rock alike. The hotspot is the palm. */
+static bool DashDragging(const SurveyDashState *s)
+{
+    return s->down && s->onBlock && s->moved;
+}
+
+static bool DashWantsGrab(const SurveyDashState *s)
+{
+    if (DashDragging(s)) return true;
+    return s->overBody && SurveyDash_Phase(s) != SDP_STRETCH;
+}
+
+static void DashCapsule(Vector2 a, Vector2 b, float r, Color c)
+{
+    const float dx = b.x - a.x, dy = b.y - a.y;
+    const float l = sqrtf(dx * dx + dy * dy);
+    if (l > 1e-3f)
+    {
+        const float nx = -dy / l * r, ny = dx / l * r;
+        const Vector2 q[4] = {{a.x + nx, a.y + ny}, {b.x + nx, b.y + ny},
+                              {b.x - nx, b.y - ny}, {a.x - nx, a.y - ny}};
+        c2d_fill_poly(q, 4, c);
+    }
+    c2d_disc(a, r, c);
+    c2d_disc(b, r, c);
+}
+
+static void DashHandShapes(Vector2 p, bool closed, float grow, Color c)
+{
+    const float k = 1.35f;                              /* design units per unit */
+    #define HP(hx, hy) (Vector2){p.x + (hx) * k, p.y + (hy) * k}
+    /* the palm */
+    const C2DCorner cr[4] = {{p.x - 7.0f * k - grow, p.y - 4.0f * k - grow, 4.0f * k},
+                             {p.x + 7.0f * k + grow, p.y - 4.0f * k - grow, 4.0f * k},
+                             {p.x + 7.0f * k + grow, p.y + 9.0f * k + grow, 4.0f * k},
+                             {p.x - 7.0f * k - grow, p.y + 9.0f * k + grow, 4.0f * k}};
+    Vector2 v[64];
+    c2d_fill_poly(v, c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, v, 64), c);
+    /* four fingers, then the thumb: long and spread open, knuckles closed */
+    static const float fx[4] = {-5.2f, -1.75f, 1.75f, 5.2f};
+    static const float open[4] = {-11.0f, -14.0f, -13.0f, -10.0f};
+    for (int i = 0; i < 4; i++)
+        DashCapsule(HP(fx[i], -2.0f), HP(fx[i], closed ? -6.0f : open[i]), 2.1f * k + grow, c);
+    if (closed) DashCapsule(HP(-6.5f, 4.0f), HP(-8.5f, 0.5f), 2.3f * k + grow, c);
+    else        DashCapsule(HP(-6.5f, 4.0f), HP(-11.5f, -2.0f), 2.3f * k + grow, c);
+    #undef HP
+}
+
+static void DashDrawHand(Vector2 p, bool closed)
+{
+    const Color ink = RGBA8(0x02, 0x10, 0x18, 1.0f);
+    DashHandShapes(p, closed, 1.6f, ink);                               /* the outline */
+    DashHandShapes(p, closed, 0.0f, RGBA8(0xe6, 0xf7, 0xff, 1.0f));     /* the hand    */
+    if (!closed) return;
+    /* the fist's knuckles: the creases between the curled fingers */
+    const float k = 1.35f;
+    for (int i = 0; i < 3; i++)
+    {
+        const float x = p.x + (-3.5f + 3.5f * i) * k;
+        const Vector2 crease[2] = {{x, p.y - 8.0f * k}, {x, p.y - 3.5f * k}};
+        c2d_polyline(crease, 2, ink, 1.1f);
+    }
 }
 
 /* ---- THE CURSOR TAG ----------------------------------------------------
@@ -990,6 +1063,7 @@ static void DashDrawTag(Vector2 at, const char *caption, const char *main, Color
 static void DashDrawCursor(const SurveyDashState *s)
 {
     if (!s->pointerIn) return;
+    const bool grab = DashWantsGrab(s);
     const Color cyan  = RGBA8(0x35, 0xd8, 0xee, 1.0f);
     const Color amber = RGBA8(0xff, 0xc8, 0x4d, 1.0f);
 
@@ -1026,6 +1100,11 @@ static void DashDrawCursor(const SurveyDashState *s)
             break;
     }
 
+    if (grab)
+    {
+        DashDrawHand(s->pointer, DashDragging(s));
+        return;
+    }
     if (SurveyDash_Cursor(s) == SDC_HIDDEN)
     {
         Vector2 tip = s->pointer;
@@ -1152,7 +1231,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
      * pointer, laid on the ground so it follows the terrain and the view --
      * and only while the drill is in hand over the cap. */
     H3DHud hud = {0};
-    if (s->aimOn && SurveyDash_Cursor(s) == SDC_HIDDEN)
+    if (s->aimOn && SurveyDash_Cursor(s) == SDC_HIDDEN && !DashWantsGrab(s))
     {
         hud.reticle   = true;
         hud.reticleAt = true;
@@ -1365,6 +1444,16 @@ void SurveyDash_Hover(SurveyDashState *s, Rectangle region, Vector2 screenPt)
 
     s->coreHover = (g_model && s->pointerIn) ? DashBarrelAt(s, d) : -1;
 
+    /* over the block's sides -- not its cap, which is where holes are sited
+       -- the pointer is for turning the block */
+    s->overBody = false;
+    if (g_model && s->coreHover < 0 &&
+        d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 && d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1)
+    {
+        float u, v;
+        s->overBody = !Holo3D_HitCap(g_model, d.x, d.y, &u, &v) && Holo3D_Hit(g_model, d.x, d.y) >= 0;
+    }
+
     s->aimOn = false;
     if (!s->aimArmed || !g_model) return;
     /* on a barrel the pointer is picking a log, not a site */
@@ -1372,21 +1461,6 @@ void SurveyDash_Hover(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     if (d.x < DASH_BLOCK_X0 || d.x > DASH_BLOCK_X1 ||
         d.y < DASH_BLOCK_Y0 || d.y > DASH_BLOCK_Y1) return;
     s->aimOn = Holo3D_HitCap(g_model, d.x, d.y, &s->aimU, &s->aimV);
-}
-
-void SurveyDash_Zoom(SurveyDashState *s, Rectangle region, Vector2 screenPt, float steps)
-{
-    if (!s || !s->started || steps == 0.0f) return;
-    const Vector2 d = SurveyDash_ToDesign(region, screenPt);
-    /* Only over the block. The rack and the drill bar are lists, and a wheel
-     * over a list should never move something else. */
-    if (d.x < DASH_BLOCK_X0 || d.x > DASH_BLOCK_X1 ||
-        d.y < DASH_BLOCK_Y0 || d.y > DASH_BLOCK_Y1) return;
-
-    float z = s->view.zoom * powf(DASH_ZOOM_STEP, steps);
-    if (z < DASH_ZOOM_MIN) z = DASH_ZOOM_MIN;
-    if (z > DASH_ZOOM_MAX) z = DASH_ZOOM_MAX;
-    s->view.zoom = z;
 }
 
 void SurveyDash_Drag(SurveyDashState *s, Rectangle region, Vector2 delta)
@@ -1398,14 +1472,8 @@ void SurveyDash_Drag(SurveyDashState *s, Rectangle region, Vector2 delta)
                   ? (float)g_surf.w / g_surf.dst.width : 1.0f;
     (void)region;
     if (fabsf(delta.x) + fabsf(delta.y) > 0.0f) s->moved = true;
-    s->block.yaw   += delta.x * k * 0.006f;
-    s->block.pitch += delta.y * k * 0.004f;
-    /* THE TILT IS LIMITED. Near top-down (the old limit was 1.30 rad, 74
-       degrees) the column collapses to a few pixels and no depth can be
-       picked on it; near edge-on the cap vanishes and no site can. The
-       band keeps both readable -- the section does the rest. */
-    if (s->block.pitch < DASH_PITCH_MIN) s->block.pitch = DASH_PITCH_MIN;
-    if (s->block.pitch > DASH_PITCH_MAX) s->block.pitch = DASH_PITCH_MAX;
+    /* yaw only: the block turns about its vertical axis, and the tilt stays */
+    s->block.yaw += delta.x * k * 0.006f;
     s->block.fast = true;
 }
 

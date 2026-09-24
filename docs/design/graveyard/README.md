@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [The console block's zoom and tilt](console-block-zoom-and-tilt.md) — the wheel zoom and the 0.15–0.80 rad drag tilt | Yaw-only block | a fixed view that turns about its vertical axis |
 | [The glass tint on unknown faces](fog-glass-tint.md) — a faint tint under the fog so the cut's planes read | Cut closes after a hole | the cut's own edges |
 | [The section slice over the block](console-section-slice.md) — a flat panel through the site showing the beds | Cutaway | `Holo3D_DrawCutaway` |
 | [The drill that was always turning](drill-always-turning.md) — idle creep from the first frame, and a drill bar that answered before a site | Start-digging | `DrillSim_Start` and the console's phases |

@@ -175,6 +175,7 @@ typedef struct SurveyDashState {
     float         revealT;
     DashKnowledge fogFrom;
 
+    bool          overBody;      /* over the block's sides: a grab       */
     Vector2       pointer;       /* design space, last known            */
     bool          pointerIn;     /* inside the console at all           */
 
@@ -244,8 +245,7 @@ typedef enum SurveyDashCursor {
 
 SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s);
 
-/* Wheel notches (or pinch steps) over the block. Positive zooms in. */
-void SurveyDash_Zoom   (SurveyDashState *s, Rectangle region, Vector2 screenPt, float steps);
+/* A drag on the block turns it about its vertical axis -- yaw only. */
 void SurveyDash_Drag   (SurveyDashState *s, Rectangle region, Vector2 delta);
 void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt);
 
