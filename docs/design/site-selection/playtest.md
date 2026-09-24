@@ -24,11 +24,12 @@ them, flight frames included, in half a minute.
 | Globe | `ENTER` | claim what is under the screen centre |
 | Globe | click a colony marker | open that colony |
 | Globe | `Esc` | menu |
+| Globe | right-click | spin on / off (still to start, and still again whenever you come back) |
 | District | move | the 25 km cursor snaps; the level card reads LOLA elevation and slope under it |
 | District | click | descend into the cursor (the dive) |
 | Site | move | the 1.5 km cursor is the base's own footprint, judged live, coloured by the verdict |
 | Site | click on green | found the colony here: the picture stays, the first sect stands at the click |
-| Any rung | `Esc`, right-click, BACK | up one rung, all the way to the globe |
+| Any rung | `Esc`, right-click, BACK | up one rung, all the way to the globe, which comes back zoomed out (most of the moon in view) facing the place you left |
 | Colony | `Ctrl`+hover | resource preview of the ground under the cursor |
 | Colony | `Ctrl`+click | found a sect there (refused inside another colony's territory, closer than 5 km to a sect, or with its footprint outside the 25 km window) |
 | Colony | double-click a sect, `S` | Sect view |

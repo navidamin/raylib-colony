@@ -49,6 +49,14 @@ const float SITE_FLIGHT_OCTAVES_PER_SEC = 1.8f;
 const float SITE_FLIGHT_MIN_SECONDS = 1.00f;
 const float SITE_FLIGHT_MAX_SECONDS = 3.00f;
 
+// Back on the globe from below -- Esc out of the district, or out of a
+// colony -- the orbital camera is still where the dive left it, one
+// district across the screen (about 19x). It is pulled back to this: not
+// all the way out, but far enough that most of the moon shows, still
+// facing the place just left (at 1.3 the disc is 1.2 screen-heights
+// across; about 8% of it falls off the top and bottom).
+const double SITE_GLOBE_RETURN_ZOOM = 1.3;
+
 // ---------------------------------------------------------------------------
 // Pointer rules.
 // ---------------------------------------------------------------------------

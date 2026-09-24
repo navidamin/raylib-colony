@@ -78,6 +78,7 @@ private:
     float groundAspect = 1.0f;       // how much wider than the rung the ground is
     bool updated = false;
     Colony* markerHit = nullptr;
+    bool globeSpin = false;          // the globe drifts: right-click at level 1
 
     // The level card's ground statistics come from an elevation window
     // covering the rung; rebuilt when the rung's window changes.

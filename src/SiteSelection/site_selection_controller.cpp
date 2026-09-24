@@ -293,7 +293,11 @@ bool SiteSelectionController::Commit()
     case Pending::ASCEND:
         SurveyAscend(&descent);
         level--;
-        if (level == 0) claimed = false;
+        if (level == 0)
+        {
+            claimed = false;
+            PullGlobeOut();
+        }
         ArriveAtRung();
         return true;
 
@@ -341,7 +345,19 @@ void SiteSelectionController::ResetToOrbit()
     claimed = false;
     level = 0;
     descent.depth = 1;
+    PullGlobeOut();
     ArriveAtRung();
+}
+
+void SiteSelectionController::PullGlobeOut()
+{
+    // Only ever out: a player already further out keeps their view.
+    OrbitalCamera cam = GetOrbitalCamera();
+    if (cam.zoom > SITE_GLOBE_RETURN_ZOOM)
+    {
+        cam.zoom = SITE_GLOBE_RETURN_ZOOM;
+        SetOrbitalCamera(cam);
+    }
 }
 
 void SiteSelectionController::ArriveAtRung()

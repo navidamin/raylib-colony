@@ -135,7 +135,9 @@ struct Globe
     int locAlbedo = -1, locResolution = -1, locCentre = -1, locRadius = -1;
     int locTurn = -1, locSunDir = -1, locSunMix = -1, locLimb = -1, locStars = -1;
 
-    double spinDegPerSec = 2.5;
+    // Still until someone asks: a globe that drifts away from the
+    // place a player just came back from loses it for them.
+    double spinDegPerSec = 0.0;
     double sunLonDeg = -35.0;    // matches the mosaic's own lighting bias
     double sunLatDeg = 8.0;
     float sunMix = 0.0f;         // flat by default: the bake looked right

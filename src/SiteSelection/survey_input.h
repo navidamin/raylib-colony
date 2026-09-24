@@ -21,6 +21,10 @@ struct SurveyInput
     bool click = false;
     // Back out one rung: Esc, right-click below the globe, the BACK button.
     bool escape = false;
+    // A right-click AT the globe, where there is nowhere to back out to:
+    // the caller turns the globe's drift on or off with it. The
+    // controller never reads it.
+    bool spinToggle = false;
     float wheel = 0.0f;              // notches this frame
     float dt = 1.0f / 60.0f;         // seconds since the last frame
     // The caller can show ground wider than the rung's own window, so

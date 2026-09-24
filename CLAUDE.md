@@ -394,7 +394,8 @@ measured cost model (`TerrainCpuChainResFor`), and nothing is
 prefetched, since a browser has no threads to hide it on. **Window
 chains** — the district and site levels and the Colony view, each one
 picture across the whole screen — are built on the GPU at the screen's
-width (`TerrainGpuWindowRes`, 2048 at most); the game's 100/25/5 chains
+width (`TerrainGpuWindowRes`: 2048 at most, and no bigger than the startup
+probe's measured cost can build in 400 ms); the game's 100/25/5 chains
 keep `GetTerrainPathResolution()`. On 2026-09-23 the site level came up
 grey in `lunar_map` and craterless in the game (the question asked the
 wrong way); on 2026-09-24 it came up blurred — WebGL1, 512 px on the

@@ -2755,7 +2755,6 @@ static bool SiteClick()
 // annotations go -- otherwise turning them off would take away the thing
 // that turns them back on. Top right because the top LEFT is the header
 // they hide, and the strip along the bottom belongs to the prompt.
-static const double GLOBE_SPIN_DEG_PER_SEC = 2.5;
 
 static Rectangle ViewToggleRect(int screenW, int row)
 {
@@ -3161,9 +3160,16 @@ static void UpdateSiteSelect(AppState& app)
     Rectangle spinBtn = ViewToggleRect(screenW, 1);
     Rectangle resetBtn = ViewToggleRect(screenW, 2);
     bool spinShown = (ctl.Level() == 0);   // nothing to spin below the globe
+    // Leaving the globe stops it, so coming back finds it holding still
+    // on the place just left -- as in the game (SurveyFlow).
+    if (!spinShown && app.globeSpin)
+    {
+        app.globeSpin = false;
+        SetLunarGlobeSpin(0.0);
+    }
     auto toggleSpin = [&app]() {
         app.globeSpin = !app.globeSpin;
-        SetLunarGlobeSpin(app.globeSpin ? GLOBE_SPIN_DEG_PER_SEC : 0.0);
+        SetLunarGlobeSpin(app.globeSpin ? LUNAR_GLOBE_SPIN_DEG_PER_SEC : 0.0);
     };
     // Back to where the globe started: the equator on the prime meridian,
     // zoomed out to the whole disc. A default-constructed camera IS that

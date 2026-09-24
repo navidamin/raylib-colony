@@ -88,8 +88,25 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
   the probe now draws the regolith. In a browser the CPU alternative is
   one thread, ~500 ms, so the GPU is now kept unless it is the slower of
   the two. `?debug=1` puts the path and the window's size on screen.
-- **Still open:** confirm on the reporter's laptop and the iPad — which
-  path each takes (`?debug=1`), speed of a 1024+ GPU build, memory.
+- Confirmed on the reporter's laptop (`?debug=1`): WebGL2, GPU path
+  (probe 38 ms), site level at 1024 px, sharp. Window chains are now
+  sized from the probe's cost (400 ms budget) instead of a fixed 1024
+  cap, so that laptop builds it at the screen's 1280.
+- **Still open:** the iPad — which path it takes, speed, memory.
+
+### The Globe, Coming Back to It ✅ COMPLETE
+
+- Back from the district (or out of a colony) the globe was left at the
+  dive's zoom, about 19x — one district across the screen. It now comes
+  back at x1.3, most of the moon in view, facing the place just left
+  (`SITE_GLOBE_RETURN_ZOOM`, in the shared controller: game and
+  lunar_map).
+- The globe is still by default; right-click at level 1 turns the spin
+  on and off (the game's right-click there used to be a Back with
+  nowhere to go), and leaving the globe turns it off, so a return finds
+  it still. lunar_map's SPIN button had read OFF while the globe drifted
+  — the globe's own default was a 2.5 deg/s drift — so its first
+  right-click seemed to do nothing.
 
 ## Recent Completions (2026-09-23)
 

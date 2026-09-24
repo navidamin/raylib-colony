@@ -9,7 +9,8 @@
 //
 // Controls
 //   the descent's own: hover names a region, click claims / descends /
-//   founds, Esc / right-click / BACK goes up a rung
+//   founds, Esc / right-click / BACK goes up a rung; right-click AT the
+//   globe turns its spin on or off
 //   click / Down arrow            colony -> sect
 //   Esc / right-click / Up arrow  sect -> colony -> up the descent
 //   1 3 4                         jump to the globe / the colony / the sect
@@ -86,6 +87,8 @@ static ViewNotes NotesForView(int level, bool hasColony)
                 {"OK",   "  clicking a marker opens that colony."},
                 {"OK",   "DRAG turns the globe and the WHEEL zooms; a"},
                 {"OK",   "  drag never claims."},
+                {"OK",   "RIGHT-CLICK spins it on / off. It starts still,"},
+                {"OK",   "  and comes back still and zoomed out (x1.3)."},
                 {"OK",   "Claiming flies: the globe turns and zooms onto"},
                 {"OK",   "  the district (--shots keeps 25/50/80 % frames)."},
                 {"GAP",  "Zoom stops at x8 - past that the WAC mosaic"},

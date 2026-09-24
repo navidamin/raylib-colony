@@ -80,6 +80,14 @@ void SurveyFlow::BeginFrame(SurveyInput in, int w, int h, std::vector<Colony*>& 
     markerHit = nullptr;
     int level = ctl.Level();
 
+    // The globe's drift: off until a right-click at level 1 turns it on,
+    // and off again whenever the globe is left, so coming back to it
+    // finds it holding still on the place just left. (Right-click also
+    // arrives as escape, which at the globe means nothing.)
+    if (level != 0 || ctl.FlightActive()) globeSpin = false;
+    else if (in.spinToggle && !in.instant) globeSpin = !globeSpin;
+    SetLunarGlobeSpin(globeSpin ? LUNAR_GLOBE_SPIN_DEG_PER_SEC : 0.0);
+
     // The globe turns under a drag and zooms under the wheel, before the
     // pointer is read so the hover lands on this frame's orientation.
     // Not during a flight: the flight owns the camera. A scripted frame
@@ -90,6 +98,7 @@ void SurveyFlow::BeginFrame(SurveyInput in, int w, int h, std::vector<Colony*>& 
     }
 
     layout = ComputeSurveyLayout(w, h, in.pointer, level, ctl.Founded());
+    layout.globeSpin = globeSpin;
     in.hintKey = layout.hintKey;
     groundAspect = std::max(1.0f, (float)w / (float)std::max(1, h));
     in.groundAspect = groundAspect;

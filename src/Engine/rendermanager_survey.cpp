@@ -741,7 +741,9 @@ void RenderManager::SurveyDrawStrip(const SiteSelectionController& ctl, const Su
             ? (narrow ? "Tap to aim, tap again to claim."
                       : "Tap to aim - the region under the mark names itself.  Tap again to claim it.")
             : (narrow ? "Click a region to claim it."
-                      : "Move over the moon - the region under the cursor names itself.  Click to claim it.  A colony's marker opens it.");
+                      : layout.globeSpin
+                        ? "The region under the cursor names itself.  Click to claim it.  A colony's marker opens it.  Right-click: spin off."
+                        : "The region under the cursor names itself.  Click to claim it.  A colony's marker opens it.  Right-click: spin on.");
     else if (siteRung)
     {
         if (ctl.HaveVerdict() && ctl.Verdict().allowed)

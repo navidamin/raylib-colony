@@ -34,9 +34,9 @@ bool LunarGlobeReady();
 void DrawLunarGlobe(int screenWidth, int screenHeight);
 
 // Turn and zoom from the mouse: left-drag spins, the wheel zooms about
-// the centre, and the globe drifts on its own when left alone.
-// dtSeconds drives the drift. Returns true on frames where the drag
-// actually turned the globe.
+// the centre, and the globe drifts on its own when left alone if
+// SetLunarGlobeSpin has asked it to. dtSeconds drives the drift.
+// Returns true on frames where the drag actually turned the globe.
 bool UpdateLunarGlobeInput(int screenWidth, int screenHeight, float dtSeconds);
 
 // Did the press that is happening (or just ended) move far enough to be
@@ -45,7 +45,10 @@ bool UpdateLunarGlobeInput(int screenWidth, int screenHeight, float dtSeconds);
 // not also select a landing site. Stays true until the next press.
 bool LunarGlobeWasDragged();
 
-// The drift rate, degrees of longitude per second (0 stops it).
+// The drift rate, degrees of longitude per second (0 stops it, and is
+// where it starts). LUNAR_GLOBE_SPIN_DEG_PER_SEC is the one the game and
+// lunar_map switch on with a right-click at level 1.
+const double LUNAR_GLOBE_SPIN_DEG_PER_SEC = 2.5;
 void SetLunarGlobeSpin(double degreesPerSecond);
 
 // Sunlight. mix 0 draws the mosaic flat, as the baked discs did; 1 is a

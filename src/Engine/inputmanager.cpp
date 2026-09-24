@@ -74,6 +74,7 @@ SurveyInput InputManager::Survey(float dt) const {
     in.pointer = ::GetMousePosition();
     in.click = SurveyClick();
     in.escape = IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+    in.spinToggle = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
     in.wheel = GetMouseWheelMove();
     in.dt = dt;
     return in;

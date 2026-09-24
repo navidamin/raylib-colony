@@ -1469,6 +1469,13 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
 int g_path = -1;
 int g_gpuRes = 1024;
 std::string g_pathWhy;
+// What the probe measured for its 512 px chain, or -1 with no probe
+// (COLONY_TERRAIN / ?terrain chose the path): the cost a window's size is
+// scaled from.
+double g_probeMs = -1.0;
+// A window chain is built once, on the way into a level, while the flight
+// hides it: it may take this long, and is built as big as that allows.
+const double WINDOW_GPU_BUDGET_MS = 400.0;
 
 // One 512 px chain, timed to completion (the read-back is what forces
 // the GPU to finish). A discrete GPU does it in a couple of
@@ -1599,6 +1606,7 @@ TerrainPath GetTerrainPath()
         {
             ProbeMs();                       // warm: mosaic, shaders, targets
             double ms = ProbeMs();
+            g_probeMs = ms;
             // Tiers: a chain that costs a frame or less can be built at
             // 1024 (four times the work) and still prefetch one
             // neighbour per frame without a visible hitch; a modest GPU
@@ -1643,9 +1651,18 @@ int TerrainGpuWindowRes(int screenWidth)
         int r = std::atoi(env);
         if (r >= 256 && r <= 2048) return r;
     }
-    GetTerrainPath();                       // the probe sets g_gpuRes
+    GetTerrainPath();                       // the probe sets g_probeMs
     int want = (screenWidth + 63) / 64 * 64;
-    int cap = (g_gpuRes >= 1024) ? 2048 : 1024;
+    // The GPU's cost grows with the area: a chain N px across costs the
+    // probe's time times (N/512)^2. A fixed 1024 cap for anything over
+    // 12 ms built a laptop's site level at 1024 on a 1280 screen (38 ms
+    // probe, 2026-09-24), where 1280 would have taken about 240 ms.
+    int cap = 2048;
+    if (g_probeMs > 0.0)
+    {
+        double fits = 512.0 * std::sqrt(WINDOW_GPU_BUDGET_MS / g_probeMs);
+        cap = std::clamp((int)fits / 64 * 64, 512, 2048);
+    }
     return std::clamp(want, 512, cap);
 }
 

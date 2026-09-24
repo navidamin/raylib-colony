@@ -60,6 +60,8 @@ struct SurveyLayout
     // cannot draw yet (SITE_POLAR_FRAME_LAT_DEG): claims there are
     // refused, and the strip says why.
     bool polarBlocked = false;
+    // The globe is drifting (level 1, a right-click's doing).
+    bool globeSpin = false;
 };
 SurveyLayout ComputeSurveyLayout(int screenW, int screenH, Vector2 pointer,
                                  int level, bool founded);
@@ -163,6 +165,7 @@ private:
     void AdvanceFlight(float dt);
     void LandFlight();
     void ArriveAtRung();
+    void PullGlobeOut();
 
     int level = 0;
     bool claimed = false;
