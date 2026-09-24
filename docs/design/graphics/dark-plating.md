@@ -496,6 +496,17 @@ The tilt is now fixed at 0.42 rad and the zoom at 0.37: the block turns
 about its vertical axis and nothing else. See
 `docs/design/graveyard/console-block-zoom-and-tilt.md`.
 
+**The beds are ice over iron.** Real ground is painted from
+`GROUND_COLOURS` in `holo3d.c`, not from the reference's `LAYERS`: that table
+stays as the port's visual diff measures it. Top down: pale ice `#b4dcec`,
+steel-blue `#9cc8dc`, rust `#b0765a`, oxblood `#6e3c34`, and a darker rust
+`#4e2c28` for a fifth bed. Chosen from sixteen candidates drawn as 4-bed
+strata. Two cool beds over two warm ones puts the one big change of hue at
+the 34 m boundary. The top bed was toned down from the candidate's near-white
+`#e0f6ff`, which read as a highlight rather than rock. `mid`, `deep`, `line`
+and `mesh` derive from each bed's colour (x0.52, x0.22, toward white 0.72 and
+0.60). The drill bar keeps its own earth tones for now.
+
 **Unknown rock is wire, not haze.** The fog is drawn by leaving things out:
 where the model is not confident a wall gets no fill, no mesh and no bed
 boundary, only the instrument's own wire -- a column line every other sample
