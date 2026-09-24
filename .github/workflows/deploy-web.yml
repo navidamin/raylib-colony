@@ -157,23 +157,46 @@ jobs:
     # this deploy does not itself provide, so a deploy from THIS branch
     # serves the union instead of 404ing the other branch's sandboxes.
     # The excavation branch carries the mirror of this step, naming this
-    # branch. Never fails the build: no artifact just means shipping alone.
+    # branch.
+    #
+    # It used to never fail: a download that did not work just meant
+    # shipping alone -- and on 2026-09-24 one did not ("no valid artifacts
+    # found", with a good 354 MB artifact sitting on the run), so the live
+    # site lost /playtest/ and /extraction/ and the index linked to two
+    # 404s. Now: three attempts on each of the other branch's last three
+    # good deploys, and if none can be fetched the deploy FAILS, which
+    # leaves the site that is live now in place. A branch with no
+    # successful deploy at all still ships alone. (If the other branch goes
+    # quiet for 30 days its artifacts expire and this fails every time:
+    # take it out of the list below then.)
     - name: Overlay other branches' sandboxes
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         set +e
         for BR in claude/excavation-module-design-jhp3v1; do
-          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-web.yml \
-                   --branch "$BR" --status success --limit 1 \
-                   --json databaseId --jq '.[0].databaseId')
-          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-            echo "no successful run on $BR -- skipping"; continue
+          RUNS=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-web.yml \
+                 --branch "$BR" --status success --limit 3 \
+                 --json databaseId --jq '.[].databaseId')
+          if [ -z "$RUNS" ]; then
+            echo "no successful run on $BR -- shipping without it"; continue
           fi
-          rm -rf _other _other_x && mkdir -p _other _other_x
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-             -n github-pages -D _other || { echo "artifact gone on $BR"; continue; }
-          tar -xf _other/artifact.tar -C _other_x || continue
+          got=""
+          for RUN_ID in $RUNS; do
+            for attempt in 1 2 3; do
+              rm -rf _other _other_x && mkdir -p _other _other_x
+              if gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n github-pages -D _other \
+                 && tar -xf _other/artifact.tar -C _other_x; then
+                got=$RUN_ID; break 2
+              fi
+              echo "fetching $BR's run $RUN_ID failed (attempt $attempt)"; sleep 15
+            done
+          done
+          if [ -z "$got" ]; then
+            echo "::error::could not fetch $BR's site from any of runs $(echo $RUNS) -- not publishing a site without its pages; the live site stays as it is"
+            exit 1
+          fi
+          echo "copying $BR's folders from its run $got"
           for d in _other_x/*/; do
             name=$(basename "$d")
             # Retired here, so not taken back from the other branch either:
