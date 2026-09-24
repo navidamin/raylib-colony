@@ -27,6 +27,10 @@ Pages deploy.
   other branch's site cannot be fetched (three tries on each of its last
   three good deploys), this branch's deploy fails rather than publish a
   site without that branch's pages — the live site stays as it was.
+  Those deploys are picked out of the workflow's own latest 60 runs, not
+  asked for with `gh run list --branch`: on 2026-09-24 that filtered
+  listing went stale, gave only the branch's expired August runs, and a
+  deploy failed on it while the branch had three good ones that day.
 - Every deployed page names its build: the browser-tab title, and the
   game's title screen (`COLONY_BUILD_STAMP`, `src/build_stamp.h`), read
   `<branch> <commit> <time> UTC`. A page without it is not from this

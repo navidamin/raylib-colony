@@ -167,21 +167,27 @@ jobs:
     # site lost /playtest/ and /extraction/ and the index linked to two
     # 404s. Now: three attempts on each of the other branch's last three
     # good deploys, and if none can be fetched the deploy FAILS, which
-    # leaves the site that is live now in place. A branch with no
-    # successful deploy at all still ships alone. (If the other branch goes
-    # quiet for 30 days its artifacts expire and this fails every time:
-    # take it out of the list below then.)
+    # leaves the site that is live now in place -- as it does when none of
+    # the workflow's last 60 runs is a good deploy of that branch. (If the
+    # other branch goes quiet for 30 days its artifacts expire and this
+    # fails every time: take it out of the list below then.)
     - name: Overlay other branches' sandboxes
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
         set +e
         for BR in claude/excavation-module-design-jhp3v1; do
+          # Not --branch or --status: later on 2026-09-24 GitHub's filtered
+          # listing went stale and gave only this branch's August runs,
+          # their artifacts expired, while it had deployed three times that
+          # day -- so the deploy refused to publish. The workflow's own
+          # latest runs, filtered here, are current.
           RUNS=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-web.yml \
-                 --branch "$BR" --status success --limit 3 \
-                 --json databaseId --jq '.[].databaseId')
+                 --limit 60 --json databaseId,headBranch,conclusion \
+                 --jq "[.[] | select(.headBranch == \"$BR\" and .conclusion == \"success\")][:3] | .[].databaseId")
           if [ -z "$RUNS" ]; then
-            echo "no successful run on $BR -- shipping without it"; continue
+            echo "::error::no successful deploy of $BR among this workflow's last 60 runs -- not publishing a site without its pages; the live site stays as it is"
+            exit 1
           fi
           got=""
           for RUN_ID in $RUNS; do
