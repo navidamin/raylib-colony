@@ -57,10 +57,17 @@ typedef struct DashKnowledge {
     int    cachedRevision;
     int    cachedLattice;
     float  cachedColumnM;
+    float  cachedGain;
     float  cachedDelineation;
 } DashKnowledge;
 
 void  DashKnow_Clear(DashKnowledge *k);
+
+/* DEBUG: how much each hole teaches, as a count -- at 3 every hole weighs as
+ * three holes at the same spot, so the fog clears and the delineation climbs
+ * faster, in the same shape. 1 is the game. Process-wide. */
+void  DashKnow_SetDebugGain(float gain);
+float DashKnow_DebugGain(void);
 void  DashKnow_Add  (DashKnowledge *k, float i, float j, float depthM);
 
 /* Holes multiply their MISSES, not their hits, which is what makes three

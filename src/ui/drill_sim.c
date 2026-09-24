@@ -26,6 +26,13 @@
 
 static float Clampf(float v, float a, float b) { return v < a ? a : (v > b ? b : v); }
 
+/* DEBUG: a multiplier on how fast the bit cuts, for playtesting the rest of
+ * the loop without drilling at play speed. Wear per metre is divided by it,
+ * so a fast string is not one long run of trips. 1 is the game. */
+static float g_speed = 1.0f;
+void  DrillSim_SetSpeed(float mult) { g_speed = mult < 1.0f ? 1.0f : mult; }
+float DrillSim_Speed(void)          { return g_speed; }
+
 /* STRATA (redline.html:232). band = the contact-pressure window for this rock,
  * in spindle terms. It moves with the strata, which is the point: reading the
  * model beforehand tells you where it will move to. */
@@ -183,6 +190,7 @@ void DrillSim_Step(DrillSim *s, float dt)
     const float lo = g->bandLo;
     const float bite = (s->rpm >= lo) ? 1.0f : (s->rpm / lo) * (s->rpm / lo);
     s->rate = s->rpm * FEED * (1.30f - g->hard * 0.85f) * CUT_RATE * bite;
+    s->rate *= g_speed;
     const float adv = fminf(s->rate * dt, stopAt - s->depthM);
 
     s->depthM = Clampf(s->depthM + adv, 0.0f, DRILL_TARGET_M);
@@ -193,7 +201,7 @@ void DrillSim_Step(DrillSim *s, float dt)
                                 - HEAT_BLEED) * dt, 0.0f, 1.0f);
 
     /* wear -- the cheapest failure: it buys a trip, never an ending */
-    s->wear = Clampf(s->wear - adv * g->hard * (1.0f + 2.0f * s->heat) * WEAR_PER_M,
+    s->wear = Clampf(s->wear - adv * g->hard * (1.0f + 2.0f * s->heat) * WEAR_PER_M / g_speed,
                      0.0f, 1.0f);
 
     if (s->wear <= 0.0f) { DrillSim_BeginTrip(s, true); return; }

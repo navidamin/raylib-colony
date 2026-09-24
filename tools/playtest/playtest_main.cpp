@@ -287,6 +287,35 @@ static void UpdateDrawFrame(void* arg)
     wantDig |= PlaytestButton({bx + 166.0f, 14.0f, 80.0f, 28.0f}, "DIG SPOT",
                               {80, 230, 150, 255});
 
+    /* DEBUG DIALS, playtest only. DRILL multiplies how fast the bit cuts:
+       at x40 the start and two taps take it about half way down the 120 m
+       column (measured). KNOW multiplies how much each hole teaches: at x3 a
+       hole weighs as three at the same spot, so the fog clears and the
+       delineation climbs faster, in the same shape. F6 / F7 cycle them too. */
+    {
+        static const float kSpeed[4] = {1.0f, 4.0f, 16.0f, 40.0f};
+        static const float kGain[3] = {1.0f, 2.0f, 3.0f};
+        const Color dbg = {230, 120, 255, 255};
+        const char* sl = TextFormat("DRILL x%d", static_cast<int>(DrillSim_Speed()));
+        if (PlaytestButton({bx - 196.0f, 14.0f, 88.0f, 28.0f}, sl, dbg) || IsKeyPressed(KEY_F6))
+        {
+            int i = 0;
+            while (i < 4 && kSpeed[i] != DrillSim_Speed()) i++;
+            DrillSim_SetSpeed(kSpeed[(i + 1) % 4]);
+        }
+        const char* gl = TextFormat("KNOW x%d", static_cast<int>(DashKnow_DebugGain()));
+        if (PlaytestButton({bx - 102.0f, 14.0f, 88.0f, 28.0f}, gl, dbg) || IsKeyPressed(KEY_F7))
+        {
+            int i = 0;
+            while (i < 3 && kGain[i] != DashKnow_DebugGain()) i++;
+            DashKnow_SetDebugGain(kGain[(i + 1) % 3]);
+            // the ground re-fits from the model on a revision change, so the
+            // beds answer the new gain now rather than at the next hole
+            if (ProspectingSystem* ps = ctx.unit->GetProspectingSystem())
+                ps->Dash().own.revision++;
+        }
+    }
+
     /* THE RESOURCE STATEMENT, FOLDED. It used to sit in the strip below the
        module list, which the survey console does not have -- the console is
        full width now, so the old slot lands on top of the tool rack's bays.

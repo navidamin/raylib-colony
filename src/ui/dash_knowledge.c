@@ -23,6 +23,7 @@ void DashKnow_Clear(DashKnowledge *k)
     k->cachedRevision = -1;
     k->cachedLattice = -1;
     k->cachedColumnM = -1.0f;
+    k->cachedGain = -1.0f;
 }
 
 void DashKnow_Add(DashKnowledge *k, float i, float j, float depthM)
@@ -31,6 +32,10 @@ void DashKnow_Add(DashKnowledge *k, float i, float j, float depthM)
     k->holes[k->count++] = (DkHole){i, j, depthM};
     k->revision++;
 }
+
+static float g_gain = 1.0f;
+void  DashKnow_SetDebugGain(float gain) { g_gain = gain < 1.0f ? 1.0f : gain; }
+float DashKnow_DebugGain(void)          { return g_gain; }
 
 float DashKnow_KnowAt(const DashKnowledge *k, float i, float j, float depthM)
 {
@@ -49,7 +54,7 @@ float DashKnow_KnowAt(const DashKnowledge *k, float i, float j, float depthM)
                                  DkSmoothStep(h->depthM, h->depthM + DK_K_SKIRT_M, depthM));
         float take = (nearT + DK_K_FAR) * dep;
         if (take > 0.985f) take = 0.985f;
-        miss *= 1.0f - take;
+        miss *= (g_gain == 1.0f) ? 1.0f - take : powf(1.0f - take, g_gain);
     }
     return 1.0f - miss;
 }
@@ -65,10 +70,12 @@ float DashKnow_Delineation(DashKnowledge *k, int lattice, float columnM)
     if (!k) return 0.0f;
     if (k->cachedRevision == k->revision &&
         k->cachedLattice  == lattice &&
-        k->cachedColumnM  == columnM) return k->cachedDelineation;
+        k->cachedColumnM  == columnM &&
+        k->cachedGain     == g_gain) return k->cachedDelineation;
     k->cachedRevision = k->revision;
     k->cachedLattice  = lattice;
     k->cachedColumnM  = columnM;
+    k->cachedGain     = g_gain;
     if (k->count == 0) { k->cachedDelineation = 0.0f; return 0.0f; }
     float sum = 0.0f;
     int n = 0;

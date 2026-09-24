@@ -504,11 +504,22 @@ surface is never fogged: it is seen. An undrilled block is therefore the real
 terrain standing on a wire cage, which reads immediately as unmeasured
 ground. A cut face is a wall and fogs identically -- they share one painter.
 
+Pure wire had one failure: a face with nothing on it cannot be seen as a
+face, and the cutaway's notch vanished into the cage ("the cut is not
+clear"). So the unknown part of every face carries a faint neutral **glass**
+tint -- a steel blue, lit like the face it is on, 0.30 on the walls and 0.45
+on the cut faces, which are the section and must read first. It is never a
+bed colour: the fog still says nothing about the rock. The cut's edges are
+stroked stronger than the walls' (1.6 / 2.2 wide, glowing).
+
 **A finished hole is a turning core barrel on its collar.** Three dashed
 staves round a vertical axis between two dashed ellipses, the near staves
-bright (0.80) and the far dim (0.24), turning slowly, the dashes crawling --
-the prototype's `DrawBores`, ported. Height says depth (18 + 28 x fraction of
-the column). Cyan for a finished hole, amber for an aborted one. It is the
+bright (0.95) and the far dim (0.35), turning slowly, the dashes crawling --
+the prototype's `DrawBores`, ported -- over a dark collar with a bright rim,
+all under one glow layer. Height says depth (28 + 44 x fraction of the
+column); it is 9 units wide. The first cut, at the prototype's 5.5 wide and
+unglowed, was a faint sliver on the bright cap that the playtest could not
+find. Cyan for a finished hole, amber for an aborted one. It is the
 handle for the hole's log: hover shows the card, click pins it, and the
 pointer becomes the hand over it.
 

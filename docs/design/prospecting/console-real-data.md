@@ -264,6 +264,16 @@ has told you:
   (`DrillProfile_Record`), as a drilling log does: the reading at the instant
   of crossing aliased against the tapping and saw-toothed bin to bin.
 
+**Debug dials (playtest only).** Two buttons in the playtest's top bar, F6
+and F7 as keys. **DRILL x1/4/16/40** multiplies how fast the bit cuts
+(`DrillSim_SetSpeed`; wear per metre is divided by it, so a fast string is
+not a run of trips): at x40 the start and two taps take it to about 64 m, half
+the column, measured at 60 fps. **KNOW x1/2/3** multiplies how much each hole
+teaches (`DashKnow_SetDebugGain`: a hole's miss factor is raised to the gain,
+so it weighs as that many holes at the same spot) -- the fog, the
+delineation and the ground's re-fit all move together, because they read the
+one model; the delineation cache keys on the gain.
+
 `SurveyDash_DrillNow` runs the real drill to a depth in one call -- same
 simulation, profile, log and knowledge update as a played hole -- and backs
 `--holes N` on the preview and the playtest.

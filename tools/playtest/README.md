@@ -125,3 +125,13 @@ to see the difference between knowing and guessing without driving the whole
 sweep → sample → lab chain. It is **per depth**: digging the surface says
 nothing about what lies under it, which is what keeps the deep layers a bet
 long after the surface is mapped.
+
+
+## Debug dials
+
+Top bar, purple: **DRILL xN** (F6) multiplies how fast the bit cuts -- x1, 4,
+16, 40; at x40 the start and two taps reach about half the 120 m column.
+**KNOW xN** (F7) multiplies how much each hole teaches -- x1, 2, 3 -- so the
+fog clears and the delineation climbs faster. Native flags: `--holes N`
+starts with N holes already drilled (the real drill, run to depth), and
+`--scale N` / `--scale-to N` exercise the display scale.

@@ -372,7 +372,7 @@ static void h3d_stroke_fog(bool fast, const Vector2 *pts, const float *conf, int
  * rings' dashes stepping at 6 Hz so the unknown reads as live. */
 static void h3d_paint_band(Holo3DModel *m, const H3DState *st, int k,
                            const V3 *wt, const V3 *wb, int len, float dy, float f,
-                           Vector2 *top, Vector2 *bot, bool record)
+                           Vector2 *top, Vector2 *bot, bool record, float glassA)
 {
     const H3DLayer *ly = &m->layers[k];
     Vector2 poly[WALL_MAX * 2];
@@ -403,6 +403,19 @@ static void h3d_paint_band(Holo3DModel *m, const H3DState *st, int k,
         c2d_fill_poly_gradient(poly, pn, &g);
     else
     {
+        /* THE GLASS. Unknown rock gets no bed colour, but a face with nothing
+           on it cannot be seen as a face -- the cutaway's notch vanished into
+           the cage. So the unknown part of every face carries a faint
+           neutral tint, lit like the face it is on, which is enough to read
+           the planes and says nothing about the rock. */
+        const Color glass = h3d_shade((Color){0x1a, 0x3c, 0x58, 255}, f);
+        for (int t = 0; t < len - 1; t++)
+        {
+            const float un = 1.0f - 0.5f * (cs[t] + cs[t + 1]);
+            if (un < 0.02f) continue;
+            const Vector2 q[4] = {top[t], top[t + 1], bot[t + 1], bot[t]};
+            c2d_fill_poly(q, 4, h3d_rgba(glass, glassA * un));
+        }
         for (int t = 0; t < len - 1; t++)
         {
             const float a = 0.5f * (cs[t] + cs[t + 1]);
@@ -509,7 +522,7 @@ static void h3d_paint_layer(Holo3DModel *m, int k, const H3DState *st,
             wt[t] = h3d_wall_pt(m, w, k, t);
             wb[t] = h3d_wall_pt(m, w, k + 1, t);
         }
-        h3d_paint_band(m, st, k, wt, wb, len, dy, h3d_lit(m, w->n), top, bot, true);
+        h3d_paint_band(m, st, k, wt, wb, len, dy, h3d_lit(m, w->n), top, bot, true, 0.30f);
 
         /* the reference's hashed motes; `plain` (real ground) leaves them out */
         if (!fast && !m->plain)
@@ -904,7 +917,9 @@ static void h3d_cut_face(Holo3DModel *m, const H3DState *st,
             wb[i] = h3d_boundary_world(m, k + 1, u, v);
         }
         /* the walls' own painter, fog and all -- a cut face is a wall */
-        h3d_paint_band(m, st, k, wt, wb, H3D_CUT_N, h3d_offY(m, k), f, top, bot, false);
+        /* a little more glass than a wall: the cut is the section, and it
+           has to read as a plane before anything is known about it */
+        h3d_paint_band(m, st, k, wt, wb, H3D_CUT_N, h3d_offY(m, k), f, top, bot, false, 0.45f);
 
         for (int i = 0; i < H3D_CUT_N; i++) conf[i] = (k == 0) ? 1.0f : h3d_conf(m, wt[i]);
         h3d_stroke_fog(st->fast, top, conf, H3D_CUT_N,
@@ -1000,9 +1015,9 @@ void Holo3D_DrawCutaway(Holo3DModel *m, const H3DState *st, float u, float v, Co
     const Vector2 inner[2] = {h3d_cut_pt(m, 0, 0, u, v), h3d_cut_pt(m, last + 1, last, u, v)};
     const Vector2 edgeU[2] = {h3d_cut_pt(m, 0, 0, u, cv), h3d_cut_pt(m, last + 1, last, u, cv)};
     const Vector2 edgeV[2] = {h3d_cut_pt(m, 0, 0, cu, v), h3d_cut_pt(m, last + 1, last, cu, v)};
-    h3d_stroke(st->fast, edgeU, 2, (Color){190, 225, 245, 150}, 1.2f, 4.0f);
-    h3d_stroke(st->fast, edgeV, 2, (Color){190, 225, 245, 150}, 1.2f, 4.0f);
-    h3d_stroke(st->fast, inner, 2, (Color){0xe6, 0xff, 0xff, 230}, 1.8f, 10.0f);
+    h3d_stroke(st->fast, edgeU, 2, (Color){200, 235, 250, 225}, 1.6f, 6.0f);
+    h3d_stroke(st->fast, edgeV, 2, (Color){200, 235, 250, 225}, 1.6f, 6.0f);
+    h3d_stroke(st->fast, inner, 2, (Color){0xe6, 0xff, 0xff, 245}, 2.2f, 12.0f);
 }
 
 void Holo3D_ScreenAcross(const Holo3DModel *m, float *du, float *dv)

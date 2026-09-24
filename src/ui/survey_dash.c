@@ -573,7 +573,9 @@ static void DashDrawBorehole(const SurveyDashState *s)
  * the hole went (the prototype's DrawBores, survey-dashboard.html). It says
  * "drilled here, this deep" at a glance, and it is the handle for the hole's
  * log: hover shows it, a click pins it. An aborted hole's barrel is amber. */
-#define DASH_BARREL_RW 5.5f
+/* Sized to be seen: at 5.5 wide and 18-46 tall the first cut was a faint
+ * dashed sliver on the bright cap, and the playtest could not find it. */
+#define DASH_BARREL_RW 9.0f
 
 static void DashKeepCore(SurveyDashState *s, float depthM)
 {
@@ -601,7 +603,7 @@ static DashBarrel DashBarrelOf(const DrillCoreLog *l)
     const float deep = Clampf01v(l->depthM / DRILL_TARGET_M);
     DashBarrel b;
     b.cx = g.x; b.gy = g.y + 2.0f;
-    b.top = b.gy - (18.0f + 28.0f * deep);
+    b.top = b.gy - (28.0f + 44.0f * deep);
     b.rw = DASH_BARREL_RW;
     b.rh = b.rw * 0.40f;
     return b;
@@ -658,25 +660,36 @@ static void DashDrawBarrels(const SurveyDashState *s)
         const float boost = hot ? 1.25f : 1.0f;
         const float ph = t * 2.4f + l->siteI * 0.7f + l->siteJ * 0.31f;
 
-        /* the staves: three dashed lines turning round the axis, bright on
-           the near side and dim on the far */
-        for (int g = 0; g < 3; g++)
-        {
-            const float a = ph + (float)g * 2.0944f;
-            const float x = b.cx + b.rw * sinf(a), c = cosf(a);
-            const Vector2 st[2] = {{x, b.top + b.rh * c}, {x, b.gy + b.rh * c}};
-            const float al = fminf(1.0f, (c > 0.0f ? 0.80f : 0.24f) * boost);
-            c2d_dashed_polyline_phase(st, 2, 3.4f, 2.9f, -t * 15.0f,
-                                      RGBA8(base.r, base.g, base.b, al), c > 0.0f ? 1.5f : 1.1f);
-        }
+        /* the collar: the hole's mouth on the ground, dark with a bright rim,
+           so the spot reads even from the barrel's far side */
         Vector2 ring[25];
-        for (int k = 0; k <= 24; k++) ring[k] = DashEllipsePt(b.cx, b.top, b.rw, b.rh, (float)k / 24.0f * 2.0f * PI);
-        c2d_fill_poly(ring, 24, RGBA8(base.r, base.g, base.b, 0.16f * boost));
-        c2d_dashed_polyline_phase(ring, 25, 3.4f, 2.9f, t * 11.0f,
-                                  RGBA8(base.r, base.g, base.b, fminf(1.0f, 0.62f * boost)), 1.3f);
-        for (int k = 0; k <= 24; k++) ring[k] = DashEllipsePt(b.cx, b.gy, b.rw, b.rh, (float)k / 24.0f * 2.0f * PI);
-        c2d_dashed_polyline_phase(ring, 25, 3.4f, 2.9f, t * 11.0f,
-                                  RGBA8(base.r, base.g, base.b, 0.28f * boost), 1.1f);
+        for (int k = 0; k <= 24; k++) ring[k] = DashEllipsePt(b.cx, b.gy, b.rw * 1.35f, b.rh * 1.35f, (float)k / 24.0f * 2.0f * PI);
+        c2d_fill_poly(ring, 24, RGBA8(0x02, 0x0c, 0x14, 0.85f));
+
+        /* ONE glow layer under the whole barrel: the cap is bright imagery
+           and bare line work on it disappears */
+        for (int pass = 0; pass < 2; pass++)
+        {
+            if (pass == 0) c2d_shadow_begin();
+            /* the staves: three dashed lines turning round the axis, bright
+               on the near side and dim on the far */
+            for (int g = 0; g < 3; g++)
+            {
+                const float a = ph + (float)g * 2.0944f;
+                const float x = b.cx + b.rw * sinf(a), c = cosf(a);
+                const Vector2 st[2] = {{x, b.top + b.rh * c}, {x, b.gy + b.rh * c}};
+                const float al = fminf(1.0f, (c > 0.0f ? 0.95f : 0.35f) * boost);
+                c2d_dashed_polyline_phase(st, 2, 4.5f, 3.0f, -t * 15.0f,
+                                          RGBA8(base.r, base.g, base.b, al), c > 0.0f ? 2.2f : 1.4f);
+            }
+            for (int k = 0; k <= 24; k++) ring[k] = DashEllipsePt(b.cx, b.top, b.rw, b.rh, (float)k / 24.0f * 2.0f * PI);
+            if (pass == 1) c2d_fill_poly(ring, 24, RGBA8(base.r, base.g, base.b, 0.25f * boost));
+            c2d_dashed_polyline_phase(ring, 25, 4.0f, 2.6f, t * 11.0f,
+                                      RGBA8(base.r, base.g, base.b, fminf(1.0f, 0.85f * boost)), 1.8f);
+            for (int k = 0; k <= 24; k++) ring[k] = DashEllipsePt(b.cx, b.gy, b.rw * 1.35f, b.rh * 1.35f, (float)k / 24.0f * 2.0f * PI);
+            c2d_polyline(ring, 25, RGBA8(base.r, base.g, base.b, fminf(1.0f, 0.75f * boost)), 1.6f);
+            if (pass == 0) c2d_shadow_end(base, hot ? 9.0f : 6.0f);
+        }
     }
 }
 

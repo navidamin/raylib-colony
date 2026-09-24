@@ -93,6 +93,10 @@ DrillReadout DrillSim_Read(const DrillSim *s);
 void DrillSim_Reset(DrillSim *s);
 void DrillSim_Step (DrillSim *s, float dt);
 
+/* DEBUG: multiply how fast the bit cuts (1 = the game). Process-wide. */
+void  DrillSim_SetSpeed(float mult);
+float DrillSim_Speed(void);
+
 /* One click on the face. This is the whole input -- once the drill is
  * running. Before that a click is ignored: see DrillSim_Start. */
 void DrillSim_Bite (DrillSim *s);
