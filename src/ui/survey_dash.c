@@ -117,7 +117,7 @@
  * morph, the fog lifts, the delineation climbs. Then the cavity closes over
  * DASH_CLOSE_S -- slowly at first, gathering speed, shut at the end -- and
  * the whole block is back. */
-#define DASH_REVEAL_S 5.0f
+#define DASH_REVEAL_S 3.0f
 #define DASH_CLOSE_S  2.0f
 
 /* THE ONLY FILE STATICS LEFT, and they are the process's, not a console's:
@@ -653,6 +653,7 @@ static void DashBeginReveal(SurveyDashState *s)
 /* Sized to be seen: at 5.5 wide and 18-46 tall the first cut was a faint
  * dashed sliver on the bright cap, and the playtest could not find it. */
 #define DASH_BARREL_RW 9.0f
+#define DASH_BARREL_RISE_S 0.4f        /* a new barrel rising out of its collar */
 
 static void DashKeepCore(SurveyDashState *s, float depthM)
 {
@@ -692,8 +693,10 @@ static bool DashBarrelShown(const SurveyDashState *s, int i)
 {
     const DrillCoreLog *l = &s->cores[i];
     const SurveyDashPhase ph = SurveyDash_Phase(s);
+    /* the new hole's barrel arrives when the reveal is done, before the
+       cavity closes: the model has taken the hole in, and this marks it */
     if (i == s->coreOpen && (ph == SDP_PLANNED || ph == SDP_DRILLING || ph == SDP_STRETCH ||
-                             s->revealT >= 0.0f)) return false;
+                             (s->revealT >= 0.0f && s->revealT < DASH_REVEAL_S))) return false;
     if (DashCutActive(s) && s->block.explode <= 0.02f)
     {
         float cu, cv, pu, pv;
@@ -733,7 +736,14 @@ static void DashDrawBarrels(const SurveyDashState *s)
     {
         if (!DashBarrelShown(s, i)) continue;
         const DrillCoreLog *l = &s->cores[i];
-        const DashBarrel b = DashBarrelOf(l);
+        DashBarrel b = DashBarrelOf(l);
+        /* arriving: it rises out of its collar over DASH_BARREL_RISE_S */
+        if (i == s->coreOpen && s->revealT >= DASH_REVEAL_S)
+        {
+            const float k = Clampf01v((s->revealT - DASH_REVEAL_S) / DASH_BARREL_RISE_S);
+            const float e = 1.0f - (1.0f - k) * (1.0f - k);
+            b.top = b.gy - (b.gy - b.top) * e;
+        }
         const bool hot = (i == s->coreHover) || (i == s->corePinned);
         const Color base = l->aborted ? RGBA8(0xff, 0xa4, 0x41, 1.0f) : RGBA8(0x35, 0xd8, 0xee, 1.0f);
         const float boost = hot ? 1.25f : 1.0f;

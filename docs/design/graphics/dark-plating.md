@@ -518,12 +518,14 @@ glowing -- carry it instead.
 
 **The cut is for the hole being made -- and stays while the model takes it
 in.** It opens when a site is taken. When the hole lands or is aborted it
-stays open for five seconds, the reveal: the beds morph from their old shape
+stays open for three seconds, the reveal (five was tried and was too long): the beds morph from their old shape
 to the re-fit (`Holo3D_GroundBlend`), the fog lifts from how the model stood
 before the hole to how it stands after, and the DELINEATION number climbs
 between the same two states -- all on one smoothstep, so the block and the
-bar move together. Then the cavity CLOSES over two seconds rather than
-vanishing: the borehole line and the site mark go, and the cut's inner corner
+bar move together. Then the new hole's barrel rises out of its collar
+(0.4 s, ease-out) -- the model has taken the hole in, and this marks it --
+and the cavity CLOSES over two seconds rather than vanishing: the borehole
+line and the site mark go, and the cut's inner corner
 travels from the site out to the block's near corner on an ease-in (cubic --
 slow at first, gathering speed, shut at the end), so the notch contracts to a
 sliver and is gone. The finished hole is its barrel, and the whole block is
