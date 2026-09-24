@@ -226,11 +226,13 @@ and a hole of at least 2 m is logged into the knowledge model at the depth
 reached -- the hole is real. Touch screens have no right-click; undo there
 is still to be designed.
 
-**The section.** Once a site exists, a vertical slice through it, facing the
-viewer, shows the beds at that spot (`Holo3D_BedSpan`, `Holo3D_ScreenAcross`)
-and the tag names the bed under the chosen depth. Without it a depth line
-from a site near the back of the block read up to half a column off against
-the front wall -- see dark-plating.md, 6.5b.
+**The cutaway.** Once a site exists, the quarter of the block between it and
+the corner nearest the viewer is cut out, full depth
+(`Holo3D_DrawCutaway`), and the site is the cut's inner edge: the borehole
+runs down it with the beds on both faces, and the tag names the bed under
+the chosen depth. Without it a depth line from a site near the back of the
+block read up to half a column off against the front wall -- see
+dark-plating.md, 6.5b.
 
 **The dig profile.** `DrillProfile` (`drill_sim.h`) is opened at the depth
 commit — the plan exists before the first turn, with its site and target —

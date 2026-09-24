@@ -433,95 +433,19 @@ static void DashDrawSite(const SurveyDashState *s)
     DashTargetMark(p, 7.0f * pulse, s->drill.t * 0.6f, RGBA8(0xff, 0xc8, 0x4d, 0.95f), 1.6f);
 }
 
-/* ---- THE SECTION -------------------------------------------------------
+/* ---- THE CUTAWAY -------------------------------------------------------
  *
- * A vertical slice through the site, cut square to the screen, with the beds
- * drawn on it as the block carries them. It is what makes a depth on the
- * block readable at all: the camera tilts, so a point deep inside the block
- * is drawn higher the further back it sits, and a line dropped from a site
- * near the back ends well above the same depth on the front wall -- by up to
- * half the column at the default tilt. Against its own slice the line sits
- * among the rock it will go through, at every yaw and tilt.
+ * Once a site is taken, the quarter of the block between it and the corner
+ * nearest the viewer comes out, full depth (Holo3D_DrawCutaway). The site is
+ * the inner edge of the cut, so the borehole runs down that edge with the
+ * beds on both sides of it.
  *
- * Cut along the screen's horizontal (Holo3D_ScreenAcross), so the slice is
- * a flat panel facing the viewer and never a sliver seen edge on. */
-#define DASH_SECTION_N 28
-
-static void DashDrawSection(const SurveyDashState *s)
-{
-    if (!g_model || !s->sited) return;
-    const int beds = Holo3D_LayerCount(g_model);
-    if (beds < 1) return;
-
-    /* where the cut crosses the block: the line through the site along
-       (du, dv), clipped to the unit square */
-    float du, dv;
-    Holo3D_ScreenAcross(g_model, &du, &dv);
-    float t0 = -1e9f, t1 = 1e9f;
-    const float o[2] = {s->siteU, s->siteV}, d[2] = {du, dv};
-    for (int a = 0; a < 2; a++)
-    {
-        if (fabsf(d[a]) < 1e-5f) continue;
-        float ta = (0.0f - o[a]) / d[a], tb = (1.0f - o[a]) / d[a];
-        if (ta > tb) { const float x = ta; ta = tb; tb = x; }
-        if (ta > t0) t0 = ta;
-        if (tb < t1) t1 = tb;
-    }
-    if (!(t1 > t0)) return;
-
-    Vector2 top[DASH_SECTION_N], bot[DASH_SECTION_N];
-    Vector2 poly[DASH_SECTION_N * 2 + 1];
-
-    /* a dark backing first -- the slice is a cut through the block, and the
-       walls behind it would otherwise show through the beds */
-    for (int i = 0; i < DASH_SECTION_N; i++)
-    {
-        const float t = t0 + (t1 - t0) * (float)i / (float)(DASH_SECTION_N - 1);
-        Holo3D_BedSpan(g_model, 0, s->siteU + du * t, s->siteV + dv * t, &top[i], NULL);
-        Holo3D_BedSpan(g_model, beds - 1, s->siteU + du * t, s->siteV + dv * t, NULL, &bot[i]);
-    }
-    int n = 0;
-    for (int i = 0; i < DASH_SECTION_N; i++) poly[n++] = top[i];
-    for (int i = DASH_SECTION_N - 1; i >= 0; i--) poly[n++] = bot[i];
-    const Color bg = DashC_Bg();
-    c2d_fill_poly(poly, n, RGBA8(bg.r, bg.g, bg.b, 0.70f));
-
-    for (int k = 0; k < beds; k++)
-    {
-        const H3DLayer *ly = Holo3D_Layer(g_model, k);
-        if (!ly) continue;
-        for (int i = 0; i < DASH_SECTION_N; i++)
-        {
-            const float t = t0 + (t1 - t0) * (float)i / (float)(DASH_SECTION_N - 1);
-            Holo3D_BedSpan(g_model, k, s->siteU + du * t, s->siteV + dv * t, &top[i], &bot[i]);
-        }
-        n = 0;
-        for (int i = 0; i < DASH_SECTION_N; i++) poly[n++] = top[i];
-        for (int i = DASH_SECTION_N - 1; i >= 0; i--) poly[n++] = bot[i];
-        /* between the wall's lit and mid tones, so each bed keeps the hue
-           it has on the block and neighbours stay apart */
-        c2d_fill_poly(poly, n, RGBA8((ly->neon.r + ly->mid.r) / 2, (ly->neon.g + ly->mid.g) / 2,
-                                     (ly->neon.b + ly->mid.b) / 2, 0.80f));
-        /* the bed's top interface, in the line colour the block's own walls
-           use, so a bed on the slice reads as the same bed on the wall */
-        c2d_polyline(top, DASH_SECTION_N,
-                     k == 0 ? RGBA8(0xe6, 0xff, 0xff, 0.9f)
-                            : RGBA8(ly->line.r, ly->line.g, ly->line.b, 0.95f),
-                     k == 0 ? 1.6f : 1.3f);
-        if (k == beds - 1)
-            c2d_polyline(bot, DASH_SECTION_N, RGBA8(160, 190, 215, 0.7f), 1.1f);
-    }
-
-    /* the slice's two ends */
-    Vector2 e0t, e0b, e1t, e1b;
-    Holo3D_BedSpan(g_model, 0, s->siteU + du * t0, s->siteV + dv * t0, &e0t, NULL);
-    Holo3D_BedSpan(g_model, beds - 1, s->siteU + du * t0, s->siteV + dv * t0, NULL, &e0b);
-    Holo3D_BedSpan(g_model, 0, s->siteU + du * t1, s->siteV + dv * t1, &e1t, NULL);
-    Holo3D_BedSpan(g_model, beds - 1, s->siteU + du * t1, s->siteV + dv * t1, NULL, &e1b);
-    const Vector2 l0[2] = {e0t, e0b}, l1[2] = {e1t, e1b};
-    c2d_polyline(l0, 2, RGBA8(0x9f, 0xd8, 0xee, 0.6f), 1.1f);
-    c2d_polyline(l1, 2, RGBA8(0x9f, 0xd8, 0xee, 0.6f), 1.1f);
-}
+ * Why it is needed at all: the camera tilts, so a point deep inside the block
+ * is drawn higher the further back it sits, and a depth line from a site near
+ * the back ended well above the same depth on the front wall -- by up to half
+ * the column. Against the cut faces it sits in the rock it goes through, at
+ * every yaw and tilt. (A flat slice drawn over the block did the same job
+ * first and read as a panel pasted on; see the graveyard.) */
 
 /* The bed a point on the site's borehole is in, by the block's own ground
  * at the site -- the name the tag gives the depth being chosen. */
@@ -903,6 +827,8 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
         hud.reticleR  = DASH_TIP_RETICLE_R;
     }
     Holo3D_Render(g_model, &s->block, &s->view);
+    if (s->sited)
+        Holo3D_DrawCutaway(g_model, &s->block, s->siteU, s->siteV, DashC_Bg());
     Holo3D_DrawHud(g_model, &s->block, &s->view, &hud);
 
     /* ---- the two stats blocks, under the instruments they describe ---- */
@@ -930,7 +856,6 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
         Dash_DrillStats(RIGHT_X, STATS_Y, RIGHT_W, STATS_H, dr, status);
     }
 
-    DashDrawSection(s);
     DashDrawHeightLog();
     DashDrawBorehole(s);
     DashDrawSite(s);

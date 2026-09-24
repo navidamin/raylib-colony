@@ -140,6 +140,19 @@ void            Holo3D_BedSpan   (const Holo3DModel *m, int k, float u, float v,
  * length in (u, v). */
 void            Holo3D_ScreenAcross (const Holo3DModel *m, float *du, float *dv);
 
+/* THE CUTAWAY. The quarter of the block between (u, v) and the corner
+ * nearest the viewer is taken out, full depth, and the two cut faces it
+ * leaves are drawn as the block's own walls are -- bed by bed, lit, meshed,
+ * their interfaces stroked -- with the notch's floor beneath. The faces meet
+ * in a vertical edge at (u, v): a borehole collared there runs down that
+ * edge with the beds on both sides of it, at any yaw and tilt.
+ *
+ * Call after Holo3D_Render. `clear` is the colour behind the block: the
+ * removed quarter is painted out with it. Does nothing while the block is
+ * exploded, where the beds are apart and there is no solid to cut. */
+void            Holo3D_DrawCutaway  (Holo3DModel *m, const H3DState *st,
+                                     float u, float v, Color clear);
+
 /* The controller from the JS `attach`, minus the DOM: the caller feeds it
  * pointer events in DESIGN space and it keeps the same easing. */
 void Holo3D_Tick  (H3DState *st, float dt, float now);

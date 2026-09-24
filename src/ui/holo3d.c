@@ -721,6 +721,152 @@ void Holo3D_BedSpan(const Holo3DModel *m, int k, float u, float v,
     if (bottom) *bottom = h3d_proj_dy(m, h3d_boundary_world(m, k + 1, u, v), dy);
 }
 
+/* ---- the cutaway ---------------------------------------------------- */
+
+#define H3D_CUT_N 18                /* samples along each cut edge */
+
+/* A point on surface k at (u, v), projected at bed `bed`'s offset. */
+static Vector2 h3d_cut_pt(const Holo3DModel *m, int k, int bed, float u, float v)
+{
+    return h3d_proj_dy(m, h3d_boundary_world(m, k, u, v), h3d_offY(m, bed));
+}
+
+/* One cut face: from (u0, v0) to (u1, v1) along the cap, every bed down it,
+ * painted as h3d_paint_layer paints a wall. `n` is the face's outward
+ * normal, which is what lights it. */
+static void h3d_cut_face(const Holo3DModel *m, const H3DState *st,
+                         float u0, float v0, float u1, float v1, const float n[3])
+{
+    const float f = h3d_lit(m, n);
+    Vector2 top[H3D_CUT_N], bot[H3D_CUT_N], poly[H3D_CUT_N * 2];
+    for (int k = 0; k < m->layerCount; k++)
+    {
+        const H3DLayer *ly = &m->layers[k];
+        for (int i = 0; i < H3D_CUT_N; i++)
+        {
+            const float t = (float)i / (float)(H3D_CUT_N - 1);
+            const float u = u0 + (u1 - u0) * t, v = v0 + (v1 - v0) * t;
+            top[i] = h3d_cut_pt(m, k, k, u, v);
+            bot[i] = h3d_cut_pt(m, k + 1, k, u, v);
+        }
+        int pn = 0;
+        for (int i = 0; i < H3D_CUT_N; i++) poly[pn++] = top[i];
+        for (int i = H3D_CUT_N - 1; i >= 0; i--) poly[pn++] = bot[i];
+        float y0 = poly[0].y, y1 = poly[0].y;
+        for (int i = 1; i < pn; i++) { if (poly[i].y < y0) y0 = poly[i].y; if (poly[i].y > y1) y1 = poly[i].y; }
+
+        /* the wall's own four stops (spec 2.2) */
+        C2DGradient g = c2d_gradient_linear(y0, y1);
+        c2d_gradient_stop(&g, 0.00f, h3d_shade(ly->neon, f));
+        c2d_gradient_stop(&g, 0.20f, h3d_shade(ly->mid,  f));
+        c2d_gradient_stop(&g, 0.75f, h3d_shade(ly->deep, f));
+        c2d_gradient_stop(&g, 1.00f, h3d_shade(ly->deep, f));
+        c2d_fill_poly_gradient(poly, pn, &g);
+
+        /* its mesh, as on the walls */
+        const int rows = (int)fmaxf(2.0f, lroundf((y1 - y0) / 26.0f));
+        for (int i = 3; i < H3D_CUT_N - 1; i += 3)
+        {
+            const Vector2 seg[2] = {top[i], bot[i]};
+            c2d_polyline(seg, 2, h3d_rgba(ly->mesh, 0.22f * f), 1.0f);
+        }
+        for (int row = 1; row < rows; row++)
+        {
+            const float q = (float)row / rows;
+            Vector2 line[H3D_CUT_N];
+            for (int i = 0; i < H3D_CUT_N; i++)
+                line[i] = (Vector2){top[i].x + (bot[i].x - top[i].x) * q,
+                                    top[i].y + (bot[i].y - top[i].y) * q};
+            c2d_polyline(line, H3D_CUT_N, h3d_rgba(ly->mesh, 0.14f * f), 1.0f);
+        }
+
+        /* the bed's top interface, bright as the walls draw theirs */
+        h3d_stroke(st->fast, top, H3D_CUT_N, k == 0 ? (Color){0xe6, 0xff, 0xff, 255} : ly->line,
+                   k == 0 ? 2.2f : 1.5f, k == 0 ? 16.0f : 10.0f);
+        if (k == m->layerCount - 1)
+            h3d_stroke(st->fast, bot, H3D_CUT_N, (Color){160, 190, 215, 153}, 1.1f, 3.0f);
+    }
+}
+
+void Holo3D_DrawCutaway(Holo3DModel *m, const H3DState *st, float u, float v, Color clear)
+{
+    if (!m || !st || st->explode > 0.02f || m->layerCount < 1) return;
+    if (u < 0.0f) u = 0.0f; if (u > 1.0f) u = 1.0f;
+    if (v < 0.0f) v = 0.0f; if (v > 1.0f) v = 1.0f;
+    const int last = m->layerCount - 1;
+
+    /* the corner nearest the viewer: the one drawn lowest on screen, since
+       screen y grows as h = x*f0 + z*f1 shrinks */
+    float cu = 0.0f, cv = 0.0f, best = 1e9f;
+    for (int c = 0; c < 4; c++)
+    {
+        const float qu = (float)(c & 1), qv = (float)(c >> 1);
+        const float h = (qu - 0.5f) * m->W * m->f0 + (qv - 0.5f) * m->W * m->f1;
+        if (h < best) { best = h; cu = qu; cv = qv; }
+    }
+    if (fabsf(cu - u) < 1e-3f || fabsf(cv - v) < 1e-3f) return;   /* nothing to take out */
+
+    /* 1. PAINT OUT THE QUARTER: its patch of cap and its two pieces of front
+          wall. Their union is exactly what the removed piece covered. */
+    Vector2 poly[H3D_CUT_N * 4 + 4];
+    int pn = 0;
+    #define EDGE(k, bed, ua, va, ub, vb) \
+        for (int i = 0; i < H3D_CUT_N; i++) { \
+            const float t = (float)i / (float)(H3D_CUT_N - 1); \
+            poly[pn++] = h3d_cut_pt(m, (k), (bed), (ua) + ((ub) - (ua)) * t, (va) + ((vb) - (va)) * t); }
+    EDGE(0, 0, u, v, cu, v)  EDGE(0, 0, cu, v, cu, cv)
+    EDGE(0, 0, cu, cv, u, cv) EDGE(0, 0, u, cv, u, v)
+    c2d_fill_poly(poly, pn, clear);
+    pn = 0;
+    EDGE(0, 0, cu, v, cu, cv) EDGE(last + 1, last, cu, cv, cu, v)
+    c2d_fill_poly(poly, pn, clear);
+    pn = 0;
+    EDGE(0, 0, u, cv, cu, cv) EDGE(last + 1, last, cu, cv, u, cv)
+    c2d_fill_poly(poly, pn, clear);
+
+    /* 2. THE FLOOR of the notch: the block's base over the quarter, dark,
+          with the base's own grid */
+    pn = 0;
+    EDGE(last + 1, last, u, v, cu, v)   EDGE(last + 1, last, cu, v, cu, cv)
+    EDGE(last + 1, last, cu, cv, u, cv) EDGE(last + 1, last, u, cv, u, v)
+    #undef EDGE
+    {
+        const H3DLayer *ly = &m->layers[last];
+        c2d_fill_poly(poly, pn, h3d_shade(ly->mid, 0.62f));
+        for (int i = 1; i < 4; i++)
+        {
+            const float q = (float)i / 4.0f;
+            const Vector2 a[2] = {h3d_cut_pt(m, last + 1, last, u + (cu - u) * q, v),
+                                  h3d_cut_pt(m, last + 1, last, u + (cu - u) * q, cv)};
+            const Vector2 b[2] = {h3d_cut_pt(m, last + 1, last, u, v + (cv - v) * q),
+                                  h3d_cut_pt(m, last + 1, last, cu, v + (cv - v) * q)};
+            c2d_polyline(a, 2, h3d_rgba(ly->mesh, 0.22f), 1.0f);
+            c2d_polyline(b, 2, h3d_rgba(ly->mesh, 0.22f), 1.0f);
+        }
+        /* its rim: the two outer edges, where the block's walls used to come
+           down to the base -- the line the walls' own bottom edge uses */
+        const Vector2 rim[3] = {h3d_cut_pt(m, last + 1, last, u, cv),
+                                h3d_cut_pt(m, last + 1, last, cu, cv),
+                                h3d_cut_pt(m, last + 1, last, cu, v)};
+        h3d_stroke(st->fast, rim, 3, (Color){160, 190, 215, 170}, 1.2f, 3.0f);
+    }
+
+    /* 3. THE TWO CUT FACES, each facing the corner it was cut toward */
+    const float nu[3] = {cu > u ? 1.0f : -1.0f, 0.0f, 0.0f};
+    const float nv[3] = {0.0f, 0.0f, cv > v ? 1.0f : -1.0f};
+    h3d_cut_face(m, st, u, v, u, cv, nu);        /* the plane u = const */
+    h3d_cut_face(m, st, u, v, cu, v, nv);        /* the plane v = const */
+
+    /* 4. THE EDGES the cut made: the inner one, where the faces meet, and
+          the two where each face meets the block's own walls */
+    const Vector2 inner[2] = {h3d_cut_pt(m, 0, 0, u, v), h3d_cut_pt(m, last + 1, last, u, v)};
+    const Vector2 edgeU[2] = {h3d_cut_pt(m, 0, 0, u, cv), h3d_cut_pt(m, last + 1, last, u, cv)};
+    const Vector2 edgeV[2] = {h3d_cut_pt(m, 0, 0, cu, v), h3d_cut_pt(m, last + 1, last, cu, v)};
+    h3d_stroke(st->fast, edgeU, 2, (Color){190, 225, 245, 150}, 1.2f, 4.0f);
+    h3d_stroke(st->fast, edgeV, 2, (Color){190, 225, 245, 150}, 1.2f, 4.0f);
+    h3d_stroke(st->fast, inner, 2, (Color){0xe6, 0xff, 0xff, 230}, 1.8f, 10.0f);
+}
+
 void Holo3D_ScreenAcross(const Holo3DModel *m, float *du, float *dv)
 {
     /* screen x = x*r0 + z*r1, and u, v are x, z over the width: the

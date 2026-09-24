@@ -464,21 +464,33 @@ committed the plan stays as a dashed line ending in a small target mark,
 with what has actually been drilled drawn solid over it, in the drill's
 amber.
 
-**A depth is read against its own section.** The block's camera tilts, so a
-point deep inside it is drawn higher the further back it sits: a line dropped
-from a site near the back ends well above the same depth on the front wall --
-by up to half the column at the default tilt -- and the playtest read that as
-"the depth line does not match the strata". Limiting the tilt cannot fix it
-(only tilt 0, where the cap disappears, would); what does is a vertical slice
-through the site, cut along the screen's horizontal so it faces the viewer
-square on, with the beds drawn on it as the block carries them. The line sits
-in the rock it will go through at every yaw and tilt. The slice is a cut, so
-it has a dark backing (0.70) that hides the walls behind it; each bed is
-filled halfway between the wall's lit and mid tones at 0.80, and its top
-interface is stroked in the wall's own line colour -- a bed on the slice is
-visibly the same bed on the wall. It appears once a site exists and stays
-while the hole does. The tilt is still limited (0.15-0.80 rad), for the cap
-and the column to stay readable, not for the depth.
+**A depth is read against a cut, not a panel.** The block's camera tilts, so
+a point deep inside it is drawn higher the further back it sits: a line
+dropped from a site near the back ends well above the same depth on the front
+wall -- by up to half the column at the default tilt -- and the playtest read
+that as "the depth line does not match the strata". Limiting the tilt cannot
+fix it (only tilt 0, where the cap disappears, would).
+
+What does is a **cutaway**: once a site is taken, the quarter of the block
+between it and the corner nearest the viewer comes out, full depth
+(`Holo3D_DrawCutaway`). The two cut faces are drawn with the walls' own
+recipe -- the four-stop lit gradient, the mesh, each bed's top interface
+stroked and glowed as on the walls -- the notch floor is the base's mid tone
+with its grid and a rim where the walls used to come down, and the three new
+edges are stroked, the inner one brightest. The site IS that inner edge, so
+the borehole runs down it with the beds on both sides. Painting the quarter
+out and drawing the faces over it covers exactly the removed piece's
+footprint, because a box's three far faces project onto the same outline as
+its three near ones.
+
+The first answer was a flat slice drawn over the block, facing the viewer.
+It measured right and read wrong -- "a new rectangle put on top, irrelevant
+to everything else" -- because nothing in it belonged to the solid: its own
+fill, its own edges, floating in front of the walls it described. A cut is
+made OF the block. See `docs/design/graveyard/console-section-slice.md`.
+
+The tilt is still limited (0.15-0.80 rad), for the cap and the column to
+stay readable, not for the depth.
 
 **ABORT is red and small, and exists only while it can do something.** A
 plate in the drill bar's title row, stop square plus the word, drawn only
