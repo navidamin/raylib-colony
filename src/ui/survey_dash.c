@@ -114,8 +114,11 @@
 #define DASH_TIP_RETICLE_R 0.10f
 
 /* How long the model takes a hole in, with the cut still open: the beds
- * morph, the fog lifts, the delineation climbs. Then the block closes. */
-#define DASH_REVEAL_S 3.0f
+ * morph, the fog lifts, the delineation climbs. Then the cavity closes over
+ * DASH_CLOSE_S -- slowly at first, gathering speed, shut at the end -- and
+ * the whole block is back. */
+#define DASH_REVEAL_S 5.0f
+#define DASH_CLOSE_S  2.0f
 
 /* THE ONLY FILE STATICS LEFT, and they are the process's, not a console's:
  * one render surface, one set of fonts, one block geometry, shared by every
@@ -129,6 +132,9 @@ static Holo3DModel *g_model = NULL;
  * whichever is on screen has to re-apply its own. */
 static void *g_groundCtx = NULL;
 static int   g_groundRev = -1;
+
+static float g_revealSlowmo = 1.0f;          /* harness only */
+void SurveyDash_SetRevealSlowmo(float f) { g_revealSlowmo = f < 1.0f ? 1.0f : f; }
 
 static float Clampf01v(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
@@ -459,12 +465,13 @@ static void DashDrawHeightLog(void)
 /* THE SITE, ON THE GROUND. Left where the hole was collared, projected onto
  * the cap so it rides the block's rotation and zoom. */
 static bool DashCutActive(const SurveyDashState *s);
+static bool DashClosing(const SurveyDashState *s);
 
 static void DashDrawSite(const SurveyDashState *s)
 {
     /* the site mark and the borehole belong to the hole being made; a
        finished hole is its barrel, and the block is whole again */
-    if (!g_model || !s->sited || !DashCutActive(s)) return;
+    if (!g_model || !s->sited || !DashCutActive(s) || DashClosing(s)) return;
     const Vector2 p = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
     const float pulse = 0.85f + 0.15f * sinf(s->drill.t * 3.0f);
     DashTargetMark(p, 7.0f * pulse, s->drill.t * 0.6f, RGBA8(0xff, 0xc8, 0x4d, 0.95f), 1.6f);
@@ -550,7 +557,7 @@ static Vector2 DashLerp(Vector2 a, Vector2 b, float t)
  * solid over it. */
 static void DashDrawBorehole(const SurveyDashState *s)
 {
-    if (!g_model || !s->sited || !DashCutActive(s)) return;
+    if (!g_model || !s->sited || !DashCutActive(s) || DashClosing(s)) return;
     const Vector2 top = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
     const Vector2 bot = Holo3D_ColumnPoint(g_model, s->siteU, s->siteV, 1.0f);
 
@@ -594,8 +601,30 @@ static void DashDrawBorehole(const SurveyDashState *s)
 static bool DashCutActive(const SurveyDashState *s)
 {
     const SurveyDashPhase ph = SurveyDash_Phase(s);
-    if (ph == SDP_COMPLETE && s->revealT >= 0.0f) return true;   /* taking it in */
+    if (ph == SDP_COMPLETE && s->revealT >= 0.0f) return true;   /* taking it in, closing */
     return ph == SDP_STRETCH || ph == SDP_PLANNED || ph == SDP_DRILLING;
+}
+
+/* Closing: the cavity is shrinking and the hole's line has gone. */
+static bool DashClosing(const SurveyDashState *s)
+{
+    return SurveyDash_Phase(s) == SDP_COMPLETE && s->revealT >= DASH_REVEAL_S;
+}
+
+/* WHERE THE CUT'S INNER CORNER IS. At the site while the hole is worked and
+ * taken in; while closing it travels out to the block's near corner on an
+ * ease-in -- slow at first, gathering speed -- so the cavity contracts and
+ * shuts rather than vanishing. */
+static void DashCutPoint(const SurveyDashState *s, float *u, float *v)
+{
+    *u = s->siteU; *v = s->siteV;
+    if (!DashClosing(s) || !g_model) return;
+    float cu, cv;
+    Holo3D_NearCorner(g_model, &cu, &cv);
+    const float t = Clampf01v((s->revealT - DASH_REVEAL_S) / DASH_CLOSE_S);
+    const float e = t * t * t;
+    *u = s->siteU + (cu - s->siteU) * e;
+    *v = s->siteV + (cv - s->siteV) * e;
 }
 
 /* How far the reveal has got, eased: 1 when none is running. */
@@ -667,10 +696,11 @@ static bool DashBarrelShown(const SurveyDashState *s, int i)
                              s->revealT >= 0.0f)) return false;
     if (DashCutActive(s) && s->block.explode <= 0.02f)
     {
-        float cu, cv;
+        float cu, cv, pu, pv;
         Holo3D_NearCorner(g_model, &cu, &cv);
-        const bool inU = (l->u - s->siteU) * (cu - s->siteU) > 0.0f;
-        const bool inV = (l->v - s->siteV) * (cv - s->siteV) > 0.0f;
+        DashCutPoint(s, &pu, &pv);
+        const bool inU = (l->u - pu) * (cu - pu) > 0.0f;
+        const bool inV = (l->v - pv) * (cv - pv) > 0.0f;
         if (inU && inV) return false;
     }
     return true;
@@ -1123,8 +1153,8 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     /* THE REVEAL: advance it, and draw the beds and the fog that far */
     if (s->revealT >= 0.0f)
     {
-        s->revealT += dt;
-        if (s->revealT >= DASH_REVEAL_S) s->revealT = -1.0f;
+        s->revealT += dt / g_revealSlowmo;
+        if (s->revealT >= DASH_REVEAL_S + DASH_CLOSE_S) s->revealT = -1.0f;
     }
     const float rf = DashRevealF(s);
     Holo3D_GroundBlend(g_model, rf);
@@ -1137,7 +1167,11 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     Holo3D_SetFog(g_model, DashFogAt, &fog);
     Holo3D_Render(g_model, &s->block, &s->view);
     if (DashCutActive(s))
-        Holo3D_DrawCutaway(g_model, &s->block, s->siteU, s->siteV, DashC_Bg());
+    {
+        float cu, cv;
+        DashCutPoint(s, &cu, &cv);
+        Holo3D_DrawCutaway(g_model, &s->block, cu, cv, DashC_Bg());
+    }
     Holo3D_DrawHud(g_model, &s->block, &s->view, &hud);
 
     /* ---- the two stats blocks, under the instruments they describe ---- */

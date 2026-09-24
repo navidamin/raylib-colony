@@ -261,6 +261,11 @@ void SurveyDash_Cancel (SurveyDashState *s);
  * `reveal` plays the model taking the hole in, as a played hole does. */
 void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM, bool reveal);
 
+/* HARNESS: slow the reveal and the close down by this factor (1 = real
+ * time), so an animation can be captured on a renderer that draws a frame a
+ * second. Process-wide. */
+void SurveyDash_SetRevealSlowmo(float factor);
+
 #ifdef __cplusplus
 }
 #endif

@@ -276,11 +276,14 @@ one model; the delineation cache keys on the gain.
 
 **The reveal.** When a hole lands or is aborted the console copies the
 knowledge as it stood (`fogFrom`), adds the hole, and for `DASH_REVEAL_S`
-(3 s) reads between the two: the fog function blends confidence from the old
+(5 s) reads between the two: the fog function blends confidence from the old
 model to the new, `Holo3D_GroundBlend` morphs the beds from the shape on
 screen to the re-fit, and the DELINEATION monitor shows the blended number
-(tier switching at the halfway point). The cut stays open throughout and
-closes at the end. Verified with `--land-at F` on the playtest (a harness
+(tier switching at the halfway point). The cut stays open throughout; then
+over `DASH_CLOSE_S` (2 s) the cavity contracts -- `DashCutPoint` moves the
+cut's inner corner from the site to the near corner on a cubic ease-in -- and
+the block is whole. `--reveal-slowmo N` on the playtest stretches both, for
+capture on a slow renderer. Verified with `--land-at F` on the playtest (a harness
 hole with its reveal at frame F): 62% before, 68% mid-reveal with the cut
 open at the new hole, 76% after with the block closed and the new barrel
 standing.

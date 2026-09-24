@@ -422,6 +422,8 @@ int main(int argc, char** argv)
         if (std::string(argv[i]) == "--scale-to") ctx.scaleTo = std::atoi(argv[i + 1]);
         if (std::string(argv[i]) == "--holes") ctx.seedHoles = std::atoi(argv[i + 1]);
         if (std::string(argv[i]) == "--land-at") ctx.landAt = std::atoi(argv[i + 1]);
+        if (std::string(argv[i]) == "--reveal-slowmo")
+            SurveyDash_SetRevealSlowmo(static_cast<float>(std::atof(argv[i + 1])));
     }
 
     SetTraceLogLevel(LOG_WARNING);

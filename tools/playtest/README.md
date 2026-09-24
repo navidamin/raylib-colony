@@ -135,5 +135,6 @@ Top bar, purple: **DRILL xN** (F6) multiplies how fast the bit cuts -- x1, 4,
 fog clears and the delineation climbs faster. Native flags: `--holes N`
 starts with N holes already drilled (the real drill, run to depth),
 `--land-at F` lands one more at frame F with its reveal (the log says when),
+`--reveal-slowmo N` plays the reveal and the close N times slower,
 and
 `--scale N` / `--scale-to N` exercise the display scale.
