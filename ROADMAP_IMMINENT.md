@@ -72,6 +72,20 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
   `/viewtest/` from its old game; changing it needs that branch (its
   session, or a permission rule). The real end is merging the branches.
 
+### The Site Level Is Sharp in the Browser (WebGL2) ✅ COMPLETE
+
+- Level 3 in a browser was built at 512 px for a 44 km-wide picture and
+  drawn ~3x stretched: blurred. WebGL1's shaders cannot run the
+  regolith, so it was built on the CPU and kept small.
+- The web build is now WebGL2 (WebGL1 fallback). The terrain passes
+  compile as GLSL ES 3.00 there, so the GPU builds the regolith; window
+  chains (district, site, Colony view) are built at the screen's width.
+  Measured in a browser: level 3 at 1280 px on the GPU, fine detail up
+  ~3.5x. The browser check now requires WebGL2 + GPU + >= 1024 px on the
+  GPU path, and was seen failing on a WebGL1 build.
+- **Still open:** on the iPad itself — speed of a 1024+ GPU build and
+  memory.
+
 ## Recent Completions (2026-09-23)
 
 ### One Ladder, in the Game, With Its Ground on the Web ✅ COMPLETE
@@ -495,7 +509,7 @@ Replaced opaque scanCount/3 extraction formula with transparent **Survey Progres
 8. **Prospecting design docs still marked DRAFT/STUB** - Phases 1-6 are implemented; the docs do not say so. `resource-distribution-model.md` is a genuine STUB (pathfinder tips undesigned).
 9. **Roadmaps drift when a branch runs long** - This file went 2026-08-23 → 09-18 (98 commits) without an update; `ROADMAP_OVERALL.md` went from 08-13. Update them at the end of each session per the `CLAUDE.md` catchup procedure — a long branch is exactly when it stops happening.
 10. **CI is only watched when someone looks** - Windows was red for 23 days and 22 commits over a one-line `M_PI` portability break, while the other five workflows stayed green. Nothing surfaces a single red platform; check `actions_list` per workflow, not just the latest run.
-11. **The regolith takes two different paths on the web** - GLSL ES 1.00 cannot run the lattice hash, so WebGL1 builds the sub-floor on the CPU. Correct, and measured, but it means the browser and the desktop reach the same picture by different routes. WebGL2 would end the split.
+11. ~~**The regolith takes two different paths on the web**~~ ✅ RESOLVED 2026-09-24 - the web build is WebGL2; GLSL ES 3.00 runs the lattice hash, so a real GPU builds the regolith in the browser as on the desktop. Only a WebGL1-only browser or a software rasterizer still builds it on the CPU.
 12. **Tycho's sect rung saturates the roughness mask** - 100% on the upper bound, so within-window variation is lost there. Honest (5 km inside a fresh crater floor really is uniformly extreme) but it is the one place the new mask behaves like the old one.
 13. ~~**The mosaic is decoded twice**~~ ✅ RESOLVED 2026-09-21 - the globe builds its albedo from `TerrainWacGrey`, the synthesizer's one grey decode; the JPEG is decoded once. The heap gain is still to be read off the shell badge on a device.
 14. **Polar windows are refused, not drawn** - Past 80° of latitude the equirectangular window crop smears the ground and the survey cursor's cos(lat) floor (0.05) disagrees with the local frame's (0.2) about where east is (measured at Shackleton, `docs/design/site-selection/figures/b1pole_*.jpg`). A claim there is refused at the globe. A tangent-plane frame for the chain crop, the survey cursor and `LocalFrame` together would lift it.

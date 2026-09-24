@@ -55,7 +55,7 @@ namespace
 // Shaders
 // ---------------------------------------------------------------------------
 
-// Two dialects, one body. The prefix supplies version, precision and
+// Three dialects, one body. The prefix supplies version, precision and
 // the in/out spelling; the body is written against TEX() and OUT.
 const char* PREFIX_330 =
     "#version 330\n"
@@ -79,6 +79,38 @@ const char* PREFIX_100 =
     "varying vec2 fragTexCoord;\n"
     "#define TEX(s, uv) texture2D(s, uv)\n"
     "#define OUT gl_FragColor\n";
+
+// WebGL2. GLSL ES 3.00 has uint, bitwise operators and a 32-bit highp int,
+// so -- unlike ES 1.00 -- it runs the regolith's integer hash exactly as
+// the desktop does, and the browser no longer has to build the ground on
+// its one CPU thread at a size small enough to finish.
+const char* PREFIX_300ES =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "precision highp int;\n"
+    "in vec2 fragTexCoord;\n"
+    "out vec4 finalColor;\n"
+    "#define TEX(s, uv) texture(s, uv)\n"
+    "#define OUT finalColor\n"
+    "#define DHASH_UINT 1\n";
+
+// A program's two stages must be the same GLSL version, and raylib's
+// default vertex shader on the web is ES 1.00 -- so the ES 3.00 fragment
+// shaders bring their own, with raylib's attribute and uniform names.
+const char* VS_300ES =
+    "#version 300 es\n"
+    "in vec3 vertexPosition;\n"
+    "in vec2 vertexTexCoord;\n"
+    "in vec4 vertexColor;\n"
+    "out vec2 fragTexCoord;\n"
+    "out vec4 fragColor;\n"
+    "uniform mat4 mvp;\n"
+    "void main()\n"
+    "{\n"
+    "    fragTexCoord = vertexTexCoord;\n"
+    "    fragColor = vertexColor;\n"
+    "    gl_Position = mvp*vec4(vertexPosition, 1.0);\n"
+    "}\n";
 
 // Shared by every pass: the target size and the flipped sampler.
 const char* COMMON = R"GLSL(
@@ -480,12 +512,9 @@ uniform vec4 uClast;          // clasts, clastDensity, clastPx, popPx
 
 uniform float uSubFloorKm;   // where the data under this stops resolving
 
-// detail_noise.h, in GLSL. The 32-bit integer chain needs `uint`, which
-// GLSL ES 1.00 does not have -- so the web path gets a float hash of the
-// same statistics instead, and its craters land in different places than
-// the CPU's. That is a real difference and terrain_probe measures it; it
-// is invisible to a player, who only ever sees one path.
-// GLSL ES 1.00 has no uint, and its highp int is only guaranteed to 2^16 --
+// detail_noise.h, in GLSL. The 32-bit integer chain needs `uint`: GLSL 330
+// (desktop) and ES 3.00 (WebGL2) have it and reproduce the CPU's hash.
+// GLSL ES 1.00 (WebGL1) has no uint, and its highp int is only guaranteed to 2^16 --
 // far too small for these lattice indices, which run to millions at the sect
 // level. So the whole stack compiles to a stub there and GetTerrainPath sends
 // such a device down the CPU path instead. A wrong-but-fast second look is
@@ -1018,21 +1047,44 @@ void UploadRoughField(double latDeg, double lonDeg, double spanKm,
     g_roughCfg[2] = span;
 }
 
-bool UseEs100()
+enum ShaderDialect
+{
+    DIALECT_330,        // desktop GL 3.3
+    DIALECT_300ES,      // WebGL2
+    DIALECT_100         // WebGL1, desktop GLES: no uint, so no regolith
+};
+
+// Asked of the context, not the build: the page requests WebGL2
+// (MAX_WEBGL_VERSION=2) and the browser falls back to WebGL1 where it has
+// nothing better, with raylib's own ES 1.00 shaders running on either.
+ShaderDialect Dialect()
 {
 #if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
-    return true;
+    static int webgl2 = -1;
+    if (webgl2 < 0)
+    {
+        webgl2 = EM_ASM_INT({
+            return (typeof WebGL2RenderingContext != 'undefined'
+                    && typeof GLctx != 'undefined'
+                    && GLctx instanceof WebGL2RenderingContext) ? 1 : 0;
+        });
+        TraceLog(LOG_INFO, "TERRAIN: %s context, shaders GLSL %s",
+                 webgl2 ? "WebGL2" : "WebGL1", webgl2 ? "ES 3.00" : "ES 1.00");
+    }
+    return webgl2 ? DIALECT_300ES : DIALECT_100;
 #else
     int v = rlGetVersion();
-    return v == RL_OPENGL_ES_20 || v == RL_OPENGL_ES_30;
+    return (v == RL_OPENGL_ES_20 || v == RL_OPENGL_ES_30) ? DIALECT_100 : DIALECT_330;
 #endif
 }
 
 Shader Build(const char* const* parts, int count)
 {
-    std::string fs = UseEs100() ? PREFIX_100 : PREFIX_330;
+    ShaderDialect d = Dialect();
+    std::string fs = (d == DIALECT_330) ? PREFIX_330
+                   : (d == DIALECT_300ES) ? PREFIX_300ES : PREFIX_100;
     for (int i = 0; i < count; i++) fs += parts[i];
-    Shader sh = LoadShaderFromMemory(nullptr, fs.c_str());
+    Shader sh = LoadShaderFromMemory((d == DIALECT_300ES) ? VS_300ES : nullptr, fs.c_str());
     return sh;
 }
 
@@ -1490,7 +1542,7 @@ int TerrainCpuChainResFor(double budgetMs)
 // guaranteed to 2^16 where the lattice indices reach millions. The CPU
 // path has no such limit, so a caller that needs the regolith asks this
 // and stays off the GPU rather than doing without.
-bool TerrainGpuCanSubFloor() { return !UseEs100(); }
+bool TerrainGpuCanSubFloor() { return Dialect() != DIALECT_100; }
 
 bool TerrainChainOnGpu()
 {
@@ -1568,6 +1620,20 @@ TerrainPath GetTerrainPath()
 const char* GetTerrainPathName()
 {
     return (GetTerrainPath() == TERRAIN_PATH_GPU) ? "GPU" : "CPU";
+}
+
+int TerrainGpuWindowRes(int screenWidth)
+{
+    const char* env = std::getenv("COLONY_TERRAIN_RES");
+    if (env)
+    {
+        int r = std::atoi(env);
+        if (r >= 256 && r <= 2048) return r;
+    }
+    GetTerrainPath();                       // the probe sets g_gpuRes
+    int want = (screenWidth + 63) / 64 * 64;
+    int cap = (g_gpuRes >= 1024) ? 2048 : 1024;
+    return std::clamp(want, 512, cap);
 }
 
 int GetTerrainPathResolution()

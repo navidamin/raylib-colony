@@ -375,17 +375,26 @@ texture statistics without the same pixels. `terrain_probe` builds a
 location both ways and reports the difference; run it after touching
 either synthesizer (CPU vs GPU currently 3.4 / 7.5 / 3.5 out of 255).
 
-**The shader cannot do the regolith on WebGL1.** GLSL ES 1.00 has no
-`uint`, no bitwise operators, and a `highp int` guaranteed only to 2^16
-where the lattice indices reach millions. So **who builds a chain is one
+**The web build is WebGL2** (`-s MAX_WEBGL_VERSION=2`), falling back to
+WebGL1 where a browser has nothing better. The regolith's hash needs
+`uint` and 32-bit integers: GLSL 330 (desktop) and ES 3.00 (WebGL2) have
+them, ES 1.00 (WebGL1) does not. `terrain_gpu.cpp` asks the context which
+it got (`Dialect()`) and compiles its passes as 330, 300 es (with its own
+vertex shader — a program's two stages must match) or 100; raylib's own
+shaders stay ES 1.00 and run on either. **Who builds a chain is one
 question, `TerrainChainOnGpu()`** — the GPU path *and* shaders that can
 run the regolith — and every consumer asks it: the game's terrain cache
-and `lunar_map`'s layer. On WebGL1 the answer is the CPU, sized to
-`TERRAIN_CHAIN_BUDGET_MS` by a measured cost model
-(`TerrainCpuChainResFor`), and nothing is prefetched, since a browser
-has no threads to hide it on. Asking anything else — the path alone, the
-platform — is how the site level came up grey in `lunar_map` and
-craterless in the game on 2026-09-23. WebGL2 would end the split.
+and `lunar_map`'s layer. Where the answer is the CPU (WebGL1, or a
+software rasterizer) the chain is sized to `TERRAIN_CHAIN_BUDGET_MS` by a
+measured cost model (`TerrainCpuChainResFor`), and nothing is
+prefetched, since a browser has no threads to hide it on. **Window
+chains** — the district and site levels and the Colony view, each one
+picture across the whole screen — are built on the GPU at the screen's
+width (`TerrainGpuWindowRes`, 2048 at most); the game's 100/25/5 chains
+keep `GetTerrainPathResolution()`. On 2026-09-23 the site level came up
+grey in `lunar_map` and craterless in the game (the question asked the
+wrong way); on 2026-09-24 it came up blurred — WebGL1, 512 px on the
+CPU, drawn 3x stretched. WebGL2 ended the split.
 
 **Real coordinates.** Everything is a real lat/lon: a click on the
 globe is inverted by `OrbitalPickToLatLon`, and the chain is built for

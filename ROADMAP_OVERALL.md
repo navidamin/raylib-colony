@@ -659,9 +659,10 @@ the world is the Moon). PHASE 1.5 (Extraction Unit Overhaul) 100% COMPLETE.
 - [ ] **Polar windows need a tangent-plane frame** — the chain crop, the
       survey cursor and `LocalFrame` each floor cos(lat) differently; past
       80° the ground smears and claims are refused (plan D7).
-- [ ] **WebGL2 for the web build.** GLSL ES 1.00 cannot run the regolith's
-      lattice hash, so WebGL1 builds it on the CPU. Works, measured, but it
-      means the browser reaches the picture by a different route.
+- [x] **WebGL2 for the web build** (2026-09-24). GLSL ES 3.00 runs the
+      regolith's lattice hash, so a browser with a real GPU builds the
+      site level there, sharp, at the screen's width; WebGL1 still falls
+      back to the CPU.
 - [ ] **CI health is unobserved.** Windows sat red for 23 days because five
       other workflows were green and nothing aggregates them.
 - [ ] Optimize rendering for large entity counts

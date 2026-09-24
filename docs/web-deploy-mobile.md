@@ -160,16 +160,26 @@ the exact harness shape.
 
 ## The site level's ground in a browser
 
+The pages are built for **WebGL2** (`-s MAX_WEBGL_VERSION=2`), and get
+WebGL1 where a browser has nothing better. WebGL2's GLSL ES 3.00 runs the
+regolith, so on a real GPU the site level is built there, at the
+screen's width; on WebGL1 (or a software rasterizer) it is built on the
+CPU, small, to keep the pause short. raylib's own shaders are ES 1.00 and
+run on both; it logs "VAO extension not found" on WebGL2 and uses its
+non-VAO path, which is harmless.
+
 Before every deploy, `tools/lunarmap/web_site_level_test.mjs` opens the
 built pages in headless Chromium at 1656×960, walks Globe → District →
-Site, and fails unless the site level was built with its regolith: once
-for `lunar_map`, once for the game, and once for the game with
-`?terrain=gpu`. The last one matters because the CI browser renders
-WebGL in software (SwiftShader), so it takes the CPU path — while an
-iPad takes the GPU path, where WebGL1 cannot draw the regolith. Both
-halves of that were live bugs on 2026-09-23. `?terrain=cpu|gpu` works on
-any page as the browser's `COLONY_TERRAIN`, for trying either path on a
-device. Run it locally against a web build directory:
+Site, and fails unless the site level was built with its regolith: for
+`lunar_map` and the game, each as the CI browser runs it and with
+`?terrain=gpu`. The GPU runs matter because the CI browser renders WebGL
+in software (SwiftShader), so it takes the CPU path — while an iPad
+takes the GPU path. The game's GPU run also fails unless the page got
+WebGL2 and built the site level on the GPU at 1024 px or more (2026-09-23
+it came up craterless there; 2026-09-24, 512 px and blurred).
+`?terrain=cpu|gpu` works on any page as the browser's `COLONY_TERRAIN`,
+for trying either path on a device. Run it locally against a web build
+directory:
 
     node tools/lunarmap/web_site_level_test.mjs build/src colony_game gpu
 

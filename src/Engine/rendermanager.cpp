@@ -61,6 +61,15 @@ int BlockingCpuRes(int want)
 #endif
 }
 
+// The GPU resolution for a key: a window (spanTenths > 0) is drawn across
+// the whole screen, so it is built at the screen's width; the game's own
+// 100/25/5 chain keeps the path's resolution.
+int GpuResFor(const RenderManager::TerrainKey& key)
+{
+    return (key.spanTenths > 0) ? TerrainGpuWindowRes(GetScreenWidth())
+                                : GetTerrainPathResolution();
+}
+
 // One line per chain that enters the cache, however it got there: what
 // was built, by whom, and whether the regolith is in it. It is the line
 // tools/lunarmap/web_site_level_test.mjs reads, so a build path that does
@@ -786,9 +795,9 @@ void RenderManager::UploadReadyTerrain()
 
             double t0 = GetTime();
             TerrainGpuChain chain;
-            if (!BuildChainGpu(req, GetTerrainPathResolution(), &chain))
+            if (!BuildChainGpu(req, GpuResFor(req.key), &chain))
                 return;
-            LogTerrainBuilt(req.key, GetTerrainPathResolution(), true,
+            LogTerrainBuilt(req.key, GpuResFor(req.key), true,
                             (GetTime() - t0) * 1000.0);
 
             int slot = ClaimTerrainSlot();
@@ -891,8 +900,8 @@ void RenderManager::EnsureTerrainAt(const LunarPoint& point, float spanKm)
         double t0 = GetTime();
         TerrainGpuChain chain;
         bool gpu = TerrainChainOnGpu()
-                && BuildChainGpu(req, GetTerrainPathResolution(), &chain);
-        int res = gpu ? GetTerrainPathResolution() : BlockingCpuRes(TERRAIN_RES);
+                && BuildChainGpu(req, GpuResFor(req.key), &chain);
+        int res = gpu ? GpuResFor(req.key) : BlockingCpuRes(TERRAIN_RES);
 
         slot = ClaimTerrainSlot();
         TerrainCacheEntry& e = terrainCache[slot];

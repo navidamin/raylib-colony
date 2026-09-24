@@ -102,7 +102,12 @@ endif()
 if ("${PLATFORM}" STREQUAL "Web")
     set_target_properties(colony_game PROPERTIES SUFFIX ".html")
 
-    set(web_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
+    # MAX_WEBGL_VERSION=2: a WebGL2 context where the browser has one, WebGL1
+    # where it does not (raylib's own shaders are ES 1.00 and run on
+    # either). WebGL2's GLSL ES 3.00 can run the regolith on the GPU, so the
+    # site level is built there, sharp, instead of small on the CPU --
+    # terrain_gpu.cpp asks the context which it got (Dialect()).
+    set(web_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1 -s MAX_WEBGL_VERSION=2")
     if(CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES RelWithDebInfo)
         set(web_link_flags "${web_link_flags} -s ASSERTIONS=1")
     endif()
@@ -369,7 +374,7 @@ endif()
 
 if("${PLATFORM}" STREQUAL "Web")
     set_target_properties(colony_viewtest PROPERTIES SUFFIX ".html")
-    set(vt_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
+    set(vt_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1 -s MAX_WEBGL_VERSION=2")
     set(vt_link_flags "${vt_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@src/assets --use-preload-plugins")
     set(vt_link_flags "${vt_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
     set_target_properties(colony_viewtest PROPERTIES LINK_FLAGS "${vt_link_flags}")
@@ -418,7 +423,7 @@ endif()
 
 if("${PLATFORM}" STREQUAL "Web")
     set_target_properties(lunar_map PROPERTIES SUFFIX ".html")
-    set(lm_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1")
+    set(lm_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1 -s MAX_WEBGL_VERSION=2")
     # Only the DEM and the WAC albedo are needed — not the game assets.
     set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/lola/ldem_16_uint.tif@src/assets/planet/lola/ldem_16_uint.tif")
     set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/wac_global.jpg@src/assets/planet/wac_global.jpg")

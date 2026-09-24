@@ -4,6 +4,7 @@
 //   node tools/lunarmap/web_site_level_test.mjs <build dir> colony_game        the game
 //   node tools/lunarmap/web_site_level_test.mjs <build dir> colony_game gpu    the game on
 //                                                                              the GPU path
+//   node tools/lunarmap/web_site_level_test.mjs <build dir> lunar_map gpu      lunar_map on it
 //
 // Serves the built page, opens it in headless Chromium at a large desktop
 // window, walks Globe -> District -> Site with the mouse, and fails unless
@@ -23,7 +24,10 @@
 // GPU (the iPad) the chain was built by WebGL1 shaders that cannot run the
 // regolith, and came up smooth and craterless. SwiftShader takes the CPU
 // path and would never see that, so `gpu` loads the page with
-// ?terrain=gpu, which puts it on the GPU path a real device takes.
+// ?terrain=gpu, which puts it on the GPU path a real device takes. Since
+// the web build moved to WebGL2 the GPU draws the regolith itself, so the
+// game's `gpu` run also requires the WebGL2 context and a site level built
+// on the GPU at 1024 px or more -- at 512 it was drawn 3x stretched.
 //
 // It reads the page's own console, not pixels:
 //   lunar_map:    "CHAIN: <span> km layer at <res> px -> rung ... built in <ms> ms"
@@ -147,6 +151,17 @@ try {
   else if (game) {
     const [, span, res, by, , ms] = site.match(built);
     console.log(`site level: ${span} km window at ${res} px on the ${by}, regolith on, ${ms} ms`);
+    // On the GPU path the page must be on WebGL2 and build the site level
+    // at the screen's width. On WebGL1 it came up at 512 px -- stretched
+    // 3x, visibly blurred (2026-09-24) -- or built small on the CPU.
+    if (mode === 'gpu') {
+      if (!log.some(l => /TERRAIN: WebGL2 context/.test(l)))
+        failed = 'the page did not get a WebGL2 context';
+      else if (by !== 'GPU')
+        failed = `the site level was built on the ${by}, not the GPU`;
+      else if (+res < 1024)
+        failed = `the site level was built at ${res} px -- under 1024, it is drawn stretched and blurred`;
+    }
   } else {
     const [, span, res, ms] = site.match(built);
     console.log(`site level: ${span} km layer at ${res} px, built in ${ms} ms`);

@@ -37,6 +37,15 @@ const char* GetTerrainPathName();
 // phone memory.
 int GetTerrainPathResolution();
 
+// The GPU resolution for a WINDOW chain -- one picture drawn across the
+// whole screen: the ladder's district and site levels, and the Colony view
+// that shares the site's window. The screen's own width, so it is drawn
+// 1:1 rather than stretched; 2048 at most on a GPU the probe found fast,
+// 1024 on a slow one. GetTerrainPathResolution() stays the size of the
+// game's 100/25/5 chains, nine of which are cached at once. (At 512 the
+// site level in a browser was drawn 3x magnified: visibly blurred.)
+int TerrainGpuWindowRes(int screenWidth);
+
 
 // How long one CPU chain at `res` would take here, in milliseconds.
 //
