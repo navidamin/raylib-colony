@@ -94,7 +94,7 @@
         <div id="shellDebug" style="display:none;position:fixed;top:4px;left:4px;z-index:9999;
              font:10px monospace;color:rgba(255,255,255,0.65);
              background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:3px;
-             pointer-events:none;">SHELL v5 loading...</div>
+             pointer-events:none;white-space:pre;">SHELL v6 loading...</div>
         <script type='text/javascript'>
             // Fit the fixed-size framebuffer canvas to the device viewport,
             // preserving aspect ratio. Emscripten/raylib write their own
@@ -116,7 +116,7 @@
                     var d = debugEl;
                     if (!d || !c) return;
                     var r = c.getBoundingClientRect();
-                    d.textContent = 'SHELL v5'
+                    d.textContent = 'SHELL v6'
                         + ' cnv=' + c.width + 'x' + c.height
                         + ' style=' + c.style.getPropertyValue('width') + '/'
                                     + c.style.getPropertyPriority('width')
@@ -129,6 +129,13 @@
                                       + '@' + Math.round(window.visualViewport.offsetTop)
                                     : 'none')
                         + ' dpr=' + window.devicePixelRatio;
+                    // The terrain's own report (Module.print below keeps
+                    // it): context, GPU or CPU path, the last window built.
+                    var n = window.colonyTerrainNotes || {};
+                    [n.context, n.path, n.window].forEach(function(line)
+                    {
+                        if (line) d.textContent += '\nterrain: ' + line;
+                    });
                 }
 
                 // The game renders a fixed-size framebuffer; resize plumbing
@@ -208,9 +215,21 @@
                 print: (function() {
                     var element = document.getElementById('output');
                     if (element) element.value = ''; // clear browser cache
+                    // The terrain's report, for the ?debug=1 badge: which
+                    // context, which path (GPU or CPU, and why) and the
+                    // last window built, at what size. A phone has no
+                    // console, so a screenshot of the badge is how a
+                    // device says which path it took.
+                    var notes = window.colonyTerrainNotes = {};
                     return function(text) {
                         if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
                         console.log(text);
+                        var m = /TERRAIN: (.*)/.exec(text);
+                        if (m) {
+                            if (/ context/.test(m[1])) notes.context = m[1];
+                            else if (/ path \(/.test(m[1])) notes.path = m[1];
+                            else if (/ window at /.test(m[1])) notes.window = m[1];
+                        }
                         if (element) {
                           element.value += text + "\n";
                           element.scrollTop = element.scrollHeight; // focus on bottom

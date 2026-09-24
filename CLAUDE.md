@@ -366,8 +366,12 @@ once: `COLONY_TERRAIN=cpu|gpu` overrides; every platform — the browser
 included, since WebGL there may be a software rasterizer — times one
 512 px chain and picks
 GPU at 1024 (≤ 12 ms), GPU at 512 (≤ 40 ms) or the threaded CPU path
-(a software rasterizer such as WSL's llvmpipe); in a browser
-`?terrain=cpu|gpu` is the same override. `COLONY_TERRAIN_RES` forces the
+(a software rasterizer such as WSL's llvmpipe) — except in a browser,
+where the CPU path is one thread that stops the page, so the GPU is kept
+unless it is slower than the CPU at the same size (a laptop GPU crossed
+40 ms once the probe drew the regolith, and got a blurred 512 px site
+level). In a browser `?terrain=cpu|gpu` is the same override, and
+`?debug=1` shows the path taken and each window's size on screen. `COLONY_TERRAIN_RES` forces the
 GPU resolution. The GPU chain is *fused* — no float
 textures, the height field is never stored — and its noise is hashed
 rather than drawn from the CPU's xorshift stream, so it has the same

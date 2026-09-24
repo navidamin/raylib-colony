@@ -83,8 +83,13 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
   Measured in a browser: level 3 at 1280 px on the GPU, fine detail up
   ~3.5x. The browser check now requires WebGL2 + GPU + >= 1024 px on the
   GPU path, and was seen failing on a WebGL1 build.
-- **Still open:** on the iPad itself — speed of a 1024+ GPU build and
-  memory.
+- Still blurred on a real laptop after that: the browser chose its path
+  by the desktop's rule (GPU only if a 512 px probe takes ≤ 40 ms), and
+  the probe now draws the regolith. In a browser the CPU alternative is
+  one thread, ~500 ms, so the GPU is now kept unless it is the slower of
+  the two. `?debug=1` puts the path and the window's size on screen.
+- **Still open:** confirm on the reporter's laptop and the iPad — which
+  path each takes (`?debug=1`), speed of a 1024+ GPU build, memory.
 
 ## Recent Completions (2026-09-23)
 

@@ -134,7 +134,12 @@ OS cursor visible reads any remaining factor straight off.
 ## The diagnostic badge
 
 `#shellDebug` overlays live geometry:
-`SHELL v5 cnv=WxH style=Wpx/priority rect=WxH@x,y win=WxH vv=WxH@y dpr=N`.
+`SHELL v6 cnv=WxH style=Wpx/priority rect=WxH@x,y win=WxH vv=WxH@y dpr=N`,
+and under it the terrain's own report, once the page has made one: the
+GL context, the path (GPU or CPU, with the probe's times) and the last
+window built, at what size — `terrain: 44.4 km window at 1280 px, GPU,
+regolith on, 28 ms`. That second half answers "why is it blurred" from a
+screenshot: a window at 512 px on the CPU is the soft one.
 
 This exists because the dev container **cannot reach the deployed site
 at all** (github.io, unauthenticated api.github.com, and Azure artifact
@@ -167,6 +172,17 @@ screen's width; on WebGL1 (or a software rasterizer) it is built on the
 CPU, small, to keep the pause short. raylib's own shaders are ES 1.00 and
 run on both; it logs "VAO extension not found" on WebGL2 and uses its
 non-VAO path, which is harmless.
+
+Which path a page takes is measured, once: a 512 px chain built on the
+GPU and timed. On the desktop over 40 ms means a software rasterizer and
+the threaded CPU path wins. **Not in a browser**, where the CPU path is
+one thread that stops the page for its whole cost (about 470 ms for the
+same 512 chain on a CI runner, against 3500 ms for SwiftShader's GPU):
+there the GPU is kept unless it is the slower of the two. Before
+2026-09-24 the browser used the desktop's 40 ms line, and since WebGL2
+the probe draws the regolith, so a laptop GPU could cross it and build
+the site level at 512 px on the CPU — blurred, on a machine that could
+have built it at 1024 or more. `?debug=1` shows which path a device took.
 
 Before every deploy, `tools/lunarmap/web_site_level_test.mjs` opens the
 built pages in headless Chromium at 1656×960, walks Globe → District →

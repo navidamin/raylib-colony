@@ -73,7 +73,8 @@ goes up a rung.
 
 - **Phone first:** does the page load at all? The preload now carries the
   32 MB DEM, so device heap is the open question (plan B3). Give the shell
-  badge's line (`SHELL v5 cnv=... dpr=N`).
+  badge's lines (`SHELL v6 cnv=... dpr=N` and the `terrain:` lines under it;
+  load the page with `?debug=1`).
 - **Tap feel:** the aim-then-claim two-tap; claims fired by a drag that
   ended on the moon.
 - **The flights:** too fast, too slow, any frame where the ground jumps.

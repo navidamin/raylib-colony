@@ -1604,11 +1604,24 @@ TerrainPath GetTerrainPath()
             // neighbour per frame without a visible hitch; a modest GPU
             // stays at 512; anything slower is a rasterizer on the CPU,
             // where the threaded path wins.
+            double gpuLimitMs = 40.0;
+#if defined(PLATFORM_WEB) || defined(__EMSCRIPTEN__)
+            // Not in a browser: there the CPU path is one thread that
+            // stops the page for its whole cost, 470 ms for a 512 chain on
+            // the machine that timed SwiftShader's GPU chain at 3500. Since
+            // WebGL2 the probe draws the regolith too, and a GPU it takes
+            // past 40 ms is still several times faster than that CPU --
+            // sending it there built the site level at 512 px, blurred. So
+            // the browser keeps the GPU unless it is the slower of the two.
+            if (ms > gpuLimitMs)
+                gpuLimitMs = std::max(gpuLimitMs, TerrainCpuChainMs(512));
+#endif
             if (ms <= 12.0) { g_path = TERRAIN_PATH_GPU; g_gpuRes = 1024; }
-            else if (ms <= 40.0) { g_path = TERRAIN_PATH_GPU; g_gpuRes = 512; }
+            else if (ms <= gpuLimitMs) { g_path = TERRAIN_PATH_GPU; g_gpuRes = 512; }
             else g_path = TERRAIN_PATH_CPU;
             g_pathWhy = TextFormat("512 px chain in %.1f ms", ms);
-
+            if (gpuLimitMs > 40.0)
+                g_pathWhy += TextFormat(", on the CPU %.0f ms", gpuLimitMs);
         }
     }
     TraceLog(LOG_INFO, "TERRAIN: %s path (%s), %d px",
