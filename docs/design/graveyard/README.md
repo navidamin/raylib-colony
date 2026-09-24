@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [The glass tint on unknown faces](fog-glass-tint.md) — a faint tint under the fog so the cut's planes read | Cut closes after a hole | the cut's own edges |
 | [The section slice over the block](console-section-slice.md) — a flat panel through the site showing the beds | Cutaway | `Holo3D_DrawCutaway` |
 | [The drill that was always turning](drill-always-turning.md) — idle creep from the first frame, and a drill bar that answered before a site | Start-digging | `DrillSim_Start` and the console's phases |
 | [The depth hand-off to the ruler](console-depth-handoff.md) — the target flying to the drill bar with SELECT THE DEPTH | Stretch-to-depth | the stretched borehole on the block, `DashDrawBorehole` |

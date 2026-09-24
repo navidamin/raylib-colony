@@ -504,13 +504,19 @@ surface is never fogged: it is seen. An undrilled block is therefore the real
 terrain standing on a wire cage, which reads immediately as unmeasured
 ground. A cut face is a wall and fogs identically -- they share one painter.
 
-Pure wire had one failure: a face with nothing on it cannot be seen as a
-face, and the cutaway's notch vanished into the cage ("the cut is not
-clear"). So the unknown part of every face carries a faint neutral **glass**
-tint -- a steel blue, lit like the face it is on, 0.30 on the walls and 0.45
-on the cut faces, which are the section and must read first. It is never a
-bed colour: the fog still says nothing about the rock. The cut's edges are
-stroked stronger than the walls' (1.6 / 2.2 wide, glowing).
+**Rock is drawn or it is wire -- not in between.** Coverage is a short
+smoothstep of confidence (0.30 to 0.55), not the confidence itself: faded in
+over the whole range, a half-known band read as a see-through sheet hanging
+off the surface, and the playtest called it confusing. A faint "glass" tint
+on unknown faces was tried to make the cutaway's planes read before anything
+is known, and went for the same reason (graveyard: `fog-glass-tint.md`); the
+cut's own edges -- stroked stronger than the walls', 1.6 / 2.2 wide and
+glowing -- carry it instead.
+
+**The cut is for the hole being made.** It opens when a site is taken and
+closes when the hole is finished or aborted, taking the borehole line and
+the site mark with it: a finished hole is its barrel, and the whole block
+is back, every spot on it clickable for the next site.
 
 **A finished hole is a turning core barrel on its collar.** Three dashed
 staves round a vertical axis between two dashed ellipses, the near staves

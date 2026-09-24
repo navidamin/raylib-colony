@@ -440,9 +440,13 @@ static void DashDrawHeightLog(void)
 
 /* THE SITE, ON THE GROUND. Left where the hole was collared, projected onto
  * the cap so it rides the block's rotation and zoom. */
+static bool DashCutActive(const SurveyDashState *s);
+
 static void DashDrawSite(const SurveyDashState *s)
 {
-    if (!g_model || !s->sited) return;
+    /* the site mark and the borehole belong to the hole being made; a
+       finished hole is its barrel, and the block is whole again */
+    if (!g_model || !s->sited || !DashCutActive(s)) return;
     const Vector2 p = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
     const float pulse = 0.85f + 0.15f * sinf(s->drill.t * 3.0f);
     DashTargetMark(p, 7.0f * pulse, s->drill.t * 0.6f, RGBA8(0xff, 0xc8, 0x4d, 0.95f), 1.6f);
@@ -528,7 +532,7 @@ static Vector2 DashLerp(Vector2 a, Vector2 b, float t)
  * solid over it. */
 static void DashDrawBorehole(const SurveyDashState *s)
 {
-    if (!g_model || !s->sited) return;
+    if (!g_model || !s->sited || !DashCutActive(s)) return;
     const Vector2 top = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
     const Vector2 bot = Holo3D_ColumnPoint(g_model, s->siteU, s->siteV, 1.0f);
 
@@ -564,6 +568,15 @@ static void DashDrawBorehole(const SurveyDashState *s)
         const Vector2 hole[2] = {top, bit};
         c2d_polyline(hole, 2, RGBA8(0xff, 0xc8, 0x4d, 0.95f), 2.2f);
     }
+}
+
+/* THE CUT IS FOR THE HOLE BEING MADE. It opens when a site is taken and
+ * closes when the hole is finished or aborted: the whole block is back, so
+ * every spot on it can be clicked for the next site. */
+static bool DashCutActive(const SurveyDashState *s)
+{
+    const SurveyDashPhase ph = SurveyDash_Phase(s);
+    return ph == SDP_STRETCH || ph == SDP_PLANNED || ph == SDP_DRILLING;
 }
 
 /* ---- THE CORE BARRELS -------------------------------------------------
@@ -616,7 +629,7 @@ static bool DashBarrelShown(const SurveyDashState *s, int i)
     const DrillCoreLog *l = &s->cores[i];
     const SurveyDashPhase ph = SurveyDash_Phase(s);
     if (i == s->coreOpen && (ph == SDP_PLANNED || ph == SDP_DRILLING || ph == SDP_STRETCH)) return false;
-    if (s->sited && s->block.explode <= 0.02f)
+    if (DashCutActive(s) && s->block.explode <= 0.02f)
     {
         float cu, cv;
         Holo3D_NearCorner(g_model, &cu, &cv);
@@ -1074,7 +1087,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     /* the model is shared; the knowledge is this console's */
     Holo3D_SetFog(g_model, DashFogAt, s->know);
     Holo3D_Render(g_model, &s->block, &s->view);
-    if (s->sited)
+    if (DashCutActive(s))
         Holo3D_DrawCutaway(g_model, &s->block, s->siteU, s->siteV, DashC_Bg());
     Holo3D_DrawHud(g_model, &s->block, &s->view, &hud);
 
