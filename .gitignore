@@ -87,3 +87,4 @@ notes
 # CMake build directories
 build/
 build_*/
+build-web/
