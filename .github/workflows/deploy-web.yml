@@ -151,6 +151,17 @@ jobs:
             lunarmap/index.html) echo "lunar_map - LOLA elevation";; esac)
           sed -i "s|<title>[^<]*</title>|<title>${name} - ${STAMP}</title>|" "deploy/$page"
           grep -q "<title>${name} - ${STAMP}</title>" "deploy/$page" || { echo "title stamp not applied to $page"; exit 1; }
+          # And the game's own files under this commit: every deploy's
+          # have the same names and Pages lets browsers keep them ten
+          # minutes, so the ?v= on a link refreshed the page but could
+          # still start the previous build's game (2026-09-24). The .js
+          # tag is rewritten here; the shell's locateFile adds the same
+          # to the .wasm and .data (src/minshell.html).
+          sha=$(git rev-parse --short HEAD)
+          sed -i -e "s#<head>#<head><script>window.COLONY_ASSET_QS='?v=${sha}';</script>#" \
+                 -e "s#src=\"\?\([a-z_]*\)\.js\"\?\([ >]\)#src=\"\1.js?v=${sha}\"\2#" "deploy/$page"
+          grep -q "COLONY_ASSET_QS='?v=${sha}'" "deploy/$page" && grep -q "\.js?v=${sha}\"" "deploy/$page" \
+            || { echo "game files not versioned in $page"; exit 1; }
         done
 
     # One repo has one Pages site and every deploy replaces ALL of it. The

@@ -239,7 +239,18 @@
                 canvas: (function() {
                     var canvas = document.getElementById('canvas');
                     return canvas;
-                })()
+                })(),
+                // Every deploy's game files have the same names and Pages
+                // lets a browser keep them ten minutes, so a fresh page
+                // could start the last build's game (2026-09-24: the drag
+                // "was not there" -- it was, in files the browser never
+                // fetched). The deploy writes its commit into
+                // COLONY_ASSET_QS and versions the page's .js tag; this
+                // asks for the .wasm and .data under the same commit.
+                // Empty in a local build, so nothing changes there.
+                locateFile: function(path, prefix) {
+                    return prefix + path + (window.COLONY_ASSET_QS || '');
+                }
             };
         </script>
         {{{ SCRIPT }}}

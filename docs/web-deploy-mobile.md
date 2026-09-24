@@ -210,9 +210,16 @@ directory:
   `paths` filter.
 - `setup-emsdk` occasionally fails with `socket hang up` / 503 —
   transient GitHub infra; just retrigger.
-- Pages serves HTML with `Cache-Control: max-age=600` and mobile
-  browsers cache harder; bust with a query string (`/playtest/?v=N`)
-  and test in real Safari, not in-app webviews.
+- Pages serves everything with `Cache-Control: max-age=600` and mobile
+  browsers cache harder. A query string on the link (`/ladder/?v=N`)
+  refreshes only the HTML: the game's `.js`, `.wasm` and `.data` have the
+  same names every deploy, so a fresh page could still start the previous
+  build (2026-09-24: a drag that "was not there" was in files the
+  browser never fetched). So the deploy now fetches them under its own
+  commit too: it rewrites the page's script tag to `name.js?v=<sha>`
+  and writes `window.COLONY_ASSET_QS`, which the shell's `locateFile`
+  adds to the `.wasm` and `.data`. The title screen's stamp is the check.
+  Test in real Safari, not in-app webviews.
 - The deploy-from-branch trigger in `deploy-web.yml` is temporary for
   playtesting — remove it when the branch merges, or every branch push
   replaces the live site.

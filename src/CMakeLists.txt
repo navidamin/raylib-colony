@@ -115,7 +115,10 @@ if ("${PLATFORM}" STREQUAL "Web")
     set(web_link_flags "${web_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@src/assets --use-preload-plugins")
     set(web_link_flags "${web_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
 
-    set_target_properties(colony_game PROPERTIES LINK_FLAGS "${web_link_flags}")
+    # The shell is read at link time, so a change to it must relink the
+    # pages -- CMake does not know that from the flag alone.
+    set_target_properties(colony_game PROPERTIES LINK_FLAGS "${web_link_flags}"
+                          LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html)
 endif()
 
 # MacOS specific configurations
@@ -209,7 +212,8 @@ endif()
 if ("${PLATFORM}" STREQUAL "Web")
     # Same shell, preloaded assets, and link flags as the main game
     set_target_properties(colony_playtest PROPERTIES SUFFIX ".html")
-    set_target_properties(colony_playtest PROPERTIES LINK_FLAGS "${web_link_flags}")
+    set_target_properties(colony_playtest PROPERTIES LINK_FLAGS "${web_link_flags}"
+                          LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html)
 endif()
 
 if(APPLE)
@@ -250,7 +254,8 @@ endif()
 
 if ("${PLATFORM}" STREQUAL "Web")
     set_target_properties(colony_sectwalk PROPERTIES SUFFIX ".html")
-    set_target_properties(colony_sectwalk PROPERTIES LINK_FLAGS "${web_link_flags}")
+    set_target_properties(colony_sectwalk PROPERTIES LINK_FLAGS "${web_link_flags}"
+                          LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html)
 endif()
 
 if(APPLE)
@@ -377,7 +382,8 @@ if("${PLATFORM}" STREQUAL "Web")
     set(vt_link_flags "-s USE_GLFW=3 -s FORCE_FILESYSTEM=1 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s GL_ENABLE_GET_PROC_ADDRESS=1 -s MAX_WEBGL_VERSION=2")
     set(vt_link_flags "${vt_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@src/assets --use-preload-plugins")
     set(vt_link_flags "${vt_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
-    set_target_properties(colony_viewtest PROPERTIES LINK_FLAGS "${vt_link_flags}")
+    set_target_properties(colony_viewtest PROPERTIES LINK_FLAGS "${vt_link_flags}"
+                          LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -432,7 +438,8 @@ if("${PLATFORM}" STREQUAL "Web")
     # to name.
     set(lm_link_flags "${lm_link_flags} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets/planet/zones.json@src/assets/planet/zones.json --use-preload-plugins")
     set(lm_link_flags "${lm_link_flags} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html")
-    set_target_properties(lunar_map PROPERTIES LINK_FLAGS "${lm_link_flags}")
+    set_target_properties(lunar_map PROPERTIES LINK_FLAGS "${lm_link_flags}"
+                          LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/minshell.html)
 endif()
 
 # ---------------------------------------------------------------------------
