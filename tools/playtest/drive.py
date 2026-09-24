@@ -17,6 +17,7 @@ Steps:
     rclick          a right-click (the console's undo)
     wait S          seconds
     shot NAME       write out_dir/NAME.png of the whole window
+    burst NAME N DT N captures, DT seconds apart (for animations)
     key K           an xdotool key name (Escape, t, r ...)
 
 Needs Xvfb, xdotool and python-xlib + Pillow. Software GL, as preview.sh.
@@ -113,6 +114,11 @@ def main():
             elif a[0] == "key":            # held across frames, as "click"
                 xdo("keydown", a[1]); time.sleep(HOLD); xdo("keyup", a[1]); time.sleep(HOLD)
             elif a[0] == "wait":  time.sleep(float(a[1]))
+            elif a[0] == "burst":          # burst NAME N DT: N frames, DT apart
+                for k in range(int(a[2])):
+                    grab(os.path.join(out, "%s_%02d.png" % (a[1], k)))
+                    time.sleep(float(a[3]))
+                print("burst", a[1], a[2])
             elif a[0] == "shot":
                 time.sleep(HOLD)            # let a frame or two land
                 grab(os.path.join(out, a[1] + ".png"))

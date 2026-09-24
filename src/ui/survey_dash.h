@@ -167,6 +167,14 @@ typedef struct SurveyDashState {
     int           coreHover;     /* barrel under the pointer, or -1      */
     int           corePinned;    /* log held open by a click, or -1      */
 
+    /* THE REVEAL. For DASH_REVEAL_S after a hole lands or is aborted the cut
+     * stays open while the model takes the hole in: the beds morph to their
+     * re-fit, the fog lifts from how it stood before the hole (`fogFrom`, a
+     * copy of the knowledge taken just before it was added), and the
+     * delineation climbs with it. Then the block closes. < 0 when idle. */
+    float         revealT;
+    DashKnowledge fogFrom;
+
     Vector2       pointer;       /* design space, last known            */
     bool          pointerIn;     /* inside the console at all           */
 
@@ -249,8 +257,9 @@ void SurveyDash_Cancel (SurveyDashState *s);
 /* A HARNESS HOLE: the real drill, run to `depthM` at (u, v) in one call --
  * the same DrillSim, profile, core log and knowledge update a played hole
  * goes through, with the player's rhythm stood in by a steady tap. For
- * previews and tests that need drilled ground without minutes of play. */
-void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM);
+ * previews and tests that need drilled ground without minutes of play.
+ * `reveal` plays the model taking the hole in, as a played hole does. */
+void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM, bool reveal);
 
 #ifdef __cplusplus
 }

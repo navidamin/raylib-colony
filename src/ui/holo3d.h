@@ -115,6 +115,13 @@ void Holo3D_SetGround(Holo3DModel *m, int beds, H3DDepthFn fn, void *ctx,
 
 void Holo3D_SetFog (Holo3DModel *m, H3DFogFn fn, void *ctx);
 
+/* THE RE-FIT, ANIMATED. Holo3D_SetGround swaps the beds at once; it also
+ * keeps the shape that was on screen. Holo3D_GroundBlend(m, f) draws the
+ * beds at f of the way from that shape to the new one (0..1), so a caller
+ * can let the model settle over a few seconds after a hole instead of
+ * jumping. A caller that never blends sees exactly what it saw before. */
+void Holo3D_GroundBlend(Holo3DModel *m, float f);
+
 void Holo3D_Render (Holo3DModel *m, const H3DState *st, H3DView *view);
 void Holo3D_DrawHud(Holo3DModel *m, const H3DState *st, H3DView *view, const H3DHud *hud);
 int  Holo3D_Hit    (const Holo3DModel *m, float x, float y);

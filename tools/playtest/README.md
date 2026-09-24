@@ -133,5 +133,7 @@ Top bar, purple: **DRILL xN** (F6) multiplies how fast the bit cuts -- x1, 4,
 16, 40; at x40 the start and two taps reach about half the 120 m column.
 **KNOW xN** (F7) multiplies how much each hole teaches -- x1, 2, 3 -- so the
 fog clears and the delineation climbs faster. Native flags: `--holes N`
-starts with N holes already drilled (the real drill, run to depth), and
+starts with N holes already drilled (the real drill, run to depth),
+`--land-at F` lands one more at frame F with its reveal (the log says when),
+and
 `--scale N` / `--scale-to N` exercise the display scale.

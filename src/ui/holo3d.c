@@ -139,6 +139,12 @@ struct Holo3DModel {
      * any. `layers` points here once real ground is set. */
     H3DLayer own[H3D_LAYERS];
 
+    /* the re-fit animation (Holo3D_GroundBlend): the beds as they were on
+       screen when the ground last changed, and as they are now */
+    V3   from[H3D_BOUNDARIES][H3D_NX_MAX + 1][H3D_NZ_MAX + 1];
+    V3   to  [H3D_BOUNDARIES][H3D_NX_MAX + 1][H3D_NZ_MAX + 1];
+    bool haveFrom;
+
     /* the fog (Holo3D_SetFog); NULL is a fully known block */
     H3DFogFn fogFn;
     void    *fogCtx;
@@ -216,6 +222,10 @@ void Holo3D_SetGround(Holo3DModel *m, int beds, H3DDepthFn fn, void *ctx,
     }
     m->layers = m->own;
 
+    /* what is on screen now is where a blend starts from */
+    memcpy(m->from, m->pts, sizeof(m->pts));
+    m->haveFrom = true;
+
     /* Boundary k bounds bed k above and bed k-1 below, so `beds` beds need
      * beds + 1 surfaces. Anything past that is left where it was; no loop
      * reaches it once layerCount is set. */
@@ -228,6 +238,18 @@ void Holo3D_SetGround(Holo3DModel *m, int beds, H3DDepthFn fn, void *ctx,
                 m->pts[k][i][j].y = -fn(ctx, k, u, v) * m->D;
                 m->pts[k][i][j].z = (v - 0.5f) * m->W;
             }
+    memcpy(m->to, m->pts, sizeof(m->pts));
+}
+
+void Holo3D_GroundBlend(Holo3DModel *m, float f)
+{
+    if (!m || !m->haveFrom) return;
+    if (f >= 1.0f) { memcpy(m->pts, m->to, sizeof(m->pts)); return; }
+    if (f < 0.0f) f = 0.0f;
+    for (int k = 0; k < H3D_BOUNDARIES; k++)
+        for (int i = 0; i <= m->NX; i++)
+            for (int j = 0; j <= m->NZ; j++)
+                m->pts[k][i][j].y = m->from[k][i][j].y + (m->to[k][i][j].y - m->from[k][i][j].y) * f;
 }
 
 void Holo3D_SetFog(Holo3DModel *m, H3DFogFn fn, void *ctx)

@@ -516,10 +516,17 @@ is known, and went for the same reason (graveyard: `fog-glass-tint.md`); the
 cut's own edges -- stroked stronger than the walls', 1.6 / 2.2 wide and
 glowing -- carry it instead.
 
-**The cut is for the hole being made.** It opens when a site is taken and
-closes when the hole is finished or aborted, taking the borehole line and
-the site mark with it: a finished hole is its barrel, and the whole block
-is back, every spot on it clickable for the next site.
+**The cut is for the hole being made -- and stays while the model takes it
+in.** It opens when a site is taken. When the hole lands or is aborted it
+stays open for three seconds, the reveal: the beds morph from their old shape
+to the re-fit (`Holo3D_GroundBlend`), the fog lifts from how the model stood
+before the hole to how it stands after, and the DELINEATION number climbs
+between the same two states -- all on one smoothstep, so the block and the
+bar move together. Then the cut closes, taking the borehole line and the site
+mark with it: the finished hole is its barrel, and the whole block is back,
+every spot on it clickable. A jump to the new state in one frame read as the
+view "dropping back"; the change a hole makes is the payoff and has to be
+seen happening.
 
 **A finished hole is a turning core barrel on its collar.** Three dashed
 staves round a vertical axis between two dashed ellipses, the near staves

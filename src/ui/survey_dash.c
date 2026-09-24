@@ -113,6 +113,10 @@
  * drill's point. */
 #define DASH_TIP_RETICLE_R 0.10f
 
+/* How long the model takes a hole in, with the cut still open: the beds
+ * morph, the fog lifts, the delineation climbs. Then the block closes. */
+#define DASH_REVEAL_S 3.0f
+
 /* THE ONLY FILE STATICS LEFT, and they are the process's, not a console's:
  * one render surface, one set of fonts, one block geometry, shared by every
  * console that draws. Everything a console remembers is in SurveyDashState. */
@@ -135,11 +139,24 @@ static float Clampf01v(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v)
  * DashKnow_Delineation averages over the volume for the DELINEATION monitor.
  * One model, two readings -- the monitor's number is the fog's mean, so the
  * block and the bar cannot disagree. */
-static float DashFogAt(void *ctx, float u, float v, float depth01)
+/* While a hole is being taken in (the reveal) the fog is read between the
+ * model as it stood before the hole and as it stands now, so the dimness
+ * lifts over seconds rather than in a frame. `f` is 1 the rest of the time. */
+typedef struct DashFogCtx { const DashKnowledge *from, *to; float f; } DashFogCtx;
+
+static float DashFogOne(const DashKnowledge *k, float u, float v, float depth01)
 {
-    const DashKnowledge *k = (const DashKnowledge *)ctx;
     return DashKnow_Confidence(DashKnow_KnowAt(k, u * (float)DK_LATTICE, v * (float)DK_LATTICE,
                                                depth01 * DRILL_TARGET_M));
+}
+
+static float DashFogAt(void *ctx, float u, float v, float depth01)
+{
+    const DashFogCtx *c = (const DashFogCtx *)ctx;
+    const float now = DashFogOne(c->to, u, v, depth01);
+    if (c->f >= 1.0f || !c->from) return now;
+    const float was = DashFogOne(c->from, u, v, depth01);
+    return was + (now - was) * c->f;
 }
 
 /* ---- the log ---------------------------------------------------------- */
@@ -354,6 +371,7 @@ void SurveyDash_Reset(SurveyDashState *s)
     s->toolPick = -1;
     s->know = &s->own;
     s->coreOpen = s->coreHover = s->corePinned = -1;
+    s->revealT = -1.0f;
 
     DashLog_Push(s, 0.0f, "Console online. Select the DRILL, then tap the block to site a hole.", NULL);
     s->started = true;
@@ -576,7 +594,24 @@ static void DashDrawBorehole(const SurveyDashState *s)
 static bool DashCutActive(const SurveyDashState *s)
 {
     const SurveyDashPhase ph = SurveyDash_Phase(s);
+    if (ph == SDP_COMPLETE && s->revealT >= 0.0f) return true;   /* taking it in */
     return ph == SDP_STRETCH || ph == SDP_PLANNED || ph == SDP_DRILLING;
+}
+
+/* How far the reveal has got, eased: 1 when none is running. */
+static float DashRevealF(const SurveyDashState *s)
+{
+    if (s->revealT < 0.0f) return 1.0f;
+    const float t = Clampf01v(s->revealT / DASH_REVEAL_S);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+/* A hole has landed (or stopped): remember how the model stood, then let it
+ * learn -- the reveal reads between the two. */
+static void DashBeginReveal(SurveyDashState *s)
+{
+    s->fogFrom = *s->know;
+    s->revealT = 0.0f;
 }
 
 /* ---- THE CORE BARRELS -------------------------------------------------
@@ -628,7 +663,8 @@ static bool DashBarrelShown(const SurveyDashState *s, int i)
 {
     const DrillCoreLog *l = &s->cores[i];
     const SurveyDashPhase ph = SurveyDash_Phase(s);
-    if (i == s->coreOpen && (ph == SDP_PLANNED || ph == SDP_DRILLING || ph == SDP_STRETCH)) return false;
+    if (i == s->coreOpen && (ph == SDP_PLANNED || ph == SDP_DRILLING || ph == SDP_STRETCH ||
+                             s->revealT >= 0.0f)) return false;
     if (DashCutActive(s) && s->block.explode <= 0.02f)
     {
         float cu, cv;
@@ -1084,8 +1120,21 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
         hud.reticleV  = s->aimV;
         hud.reticleR  = DASH_TIP_RETICLE_R;
     }
+    /* THE REVEAL: advance it, and draw the beds and the fog that far */
+    if (s->revealT >= 0.0f)
+    {
+        s->revealT += dt;
+        if (s->revealT >= DASH_REVEAL_S) s->revealT = -1.0f;
+    }
+    const float rf = DashRevealF(s);
+    Holo3D_GroundBlend(g_model, rf);
+
     /* the model is shared; the knowledge is this console's */
-    Holo3D_SetFog(g_model, DashFogAt, s->know);
+    static DashFogCtx fog;
+    fog.from = (s->revealT >= 0.0f) ? &s->fogFrom : NULL;
+    fog.to = s->know;
+    fog.f = rf;
+    Holo3D_SetFog(g_model, DashFogAt, &fog);
     Holo3D_Render(g_model, &s->block, &s->view);
     if (DashCutActive(s))
         Holo3D_DrawCutaway(g_model, &s->block, s->siteU, s->siteV, DashC_Bg());
@@ -1121,10 +1170,22 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     DashDrawSite(s);
     DashDrawBarrels(s);
 
-    Dash_Confidence(LOG_X, CONF_Y, LOG_W, CONF_H,
-                    DashKnow_Delineation(s->know, DK_LATTICE, DRILL_TARGET_M),
-                    DashKnow_Tier(s->know, DK_LATTICE, DRILL_TARGET_M),
-                    DashKnow_IsMeasured(s->know, DK_LATTICE, DRILL_TARGET_M));
+    {
+        /* the monitor climbs with the fog: one model, read between the same
+           two states over the same seconds */
+        const float to = DashKnow_Delineation(s->know, DK_LATTICE, DRILL_TARGET_M);
+        float delin = to;
+        DashKnowledge *tierFrom = s->know;
+        if (s->revealT >= 0.0f)
+        {
+            const float was = DashKnow_Delineation(&s->fogFrom, DK_LATTICE, DRILL_TARGET_M);
+            delin = was + (to - was) * rf;
+            if (rf < 0.5f) tierFrom = &s->fogFrom;
+        }
+        Dash_Confidence(LOG_X, CONF_Y, LOG_W, CONF_H, delin,
+                        DashKnow_Tier(tierFrom, DK_LATTICE, DRILL_TARGET_M),
+                        DashKnow_IsMeasured(tierFrom, DK_LATTICE, DRILL_TARGET_M));
+    }
     DashLog_Bind(&s->log);
     Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, s->log.entry, s->log.count);
 
@@ -1133,6 +1194,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     if (s->drill.completed)
     {
         /* C5+C6 meet here: a finished hole is what the model learns from. */
+        DashBeginReveal(s);
         DashKnow_Add(s->know, s->siteI, s->siteJ, s->drill.completedAtM);
         DashKeepCore(s, s->drill.completedAtM);
         char msg[96];
@@ -1202,6 +1264,7 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                from it the same as from one that landed on its plan */
             if (at >= DASH_MIN_HOLE_M)
             {
+                DashBeginReveal(s);
                 DashKnow_Add(s->know, s->siteI, s->siteJ, at);
                 DashKeepCore(s, at);
                 snprintf(msg, sizeof(msg), "Drilling aborted. Hole left at %d m and logged.",
@@ -1378,6 +1441,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                     s->drill.targetM = -1.0f;
                     DrillProfile_Clear(&s->profile);
                     s->coreOpen = -1;             /* a new hole, a new log */
+                    if (s->revealT >= 0.0f) { s->revealT = -1.0f; Holo3D_GroundBlend(g_model, 1.0f); }
                     char msg[96];
                     snprintf(msg, sizeof(msg), "Site set at %d/%d. Pull down for a depth; right-click undoes.",
                              (int)s->siteI, (int)s->siteJ);
@@ -1448,7 +1512,7 @@ void SurveyDash_Cancel(SurveyDashState *s)
     }
 }
 
-void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM)
+void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM, bool reveal)
 {
     if (!s) return;
     if (!s->started) SurveyDash_Reset(s);
@@ -1473,6 +1537,8 @@ void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM)
         DrillSim_Step(&s->drill, 1.0f / 30.0f);
         DrillProfile_Record(&s->profile, &s->drill);
     }
+    if (reveal) DashBeginReveal(s);
+    else        s->revealT = -1.0f;
     DashKnow_Add(s->know, s->siteI, s->siteJ, s->drill.depthM);
     DashKeepCore(s, s->drill.depthM);
 }

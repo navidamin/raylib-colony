@@ -1011,7 +1011,7 @@ int main(int argc, char** argv)
                         static const float kDepth[9] = {120.0f, 70.0f, 100.0f, 45.0f, 120.0f,
                                                         85.0f, 30.0f, 110.0f, 60.0f};
                         SurveyDash_DrillNow(&system->Dash(), (a + 0.5f) / side, (b + 0.5f) / side,
-                                            kDepth[placed % 9]);
+                                            kDepth[placed % 9], false);
                         placed++;
                     }
                 }
