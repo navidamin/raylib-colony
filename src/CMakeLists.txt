@@ -1,3 +1,6 @@
+# c2d graphics kit: the Canvas 2D shim, its tests and diff harness
+include("${CMAKE_CURRENT_SOURCE_DIR}/ui/c2d_targets.cmake")
+
 # Core game sources shared by the game executable and the offscreen preview tool
 set(COLONY_CORE_SOURCES
     Colony/colony.cpp

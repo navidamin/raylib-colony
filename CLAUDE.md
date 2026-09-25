@@ -2,6 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Porting JS graphics (c2d)
+
+**When you are handed JS graphics** — a `.js`/`.html` that draws with Canvas
+2D (`getContext('2d')`) — to bring into the game, follow the protocol in
+[`docs/guides/js-graphics-port.md`](docs/guides/js-graphics-port.md):
+intake → `tools/jsport/gapscan.py` → inventory (show the user) → close
+shim gaps with tests → diff harness → port → under 2% → wire in → record.
+The `port-js-graphics` project skill (`.claude/skills/`) loads it.
+
+It is a 1:1 translation of draw calls, never a redesign. Standing rules:
+
+- Read [`docs/CANVAS2D_PORT_SPEC.md`](docs/CANVAS2D_PORT_SPEC.md) before
+  touching anything in `src/ui/`.
+- All drawing goes through [`src/ui/c2d.h`](src/ui/c2d.h). Do not call raylib
+  draw functions directly from a UI module.
+- Each module renders into a fixed **design space** taken from its JS canvas
+  (1536x1024 for everything in `js/dashboard.html`, `ToolRack.SCENE`).
+  Never re-derive layout from window size. Never hit-test in screen space.
+  `c2d_present` / `c2d_present_into` letterbox and `c2d_to_design` inverts
+  it -- that pair is the only place window size is allowed to appear.
+- A port is not done until `SS=2 tools/visdiff/visdiff_<name>.sh` reads
+  under 2%. `visdiff_toolrack.sh` is the worked example (1.83%).
+- `shadowBlur` has two forms: `c2d_glow_*` for an isolated shape,
+  `c2d_shadow_begin/_end` wherever shapes share one glow or the path is
+  dashed.
+- Run `tools/c2dtest/c2dtest.sh` after any change to `c2d.c`.
+
+The shim, tests, harness and protocol arrive together as one commit
+(branch `claude/c2d-graphics-kit`); c2d targets live in
+`src/ui/c2d_targets.cmake`.
+
 ---
 
 ## Session Catchup Procedure
