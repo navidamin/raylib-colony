@@ -13,6 +13,8 @@ Headless (renders 40 frames, writes a PNG, exits):
 ```bash
 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x720x24" \
   ./build/src/colony_sectwalk --shot build/sectwalk/boot.png
+  # at a display scale, as the game draws on a bigger screen
+  ./build/src/colony_sectwalk --scale 2 --shot build/sectwalk/boot_2x.png
 ```
 
 ## Why this exists

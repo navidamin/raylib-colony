@@ -26,6 +26,8 @@
 // The Web build (PLATFORM=Web) is playable on phone/tablet; taps map to clicks.
 
 #include "raylib.h"
+#include "display_scale.h"
+#include "web_mouse.h"
 
 #include "rendermanager.h"
 #include "sect.h"
@@ -74,7 +76,7 @@ static void Toast(WalkContext& ctx, const std::string& text)
 // Touch-friendly button; returns true on click.
 static bool WalkButton(Rectangle r, const char* label, Color accent)
 {
-    Vector2 mouse = GetMousePosition();
+    Vector2 mouse = ColonyGetMousePosition();
     bool hover = CheckCollisionPointRec(mouse, r);
 
     DrawRectangleRounded(r, 0.3f, 4, hover ? Color{20, 56, 96, 255} : Color{14, 30, 52, 255});
@@ -229,6 +231,7 @@ static void UpdateDrawFrame(void* arg)
     WalkContext& ctx = *static_cast<WalkContext*>(arg);
 
     float deltaTime = GetFrameTime();
+    DisplayScale_Poll(deltaTime);        // outside the frame: may resize the buffer
     ctx.timeManager->Update(deltaTime);
     ctx.sect->Update(deltaTime);
     TopUpUnits(*ctx.sect);
@@ -237,6 +240,9 @@ static void UpdateDrawFrame(void* arg)
 
     BeginDrawing();
     ClearBackground(BLACK);
+    /* at a display scale like the game (--scale N), so the whole tree of
+       modules can be walked at 2x and 3x (docs/web-deploy-mobile.md) */
+    DisplayScale_BeginFrame();
 
     if (ctx.current)
     {
@@ -248,13 +254,14 @@ static void UpdateDrawFrame(void* arg)
     }
 
     DrawHud(ctx);
+    DisplayScale_EndFrame();
     EndDrawing();
 
     // Selection runs after the draw, because Sect::DrawInSectView is what
     // writes each unit's screen position and radius.
     if (!ctx.current && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
-        Unit* hit = UnitUnderMouse(*ctx.sect, GetMousePosition());
+        Unit* hit = UnitUnderMouse(*ctx.sect, ColonyGetMousePosition());
         if (hit)
         {
             ctx.current = hit;
@@ -285,7 +292,9 @@ int main(int argc, char** argv)
     }
 
     SetTraceLogLevel(LOG_WARNING);
-    InitWindow(ctx.screenWidth, ctx.screenHeight, "Colony - Sect Walkthrough");
+    DisplayScale_Init(ctx.screenWidth, ctx.screenHeight, argc, argv);
+    InitWindow(DisplayScale_BufferW(), DisplayScale_BufferH(), "Colony - Sect Walkthrough");
+    DisplayScale_AfterWindow();
     SetTargetFPS(60);
 
     {

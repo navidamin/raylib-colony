@@ -180,6 +180,20 @@ left alone and noted.
 **Verify.** `sectwalk` and `viewtest` at `--scale 2` show no half-size views
 or clipped panels.
 
+**Done.**
+- Game code is clean: no raw call from the forbidden list is left outside
+  `display_scale.cpp` and the c2d shim. The raw `EndScissorMode` calls have
+  nothing to scale.
+- The tool-side raw calls are deliberate:
+  - the playtest's build stamp and the extraction probe report the real
+    framebuffer;
+  - `preview` and `crystal_gen` render off-screen sprite sheets.
+- `sectwalk` had no DisplayScale at all, so it could not walk the tree at
+  2x. It now has the same wiring as the view test: `--scale N`, per-frame
+  Poll and Begin/EndFrame, and `ColonyGetMousePosition`.
+- sectwalk at 1x and 2x, and the view test's views at 2x, all fill their
+  frame.
+
 ## Step 9 — fog cost on the web
 
 **Wrong.** The unknown-rock fog paints per-column quads, wire lines and dashed
