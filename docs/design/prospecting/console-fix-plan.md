@@ -94,6 +94,20 @@ be reached.
 **Verify.** Playtest with `--holes 8`, which gives a long log. Capture the
 top, the middle and the bottom, and a drag of the thumb.
 
+**Done.**
+- The log keeps 40 entries.
+- Painter and input share `Dash_LogBar`, `Dash_LogThumb` and
+  `Dash_LogMaxScroll`.
+- The wheel (a new `SurveyDash_Wheel`, fed by the render manager) steps a
+  row a notch. The arrows step, the track pages, and the thumb drags.
+- The thumb is never shorter than 18.
+- The pointer is the hand over the scrollbar, and never the drill over the
+  log.
+- `drive.py` gained a `wheel N` step.
+- Captured: the top, wheeled to the bottom, and one row back up by the
+  arrow. `--holes 8` pushes no log entries, so the log was filled with
+  site-and-cancel rounds instead.
+
 ## Step 5 — legibility at 1x
 
 **Wrong.** At 1280×720 the console's 1536-wide design space is drawn at 0.70,
@@ -104,6 +118,19 @@ Each size change is re-checked against its neighbours, since the alignment
 rules still hold.
 **Verify.** Render every state (idle, holes, aim, stretch, planned, bar hover,
 drilling, card) at 1x and 2x and look at each.
+
+**Done.** Raised to 13:
+- the drill bar's ruler names and gauge labels
+- the rock names in the well
+- the TOOL STATS subtitle
+- the DRILL STATS status pill and row labels (the bars moved from x + 146
+  to x + 156 to clear "Rotary Speed")
+- the delineation hint
+- the core card's depth marks
+- the cursor tag's caption
+
+The rack's own text is the port's, and stays where the visual diff measures
+it.
 
 ## Step 6 — the empty hole
 

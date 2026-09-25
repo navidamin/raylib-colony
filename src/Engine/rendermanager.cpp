@@ -3522,6 +3522,9 @@ void RenderManager::DrawModularUnitView(Unit* unit, TimeManager& timeManager)
         if (CheckCollisionPointRec(mouse, console))
         {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) SurveyDash_Press(dash, console, mouse);
+            /* the wheel scrolls the log; the block neither zooms nor tilts */
+            const float wheel = GetMouseWheelMove();
+            if (wheel != 0.0f) SurveyDash_Wheel(dash, console, mouse, wheel);
             if (IsMouseButtonDown(MOUSE_BUTTON_LEFT))
             {
                 const Vector2 d = DisplayScale_MouseDelta();

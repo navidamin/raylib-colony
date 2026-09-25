@@ -615,6 +615,17 @@ find. Cyan for a finished hole, amber for an aborted one. It is the
 handle for the hole's log: hover shows the card, click pins it, and the
 pointer becomes the hand over it.
 
+**The message log scrolls, and its scrollbar is real.** The reference painted
+a fixed thumb over a list of six. The console keeps forty entries, newest at
+the top. The thumb is the visible share of the rows and sits where they are,
+never shorter than 18 units. The wheel over the log steps a row a notch (it
+is free now that the block neither zooms nor tilts). The arrows step a row,
+the track pages, and the thumb drags. Scrolled away to read something older,
+a new entry lands above it and the view stays put. At the top it simply
+appears. Painter and input share one geometry (`Dash_LogBar`,
+`Dash_LogThumb`, `Dash_LogMaxScroll`). Over the scrollbar the pointer is the
+hand, and over the log it is never the drill.
+
 **The log card** is opaque (the height log's bright labels sit behind it), 
 with a 19-unit title and nothing smaller than 12 -- the letterbox rule above.
 Down its left a strip coloured by the rock each half-metre went through, in

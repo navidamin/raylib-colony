@@ -313,7 +313,54 @@ static void DcScrollbar(float x, float y, float h, float f0, float f1)
 }
 
 /* ---------- the message log (1506) ------------------------------------ */
-void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int count)
+/* The log's rows: a plain row is 44 tall, one carrying chips 78. The first
+ * baseline sits 36 below the top, and the last row needs 18 under its
+ * baseline, so N plain rows need 36 + 44N - 26. Four fill the 196 panel
+ * exactly, which is the reference's own count. */
+#define DC_LOG_ROW      44.0f
+#define DC_LOG_ROW_CHIP 78.0f
+#define DC_LOG_TOP      36.0f
+#define DC_LOG_FOOT     26.0f
+
+static float DcLogRowH(const DashLogEntry *e) { return e->chipCount > 0 ? DC_LOG_ROW_CHIP : DC_LOG_ROW; }
+
+float Dash_LogRowH(void) { return DC_LOG_ROW; }
+
+static float DcLogExtent(const DashLogEntry *e, int count)
+{
+    float sum = 0.0f;
+    for (int i = 0; i < count; i++) sum += DcLogRowH(&e[i]);
+    return DC_LOG_TOP + sum - DC_LOG_FOOT;
+}
+
+float Dash_LogMaxScroll(float h, const DashLogEntry *e, int count)
+{
+    return fmaxf(0.0f, DcLogExtent(e, count) - h);
+}
+
+void Dash_LogBar(float x, float y, float w, float h, Rectangle *up, Rectangle *down, Rectangle *track)
+{
+    const float bx = x + w - 40.0f, by = y + 18.0f, bh = h - 36.0f;
+    if (up)    *up    = (Rectangle){bx, by, 22.0f, 24.0f};
+    if (down)  *down  = (Rectangle){bx, by + bh - 24.0f, 22.0f, 24.0f};
+    if (track) *track = (Rectangle){bx, by + 28.0f, 22.0f, bh - 56.0f};
+}
+
+/* The thumb as fractions of the track: the visible share of the rows, where
+ * it sits, and never shorter than 18 units -- forty entries would otherwise
+ * make it a sliver too thin to grab. */
+static void DcLogThumb(float h, const DashLogEntry *e, int count, float scroll, float *f0, float *f1)
+{
+    const float extent = DcLogExtent(e, count), maxScroll = Dash_LogMaxScroll(h, e, count);
+    if (maxScroll <= 0.0f) { *f0 = 0.0f; *f1 = 1.0f; return; }
+    const float trackH = h - 36.0f - 56.0f;
+    const float share = fmaxf(h / extent, fminf(1.0f, 18.0f / trackH));
+    const float at = fminf(fmaxf(scroll / maxScroll, 0.0f), 1.0f);
+    *f0 = at * (1.0f - share);
+    *f1 = *f0 + share;
+}
+
+void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int count, float scroll)
 {
     DcRRectFill(x, y, w, h, 10.0f, C_boxFill);
     DcRRectStroke(x, y, w, h, 10.0f, C_boxEdge, 1.5f);
@@ -325,31 +372,52 @@ void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int cou
         DcLine(cx + dx * 9.0f, cy, cx + dx * 18.0f, cy, C_accent, 2.0f);
     }
 
+    const float maxScroll = Dash_LogMaxScroll(h, e, count);
+    scroll = fminf(fmaxf(scroll, 0.0f), maxScroll);
+
     Vector2 clip[DC_PTS];
     const int cn = DcRect(x + 1.0f, y + 1.0f, w - 2.0f, h - 2.0f, 9.0f, clip);
     c2d_save();
     c2d_clip_poly_begin(clip, cn, false);
-    float cy = y + 36.0f;
+    float cy = y + DC_LOG_TOP - scroll;
     for (int i = 0; i < count; i++)
     {
-        DcLabel(e[i].time, x + 20.0f, cy, 16.0f, C_logTime, C2D_W500);
-        /* the text stops a clear 14 short of the scrollbar */
-        DcRichText(x + 96.0f, cy, x + w - 54.0f, e[i].parts, e[i].partCount);
-        if (e[i].chipCount > 0)
+        const float rh = DcLogRowH(&e[i]);
+        if (cy - 30.0f < y + h && cy + rh > y)          /* on screen at all */
         {
-            float chx = x + 96.0f;
-            for (int k = 0; k < e[i].chipCount; k++)
-                chx += DcChipDraw(chx, cy + 14.0f, e[i].chips[k]) + 10.0f;
-            cy += 78.0f;
+            DcLabel(e[i].time, x + 20.0f, cy, 16.0f, C_logTime, C2D_W500);
+            /* the text stops a clear 14 short of the scrollbar */
+            DcRichText(x + 96.0f, cy, x + w - 54.0f, e[i].parts, e[i].partCount);
+            if (e[i].chipCount > 0)
+            {
+                float chx = x + 96.0f;
+                for (int k = 0; k < e[i].chipCount; k++)
+                    chx += DcChipDraw(chx, cy + 14.0f, e[i].chips[k]) + 10.0f;
+            }
         }
-        else cy += 44.0f;
+        cy += rh;
         /* Midway between the rows. At cy - 18 it lay exactly on the next
            row's tag outline and vanished wherever a row carried a tag. */
         if (i < count - 1)
             DcLine(x + 14.0f, cy - 24.0f, x + w - 54.0f, cy - 24.0f, C_sep, 1.5f);
     }
     c2d_restore();
-    DcScrollbar(x + w - 40.0f, y + 18.0f, h - 36.0f, 0.3f, 0.68f);
+
+    float f0, f1;
+    DcLogThumb(h, e, count, scroll, &f0, &f1);
+    DcScrollbar(x + w - 40.0f, y + 18.0f, h - 36.0f, f0, f1);
+}
+
+float Dash_LogThumb(float x, float y, float w, float h, const DashLogEntry *e, int count,
+                    float scroll, Rectangle *thumb)
+{
+    Rectangle track;
+    Dash_LogBar(x, y, w, h, NULL, NULL, &track);
+    float f0, f1;
+    DcLogThumb(h, e, count, scroll, &f0, &f1);
+    if (thumb) *thumb = (Rectangle){track.x, track.y + track.height * f0, track.width, track.height * (f1 - f0)};
+    const float travel = track.height * (1.0f - (f1 - f0));
+    return travel > 1.0f ? Dash_LogMaxScroll(h, e, count) / travel : 0.0f;
 }
 
 /* ---------- the drill bar (1544, 1567) -------------------------------- */
@@ -383,7 +451,7 @@ static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
         DcLabel(d[i].depth, x + 24.0f, yy + 6.0f, 16.0f, C_depth, C2D_W500);
         /* the name sits ABOVE its tick: below, SURFACE ran into the 12 m
            label and TARGET fell out of the bar's frame */
-        if (d[i].name) DcLabel(d[i].name, x + 24.0f, yy - 12.0f, 12.0f, C_depth, C2D_W500);
+        if (d[i].name) DcLabel(d[i].name, x + 24.0f, yy - 12.0f, 13.0f, C_depth, C2D_W500);
     }
 }
 
@@ -715,7 +783,7 @@ void Dash_DrillBarFace(float x, float y, float w, float h,
 static void DcGauge(float x, float y, float w, const char *label, float v,
                     Color fill, float bandLo, float bandHi)
 {
-    DcLabel(label, x, y, 12.0f, C_depth, C2D_W500);
+    DcLabel(label, x, y, 13.0f, C_depth, C2D_W500);
     const float by = y + 12.0f, bh = 9.0f;
     DcRRectFill(x, by, w, bh, 4.0f, C_track);
     if (bandHi > bandLo)
@@ -733,22 +801,24 @@ static void DcGauge(float x, float y, float w, const char *label, float v,
  * wander more than the basalt. Smooth value noise keyed on the depth, so a
  * wall holds its shape from frame to frame and the same metre looks the same
  * every time it is drawn. */
-static float DcHoleHash(int i, int side)
+static float DcHoleHash(int i, int side, unsigned int seed)
 {
-    unsigned int h = (unsigned int)i * 374761393u + (unsigned int)side * 668265263u;
+    unsigned int h = (unsigned int)i * 374761393u + (unsigned int)side * 668265263u + seed * 2246822519u;
     h = (h ^ (h >> 13)) * 1274126177u;
     return (float)((h ^ (h >> 16)) & 0xffffu) / 65535.0f;
 }
 
-static float DcHoleNoise(float m, int side)
+static float DcHoleNoise(float m, int side, unsigned int seed)
 {
     const float f = m / 1.6f;                  /* one wobble every 1.6 m */
     const int i = (int)floorf(f);
     const float t = f - (float)i, s = t * t * (3.0f - 2.0f * t);
-    return DcHoleHash(i, side) * (1.0f - s) + DcHoleHash(i + 1, side) * s;
+    return DcHoleHash(i, side, seed) * (1.0f - s) + DcHoleHash(i + 1, side, seed) * s;
 }
 
-static void DcDrawHole(float cx, float top, float bot, float holeY)
+/* seed: the hole's own (DrillSim.holeSeed), so two holes differ and the
+   same hole redraws the same */
+static void DcDrawHole(float cx, float top, float bot, float holeY, unsigned int seed)
 {
     const Color dark = RGB(0x07, 0x0b, 0x11);
     const float step = 2.0f;
@@ -760,8 +830,8 @@ static void DcDrawHole(float cx, float top, float bot, float holeY)
         /* the rock at this height sets how far the wall may wander */
         const float m = (yy - top) / fmaxf(1.0f, bot - top) * DRILL_TARGET_M;
         const float rough = 1.0f + 2.2f * (1.0f - DrillSim_At(m)->hard);
-        const float l = cx - RIG_R - rough * DcHoleNoise(m, 0);
-        const float r = cx + RIG_R + rough * DcHoleNoise(m, 1);
+        const float l = cx - RIG_R - rough * DcHoleNoise(m, 0, seed);
+        const float r = cx + RIG_R + rough * DcHoleNoise(m, 1, seed);
         if (k > 0)
         {
             const Vector2 q[4] = {{prevL, prevY}, {prevR, prevY}, {r, yy}, {l, yy}};
@@ -818,8 +888,8 @@ static void DcRoughDrill(float x, float y, float w, float h,
             /* set at full width where it fits before the flights; squeezed
                only as far as it must be to clear them */
             const float room = (cx - RIG_R - 8.0f) - (sx + 9.0f);
-            const float nw = c2d_measure(C2D_W500, 12.0f, S[i].name);
-            DcCondensed(C2D_W500, 12.0f, nw > room ? room / nw : 1.0f, S[i].name,
+            const float nw = c2d_measure(C2D_W500, 13.0f, S[i].name);
+            DcCondensed(C2D_W500, 13.0f, nw > room ? room / nw : 1.0f, S[i].name,
                         sx + 9.0f, y0 + 16.0f, RGBA(214, 228, 238, 0.72f));
         }
     }
@@ -829,7 +899,7 @@ static void DcRoughDrill(float x, float y, float w, float h,
      * hole stays. */
     const float holeM = sim ? sim->depthM : 0.0f;
     const float holeY = top + (bot - top) * Clampf01(holeM / DRILL_TARGET_M);
-    if (holeY > top + 0.5f) DcDrawHole(cx, top, bot, holeY);
+    if (holeY > top + 0.5f) DcDrawHole(cx, top, bot, holeY, sim ? sim->holeSeed : 0u);
 
     /* BACK of the flight, then the shaft over it, then the FRONT -- that
      * ordering is the whole reason the auger reads as round. */
@@ -852,8 +922,13 @@ static void DcRoughDrill(float x, float y, float w, float h,
         }
     }
 
-    /* cuttings riding up the flights */
-    if (rpm > 0.05f && dt > 0.0f)
+    /* Cuttings riding up the flights -- made only while the bit is on bottom
+     * and cutting. They used to spawn on any spin and rise at a speed set by
+     * the spindle, so when it stopped they hung in the empty hole. Now they
+     * rise at a floor speed and die at the collar, or once the bit has come
+     * up past them. */
+    const bool cutting = sim && sim->running && sim->lift <= 0.0f && sim->rate > 0.0f;
+    if (cutting && rpm > 0.05f && dt > 0.0f)
         for (int k = 0; k < 2; k++)
             for (int i = 0; i < DC_CHIPS_MAX; i++)
                 if (!g_chips[i].live)
@@ -868,9 +943,13 @@ static void DcRoughDrill(float x, float y, float w, float h,
     for (int i = 0; i < DC_CHIPS_MAX; i++)
     {
         if (!g_chips[i].live) continue;
-        g_chips[i].y -= g_chips[i].up * dt * rpm * 1.6f;
-        g_chips[i].a -= rpm * 9.0f * dt;
-        if (g_chips[i].y < top - 2.0f) { g_chips[i].live = false; continue; }
+        g_chips[i].y -= g_chips[i].up * dt * fmaxf(rpm, 0.35f) * 1.6f;
+        g_chips[i].a -= fmaxf(rpm, 0.35f) * 9.0f * dt;
+        if (g_chips[i].y < top - 2.0f || g_chips[i].y > rig.bitY + 12.0f)
+        {
+            g_chips[i].live = false;
+            continue;
+        }
         Color c = g_chips[i].col;
         c.a = (unsigned char)(cosf(g_chips[i].a) > 0.0f ? 242 : 115);
         c2d_rect(cx + (DcRodHalfAt(&rig, g_chips[i].y) + 2.5f) * sinf(g_chips[i].a),
@@ -963,7 +1042,7 @@ void Dash_Confidence(float x, float y, float w, float h,
     DcLabel(measured ? "ISOLATE UNLOCKED -- tap a bed"
                      : "isolate locked until MEASURED",
             x + 14.0f + c2d_measure(C2D_W700, 14.0f, tier) + 12.0f, y + 60.0f,
-            12.0f, measured ? C_depth : RGB(0x3d, 0x4e, 0x5e), C2D_W500);
+            13.0f, measured ? C_depth : RGB(0x3d, 0x4e, 0x5e), C2D_W500);
 }
 
 void Dash_DrillBar(float x, float y, float w, float h, const char *title,
@@ -1170,12 +1249,12 @@ void Dash_ToolStats(float x, float y, float w, float h,
 {
     (void)h;
     const float tw = Dash_Title("TOOL STATS", x + 18.0f, y + DC_STATS_TITLE_Y, 15.0f, 26.0f);
-    DcLabel("\xe2\x80\x94", x + 18.0f + tw + 14.0f, y + DC_STATS_TITLE_Y, 12.0f, C_dim, C2D_W500);
+    DcLabel("\xe2\x80\x94", x + 18.0f + tw + 14.0f, y + DC_STATS_TITLE_Y, 13.0f, C_dim, C2D_W500);
 
     char what[48];
     if (name && name[0]) snprintf(what, sizeof(what), "%s (%s)", name, type ? type : "");
     else                 snprintf(what, sizeof(what), "NO TOOL");
-    DcLabel(what, x + 18.0f + tw + 30.0f, y + DC_STATS_TITLE_Y, 12.0f,
+    DcLabel(what, x + 18.0f + tw + 30.0f, y + DC_STATS_TITLE_Y, 13.0f,
             (name && name[0]) ? C_label : C_dim, C2D_W500);
 
     const int rows[3] = {power, time, crew};
@@ -1204,12 +1283,12 @@ void Dash_DrillStats(float x, float y, float w, float h,
      * the five rows 20 apart with the last one 3 units off its top edge. */
     {
         const char *st = status ? status : "IDLE";
-        const float tw = c2d_measure(C2D_W700, 12.0f, st) * 0.9f;
+        const float tw = c2d_measure(C2D_W700, 13.0f, st) * 0.9f;
         const float pw = tw + 22.0f, ph = 22.0f;
         const float px = x + w - 18.0f - pw, py = y + DC_STATS_TITLE_Y - 16.0f;
         DcRRectFill(px, py, pw, ph, 6.0f, RGBA(20, 60, 80, 0.15f));
         DcRRectStroke(px, py, pw, ph, 6.0f, C_btnEdge, 1.5f);
-        DcCondensed(C2D_W700, 12.0f, 0.9f, st, px + 11.0f, py + 15.5f, C_btnText);
+        DcCondensed(C2D_W700, 13.0f, 0.9f, st, px + 11.0f, py + 15.5f, C_btnText);
     }
 
     /* The reference's five rows are static strings of severity letters. Ours
@@ -1233,7 +1312,7 @@ void Dash_DrillStats(float x, float y, float w, float h,
             case 3: GlyBit   (x + 30.0f, ry, 7.0f, C_bright); break;
             default: GlyWave (x + 30.0f, ry, 7.0f, C_bright); break;
         }
-        DcLabel(names[i], x + 50.0f, ry + 4.0f, 12.0f, C_label, C2D_W500);
+        DcLabel(names[i], x + 50.0f, ry + 4.5f, 13.0f, C_label, C2D_W500);
 
         const int on = (int)(Clampf01(vals[i]) * 8.0f + 0.5f);
         for (int k = 0; k < 8; k++)
@@ -1244,6 +1323,6 @@ void Dash_DrillStats(float x, float y, float w, float h,
             const float f = (float)k / 7.0f;
             cells[k] = DcSeverity(f < 0.5f ? 'g' : (f < 0.72f ? 'y' : (f < 0.88f ? 'o' : 'r')));
         }
-        DcSegBar(x + 146.0f, ry - 5.0f, 8, cells, 10.0f, 10.0f, 2.0f);
+        DcSegBar(x + 156.0f, ry - 5.0f, 8, cells, 10.0f, 10.0f, 2.0f);   /* clear of "Rotary Speed" at 13 */
     }
 }

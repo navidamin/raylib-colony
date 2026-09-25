@@ -92,6 +92,9 @@ static void DashLog_Push(SurveyDashState *s, float t, const char *text, const ch
     snprintf(L->text[0], sizeof(L->text[0]), "%s", text);
     snprintf(L->tag [0], sizeof(L->tag [0]), "%s", tag ? tag : "");
     if (L->count < SURVEY_DASH_LOG_MAX) L->count++;
+    /* Scrolled away to read something older: the new row lands above it and
+       the view stays on what was being read. At the top it just appears. */
+    if (s->logScroll > 0.0f) s->logScroll += Dash_LogRowH();
 }
 
 /* Point the entries at this struct's own strings. Done on the way to the
@@ -573,11 +576,24 @@ bool DashInMid(Vector2 p)
 }
 
 
+static bool DashInLog(Vector2 p);
+static bool DashLogPress(SurveyDashState *s, Vector2 d);
+
+/* over one of the log's scrollbar parts: the arrows or the track */
+static bool DashOverLogBar(Vector2 p)
+{
+    Rectangle up, down, track;
+    Dash_LogBar(LOG_X, LOG_Y, LOG_W, LOG_H, &up, &down, &track);
+    return CheckCollisionPointRec(p, up) || CheckCollisionPointRec(p, down) ||
+           CheckCollisionPointRec(p, track);
+}
+
 SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
 {
     if (!s || !s->started || !s->pointerIn) return SDC_ARROW;
     if (s->coreHover >= 0 && SurveyDash_Phase(s) != SDP_STRETCH) return SDC_HAND;
     if (DashWantsGrab(s)) return SDC_HIDDEN;           /* the console draws the hand */
+    if (s->logDrag || DashOverLogBar(s->pointer)) return SDC_HAND;
     switch (SurveyDash_Phase(s))
     {
         /* The drill is the pointer where it can site a hole -- over the
@@ -585,7 +601,8 @@ SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
          * things it cannot collar. */
         case SDP_AIM:
         case SDP_COMPLETE:
-            return (s->aimArmed && DashInMid(s->pointer)) ? SDC_HIDDEN : SDC_ARROW;
+            /* not over the log: it is read, not drilled */
+            return (s->aimArmed && DashInMid(s->pointer) && !DashInLog(s->pointer)) ? SDC_HIDDEN : SDC_ARROW;
         /* the arrow is the precise thing to pick a height with */
         case SDP_STRETCH:
             return DashOverCtrl(s, s->pointer) ? SDC_HAND : SDC_ARROW;
@@ -830,7 +847,9 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
                         DashKnow_IsMeasured(tierFrom, DK_LATTICE, DRILL_TARGET_M));
     }
     DashLog_Bind(&s->log);
-    Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, s->log.entry, s->log.count);
+    s->logScroll = fminf(fmaxf(s->logScroll, 0.0f),
+                         Dash_LogMaxScroll(LOG_H, s->log.entry, s->log.count));
+    Dash_Log(LOG_X, LOG_Y, LOG_W, LOG_H, s->log.entry, s->log.count, s->logScroll);
 
     DrillSim_Step(&s->drill, dt);
     DrillProfile_Record(&s->profile, &s->drill);
@@ -888,6 +907,13 @@ Vector2 SurveyDash_ToDesign(Rectangle region, Vector2 p)
     return c2d_to_design(&g_surf, p);
 }
 
+/* A hole's look, from where it was sited: two holes differ, and the same
+   site redraws the same hole. */
+static unsigned int DashHoleSeed(float u, float v)
+{
+    return (unsigned int)(u * 4096.0f) * 73856093u ^ (unsigned int)(v * 4096.0f) * 19349663u;
+}
+
 void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
 {
     if (!s || !s->started) return;
@@ -897,6 +923,13 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     s->downPt = d;
     s->onBlock = (d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 &&
                   d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1);
+
+    /* the log's scrollbar: a step, a page, or the start of a thumb drag */
+    if (DashInLog(d) && DashLogPress(s, d))
+    {
+        if (!s->logDrag) s->down = false;          /* a tap: consumed */
+        return;
+    }
 
     /* CANCEL answers even while the bar is dimmed -- it is drawn over the
      * veil. The press is consumed, so the release does nothing more. */
@@ -999,13 +1032,63 @@ void SurveyDash_Hover(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     s->aimOn = Holo3D_HitCap(g_dashModel, d.x, d.y, &s->aimU, &s->aimV);
 }
 
+static bool DashInLog(Vector2 p)
+{
+    return p.x >= LOG_X && p.x <= LOG_X + LOG_W && p.y >= LOG_Y && p.y <= LOG_Y + LOG_H;
+}
+
+void SurveyDash_Wheel(SurveyDashState *s, Rectangle region, Vector2 screenPt, float notches)
+{
+    if (!s || !s->started || notches == 0.0f) return;
+    if (!DashInLog(SurveyDash_ToDesign(region, screenPt))) return;
+    /* up is newer: the newest entry is at the top */
+    s->logScroll -= notches * Dash_LogRowH();
+}
+
+/* A press on the log's scrollbar: the arrows step a row, the track pages,
+ * the thumb starts a drag. True when it took the press. */
+static bool DashLogPress(SurveyDashState *s, Vector2 d)
+{
+    Rectangle up, down, track, thumb;
+    Dash_LogBar(LOG_X, LOG_Y, LOG_W, LOG_H, &up, &down, &track);
+    Dash_LogThumb(LOG_X, LOG_Y, LOG_W, LOG_H, s->log.entry, s->log.count, s->logScroll, &thumb);
+    const float row = Dash_LogRowH();
+    if (CheckCollisionPointRec(d, up))    { s->logScroll -= row; return true; }
+    if (CheckCollisionPointRec(d, down))  { s->logScroll += row; return true; }
+    if (CheckCollisionPointRec(d, thumb))
+    {
+        s->logDrag = true;
+        s->logDragY0 = d.y;
+        s->logScroll0 = s->logScroll;
+        return true;
+    }
+    if (CheckCollisionPointRec(d, track))
+    {
+        s->logScroll += (d.y < thumb.y ? -1.0f : 1.0f) * (LOG_H - row);   /* a page */
+        return true;
+    }
+    return false;
+}
+
 void SurveyDash_Drag(SurveyDashState *s, Rectangle region, Vector2 delta)
 {
-    if (!s || !s->started || !s->down || !s->onBlock) return;
+    if (!s || !s->started || !s->down) return;
     /* the letterbox scale, so a drag turns the block by the same amount
      * whatever the window size */
     const float k = (g_surf.dst.width > 0.0f)
                   ? (float)g_surf.w / g_surf.dst.width : 1.0f;
+    if (s->logDrag)
+    {
+        /* the thumb follows the pointer: design units of travel, times the
+           scroll each unit is worth */
+        s->moved = true;
+        s->logDragY0 += delta.y * k;
+        const float per = Dash_LogThumb(LOG_X, LOG_Y, LOG_W, LOG_H, s->log.entry, s->log.count,
+                                        s->logScroll0, NULL);
+        s->logScroll = s->logScroll0 + (s->logDragY0 - s->downPt.y) * per;
+        return;
+    }
+    if (!s->onBlock) return;
     (void)region;
     if (fabsf(delta.x) + fabsf(delta.y) > 0.0f) s->moved = true;
     /* yaw only: the block turns about its vertical axis, and the tilt stays */
@@ -1016,6 +1099,13 @@ void SurveyDash_Drag(SurveyDashState *s, Rectangle region, Vector2 delta)
 void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
 {
     if (!s || !s->started) return;
+    if (s->logDrag)
+    {
+        s->logDrag = false;
+        s->down = false;
+        s->moved = false;
+        return;
+    }
     const Vector2 d = SurveyDash_ToDesign(region, screenPt);
     s->block.fast = false;
     const bool inMid = DashInMid(d);
@@ -1082,6 +1172,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                     s->siteI = u * (float)DK_LATTICE;
                     s->siteJ = v * (float)DK_LATTICE;
                     s->drill.depthM = 0.0f;      /* a new site is a new hole */
+                    s->drill.holeSeed = DashHoleSeed(s->siteU, s->siteV);
                     s->drill.lift = 0.0f;
                     s->drill.done = false;
                     s->drill.running = false;
@@ -1175,6 +1266,7 @@ void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM, boo
     s->coreOpen = -1;
 
     DrillSim_Reset(&s->drill);
+    s->drill.holeSeed = DashHoleSeed(s->siteU, s->siteV);
     DrillProfile_Clear(&s->profile);
     DrillSim_SetTarget(&s->drill, m);
     DrillProfile_Plan(&s->profile, s->siteI, s->siteJ, m, s->drill.t);

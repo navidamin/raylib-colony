@@ -40,7 +40,9 @@ extern "C" {
 #define SURVEY_DASH_DESIGN_W 1536
 #define SURVEY_DASH_DESIGN_H 768
 
-#define SURVEY_DASH_LOG_MAX 6
+/* The log keeps this many entries, newest first. Six was the reference's
+   painted list. Now that the log scrolls it keeps a working session's worth. */
+#define SURVEY_DASH_LOG_MAX 40
 
 /* Finished holes kept with their readings (1.4 KB each). The knowledge
  * model saturates well before this; past it the oldest log goes. */
@@ -125,6 +127,11 @@ typedef struct SurveyDashState {
     bool          saidMeasured;
 
     SurveyDashLog log;
+    /* the log's scroll, in design units down from the newest entry, and a
+       drag of its thumb in progress */
+    float         logScroll;
+    bool          logDrag;
+    float         logDragY0, logScroll0;
 
     /* Drag state. `moved` distinguishes a rotate from a tap, the same way the
      * JS controller does -- without it one drag suppresses the next tap. */
@@ -246,6 +253,10 @@ typedef enum SurveyDashCursor {
 SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s);
 
 /* A drag on the block turns it about its vertical axis -- yaw only. */
+/* A wheel notch (or a trackpad's worth) at a screen point. Over the log it
+   scrolls the log, one row a notch; elsewhere it does nothing (the block
+   neither zooms nor tilts). */
+void SurveyDash_Wheel  (SurveyDashState *s, Rectangle region, Vector2 screenPt, float notches);
 void SurveyDash_Drag   (SurveyDashState *s, Rectangle region, Vector2 delta);
 void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt);
 

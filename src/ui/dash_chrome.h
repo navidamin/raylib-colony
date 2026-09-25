@@ -44,8 +44,22 @@ typedef struct DashLogEntry {
     int                chipCount;
 } DashLogEntry;
 
+/* The log, scrolled `scroll` design units down from the newest entry. The
+ * scrollbar is real: its thumb shows the visible share and where it sits. */
 void Dash_Log(float x, float y, float w, float h,
-              const DashLogEntry *entries, int count);
+              const DashLogEntry *entries, int count, float scroll);
+
+/* The log's geometry, shared by the painter and the console's input so the
+ * two cannot drift apart. MaxScroll is how far the rows can scroll (0 while
+ * they fit). The rects are the scrollbar's parts, in design space. */
+float Dash_LogMaxScroll(float h, const DashLogEntry *entries, int count);
+float Dash_LogRowH(void);
+void  Dash_LogBar(float x, float y, float w, float h,
+                  Rectangle *up, Rectangle *down, Rectangle *track);
+/* The thumb's rect at this scroll; returns the scroll per design unit the
+   thumb is dragged (0 while nothing scrolls). */
+float Dash_LogThumb(float x, float y, float w, float h, const DashLogEntry *entries, int count,
+                    float scroll, Rectangle *thumb);
 
 /* ---- the drill bar (drawDrillBar, 1567) ------------------------------- */
 

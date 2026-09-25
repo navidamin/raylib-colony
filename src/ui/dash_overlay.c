@@ -297,9 +297,9 @@ void DashDrawCoreCard(const SurveyDashState *s, int i)
     char d0[16], d1[16];
     snprintf(d0, sizeof(d0), "0");
     snprintf(d1, sizeof(d1), "%d m", (int)(l->depthM + 0.5f));
-    c2d_text(C2D_W500, 12.0f, d0, px + sw + 4.0f, py + 9.0f, RGBA8(0x8f, 0xbf, 0xe6, 0.9f),
+    c2d_text(C2D_W500, 13.0f, d0, px + sw + 4.0f, py + 10.0f, RGBA8(0x8f, 0xbf, 0xe6, 0.9f),
              C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-    c2d_text(C2D_W500, 12.0f, d1, px, py + ph + 15.0f, RGBA8(0x8f, 0xbf, 0xe6, 0.9f),
+    c2d_text(C2D_W500, 13.0f, d1, px, py + ph + 16.0f, RGBA8(0x8f, 0xbf, 0xe6, 0.9f),
              C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
     static const char *names[3] = {"LOAD", "TEMP", "VIB"};
     float lx = x + 12.0f;
@@ -388,7 +388,7 @@ static void DashDrawHand(Vector2 p, bool closed)
  * where the eye already is. Two lines: a small caption that names the act,
  * and the value or the verb large under it. It was one 12-unit line and at
  * the console's letterbox scale that is 8 pixels -- present, and missed. */
-#define DASH_TAG_CAP_FS  12.0f
+#define DASH_TAG_CAP_FS  13.0f
 #define DASH_TAG_MAIN_FS 21.0f
 
 static void DashDrawTag(Vector2 at, const char *caption, const char *main, Color mainCol)

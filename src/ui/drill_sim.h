@@ -58,6 +58,8 @@ typedef struct DrillSim {
     float wear;                 /* 1 = fresh bit                         */
     float rate;                 /* metres per second, last step          */
     float lift;                 /* metres the bit is off bottom, tripping */
+    unsigned int holeSeed;      /* the hole's look (its rough walls): set by
+                                   whoever sites the hole, after any reset */
     bool  tripping;
     float tripT, tripDur;
     int   tripCount;

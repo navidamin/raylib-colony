@@ -15,6 +15,7 @@ Steps:
     down / up       left press, left release (for drags)
     mdown / mup     the same with the middle button
     rclick          a right-click (the console's undo)
+    wheel N         N wheel notches at the pointer, + up, - down
     wait S          seconds
     shot NAME       write out_dir/NAME.png of the whole window
     burst NAME N DT N captures, DT seconds apart (for animations)
@@ -109,6 +110,10 @@ def main():
             elif a[0] == "up":    xdo("mouseup", "1")
             elif a[0] == "rclick":         # right button, held as "click"
                 xdo("mousedown", "3"); time.sleep(HOLD); xdo("mouseup", "3"); time.sleep(HOLD)
+            elif a[0] == "wheel":          # N notches: + is up (button 4), - down (5)
+                n = int(a[1])
+                for _ in range(abs(n)):
+                    xdo("click", "4" if n > 0 else "5"); time.sleep(HOLD)
             elif a[0] == "mdown": xdo("mousedown", "2")    # middle: the map's pan
             elif a[0] == "mup":   xdo("mouseup", "2")
             elif a[0] == "key":            # held across frames, as "click"
