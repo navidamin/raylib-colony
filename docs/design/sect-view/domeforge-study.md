@@ -223,6 +223,40 @@ concept shows.
 
 *Green unit, grey unit and core: concept | tuned | before.*
 
+## 6d. Lights, icons and labels (the user, 2026-09-25)
+
+**Lights: "sharp but with bokeh".** At a few pixels across, the bars read as
+flat, pale smudges and the collar lamps as blur. Each light is now a crisp
+core (4x4 supersampled, white-hot along its centre line, amber at its edge),
+a tight glow and a wide, faint bokeh halo spilling onto the road
+(`roadLightHot`, `roadLightBloom`, `roadLightBloomR`; lamps 5 px at 1254).
+These are extensions, so the JS parity gate is untouched.
+
+**Icons.** The user's set, `prototypes/unit-icons/icons.js` (kept verbatim,
+with `reference.webp`), is SVG built by JS templates on a 100x100 grid, ink
+and knockout. Options weighed for raylib:
+
+| Way | Verdict |
+|---|---|
+| Hand-port each icon to raylib draw calls | loses fidelity (arcs, round joins, knockouts), 8 hand translations to keep in sync |
+| Pre-render PNGs from a browser | fixed sizes; blurs when the screen scale changes |
+| **Run the JS, rasterise the SVG in-game with nanosvg** | chosen: exact shapes at any size, one generator |
+
+`tools/unit_icons/gen_unit_icons.js` runs the JS (it has loops) and writes
+`src/Sect/unit_icons_svg.h`; `src/Sect/unit_icons.cpp` rasterises with
+nanosvg (`src/external/nanosvg`, zlib licence) at 3x and box-filters down,
+then tints near-white with a soft shadow. Rasterised on first use per type
+and size, then cached. The icons follow the JS where it differs from the
+reference picture (the JS truck has three wheels and an outlined box).
+
+**Labels.** No text on the domes; the unit's name shows on hover, in a small
+label under the dome. raylib's default font is a pixel font, which is what
+looked broken; the label and the core's readout now use a TrueType face
+loaded at twice its drawn size with mipmaps and trilinear filtering. Three
+candidates are in `src/assets/fonts/` for the user to choose from: Exo 2
+Bold, Rajdhani SemiBold, Barlow SemiBold (`preview.sh --view sect --hover N
+--label-font exo2|rajdhani|barlow`).
+
 ## 7. 3D view: sized, scaffolded, not built
 
 `dome-forge-3d.js` is one WebGL 1 fragment shader, 444 lines / 20 KB of GLSL

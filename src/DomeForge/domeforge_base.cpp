@@ -136,22 +136,30 @@ namespace
         const DomeForgeConfig* cfg;
         // extension: centre-line light bars
         std::vector<DomeForgeLight> lights;
-        double ltLen, ltW, ltSig, ltReach;
+        double ltLen, ltW, ltSig, ltReach, ltBloomSig;
         DomeForgeRgb ltCol, ltCore;
     };
 
-    // Extension, not in the JS: composite the light bars over one row of the
-    // finished road layer. Same bar and halo as the engine's rim lights (a
-    // rounded rect core, a Gaussian glow), but in premultiplied alpha so a
-    // halo that spills past the kerb onto transparent ground stays amber.
+    // Extension, not in the JS: composite the lights over one row of the
+    // finished road layer. A light is three things, which is what makes it
+    // read as a light and not a smudge at a few pixels across:
+    //   core   crisp: 4x4 supersampled coverage of the rounded bar, hot and
+    //          near-white along its centre line, amber at its edge
+    //   glow   tight, Gaussian, sigma ~ the core's width
+    //   bokeh  wide and faint: warm light spilling onto the road round it
+    // Glow and bokeh add in premultiplied alpha, so a halo that crosses the
+    // kerb onto transparent ground stays amber instead of darkening it.
     void LightRow(const RoadCtx& c, DomeForgeImage& img, int y)
     {
+        const DomeForgeConfig& cfg = *c.cfg;
         const int W = img.width, H = img.height;
         const double Y = H - (y + 0.5);
+        const double hot = cfg.roadLightHot;
+        const DomeForgeRgb white = {1.0, 0.97, 0.90};
         for (const DomeForgeLight& lt : c.lights)
         {
             const double len = lt.len > 0 ? lt.len : c.ltLen, w = lt.len > 0 ? lt.len : c.ltW;
-            const double reach = len * 0.5 + c.ltReach;
+            const double reach = len * 0.5 + std::max(c.ltReach, c.ltBloomSig * 3.0);
             if (std::fabs(Y - lt.y) > reach) continue;
             const int x0 = std::max(0, (int)std::floor(lt.x - reach)), x1 = std::min(W - 1, (int)std::ceil(lt.x + reach));
             for (int x = x0; x <= x1; x++)
@@ -160,22 +168,45 @@ namespace
                 const double u = (X - lt.x) * lt.dx + (Y - lt.y) * lt.dy;    // along the road
                 const double v = -(X - lt.x) * lt.dy + (Y - lt.y) * lt.dx;   // across it
                 const double d = RoundedRectSDF(u, v, len / 2, w / 2, w / 2);
-                const double core = 1 - Sstep(-0.5, 0.5, d);
+                // core coverage, 4x4 subsamples
+                double cov = 0;
+                if (d < 1.5)
+                {
+                    for (int sy = 0; sy < 4; sy++)
+                    {
+                        for (int sx = 0; sx < 4; sx++)
+                        {
+                            const double ox = (sx + 0.5) / 4 - 0.5, oy = (sy + 0.5) / 4 - 0.5;
+                            const double su = u + ox * lt.dx + oy * lt.dy, sv = v - ox * lt.dy + oy * lt.dx;
+                            if (RoundedRectSDF(su, sv, len / 2, w / 2, w / 2) < 0) cov += 1.0 / 16;
+                        }
+                    }
+                }
                 const double dd = std::max(d, 0.0);
-                const double gl = std::exp(-dd * dd / (2 * c.ltSig * c.ltSig)) * c.cfg->roadLightGlow;
-                if (gl < 1e-3 && core <= 0) continue;
+                const double gl = std::exp(-dd * dd / (2 * c.ltSig * c.ltSig)) * cfg.roadLightGlow;
+                const double bk = c.ltBloomSig > 0 ? std::exp(-dd * dd / (2 * c.ltBloomSig * c.ltBloomSig)) * cfg.roadLightBloom : 0;
+                if (gl + bk < 2e-3 && cov <= 0) continue;
                 const size_t o = ((size_t)y * W + x) * 4;
                 const double A = img.rgba[o + 3] / 255.0;
                 double pr = img.rgba[o] / 255.0 * A, pg = img.rgba[o + 1] / 255.0 * A, pb = img.rgba[o + 2] / 255.0 * A;
-                pr += c.ltCol.r * gl * 0.9;
-                pg += c.ltCol.g * gl * 0.9;
-                pb += c.ltCol.b * gl * 0.9;
-                double A2 = A + gl * 0.85 * (1 - A);
+                const double add = gl * 0.9 + bk;
+                pr += c.ltCol.r * add;
+                pg += c.ltCol.g * add;
+                pb += c.ltCol.b * add;
+                double A2 = A + (gl * 0.85 + bk * 0.9) * (1 - A);
+                A2 = std::min(A2, 1.0);
                 double R = A2 > 0 ? pr / A2 : 0, G = A2 > 0 ? pg / A2 : 0, B = A2 > 0 ? pb / A2 : 0;
-                R = Lerp(R, c.ltCore.r, core);
-                G = Lerp(G, c.ltCore.g, core);
-                B = Lerp(B, c.ltCore.b, core);
-                A2 = A2 + core * (1 - A2);
+                if (cov > 0)
+                {
+                    // hot centre line fading to the amber edge of the bar
+                    const double t = Clamp(1 - std::fabs(v) / (w * 0.5), 0.0, 1.0) * Clamp(1 - std::max(0.0, std::fabs(u) - (len * 0.5 - w * 0.5)) / (w * 0.5), 0.0, 1.0);
+                    const double k = hot * t;
+                    const DomeForgeRgb cc = {Lerp(c.ltCore.r, white.r, k), Lerp(c.ltCore.g, white.g, k), Lerp(c.ltCore.b, white.b, k)};
+                    R = Lerp(R, cc.r, cov);
+                    G = Lerp(G, cc.g, cov);
+                    B = Lerp(B, cc.b, cov);
+                    A2 = A2 + cov * (1 - A2);
+                }
                 img.rgba[o] = ToByte(Clamp(R, 0.0, 1.0) * 255);
                 img.rgba[o + 1] = ToByte(Clamp(G, 0.0, 1.0) * 255);
                 img.rgba[o + 2] = ToByte(Clamp(B, 0.0, 1.0) * 255);
@@ -363,6 +394,7 @@ DomeForgeJob DomeForgeJob::Roads(const DomeForgeConfig& cfgIn, int W, int H,
     c->ltW = cfg->roadLightW * scale;
     c->ltSig = cfg->roadLightGlowR * scale * 0.45;
     c->ltReach = cfg->roadLightGlowR * scale * 2.2;
+    c->ltBloomSig = cfg->roadLightBloomR * scale * 0.5;
     c->ltCol = cfg->lightColor;
     c->ltCore = {Lerp(c->ltCol.r, 1, 0.6), Lerp(c->ltCol.g, 1, 0.6), Lerp(c->ltCol.b, 1, 0.6)};
     DomeForgeImage img;
@@ -650,6 +682,8 @@ bool DomeForgeSetParam(DomeForgeConfig& c, const std::string& key, const std::st
         {"unitSize", &c.unitSize}, {"offsetY", &c.offsetY}, {"domeCollar", &c.domeCollar},
         {"roadLightLen", &c.roadLightLen}, {"roadLightW", &c.roadLightW},
         {"roadLightGlowR", &c.roadLightGlowR}, {"roadLightGlow", &c.roadLightGlow},
+        {"roadLightBloom", &c.roadLightBloom}, {"roadLightBloomR", &c.roadLightBloomR},
+        {"roadLightHot", &c.roadLightHot},
         {"lightGlow", &c.lightGlow}, {"lightGlowR", &c.lightGlowR}, {"lightSize", &c.lightSize},
         {"lightAz", &c.lightAz}, {"lightEl", &c.lightEl},
         // glass

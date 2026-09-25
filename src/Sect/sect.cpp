@@ -231,120 +231,6 @@ void Sect::DrawInColonyView(Vector2 pos) {
 }
 
 
-// ---------------------------------------------------------------------------
-// The unit glyphs drawn on the sect view's dome glass. The base itself --
-// domes, rims, sockets, roads -- is DomeForge's art (sect_art.cpp).
-// ---------------------------------------------------------------------------
-namespace
-{
-    // Procedural icon for each unit type, drawn inside a [-1,1] box scaled by s
-    void DrawUnitGlyph(const std::string& type, Vector2 c, float s, Color col)
-    {
-        auto P = [&](float x, float y) { return Vector2{c.x + x * s, c.y + y * s}; };
-        float lw = s * 0.22f;
-        float thin = s * 0.14f;
-        Color faceDark = Color{20, 24, 22, 255};
-
-        if (type == "Extraction")
-        {
-            // Drill derrick over a bore hole
-            DrawLineEx(P(-0.6f, 0.75f), P(0.0f, -0.75f), lw, col);
-            DrawLineEx(P(0.6f, 0.75f), P(0.0f, -0.75f), lw, col);
-            DrawLineEx(P(-0.14f, -0.15f), P(0.14f, -0.15f), thin * 0.8f, col);
-            DrawLineEx(P(-0.38f, 0.4f), P(0.38f, 0.4f), thin * 0.8f, col);
-            DrawLineEx(P(0.0f, -0.75f), P(0.0f, 0.25f), thin * 0.8f, col);
-            DrawTriangle(P(0.16f, 0.25f), P(-0.16f, 0.25f), P(0.0f, 0.62f), col);
-            DrawLineEx(P(-0.8f, 0.8f), P(0.8f, 0.8f), thin, col);
-        }
-        else if (type == "Farming")
-        {
-            // Sprout with two side leaves
-            DrawLineEx(P(0.0f, 0.7f), P(0.0f, -0.25f), lw, col);
-            DrawTriangle(P(0.0f, -0.45f), P(-0.7f, -0.6f), P(0.0f, 0.0f), col);
-            DrawTriangle(P(0.0f, 0.0f), P(0.7f, -0.6f), P(0.0f, -0.45f), col);
-            DrawTriangle(P(0.0f, -0.95f), P(-0.22f, -0.35f), P(0.22f, -0.35f), col);
-            DrawLineEx(P(-0.55f, 0.7f), P(0.55f, 0.7f), thin, col);
-        }
-        else if (type == "Manufacture")
-        {
-            // Factory with sawtooth roof and chimney
-            DrawRectangleRec(Rectangle{c.x - 0.72f * s, c.y + 0.02f * s, 1.44f * s, 0.62f * s}, col);
-            for (int k = 0; k < 3; k++)
-            {
-                float x0 = -0.72f + k * 0.48f;
-                DrawTriangle(P(x0, -0.42f), P(x0, 0.05f), P(x0 + 0.44f, 0.05f), col);
-            }
-            DrawRectangleRec(Rectangle{c.x + 0.30f * s, c.y - 0.78f * s, 0.18f * s, 0.85f * s}, col);
-            for (int k = 0; k < 3; k++)
-            {
-                DrawRectangleRec(Rectangle{c.x + (-0.55f + k * 0.42f) * s, c.y + 0.18f * s,
-                                           0.22f * s, 0.28f * s}, faceDark);
-            }
-        }
-        else if (type == "Transport")
-        {
-            // Cargo truck
-            DrawRectangleRec(Rectangle{c.x - 0.78f * s, c.y - 0.35f * s, 1.0f * s, 0.62f * s}, col);
-            DrawRectangleRec(Rectangle{c.x + 0.28f * s, c.y - 0.28f * s, 0.44f * s, 0.55f * s}, col);
-            DrawRectangleRec(Rectangle{c.x + 0.36f * s, c.y - 0.20f * s, 0.24f * s, 0.18f * s}, faceDark);
-            float wheelY = 0.42f;
-            float wheelXs[3] = {-0.5f, -0.05f, 0.5f};
-            for (float wx : wheelXs)
-            {
-                DrawCircleV(P(wx, wheelY), 0.17f * s, col);
-                DrawCircleV(P(wx, wheelY), 0.07f * s, faceDark);
-            }
-        }
-        else if (type == "Communication")
-        {
-            // Broadcast tower with beacon and signal dots
-            DrawLineEx(P(-0.42f, 0.7f), P(0.0f, -0.55f), lw * 0.8f, col);
-            DrawLineEx(P(0.42f, 0.7f), P(0.0f, -0.55f), lw * 0.8f, col);
-            DrawLineEx(P(-0.30f, 0.35f), P(0.30f, 0.35f), thin * 0.8f, col);
-            DrawLineEx(P(-0.20f, 0.05f), P(0.20f, 0.05f), thin * 0.8f, col);
-            DrawLineEx(P(-0.10f, -0.25f), P(0.10f, -0.25f), thin * 0.8f, col);
-            DrawCircleV(P(0.0f, -0.68f), 0.10f * s, col);
-            DrawCircleV(P(-0.30f, -0.88f), 0.05f * s, col);
-            DrawCircleV(P(0.30f, -0.88f), 0.05f * s, col);
-            DrawCircleV(P(-0.48f, -0.68f), 0.04f * s, col);
-            DrawCircleV(P(0.48f, -0.68f), 0.04f * s, col);
-        }
-        else if (type == "Research")
-        {
-            // Erlenmeyer flask with liquid
-            DrawRectangleRec(Rectangle{c.x - 0.12f * s, c.y - 0.85f * s, 0.24f * s, 0.5f * s}, col);
-            DrawTriangle(P(-0.12f, -0.35f), P(-0.55f, 0.62f), P(0.55f, 0.62f), col);
-            DrawTriangle(P(-0.12f, -0.35f), P(0.55f, 0.62f), P(0.12f, -0.35f), col);
-            DrawLineEx(P(-0.22f, -0.85f), P(0.22f, -0.85f), thin, col);
-            DrawTriangle(P(-0.40f, 0.28f), P(-0.55f, 0.62f), P(0.55f, 0.62f), Fade(WHITE, 0.28f));
-            DrawTriangle(P(-0.40f, 0.28f), P(0.55f, 0.62f), P(0.40f, 0.28f), Fade(WHITE, 0.28f));
-            DrawCircleV(P(0.05f, 0.12f), 0.05f * s, Fade(WHITE, 0.5f));
-        }
-        else if (type == "Energy")
-        {
-            // Lightning bolt
-            DrawTriangle(P(0.45f, -0.95f), P(-0.4f, 0.15f), P(0.12f, 0.15f), col);
-            DrawTriangle(P(0.4f, -0.15f), P(-0.12f, -0.15f), P(-0.45f, 0.95f), col);
-        }
-        else if (type == "Construction")
-        {
-            // Tower crane lifting a block
-            DrawLineEx(P(-0.3f, 0.75f), P(-0.3f, -0.6f), lw, col);
-            DrawLineEx(P(-0.65f, -0.6f), P(0.65f, -0.6f), lw, col);
-            DrawLineEx(P(-0.3f, -0.25f), P(0.5f, -0.6f), thin * 0.8f, col);
-            DrawLineEx(P(0.5f, -0.6f), P(0.5f, 0.05f), thin * 0.7f, col);
-            DrawRectangleRec(Rectangle{c.x + 0.38f * s, c.y + 0.05f * s, 0.24f * s, 0.24f * s}, col);
-            DrawLineEx(P(-0.6f, 0.78f), P(0.05f, 0.78f), thin, col);
-        }
-        else
-        {
-            // Unknown unit type: simple diamond placeholder
-            DrawTriangle(P(0.0f, -0.7f), P(-0.7f, 0.0f), P(0.7f, 0.0f), col);
-            DrawTriangle(P(0.7f, 0.0f), P(-0.7f, 0.0f), P(0.0f, 0.7f), col);
-        }
-    }
-}
-
 void Sect::DrawInSectView(Vector2 position) {
     // The base is DomeForge's (src/Sect/sect_art.cpp), drawn at its real size
     // on the ground: the ring road SECT_RING_ROAD_KM from the centre, over the
@@ -359,14 +245,10 @@ void Sect::DrawInSectView(Vector2 position) {
     SectArt::DrawBase(f);
     SectArt::DrawCore(f);
 
-    const char* devText = TextFormat("Development: %.1f%%", development_percentage * 100);
-    int devFont = (int)(f.coreDomeR * 0.17f);
-    if (devFont < 14) devFont = 14;
-    int devWidth = MeasureText(devText, devFont);
-    DrawText(devText, (int)(f.center.x - devWidth / 2.0f) + 1,
-             (int)(f.center.y - devFont / 2.0f) + 1, devFont, Fade(BLACK, 0.55f));
-    DrawText(devText, (int)(f.center.x - devWidth / 2.0f),
-             (int)(f.center.y - devFont / 2.0f), devFont, Color{235, 245, 238, 255});
+    // The development readout on the core, in the label face.
+    const int devPx = std::max(14, (int)(f.coreDomeR * 0.19f));
+    SectArt::DrawTextCentred(TextFormat("Development: %.1f%%", development_percentage * 100), f.center, devPx,
+                             Color{235, 245, 238, 255});
 
     // Unit domes: green glass when the unit runs, grey when it is off. The
     // layout has eight slots; CreateInitialUnits makes eight units.
@@ -381,23 +263,15 @@ void Sect::DrawInSectView(Vector2 position) {
         units[i]->SetUnitRadiusInSectView(f.unitRimR);
 
         SectArt::DrawUnitDome(f, (int)i, on);
+        SectArt::DrawUnitIcon(f, (int)i, units[i]->GetUnitType(), on);
+    }
 
-        // Unit glyph + label on the dome glass
-        const float r = f.unitDomeR;
-        const Color glyphCol = on ? Color{240, 248, 244, 255} : Color{214, 220, 226, 255};
-        DrawUnitGlyph(units[i]->GetUnitType(), Vector2{c.x + 1.0f, c.y - r * 0.18f + 1.0f}, r * 0.34f, Fade(BLACK, 0.45f));
-        DrawUnitGlyph(units[i]->GetUnitType(), Vector2{c.x, c.y - r * 0.18f}, r * 0.34f, glyphCol);
-
-        const char* label = units[i]->GetUnitType().c_str();
-        int fontSize = (int)(r * 0.26f);
-        if (fontSize < 10) fontSize = 10;
-        while (fontSize > 8 && MeasureText(label, fontSize) > (int)(r * 1.6f))
-        {
-            fontSize--;
-        }
-        int tw = MeasureText(label, fontSize);
-        DrawText(label, (int)(c.x - tw / 2.0f) + 1, (int)(c.y + r * 0.30f) + 1, fontSize, Fade(BLACK, 0.6f));
-        DrawText(label, (int)(c.x - tw / 2.0f), (int)(c.y + r * 0.30f), fontSize, glyphCol);
+    // The unit's name only on hover, under its dome.
+    const int hovered = SectArt::HoveredSlot(f, GetMousePosition());
+    if (hovered >= 0 && (size_t)hovered < slots)
+    {
+        SectArt::DrawUnitLabel(f, hovered, units[hovered]->GetUnitType(),
+                               units[hovered]->GetStatus() == "active");
     }
 
     // Draw the transparent right panel

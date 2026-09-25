@@ -21,6 +21,8 @@
 #include "raylib.h"
 #include "domeforge.h"
 
+#include <string>
+
 namespace SectArt
 {
     constexpr int UNIT_SLOTS = 8;
@@ -60,6 +62,22 @@ namespace SectArt
     void DrawBase(const Frame& f);                   // roads, kerbs, lanes
     void DrawCore(const Frame& f);
     void DrawUnitDome(const Frame& f, int slot, bool on);
+
+    // The unit's icon (unit_icons.h) centred on its dome's glass. Rasterised
+    // on first use per unit type and size, then cached.
+    void DrawUnitIcon(const Frame& f, int slot, const std::string& unitType, bool on);
+
+    // Hover: the slot under `mouse` (-1 none). A tool can force one with
+    // SetHoverOverride, since a headless render has no pointer.
+    int HoveredSlot(const Frame& f, Vector2 mouse);
+    void SetHoverOverride(int slot);
+
+    // The unit's name in a small label under its dome, shown on hover.
+    void DrawUnitLabel(const Frame& f, int slot, const std::string& name, bool on);
+    // Which typeface the label uses: "exo2" | "rajdhani" | "barlow".
+    void SetLabelFont(const std::string& key);
+    // Text in that face, centred on `centre`, with a soft shadow.
+    void DrawTextCentred(const std::string& text, Vector2 centre, int px, Color colour);
 
     void Unload();
 }

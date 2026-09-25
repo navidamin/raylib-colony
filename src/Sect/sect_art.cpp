@@ -3,6 +3,10 @@
 
 #include "domeforge.h"
 #include "terrain_synthesis.h"   // SECT_RING_ROAD_KM
+#include "unit_icons.h"
+
+#include <map>
+#include <string>
 
 #include <algorithm>
 #include <cmath>
@@ -199,13 +203,18 @@ namespace SectArt
         // Lights sit on the roads: bars on the centre line, lamps round the collars.
         cfg.roadLights = true;
         cfg.roadLightLen = 30.0;
-        cfg.roadLightW = 2.5;
-        cfg.roadLightGlowR = 5.0;
-        cfg.roadLightGlow = 0.8;
+        // A light is a crisp core, white-hot along its centre line, a tight
+        // glow, and a wide faint bokeh halo spilling onto the road.
+        cfg.roadLightW = 3.2;
+        cfg.roadLightGlowR = 4.0;
+        cfg.roadLightGlow = 0.55;
+        cfg.roadLightBloom = 0.22;
+        cfg.roadLightBloomR = 26.0;
+        cfg.roadLightHot = 0.85;
         cfg.ringLights = 8;
         cfg.collarLights = 8;
         cfg.coreCollarLights = 16;
-        cfg.collarLightSize = 3.0;
+        cfg.collarLightSize = 5.0;
         return cfg;
     }
 
@@ -296,5 +305,103 @@ namespace SectArt
         else DrawCircleV(f.unit[slot], f.unitDomeR, Color{40, 46, 44, 255});
     }
 
-    void Unload() { UnloadSet(); }
+    // ---- icons ----
+    namespace
+    {
+        std::map<std::string, Texture2D> g_icons;   // key: type + size + on
+        int g_hoverOverride = -1;
+        std::string g_labelFontKey = "exo2";
+        std::map<std::string, Font> g_fonts;         // key: face + px
+    }
+
+    void DrawUnitIcon(const Frame& f, int slot, const std::string& unitType, bool on)
+    {
+        if (slot < 0 || slot >= UNIT_SLOTS) return;
+        const std::string key = UnitIconKey(unitType);
+        if (key.empty()) return;
+        const int px = std::max(12, (int)std::lround(f.unitDomeR * 1.12f));
+        const std::string ck = key + ":" + std::to_string(px) + (on ? ":1" : ":0");
+        auto it = g_icons.find(ck);
+        if (it == g_icons.end())
+        {
+            // near-white ink with a soft dark shadow; a touch dimmer when off
+            const Color ink = on ? Color{244, 252, 246, 240} : Color{226, 230, 234, 220};
+            Image img = UnitIconImage(key, px, ink, Color{0, 0, 0, 130});
+            Texture2D tex = LoadTextureFromImage(img);
+            SetTextureFilter(tex, TEXTURE_FILTER_BILINEAR);
+            UnloadImage(img);
+            it = g_icons.emplace(ck, tex).first;
+        }
+        const Texture2D& t = it->second;
+        const Vector2 c = f.unit[slot];
+        DrawTexture(t, (int)std::floor(c.x - t.width * 0.5f + 0.5f), (int)std::floor(c.y - t.height * 0.5f + 0.5f), WHITE);
+    }
+
+    int HoveredSlot(const Frame& f, Vector2 mouse)
+    {
+        if (g_hoverOverride >= 0) return g_hoverOverride;
+        for (int i = 0; i < UNIT_SLOTS; i++)
+        {
+            const float dx = mouse.x - f.unit[i].x, dy = mouse.y - f.unit[i].y;
+            if (dx * dx + dy * dy <= f.unitRimR * f.unitRimR) return i;
+        }
+        return -1;
+    }
+
+    void SetHoverOverride(int slot) { g_hoverOverride = slot; }
+
+    void SetLabelFont(const std::string& key) { g_labelFontKey = key; }
+
+    // The label face, loaded at twice the drawn size with mipmaps and
+    // trilinear filtering, so small text stays continuous (raylib's default
+    // font is a pixel font, which is what looked broken). One per face + size.
+    static const Font& LabelFont(int px)
+    {
+        const std::string k = g_labelFontKey + ":" + std::to_string(px);
+        auto it = g_fonts.find(k);
+        if (it != g_fonts.end()) return it->second;
+        const char* path = g_labelFontKey == "rajdhani" ? "src/assets/fonts/Rajdhani-SemiBold.ttf"
+                         : g_labelFontKey == "barlow"   ? "src/assets/fonts/Barlow-SemiBold.ttf"
+                                                        : "src/assets/fonts/Exo2-Bold.ttf";
+        Font font = LoadFontEx(path, px * 2, nullptr, 0);
+        GenTextureMipmaps(&font.texture);
+        SetTextureFilter(font.texture, TEXTURE_FILTER_TRILINEAR);
+        return g_fonts.emplace(k, font).first->second;
+    }
+
+    void DrawTextCentred(const std::string& text, Vector2 centre, int px, Color colour)
+    {
+        const Font& font = LabelFont(px);
+        const Vector2 ts = MeasureTextEx(font, text.c_str(), (float)px, 0.5f);
+        const Vector2 at = {std::floor(centre.x - ts.x * 0.5f + 0.5f), std::floor(centre.y - ts.y * 0.5f + 0.5f)};
+        DrawTextEx(font, text.c_str(), {at.x + 1.0f, at.y + 1.0f}, (float)px, 0.5f, Fade(BLACK, 0.55f));
+        DrawTextEx(font, text.c_str(), at, (float)px, 0.5f, colour);
+    }
+
+    void DrawUnitLabel(const Frame& f, int slot, const std::string& name, bool on)
+    {
+        if (slot < 0 || slot >= UNIT_SLOTS) return;
+        const int px = 16;
+        const Font& font = LabelFont(px);
+        const float size = (float)px, spacing = 0.5f;
+        const Vector2 ts = MeasureTextEx(font, name.c_str(), size, spacing);
+        const Vector2 c = f.unit[slot];
+        const float padX = 9.0f, padY = 4.0f;
+        const float y = c.y + f.unitRimR + f.collar + 5.0f;
+        const Rectangle box = {c.x - ts.x * 0.5f - padX, y, ts.x + 2 * padX, ts.y + 2 * padY};
+        const Color accent = on ? Color{46, 200, 110, 255} : Color{150, 156, 162, 255};
+        DrawRectangleRounded(box, 0.5f, 8, Color{14, 18, 20, 215});
+        DrawRectangleRoundedLinesEx(box, 0.5f, 8, 1.0f, Fade(accent, 0.85f));
+        DrawTextEx(font, name.c_str(), {std::floor(box.x + padX + 0.5f), std::floor(y + padY + 0.5f)}, size, spacing,
+                   Color{236, 242, 238, 255});
+    }
+
+    void Unload()
+    {
+        UnloadSet();
+        for (auto& kv : g_icons) UnloadTexture(kv.second);
+        g_icons.clear();
+        for (auto& kv : g_fonts) UnloadFont(kv.second);
+        g_fonts.clear();
+    }
 }

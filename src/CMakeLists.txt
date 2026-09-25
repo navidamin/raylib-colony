@@ -11,6 +11,7 @@ set(COLONY_CORE_SOURCES
     Planet/planet.cpp
     Sect/sect.cpp
     Sect/sect_art.cpp
+    Sect/unit_icons.cpp
     Unit/unit.cpp
     Unit/unit_ui.cpp
     ResourceManager/resource_manager.cpp
@@ -75,6 +76,7 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
     "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
     "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external"
 )
 
 add_executable(colony_game)
@@ -323,6 +325,7 @@ target_sources(colony_viewtest PRIVATE
     Planet/planet.cpp
     Sect/sect.cpp
     Sect/sect_art.cpp
+    Sect/unit_icons.cpp
     Unit/unit.cpp
     Unit/unit_ui.cpp
     ResourceManager/resource_manager.cpp
@@ -370,6 +373,7 @@ target_include_directories(colony_viewtest PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
     "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external"
 )
 
 target_link_libraries(colony_viewtest raylib tomlplusplus::tomlplusplus)
@@ -420,6 +424,7 @@ target_include_directories(lunar_map PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
     "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
+    "${CMAKE_CURRENT_SOURCE_DIR}/external"
 )
 
 target_link_libraries(lunar_map raylib)
@@ -521,6 +526,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         "${CMAKE_SOURCE_DIR}/tools/c1test/c1_test.cpp"
         Sect/sect.cpp
         Sect/sect_art.cpp
+        Sect/unit_icons.cpp
         Unit/unit.cpp
         Unit/unit_ui.cpp
         Colony/colony.cpp
@@ -569,6 +575,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
         "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
         "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external"
     )
 
     target_link_libraries(c1_test raylib tomlplusplus::tomlplusplus)
@@ -589,6 +596,8 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         "${CMAKE_SOURCE_DIR}/tools/domeforge/domeforge_render.cpp"
         DomeForge/domeforge_engine.cpp
         DomeForge/domeforge_base.cpp
+        Sect/sect_art.cpp
+        Sect/unit_icons.cpp
     )
 
     set_target_properties(domeforge_render PROPERTIES
@@ -598,7 +607,9 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools"
     )
 
-    target_include_directories(domeforge_render PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge")
+    target_include_directories(domeforge_render PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Sect" "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
+        "${CMAKE_CURRENT_SOURCE_DIR}/external")
 
     target_link_libraries(domeforge_render raylib)
     if(NOT WIN32)

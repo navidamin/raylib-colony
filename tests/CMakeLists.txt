@@ -6,6 +6,7 @@ add_library(colony_testlib STATIC
     ${CMAKE_SOURCE_DIR}/src/Engine/gamemanager.cpp
     ${CMAKE_SOURCE_DIR}/src/Sect/sect.cpp
     ${CMAKE_SOURCE_DIR}/src/Sect/sect_art.cpp
+    ${CMAKE_SOURCE_DIR}/src/Sect/unit_icons.cpp
     ${CMAKE_SOURCE_DIR}/src/DomeForge/domeforge_engine.cpp
     ${CMAKE_SOURCE_DIR}/src/DomeForge/domeforge_base.cpp
     ${CMAKE_SOURCE_DIR}/src/DomeForge/domeforge_3d.cpp
@@ -53,6 +54,7 @@ target_include_directories(colony_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src/Planet
     ${CMAKE_SOURCE_DIR}/src/Sect
     ${CMAKE_SOURCE_DIR}/src/DomeForge
+    ${CMAKE_SOURCE_DIR}/src/external
     ${CMAKE_SOURCE_DIR}/src/Unit
     ${CMAKE_SOURCE_DIR}/src/ResourceManager
     ${CMAKE_SOURCE_DIR}/src/TimeManager

@@ -529,3 +529,30 @@ unit's own colour would go.
 
 `git log -S'GetBakedDomeTexture'` and `git log -S'DrawUnitDomeStation'`
 for the real code.
+
+---
+
+## 12. The procedural unit glyphs and the names on the glass
+
+**Was:** `DrawUnitGlyph` in `src/Sect/sect.cpp`, one hand-drawn raylib icon
+per unit type inside a [-1,1] box (a derrick for Extraction, a sprout for
+Farming, a sawtooth factory, ...), from lines, triangles and rectangles; and
+under it the unit's name in raylib's default font, both drawn on every
+dome's glass in the sect view.
+
+**Replaced by:** the user's icon set (`prototypes/unit-icons/icons.js`),
+expanded to SVG by `tools/unit_icons/gen_unit_icons.js` and rasterised with
+nanosvg in `src/Sect/unit_icons.cpp`; the name now appears only on hover,
+in a TrueType label face (`SectArt::DrawUnitLabel`).
+
+**Why it went.** The user supplied a designed icon set, asked for the
+text off the domes (names on hover only), and called the default font
+"discontinuous" -- raylib's built-in font is a pixel font and breaks up
+when scaled.
+
+**What survived.** One icon per unit type, centred on the glass, near-white
+with a soft shadow.
+
+**What would bring it back.** Nothing; the icon set covers every type.
+
+`git log -S'DrawUnitGlyph'` for the real code.

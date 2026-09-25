@@ -2,8 +2,10 @@
 // same flags tools/domeforge/ref.js takes, and writes a PNG. No window needed.
 //   domeforge_render --kind unit|central|roads|ground|base [--scale S] [--size N]
 //                    [--color #rrggbb] [--socket-start DEG] [--socket-count N]
-//                    [--set key=value ...] --out file.png
+//                    [--sect 1] [--set key=value ...] --out file.png
+// --sect 1 starts from the sect view's config (SectArt::BaseConfig), so put it first.
 #include "domeforge.h"
+#include "sect_art.h"
 #include "raylib.h"
 
 #include <chrono>
@@ -30,6 +32,7 @@ int main(int argc, char** argv)
         else if (!strcmp(k, "--color")) cfg.color = DomeForgeHex(v);
         else if (!strcmp(k, "--socket-start")) socketStart = atof(v);
         else if (!strcmp(k, "--socket-count")) socketCount = atoi(v);
+        else if (!strcmp(k, "--sect") && !strcmp(v, "1")) cfg = SectArt::BaseConfig();   // the game's tuned look
         else if (!strcmp(k, "--set"))
         {
             // --set key=value, repeatable: any DomeForgeSetParam field (tuning; port only)
@@ -53,7 +56,7 @@ int main(int argc, char** argv)
     {
         const DomeForgeLayout lay = DomeForgeMakeLayout(cfg, scale);
         const int W = (int)(lay.A + 0.5);
-        img = kind == "roads" ? DomeForgeRenderRoads(cfg, W, W, lay.prims, scale) : DomeForgeRenderGround(cfg, W, W, scale);
+        img = kind == "roads" ? DomeForgeRenderRoads(cfg, W, W, lay.prims, scale, lay.lights) : DomeForgeRenderGround(cfg, W, W, scale);
     }
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 

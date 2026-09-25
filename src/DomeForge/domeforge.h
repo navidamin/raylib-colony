@@ -132,6 +132,8 @@ struct DomeForgeConfig
     bool roadLights = false;        // light bars on the centre line
     double roadLightLen = 20.0, roadLightW = 4.0;   // px at 1254
     double roadLightGlowR = 7.0, roadLightGlow = 0.9;
+    double roadLightBloom = 0.0, roadLightBloomR = 24.0;   // wide faint halo (px at 1254)
+    double roadLightHot = 0.0;      // 0..1: how white-hot the core's centre line is
     int ringLights = 8;             // on the ring road, midway between spokes
     int collarLights = 0;           // small lamps round each unit dome's collar
     int coreCollarLights = 0;       // ... and round the core's
