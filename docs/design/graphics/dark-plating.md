@@ -492,7 +492,7 @@ to everything else" -- because nothing in it belonged to the solid: its own
 fill, its own edges, floating in front of the walls it described. A cut is
 made OF the block. See `docs/design/graveyard/console-section-slice.md`.
 
-The tilt is now fixed at 0.42 rad and the zoom at 0.37: the block turns
+The tilt is now fixed at 0.42 rad and the zoom at 0.34: the block turns
 about its vertical axis and nothing else. See
 `docs/design/graveyard/console-block-zoom-and-tilt.md`.
 
@@ -508,10 +508,42 @@ and `mesh` derive from each bed's colour (x0.52, x0.22, toward white 0.72 and
 0.60). The drill bar keeps its own earth tones for now.
 
 **The drill bar's ruler stands beside the well, not on it.** The strata well
-takes the face less a 78-unit strip (`DC_RULER_STRIP`). The ruler and its
-labels have that strip to themselves, so the depths no longer sit on the
-rock. A tick's name (SURFACE, TARGET) is written above its tick. Below it,
-SURFACE ran into the 12 m label and TARGET fell out of the frame.
+takes the face less an 86-unit strip (`DC_RULER_STRIP`). The ruler, at
+`x + w - 100`, and its labels have that strip to themselves and end 12 short
+of the face's edge. The well's floor sits `DC_WELL_FOOT` (22) above the face's
+bottom, so the 120 m label hangs clear of the frame. A tick's name (SURFACE,
+TARGET) is set at 12 above its tick. Below it, SURFACE ran into the 12 m
+label and TARGET fell out of the frame. The auger runs at 0.62 of the well's
+width, toward the ruler it is read against, and the rock's names take the
+left. A name is squeezed only as far as it must be to clear the flights. The
+target mark sits in the 12-unit gap between the well and the ruler.
+
+**Layout discipline, from an alignment pass over the whole console.** Every
+fault it found was one element placed without asking what was next to it.
+The rules it left:
+
+- *Shared grids for panels that read as a pair.* TOOL STATS and DRILL STATS
+  put the title on one baseline (`DC_STATS_TITLE_Y`) with the same rule under
+  it, and the first row at `DC_STATS_ROW0`. Glyphs sit at x + 30 and labels
+  at x + 50 in both.
+- *A status is a pill in the title row, not a button at the foot.* At the
+  foot it left five rows 20 apart, the last 3 units off its edge.
+- *A title's rule owns the space under it.* The drill bar's gauges moved to
+  y + 74; at y + 62 the rule struck through SPINDLE.
+- *Text stops before what follows it.* A log line is cut with "..." 14 short
+  of the scrollbar. A rack plate's name is set smaller rather than run across
+  its rivet.
+- *Hairlines are 1.5, never 1.0.* A 1.0 separator dropped out entirely at
+  some sub-pixel offsets, so one log row had a rule and the next did not.
+  Separators sit midway between rows, not on the next row's tag outline.
+- *Overlays keep off the instruments.* The cursor tag and the core card flip
+  to the pointer's left rather than cover a ruler (`g_rulerBox`, the drill
+  bar's span). Over the drill bar the tag is centred above the pointer and
+  held inside the well.
+- *The block and its ruler are centred as one* (`DASH_BLOCK_DX` −46). The
+  block sits `DASH_BLOCK_DY` 18 down, at zoom 0.34, and core barrels stand
+  18 + 32 × depth. That way the tallest barrel, at the cap's far corner,
+  stays inside the pane's frame.
 
 **Unknown rock is wire, not haze.** The fog is drawn by leaving things out:
 where the model is not confident a wall gets no fill, no mesh and no bed

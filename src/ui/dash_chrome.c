@@ -241,18 +241,43 @@ static float DcChipDraw(float x, float y, const char *key)
     return w;
 }
 
-static void DcRichText(float x, float y, const DashLogPart *parts, int n)
+/* Plain text that would run past maxX is cut at a whole character and ends
+ * in "..." -- a line that runs under the scrollbar reads as a layout fault,
+ * not as a long message. */
+static float DcLabelFit(const char *s, float x, float y, float maxX)
+{
+    const float full = c2d_measure(C2D_W500, 15.0f, s);
+    if (x + full <= maxX) return DcLabel(s, x, y, 15.0f, C_logText, C2D_W500);
+    char buf[160];
+    const float dots = c2d_measure(C2D_W500, 15.0f, "...");
+    int n = (int)strlen(s);
+    if (n > (int)sizeof(buf) - 4) n = (int)sizeof(buf) - 4;
+    while (n > 0)
+    {
+        memcpy(buf, s, (size_t)n);
+        buf[n] = '\0';
+        if (x + c2d_measure(C2D_W500, 15.0f, buf) + dots <= maxX) break;
+        n--;
+    }
+    while (n > 0 && buf[n - 1] == ' ') buf[--n] = '\0';
+    memcpy(buf + n, "...", 4);
+    DcLabel(buf, x, y, 15.0f, C_logText, C2D_W500);
+    return maxX - x;
+}
+
+static void DcRichText(float x, float y, float maxX, const DashLogPart *parts, int n)
 {
     float cx = x;
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n && cx < maxX; i++)
     {
         if (!parts[i].tag)
         {
-            cx += DcLabel(parts[i].text, cx, y, 15.0f, C_logText, C2D_W500);
+            cx += DcLabelFit(parts[i].text, cx, y, maxX);
         }
         else
         {
             const float tw = c2d_measure(C2D_W500, 15.0f, parts[i].text), w = tw + 18.0f;
+            if (cx + w > maxX) break;
             DcRRectFill(cx, y - 18.0f, w, 26.0f, 4.0f, C_tagFill);
             DcRRectStroke(cx, y - 18.0f, w, 26.0f, 4.0f, C_tagEdge, 1.5f);
             DcLabel(parts[i].text, cx + 9.0f, y, 15.0f, C_tagText, C2D_W500);
@@ -307,7 +332,8 @@ void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int cou
     for (int i = 0; i < count; i++)
     {
         DcLabel(e[i].time, x + 20.0f, cy, 16.0f, C_logTime, C2D_W500);
-        DcRichText(x + 96.0f, cy, e[i].parts, e[i].partCount);
+        /* the text stops a clear 14 short of the scrollbar */
+        DcRichText(x + 96.0f, cy, x + w - 54.0f, e[i].parts, e[i].partCount);
         if (e[i].chipCount > 0)
         {
             float chx = x + 96.0f;
@@ -316,8 +342,10 @@ void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int cou
             cy += 78.0f;
         }
         else cy += 44.0f;
+        /* Midway between the rows. At cy - 18 it lay exactly on the next
+           row's tag outline and vanished wherever a row carried a tag. */
         if (i < count - 1)
-            DcLine(x + 14.0f, cy - 18.0f, x + w - 46.0f, cy - 18.0f, C_sep, 1.0f);
+            DcLine(x + 14.0f, cy - 24.0f, x + w - 54.0f, cy - 24.0f, C_sep, 1.5f);
     }
     c2d_restore();
     DcScrollbar(x + w - 40.0f, y + 18.0f, h - 36.0f, 0.3f, 0.68f);
@@ -326,9 +354,12 @@ void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int cou
 /* ---------- the drill bar (1544, 1567) -------------------------------- */
 #define DC_RULER_MINOR_M 5.0f
 /* The ruler's own strip at the right of the drill bar's face: the ruler line
- * at x + w - 92 (DcRulerSpan), less a 12-unit gap to the well. The labels
- * run to the face's edge. */
-#define DC_RULER_STRIP   78.0f
+ * at x + w - 100 (DcRulerSpan), less a 12-unit gap to the well; the labels
+ * end 12 short of the face's edge. */
+#define DC_RULER_STRIP   86.0f
+/* The well's floor sits this far above the face's bottom edge: the ruler's
+ * last label (120 m) hangs 6 below its tick and needs clear air under it. */
+#define DC_WELL_FOOT     22.0f
 
 static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
                     float pad)
@@ -351,7 +382,7 @@ static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
         DcLabel(d[i].depth, x + 24.0f, yy + 6.0f, 16.0f, C_depth, C2D_W500);
         /* the name sits ABOVE its tick: below, SURFACE ran into the 12 m
            label and TARGET fell out of the bar's frame */
-        if (d[i].name) DcLabel(d[i].name, x + 24.0f, yy - 12.0f, 14.0f, C_depth, C2D_W500);
+        if (d[i].name) DcLabel(d[i].name, x + 24.0f, yy - 12.0f, 12.0f, C_depth, C2D_W500);
     }
 }
 
@@ -673,9 +704,9 @@ void Dash_DrillBarFace(float x, float y, float w, float h,
                        float *fx, float *fy, float *fw, float *fh)
 {
     if (fx) *fx = x + 30.0f;
-    if (fy) *fy = y + 70.0f;
+    if (fy) *fy = y + 80.0f;
     if (fw) *fw = w - 44.0f;
-    if (fh) *fh = h - 92.0f;
+    if (fh) *fh = h - 102.0f;
 }
 
 /* Two gauges, the Spindle card from redline's sidebar (172-186): pressure
@@ -708,10 +739,12 @@ static void DcRoughDrill(float x, float y, float w, float h,
      * takes the face less DC_RULER_STRIP and the ruler has that strip to
      * itself, on the right (DcRulerSpan puts it there). */
     const float sx = x + 12.0f, sw = w - 24.0f - DC_RULER_STRIP;
-    const float top = y + 54.0f, bot = y + h - 10.0f;
+    const float top = y + 54.0f, bot = y + h - DC_WELL_FOOT;
     const float rpm = sim ? sim->rpm : 0.0f;
     const float depth = sim ? (sim->depthM - sim->lift) : 0.0f;
-    const float cx = sx + sw * 0.5f;
+    /* The string runs right of the well's middle, toward the ruler it is read
+     * against, and leaves the left of the well to the rock's names. */
+    const float cx = sx + sw * 0.62f;
 
     DcRig rig;
     rig.cx = cx;
@@ -732,8 +765,14 @@ static void DcRoughDrill(float x, float y, float w, float h,
          * width and MEGAREGOLITH needs 100 -- but more than that, a stratum
          * name is a fact about the ground, not about the hole. */
         if (y1 - y0 > 20.0f)
-            DcLabel(S[i].name, sx + 9.0f, y0 + 15.0f, 11.0f,
-                    RGBA(214, 228, 238, 0.58f), C2D_W500);
+        {
+            /* set at full width where it fits before the flights; squeezed
+               only as far as it must be to clear them */
+            const float room = (cx - RIG_R - 8.0f) - (sx + 9.0f);
+            const float nw = c2d_measure(C2D_W500, 12.0f, S[i].name);
+            DcCondensed(C2D_W500, 12.0f, nw > room ? room / nw : 1.0f, S[i].name,
+                        sx + 9.0f, y0 + 16.0f, RGBA(214, 228, 238, 0.72f));
+        }
     }
 
     /* the hole the string has already made */
@@ -816,9 +855,9 @@ static void DcRulerSpan(float x, float y, float w, float h,
     float fx, fy, fw, fh;
     Dash_DrillBarFace(x, y, w, h, &fx, &fy, &fw, &fh);
     fy += 44.0f; fh -= 44.0f;                 /* the gauges sit above */
-    if (rx)  *rx  = x + w - 92.0f;
+    if (rx)  *rx  = x + w - 100.0f;
     if (ry0) *ry0 = fy + 54.0f;
-    if (ry1) *ry1 = fy + fh - 10.0f;
+    if (ry1) *ry1 = fy + fh - DC_WELL_FOOT;
 }
 
 void Dash_DepthRuler(float x, float y0, float y1, const DashDepth *depths, int n)
@@ -853,7 +892,7 @@ void Dash_Confidence(float x, float y, float w, float h,
     char pct[16];
     snprintf(pct, sizeof(pct), "%d%%", (int)(delineation * 100.0f + 0.5f));
     const float pw = c2d_measure(C2D_W700, 17.0f, pct);
-    c2d_text(C2D_W700, 17.0f, pct, x + w - 14.0f - pw, y + 21.0f,
+    c2d_text(C2D_W700, 17.0f, pct, x + w - 14.0f - pw, y + 20.0f,
              measured ? C_accent : C_title, C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
 
     const float bx = x + 14.0f, by = y + 30.0f, bw = w - 28.0f;
@@ -884,12 +923,12 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
     float fx, fy, fw, fh;
     Dash_DrillBarFace(x, y, w, h, &fx, &fy, &fw, &fh);
     /* the gauges sit under the title, above the hole */
-    const float gaugeH = 44.0f;
+    const float gaugeH = 44.0f, gy = y + 74.0f;   /* clear of the title's rule */
     const DrillStratum *g = DrillSim_At(sim ? sim->depthM : 0.0f);
-    DcGauge(x + 30.0f, y + 62.0f, (w - 76.0f) * 0.5f, "SPINDLE",
+    DcGauge(x + 30.0f, gy, (w - 76.0f) * 0.5f, "SPINDLE",
             sim ? sim->rpm / DRILL_RPM_MAX : 0.0f, RGB(0x24, 0xdc, 0xf2),
             g->bandLo / DRILL_RPM_MAX, g->bandHi / DRILL_RPM_MAX);
-    DcGauge(x + 30.0f + (w - 76.0f) * 0.5f + 16.0f, y + 62.0f, (w - 76.0f) * 0.5f,
+    DcGauge(x + 30.0f + (w - 76.0f) * 0.5f + 16.0f, gy, (w - 76.0f) * 0.5f,
             "BIT TEMP", sim ? sim->heat : 0.0f,
             (sim && sim->heat > 0.75f) ? RGB(0xff, 0x5a, 0x28) : RGB(0xff, 0xc8, 0x4d),
             0.0f, 0.0f);
@@ -911,10 +950,11 @@ void Dash_DrillBar(float x, float y, float w, float h, const char *title,
     {
         const float ty = ry0 + (ry1 - ry0) * Clampf01(sim->targetM / DRILL_TARGET_M);
         const Color mark = (sim->depthM >= sim->targetM) ? C_accent : RGB(0xff, 0xc8, 0x4d);
-        DcLine(rx - 12.0f, ty, rx + 4.0f, ty, mark, 2.5f);
-        const C2DCorner tri[3] = {{rx - 16.0f, ty - 5.0f, 0.0f},
-                                  {rx - 16.0f, ty + 5.0f, 0.0f},
-                                  {rx - 7.0f, ty, 0.0f}};
+        /* in the gap between the well and the ruler, not on the rock */
+        DcLine(rx - 4.0f, ty, rx + 4.0f, ty, mark, 2.5f);
+        const C2DCorner tri[3] = {{rx - 11.0f, ty - 5.0f, 0.0f},
+                                  {rx - 11.0f, ty + 5.0f, 0.0f},
+                                  {rx - 3.0f, ty, 0.0f}};
         Vector2 v[DC_PTS];
         c2d_fill_poly(v, c2d_rpoly_pts(tri, 3, 0.0f, 0.0f, v, DC_PTS), mark);
     }
@@ -1064,18 +1104,25 @@ static void GlyWave(float x, float y, float s, Color c)
 
 /* ---- TOOL STATS (1376) ----------------------------------------------- */
 
+/* THE TWO STATS PANELS SHARE ONE GRID: the title on the same baseline with
+ * the same rule under it, the first row at the same height, glyphs and
+ * labels on the same verticals. They sit side by side under their
+ * instruments and read as a pair. */
+#define DC_STATS_TITLE_Y 28.0f
+#define DC_STATS_ROW0    60.0f
+
 void Dash_ToolStats(float x, float y, float w, float h,
                     const char *name, const char *type,
                     int power, int time, int crew)
 {
     (void)h;
-    const float tw = Dash_Title("TOOL STATS", x + 18.0f, y + 28.0f, 15.0f, 26.0f);
-    DcLabel("\xe2\x80\x94", x + 18.0f + tw + 14.0f, y + 28.0f, 12.0f, C_dim, C2D_W500);
+    const float tw = Dash_Title("TOOL STATS", x + 18.0f, y + DC_STATS_TITLE_Y, 15.0f, 26.0f);
+    DcLabel("\xe2\x80\x94", x + 18.0f + tw + 14.0f, y + DC_STATS_TITLE_Y, 12.0f, C_dim, C2D_W500);
 
     char what[48];
     if (name && name[0]) snprintf(what, sizeof(what), "%s (%s)", name, type ? type : "");
     else                 snprintf(what, sizeof(what), "NO TOOL");
-    DcLabel(what, x + 18.0f + tw + 30.0f, y + 28.0f, 12.0f,
+    DcLabel(what, x + 18.0f + tw + 30.0f, y + DC_STATS_TITLE_Y, 12.0f,
             (name && name[0]) ? C_label : C_dim, C2D_W500);
 
     const int rows[3] = {power, time, crew};
@@ -1083,11 +1130,11 @@ void Dash_ToolStats(float x, float y, float w, float h,
     Color cells[8];
     for (int i = 0; i < 3; i++)
     {
-        const float ry = y + 62.0f + (float)i * 32.0f;
+        const float ry = y + DC_STATS_ROW0 + (float)i * 30.0f;
         if (i == 0) GlyBolt (x + 30.0f, ry, 8.0f, C_accent);
         if (i == 1) GlyClock(x + 30.0f, ry, 8.0f, C_accent);
         if (i == 2) GlyCrew (x + 30.0f, ry, 8.0f, C_accent);
-        DcLabel(names[i], x + 52.0f, ry + 5.0f, 13.0f, C_label, C2D_W500);
+        DcLabel(names[i], x + 50.0f, ry + 5.0f, 13.0f, C_label, C2D_W500);
         DcFillN(cells, 8, rows[i], C_barOn);
         DcSegBar(x + 112.0f, ry - 7.0f, 8, cells, 13.0f, 13.0f, 3.0f);
     }
@@ -1098,7 +1145,19 @@ void Dash_ToolStats(float x, float y, float w, float h,
 void Dash_DrillStats(float x, float y, float w, float h,
                      const struct DrillSim *sim, const char *status)
 {
-    Dash_Title("DRILL STATS", x + 18.0f, y + 26.0f, 15.0f, 0.0f);
+    Dash_Title("DRILL STATS", x + 18.0f, y + DC_STATS_TITLE_Y, 15.0f, 26.0f);
+
+    /* THE STATUS IS A PILL IN THE TITLE ROW. As a button at the foot it left
+     * the five rows 20 apart with the last one 3 units off its top edge. */
+    {
+        const char *st = status ? status : "IDLE";
+        const float tw = c2d_measure(C2D_W700, 12.0f, st) * 0.9f;
+        const float pw = tw + 22.0f, ph = 22.0f;
+        const float px = x + w - 18.0f - pw, py = y + DC_STATS_TITLE_Y - 16.0f;
+        DcRRectFill(px, py, pw, ph, 6.0f, RGBA(20, 60, 80, 0.15f));
+        DcRRectStroke(px, py, pw, ph, 6.0f, C_btnEdge, 1.5f);
+        DcCondensed(C2D_W700, 12.0f, 0.9f, st, px + 11.0f, py + 15.5f, C_btnText);
+    }
 
     /* The reference's five rows are static strings of severity letters. Ours
      * read the simulation, so the ramp is computed from the value: the bars
@@ -1112,16 +1171,16 @@ void Dash_DrillStats(float x, float y, float w, float h,
     Color cells[8];
     for (int i = 0; i < 5; i++)
     {
-        const float ry = y + 44.0f + (float)i * 20.0f;
+        const float ry = y + DC_STATS_ROW0 + (float)i * 21.0f;
         switch (i)
         {
-            case 0: GlyRotary(x + 26.0f, ry, 7.0f, C_bright); break;
-            case 1: GlyLock  (x + 26.0f, ry, 7.0f, C_bright); break;
-            case 2: GlyThermo(x + 26.0f, ry, 7.0f, C_bright); break;
-            case 3: GlyBit   (x + 26.0f, ry, 7.0f, C_bright); break;
-            default: GlyWave (x + 26.0f, ry, 7.0f, C_bright); break;
+            case 0: GlyRotary(x + 30.0f, ry, 7.0f, C_bright); break;
+            case 1: GlyLock  (x + 30.0f, ry, 7.0f, C_bright); break;
+            case 2: GlyThermo(x + 30.0f, ry, 7.0f, C_bright); break;
+            case 3: GlyBit   (x + 30.0f, ry, 7.0f, C_bright); break;
+            default: GlyWave (x + 30.0f, ry, 7.0f, C_bright); break;
         }
-        DcLabel(names[i], x + 44.0f, ry + 4.0f, 12.0f, C_label, C2D_W500);
+        DcLabel(names[i], x + 50.0f, ry + 4.0f, 12.0f, C_label, C2D_W500);
 
         const int on = (int)(Clampf01(vals[i]) * 8.0f + 0.5f);
         for (int k = 0; k < 8; k++)
@@ -1134,12 +1193,4 @@ void Dash_DrillStats(float x, float y, float w, float h,
         }
         DcSegBar(x + 146.0f, ry - 5.0f, 8, cells, 10.0f, 10.0f, 2.0f);
     }
-
-    /* the status button at the foot (1586) */
-    const float bh = 26.0f, by = y + h - bh - 10.0f;
-    DcRRectFill(x + 16.0f, by, w - 32.0f, bh, 6.0f, RGBA(20, 60, 80, 0.15f));
-    DcRRectStroke(x + 16.0f, by, w - 32.0f, bh, 6.0f, C_btnEdge, 1.5f);
-    const char *st = status ? status : "IDLE";
-    const float sw = c2d_measure(C2D_W700, 13.0f, st) * 0.9f;
-    DcCondensed(C2D_W700, 13.0f, 0.9f, st, x + w * 0.5f - sw * 0.5f, by + 17.5f, C_btnText);
 }

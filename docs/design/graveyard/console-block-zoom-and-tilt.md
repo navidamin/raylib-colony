@@ -6,7 +6,7 @@ pointer), the pitch term of `SurveyDash_Drag` (`dy x 0.004`, clamped to
 `DASH_PITCH_MIN/MAX` 0.15-0.80 rad), and the wheel call in
 `RenderManager`'s console input
 **Removed:** the change that made the block turn about its vertical axis only
-**Replaced by:** a fixed view -- pitch 0.42, zoom 0.37 -- and a yaw-only drag
+**Replaced by:** a fixed view -- pitch 0.42, zoom 0.34 (0.37 until the alignment pass made room for the core barrels) -- and a yaw-only drag
 
 ## What it was
 

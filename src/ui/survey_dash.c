@@ -65,19 +65,26 @@
 #define LOG_Y         (PANE_TOP + PANE_H - LOG_H - 16.0f)
 #define CONF_Y        (LOG_Y - CONF_H - 12.0f)
 #define LOG_W         (MID_W - 32.0f)
-#define DASH_BLOCK_CX (MID_X + MID_W * 0.5f)
-#define DASH_BLOCK_CY (PANE_TOP + (CONF_Y - PANE_TOP) * 0.50f)
+/* THE BLOCK AND ITS RULER ARE CENTRED AS ONE. The ruler stands off the
+ * block's right edge, so the block sits DASH_BLOCK_DX left of the pane's
+ * middle; and DASH_BLOCK_DY down, so the tallest core barrel (a hole to the
+ * target, at the cap's far corner) stays inside the pane's frame. */
+#define DASH_BLOCK_DX (-46.0f)
+#define DASH_BLOCK_DY 18.0f
+#define DASH_BLOCK_CX (MID_X + MID_W * 0.5f + DASH_BLOCK_DX)
+#define DASH_BLOCK_CY (PANE_TOP + (CONF_Y - PANE_TOP) * 0.50f + DASH_BLOCK_DY)
 
 /* The block was drawn at a fifth of its size in a pane seven hundred units
  * wide -- the reference's zoom, carried over without re-fitting it to a pane
- * that is a different shape. At 0.37 it fills the space it has.
+ * that is a different shape. At 0.34 it fills the space it has, with room
+ * above the cap for the core barrels.
  *
  * THE VIEW IS FIXED BUT FOR YAW. The block turns about its vertical axis
  * and nothing else: no zoom, no tilt. Every depth reading on it -- the
  * height log, the stretch, the cutaway -- is read at this one tilt, and a
  * view that moved in three ways gave three ways to lose the thread (see the
  * graveyard, console-block-zoom-and-tilt.md). */
-#define DASH_BLOCK_ZOOM  0.37f
+#define DASH_BLOCK_ZOOM  0.34f
 #define DASH_BLOCK_PITCH 0.42f
 
 /* the rect inside which a drag rotates the block */
@@ -424,6 +431,11 @@ static void DashTargetMark(Vector2 p, float r, float spin, Color c, float lw)
     DashTargetMarkShapes(p, r, spin, c, lw);
 }
 
+/* Where the height log stood this frame, labels included, so the cursor tag
+ * can keep off it: the tag used to land on 12 m whenever a depth was picked
+ * near the block's right edge. Zero width when there is no log. */
+static Rectangle g_rulerBox = {0};
+
 /* ---- THE HEIGHT LOG --------------------------------------------------
  *
  * The same ruler the drill bar carries, stood beside the block, so the two
@@ -461,6 +473,7 @@ static void DashDrawHeightLog(void)
     for (int i = 0; i < DASH_RULER_TICKS; i++)
         plain[i] = (DashDepth){src[i].m, src[i].depth, NULL};
     Dash_DepthRuler(x, top.y, bot.y, plain, DASH_RULER_TICKS);
+    g_rulerBox = (Rectangle){x - 6.0f, top.y - 14.0f, 86.0f, bot.y - top.y + 28.0f};
 }
 
 /* THE SITE, ON THE GROUND. Left where the hole was collared, projected onto
@@ -677,13 +690,18 @@ static void DashKeepCore(SurveyDashState *s, float depthM)
 
 typedef struct DashBarrel { float cx, gy, top, rw, rh; } DashBarrel;
 
+/* a barrel's height: a stub for any hole, and the rest in proportion to its
+   depth -- short enough that the deepest stays inside the pane */
+#define DASH_BARREL_H0 18.0f
+#define DASH_BARREL_HD 32.0f
+
 static DashBarrel DashBarrelOf(const DrillCoreLog *l)
 {
     const Vector2 g = Holo3D_CapPoint(g_model, l->u, l->v);
     const float deep = Clampf01v(l->depthM / DRILL_TARGET_M);
     DashBarrel b;
     b.cx = g.x; b.gy = g.y + 2.0f;
-    b.top = b.gy - (28.0f + 44.0f * deep);
+    b.top = b.gy - (DASH_BARREL_H0 + DASH_BARREL_HD * deep);
     b.rw = DASH_BARREL_RW;
     b.rh = b.rw * 0.40f;
     return b;
@@ -804,7 +822,14 @@ static void DashDrawCoreCard(const SurveyDashState *s, int i)
     const DashBarrel b = DashBarrelOf(l);
 
     float x = b.cx + 16.0f, y = b.top - 30.0f;
-    if (x + DASH_CARD_W > MID_X + MID_W - 12.0f) x = b.cx - 16.0f - DASH_CARD_W;
+    /* to the left where the right would run off the pane or over the height
+       log; and never off the pane's left edge either */
+    const Rectangle r = g_rulerBox;
+    const bool onRuler = r.width > 0.0f && b.cx < r.x &&
+                         x < r.x + r.width && x + DASH_CARD_W > r.x &&
+                         y < r.y + r.height && y + DASH_CARD_H > r.y;
+    if (x + DASH_CARD_W > MID_X + MID_W - 12.0f || onRuler) x = b.cx - 16.0f - DASH_CARD_W;
+    if (x < MID_X + 12.0f) x = MID_X + 12.0f;
     if (y + DASH_CARD_H > CONF_Y - 6.0f) y = CONF_Y - 6.0f - DASH_CARD_H;
     if (y < PANE_TOP + 8.0f) y = PANE_TOP + 8.0f;
 
@@ -1033,10 +1058,37 @@ static void DashDrawTag(Vector2 at, const char *caption, const char *main, Color
     const float pw = fmaxf(cw, mw) + 24.0f, ph = 54.0f;
 
     /* up and to the right of the tip; flipped to the left near the right
-       edge, and kept inside the surface at the top */
+       edge or where it would cover the block's height log, and kept inside
+       the surface at the top */
     float px = at.x + 20.0f, py = at.y - ph - 10.0f;
-    if (px + pw > (float)SURVEY_DASH_DESIGN_W - 8.0f) px = at.x - 20.0f - pw;
     if (py < 8.0f) py = at.y + 24.0f;
+    /* the two rulers: the block's height log, and the drill bar's */
+    float brx, bry0, bry1;
+    Dash_DrillBarSpan(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &brx, &bry0, &bry1);
+    const Rectangle keep[2] = {
+        g_rulerBox,
+        {brx - 16.0f, bry0 - 24.0f, RIGHT_X + RIGHT_W - (brx - 16.0f), bry1 - bry0 + 40.0f},
+    };
+    bool onRuler = false;
+    for (int i = 0; i < 2; i++)
+    {
+        const Rectangle r = keep[i];
+        if (r.width > 0.0f && at.x < r.x &&
+            px < r.x + r.width && px + pw > r.x && py < r.y + r.height && py + ph > r.y)
+            onRuler = true;
+    }
+    if (px + pw > (float)SURVEY_DASH_DESIGN_W - 8.0f || onRuler)
+        px = at.x - 20.0f - pw;
+    /* Over the drill bar the tag is centred above the pointer and held
+       inside the well: flipped left it straddled the panel's frame. */
+    float fx, fy, fw, fh;
+    Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &fx, &fy, &fw, &fh);
+    if (at.x >= fx && at.x <= fx + fw && at.y >= fy && at.y <= fy + fh)
+    {
+        px = at.x - pw * 0.5f;
+        if (px > brx - 16.0f - pw) px = brx - 16.0f - pw;
+        if (px < fx + 6.0f) px = fx + 6.0f;
+    }
 
     const C2DCorner cr[4] = {{px, py, 6.0f}, {px + pw, py, 6.0f},
                              {px + pw, py + ph, 6.0f}, {px, py + ph, 6.0f}};

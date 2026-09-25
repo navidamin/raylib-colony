@@ -303,7 +303,7 @@ clears them. It is not drawn yet; the log reports the count when a hole
 lands, which is how it is checked in a playtest.
 
 **The block turns, and only turns.** A drag turns it about its vertical
-axis; the tilt (0.42 rad) and the zoom (0.37) are fixed, and the wheel does
+axis; the tilt (0.42 rad) and the zoom (0.34) are fixed, and the wheel does
 nothing. Over its sides the pointer is a grab hand -- open, then a fist
 while dragging -- instead of the drill switched off, because the sides
 cannot be drilled but can be turned (dark-plating §6.5b). The zoom and the

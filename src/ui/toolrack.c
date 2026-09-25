@@ -541,7 +541,14 @@ static void TrDrawRowB(const ToolRackTool *tool, bool active, bool selected, int
     c2d_ring((Vector2){lx + 152.5f, t + 56.0f}, 5.5f, 6.5f, PB_holeRim);
     if (has)
     {
-        TrCondensed(C2D_W700, 24.0f, 0.78f, tool->name, lx + 14.5f, t + 47.0f,
+        /* The plate's text room ends before its rivet (lx + 146.5). The
+           reference's names all fit at 24; a longer one is set smaller
+           rather than run across the rivet and off the plate. */
+        float ns = 24.0f;
+        const float room = 146.5f - 14.5f - 8.0f;
+        const float nw = c2d_measure(C2D_W700, ns, tool->name) * 0.78f;
+        if (nw > room) ns *= room / nw;
+        TrCondensed(C2D_W700, ns, 0.78f, tool->name, lx + 14.5f, t + 47.0f,
                     on ? PB_name : PB_nameOff);
         TrCondensed(C2D_W500, 22.0f, 0.76f, tool->type, lx + 14.5f, t + 77.0f,
                     on ? PB_type : PB_typeOff);
