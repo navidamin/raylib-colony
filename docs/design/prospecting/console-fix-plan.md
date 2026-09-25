@@ -146,6 +146,10 @@ it.
 **Verify.** A burst through a hole and its pull-out: the hole is empty within
 a second. Two sites side by side show different walls.
 
+**Done.** Two holes were drilled at x40 and burst-captured through their
+pull-outs. Both shafts are empty of cuttings as the string comes up, and the
+second site's walls wander differently from the first's.
+
 ## Step 7 — the last separate rock palette
 
 **Wrong.** `DP_ROCK_COL`, `DP_ROCK_EDGE` and `DP_ROCK_GRAIN` in
