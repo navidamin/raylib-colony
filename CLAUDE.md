@@ -319,7 +319,7 @@ partially — not a platform) and then worked with undulations plus
 alterations around each dome. A graded construction platform was tried
 and rejected; see SITE_SYNTHESIS.md before re-proposing one. At the sect
 level the geometry comes from the base's real layout (`SectLevelSite`, ring
-road `SECT_RING_ROAD_KM` = 1.25 km) and the base's footprint is levelled much
+road `SECT_RING_ROAD_KM` = 1.10 km) and the base's footprint is levelled much
 further -- relief goes, regolith grain stays, no edge
 (`docs/design/sect-view/domeforge-study.md` §8).
 

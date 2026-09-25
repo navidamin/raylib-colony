@@ -308,7 +308,7 @@ The user asked for "a feel of levelled ground immediately under the site, as
 you'd expect at a construction site". Done without reopening the platform:
 
 - The sect level (5 km) now takes its site geometry from the base's real
-  layout (`SectLevelSite`, ring road 1.25 km). The old 0.63x of the colony
+  layout (`SectLevelSite`, ring road `SECT_RING_ROAD_KM`, now 1.10 km). The old 0.63x of the colony
   geometry measured out **outside** the ring road in the sect view.
 - Inside the base's footprint the level-off goes much further (elevation
   0.92, tone 0.50, the working calmed by 0.60), fading back to the site's

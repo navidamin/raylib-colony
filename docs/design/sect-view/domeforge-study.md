@@ -145,9 +145,9 @@ arithmetic is shared rather than approximated:
 | Ground levelled under the base | `SectLevelSite` + footprint in `terrain_synthesis.{h,cpp}` and `terrain_gpu.cpp` | §8 |
 | Old dome stations retired | `docs/graveyard.md` §11 | |
 
-Scale: the ring road's centre line is `SECT_RING_ROAD_KM` = 1.25 km from the
-sect centre, on the same 5 km ground the sect view cover-fits to the screen.
-That reproduces the old on-screen size at 1280x720, and it means the art, the
+Scale: the ring road's centre line is `SECT_RING_ROAD_KM` from the sect
+centre (1.25 km at first; 1.10 km since §6c made room for the north road), on
+the same 5 km ground the sect view cover-fits to the screen. That means the art, the
 hit tests and the site levelling all agree about where the base is. DomeForge
 files are compiled `-O2` in every build type (a debug build bakes ~5x slower
 otherwise).
@@ -177,9 +177,9 @@ Most of that is DomeForge's own parameters, set in `SectArt::BaseConfig()`
 lane, dome sizes, sockets off). The rest are **extensions in the port**,
 off by default so `domeforge_diff.sh` still matches the JS exactly:
 `domeCollar`, `roadLights` (+ `ringLights`, `collarLights`,
-`coreCollarLights`), and `spokesBeyondLen`. In the game the road layer
-covers the whole screen, so the cardinal roads leave the screen as they
-leave the concept. It was tuned crop against crop at the same scale with
+`coreCollarLights`), and `spokesBeyondLen`. The road layer is screen-sized,
+so roads can leave the base (§6c keeps only the north one). It was tuned
+crop against crop at the same scale with
 `domeforge_render --set key=value` (any field, by its JS name).
 
 ![concept | tuned | DomeForge default](roads-tuning.png)
@@ -196,6 +196,32 @@ darker than the ground instead of lighter.
 `tests/test_sect_site.cpp` now holds the levelled site to the art's layout
 (ring road, dome ring, core, footprint), since the dome sizes moved and the
 two once drifted apart.
+
+## 6c. One exit road, and the glass (the user, 2026-09-25)
+
+**Exit roads.** Only the north one stays: shorter, and fading into the
+ground at its end. Two more port extensions, off by default:
+`exitRoads` (a mask, N=1 W=2 S=4 E=8; 15 = all four, the JS) and
+`exitFade` (the road's last N px fade out, along a noisy edge so it
+dissolves instead of stopping on a line). The fade has to happen on
+screen, and at 1.25 km the ring road's top edge sat 29 px from the top of a
+720 px screen, under the "Day 0" label. So the base shrank to
+`SECT_RING_ROAD_KM` = 1.10 km (the site levelling follows it, and
+`test_sect_site.cpp` checks). The road runs 62 px past the ring's centre
+line and fades over its last 40 (px at 1254), ending just short of the label.
+
+**Glass.** Less shadow round the rim, and more curvature: big cells in the
+middle shrinking toward the rim. `edgeShadow` 0.3 → 0.06 (width 0.25 →
+0.12) and `limbDark` 0.42 → 0.2 take the rim shadow down. The curvature
+comes from **`hexLens` 0.85** (perspective; `hexCells` 0.08), **not
+`hexCurve`**. `hexCurve` raises the surface angle to a power, and above
+about 1.5 it balloons the centre cell and drops straight to slivers
+(tried: 1.9-2.2). Perspective shrinks the cells gradually, which is what the
+concept shows.
+
+![concept | tuned | before](glass-concept-tuned-before.png)
+
+*Green unit, grey unit and core: concept | tuned | before.*
 
 ## 7. 3D view: sized, scaffolded, not built
 
@@ -237,8 +263,8 @@ outside the ring road**, with the ground under the base untouched.
 What it is now:
 
 - `SectLevelSite` takes the 5 km level's geometry from the base's layout
-  (dome ring 0.876 km, core and its collar 0.419 km, footprint to the ring
-  road's outer kerb, 1.30 km).
+  (the dome ring, the core and its collar, and a footprint out to the ring
+  road's outer kerb -- all in proportion to `SECT_RING_ROAD_KM`).
 - Inside the footprint the ground is levelled much further (elevation 0.92,
   tone 0.50) and the site's own undulation and roughness are calmed by 0.60.
   It fades back to the site treatment over 0.30 km: no edge.

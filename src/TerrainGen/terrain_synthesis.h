@@ -138,7 +138,7 @@ struct TerrainSiteDisturbance
 // The sect base's physical size: the ring road's centre line is this far from
 // the sect centre. The sect view draws the DomeForge base to this scale
 // (src/Sect/sect_art.cpp), so the art and the ground under it agree.
-constexpr float SECT_RING_ROAD_KM = 1.25f;
+constexpr float SECT_RING_ROAD_KM = 1.10f;
 
 // The site disturbance for the 5 km (sect) level, from the base's layout:
 // dome positions, dome sizes and the footprint all follow SECT_RING_ROAD_KM

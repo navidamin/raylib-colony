@@ -137,6 +137,8 @@ struct DomeForgeConfig
     int coreCollarLights = 0;       // ... and round the core's
     double collarLightSize = 3.0;   // px at 1254, their diameter
     double spokesBeyondLen = 0.0;   // px at 1254 past the ring; 0 = to the base's edge (the JS)
+    int exitRoads = 15;             // which of those: bits N=1 W=2 S=4 E=8 (15 = all four, the JS)
+    double exitFade = 0.0;          // px at 1254: the exit roads fade into the ground at their end
 };
 
 // Set one config field by its JS name ("roadW", "roadColor", "laneOn", ...),
@@ -164,6 +166,7 @@ struct DomeForgePrim
 {
     enum Type { SEG, RING, DISC } t = SEG;
     double ax = 0, ay = 0, bx = 0, by = 0, w = 0;   // SEG
+    double fade = 0;            // SEG, extension: fade into the ground over this many px before b
     double cx = 0, cy = 0, r = 0;                   // RING (w too) / DISC
 };
 

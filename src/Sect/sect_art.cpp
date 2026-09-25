@@ -68,9 +68,6 @@ namespace
         g_set.screenH = screenH;
         g_set.cfg = BaseConfig();
         const double s = SECT_RING_ROAD_KM * pxPerKm / g_set.cfg.ringRoadR;
-        // The cardinal roads leave the base and run off the edges of the
-        // screen, as they run off the edges of the concept art.
-        g_set.cfg.spokesBeyondLen = (std::max(screenW, screenH) * 0.5 / s - g_set.cfg.ringRoadR) + 40.0;
         g_set.lay = DomeForgeMakeLayout(g_set.cfg, s * 1254.0 / g_set.cfg.baseSize);
         g_set.items.push_back({Piece::ROADS, -1});
         g_set.items.push_back({Piece::CORE, -1});
@@ -180,13 +177,25 @@ namespace SectArt
         // Junctions flare: spokes into the ring, and into each dome's collar.
         cfg.fillet = 34.0;
         cfg.filletDome = 30.0;
-        // Short road stubs past the ring at the four cardinal points.
+        // One exit road, north, leaving the ring and fading into the ground.
         cfg.spokesBeyond = true;
+        cfg.exitRoads = 1;          // N only (bits N=1 W=2 S=4 E=8)
         cfg.roadOuterW = 26.0;
-        cfg.spokesBeyondLen = 60.0;
+        cfg.spokesBeyondLen = 62.0;
+        cfg.exitFade = 40.0;
         // Roads meet a collar of road round each dome, not socket loops.
         cfg.socketOn = false;
         cfg.domeCollar = 10.0;
+        // Glass (the user, against the concept): stronger curvature -- big cells
+        // in the middle shrinking smoothly toward the rim -- and much less
+        // shadow round the edge. The curvature comes from the perspective lens,
+        // not hexCurve: hexCurve is a power law, and above ~1.5 it balloons the
+        // centre cell and drops straight to slivers.
+        cfg.hexLens = 0.85;
+        cfg.hexCells = 0.08;
+        cfg.edgeShadow = 0.06;
+        cfg.edgeShadowW = 0.12;
+        cfg.limbDark = 0.2;
         // Lights sit on the roads: bars on the centre line, lamps round the collars.
         cfg.roadLights = true;
         cfg.roadLightLen = 30.0;

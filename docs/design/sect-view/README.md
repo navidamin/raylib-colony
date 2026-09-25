@@ -25,7 +25,7 @@ with entry rails leading off-screen.
   `src/DomeForge/` and baked once per game by `src/Sect/sect_art.cpp`
 - Green glass = unit on, grey = off; unit glyph + label on the glass
 - Kerbed roads filleted into the dome rims, socket lights; no entry rails
-- Drawn at its real size on the ground (ring road 1.25 km from the centre),
+- Drawn at its real size on the ground (ring road 1.10 km from the centre),
   over terrain levelled under the base's footprint
 - The previous art (ray-shaded dome stations) is recorded in
   `docs/graveyard.md` §11

@@ -39,6 +39,7 @@ namespace
         double d, t, perp;
         int isDisc;
         double dDisc;
+        int road;               // port: index of the nearest road primitive (-1 none), for the fade extension
     };
 
     // returns [dUnion, tAlong, perp, isDisc, dDisc]: tAlong/perp belong to the nearest road primitive, dDisc is the
@@ -46,9 +47,10 @@ namespace
     void RoadField(double x, double y, const std::vector<Prep>& prims, double F, double FD, Field& out)
     {
         double d = 1e9, best = 1e9, t = 0, perp = 0, dRoad = 1e9, dDisc = 1e9;
-        int isDisc = 0;
+        int isDisc = 0, road = -1, idx = -1;
         for (const Prep& q : prims)
         {
+            idx++;
             const DomeForgePrim& p = q.p;
             double dp, tt = 0, pp = 0;
             if (p.t == DomeForgePrim::SEG)
@@ -82,6 +84,7 @@ namespace
                     dRoad = dp;
                     t = tt;
                     perp = pp;
+                    road = idx;
                 }
             }
             else d = d > 1e8 ? dp : Smin(d, dp, FD);
@@ -91,7 +94,7 @@ namespace
                 isDisc = p.t == DomeForgePrim::DISC ? 1 : 0;
             }
         }
-        out = {d, t, perp, isDisc, dDisc};
+        out = {d, t, perp, isDisc, dDisc, road};
     }
 
     std::vector<Prep> PrepPrims(const std::vector<DomeForgePrim>& prims)
@@ -212,6 +215,17 @@ namespace
                 RoadField(X, Y, P, F, FD, f);
                 const double d = f.d;
                 if (d > bankW + aa) continue;
+                // Extension: an exit road fades into the ground over its last `fade` px,
+                // along a noisy edge so it dissolves rather than stopping on a line.
+                double fadeK = 1.0;
+                if (f.road >= 0 && P[f.road].p.fade > 0)
+                {
+                    const Prep& q = P[f.road];
+                    const double fd = q.p.fade;
+                    const double wob = (PatchNoise(X, Y, 9 * scale, seed + 40, 0.6) - 0.5) * fd * 0.5;
+                    fadeK = 1 - Sstep(q.len - fd, q.len - 0.15 * fd, f.t + wob);
+                    if (fadeK <= 0) continue;
+                }
                 const size_t o = ((size_t)y * W + x) * 4;
                 // outward normal of the outline (needed for the ridge and the embankment)
                 RoadField(X + e, Y, P, F, FD, fx);
@@ -232,7 +246,7 @@ namespace
                     img.rgba[o] = v;
                     img.rgba[o + 1] = v;
                     img.rgba[o + 2] = v;
-                    img.rgba[o + 3] = ToByte(Clamp(al, 0.0, 1.0) * 255);
+                    img.rgba[o + 3] = ToByte(Clamp(al * fadeK, 0.0, 1.0) * 255);
                     continue;
                 }
                 const double cov = 1 - Sstep(-aa * 0.5, aa * 0.5, d);
@@ -308,7 +322,7 @@ namespace
                 img.rgba[o] = ToByte(Clamp(R, 0.0, 1.0) * 255);
                 img.rgba[o + 1] = ToByte(Clamp(G, 0.0, 1.0) * 255);
                 img.rgba[o + 2] = ToByte(Clamp(B, 0.0, 1.0) * 255);
-                img.rgba[o + 3] = ToByte(cov * 255);
+                img.rgba[o + 3] = ToByte(cov * fadeK * 255);
             }
         }
     }
@@ -493,7 +507,8 @@ DomeForgeLayout DomeForgeMakeLayout(const DomeForgeConfig& cfg, double scale)
             b.w = cfg.roadW * s;
             lay.prims.push_back(b);
         }
-        if (cardinal && cfg.spokesBeyond)
+        // extension: exitRoads picks which cardinals get one (i 0,2,4,6 = N,W,S,E)
+        if (cardinal && cfg.spokesBeyond && (cfg.exitRoads & (1 << (i / 2))))
         {
             DomeForgePrim o;
             o.t = DomeForgePrim::SEG;
@@ -503,6 +518,7 @@ DomeForgeLayout DomeForgeMakeLayout(const DomeForgeConfig& cfg, double scale)
             o.bx = cX + reach * ca;
             o.by = cY + reach * sa;
             o.w = cfg.roadOuterW * s;
+            o.fade = cfg.exitFade * s;
             lay.prims.push_back(o);
         }
     }
@@ -636,6 +652,16 @@ bool DomeForgeSetParam(DomeForgeConfig& c, const std::string& key, const std::st
         {"roadLightGlowR", &c.roadLightGlowR}, {"roadLightGlow", &c.roadLightGlow},
         {"lightGlow", &c.lightGlow}, {"lightGlowR", &c.lightGlowR}, {"lightSize", &c.lightSize},
         {"lightAz", &c.lightAz}, {"lightEl", &c.lightEl},
+        // glass
+        {"hexCells", &c.hexCells}, {"hexCurve", &c.hexCurve}, {"hexLens", &c.hexLens},
+        {"facetShade", &c.facetShade}, {"hexLine", &c.hexLine}, {"hexLineDark", &c.hexLineDark},
+        {"hexLineLight", &c.hexLineLight}, {"facetVar", &c.facetVar}, {"facetBevel", &c.facetBevel},
+        {"litBase", &c.litBase}, {"litNear", &c.litNear}, {"litAmount", &c.litAmount},
+        {"ambient", &c.ambient}, {"diffuse", &c.diffuse}, {"hlX", &c.hlX}, {"hlY", &c.hlY},
+        {"shininess", &c.shininess}, {"specInt", &c.specInt}, {"specWhite", &c.specWhite},
+        {"glintSize", &c.glintSize}, {"glintStrength", &c.glintStrength},
+        {"rimInt", &c.rimInt}, {"rimPow", &c.rimPow}, {"limbDark", &c.limbDark}, {"limbPow", &c.limbPow},
+        {"edgeShadow", &c.edgeShadow}, {"edgeShadowW", &c.edgeShadowW}, {"edgeLine", &c.edgeLine},
     };
     for (const D& d : doubles)
         if (key == d.k) { d.p[0] = std::atof(v.c_str()); return true; }
@@ -649,6 +675,8 @@ bool DomeForgeSetParam(DomeForgeConfig& c, const std::string& key, const std::st
     if (key == "coreCollarLights") { c.coreCollarLights = std::atoi(v.c_str()); return true; }
     if (key == "collarLightSize") { c.collarLightSize = std::atof(v.c_str()); return true; }
     if (key == "spokesBeyondLen") { c.spokesBeyondLen = std::atof(v.c_str()); return true; }
+    if (key == "exitRoads") { c.exitRoads = std::atoi(v.c_str()); return true; }
+    if (key == "exitFade") { c.exitFade = std::atof(v.c_str()); return true; }
     struct C { const char* k; DomeForgeRgb* p; };
     const C colours[] = {{"roadColor", &c.roadColor}, {"curbColor", &c.curbColor}, {"laneColor", &c.laneColor},
                          {"lightColor", &c.lightColor}, {"groundColor", &c.groundColor}, {"color", &c.color},
