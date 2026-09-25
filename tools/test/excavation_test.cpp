@@ -301,12 +301,16 @@ static void TestReachRings()
         Check(nests, "every tier's reach contains the one below it");
     }
 
+    // In lattice terms, not cell numbers: the lattice went 8 -> 16 -> 32 on
+    // playtest requests and the reach rings follow it (prospecting_constants.h).
+    const int n = PROSPECTING_GRID_SIZE, mid = n / 2, last = n - 1;
     SiteView t0(0);
     SiteView t3(3);
-    Check(t0.GetReach() == 2 && t3.GetReach() == 8, "reach runs 2x2 to 8x8");
-    Check(t0.IsInReach(3, 3) && t0.IsInReach(4, 4), "tier 0 reaches the centre");
-    Check(!t0.IsInReach(0, 0) && !t0.IsInReach(7, 7), "tier 0 does not reach the corners");
-    Check(t3.IsInReach(0, 0) && t3.IsInReach(7, 7), "tier 3 reaches the corners");
+    Check(t0.GetReach() == PROSPECTING_REACH_PER_TIER[0] && t3.GetReach() == n,
+          "reach runs from the tier-0 ring to the whole lattice");
+    Check(t0.IsInReach(mid - 1, mid - 1) && t0.IsInReach(mid, mid), "tier 0 reaches the centre");
+    Check(!t0.IsInReach(0, 0) && !t0.IsInReach(last, last), "tier 0 does not reach the corners");
+    Check(t3.IsInReach(0, 0) && t3.IsInReach(last, last), "tier 3 reaches the corners");
 
     Check(t0.CanWorkDepth(DepthLayer::SURFACE), "tier 0 can work the surface");
     Check(!t0.CanWorkDepth(DepthLayer::DEEP), "tier 0 cannot work the deep layer");
@@ -327,9 +331,10 @@ static void TestPrecisionBlendsNeighbours()
     // otherwise blending is unobservable and the test proves nothing.
     int tx = -1, ty = -1;
     float biggestGap = 0.0f;
-    for (int y = 1; y < 7; y++)
+    const int n = grid.GetGridSize();
+    for (int y = 1; y < n - 1; y++)
     {
-        for (int x = 1; x < 7; x++)
+        for (int x = 1; x < n - 1; x++)
         {
             auto exact = engine.BlendedComposition(grid, site, x, y, DepthLayer::SURFACE, 1.0f);
             auto blunt = engine.BlendedComposition(grid, site, x, y, DepthLayer::SURFACE, 0.45f);
@@ -435,13 +440,14 @@ static void TestReachAndDepthAreEnforced()
     DigSite worked;
     DigEngine engine;
 
-    SiteView t0(0);   // reaches only the central 2x2, surface only
+    SiteView t0(0);   // reaches only the central ring, surface only
     DigResult outside = engine.Dig(grid, t0, worked, 0, 0, DepthLayer::SURFACE,
                                    ResourceType::C, MachineId::SCOOP, 1,
                                    1.0f, 0.0f, 1.0f, 1.0f);
     Check(outside.totalMass == 0.0f, "a spot outside reach yields nothing");
 
-    DigResult inside = engine.Dig(grid, t0, worked, 4, 4, DepthLayer::SURFACE,
+    const int mid = PROSPECTING_GRID_SIZE / 2;     // the centre, inside every tier's reach
+    DigResult inside = engine.Dig(grid, t0, worked, mid, mid, DepthLayer::SURFACE,
                                   ResourceType::C, MachineId::SCOOP, 1,
                                   1.0f, 0.0f, 1.0f, 1.0f);
     Check(inside.totalMass > 0.0f, "a spot inside reach yields material");

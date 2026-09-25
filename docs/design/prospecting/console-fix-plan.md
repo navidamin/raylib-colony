@@ -18,6 +18,14 @@ None of them has been looked at.
 moved, fix whichever is wrong, and record the reason.
 **Verify.** `colony_test` 88/88, and `colony_tests` still 206/206.
 
+**Done.** The engine was right. The prospecting lattice went 8 → 16 → 32 on
+playtest requests, and the reach rings followed it (8/16/24/32). The test
+still hard-coded the 8×8 lattice's cell numbers: reach 2..8, a centre at
+(3,3)/(4,4), a dig at (4,4), and a blend search over cells 1–6. The checks
+now use `PROSPECTING_GRID_SIZE` and `PROSPECTING_REACH_PER_TIER`, and the
+blend search covers the whole lattice. CLAUDE.md's "8×8 lattice" is corrected
+too.
+
 ## Step 2 — refactor: one placement rule for everything that floats
 
 **Wrong.** Three overlays hang off the pointer or a barrel: the cursor tag, the
