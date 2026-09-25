@@ -520,6 +520,21 @@ static void DashBeginReveal(SurveyDashState *s)
     s->revealT = 0.0f;
 }
 
+/* ---- THE END OF A HOLE -------------------------------------------------
+ *
+ * Once a hole has been taken in -- the reveal run, the cavity closed -- the
+ * console goes back to where it started: no site, no depth, the string
+ * reset, the drill bar dimmed and empty. The hole lives on as its barrel
+ * and its log; the bar is for the next one. */
+static void DashEndHole(SurveyDashState *s)
+{
+    s->sited = false;
+    s->depthPicked = false;
+    DrillSim_Reset(&s->drill);
+    DrillProfile_Clear(&s->profile);
+    s->coreOpen = -1;
+}
+
 /* ---- THE CORE BARRELS -------------------------------------------------
  *
  * Every finished hole stands on the block as a turning core barrel: three
@@ -606,8 +621,9 @@ SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
          * things it cannot collar. */
         case SDP_AIM:
         case SDP_COMPLETE:
-            /* not over the log: it is read, not drilled */
-            return (s->aimArmed && DashInMid(s->pointer) && !DashInLog(s->pointer)) ? SDC_HIDDEN : SDC_ARROW;
+            /* the drill only where it could collar -- over the cap; the sides
+               are the grab hand (above), and everywhere else is the arrow */
+            return (s->aimArmed && s->aimOn) ? SDC_HIDDEN : SDC_ARROW;
         /* the arrow is the precise thing to pick a height with */
         case SDP_STRETCH:
             return DashOverCtrl(s, s->pointer) ? SDC_HAND : SDC_ARROW;
@@ -785,7 +801,11 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
     if (s->revealT >= 0.0f)
     {
         s->revealT += dt / g_revealSlowmo;
-        if (s->revealT >= DASH_REVEAL_S + DASH_CLOSE_S) s->revealT = -1.0f;
+        if (s->revealT >= DASH_REVEAL_S + DASH_CLOSE_S)
+        {
+            s->revealT = -1.0f;
+            DashEndHole(s);                       /* closed up: back to the start */
+        }
     }
     const float rf = DashRevealF(s);
     Holo3D_GroundBlend(g_dashModel, rf);
@@ -949,6 +969,10 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
      * drawn dimmed until then, and a dimmed control that still worked would
      * be lying. */
     if (!DashBarLive(s)) return;
+    /* A finished hole is being taken in, and the bar resets when the cavity
+       has closed: it takes no more taps. (Its ruler used to deepen the
+       finished hole -- see the graveyard, deepen-finished-hole.md.) */
+    if (SurveyDash_Phase(s) == SDP_COMPLETE) return;
 
     if (DashTitleCtrl(s) == DASH_CTRL_ABORT && DashOverCtrl(s, d))
     {
@@ -968,7 +992,10 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                          (int)(at + 0.5f));
             }
             else
+            {
                 snprintf(msg, sizeof(msg), "Drilling aborted at the collar. Nothing to log.");
+                DashEndHole(s);                   /* nothing to take in: straight back */
+            }
             DashLog_Push(s, s->drill.t, msg, NULL);
         }
         return;
@@ -1228,17 +1255,6 @@ void SurveyDash_Cancel(SurveyDashState *s)
             DashLog_Push(s, s->drill.t, "Site cancelled.", NULL);
             return;
         case SDP_PLANNED:
-            if (s->drill.depthM > 0.05f)
-            {
-                /* a deeper plan for a hole already drilled: the hole stays
-                   where it stopped, and so does what it recorded */
-                s->drill.targetM = s->drill.depthM;
-                s->profile.targetM = s->drill.depthM;
-                snprintf(msg, sizeof(msg), "Deeper plan cancelled. Hole stays at %d m.",
-                         (int)(s->drill.depthM + 0.5f));
-                DashLog_Push(s, s->drill.t, msg, NULL);
-                return;
-            }
             /* back to choosing the depth, at the same site */
             s->depthPicked = false;
             s->drill.targetM = -1.0f;
@@ -1282,8 +1298,8 @@ void SurveyDash_DrillNow(SurveyDashState *s, float u, float v, float depthM, boo
         DrillSim_Step(&s->drill, 1.0f / 30.0f);
         DrillProfile_Record(&s->profile, &s->drill);
     }
-    if (reveal) DashBeginReveal(s);
-    else        s->revealT = -1.0f;
     DashKnow_Add(s->know, s->siteI, s->siteJ, s->drill.depthM);
     DashKeepCore(s, s->drill.depthM);
+    if (reveal) DashBeginReveal(s);
+    else        { s->revealT = -1.0f; DashEndHole(s); }
 }

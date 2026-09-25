@@ -710,6 +710,12 @@ real ground they read as spots that mean something. `H3DBuildOpts.plain`
 leaves them out. Ornament on a data surface has to be unmistakably ornament,
 or absent.
 
+**The pointer is the drill only where it can drill.** Over the cap it is
+the drill. Over the sides it is the grab hand (below). Anywhere else, the
+rest of the pane included, it is the ordinary arrow. The drill used to
+follow the pointer across the whole middle pane, switched off wherever it
+could not collar, and floating a disabled tool in empty space says nothing.
+
 **Where the drill cannot go, the hand.** The block's sides cannot be
 drilled, so over them the pointer does not show the drill switched off: it
 shows what the sides *can* do, which is turn. An open hand over a wall

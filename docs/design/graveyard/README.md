@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [Deepening a finished hole](deepen-finished-hole.md) — the drill bar's ruler re-planning a landed hole deeper | Console reset after a hole | `DashEndHole`: the bar goes back to dimmed and empty |
 | [The console block's smooth blue cap](console-blue-cap.md) — a slope-shaded blue sheet with a grid, on a 16 x 13 grid over three tiny craters | Regolith cap | `h3d_paint_regolith_cap`, 32 x 32, eight craters and rolls |
 | [The drill bar's earth tones](drill-bar-earth-tones.md) — the strata's own body, edge and grain colours in `DrillStratum` | One bed palette | `src/ui/bed_palette.h`, shared with the block |
 | [The console block's zoom and tilt](console-block-zoom-and-tilt.md) — the wheel zoom and the 0.15–0.80 rad drag tilt | Yaw-only block | a fixed view that turns about its vertical axis |

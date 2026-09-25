@@ -212,7 +212,7 @@ so the phase cannot disagree with the drill.
 | STRETCH | a tap on the cap | arrow | SELECT DEPTH / *n* m | dimmed, inert |
 | PLANNED | a tap in the middle pane | arrow; **hand** over the bar | TAP THE DRILL BAR / START DIGGING | lit, face pulses amber |
 | DRILLING | a tap on the bar's face (`DrillSim_Start`) | arrow; hand over the bar | — | live — taps drive the bit |
-| COMPLETE | the bit reaching the target | the drill again, to site the next hole | — | lit; the ruler can deepen it |
+| COMPLETE | the bit reaching the target | the drill again, to site the next hole | — | lit, but takes no taps; once the cavity has closed the console resets to AIM (`DashEndHole`) and the bar is dimmed and empty |
 
 **Undo and abort.** Right-click undoes the last choice: in PLANNED it takes
 back the depth (back to STRETCH at the same site; for a deeper re-plan of a
@@ -255,7 +255,7 @@ has told you:
   the holes, 96% MEASURED solid.
 - **Barrels.** Every finished hole keeps a `DrillCoreLog` (1.4 KB: site,
   depth, aborted, each bin's readings packed to a byte) on the console state,
-  up to 32; deepening a hole updates its log instead of adding one. Each
+  up to 32. Each
   stands on its collar as a turning core barrel, taller the deeper it went,
   amber if aborted; barrels in the cutaway's removed quarter, and the one
   where the rig stands, are not drawn.
