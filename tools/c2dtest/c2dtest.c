@@ -755,7 +755,42 @@ int main(int argc, char **argv)
               "a kept log reads back what was recorded, to a byte's precision");
     }
 
-    printf("\n== 20. one palette: the block's beds and the drill bar's strata ==\n");
+    printf("\n== 20. a hole that is over is pulled, and stays a hole ==\n");
+    {
+        DrillSim d;
+        DrillSim_Reset(&d);
+        DrillSim_SetTarget(&d, 20.0f);
+        DrillSim_Start(&d);
+        for (int i = 0; i < 40000 && d.running; i++)
+        {
+            if (i % 7 == 0) DrillSim_Bite(&d);
+            DrillSim_Step(&d, 1.0f / 60.0f);
+        }
+        const float cut = d.depthM;
+        for (int i = 0; i < 60 * 4; i++) DrillSim_Step(&d, 1.0f / 60.0f);   /* 4 s */
+        printf("    cut %.1f m; after 4 s the bit is %.1f m off bottom\n", cut, d.lift);
+        CHECK(fabsf(d.lift - d.depthM) < 0.01f, "finished: the string is pulled to the surface");
+        CHECK(fabsf(d.depthM - cut) < 0.01f, "the hole keeps the depth it was cut to");
+
+        /* re-planned deeper: the string runs back in before it cuts */
+        DrillSim_SetTarget(&d, 30.0f);
+        DrillSim_Start(&d);
+        DrillSim_Step(&d, 1.0f / 60.0f);
+        CHECK(d.lift > 0.0f && fabsf(d.depthM - cut) < 0.01f, "running back in cuts nothing");
+        for (int i = 0; i < 60 * 4; i++) DrillSim_Step(&d, 1.0f / 60.0f);
+        CHECK(d.lift == 0.0f, "and reaches the bottom again");
+
+        /* aborted part way: pulled the same */
+        DrillSim_Reset(&d);
+        DrillSim_SetTarget(&d, 40.0f);
+        DrillSim_Start(&d);
+        for (int i = 0; i < 600; i++) { if (i % 7 == 0) DrillSim_Bite(&d); DrillSim_Step(&d, 1.0f / 60.0f); }
+        DrillSim_Abort(&d);
+        for (int i = 0; i < 60 * 4; i++) DrillSim_Step(&d, 1.0f / 60.0f);
+        CHECK(d.depthM > 0.0f && fabsf(d.lift - d.depthM) < 0.01f, "aborted: pulled, the hole left behind");
+    }
+
+    printf("\n== 21. one palette: the block's beds and the drill bar's strata ==\n");
     {
         /* Real ground paints its beds from bed_palette.h, and the drill bar
            and the core card paint stratum k as bed k of the same table. If

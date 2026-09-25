@@ -29,6 +29,13 @@ extern "C" {
  * they were two spellings of 120 and are now one. */
 #define DRILL_TARGET_M     SUB_COLUMN_M
 
+/* Pulling the string out of a hole that is over, finished or aborted: it
+   takes DRILL_PULL_S whatever the depth, but never slower than
+   DRILL_PULL_MIN_MS metres a second. Running back in to re-plan deeper takes
+   the same. */
+#define DRILL_PULL_S      2.2f
+#define DRILL_PULL_MIN_MS 8.0f
+
 typedef struct DrillStratum {
     const char *name;
     float top, bot;             /* metres                                */

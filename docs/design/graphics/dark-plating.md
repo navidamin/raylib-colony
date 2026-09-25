@@ -525,6 +525,18 @@ width, toward the ruler it is read against, and the rock's names take the
 left. A name is squeezed only as far as it must be to clear the flights. The
 target mark sits in the 12-unit gap between the well and the ruler.
 
+**The hole stays when the string comes out.** The well draws the hole to
+the depth it was cut (`depthM`), not to where the bit is. A trip to change
+the bit lifts the string and leaves the hole behind. So does the pull-out
+that now ends every hole, finished or aborted: the string comes up over
+`DRILL_PULL_S` (2.2 s, never slower than 8 m/s) and parks at the surface.
+Re-planning the same hole deeper runs it back down first, cutting nothing.
+The walls are not ruled (`DcDrawHole`): each wanders up to 1-3.2 units
+beyond the flight radius on smooth value noise keyed on the depth, the soft
+beds more than basalt (roughness = 1 + 2.2 x (1 - hardness)). The floor is
+the cone's point. Drawn as one convex quad per 2 units of depth, never a
+single long polygon, which the ear-clipper can fold.
+
 **Layout discipline, from an alignment pass over the whole console.** Every
 fault it found was one element placed without asking what was next to it.
 The rules it left:

@@ -84,8 +84,7 @@ bool DrillSim_Abort(DrillSim *s)
     if (!s || !s->running) return false;
     s->running = false;
     s->tripping = false;
-    s->lift = 0.0f;
-    s->rate = 0.0f;
+    s->rate = 0.0f;             /* lift stays: DrillSim_Step pulls the string */
     s->targetM = s->depthM;     /* the hole is what was drilled */
     return true;
 }
@@ -141,6 +140,11 @@ void DrillSim_Step(DrillSim *s, float dt)
     {
         s->completed = false;
         s->rate = 0.0f;
+        /* A HOLE THAT IS OVER IS PULLED. Finished or aborted, the string comes
+         * out of the hole and parks at the surface; the hole stays behind,
+         * drawn to depthM. lift is how far the bit is off bottom. */
+        if (s->depthM > 0.0f && s->lift < s->depthM)
+            s->lift = fminf(s->depthM, s->lift + dt * fmaxf(DRILL_PULL_MIN_MS, s->depthM / DRILL_PULL_S));
         s->rpm = fmaxf(0.0f, s->rpm - dt * 0.9f);
         s->heat = Clampf(s->heat - dt * 0.22f, 0.0f, 1.0f);
         s->phase -= s->rpm * 9.0f * dt;
@@ -164,6 +168,16 @@ void DrillSim_Step(DrillSim *s, float dt)
     }
 
     s->completed = false;
+
+    /* Re-planned deeper after the string was pulled: it runs back down to
+       the bottom first, and cuts nothing on the way. */
+    if (s->lift > 0.0f)
+    {
+        s->lift = fmaxf(0.0f, s->lift - dt * fmaxf(DRILL_PULL_MIN_MS, s->depthM / DRILL_PULL_S));
+        s->rate = 0.0f;
+        s->phase -= s->rpm * 9.0f * dt;
+        return;
+    }
 
     /* The string stops AT the depth that was asked for. Without this the
      * borehole bar is a label rather than a control. */

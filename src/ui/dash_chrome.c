@@ -728,6 +728,53 @@ static void DcGauge(float x, float y, float w, const char *label, float v,
     DcRRectStroke(x, by, w, bh, 4.0f, C_line, 1.0f);
 }
 
+/* A HOLE IS NOT RULED. Its walls wander a little either side of the flight
+ * diameter -- the rock breaks back where it is weak -- and the loose beds
+ * wander more than the basalt. Smooth value noise keyed on the depth, so a
+ * wall holds its shape from frame to frame and the same metre looks the same
+ * every time it is drawn. */
+static float DcHoleHash(int i, int side)
+{
+    unsigned int h = (unsigned int)i * 374761393u + (unsigned int)side * 668265263u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return (float)((h ^ (h >> 16)) & 0xffffu) / 65535.0f;
+}
+
+static float DcHoleNoise(float m, int side)
+{
+    const float f = m / 1.6f;                  /* one wobble every 1.6 m */
+    const int i = (int)floorf(f);
+    const float t = f - (float)i, s = t * t * (3.0f - 2.0f * t);
+    return DcHoleHash(i, side) * (1.0f - s) + DcHoleHash(i + 1, side) * s;
+}
+
+static void DcDrawHole(float cx, float top, float bot, float holeY)
+{
+    const Color dark = RGB(0x07, 0x0b, 0x11);
+    const float step = 2.0f;
+    float prevY = top, prevL = 0.0f, prevR = 0.0f;
+    for (int k = 0; ; k++)
+    {
+        float yy = top + (float)k * step;
+        if (yy > holeY) yy = holeY;
+        /* the rock at this height sets how far the wall may wander */
+        const float m = (yy - top) / fmaxf(1.0f, bot - top) * DRILL_TARGET_M;
+        const float rough = 1.0f + 2.2f * (1.0f - DrillSim_At(m)->hard);
+        const float l = cx - RIG_R - rough * DcHoleNoise(m, 0);
+        const float r = cx + RIG_R + rough * DcHoleNoise(m, 1);
+        if (k > 0)
+        {
+            const Vector2 q[4] = {{prevL, prevY}, {prevR, prevY}, {r, yy}, {l, yy}};
+            c2d_fill_poly(q, 4, dark);
+        }
+        prevY = yy; prevL = l; prevR = r;
+        if (yy >= holeY) break;
+    }
+    /* the floor: the cone's own point, cut a little ragged */
+    const Vector2 floorTri[3] = {{prevL, prevY}, {prevR, prevY}, {cx + 1.5f, prevY + 7.0f}};
+    c2d_fill_poly(floorTri, 3, dark);
+}
+
 static void DcRoughDrill(float x, float y, float w, float h,
                          const DrillSim *sim, float dt)
 {
@@ -777,9 +824,12 @@ static void DcRoughDrill(float x, float y, float w, float h,
         }
     }
 
-    /* the hole the string has already made */
-    if (rig.bitY > top)
-        c2d_rect(cx - RIG_R, top, RIG_R * 2.0f, rig.bitY - top, RGB(0x07, 0x0b, 0x11));
+    /* THE HOLE THE STRING HAS MADE, to the depth it was cut -- not to where
+     * the bit is. A trip or the pull-out at the end lifts the string; the
+     * hole stays. */
+    const float holeM = sim ? sim->depthM : 0.0f;
+    const float holeY = top + (bot - top) * Clampf01(holeM / DRILL_TARGET_M);
+    if (holeY > top + 0.5f) DcDrawHole(cx, top, bot, holeY);
 
     /* BACK of the flight, then the shaft over it, then the FRONT -- that
      * ordering is the whole reason the auger reads as round. */
