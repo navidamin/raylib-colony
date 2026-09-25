@@ -12,6 +12,11 @@ graphics in raylib faithfully: the **c2d shim** (`src/ui/c2d.h`), a
 **`docs/guides/js-graphics-port.md`. Read it now, before anything else.**
 This file is the checklist that keeps you on it.
 
+If `src/ui/c2d.h` doesn't exist on this branch, the system isn't here
+yet. It ships as one commit: `git fetch origin claude/c2d-graphics-kit &&
+git cherry-pick origin/claude/c2d-graphics-kit`. Ask the user before
+cherry-picking.
+
 ## First, confirm it's Canvas 2D
 
 `grep -n "getContext" <file>`. If it's `'2d'`, continue. If it's WebGL,
@@ -30,8 +35,8 @@ three.js, SVG or DOM/CSS layout, c2d doesn't apply, so stop and ask the user.
    unless told to run straight through.
 3. **Shim first.** Close every `MISSING` row in `c2d.h`/`c2d.c`, each with a
    `tools/c2dtest/c2dtest.c` assertion. Then `tools/c2dtest/c2dtest.sh`
-   passes and the existing diffs are unchanged
-   (`SS=2 tools/visdiff/visdiff.sh`, `SS=2 tools/visdiff/visdiff_toolrack.sh`).
+   passes and every existing diff is unchanged
+   (`for d in tools/visdiff/visdiff*.sh; do SS=2 "$d"; done`).
 4. **Harness before port.** Copy the ToolRack set (`ref_toolrack.html`,
    `shoot_toolrack.js`, `toolrack_main.c`, `visdiff_toolrack.sh`, the CMake
    target). Local `@font-face`, fixed time and state, dpr 1, randomness off

@@ -18,6 +18,39 @@ This guide adds the **order of work**, the **scanner** that starts the
 inventory (`tools/jsport/gapscan.py`), the **harness recipe** for a new
 module, and the **traps**.
 
+### Getting the system onto another branch
+
+The whole system (shim, tests, diff harness, fonts, ToolRack as the worked
+example, this guide, the scanner and the skill) ships as **one commit** at
+the tip of branch `claude/c2d-graphics-kit`, built on `main`. To use it on
+another branch:
+
+```bash
+git fetch origin claude/c2d-graphics-kit
+git cherry-pick origin/claude/c2d-graphics-kit
+tools/c2dtest/c2dtest.sh                         # shim tests pass
+SS=2 tools/visdiff/visdiff_toolrack.sh           # 1.83%: the kit arrived intact
+```
+
+Every file in the kit is new except two, and each of those gets one hunk.
+On a branch whose copies are too old to match, the conflict is mechanical:
+keep the branch's own file and re-add the kit's hunk.
+
+- `src/CMakeLists.txt`: one line at the top,
+  `include("${CMAKE_CURRENT_SOURCE_DIR}/ui/c2d_targets.cmake")`.
+- `CLAUDE.md`: the "Porting JS graphics (c2d)" section under the opening
+  line.
+
+Tested: clean onto `farming-unit-design`, `graphics-engine-extend` and
+`lunarmap-wiring-site-selection`. The hunks need adding by hand on
+`develop` and `section-visual-redesign`, which predate the current
+`src/CMakeLists.txt`.
+
+The Holo3D port, the dashboard chrome and the survey console that assembles
+them are **not** in the kit. They live on
+`claude/excavation-module-design-jhp3v1`, where the system was built, and
+so do the commits the traps below cite.
+
 > **The one rule.** A port is a 1:1 translation of draw calls, never a
 > redesign. If the JS draws a 4-stop gradient on a concave polygon, so does
 > the port. A flat fill where the reference has a gradient is a port failure,
@@ -81,7 +114,7 @@ the source anyway.
 
 Write `docs/design/<module>/<name>-inventory.md` (precedents:
 [`toolrack-inventory.md`](../design/prospecting/toolrack-inventory.md),
-[`holo3d-inventory.md`](../design/prospecting/holo3d-inventory.md)). Start
+`holo3d-inventory.md` on the excavation branch). Start
 from the scanner's skeleton:
 
 | JS line | Canvas call | Spec § | Shim function | Status | Notes |
@@ -124,8 +157,7 @@ Then prove you broke nothing:
 
 ```bash
 tools/c2dtest/c2dtest.sh                    # all pass
-SS=2 tools/visdiff/visdiff.sh               # Holo3D unchanged
-SS=2 tools/visdiff/visdiff_toolrack.sh      # ToolRack unchanged
+for d in tools/visdiff/visdiff*.sh; do SS=2 "$d"; done   # every port unchanged
 ```
 
 The existing ports' diffs should be **identical** either side of a shim
@@ -146,7 +178,7 @@ cleanest template:
 | `tools/visdiff/shoot_<name>.js` | `shoot_toolrack.js` | the page filename and the viewport |
 | `tools/visdiff/<name>_main.c` | `toolrack_main.c` | the include, the surface size, the fixed state, the draw call |
 | `tools/visdiff/visdiff_<name>.sh` | `visdiff_toolrack.sh` | target name, args, default `TAG` |
-| CMake target `<name>_visdiff` | `toolrack_visdiff` in `src/CMakeLists.txt` | the source file |
+| CMake target `<name>_visdiff` | `toolrack_visdiff`, next to `colony_c2d` | the source file |
 
 The reference page's rules are non-negotiable, and each one exists because
 its absence once invalidated a run:
@@ -167,8 +199,10 @@ Screenshot the reference alone and **look at it** before going on.
 
 ### 5. Port — translate, don't reinterpret
 
-Write `src/ui/<name>.c` + `<name>.h`, and add the `.c` to `colony_c2d` in
-`src/CMakeLists.txt`.
+Write `src/ui/<name>.c` + `<name>.h`, and add the `.c` to the
+`colony_c2d` library. That's `src/ui/c2d_targets.cmake` where the kit was
+cherry-picked, and `src/CMakeLists.txt` on the branch the system was built
+on. `grep -rn "add_library(colony_c2d" src` finds it.
 
 - **C99**, `extern "C"` guards in the header, project naming conventions.
   The header comment cites the source file and line range, links the
@@ -241,16 +275,17 @@ finished (see [`feature-completeness.md`](feature-completeness.md)).
   the whole window. Presenting against the window and then scissoring
   crops the design space instead of fitting it. That cut the top off the
   rack the first time.
-- Input: convert with **`c2d_to_design`** before any hit test.
-  `SurveyDash_*` in `src/ui/survey_dash.c` and its caller in
-  `rendermanager.cpp` are the working pattern: screen points in, converted
-  inside.
+- Input: convert with **`c2d_to_design`** before any hit test. Take
+  screen points at the module's API and convert inside. `SurveyDash_*` in
+  `src/ui/survey_dash.c` and its caller in `rendermanager.cpp` are the
+  working pattern, on the branch that has the console.
 - Obey the display-scale rules in CLAUDE.md (no raw
   `GetScreenWidth`/`BeginTextureMode` etc. in game code).
 - **Web memory.** Every offscreen target is multiplied by the supersample
-  factor squared. The console runs supersample 1 under `__EMSCRIPTEN__`
-  (`DASH_SS`). A new module that adds design-sized layers must check what
-  it adds to the tab's budget.
+  factor squared. Run supersample 1 under `__EMSCRIPTEN__` (the survey
+  console's `DASH_SS` does). At 2, seven design-sized targets came to
+  126 MB and the browser refused them. A new module that adds design-sized
+  layers must check what it adds to the tab's budget.
 - Render it in context with `tools/preview/preview.sh` and **look at the
   PNG**. Then build every target.
 
@@ -271,7 +306,8 @@ just in the harness.
 ## Traps
 
 Each one cost a real session. They're all fixed in the shim or the harness
-now. The list is here so nobody reintroduces one by going around them.
+now. The list is here so nobody reintroduces one by going around them. The
+cited commits are on `claude/excavation-module-design-jhp3v1`.
 
 1. **The em square** (c24cd7b). Canvas `font: 24px` sets the *em* to 24px;
    raylib's size sets ascent−descent. For JetBrains Mono that's a factor of
@@ -331,14 +367,19 @@ now. The list is here so nobody reintroduces one by going around them.
 
 ## Port registry
 
-| Module | Source | C port | Inventory | Harness | Diff (SS=2) |
-|---|---|---|---|---|---|
-| Holo3D | `js/dashboard.html` 965–1290 (= `js/holo3d.js`) | `src/ui/holo3d.c` | [holo3d-inventory](../design/prospecting/holo3d-inventory.md) | `visdiff.sh` | 1.15% |
-| ToolRack (variant B) | `js/dashboard.html` 21–712 (= `js/toolrack.js`) | `src/ui/toolrack.c` | [toolrack-inventory](../design/prospecting/toolrack-inventory.md) | `visdiff_toolrack.sh` | 1.83% |
-| Dashboard chrome (subset) | `js/dashboard.html` 1290–1670 | `src/ui/dash_chrome.c` | — (header lists scope + deviation) | none | not gated |
-| HoloBlock | `js/dashboard.html` 717–964 | not ported | — | — | scan flags 1 `MISSING`: diagonal gradient, line 800 |
-| layers-block | `js/layers-block.html` (1600×1300) | not ported | — | — | — |
+"Where" is the branch that carries the port: **kit** means it's in the
+`claude/c2d-graphics-kit` commit (and so on every branch that picked it),
+**excavation** means `claude/excavation-module-design-jhp3v1` only.
 
-`survey_dash.c` assembles the ported modules into the console using the
-dashboard's own `DASH.layout`. `drill_sim.c` and `dash_knowledge.c` are
-logic ports (no drawing), which this protocol doesn't cover.
+| Module | Source | C port | Inventory | Harness | Diff (SS=2) | Where |
+|---|---|---|---|---|---|---|
+| ToolRack (variant B) | `js/dashboard.html` 21–712 (= `js/toolrack.js`) | `src/ui/toolrack.c` | [toolrack-inventory](../design/prospecting/toolrack-inventory.md) | `visdiff_toolrack.sh` | 1.83% | kit |
+| Holo3D | `js/dashboard.html` 965–1290 (= `js/holo3d.js`) | `src/ui/holo3d.c` | `docs/design/prospecting/holo3d-inventory.md` | `visdiff.sh` | 1.15% | excavation |
+| Dashboard chrome (subset) | `js/dashboard.html` 1290–1670 | `src/ui/dash_chrome.c` | — (header lists scope + deviation) | none | not gated | excavation |
+| HoloBlock | `js/dashboard.html` 717–964 | not ported | — | — | scan flags 1 `MISSING`: diagonal gradient, line 800 | — |
+| layers-block | `js/layers-block.html` (1600×1300) | not ported | — | — | — | — |
+
+On the excavation branch, `survey_dash.c` assembles the ported modules into
+the console using the dashboard's own `DASH.layout`. `drill_sim.c` and
+`dash_knowledge.c` there are logic ports (no drawing), which this protocol
+doesn't cover.
