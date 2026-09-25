@@ -1,5 +1,5 @@
 /* survey_dash.c — see survey_dash.h. */
-#include "survey_dash.h"
+#include "survey_dash_internal.h"
 #include "bed_palette.h"
 
 #include "c2d.h"
@@ -8,91 +8,6 @@
 #include <math.h>
 #include <string.h>
 
-#ifndef PI
-#define PI 3.14159265358979323846f
-#endif
-#define RGBA8(r,g,b,a) ((Color){(r),(g),(b),(unsigned char)((a)*255.0f)})
-
-/* THREE PANES, which is a layout decision and not the reference's. The JS
- * dashboard has four blocks -- rack + tool stats down the left, block + log in
- * the middle, drill bar + drill stats down the right. This console is three:
- *
- *      left    the tool rack
- *      middle  the block, with the message log beneath it
- *      right   the drill bar
- *
- * The two stats blocks have no pane, so they are not drawn. Placement inside
- * each pane still comes from the reference (rack scale, block camera), so the
- * modules themselves are untouched -- only where the console puts them.
- *
- * 1536 = 20 + 350 + 16 + 744 + 16 + 370 + 20. */
-#define PANE_M   20.0f
-#define PANE_G   16.0f
-#define PANE_TOP 20.0f
-#define PANE_H   (SURVEY_DASH_DESIGN_H - PANE_TOP * 2.0f)
-
-#define LEFT_X    PANE_M
-#define LEFT_W    350.0f
-#define MID_X     (LEFT_X + LEFT_W + PANE_G)
-#define MID_W     744.0f
-#define RIGHT_X   (MID_X + MID_W + PANE_G)
-#define RIGHT_W   370.0f
-
-/* THE SIDE COLUMNS ARE TWO PANELS EACH: the instrument, and its stats under
- * it. That is the reference's own arrangement (dashboard.html's layout.stats
- * and layout.dstats) and the three-pane port had dropped it for want of
- * room. The stats are what a tool or a running drill reports, so they belong
- * under the thing they describe. */
-#define STATS_H   168.0f
-#define STATS_GAP  12.0f
-#define MAIN_H    (PANE_H - STATS_H - STATS_GAP)
-#define STATS_Y   (PANE_TOP + MAIN_H + STATS_GAP)
-
-/* THE RACK SCALES UNIFORMLY. It was 0.845 across and 0.925 down -- a squash
- * nobody chose, left over from filling a taller pane. One factor, fitted to
- * whichever of the two axes runs out first, and centred in what is left. */
-#define RACK_FIT_W  (LEFT_W - 16.0f)
-#define RACK_FIT_H  (MAIN_H - 30.0f)   /* the panel's bracket needs air above and below */
-#define DASH_RACK_SCALE \
-    ((RACK_FIT_W / TR_W) < (RACK_FIT_H / TR_H) ? (RACK_FIT_W / TR_W) : (RACK_FIT_H / TR_H))
-#define DASH_RACK_SCALE_Y DASH_RACK_SCALE
-#define DASH_RACK_X       (LEFT_X + (LEFT_W - TR_W * DASH_RACK_SCALE) * 0.5f)
-#define DASH_RACK_Y       (PANE_TOP + (MAIN_H - TR_H * DASH_RACK_SCALE) * 0.5f)
-
-/* the block, the confidence bar, then the log, down the middle pane */
-#define CONF_H         76.0f
-#define LOG_H         196.0f
-#define LOG_X         (MID_X + 16.0f)
-#define LOG_Y         (PANE_TOP + PANE_H - LOG_H - 16.0f)
-#define CONF_Y        (LOG_Y - CONF_H - 12.0f)
-#define LOG_W         (MID_W - 32.0f)
-/* THE BLOCK AND ITS RULER ARE CENTRED AS ONE. The ruler stands off the
- * block's right edge, so the block sits DASH_BLOCK_DX left of the pane's
- * middle; and DASH_BLOCK_DY down, so the tallest core barrel (a hole to the
- * target, at the cap's far corner) stays inside the pane's frame. */
-#define DASH_BLOCK_DX (-46.0f)
-#define DASH_BLOCK_DY 18.0f
-#define DASH_BLOCK_CX (MID_X + MID_W * 0.5f + DASH_BLOCK_DX)
-#define DASH_BLOCK_CY (PANE_TOP + (CONF_Y - PANE_TOP) * 0.50f + DASH_BLOCK_DY)
-
-/* The block was drawn at a fifth of its size in a pane seven hundred units
- * wide -- the reference's zoom, carried over without re-fitting it to a pane
- * that is a different shape. At 0.34 it fills the space it has, with room
- * above the cap for the core barrels.
- *
- * THE VIEW IS FIXED BUT FOR YAW. The block turns about its vertical axis
- * and nothing else: no zoom, no tilt. Every depth reading on it -- the
- * height log, the stretch, the cutaway -- is read at this one tilt, and a
- * view that moved in three ways gave three ways to lose the thread (see the
- * graveyard, console-block-zoom-and-tilt.md). */
-#define DASH_BLOCK_ZOOM  0.34f
-#define DASH_BLOCK_PITCH 0.42f
-
-/* the rect inside which a drag rotates the block */
-#define DASH_BLOCK_X0 (MID_X + 20.0f)
-#define DASH_BLOCK_Y0 (PANE_TOP + 20.0f)
-#define DASH_BLOCK_X1 (MID_X + MID_W - 20.0f)
-#define DASH_BLOCK_Y1 (CONF_Y - 8.0f)
 
 /* The console ships supersampled: Canvas antialiases coverage and raylib does
  * not, and 2 is where that stops paying (docs/design/prospecting/
@@ -117,24 +32,12 @@
   #define DASH_SS 2
 #endif
 
-/* The tip reticle's radius, as a fraction of the block's width: about the
- * size the target mark it replaced read at, with its ticks clear of the
- * drill's point. */
-#define DASH_TIP_RETICLE_R 0.10f
-
-/* How long the model takes a hole in, with the cut still open: the beds
- * morph, the fog lifts, the delineation climbs. Then the cavity closes over
- * DASH_CLOSE_S -- slowly at first, gathering speed, shut at the end -- and
- * the whole block is back. */
-#define DASH_REVEAL_S 3.0f
-#define DASH_CLOSE_S  2.0f
-
 /* THE ONLY FILE STATICS LEFT, and they are the process's, not a console's:
  * one render surface, one set of fonts, one block geometry, shared by every
  * console that draws. Everything a console remembers is in SurveyDashState. */
 static bool         g_resReady = false;
 static C2DSurface   g_surf;
-static Holo3DModel *g_model = NULL;
+Holo3DModel *g_dashModel = NULL;
 
 /* What ground the ONE model is currently carrying. It is the model's
  * property, not a console's: two prospecting units have different ground and
@@ -145,7 +48,6 @@ static int   g_groundRev = -1;
 static float g_revealSlowmo = 1.0f;          /* harness only */
 void SurveyDash_SetRevealSlowmo(float f) { g_revealSlowmo = f < 1.0f ? 1.0f : f; }
 
-static float Clampf01v(float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
 /* ---- the fog ----------------------------------------------------------
  *
@@ -219,9 +121,8 @@ static void DashLog_Bind(SurveyDashLog *L)
  *
  * The strata are named inside their own bands; what the ruler marks is the
  * HOLE's landmarks. */
-#define DASH_RULER_TICKS (DRILL_STRATA_COUNT + 1)
 
-static const DashDepth *SurveyDash_Ruler(void)
+const DashDepth *DashRuler(void)
 {
     static DashDepth d[DASH_RULER_TICKS];
     static char      label[DASH_RULER_TICKS][12];
@@ -300,10 +201,10 @@ void SurveyDash_Feed(SurveyDashState *s, const SurveyDashFeed *feed)
     /* The ground, only when it has actually moved. Holo3D holds one point
      * grid for the process, so the check is against what the MODEL carries,
      * not against what this console last asked for. */
-    if (g_model && feed->groundAt &&
+    if (g_dashModel && feed->groundAt &&
         (g_groundCtx != feed->groundCtx || g_groundRev != feed->groundRevision))
     {
-        Holo3D_SetGround(g_model, feed->bedCount, feed->groundAt, feed->groundCtx,
+        Holo3D_SetGround(g_dashModel, feed->bedCount, feed->groundAt, feed->groundCtx,
                          feed->bedText);
         g_groundCtx = feed->groundCtx;
         g_groundRev = feed->groundRevision;
@@ -340,8 +241,8 @@ bool SurveyDash_Init(void)
     opts.surfaceW = SURVEY_DASH_DESIGN_W;
     opts.surfaceH = SURVEY_DASH_DESIGN_H;
     opts.plain = true;          /* real ground: no decorative motes */
-    g_model = Holo3D_Build(&opts);
-    if (!g_model) { c2d_surface_destroy(&g_surf); return false; }
+    g_dashModel = Holo3D_Build(&opts);
+    if (!g_dashModel) { c2d_surface_destroy(&g_surf); return false; }
 
     g_resReady = true;
     return true;
@@ -350,8 +251,8 @@ bool SurveyDash_Init(void)
 void SurveyDash_Shutdown(void)
 {
     if (!g_resReady) return;
-    Holo3D_Free(g_model);
-    g_model = NULL;
+    Holo3D_Free(g_dashModel);
+    g_dashModel = NULL;
     g_groundCtx = NULL;
     g_groundRev = -1;
     c2d_surface_destroy(&g_surf);
@@ -432,63 +333,15 @@ static void DashTargetMark(Vector2 p, float r, float spin, Color c, float lw)
     DashTargetMarkShapes(p, r, spin, c, lw);
 }
 
-/* Where the height log stood this frame, labels included, so the cursor tag
- * can keep off it: the tag used to land on 12 m whenever a depth was picked
- * near the block's right edge. Zero width when there is no log. */
-static Rectangle g_rulerBox = {0};
-
-/* ---- THE HEIGHT LOG --------------------------------------------------
- *
- * The same ruler the drill bar carries, stood beside the block, so the two
- * read as one scale: 12 m on the block IS 12 m in the borehole.
- *
- * It rides the block's RIGHTMOST vertical edge. The camera has no world-y
- * term in screen x, so every edge of the block is a vertical line on screen
- * at every yaw and pitch, and depth along it is linear -- a flat ruler laid
- * against it is exact, not an approximation, and it follows rotation and
- * zoom for free. Rightmost, because the ruler labels to its right and the
- * pane has room there; the leftmost edge would put the labels on the block. */
-static void DashDrawHeightLog(void)
-{
-    if (!g_model) return;
-    static const float cu[4] = {0.0f, 1.0f, 1.0f, 0.0f};
-    static const float cv[4] = {0.0f, 0.0f, 1.0f, 1.0f};
-    int best = 0;
-    float bestX = -1e9f;
-    for (int c = 0; c < 4; c++)
-    {
-        const Vector2 p = Holo3D_ColumnPoint(g_model, cu[c], cv[c], 0.0f);
-        if (p.x > bestX) { bestX = p.x; best = c; }
-    }
-    const Vector2 top = Holo3D_ColumnPoint(g_model, cu[best], cv[best], 0.0f);
-    const Vector2 bot = Holo3D_ColumnPoint(g_model, cu[best], cv[best], 1.0f);
-
-    /* clear of the edge, and never past the pane's own margin */
-    float x = top.x + 22.0f;
-    if (x > MID_X + MID_W - 96.0f) x = MID_X + MID_W - 96.0f;
-    /* Depths only. SURFACE and TARGET are the HOLE's landmarks and belong on
-     * the drill bar; on the block the cap is plainly the surface, and at this
-     * scale SURFACE lands on the 12 m label. */
-    DashDepth plain[DASH_RULER_TICKS];
-    const DashDepth *src = SurveyDash_Ruler();
-    for (int i = 0; i < DASH_RULER_TICKS; i++)
-        plain[i] = (DashDepth){src[i].m, src[i].depth, NULL};
-    Dash_DepthRuler(x, top.y, bot.y, plain, DASH_RULER_TICKS);
-    g_rulerBox = (Rectangle){x - 6.0f, top.y - 14.0f, 86.0f, bot.y - top.y + 28.0f};
-}
-
 /* THE SITE, ON THE GROUND. Left where the hole was collared, projected onto
  * the cap so it rides the block's rotation and zoom. */
-static bool DashCutActive(const SurveyDashState *s);
-static bool DashClosing(const SurveyDashState *s);
-static bool DashWantsGrab(const SurveyDashState *s);
 
 static void DashDrawSite(const SurveyDashState *s)
 {
     /* the site mark and the borehole belong to the hole being made; a
        finished hole is its barrel, and the block is whole again */
-    if (!g_model || !s->sited || !DashCutActive(s) || DashClosing(s)) return;
-    const Vector2 p = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
+    if (!g_dashModel || !s->sited || !DashCutActive(s) || DashClosing(s)) return;
+    const Vector2 p = Holo3D_CapPoint(g_dashModel, s->siteU, s->siteV);
     const float pulse = 0.85f + 0.15f * sinf(s->drill.t * 3.0f);
     DashTargetMark(p, 7.0f * pulse, s->drill.t * 0.6f, RGBA8(0xff, 0xc8, 0x4d, 0.95f), 1.6f);
 }
@@ -509,17 +362,17 @@ static void DashDrawSite(const SurveyDashState *s)
 
 /* The bed a point on the site's borehole is in, by the block's own ground
  * at the site -- the name the tag gives the depth being chosen. */
-static const char *DashBedAt(const SurveyDashState *s, float screenY)
+const char *DashBedAt(const SurveyDashState *s, float screenY)
 {
-    if (!g_model) return NULL;
-    const int beds = Holo3D_LayerCount(g_model);
+    if (!g_dashModel) return NULL;
+    const int beds = Holo3D_LayerCount(g_dashModel);
     for (int k = 0; k < beds; k++)
     {
         Vector2 top, bot;
-        Holo3D_BedSpan(g_model, k, s->siteU, s->siteV, &top, &bot);
+        Holo3D_BedSpan(g_dashModel, k, s->siteU, s->siteV, &top, &bot);
         if (screenY <= bot.y + 0.5f || k == beds - 1)
         {
-            const H3DLayer *ly = Holo3D_Layer(g_model, k);
+            const H3DLayer *ly = Holo3D_Layer(g_dashModel, k);
             return ly ? ly->name : NULL;
         }
     }
@@ -544,9 +397,9 @@ static bool DashStretching(const SurveyDashState *s)
 
 static float DashStretch01(const SurveyDashState *s, Vector2 pt)
 {
-    if (!g_model) return 0.0f;
-    const Vector2 top = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
-    const Vector2 bot = Holo3D_ColumnPoint(g_model, s->siteU, s->siteV, 1.0f);
+    if (!g_dashModel) return 0.0f;
+    const Vector2 top = Holo3D_CapPoint(g_dashModel, s->siteU, s->siteV);
+    const Vector2 bot = Holo3D_ColumnPoint(g_dashModel, s->siteU, s->siteV, 1.0f);
     const float span = bot.y - top.y;
     if (span <= 1.0f) return 0.0f;
     const float f = (pt.y - top.y) / span;
@@ -557,7 +410,7 @@ static float DashStretch01(const SurveyDashState *s, Vector2 pt)
  * finish the instant it began. */
 #define DASH_MIN_HOLE_M 2.0f
 
-static float DashStretchMetres(const SurveyDashState *s, Vector2 pt)
+float DashStretchMetres(const SurveyDashState *s, Vector2 pt)
 {
     float m = roundf(DashStretch01(s, pt) * DRILL_TARGET_M);
     return m < DASH_MIN_HOLE_M ? DASH_MIN_HOLE_M : m;
@@ -573,9 +426,9 @@ static Vector2 DashLerp(Vector2 a, Vector2 b, float t)
  * solid over it. */
 static void DashDrawBorehole(const SurveyDashState *s)
 {
-    if (!g_model || !s->sited || !DashCutActive(s) || DashClosing(s)) return;
-    const Vector2 top = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
-    const Vector2 bot = Holo3D_ColumnPoint(g_model, s->siteU, s->siteV, 1.0f);
+    if (!g_dashModel || !s->sited || !DashCutActive(s) || DashClosing(s)) return;
+    const Vector2 top = Holo3D_CapPoint(g_dashModel, s->siteU, s->siteV);
+    const Vector2 bot = Holo3D_ColumnPoint(g_dashModel, s->siteU, s->siteV, 1.0f);
 
     if (DashStretching(s))
     {
@@ -614,7 +467,7 @@ static void DashDrawBorehole(const SurveyDashState *s)
 /* THE CUT IS FOR THE HOLE BEING MADE. It opens when a site is taken and
  * closes when the hole is finished or aborted: the whole block is back, so
  * every spot on it can be clicked for the next site. */
-static bool DashCutActive(const SurveyDashState *s)
+bool DashCutActive(const SurveyDashState *s)
 {
     const SurveyDashPhase ph = SurveyDash_Phase(s);
     if (ph == SDP_COMPLETE && s->revealT >= 0.0f) return true;   /* taking it in, closing */
@@ -622,7 +475,7 @@ static bool DashCutActive(const SurveyDashState *s)
 }
 
 /* Closing: the cavity is shrinking and the hole's line has gone. */
-static bool DashClosing(const SurveyDashState *s)
+bool DashClosing(const SurveyDashState *s)
 {
     return SurveyDash_Phase(s) == SDP_COMPLETE && s->revealT >= DASH_REVEAL_S;
 }
@@ -631,12 +484,12 @@ static bool DashClosing(const SurveyDashState *s)
  * taken in; while closing it travels out to the block's near corner on an
  * ease-in -- slow at first, gathering speed -- so the cavity contracts and
  * shuts rather than vanishing. */
-static void DashCutPoint(const SurveyDashState *s, float *u, float *v)
+void DashCutPoint(const SurveyDashState *s, float *u, float *v)
 {
     *u = s->siteU; *v = s->siteV;
-    if (!DashClosing(s) || !g_model) return;
+    if (!DashClosing(s) || !g_dashModel) return;
     float cu, cv;
-    Holo3D_NearCorner(g_model, &cu, &cv);
+    Holo3D_NearCorner(g_dashModel, &cu, &cv);
     const float t = Clampf01v((s->revealT - DASH_REVEAL_S) / DASH_CLOSE_S);
     const float e = t * t * t;
     *u = s->siteU + (cu - s->siteU) * e;
@@ -666,10 +519,6 @@ static void DashBeginReveal(SurveyDashState *s)
  * the hole went (the prototype's DrawBores, survey-dashboard.html). It says
  * "drilled here, this deep" at a glance, and it is the handle for the hole's
  * log: hover shows it, a click pins it. An aborted hole's barrel is amber. */
-/* Sized to be seen: at 5.5 wide and 18-46 tall the first cut was a faint
- * dashed sliver on the bright cap, and the playtest could not find it. */
-#define DASH_BARREL_RW 9.0f
-#define DASH_BARREL_RISE_S 0.4f        /* a new barrel rising out of its collar */
 
 static void DashKeepCore(SurveyDashState *s, float depthM)
 {
@@ -687,228 +536,6 @@ static void DashKeepCore(SurveyDashState *s, float depthM)
     }
     DrillCoreLog_From(&s->cores[idx], &s->profile, s->siteU, s->siteV, depthM);
     s->coreOpen = idx;
-}
-
-typedef struct DashBarrel { float cx, gy, top, rw, rh; } DashBarrel;
-
-/* a barrel's height: a stub for any hole, and the rest in proportion to its
-   depth -- short enough that the deepest stays inside the pane */
-#define DASH_BARREL_H0 18.0f
-#define DASH_BARREL_HD 32.0f
-
-static DashBarrel DashBarrelOf(const DrillCoreLog *l)
-{
-    const Vector2 g = Holo3D_CapPoint(g_model, l->u, l->v);
-    const float deep = Clampf01v(l->depthM / DRILL_TARGET_M);
-    DashBarrel b;
-    b.cx = g.x; b.gy = g.y + 2.0f;
-    b.top = b.gy - (DASH_BARREL_H0 + DASH_BARREL_HD * deep);
-    b.rw = DASH_BARREL_RW;
-    b.rh = b.rw * 0.40f;
-    return b;
-}
-
-/* A barrel whose hole lies in the quarter the cutaway took out would stand
- * on nothing; the hole at the site being worked has the rig in it. */
-static bool DashBarrelShown(const SurveyDashState *s, int i)
-{
-    const DrillCoreLog *l = &s->cores[i];
-    const SurveyDashPhase ph = SurveyDash_Phase(s);
-    /* the new hole's barrel arrives when the reveal is done, before the
-       cavity closes: the model has taken the hole in, and this marks it */
-    if (i == s->coreOpen && (ph == SDP_PLANNED || ph == SDP_DRILLING || ph == SDP_STRETCH ||
-                             (s->revealT >= 0.0f && s->revealT < DASH_REVEAL_S))) return false;
-    if (DashCutActive(s) && s->block.explode <= 0.02f)
-    {
-        float cu, cv, pu, pv;
-        Holo3D_NearCorner(g_model, &cu, &cv);
-        DashCutPoint(s, &pu, &pv);
-        const bool inU = (l->u - pu) * (cu - pu) > 0.0f;
-        const bool inV = (l->v - pv) * (cv - pv) > 0.0f;
-        if (inU && inV) return false;
-    }
-    return true;
-}
-
-static int DashBarrelAt(const SurveyDashState *s, Vector2 p)
-{
-    if (!g_model) return -1;
-    for (int i = s->coreCount - 1; i >= 0; i--)
-    {
-        if (!DashBarrelShown(s, i)) continue;
-        const DashBarrel b = DashBarrelOf(&s->cores[i]);
-        if (p.x >= b.cx - b.rw - 5.0f && p.x <= b.cx + b.rw + 5.0f &&
-            p.y >= b.top - b.rh - 4.0f && p.y <= b.gy + b.rh + 3.0f)
-            return i;
-    }
-    return -1;
-}
-
-static Vector2 DashEllipsePt(float cx, float cy, float rw, float rh, float a)
-{
-    return (Vector2){cx + cosf(a) * rw, cy + sinf(a) * rh};
-}
-
-static void DashDrawBarrels(const SurveyDashState *s)
-{
-    if (!g_model) return;
-    const float t = s->drill.t;
-    for (int i = 0; i < s->coreCount; i++)
-    {
-        if (!DashBarrelShown(s, i)) continue;
-        const DrillCoreLog *l = &s->cores[i];
-        DashBarrel b = DashBarrelOf(l);
-        /* arriving: it rises out of its collar over DASH_BARREL_RISE_S */
-        if (i == s->coreOpen && s->revealT >= DASH_REVEAL_S)
-        {
-            const float k = Clampf01v((s->revealT - DASH_REVEAL_S) / DASH_BARREL_RISE_S);
-            const float e = 1.0f - (1.0f - k) * (1.0f - k);
-            b.top = b.gy - (b.gy - b.top) * e;
-        }
-        const bool hot = (i == s->coreHover) || (i == s->corePinned);
-        const Color base = l->aborted ? RGBA8(0xff, 0xa4, 0x41, 1.0f) : RGBA8(0x35, 0xd8, 0xee, 1.0f);
-        const float boost = hot ? 1.25f : 1.0f;
-        const float ph = t * 2.4f + l->siteI * 0.7f + l->siteJ * 0.31f;
-
-        /* the collar: the hole's mouth on the ground, dark with a bright rim,
-           so the spot reads even from the barrel's far side */
-        Vector2 ring[25];
-        for (int k = 0; k <= 24; k++) ring[k] = DashEllipsePt(b.cx, b.gy, b.rw * 1.35f, b.rh * 1.35f, (float)k / 24.0f * 2.0f * PI);
-        c2d_fill_poly(ring, 24, RGBA8(0x02, 0x0c, 0x14, 0.85f));
-
-        /* ONE glow layer under the whole barrel: the cap is bright imagery
-           and bare line work on it disappears */
-        for (int pass = 0; pass < 2; pass++)
-        {
-            if (pass == 0) c2d_shadow_begin();
-            /* the staves: three dashed lines turning round the axis, bright
-               on the near side and dim on the far */
-            for (int g = 0; g < 3; g++)
-            {
-                const float a = ph + (float)g * 2.0944f;
-                const float x = b.cx + b.rw * sinf(a), c = cosf(a);
-                const Vector2 st[2] = {{x, b.top + b.rh * c}, {x, b.gy + b.rh * c}};
-                const float al = fminf(1.0f, (c > 0.0f ? 0.95f : 0.35f) * boost);
-                c2d_dashed_polyline_phase(st, 2, 4.5f, 3.0f, -t * 15.0f,
-                                          RGBA8(base.r, base.g, base.b, al), c > 0.0f ? 2.2f : 1.4f);
-            }
-            for (int k = 0; k <= 24; k++) ring[k] = DashEllipsePt(b.cx, b.top, b.rw, b.rh, (float)k / 24.0f * 2.0f * PI);
-            if (pass == 1) c2d_fill_poly(ring, 24, RGBA8(base.r, base.g, base.b, 0.25f * boost));
-            c2d_dashed_polyline_phase(ring, 25, 4.0f, 2.6f, t * 11.0f,
-                                      RGBA8(base.r, base.g, base.b, fminf(1.0f, 0.85f * boost)), 1.8f);
-            for (int k = 0; k <= 24; k++) ring[k] = DashEllipsePt(b.cx, b.gy, b.rw * 1.35f, b.rh * 1.35f, (float)k / 24.0f * 2.0f * PI);
-            c2d_polyline(ring, 25, RGBA8(base.r, base.g, base.b, fminf(1.0f, 0.75f * boost)), 1.6f);
-            if (pass == 0) c2d_shadow_end(base, hot ? 9.0f : 6.0f);
-        }
-    }
-}
-
-/* ---- THE CORE LOG CARD -------------------------------------------------
- *
- * A hole's readings, down its own depth: a strip coloured by the rock each
- * half-metre went through, and beside it the load, the bit temperature and
- * the vibration as traces -- the rock as the bit felt it. Anchored by the
- * barrel, kept inside the middle pane. */
-#define DASH_CARD_W 250.0f
-#define DASH_CARD_H 290.0f
-/* The log already holds each bin's mean (DrillProfile_Record); a light
- * running mean over three bins (1.5 m) keeps the line readable without
- * blurring an interface. */
-#define DASH_CARD_SMOOTH 3
-
-static void DashDrawCoreCard(const SurveyDashState *s, int i)
-{
-    if (i < 0 || i >= s->coreCount || !g_model) return;
-    const DrillCoreLog *l = &s->cores[i];
-    const DashBarrel b = DashBarrelOf(l);
-
-    float x = b.cx + 16.0f, y = b.top - 30.0f;
-    /* to the left where the right would run off the pane or over the height
-       log; and never off the pane's left edge either */
-    const Rectangle r = g_rulerBox;
-    const bool onRuler = r.width > 0.0f && b.cx < r.x &&
-                         x < r.x + r.width && x + DASH_CARD_W > r.x &&
-                         y < r.y + r.height && y + DASH_CARD_H > r.y;
-    if (x + DASH_CARD_W > MID_X + MID_W - 12.0f || onRuler) x = b.cx - 16.0f - DASH_CARD_W;
-    if (x < MID_X + 12.0f) x = MID_X + 12.0f;
-    if (y + DASH_CARD_H > CONF_Y - 6.0f) y = CONF_Y - 6.0f - DASH_CARD_H;
-    if (y < PANE_TOP + 8.0f) y = PANE_TOP + 8.0f;
-
-    const C2DCorner cr[4] = {{x, y, 8.0f}, {x + DASH_CARD_W, y, 8.0f},
-                             {x + DASH_CARD_W, y + DASH_CARD_H, 8.0f}, {x, y + DASH_CARD_H, 8.0f}};
-    Vector2 v[64];
-    const int n = c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, v, 63);
-    /* opaque: the height log's bright labels sit behind it */
-    c2d_fill_poly(v, n, RGBA8(0x03, 0x14, 0x20, 1.0f));
-    v[n] = v[0];
-    const Color edge = l->aborted ? RGBA8(0xff, 0xa4, 0x41, 0.8f) : RGBA8(0x1c, 0x7f, 0x95, 0.9f);
-    c2d_polyline(v, n + 1, edge, i == s->corePinned ? 1.8f : 1.2f);
-
-    char head[48];
-    snprintf(head, sizeof(head), "HOLE %d  \xc2\xb7  %d m", i + 1, (int)(l->depthM + 0.5f));
-    c2d_text(C2D_W700, 19.0f, head, x + 12.0f, y + 26.0f, RGBA8(0x35, 0xd8, 0xee, 1.0f),
-             C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-    char sub[48];
-    snprintf(sub, sizeof(sub), "SITE %d/%d%s", (int)l->siteI, (int)l->siteJ, l->aborted ? "   ABORTED" : "");
-    c2d_text(C2D_W500, 13.0f, sub, x + 12.0f, y + 46.0f,
-             l->aborted ? RGBA8(0xff, 0xa4, 0x41, 1.0f) : RGBA8(0x8f, 0xbf, 0xe6, 0.95f),
-             C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-
-    /* the column: 0 m at the top of the plot, the hole's bottom at its foot */
-    const float px = x + 14.0f, py = y + 62.0f, ph = DASH_CARD_H - 112.0f;
-    const float sw = 18.0f;                             /* the strata strip */
-    const float tx = px + sw + 10.0f, tw = DASH_CARD_W - 24.0f - sw - 10.0f;
-    const int nb = l->count > 0 ? l->count : 1;
-    for (int k = 0; k < l->count; k++)
-    {
-        const int bed = l->stratum[k] < DRILL_STRATA_COUNT ? l->stratum[k] : 0;
-        const float y0 = py + ph * (float)k / (float)nb, y1 = py + ph * (float)(k + 1) / (float)nb;
-        c2d_rect(px, y0, sw, y1 - y0 + 0.5f, BedPalette(bed, BED_WELL));   /* as the drill bar */
-    }
-    const Vector2 frame[5] = {{px, py}, {px + sw, py}, {px + sw, py + ph}, {px, py + ph}, {px, py}};
-    c2d_polyline(frame, 5, RGBA8(0x1f, 0x4d, 0x60, 1.0f), 1.0f);
-    /* the plot's own frame, and half-scale guide */
-    const Vector2 axis[2] = {{tx, py}, {tx, py + ph}};
-    c2d_polyline(axis, 2, RGBA8(0x1f, 0x4d, 0x60, 1.0f), 1.0f);
-    const Vector2 half[2] = {{tx + tw * 0.5f, py}, {tx + tw * 0.5f, py + ph}};
-    c2d_dashed_polyline(half, 2, 3.0f, 4.0f, RGBA8(0x1f, 0x4d, 0x60, 0.8f), 1.0f);
-
-    /* the traces: load, temperature, vibration */
-    static const int which[3] = {1, 2, 4};
-    const Color col[3] = {RGBA8(0x35, 0xd8, 0xee, 0.95f), RGBA8(0xff, 0xc8, 0x4d, 0.95f),
-                          RGBA8(0xbc, 0xd2, 0xe6, 0.75f)};
-    for (int w = 0; w < 3; w++)
-    {
-        Vector2 tr[DRILL_PROFILE_MAX];
-        for (int k = 0; k < l->count; k++)
-        {
-            float sum = 0.0f;
-            int cnt = 0;
-            for (int j = k - DASH_CARD_SMOOTH / 2; j <= k + DASH_CARD_SMOOTH / 2; j++)
-                if (j >= 0 && j < l->count) { sum += DrillCoreLog_Read(l, j, which[w]); cnt++; }
-            tr[k] = (Vector2){tx + tw * (sum / (float)cnt),
-                              py + ph * ((float)k + 0.5f) / (float)nb};
-        }
-        if (l->count >= 2) c2d_polyline(tr, l->count, col[w], 1.3f);
-    }
-
-    /* depth marks and a legend */
-    char d0[16], d1[16];
-    snprintf(d0, sizeof(d0), "0");
-    snprintf(d1, sizeof(d1), "%d m", (int)(l->depthM + 0.5f));
-    c2d_text(C2D_W500, 12.0f, d0, px + sw + 4.0f, py + 9.0f, RGBA8(0x8f, 0xbf, 0xe6, 0.9f),
-             C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-    c2d_text(C2D_W500, 12.0f, d1, px, py + ph + 15.0f, RGBA8(0x8f, 0xbf, 0xe6, 0.9f),
-             C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-    static const char *names[3] = {"LOAD", "TEMP", "VIB"};
-    float lx = x + 12.0f;
-    for (int w = 0; w < 3; w++)
-    {
-        c2d_rect(lx, y + DASH_CARD_H - 22.0f, 12.0f, 3.0f, col[w]);
-        c2d_text(C2D_W500, 13.0f, names[w], lx + 16.0f, y + DASH_CARD_H - 16.0f,
-                 RGBA8(0xa3, 0xb8, 0xcc, 1.0f), C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-        lx += 74.0f;
-    }
 }
 
 /* ---- THE PHASE ------------------------------------------------------- */
@@ -933,14 +560,14 @@ static bool DashBarLive(const SurveyDashState *s)
 
 /* The drill bar's face -- the hole and the string, the part a click starts
  * and drives. The same rect the press tests. */
-static bool DashOverFace(Vector2 p)
+bool DashOverFace(Vector2 p)
 {
     float fx, fy, fw, fh;
     Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &fx, &fy, &fw, &fh);
     return p.x >= fx && p.x <= fx + fw && p.y >= fy && p.y <= fy + fh;
 }
 
-static bool DashInMid(Vector2 p)
+bool DashInMid(Vector2 p)
 {
     return p.x >= MID_X && p.x <= MID_X + MID_W && p.y >= PANE_TOP && p.y <= PANE_TOP + PANE_H;
 }
@@ -970,200 +597,6 @@ SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
             return (DashOverFace(s->pointer) || DashOverAbort(s->pointer)) ? SDC_HAND : SDC_ARROW;
     }
     return SDC_ARROW;
-}
-
-/* ---- THE GRAB HAND -----------------------------------------------------
- *
- * The block turns about its vertical axis, and the pointer says so: an open
- * hand over its sides, a closed one while it is being dragged round. Drawn
- * by the console because neither raylib nor GLFW has a grab cursor. The
- * classic cursor build -- a light hand with a dark outline -- so it reads on
- * the bright cap and the dark rock alike. The hotspot is the palm. */
-static bool DashDragging(const SurveyDashState *s)
-{
-    return s->down && s->onBlock && s->moved;
-}
-
-static bool DashWantsGrab(const SurveyDashState *s)
-{
-    if (DashDragging(s)) return true;
-    return s->overBody && SurveyDash_Phase(s) != SDP_STRETCH;
-}
-
-static void DashCapsule(Vector2 a, Vector2 b, float r, Color c)
-{
-    const float dx = b.x - a.x, dy = b.y - a.y;
-    const float l = sqrtf(dx * dx + dy * dy);
-    if (l > 1e-3f)
-    {
-        const float nx = -dy / l * r, ny = dx / l * r;
-        const Vector2 q[4] = {{a.x + nx, a.y + ny}, {b.x + nx, b.y + ny},
-                              {b.x - nx, b.y - ny}, {a.x - nx, a.y - ny}};
-        c2d_fill_poly(q, 4, c);
-    }
-    c2d_disc(a, r, c);
-    c2d_disc(b, r, c);
-}
-
-static void DashHandShapes(Vector2 p, bool closed, float grow, Color c)
-{
-    const float k = 1.35f;                              /* design units per unit */
-    #define HP(hx, hy) (Vector2){p.x + (hx) * k, p.y + (hy) * k}
-    /* the palm */
-    const C2DCorner cr[4] = {{p.x - 7.0f * k - grow, p.y - 4.0f * k - grow, 4.0f * k},
-                             {p.x + 7.0f * k + grow, p.y - 4.0f * k - grow, 4.0f * k},
-                             {p.x + 7.0f * k + grow, p.y + 9.0f * k + grow, 4.0f * k},
-                             {p.x - 7.0f * k - grow, p.y + 9.0f * k + grow, 4.0f * k}};
-    Vector2 v[64];
-    c2d_fill_poly(v, c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, v, 64), c);
-    /* four fingers, then the thumb: long and spread open, knuckles closed */
-    static const float fx[4] = {-5.2f, -1.75f, 1.75f, 5.2f};
-    static const float open[4] = {-11.0f, -14.0f, -13.0f, -10.0f};
-    for (int i = 0; i < 4; i++)
-        DashCapsule(HP(fx[i], -2.0f), HP(fx[i], closed ? -6.0f : open[i]), 2.1f * k + grow, c);
-    if (closed) DashCapsule(HP(-6.5f, 4.0f), HP(-8.5f, 0.5f), 2.3f * k + grow, c);
-    else        DashCapsule(HP(-6.5f, 4.0f), HP(-11.5f, -2.0f), 2.3f * k + grow, c);
-    #undef HP
-}
-
-static void DashDrawHand(Vector2 p, bool closed)
-{
-    const Color ink = RGBA8(0x02, 0x10, 0x18, 1.0f);
-    DashHandShapes(p, closed, 1.6f, ink);                               /* the outline */
-    DashHandShapes(p, closed, 0.0f, RGBA8(0xe6, 0xf7, 0xff, 1.0f));     /* the hand    */
-    if (!closed) return;
-    /* the fist's knuckles: the creases between the curled fingers */
-    const float k = 1.35f;
-    for (int i = 0; i < 3; i++)
-    {
-        const float x = p.x + (-3.5f + 3.5f * i) * k;
-        const Vector2 crease[2] = {{x, p.y - 8.0f * k}, {x, p.y - 3.5f * k}};
-        c2d_polyline(crease, 2, ink, 1.1f);
-    }
-}
-
-/* ---- THE CURSOR TAG ----------------------------------------------------
- *
- * What the next tap will do, hung off the pointer, because the pointer is
- * where the eye already is. Two lines: a small caption that names the act,
- * and the value or the verb large under it. It was one 12-unit line and at
- * the console's letterbox scale that is 8 pixels -- present, and missed. */
-#define DASH_TAG_CAP_FS  12.0f
-#define DASH_TAG_MAIN_FS 21.0f
-
-static void DashDrawTag(Vector2 at, const char *caption, const char *main, Color mainCol)
-{
-    const float cw = c2d_measure(C2D_W500, DASH_TAG_CAP_FS, caption);
-    const float mw = c2d_measure(C2D_W700, DASH_TAG_MAIN_FS, main);
-    const float pw = fmaxf(cw, mw) + 24.0f, ph = 54.0f;
-
-    /* up and to the right of the tip; flipped to the left near the right
-       edge or where it would cover the block's height log, and kept inside
-       the surface at the top */
-    float px = at.x + 20.0f, py = at.y - ph - 10.0f;
-    if (py < 8.0f) py = at.y + 24.0f;
-    /* the two rulers: the block's height log, and the drill bar's */
-    float brx, bry0, bry1;
-    Dash_DrillBarSpan(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &brx, &bry0, &bry1);
-    const Rectangle keep[2] = {
-        g_rulerBox,
-        {brx - 16.0f, bry0 - 24.0f, RIGHT_X + RIGHT_W - (brx - 16.0f), bry1 - bry0 + 40.0f},
-    };
-    bool onRuler = false;
-    for (int i = 0; i < 2; i++)
-    {
-        const Rectangle r = keep[i];
-        if (r.width > 0.0f && at.x < r.x &&
-            px < r.x + r.width && px + pw > r.x && py < r.y + r.height && py + ph > r.y)
-            onRuler = true;
-    }
-    if (px + pw > (float)SURVEY_DASH_DESIGN_W - 8.0f || onRuler)
-        px = at.x - 20.0f - pw;
-    /* Over the drill bar the tag is centred above the pointer and held
-       inside the well: flipped left it straddled the panel's frame. */
-    float fx, fy, fw, fh;
-    Dash_DrillBarFace(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &fx, &fy, &fw, &fh);
-    if (at.x >= fx && at.x <= fx + fw && at.y >= fy && at.y <= fy + fh)
-    {
-        px = at.x - pw * 0.5f;
-        if (px > brx - 16.0f - pw) px = brx - 16.0f - pw;
-        if (px < fx + 6.0f) px = fx + 6.0f;
-    }
-
-    const C2DCorner cr[4] = {{px, py, 6.0f}, {px + pw, py, 6.0f},
-                             {px + pw, py + ph, 6.0f}, {px, py + ph, 6.0f}};
-    Vector2 plate[64];
-    const int pn = c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, plate, 63);
-    c2d_fill_poly(plate, pn, RGBA8(0x03, 0x14, 0x20, 0.94f));
-    plate[pn] = plate[0];
-    c2d_polyline(plate, pn + 1, RGBA8(mainCol.r, mainCol.g, mainCol.b, 0.75f), 1.4f);
-    c2d_text(C2D_W500, DASH_TAG_CAP_FS, caption, px + 12.0f, py + 19.0f,
-             RGBA8(0x8f, 0xbf, 0xe6, 0.95f), C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-    c2d_text(C2D_W700, DASH_TAG_MAIN_FS, main, px + 12.0f, py + 44.0f,
-             mainCol, C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
-}
-
-/* ---- THE CURSOR --------------------------------------------------------
- *
- * With the drill in hand the pointer IS the drill, tip down, and the spot it
- * would collar is marked at the tip. That is the whole reason the rack has a
- * tool in it.
- *
- * Once a site is taken the console gives the pointer back and hangs the next
- * act off it instead: the depth while one is being chosen, then START
- * DIGGING until the drill bar is started. */
-static void DashDrawCursor(const SurveyDashState *s)
-{
-    if (!s->pointerIn) return;
-    const bool grab = DashWantsGrab(s);
-    const Color cyan  = RGBA8(0x35, 0xd8, 0xee, 1.0f);
-    const Color amber = RGBA8(0xff, 0xc8, 0x4d, 1.0f);
-
-    switch (SurveyDash_Phase(s))
-    {
-        case SDP_STRETCH:
-        {
-            char m[24], cap[48];
-            const float metres = DashStretchMetres(s, s->pointer);
-            snprintf(m, sizeof(m), "%d m", (int)metres);
-            /* name the rock at that depth, read off the slice the line is on */
-            const Vector2 top = Holo3D_CapPoint(g_model, s->siteU, s->siteV);
-            const Vector2 bot = Holo3D_ColumnPoint(g_model, s->siteU, s->siteV, 1.0f);
-            const char *bed = DashBedAt(s, top.y + (bot.y - top.y) * (metres / DRILL_TARGET_M));
-            if (bed) snprintf(cap, sizeof(cap), "SELECT DEPTH  \xc2\xb7  %s", bed);
-            else     snprintf(cap, sizeof(cap), "SELECT DEPTH");
-            DashDrawTag(s->pointer, cap, m, cyan);
-            return;
-        }
-        case SDP_PLANNED:
-        {
-            char cap[32];
-            if (DashOverFace(s->pointer))
-                snprintf(cap, sizeof(cap), "%d m HOLE", (int)(s->drill.targetM + 0.5f));
-            else
-                snprintf(cap, sizeof(cap), "TAP THE DRILL BAR");
-            DashDrawTag(s->pointer, cap, "START DIGGING", amber);
-            return;
-        }
-        case SDP_DRILLING:
-            return;
-        case SDP_AIM:
-        case SDP_COMPLETE:
-            break;
-    }
-
-    if (grab)
-    {
-        DashDrawHand(s->pointer, DashDragging(s));
-        return;
-    }
-    if (SurveyDash_Cursor(s) == SDC_HIDDEN)
-    {
-        Vector2 tip = s->pointer;
-        if (s->aimOn && g_model) tip = Holo3D_CapPoint(g_model, s->aimU, s->aimV);
-        /* the reticle under the tip is drawn with the block, on the ground */
-        ToolRack_DrawDrillCursor(tip.x, tip.y, 0.85f, s->aimOn);
-    }
 }
 
 /* ---- ABORT ---------------------------------------------------------------
@@ -1241,6 +674,7 @@ static void DashDrawBarState(const SurveyDashState *s)
 void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
 {
     if (!s) return;
+    DashKeepOut_Clear();
     if (!SurveyDash_Init())
     {
         /* A blank rectangle is indistinguishable from a hung game. Say what
@@ -1298,22 +732,22 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
         if (s->revealT >= DASH_REVEAL_S + DASH_CLOSE_S) s->revealT = -1.0f;
     }
     const float rf = DashRevealF(s);
-    Holo3D_GroundBlend(g_model, rf);
+    Holo3D_GroundBlend(g_dashModel, rf);
 
     /* the model is shared; the knowledge is this console's */
     static DashFogCtx fog;
     fog.from = (s->revealT >= 0.0f) ? &s->fogFrom : NULL;
     fog.to = s->know;
     fog.f = rf;
-    Holo3D_SetFog(g_model, DashFogAt, &fog);
-    Holo3D_Render(g_model, &s->block, &s->view);
+    Holo3D_SetFog(g_dashModel, DashFogAt, &fog);
+    Holo3D_Render(g_dashModel, &s->block, &s->view);
     if (DashCutActive(s))
     {
         float cu, cv;
         DashCutPoint(s, &cu, &cv);
-        Holo3D_DrawCutaway(g_model, &s->block, cu, cv, DashC_Bg());
+        Holo3D_DrawCutaway(g_dashModel, &s->block, cu, cv, DashC_Bg());
     }
-    Holo3D_DrawHud(g_model, &s->block, &s->view, &hud);
+    Holo3D_DrawHud(g_dashModel, &s->block, &s->view, &hud);
 
     /* ---- the two stats blocks, under the instruments they describe ---- */
     {
@@ -1388,7 +822,14 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
         }
     }
     Dash_DrillBar(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, "DRILL BAR",
-                  SurveyDash_Ruler(), DASH_RULER_TICKS, &s->drill, dt);
+                  DashRuler(), DASH_RULER_TICKS, &s->drill, dt);
+    {
+        /* the drill bar's ruler, labels and all, is off limits to overlays */
+        float brx, bry0, bry1;
+        Dash_DrillBarSpan(RIGHT_X, PANE_TOP, RIGHT_W, MAIN_H, &brx, &bry0, &bry1);
+        DashKeepOut_Add((Rectangle){brx - 16.0f, bry0 - 24.0f,
+                                    RIGHT_X + RIGHT_W - (brx - 16.0f), bry1 - bry0 + 40.0f});
+    }
     DashDrawBarState(s);
     DashDrawAbort(s);
 
@@ -1494,25 +935,25 @@ void SurveyDash_Hover(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     s->pointerIn = (d.x >= 0.0f && d.x <= (float)SURVEY_DASH_DESIGN_W &&
                     d.y >= 0.0f && d.y <= (float)SURVEY_DASH_DESIGN_H);
 
-    s->coreHover = (g_model && s->pointerIn) ? DashBarrelAt(s, d) : -1;
+    s->coreHover = (g_dashModel && s->pointerIn) ? DashBarrelAt(s, d) : -1;
 
     /* over the block's sides -- not its cap, which is where holes are sited
        -- the pointer is for turning the block */
     s->overBody = false;
-    if (g_model && s->coreHover < 0 &&
+    if (g_dashModel && s->coreHover < 0 &&
         d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 && d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1)
     {
         float u, v;
-        s->overBody = !Holo3D_HitCap(g_model, d.x, d.y, &u, &v) && Holo3D_Hit(g_model, d.x, d.y) >= 0;
+        s->overBody = !Holo3D_HitCap(g_dashModel, d.x, d.y, &u, &v) && Holo3D_Hit(g_dashModel, d.x, d.y) >= 0;
     }
 
     s->aimOn = false;
-    if (!s->aimArmed || !g_model) return;
+    if (!s->aimArmed || !g_dashModel) return;
     /* on a barrel the pointer is picking a log, not a site */
     if (s->coreHover >= 0 && SurveyDash_Phase(s) != SDP_STRETCH) return;
     if (d.x < DASH_BLOCK_X0 || d.x > DASH_BLOCK_X1 ||
         d.y < DASH_BLOCK_Y0 || d.y > DASH_BLOCK_Y1) return;
-    s->aimOn = Holo3D_HitCap(g_model, d.x, d.y, &s->aimU, &s->aimV);
+    s->aimOn = Holo3D_HitCap(g_dashModel, d.x, d.y, &s->aimU, &s->aimV);
 }
 
 void SurveyDash_Drag(SurveyDashState *s, Rectangle region, Vector2 delta)
@@ -1561,7 +1002,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     {
         if (s->onBlock)
         {
-            const int bed = Holo3D_Hit(g_model, d.x, d.y);
+            const int bed = Holo3D_Hit(g_dashModel, d.x, d.y);
             /* C5: isolate is GATED. Until the model is MEASURED a tap on the
              * block moves the drill site instead of peeling a bed -- the
              * control the player has before they have earned the other one. */
@@ -1592,7 +1033,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                  * the block -- which is only the same thing when the block is
                  * square on and fills the pane. It is neither. */
                 float u, v;
-                if (Holo3D_HitCap(g_model, d.x, d.y, &u, &v))
+                if (Holo3D_HitCap(g_dashModel, d.x, d.y, &u, &v))
                 {
                     s->siteU = u; s->siteV = v; s->sited = true;
                     s->siteI = u * (float)DK_LATTICE;
@@ -1605,7 +1046,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                     s->drill.targetM = -1.0f;
                     DrillProfile_Clear(&s->profile);
                     s->coreOpen = -1;             /* a new hole, a new log */
-                    if (s->revealT >= 0.0f) { s->revealT = -1.0f; Holo3D_GroundBlend(g_model, 1.0f); }
+                    if (s->revealT >= 0.0f) { s->revealT = -1.0f; Holo3D_GroundBlend(g_dashModel, 1.0f); }
                     char msg[96];
                     snprintf(msg, sizeof(msg), "Site set at %d/%d. Pull down for a depth; right-click undoes.",
                              (int)s->siteI, (int)s->siteJ);

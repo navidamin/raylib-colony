@@ -555,10 +555,12 @@ The rules it left:
 - *Hairlines are 1.5, never 1.0.* A 1.0 separator dropped out entirely at
   some sub-pixel offsets, so one log row had a rule and the next did not.
   Separators sit midway between rows, not on the next row's tag outline.
-- *Overlays keep off the instruments.* The cursor tag and the core card flip
-  to the pointer's left rather than cover a ruler (`g_rulerBox`, the drill
-  bar's span). Over the drill bar the tag is centred above the pointer and
-  held inside the well.
+- *Overlays keep off the instruments, by one rule.* Everything that floats is
+  placed by `DashPlace` (`dash_overlay.c`): right of its anchor, else left,
+  whichever stays in its region and off the frame's keep-outs, then clamped.
+  Each ruler adds itself as a keep-out as it is drawn (`DashKeepOut_Add`).
+  Over the drill bar the tag is centred above the pointer (`DASH_PLACE_CENTRED`)
+  and held inside the well.
 - *The block and its ruler are centred as one* (`DASH_BLOCK_DX` −46). The
   block sits `DASH_BLOCK_DY` 18 down, at zoom 0.34, and core barrels stand
   18 + 32 × depth. That way the tallest barrel, at the cap's far corner,

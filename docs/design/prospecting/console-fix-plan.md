@@ -47,6 +47,17 @@ mixed together.
 **Verify.** The same captures as the alignment pass show pixel-identical
 placement for tag and card. c2dtest, visdiff and every build are green.
 
+**Done.**
+- `survey_dash.c` is down from 1708 lines to about 1150.
+- `dash_overlay.c` (about 510 lines) holds the height log, the barrels and
+  the card, the grab hand, the tag and the drill cursor, plus `DashPlace`
+  and the keep-out list.
+- `survey_dash_internal.h` holds the layout constants and the handful of
+  helpers the two files share. The shared model is `g_dashModel`.
+- The same drives captured before and after the move differ only in
+  animation (fog crawl, spinning barrels, pulsing frame). The tag, the card
+  and the hand are pixel-identical.
+
 ## Step 3 — undo on a touch screen
 
 **Wrong.** Right-click undoes a site or a depth. A phone has no right-click,
