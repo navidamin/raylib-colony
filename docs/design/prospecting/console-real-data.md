@@ -223,8 +223,10 @@ only while the string runs: `DrillSim_Abort` stops the string where it is,
 makes that depth the target (so the phase reads COMPLETE and DRILL STATS
 says ABORTED), `DrillProfile_Abort` closes the profile short and marks it,
 and a hole of at least 2 m is logged into the knowledge model at the depth
-reached -- the hole is real. Touch screens have no right-click; undo there
-is still to be designed.
+reached -- the hole is real. On touch screens, which have no right-click,
+the same slot holds CANCEL in STRETCH and PLANNED. It calls
+`SurveyDash_Cancel`, exactly as right-click does, and answers even while the
+bar is dimmed. The log's hints say "CANCEL undoes".
 
 **The cutaway.** Once a site exists, the quarter of the block between it and
 the corner nearest the viewer is cut out, full depth

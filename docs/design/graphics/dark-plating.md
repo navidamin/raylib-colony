@@ -623,12 +623,15 @@ VIB (pale) traced down the depth against a half-scale guide. Each point is an
 interval mean over three bins; plotting the instant at each crossing made the
 lines saw-tooth with the player's tapping.
 
-**ABORT is red and small, and exists only while it can do something.** A
-plate in the drill bar's title row, stop square plus the word, drawn only
-while the string runs; hover brightens it and the pointer becomes the hand.
-It is deliberately not the undo: right-click takes back a CHOICE (a depth,
-then a site) and costs nothing; ABORT ends WORK under way and leaves a hole.
-Two different acts, two different controls, and only the costly one is red.
+**One slot in the drill bar's title row takes the last step back, and only
+the costly step is red.** In STRETCH and PLANNED the slot holds CANCEL: a
+cyan plate with a cross and the word, doing exactly what right-click does.
+It takes back a CHOICE (a depth, then a site) and costs nothing. It is drawn
+over the bar's veil, because a phone has no right-click. While the string
+runs the slot holds ABORT: a red plate with a stop square and the word. It
+ends WORK under way and leaves a hole. Both brighten on hover and turn the
+pointer into the hand. Two different acts in one place, and only the one
+that costs is red.
 
 **Weight that survives the letterbox.** The console is drawn at 1536 units
 wide and shown at about two-thirds of that. A 12-unit label is then 8 screen

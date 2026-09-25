@@ -129,6 +129,7 @@ bool         DashCutActive(const SurveyDashState *s);
 bool         DashClosing(const SurveyDashState *s);
 bool         DashInMid(Vector2 p);
 bool         DashOverFace(Vector2 p);
+bool         DashOverCtrl(const SurveyDashState *s, Vector2 p);   /* CANCEL / ABORT */
 const char  *DashBedAt(const SurveyDashState *s, float screenY);
 float        DashStretchMetres(const SurveyDashState *s, Vector2 pt);
 const DashDepth *DashRuler(void);

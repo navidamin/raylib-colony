@@ -450,6 +450,9 @@ void DashDrawCursor(const SurveyDashState *s)
     {
         case SDP_STRETCH:
         {
+            /* only where a tap would take the depth: the middle pane. Over
+               CANCEL or the rack the tag would promise what a tap won't do. */
+            if (!DashInMid(s->pointer)) return;
             char m[24], cap[48];
             const float metres = DashStretchMetres(s, s->pointer);
             snprintf(m, sizeof(m), "%d m", (int)metres);
@@ -464,6 +467,7 @@ void DashDrawCursor(const SurveyDashState *s)
         }
         case SDP_PLANNED:
         {
+            if (DashOverCtrl(s, s->pointer)) return;    /* CANCEL speaks for itself */
             char cap[32];
             if (DashOverFace(s->pointer))
                 snprintf(cap, sizeof(cap), "%d m HOLE", (int)(s->drill.targetM + 0.5f));

@@ -572,7 +572,6 @@ bool DashInMid(Vector2 p)
     return p.x >= MID_X && p.x <= MID_X + MID_W && p.y >= PANE_TOP && p.y <= PANE_TOP + PANE_H;
 }
 
-static bool DashOverAbort(Vector2 p);     /* the ABORT control, below */
 
 SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
 {
@@ -589,48 +588,83 @@ SurveyDashCursor SurveyDash_Cursor(const SurveyDashState *s)
             return (s->aimArmed && DashInMid(s->pointer)) ? SDC_HIDDEN : SDC_ARROW;
         /* the arrow is the precise thing to pick a height with */
         case SDP_STRETCH:
-            return SDC_ARROW;
+            return DashOverCtrl(s, s->pointer) ? SDC_HAND : SDC_ARROW;
         /* the bar is now a button: the hand says so */
         case SDP_PLANNED:
-            return DashOverFace(s->pointer) ? SDC_HAND : SDC_ARROW;
+            return (DashOverFace(s->pointer) || DashOverCtrl(s, s->pointer)) ? SDC_HAND : SDC_ARROW;
         case SDP_DRILLING:
-            return (DashOverFace(s->pointer) || DashOverAbort(s->pointer)) ? SDC_HAND : SDC_ARROW;
+            return (DashOverFace(s->pointer) || DashOverCtrl(s, s->pointer)) ? SDC_HAND : SDC_ARROW;
     }
     return SDC_ARROW;
 }
 
-/* ---- ABORT ---------------------------------------------------------------
+/* ---- THE TITLE-ROW CONTROL: CANCEL, then ABORT --------------------------
  *
- * Stopping a running string is its own control, on the drill bar where the
- * string is, and only there while it runs. It is not the right-click undo:
- * undo takes back a choice, ABORT ends work already under way and leaves
- * the hole at the depth the bit reached. */
-#define DASH_ABORT_W 104.0f
-#define DASH_ABORT_H  30.0f
-#define DASH_ABORT_X (RIGHT_X + RIGHT_W - DASH_ABORT_W - 24.0f)
-#define DASH_ABORT_Y (PANE_TOP + 18.0f)
+ * One slot in the drill bar's title row, holding whatever takes the last
+ * step back.
+ *
+ *   STRETCH, PLANNED  CANCEL -- exactly what a right-click does
+ *                     (SurveyDash_Cancel). A phone has no right-click, so
+ *                     without it a misplaced site could only be drilled.
+ *   DRILLING          ABORT -- ends work under way. The hole is left at the
+ *                     depth the bit reached.
+ *
+ * Drawn over the bar's veil, so it is live while the bar itself is dimmed. */
+#define DASH_CTRL_W 104.0f
+#define DASH_CTRL_H  30.0f
+#define DASH_CTRL_X (RIGHT_X + RIGHT_W - DASH_CTRL_W - 24.0f)
+#define DASH_CTRL_Y (PANE_TOP + 18.0f)
 
-static bool DashOverAbort(Vector2 p)
+typedef enum { DASH_CTRL_NONE, DASH_CTRL_CANCEL, DASH_CTRL_ABORT } DashCtrl;
+
+static DashCtrl DashTitleCtrl(const SurveyDashState *s)
 {
-    return p.x >= DASH_ABORT_X && p.x <= DASH_ABORT_X + DASH_ABORT_W &&
-           p.y >= DASH_ABORT_Y && p.y <= DASH_ABORT_Y + DASH_ABORT_H;
+    switch (SurveyDash_Phase(s))
+    {
+        case SDP_STRETCH:
+        case SDP_PLANNED:  return DASH_CTRL_CANCEL;
+        case SDP_DRILLING: return DASH_CTRL_ABORT;
+        default:           return DASH_CTRL_NONE;
+    }
 }
 
-static void DashDrawAbort(const SurveyDashState *s)
+bool DashOverCtrl(const SurveyDashState *s, Vector2 p)
 {
-    if (SurveyDash_Phase(s) != SDP_DRILLING) return;
-    const bool hot = s->pointerIn && DashOverAbort(s->pointer);
-    const float x = DASH_ABORT_X, y = DASH_ABORT_Y, w = DASH_ABORT_W, h = DASH_ABORT_H;
+    return DashTitleCtrl(s) != DASH_CTRL_NONE &&
+           p.x >= DASH_CTRL_X && p.x <= DASH_CTRL_X + DASH_CTRL_W &&
+           p.y >= DASH_CTRL_Y && p.y <= DASH_CTRL_Y + DASH_CTRL_H;
+}
+
+static void DashDrawCtrl(const SurveyDashState *s)
+{
+    const DashCtrl k = DashTitleCtrl(s);
+    if (k == DASH_CTRL_NONE) return;
+    const bool hot = s->pointerIn && DashOverCtrl(s, s->pointer);
+    const float x = DASH_CTRL_X, y = DASH_CTRL_Y, w = DASH_CTRL_W, h = DASH_CTRL_H;
     const C2DCorner cr[4] = {{x, y, 6.0f}, {x + w, y, 6.0f}, {x + w, y + h, 6.0f}, {x, y + h, 6.0f}};
     Vector2 v[64];
     const int n = c2d_rpoly_pts(cr, 4, 0.0f, 0.0f, v, 63);
-    c2d_fill_poly(v, n, hot ? RGBA8(0x5a, 0x14, 0x14, 0.95f) : RGBA8(0x2a, 0x0c, 0x10, 0.92f));
+    const bool abort = k == DASH_CTRL_ABORT;
+    /* ABORT is red: it stops work. CANCEL is the console's own cyan: it only
+       takes back a choice. */
+    const Color fill = abort ? (hot ? RGBA8(0x5a, 0x14, 0x14, 0.95f) : RGBA8(0x2a, 0x0c, 0x10, 0.92f))
+                             : (hot ? RGBA8(0x0c, 0x3a, 0x4c, 0.95f) : RGBA8(0x06, 0x1e, 0x2a, 0.92f));
+    const Color ink = abort ? RGBA8(0xff, 0x5a, 0x5a, hot ? 1.0f : 0.85f)
+                            : RGBA8(0x35, 0xd8, 0xee, hot ? 1.0f : 0.85f);
+    c2d_fill_poly(v, n, fill);
     v[n] = v[0];
-    const Color red = RGBA8(0xff, 0x5a, 0x5a, hot ? 1.0f : 0.85f);
-    c2d_polyline(v, n + 1, red, hot ? 1.8f : 1.4f);
-    /* a stop square, then the word */
-    c2d_rect(x + 12.0f, y + h * 0.5f - 5.0f, 10.0f, 10.0f, red);
-    c2d_text(C2D_W700, 14.0f, "ABORT", x + 32.0f, y + h * 0.5f + 5.0f, red,
+    c2d_polyline(v, n + 1, ink, hot ? 1.8f : 1.4f);
+    const float gx = x + 17.0f, gy = y + h * 0.5f;
+    if (abort)
+        c2d_rect(gx - 5.0f, gy - 5.0f, 10.0f, 10.0f, ink);            /* a stop square */
+    else
+    {
+        const Vector2 a[2] = {{gx - 5.0f, gy - 5.0f}, {gx + 5.0f, gy + 5.0f}};
+        const Vector2 b[2] = {{gx + 5.0f, gy - 5.0f}, {gx - 5.0f, gy + 5.0f}};
+        c2d_polyline(a, 2, ink, 2.2f);                                  /* a cross */
+        c2d_polyline(b, 2, ink, 2.2f);
+    }
+    c2d_text(C2D_W700, 14.0f, abort ? "ABORT" : "CANCEL", x + 32.0f, gy + 5.0f, ink,
              C2D_ALIGN_LEFT, C2D_BASELINE_ALPHABETIC);
 }
 
@@ -831,7 +865,7 @@ void SurveyDash_Draw(SurveyDashState *s, Rectangle region, float dt)
                                     RIGHT_X + RIGHT_W - (brx - 16.0f), bry1 - bry0 + 40.0f});
     }
     DashDrawBarState(s);
-    DashDrawAbort(s);
+    DashDrawCtrl(s);
 
     /* a pinned log stays; otherwise the one under the pointer, except while
        a depth is being stretched, when the pointer is busy */
@@ -864,12 +898,21 @@ void SurveyDash_Press(SurveyDashState *s, Rectangle region, Vector2 screenPt)
     s->onBlock = (d.x >= DASH_BLOCK_X0 && d.x <= DASH_BLOCK_X1 &&
                   d.y >= DASH_BLOCK_Y0 && d.y <= DASH_BLOCK_Y1);
 
-    /* Nothing on the drill bar answers until a hole is planned -- it is
+    /* CANCEL answers even while the bar is dimmed -- it is drawn over the
+     * veil. The press is consumed, so the release does nothing more. */
+    if (DashTitleCtrl(s) == DASH_CTRL_CANCEL && DashOverCtrl(s, d))
+    {
+        SurveyDash_Cancel(s);
+        s->down = false;
+        return;
+    }
+
+    /* Nothing else on the drill bar answers until a hole is planned -- it is
      * drawn dimmed until then, and a dimmed control that still worked would
      * be lying. */
     if (!DashBarLive(s)) return;
 
-    if (SurveyDash_Phase(s) == SDP_DRILLING && DashOverAbort(d))
+    if (DashTitleCtrl(s) == DASH_CTRL_ABORT && DashOverCtrl(s, d))
     {
         const float at = s->drill.depthM;
         if (DrillSim_Abort(&s->drill))
@@ -988,7 +1031,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
            with its site and target, and fills once the drill is started. */
         DrillProfile_Plan(&s->profile, s->siteI, s->siteJ, m, s->drill.t);
         char msg[96];
-        snprintf(msg, sizeof(msg), "Hole planned to %d m. Tap the drill bar to dig; right-click undoes.",
+        snprintf(msg, sizeof(msg), "Hole planned to %d m. Tap the drill bar to dig; CANCEL undoes.",
                  (int)m);
         DashLog_Push(s, s->drill.t, msg, NULL);
     }
@@ -1048,7 +1091,7 @@ void SurveyDash_Release(SurveyDashState *s, Rectangle region, Vector2 screenPt)
                     s->coreOpen = -1;             /* a new hole, a new log */
                     if (s->revealT >= 0.0f) { s->revealT = -1.0f; Holo3D_GroundBlend(g_dashModel, 1.0f); }
                     char msg[96];
-                    snprintf(msg, sizeof(msg), "Site set at %d/%d. Pull down for a depth; right-click undoes.",
+                    snprintf(msg, sizeof(msg), "Site set at %d/%d. Pull down for a depth; CANCEL undoes.",
                              (int)s->siteI, (int)s->siteJ);
                     DashLog_Push(s, s->drill.t, msg, NULL);
                 }

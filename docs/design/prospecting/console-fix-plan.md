@@ -69,6 +69,15 @@ tap on it never falls through to the block.
 **Verify.** Drive the playtest to STRETCH and PLANNED, tap CANCEL with the
 pointer, and capture each phase going back one step. Check it at `--scale 2`.
 
+**Done.**
+- The press consumes the tap, so the release does nothing more.
+- The STRETCH depth tag now shows only in the middle pane, where a tap
+  would actually take the depth.
+- The PLANNED tag hides over CANCEL.
+- Driven with a real pointer at 1x and at `--scale 2`. STRETCH goes back to
+  AIM ("Site cancelled."), and PLANNED goes back to STRETCH ("Depth
+  cancelled.").
+
 ## Step 4 — the log scrolls
 
 **Wrong.** The scrollbar is painted from the reference: a fixed thumb at
