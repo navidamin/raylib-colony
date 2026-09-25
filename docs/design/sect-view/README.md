@@ -9,6 +9,7 @@
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
 | 1 | [sect-view-elements.md](sect-view-elements.md) | HUD element inventory, surroundings brainstorm, hover tooltip design | DRAFT |
+| 2 | [domeforge-study.md](domeforge-study.md) | **Next visual design:** the DomeForge generator (`prototypes/dome-forge/`), how it maps onto this view, the port plan and open questions | STUDY |
 
 ## Design Summary
 
