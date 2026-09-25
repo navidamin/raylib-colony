@@ -519,6 +519,94 @@ static void h3d_paint_band(Holo3DModel *m, const H3DState *st, int k,
  * the same function can paint into a ghost buffer; here the buffer is bound
  * by the caller, which comes to the same thing and is the reason spec 2.6
  * works at all. */
+/* ---- THE REGOLITH CAP (real ground only) ---------------------------------
+ *
+ * The top of the regolith, drawn as what it is: a pocked, rolling plain,
+ * low poly and pixelated rather than a smooth blue sheet.
+ *
+ *   FACETS   every cell is two flat triangles, each lit by its own normal,
+ *            so the craters and rolls read as hard-edged planes. The
+ *            diagonal alternates so the lattice does not show as stripes.
+ *   TONES    the light is quantised into REGO_STEPS tones along the bed's
+ *            own ramp (DEEP -> NEON of bed 0, bed_palette.h): no gradient
+ *            anywhere, the way a pixel-art palette steps.
+ *   GRAIN    a few chunky "pixels" per facet, a tone either side of it,
+ *            snapped to a REGO_PX grid so they sit on a common raster.
+ *
+ * Deterministic: the grain is hashed on the cell, so it holds still while
+ * the block turns. The reference (no ground) keeps its own cap -- the port's
+ * visual diff measures that one. */
+#define REGO_STEPS 5
+#define REGO_PX    3.0f
+
+static Color h3d_rego_tone(const H3DLayer *ly, int step)
+{
+    if (step < 0) step = 0;
+    if (step > REGO_STEPS - 1) step = REGO_STEPS - 1;
+    const float t = 0.34f + 0.66f * (float)step / (float)(REGO_STEPS - 1);
+    return h3d_mix(ly->deep, ly->neon, t);
+}
+
+static int h3d_rego_step(const Holo3DModel *m, V3 a, V3 b, V3 c)
+{
+    const float e1[3] = {b.x - a.x, b.y - a.y, b.z - a.z};
+    const float e2[3] = {c.x - a.x, c.y - a.y, c.z - a.z};
+    float n[3] = {e1[1] * e2[2] - e1[2] * e2[1],
+                  e1[2] * e2[0] - e1[0] * e2[2],
+                  e1[0] * e2[1] - e1[1] * e2[0]};
+    if (n[1] < 0.0f) { n[0] = -n[0]; n[1] = -n[1]; n[2] = -n[2]; }      /* up */
+    const float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    if (len <= 0.0f) return REGO_STEPS / 2;
+    const float lam = fmaxf(0.0f, (n[0] * m->light[0] + n[1] * m->light[1] + n[2] * m->light[2]) / len);
+    /* flat ground sits mid-ramp; a slope into the light lifts it, a slope
+       away (a crater's far wall) drops it -- exaggerated so a few metres of
+       relief read at this scale */
+    const float lamFlat = m->light[1] / sqrtf(m->light[0] * m->light[0] + m->light[1] * m->light[1] +
+                                              m->light[2] * m->light[2]);
+    const float t = 0.58f + (lam - lamFlat) * 2.4f;
+    return (int)floorf(fminf(fmaxf(t, 0.0f), 0.999f) * (float)REGO_STEPS);
+}
+
+static void h3d_rego_grain(const H3DLayer *ly, Vector2 p0, Vector2 p1, Vector2 p2,
+                           int step, int i, int j, int tri)
+{
+    for (int g = 0; g < 1; g++)
+    {
+        const float h = c2d_hash(i * 2 + tri, j * 3 + g, 4242);
+        if (h > 0.40f) continue;
+        /* a point inside the facet, from two more hashes */
+        float a = c2d_hash(i + 17, j + 5 * g, 91 + tri), b = c2d_hash(j + 29, i + 7 * g, 37 + tri);
+        if (a + b > 1.0f) { a = 1.0f - a; b = 1.0f - b; }
+        const float x = p0.x + (p1.x - p0.x) * a + (p2.x - p0.x) * b;
+        const float y = p0.y + (p1.y - p0.y) * a + (p2.y - p0.y) * b;
+        const float sx = floorf(x / REGO_PX) * REGO_PX, sy = floorf(y / REGO_PX) * REGO_PX;
+        const int d = (h < 0.12f) ? 1 : -1;                  /* mostly darker grit */
+        c2d_rect(sx, sy, REGO_PX, REGO_PX, h3d_rego_tone(ly, step + d));
+    }
+}
+
+static void h3d_paint_regolith_cap(const Holo3DModel *m, const H3DLayer *ly,
+                                   Vector2 P[H3D_NX_MAX + 1][H3D_NZ_MAX + 1], bool fast)
+{
+    for (int i = 0; i < m->NX; i++)
+        for (int j = 0; j < m->NZ; j++)
+        {
+            const V3 a = m->pts[0][i][j], b = m->pts[0][i + 1][j];
+            const V3 c = m->pts[0][i + 1][j + 1], d = m->pts[0][i][j + 1];
+            const Vector2 pa = P[i][j], pb = P[i + 1][j], pc = P[i + 1][j + 1], pd = P[i][j + 1];
+            const bool alt = ((i + j) & 1) != 0;
+            /* two triangles, the diagonal alternating cell to cell */
+            const V3      w[2][3] = {{a, b, alt ? d : c}, {alt ? b : a, c, d}};
+            const Vector2 s[2][3] = {{pa, pb, alt ? pd : pc}, {alt ? pb : pa, pc, pd}};
+            for (int t = 0; t < 2; t++)
+            {
+                const int step = h3d_rego_step(m, w[t][0], w[t][1], w[t][2]);
+                c2d_fill_poly(s[t], 3, h3d_rego_tone(ly, step));
+                if (!fast) h3d_rego_grain(ly, s[t][0], s[t][1], s[t][2], step, i, j, t);
+            }
+        }
+}
+
 static void h3d_paint_layer(Holo3DModel *m, int k, const H3DState *st,
                             Vector2 *allPts, int *allCount, int allMax)
 {
@@ -588,7 +676,9 @@ static void h3d_paint_layer(Holo3DModel *m, int k, const H3DState *st,
             for (int j = 0; j <= m->NZ; j++)
                 P[i][j] = h3d_proj_dy(m, m->pts[k][i][j], dy);
 
-        for (int i = 0; i < m->NX; i++)
+        const bool regolith = m->plain && k == 0;
+        if (regolith) h3d_paint_regolith_cap(m, ly, P, fast);
+        for (int i = 0; i < m->NX && !regolith; i++)
             for (int j = 0; j < m->NZ; j++)
             {
                 const V3 a = m->pts[k][i][j], b = m->pts[k][i + 1][j], d = m->pts[k][i][j + 1];
@@ -621,13 +711,13 @@ static void h3d_paint_layer(Holo3DModel *m, int k, const H3DState *st,
                     c2d_fill_poly(mot, 4, (Color){0, 10, 30, 71});
                 }
             }
-        for (int i = 1; i < m->NX; i++)
+        for (int i = 1; i < m->NX && !regolith; i++)
         {
             Vector2 col[H3D_NZ_MAX + 1];
             for (int j = 0; j <= m->NZ; j++) col[j] = P[i][j];
             c2d_polyline(col, m->NZ + 1, h3d_rgba(ly->mesh, 0.3f), 1.0f);
         }
-        for (int j = 1; j < m->NZ; j++)
+        for (int j = 1; j < m->NZ && !regolith; j++)
         {
             Vector2 row[H3D_NX_MAX + 1];
             for (int i = 0; i <= m->NX; i++) row[i] = P[i][j];

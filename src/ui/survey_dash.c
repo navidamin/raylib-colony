@@ -244,6 +244,11 @@ bool SurveyDash_Init(void)
     opts.surfaceW = SURVEY_DASH_DESIGN_W;
     opts.surfaceH = SURVEY_DASH_DESIGN_H;
     opts.plain = true;          /* real ground: no decorative motes */
+    /* 32 x 32, the model's maximum: fine enough that a crater is a bowl of
+       facets (at the reference's 16 x 13 they fell between samples), coarse
+       enough that the faceted cap still reads as low poly */
+    opts.nx = 32;
+    opts.nz = 32;
     g_dashModel = Holo3D_Build(&opts);
     if (!g_dashModel) { c2d_surface_destroy(&g_surf); return false; }
 

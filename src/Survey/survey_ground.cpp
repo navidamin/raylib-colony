@@ -15,6 +15,7 @@ namespace
     constexpr uint32_t SEED_OWN    = 0x9e37u;
     constexpr uint32_t SEED_CRATER = 0x6d2bu;
     constexpr uint32_t SEED_ERR    = 0x3c9du;
+    constexpr uint32_t SEED_ROLL   = 0x7a11u;
 
     uint32_t Mix(uint32_t a)
     {
@@ -108,16 +109,20 @@ void SurveyGround::BuildCraters()
     for (int k = 0; k < SURVEY_CRATER_N; k++)
     {
         auto h = [k](int i) { return Hash2(static_cast<uint32_t>(k * 31 + i), 3u, SEED_CRATER); };
+        /* size first, on a power law: most are small, one or two are big.
+           The floor is ~1.7 cells of the 28-lattice: smaller than that falls
+           between the ground's own samples, and on the block's 32-cell cap it
+           is a few triangles rather than a bowl. */
+        const float r = (0.060f + 0.110f * std::pow(h(3), 2.2f)) * SURVEY_CRATER_SIZE;
         float x = 0.0f, y = 0.0f;
         for (int t = 0; t < 14; t++)
         {
-            x = 0.10f + h(1 + t * 5) * 0.80f;
-            y = 0.10f + h(2 + t * 5) * 0.80f;
-            if (std::hypot(x - 0.5f, y - 0.5f) > 0.17f) break;
+            x = 0.08f + h(1 + t * 5) * 0.84f;
+            y = 0.08f + h(2 + t * 5) * 0.84f;
+            if (std::hypot(x - 0.5f, y - 0.5f) > 0.17f + r) break;
         }
-        craters.push_back({ x, y,
-                            (0.028f + h(3) * 0.042f) * SURVEY_CRATER_SIZE,
-                            0.55f + h(4) * 0.9f });
+        /* depth in proportion to width, relative to the biggest possible */
+        craters.push_back({ x, y, r, 0.35f + 0.95f * r / (0.170f * SURVEY_CRATER_SIZE) });
     }
 }
 
@@ -186,12 +191,18 @@ void SurveyGround::Build(const DashKnowledge& knowledge, const std::vector<Surve
                 const float u = static_cast<float>(i) / lattice;
                 const float v = static_cast<float>(j) / lattice;
                 const float vv = 0.5f + (v - 0.5f) * ky;
-                const float shared = (Fbm(u, vv, period, oct, SEED_SHARED) - 0.5f) * realW;
-                const float own = Fbm(u, vv, period, oct,
+                /* The surface drops the finest octave: at this lattice it is one
+                   sample wide, and on a faceted cap it reads as static rather
+                   than ground. The beds keep it. */
+                const int octL = (L == 0) ? std::max(1, oct - 1) : oct;
+                const float shared = (Fbm(u, vv, period, octL, SEED_SHARED) - 0.5f) * realW;
+                const float own = Fbm(u, vv, period, octL,
                                       SEED_OWN + static_cast<uint32_t>(L) * 7919u) - 0.5f;
                 float hgt = amp * 2.0f * (SURVEY_CONFORM * shared + (1.0f - SURVEY_CONFORM) * own);
                 hgt += dip * ((u - 0.5f) * ca + (v - 0.5f) * sa);
                 if (cr != 0.0f) hgt += cr * Bowl(u, v);
+                if (L == 0)
+                    hgt += SURVEY_ROLL_M * 2.0f * (Fbm(u, v, SURVEY_ROLL_FEATURE, 2, SEED_ROLL) - 0.5f);
                 float z = edgeM[L] - hgt;               // hgt is up-positive, z is depth
                 if (hasErr)
                 {

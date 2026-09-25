@@ -529,6 +529,26 @@ width, toward the ruler it is read against, and the rock's names take the
 left. A name is squeezed only as far as it must be to clear the flights. The
 target mark sits in the 12-unit gap between the well and the ruler.
 
+**The cap is regolith: pocked, rolling, low poly and pixelated.** Real
+ground's top surface (`h3d_paint_regolith_cap`) is drawn as:
+- *facets*: every one of the 32 × 32 cells is two flat triangles, each lit
+  by its own normal. The diagonal alternates cell to cell so the lattice
+  does not stripe.
+- *tones*: the light is quantised into 5 steps along bed 0's own ramp
+  (DEEP → NEON, `bed_palette.h`). Flat ground sits mid-ramp, and a slope's
+  departure from flat is exaggerated x2.4 so a few metres of relief read.
+- *grain*: one chunky 3-unit "pixel" on about 40% of facets, a tone either
+  side (mostly darker), snapped to a common 3-unit raster. It is hashed per
+  cell, so it holds still while the block turns.
+
+There are no gradients and no grid lines. The shape is the ground's
+(`SurveyGround`): eight craters on a power law, radius 6–17% of the block,
+each as deep as it is wide in proportion, with raised rims; broad surface
+rolls (`SURVEY_ROLL_M`); and one octave less of mottle on the surface than
+on the beds, because at this lattice the finest octave is one sample wide
+and reads as static. The reference path keeps its blue cap for the visual
+diff. See `docs/design/graveyard/console-blue-cap.md`.
+
 **The hole stays when the string comes out.** The well draws the hole to
 the depth it was cut (`depthM`), not to where the bit is. A trip to change
 the bit lifts the string and leaves the hole behind. So does the pull-out

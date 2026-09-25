@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [The console block's smooth blue cap](console-blue-cap.md) — a slope-shaded blue sheet with a grid, on a 16 x 13 grid over three tiny craters | Regolith cap | `h3d_paint_regolith_cap`, 32 x 32, eight craters and rolls |
 | [The drill bar's earth tones](drill-bar-earth-tones.md) — the strata's own body, edge and grain colours in `DrillStratum` | One bed palette | `src/ui/bed_palette.h`, shared with the block |
 | [The console block's zoom and tilt](console-block-zoom-and-tilt.md) — the wheel zoom and the 0.15–0.80 rad drag tilt | Yaw-only block | a fixed view that turns about its vertical axis |
 | [The glass tint on unknown faces](fog-glass-tint.md) — a faint tint under the fog so the cut's planes read | Cut closes after a hole | the cut's own edges |

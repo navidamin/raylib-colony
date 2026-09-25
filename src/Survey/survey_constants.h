@@ -47,6 +47,10 @@ static_assert(SURVEY_COLUMN_M == SUB_COLUMN_M,
    column it was settled on: 93/2000, 67/2000, 90/2000, 45/2000, 18/2000,
    250/2000. See docs/design/subsurface/README.md. */
 constexpr float SURVEY_RELIEF_M     = SURVEY_COLUMN_M * 0.0465f; // surface undulation
+// Broad rolls on the surface alone -- the ups and downs of a regolith plain,
+// wider than the mottle and not inherited by the beds below it.
+constexpr float SURVEY_ROLL_M       = SURVEY_COLUMN_M * 0.030f;
+constexpr int   SURVEY_ROLL_FEATURE = 2;       // rolls across the block
 constexpr float SURVEY_FEATURE      = 3.5f;    // noise period, in features across the block
 constexpr int   SURVEY_DETAIL       = 3;       // fbm octaves
 constexpr float SURVEY_CONFORM      = 0.62f;   // how much each bed inherits from the one above
@@ -56,11 +60,15 @@ constexpr float SURVEY_DIP_AZ_DEG   = 25.0f;
 constexpr float SURVEY_DIP_SPREAD   = 0.35f;   // how the dip fans with depth
 constexpr float SURVEY_GRAIN        = 0.25f;   // squashes the noise domain: mottle becomes ridges
 
-// A few small craters, hashed so they are the same every load, each nudged
-// off the middle -- a crater under the sect is not a crater, it is a mistake.
-constexpr int   SURVEY_CRATER_N     = 3;
+// Craters, hashed so they are the same every load, each kept off the middle
+// -- a crater under the sect is not a crater, it is a mistake. The regolith
+// surface is pocked, not dimpled: eight of them, on a power law (many small,
+// one or two big), each as deep as it is wide in proportion, as real simple
+// craters are. Three small ones fell between the block's samples and the
+// cap read as smooth.
+constexpr int   SURVEY_CRATER_N     = 8;
 constexpr float SURVEY_CRATER_SIZE  = 1.0f;
-constexpr float SURVEY_CRATER_DEPTH = SURVEY_COLUMN_M * 0.045f;
+constexpr float SURVEY_CRATER_DEPTH = SURVEY_COLUMN_M * 0.075f; // the biggest one's bowl
 constexpr int   SURVEY_CRATER_LAYER = 0;       // which interface they were cut into
 constexpr float SURVEY_CRATER_RIM   = 0.34f;
 constexpr float SURVEY_CRATER_INFILL= 0.55f;
