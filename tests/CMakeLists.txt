@@ -75,6 +75,7 @@ endif()
 add_executable(colony_tests
     test_resource_types.cpp
     test_display_scale.cpp
+    test_bed_palette.cpp
     test_time_manager.cpp
     test_storage.cpp
     test_prospecting_types.cpp

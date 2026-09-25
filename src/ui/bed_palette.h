@@ -15,6 +15,11 @@
  *   WELL       x0.34: the drill bar's rock, dark enough for the steel string
  *              and the bed names on it to read
  *   WELL_EDGE  x0.55: the contact line under each bed in the well
+ *   ROCK       WELL lifted toward NEON until its luminance reaches 50: the
+ *              body of a TEXTURED band (the excavation shaft dock, the block
+ *              plates), whose texture is tinted x2 against a mean of 128. A
+ *              darker body multiplies the texture into a flat smudge -- the
+ *              reason the old basalt was lifted from {39,42,48}.
  *
  * Header-only, and usable from C and C++ alike: C gets static inline
  * functions, C++ gets constexpr ones, so the C++ side can keep its palette a
@@ -42,7 +47,8 @@ typedef enum BedShade
     BED_LINE,
     BED_MESH,
     BED_WELL,
-    BED_WELL_EDGE
+    BED_WELL_EDGE,
+    BED_ROCK
 } BedShade;
 
 /* "ice & iron": pale ice over rust, chosen from sixteen candidates drawn as
@@ -69,6 +75,11 @@ BED_FN unsigned char BedPalette_ToWhite(unsigned int c, float t)
     return (unsigned char)((float)c + (255.0f - (float)c) * t + 0.5f);
 }
 
+BED_FN float BedPalette_Luma(float r, float g, float b)
+{
+    return 0.299f * r + 0.587f * g + 0.114f * b;
+}
+
 BED_FN Color BedPalette(int bed, BedShade shade)
 {
     const unsigned int h = BedPalette_Hex(bed);
@@ -76,6 +87,16 @@ BED_FN Color BedPalette(int bed, BedShade shade)
     float f = 1.0f;
     switch (shade)
     {
+        case BED_ROCK:
+        {
+            const float lw = BedPalette_Luma((float)r, (float)g, (float)b) * 0.34f;
+            const float ln = BedPalette_Luma((float)r, (float)g, (float)b);
+            const float t = (lw >= 50.0f || ln <= lw) ? 0.0f
+                          : ((50.0f - lw) / (ln - lw) > 1.0f ? 1.0f : (50.0f - lw) / (ln - lw));
+            const float k = 0.34f + (1.0f - 0.34f) * t;     /* between WELL and NEON */
+            return CLITERAL(Color){BedPalette_Scale(r, k), BedPalette_Scale(g, k),
+                                   BedPalette_Scale(b, k), 255};
+        }
         case BED_LINE:
             return CLITERAL(Color){BedPalette_ToWhite(r, 0.72f), BedPalette_ToWhite(g, 0.72f),
                                    BedPalette_ToWhite(b, 0.72f), 255};

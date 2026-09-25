@@ -511,7 +511,11 @@ the 34 m boundary. The top bed was toned down from the candidate's near-white
 and `mesh` derive from each bed's colour (x0.52, x0.22, toward white 0.72 and
 0.60). The drill bar's well is each bed at x0.34, dark enough for the steel
 string and the bed names to read on it, with a contact line at x0.55 under
-each bed. The cuttings are the bed's MID. The drill bar's own earth tones are
+each bed. The cuttings are the bed's MID. Textured bands (the excavation shaft dock,
+the block plates, the strata sheet) take `BED_ROCK`: the well lifted toward
+the bed's colour until its luminance reaches 50. Their texture is tinted x2
+against a mean of 128, and a darker body smudges it flat. Their contact lines
+are `BED_DEEP` and their grain `BED_MID`. The drill bar's own earth tones are
 in the graveyard, `drill-bar-earth-tones.md`.
 
 **The drill bar's ruler stands beside the well, not on it.** The strata well

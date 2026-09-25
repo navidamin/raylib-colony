@@ -6,6 +6,11 @@ slate for FRACTURED, charcoal for INTACT BASALT). Read by the drill bar's
 well, the core card's strip and the cuttings. Also `GROUND_COLOURS` in
 `holo3d.c`, and the literal table behind `SURVEY_BED_PALETTE` in
 `src/Survey/survey_constants.h`.
+The same browns lived on in `rendermanager.cpp` as `DP_ROCK_COL`,
+`DP_ROCK_EDGE` and `DP_ROCK_GRAIN`. They coloured the excavation shaft dock,
+the block-model plates and the old borehole dock, with a copy in the preview's
+strata sheet. They went in the console fix plan's step 7, to `BED_ROCK`,
+`BED_DEEP` and `BED_MID`.
 **Removed:** the change that gave the beds one palette
 **Replaced by:** `src/ui/bed_palette.h`
 

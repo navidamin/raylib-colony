@@ -1,5 +1,6 @@
 #include "rendermanager.h"
 #include "survey_dash.h"
+#include "bed_palette.h"
 #include "rlgl.h"
 #include "web_mouse.h"
 #include "display_scale.h"
@@ -4790,7 +4791,10 @@ static BlockModelGeom MakeBlockGeom(int gridSize, float x, float y, float w, flo
 // in the fractured layer's cool grey, so the two deepest bands stopped
 // telling apart. Blue is now layer 2's alone, and basalt is still plainly
 // the darkest rock in the column.
-static const Color DP_ROCK_COL[4]  = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{53,52,55,255}};
+// From bed_palette.h, like every other picture of the ground: the textured
+// body is BED_ROCK, which is lifted just far enough that the texture reads.
+static constexpr Color DP_ROCK_COL[4]  = {BedPalette(0, BED_ROCK), BedPalette(1, BED_ROCK),
+                                          BedPalette(2, BED_ROCK), BedPalette(3, BED_ROCK)};
 // How the one texture per stratum is laid into each projection. In the strip
 // it is EXACTLY 1:1 -- one texel per screen pixel. This was 118, a 0.92
 // minification, and that alone was enough to average the finest grain into a
@@ -5072,8 +5076,11 @@ static void DrawBlockLayer(const BlockModelGeom& g, const std::vector<BlockCell>
 
 static const Color DP_OUT          = {10, 14, 20, 255};
 // DP_ROCK_COL lives above DrawBlockLayer, which shares it.
-static const Color DP_ROCK_EDGE[4] = {{25,21,16,255},{28,23,18,255},{22,28,35,255},{16,18,22,255}};
-static const Color DP_ROCK_GRAIN[4]= {{76,68,55,255},{91,81,64,255},{77,90,103,255},{52,56,65,255}};
+// the contact line is the bed's DEEP, and the loose grain its MID (bed_palette.h)
+static constexpr Color DP_ROCK_EDGE[4] = {BedPalette(0, BED_DEEP), BedPalette(1, BED_DEEP),
+                                          BedPalette(2, BED_DEEP), BedPalette(3, BED_DEEP)};
+static constexpr Color DP_ROCK_GRAIN[4]= {BedPalette(0, BED_MID), BedPalette(1, BED_MID),
+                                          BedPalette(2, BED_MID), BedPalette(3, BED_MID)};
 static const Color DP_ICE_FLECK    = {160, 225, 245, 255};
 static const Color PROS_STRING_MID   = {119, 135, 154, 255};
 static const Color PROS_STRING_LIT   = {232, 240, 248, 255};

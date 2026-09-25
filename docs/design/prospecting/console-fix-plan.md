@@ -162,6 +162,13 @@ get a graveyard entry.
 **Verify.** Excavation and the strata sheet (`preview --module strata`),
 before and after, shown side by side.
 
+**Done.** `BED_ROCK` is new: the well lifted toward the bed's colour until its
+luminance is 50. Without the lift, oxblood at x0.34 would smudge its texture
+exactly as the old dark basalt did. `DP_ROCK_*` and the preview's strata-sheet
+copy are now `constexpr` reads of the palette. The excavation shaft is ice
+over iron with its textures intact. `tests/test_bed_palette.cpp` holds the
+C++ side to the table, and the luminance floor to 50.
+
 ## Step 8 — DisplayScale audit
 
 **Wrong.** Only the playtest, view test, extraction sandbox and game were

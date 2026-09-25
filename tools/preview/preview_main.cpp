@@ -9,6 +9,7 @@
 // See tools/preview/README.md for usage.
 
 #include "raylib.h"
+#include "bed_palette.h"
 
 #include "rendermanager.h"
 #include "viewmanager.h"
@@ -633,8 +634,10 @@ static int RenderStrataSheet(const PreviewOptions& options)
 
     int status = 0;
     {
-        const Color rock[4] = {{58,52,43,255},{69,62,52,255},{57,66,77,255},{39,42,48,255}};
-        const Color edge[4] = {{25,21,16,255},{28,23,18,255},{22,28,35,255},{16,18,22,255}};
+        const Color rock[4] = {BedPalette(0, BED_ROCK), BedPalette(1, BED_ROCK),
+                               BedPalette(2, BED_ROCK), BedPalette(3, BED_ROCK)};
+        const Color edge[4] = {BedPalette(0, BED_DEEP), BedPalette(1, BED_DEEP),
+                               BedPalette(2, BED_DEEP), BedPalette(3, BED_DEEP)};
         const char* names[4]  = {"REGOLITH", "MEGAREGOLITH", "FRACTURED", "BASALT"};
         const char* depths[4] = {"0 - 12 m", "12 - 34 m", "34 - 68 m", "68 - 120 m"};
         const char* note[4]   = {"impact-gardened soil: fine grain, broad mottle, angular grit",
