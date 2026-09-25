@@ -616,6 +616,10 @@ int main(int argc, char** argv)
         }
         else
         {
+#if defined(PLATFORM_WEB)
+            // /viewtest/?sect is the page's --sect.
+            if (emscripten_run_script_int("new URLSearchParams(location.search).has('sect') ? 1 : 0")) g_ctx.startInSect = true;
+#endif
             if (g_ctx.startInSect && ScriptedFounding(g_ctx, g_ctx.pickLat, g_ctx.pickLon, false))
             {
                 g_ctx.level = 3;

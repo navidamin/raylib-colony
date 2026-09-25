@@ -8,8 +8,9 @@ on:
     # pushes again -- the builds also cancel each other (concurrency group
     # "pages", cancel-in-progress). This branch is listed while the
     # site-selection playtest at /lunarmap/ is being tried on a phone.
-    # Drop it from this list again once that is done.
-    branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj, claude/lunarmap-wiring-site-selection-b9lwaw]
+    # Drop it from this list again once that is done. The DomeForge sect
+    # view is listed for the same reason: /viewtest/?sect on a phone.
+    branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj, claude/lunarmap-wiring-site-selection-b9lwaw, claude/sect-view-domeforge]
     paths:
       - 'src/**'
       - 'tools/**'
