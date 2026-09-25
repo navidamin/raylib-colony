@@ -507,6 +507,12 @@ the 34 m boundary. The top bed was toned down from the candidate's near-white
 and `mesh` derive from each bed's colour (x0.52, x0.22, toward white 0.72 and
 0.60). The drill bar keeps its own earth tones for now.
 
+**The drill bar's ruler stands beside the well, not on it.** The strata well
+takes the face less a 78-unit strip (`DC_RULER_STRIP`). The ruler and its
+labels have that strip to themselves, so the depths no longer sit on the
+rock. A tick's name (SURFACE, TARGET) is written above its tick. Below it,
+SURFACE ran into the 12 m label and TARGET fell out of the frame.
+
 **Unknown rock is wire, not haze.** The fog is drawn by leaving things out:
 where the model is not confident a wall gets no fill, no mesh and no bed
 boundary, only the instrument's own wire -- a column line every other sample

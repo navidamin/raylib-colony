@@ -325,6 +325,10 @@ void Dash_Log(float x, float y, float w, float h, const DashLogEntry *e, int cou
 
 /* ---------- the drill bar (1544, 1567) -------------------------------- */
 #define DC_RULER_MINOR_M 5.0f
+/* The ruler's own strip at the right of the drill bar's face: the ruler line
+ * at x + w - 92 (DcRulerSpan), less a 12-unit gap to the well. The labels
+ * run to the face's edge. */
+#define DC_RULER_STRIP   78.0f
 
 static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
                     float pad)
@@ -345,7 +349,9 @@ static void DcRuler(float x, float y0, float y1, const DashDepth *d, int n,
         DcLine(x, yy, x + 14.0f, yy, C_accent, 1.5f);
         c2d_disc((Vector2){x + 14.0f, yy}, 2.5f, C_accent);
         DcLabel(d[i].depth, x + 24.0f, yy + 6.0f, 16.0f, C_depth, C2D_W500);
-        if (d[i].name) DcLabel(d[i].name, x + 24.0f, yy + 26.0f, 14.0f, C_depth, C2D_W500);
+        /* the name sits ABOVE its tick: below, SURFACE ran into the 12 m
+           label and TARGET fell out of the bar's frame */
+        if (d[i].name) DcLabel(d[i].name, x + 24.0f, yy - 12.0f, 14.0f, C_depth, C2D_W500);
     }
 }
 
@@ -697,7 +703,11 @@ static void DcRoughDrill(float x, float y, float w, float h,
      * ruler beside it all measure from `top` (the surface) to `bot`
      * (DRILL_TARGET_M). They disagreed once and the ruler read 2 km against a
      * 120 m hole. */
-    const float sx = x + 12.0f, sw = w - 24.0f;
+    /* THE WELL STOPS SHORT OF THE RULER. The strata used to fill the face and
+     * the ruler was drawn over them, its labels on the rock; now the well
+     * takes the face less DC_RULER_STRIP and the ruler has that strip to
+     * itself, on the right (DcRulerSpan puts it there). */
+    const float sx = x + 12.0f, sw = w - 24.0f - DC_RULER_STRIP;
     const float top = y + 54.0f, bot = y + h - 10.0f;
     const float rpm = sim ? sim->rpm : 0.0f;
     const float depth = sim ? (sim->depthM - sim->lift) : 0.0f;
