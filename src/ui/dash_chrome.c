@@ -1,5 +1,6 @@
 /* dash_chrome.c — see dash_chrome.h. Port of js/dashboard.html 1290-1670. */
 #include "dash_chrome.h"
+#include "bed_palette.h"
 #include "drill_sim.h"
 #include "dash_knowledge.h"
 
@@ -759,8 +760,9 @@ static void DcRoughDrill(float x, float y, float w, float h,
     {
         const float y0 = top + (bot - top) * (S[i].top / DRILL_TARGET_M);
         const float y1 = top + (bot - top) * (S[i].bot / DRILL_TARGET_M);
-        c2d_rect(sx, y0, sw, y1 - y0, (Color){S[i].col[0], S[i].col[1], S[i].col[2], 255});
-        c2d_rect(sx, y1 - 2.0f, sw, 2.0f, (Color){S[i].edge[0], S[i].edge[1], S[i].edge[2], 255});
+        /* the block's bed colours, darkened for the well (bed_palette.h) */
+        c2d_rect(sx, y0, sw, y1 - y0, BedPalette(i, BED_WELL));
+        c2d_rect(sx, y1 - 2.0f, sw, 2.0f, BedPalette(i, BED_WELL_EDGE));
         /* The rock is named in its own band. The ruler has 68 units of label
          * width and MEGAREGOLITH needs 100 -- but more than that, a stratum
          * name is a fact about the ground, not about the hole. */
@@ -808,7 +810,8 @@ static void DcRoughDrill(float x, float y, float w, float h,
                 {
                     g_chips[i] = (DcChipP){cx, rig.bitY - 6.0f, DcRnd() * 6.28f,
                                            20.0f + DcRnd() * 20.0f,
-                                           (Color){g->grain[0], g->grain[1], g->grain[2], 255},
+                                           /* cuttings: the bed's lighter tone */
+                                           BedPalette((int)(g - DrillSim_Strata()), BED_MID),
                                            true};
                     break;
                 }

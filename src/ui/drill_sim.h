@@ -32,9 +32,8 @@ extern "C" {
 typedef struct DrillStratum {
     const char *name;
     float top, bot;             /* metres                                */
-    unsigned char col[3];       /* body, edge, grain                     */
-    unsigned char edge[3];
-    unsigned char grain[3];
+    /* No colours: stratum k is painted as bed k of bed_palette.h, the
+       same table the block's beds come from. */
     float hard;                 /* 0..1, drives cut rate and heat        */
     float bandLo, bandHi;       /* the contact-pressure window           */
     float fragility;            /* how badly over-driving grinds core    */

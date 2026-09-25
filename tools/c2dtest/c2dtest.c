@@ -8,6 +8,8 @@
 #include "c2d.h"
 #include "drill_sim.h"
 #include "dash_knowledge.h"
+#include "holo3d.h"
+#include "bed_palette.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -15,6 +17,18 @@
 #include <string.h>
 
 static int g_fail = 0, g_pass = 0;
+
+/* flat beds for Holo3D_SetGround: boundary k at k/5 of the column */
+static float FlatBeds(void *ctx, int boundary, float u, float v)
+{
+    (void)ctx; (void)u; (void)v;
+    return (float)boundary / 5.0f;
+}
+
+static bool SameColour(Color a, Color b)
+{
+    return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+}
 
 static void CHECK(bool ok, const char *what)
 {
@@ -739,6 +753,39 @@ int main(int argc, char **argv)
         DrillCoreLog_From(&log, &p, 0.2f, 0.3f, d.depthM);
         CHECK(log.count == p.count && fabsf(DrillCoreLog_Read(&log, 3, 4) - p.sample[3].read.vib) < 0.01f,
               "a kept log reads back what was recorded, to a byte's precision");
+    }
+
+    printf("\n== 20. one palette: the block's beds and the drill bar's strata ==\n");
+    {
+        /* Real ground paints its beds from bed_palette.h, and the drill bar
+           and the core card paint stratum k as bed k of the same table. If
+           either grows a table of its own again, this fails. */
+        Holo3DModel *m = Holo3D_Build(NULL);
+        Holo3D_SetGround(m, DRILL_STRATA_COUNT, FlatBeds, NULL, NULL);
+        bool same = Holo3D_LayerCount(m) == DRILL_STRATA_COUNT;
+        for (int k = 0; k < DRILL_STRATA_COUNT && same; k++)
+        {
+            const H3DLayer *ly = Holo3D_Layer(m, k);
+            same = SameColour(ly->neon, BedPalette(k, BED_NEON)) &&
+                   SameColour(ly->mid,  BedPalette(k, BED_MID))  &&
+                   SameColour(ly->deep, BedPalette(k, BED_DEEP)) &&
+                   SameColour(ly->line, BedPalette(k, BED_LINE)) &&
+                   SameColour(ly->mesh, BedPalette(k, BED_MESH));
+        }
+        CHECK(same, "each bed of real ground carries the palette's colours");
+        Holo3D_Free(m);
+
+        CHECK(DRILL_STRATA_COUNT <= BED_PALETTE_BEDS, "the palette has a colour for every stratum");
+        /* the well's rock is the bed's own colour, darkened -- the same hue */
+        bool hue = true;
+        for (int k = 0; k < DRILL_STRATA_COUNT; k++)
+        {
+            const Color n = BedPalette(k, BED_NEON), w = BedPalette(k, BED_WELL);
+            hue = hue && abs((int)w.r - (int)lroundf(n.r * 0.34f)) <= 1 &&
+                         abs((int)w.g - (int)lroundf(n.g * 0.34f)) <= 1 &&
+                         abs((int)w.b - (int)lroundf(n.b * 0.34f)) <= 1;
+        }
+        CHECK(hue, "the drill bar's well is each bed's colour at 0.34");
     }
 
     c2d_fonts_unload();

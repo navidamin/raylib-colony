@@ -1,5 +1,6 @@
 /* survey_dash.c — see survey_dash.h. */
 #include "survey_dash.h"
+#include "bed_palette.h"
 
 #include "c2d.h"
 
@@ -858,12 +859,11 @@ static void DashDrawCoreCard(const SurveyDashState *s, int i)
     const float sw = 18.0f;                             /* the strata strip */
     const float tx = px + sw + 10.0f, tw = DASH_CARD_W - 24.0f - sw - 10.0f;
     const int nb = l->count > 0 ? l->count : 1;
-    const DrillStratum *S = DrillSim_Strata();
     for (int k = 0; k < l->count; k++)
     {
-        const DrillStratum *g = &S[l->stratum[k] < DRILL_STRATA_COUNT ? l->stratum[k] : 0];
+        const int bed = l->stratum[k] < DRILL_STRATA_COUNT ? l->stratum[k] : 0;
         const float y0 = py + ph * (float)k / (float)nb, y1 = py + ph * (float)(k + 1) / (float)nb;
-        c2d_rect(px, y0, sw, y1 - y0 + 0.5f, (Color){g->col[0], g->col[1], g->col[2], 255});
+        c2d_rect(px, y0, sw, y1 - y0 + 0.5f, BedPalette(bed, BED_WELL));   /* as the drill bar */
     }
     const Vector2 frame[5] = {{px, py}, {px + sw, py}, {px + sw, py + ph}, {px, py + ph}, {px, py}};
     c2d_polyline(frame, 5, RGBA8(0x1f, 0x4d, 0x60, 1.0f), 1.0f);

@@ -61,6 +61,7 @@ Newest first. Empty until the first burial.
 
 | Part | Removed in | Replaced by |
 |------|-----------|-------------|
+| [The drill bar's earth tones](drill-bar-earth-tones.md) — the strata's own body, edge and grain colours in `DrillStratum` | One bed palette | `src/ui/bed_palette.h`, shared with the block |
 | [The console block's zoom and tilt](console-block-zoom-and-tilt.md) — the wheel zoom and the 0.15–0.80 rad drag tilt | Yaw-only block | a fixed view that turns about its vertical axis |
 | [The glass tint on unknown faces](fog-glass-tint.md) — a faint tint under the fog so the cut's planes read | Cut closes after a hole | the cut's own edges |
 | [The section slice over the block](console-section-slice.md) — a flat panel through the site showing the beds | Cutaway | `Holo3D_DrawCutaway` |

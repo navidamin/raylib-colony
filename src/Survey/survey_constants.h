@@ -15,6 +15,7 @@
    ===================================================================== */
 
 #include "raylib.h"
+#include "bed_palette.h"
 
 #include "prospecting_constants.h"
 #include "subsurface.h"
@@ -85,8 +86,8 @@ constexpr Color SURVEY_CAGE        = {110, 190, 225, 255 };
 constexpr Color SURVEY_RIM         = {230, 255, 255, 255 };
 constexpr Color SURVEY_BASE_RING   = { 95, 240, 255, 255 };
 
-/* One bed's four tones plus its mesh. Taken from Holo3D's LAYERS table, which
-   is where the block's colour identity was decided. */
+/* One bed's four tones plus its mesh, from bed_palette.h -- the one table
+   the console's block, its drill bar and its core cards read too. */
 struct SurveyBedPalette
 {
     const char* name;
@@ -96,12 +97,17 @@ struct SurveyBedPalette
     Color line;
     Color mesh;
 };
+constexpr SurveyBedPalette SurveyBedFromPalette(const char* name, int k)
+{
+    return { name, BedPalette(k, BED_NEON), BedPalette(k, BED_MID), BedPalette(k, BED_DEEP),
+             BedPalette(k, BED_LINE), BedPalette(k, BED_MESH) };
+}
 constexpr SurveyBedPalette SURVEY_BED_PALETTE[SURVEY_BEDS] =
 {
-    { "SURFACE", { 63,155,212,255}, { 29, 93,144,255}, { 12, 42, 74,255}, {207,239,255,255}, {190,235,255,255} },
-    { "SHALLOW", { 53,179,196,255}, { 21,115,131,255}, {  6, 48, 60,255}, {189,239,245,255}, {180,235,240,255} },
-    { "MID",     {127,168,174,255}, { 74,109,117,255}, { 34, 56, 62,255}, {214,236,239,255}, {210,230,232,255} },
-    { "DEEP",    {122,146,180,255}, { 58, 79,108,255}, { 27, 38, 54,255}, {211,220,236,255}, {200,215,235,255} },
+    SurveyBedFromPalette("SURFACE", 0),
+    SurveyBedFromPalette("SHALLOW", 1),
+    SurveyBedFromPalette("MID",     2),
+    SurveyBedFromPalette("DEEP",    3),
 };
 
 // The light the block is shaded by, in model space.

@@ -496,16 +496,23 @@ The tilt is now fixed at 0.42 rad and the zoom at 0.34: the block turns
 about its vertical axis and nothing else. See
 `docs/design/graveyard/console-block-zoom-and-tilt.md`.
 
-**The beds are ice over iron.** Real ground is painted from
-`GROUND_COLOURS` in `holo3d.c`, not from the reference's `LAYERS`: that table
-stays as the port's visual diff measures it. Top down: pale ice `#b4dcec`,
+**The beds are ice over iron, in one table.** Every picture of the ground
+reads its colours from `src/ui/bed_palette.h`: the block's beds (Holo3D real
+ground), the drill bar's well, the core card's strip, the cuttings on the
+flights and the C++ survey block (`SURVEY_BED_PALETTE`). Change a colour in
+`BedPalette_Hex` and all of them follow. c2dtest §20 fails if any of them
+grows a table of its own again. The reference's `LAYERS` in `holo3d.c` is
+not part of this: it stays as the port's visual diff measures it. Top down: pale ice `#b4dcec`,
 steel-blue `#9cc8dc`, rust `#b0765a`, oxblood `#6e3c34`, and a darker rust
 `#4e2c28` for a fifth bed. Chosen from sixteen candidates drawn as 4-bed
 strata. Two cool beds over two warm ones puts the one big change of hue at
 the 34 m boundary. The top bed was toned down from the candidate's near-white
 `#e0f6ff`, which read as a highlight rather than rock. `mid`, `deep`, `line`
 and `mesh` derive from each bed's colour (x0.52, x0.22, toward white 0.72 and
-0.60). The drill bar keeps its own earth tones for now.
+0.60). The drill bar's well is each bed at x0.34, dark enough for the steel
+string and the bed names to read on it, with a contact line at x0.55 under
+each bed. The cuttings are the bed's MID. The drill bar's own earth tones are
+in the graveyard, `drill-bar-earth-tones.md`.
 
 **The drill bar's ruler stands beside the well, not on it.** The strata well
 takes the face less an 86-unit strip (`DC_RULER_STRIP`). The ruler, at
@@ -597,7 +604,7 @@ pointer becomes the hand over it.
 **The log card** is opaque (the height log's bright labels sit behind it), 
 with a 19-unit title and nothing smaller than 12 -- the letterbox rule above.
 Down its left a strip coloured by the rock each half-metre went through, in
-the drill bar's own strata colours; beside it LOAD (cyan), TEMP (amber) and
+the drill bar's colours (`BED_WELL`); beside it LOAD (cyan), TEMP (amber) and
 VIB (pale) traced down the depth against a half-scale guide. Each point is an
 interval mean over three bins; plotting the instant at each crossing made the
 lines saw-tooth with the player's tapping.

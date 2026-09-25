@@ -37,14 +37,10 @@ float DrillSim_Speed(void)          { return g_speed; }
  * in spindle terms. It moves with the strata, which is the point: reading the
  * model beforehand tells you where it will move to. */
 static const DrillStratum STRATA[DRILL_STRATA_COUNT] = {
-    {"REGOLITH",      0.0f,  12.0f,  {0x3a,0x34,0x2b}, {0x19,0x15,0x10}, {0x4c,0x44,0x37},
-     0.25f, 0.26f, 0.60f, 1.0f, false},
-    {"MEGAREGOLITH", 12.0f,  34.0f,  {0x45,0x3e,0x34}, {0x1c,0x17,0x12}, {0x5b,0x51,0x40},
-     0.55f, 0.42f, 0.84f, 1.0f, false},
-    {"FRACTURED",    34.0f,  68.0f,  {0x39,0x42,0x4d}, {0x16,0x1c,0x23}, {0x4d,0x5a,0x67},
-     0.45f, 0.30f, 0.58f, 2.1f, true},
-    {"INTACT BASALT",68.0f, 120.0f,  {0x27,0x2a,0x30}, {0x10,0x12,0x16}, {0x34,0x38,0x41},
-     0.95f, 0.68f, 1.18f, 0.7f, false},
+    {"REGOLITH",      0.0f,  12.0f, 0.25f, 0.26f, 0.60f, 1.0f, false},
+    {"MEGAREGOLITH", 12.0f,  34.0f, 0.55f, 0.42f, 0.84f, 1.0f, false},
+    {"FRACTURED",    34.0f,  68.0f, 0.45f, 0.30f, 0.58f, 2.1f, true},
+    {"INTACT BASALT",68.0f, 120.0f, 0.95f, 0.68f, 1.18f, 0.7f, false},
 };
 
 const DrillStratum *DrillSim_Strata(void) { return STRATA; }

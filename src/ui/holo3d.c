@@ -5,6 +5,7 @@
  * each Canvas feature to the shim function that carries it. */
 
 #include "holo3d.h"
+#include "bed_palette.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -84,18 +85,8 @@ static const H3DLayer LAYERS[H3D_LAYERS] = {
 
 /* THE GROUND'S OWN COLOURS. LAYERS above is the reference's table and stays
  * as it is -- the port's visual diff is measured against it. Real ground
- * (Holo3D_SetGround) is painted from this one instead: "ice & iron", pale
- * ice over rust, chosen from sixteen candidates in a playtest. Per bed, top
- * down: neon, mid (x0.52), deep (x0.22), line and mesh (toward white by
- * 0.72 and 0.60). The fifth is below anything the playtest ground reaches. */
-typedef struct { Color neon, mid, deep, line, mesh; } H3DBedColours;
-static const H3DBedColours GROUND_COLOURS[H3D_LAYERS] = {
-    {RGB_K(0xb4,0xdc,0xec), RGB_K(0x5e,0x72,0x7b), RGB_K(0x28,0x30,0x34), RGB_K(0xea,0xf5,0xfa), RGB_K(0xe1,0xf1,0xf7)},
-    {RGB_K(0x9c,0xc8,0xdc), RGB_K(0x51,0x68,0x72), RGB_K(0x22,0x2c,0x30), RGB_K(0xe3,0xf0,0xf5), RGB_K(0xd7,0xe9,0xf1)},
-    {RGB_K(0xb0,0x76,0x5a), RGB_K(0x5c,0x3d,0x2f), RGB_K(0x27,0x1a,0x14), RGB_K(0xe9,0xd9,0xd1), RGB_K(0xdf,0xc8,0xbd)},
-    {RGB_K(0x6e,0x3c,0x34), RGB_K(0x39,0x1f,0x1b), RGB_K(0x18,0x0d,0x0b), RGB_K(0xd6,0xc8,0xc6), RGB_K(0xc5,0xb1,0xae)},
-    {RGB_K(0x4e,0x2c,0x28), RGB_K(0x29,0x17,0x15), RGB_K(0x11,0x0a,0x09), RGB_K(0xcd,0xc4,0xc3), RGB_K(0xb8,0xab,0xa9)},
-};
+ * (Holo3D_SetGround) is painted from bed_palette.h instead, the one table
+ * the drill bar and the core card read too. */
 
 static Color h3d_mix(Color a, Color b, float t)
 {
@@ -150,7 +141,7 @@ struct Holo3DModel {
     bool plain;                     /* no hashed motes, see H3DBuildOpts */
 
     /* Holo3D_SetGround's own copy: the geometry comes from the caller, the
-     * colours from GROUND_COLOURS, and the text from the caller when it supplies
+     * colours from bed_palette.h, and the text from the caller when it supplies
      * any. `layers` points here once real ground is set. */
     H3DLayer own[H3D_LAYERS];
 
@@ -228,11 +219,11 @@ void Holo3D_SetGround(Holo3DModel *m, int beds, H3DDepthFn fn, void *ctx,
     for (int k = 0; k < H3D_LAYERS; k++)
     {
         m->own[k] = LAYERS[k];
-        m->own[k].neon = GROUND_COLOURS[k].neon;
-        m->own[k].mid  = GROUND_COLOURS[k].mid;
-        m->own[k].deep = GROUND_COLOURS[k].deep;
-        m->own[k].line = GROUND_COLOURS[k].line;
-        m->own[k].mesh = GROUND_COLOURS[k].mesh;
+        m->own[k].neon = BedPalette(k, BED_NEON);
+        m->own[k].mid  = BedPalette(k, BED_MID);
+        m->own[k].deep = BedPalette(k, BED_DEEP);
+        m->own[k].line = BedPalette(k, BED_LINE);
+        m->own[k].mesh = BedPalette(k, BED_MESH);
         if (text && k < beds)
         {
             if (text[k].name)  m->own[k].name  = text[k].name;
