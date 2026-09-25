@@ -120,7 +120,31 @@ struct TerrainSiteDisturbance
     // then fades to untouched over the next fadeKm.
     float workedRadiusKm = 4.95f;  // encompasses the units, plus margin
     float fadeKm = 1.00f;          // fade band beyond the worked ground
+
+    // The base's own footprint: the ground a construction site would have
+    // graded. Inside it the natural relief and imagery contrast are taken
+    // much further toward the local mean than the site as a whole, and the
+    // worked undulation and roughness are calmed; it fades back to the
+    // site's treatment over footprintFadeKm, so there is no edge and no pad.
+    // (A built platform was tried and rejected -- SITE_SYNTHESIS.md.) Only
+    // the sect level sets it; 0 = none.
+    float footprintRadiusKm = 0.0f;
+    float footprintFadeKm = 0.30f;
+    float footLevelAmount = 0.92f; // elevation, toward the local mean
+    float footToneAmount = 0.50f;  // imagery contrast and shadows
+    float footCalm = 0.60f;        // how much of the undulation/roughness goes
 };
+
+// The sect base's physical size: the ring road's centre line is this far from
+// the sect centre. The sect view draws the DomeForge base to this scale
+// (src/Sect/sect_art.cpp), so the art and the ground under it agree.
+constexpr float SECT_RING_ROAD_KM = 1.25f;
+
+// The site disturbance for the 5 km (sect) level, from the base's layout:
+// dome positions, dome sizes and the footprint all follow SECT_RING_ROAD_KM
+// and DomeForge's layout proportions. The colony-level geometry in `base`
+// is kept for its amplitudes only.
+TerrainSiteDisturbance SectLevelSite(const TerrainSiteDisturbance& base);
 
 // Global switch + accessor for the site disturbance (playtest compare).
 void SetSiteDisturbanceEnabled(bool enabled);

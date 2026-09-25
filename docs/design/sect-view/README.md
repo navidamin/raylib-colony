@@ -9,7 +9,7 @@
 | # | Document | Description | Status |
 |---|----------|-------------|--------|
 | 1 | [sect-view-elements.md](sect-view-elements.md) | HUD element inventory, surroundings brainstorm, hover tooltip design | DRAFT |
-| 2 | [domeforge-study.md](domeforge-study.md) | **Next visual design:** the DomeForge generator (`prototypes/dome-forge/`), how it maps onto this view, the port plan and open questions | STUDY |
+| 2 | [domeforge-study.md](domeforge-study.md) | **The current visual design:** the DomeForge base (`prototypes/dome-forge/`, ported to `src/DomeForge/`), the user's decisions, how it is baked and placed, the levelled ground under it, and the 3D view's sizing | IMPLEMENTED (2D) |
 
 ## Design Summary
 
@@ -18,14 +18,17 @@ sect — a central hex-glass dome (development readout) surrounded by 8 unit dom
 stations, linked by connector arms with status LEDs, enclosed by a ring road
 with entry rails leading off-screen.
 
-**Visual design status: IMPLEMENTED** (branch `claude/section-visual-redesign-k001sc`):
+**Visual design status: DomeForge base, IMPLEMENTED** (branch
+`claude/sect-view-domeforge`). See [domeforge-study.md](domeforge-study.md):
 
-- Per-pixel ray-shaded dome spheres (Lambert + two-lobe Blinn specular +
-  fresnel + bounce light), baked into cached textures per tint/size/seed
-- Per-unit lighting character seeded from the unit type name (FNV-1a)
-- Hex glass pattern, riveted bezels, procedural unit glyphs (no sprite assets)
-- Connector arms with green conduits + socket LEDs showing unit status
-- Ring road with crossbar lamp seams; twin entry rails with gate boxes
+- The user's DomeForge art set (`prototypes/dome-forge/`), ported bit-exact to
+  `src/DomeForge/` and baked once per game by `src/Sect/sect_art.cpp`
+- Green glass = unit on, grey = off; unit glyph + label on the glass
+- Kerbed roads filleted into the dome rims, socket lights; no entry rails
+- Drawn at its real size on the ground (ring road 1.25 km from the centre),
+  over terrain levelled under the base's footprint
+- The previous art (ray-shaded dome stations) is recorded in
+  `docs/graveyard.md` §11
 
 Open design work (this module's documents): what surrounds the base, what the
 HUD shows, and what hovering each element reveals — without cluttering the
@@ -36,7 +39,10 @@ scene. See [sect-view-elements.md](sect-view-elements.md).
 ### Source Code (current implementation)
 | File | Relevant Code |
 |------|--------------|
-| `src/Sect/sect.cpp` | `DrawInSectView` + anonymous-namespace visual helpers (dome baking, glyphs, arms, ring road, rails) |
+| `src/Sect/sect.cpp` | `DrawInSectView`: places the art, draws glyphs/labels and the development readout, sets unit hit areas |
+| `src/Sect/sect_art.cpp` | The DomeForge set: time-sliced bake, layout on screen, draw calls |
+| `src/DomeForge/` | The DomeForge port (sprites, roads, layout; 3D scaffold) |
+| `tools/domeforge/` | JS-vs-port diff gate |
 | `src/Sect/sect.h` | Sect entity, storage, units |
 | `src/Engine/rendermanager.cpp` | `DrawSectView` (terrain background, resource dashboard, storage upgrade panel) |
 | `src/Engine/inputmanager.cpp` | Unit click detection via `SetUnitPosInSectView` / `SetUnitRadiusInSectView` |

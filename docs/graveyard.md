@@ -479,3 +479,53 @@ cards the descent now shows (`lunarmap_main.cpp`, ported to
 
 `git log -S'PLANET_SIZE'`, `git log -S'TerrainGridCellToLatLon'` and
 `git log -S'DrawSiteSelectionView'` for the real code.
+
+---
+
+## 11. The ray-shaded dome stations — the sect view's first base art
+
+**Was:** everything `Sect::DrawInSectView` drew, from the anonymous
+namespace in `src/Sect/sect.cpp` (added 2026-08-14/15, `b1c0578`,
+`298fa1b`, `49c91d2`, `72f4f24`). A hub-and-spoke base laid out in
+**screen fractions** of the window height `h`:
+
+- core dome radius `0.15 h` inside a riveted bezel to `1.22×` with a soft
+  green halo; unit domes radius `0.085 h` on an orbit of `0.325 h`, 45°
+  apart from the top, clockwise; a ring road at `0.443 h` with warm lamp
+  seams on its crossbars; two entry rails with gate boxes running off the
+  bottom of the screen
+- `GetBakedDomeTexture`: each dome a per-pixel ray-shaded sphere (Lambert
+  + two-lobe Blinn specular + fresnel rim + bounce light) baked into a
+  texture per tint/size/seed, with a honeycomb drawn over it
+  (`DrawHexPattern`); `GetDomeLook` gave each unit its own light angle and
+  lobes from an FNV-1a hash of its type name (`HashSeed`)
+- colour: an active unit's glass in its type's accent (`UnitAccentColor`:
+  Extraction amber, Energy blue, ...), idle domes dark slate; connector
+  arms with a green conduit and a socket LED per unit status (`DrawLed`,
+  `DrawSocket`)
+
+**Replaced by:** the DomeForge base (`src/DomeForge/`, a bit-exact port
+of the user's `prototypes/dome-forge/`), baked once per game and placed on
+the ground at its real size by `src/Sect/sect_art.cpp`. See
+`docs/design/sect-view/domeforge-study.md`.
+
+**Why it went.** The user brought a finished art set for the base —
+faceted hex glass, plate rims with socket loops that merge into them,
+kerbed filleted roads — and asked for the sect view to be redesigned on
+it, with green meaning on and grey meaning off, round rims, and no entry
+rails. The old art also floated: laid out in screen fractions, it had no
+fixed size on the ground, which is why the site levelling (then scaled
+from the colony view at 0.63×) measured out 420–540 px from the centre,
+outside the ring road, instead of under the base.
+
+**What survived.** The layout idea (a core, eight units on a ring at 45°
+from the top, a ring road), the unit order, the procedural unit glyphs
+and labels on the glass (`DrawUnitGlyph`, kept), the development readout
+on the core, and baking a dome once and reusing the texture.
+
+**What would bring it back.** Nothing as a whole. Per-unit accent colours
+are the one idea worth reusing: `DomeColour` in `sect_art.cpp` is where a
+unit's own colour would go.
+
+`git log -S'GetBakedDomeTexture'` and `git log -S'DrawUnitDomeStation'`
+for the real code.

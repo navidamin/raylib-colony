@@ -302,6 +302,24 @@ Lesson worth keeping: *adding* detail could not compete with the wild
 natural relief underneath. Damping what is already there had to come
 first, and the damping has to happen before the stage that consumes it.
 
+## Sect footprint (2026-09-25): graded, not built
+
+The user asked for "a feel of levelled ground immediately under the site, as
+you'd expect at a construction site". Done without reopening the platform:
+
+- The sect level (5 km) now takes its site geometry from the base's real
+  layout (`SectLevelSite`, ring road 1.25 km). The old 0.63x of the colony
+  geometry measured out **outside** the ring road in the sect view.
+- Inside the base's footprint the level-off goes much further (elevation
+  0.92, tone 0.50, the working calmed by 0.60), fading back to the site's
+  own treatment over 0.30 km.
+- The lesson it added: **levelling toward the mean flattens the grain too.**
+  The first pass read as a smooth grey disc, the rejected look by another
+  route. So the grain and undulation the footprint levelled beyond the site's
+  own amount are handed back: relief goes, texture stays.
+
+Record and images: `docs/design/sect-view/domeforge-study.md` §8.
+
 ## Open questions
 
 - Palette warmth/hue — currently blue-violet shadows; could shift

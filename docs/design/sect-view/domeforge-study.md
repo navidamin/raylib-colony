@@ -1,7 +1,8 @@
 # DomeForge → Sect view: study and port plan
 
-**Status: STUDY.** Nothing in the game uses DomeForge yet. This document records
-what it is, how it maps onto the current sect view, and how to bring it in.
+**Status: IMPLEMENTED (2D), 3D sized and scaffolded.** The sect view draws
+the DomeForge base (§6). This document records what DomeForge is, how it maps
+onto the sect view, what was decided (§5) and what was built (§6-§8).
 
 Source: [`prototypes/dome-forge/`](../../../prototypes/dome-forge/), the
 user's procedural generator for the lunar-base art set. Its own README is the
@@ -11,8 +12,8 @@ once, not the HTML.
 
 ![current sect view vs DomeForge base](domeforge-vs-current.png)
 
-*Left: the sect view today (rendered from this branch, Mare Imbrium). Right:
-DomeForge's `lunar-base-full.png`.*
+*Left: the sect view before (Mare Imbrium). Right: DomeForge's
+`lunar-base-full.png`. The result is at the end of §6.*
 
 ---
 
@@ -120,29 +121,95 @@ arithmetic is shared rather than approximated:
   identical, not approximated.
 - **In context:** `tools/preview/preview.sh --view sect`, looked at every time.
 
-## 5. Open questions (for the user, before building)
+## 5. Decisions (the user, 2026-09-25)
 
-1. **Unit colours.** DomeForge colours by position (cardinal green, diagonal
-   grey). Should the game colour by unit type, by status (active/idle), by
-   selection, or keep the reference look?
-2. **Unit identity.** DomeForge domes carry no icon or label. Keep the game's
-   glyph and label on or under the glass, or move identity into hover and
-   tooltip?
-3. **Ground.** Keep the real-imagery terrain under the roads (recommended), or
-   use DomeForge's regolith?
-4. **Entry rails.** Keep them, replace them with `spokesBeyond` roads, or drop
-   them?
-5. **Central rim.** Circular (the base sample) or polygonal (the sprite sheet's
-   octagon, `central.sides = 8`)?
-6. **3D.** Is the ray-marched view wanted in the game, and where?
+1. **Colour = state.** Green glass means on, grey means off. Keep a place to
+   set a colour per unit, but don't build it yet: `DomeColour` in
+   `sect_art.cpp` takes the slot and is the one place it would go.
+2. **Unit identity stays on the glass** (glyph + label), for now.
+3. **Real ground**, with the feel of levelled ground immediately under the
+   site, as a construction site would have. See §8. It is not a pad: a built
+   platform was tried and rejected before (`SITE_SYNTHESIS.md`).
+4. **No entry rails.**
+5. **Round rims** (`central.sides = 0`).
+6. **3D: wanted eventually.** Estimate what it adds first; if too much, lay
+   out the structure without fully developing it. See §7.
 
-## 6. Stages
+## 6. What was built
 
-| # | Stage | Done when |
+| Piece | Where | Check |
 |---|---|---|
-| S1 | Reference renders pinned: a script produces unit/central/roads PNGs at fixed configs | PNGs committed as the diff baseline |
-| S2 | C engine: `unit` and `central` sprites | diff under 1% for both, 2 sockets and 8 sockets |
-| S3 | C road layer + layout | roads-only render diffs under 1% |
-| S4 | Sect view draws the baked set over the real terrain; hit tests from the layout | preview renders looked at at 1× and 2× |
-| S5 | Game state on the art: status → socket lights, selection → glass colour, overlays per the answers to §5 | every state rendered and looked at |
-| S6 | Retire the old dome drawing, with its graveyard record | this branch has no `docs/design/graveyard/`; bring the rule's directory over from `main` first |
+| DomeForge engine + base, a 1:1 port in C++ (double precision, JS rounding reproduced) | `src/DomeForge/` | `tools/domeforge/domeforge_diff.sh`: unit, 2-socket off-grey unit, central, roads, ground and the full base all **100% pixel-identical** to the JS (roads/base: max difference 1/255) |
+| Row-at-a-time jobs, so a bake can be spread over frames | `DomeForgeJob` in `domeforge.h` | the same diff: the refactor and the road-span skip changed no pixel |
+| The sect view's art: one set per game, baked a slice per frame from startup (6 ms), placed at its real size | `src/Sect/sect_art.{h,cpp}`, `Sect::DrawInSectView`, `Engine::Update` | about 1.15 s of CPU for the whole set at 1280x720, -O2 (road layer 445 ms, core 138 ms, 16 unit domes 562 ms): done about 3 s after boot at 60 fps |
+| Ground levelled under the base | `SectLevelSite` + footprint in `terrain_synthesis.{h,cpp}` and `terrain_gpu.cpp` | §8 |
+| Old dome stations retired | `docs/graveyard.md` §11 | |
+
+Scale: the ring road's centre line is `SECT_RING_ROAD_KM` = 1.25 km from the
+sect centre, on the same 5 km ground the sect view cover-fits to the screen.
+That reproduces the old on-screen size at 1280x720, and it means the art, the
+hit tests and the site levelling all agree about where the base is. DomeForge
+files are compiled `-O2` in every build type (a debug build bakes ~5x slower
+otherwise).
+
+![the sect view on DomeForge](sect-view-domeforge.png)
+
+## 7. 3D view: sized, scaffolded, not built
+
+`dome-forge-3d.js` is one WebGL 1 fragment shader, 444 lines / 20 KB of GLSL
+ES 1.0 (no textures, no extensions, constant loop bounds), plus about 250 lines
+of JS that pack uniforms and drive an orbit camera. Per pixel it marches up to
+140 steps, then a 22-step soft shadow and ambient occlusion. Each step
+evaluates up to 9 dome instances and 16 road segments.
+
+| Cost | Size |
+|---|---|
+| Code | the shader nearly verbatim (a version prelude for GL 3.3 / ES 1.0) + ~250 lines C++ for uniforms and camera + a WebGL-vs-port diff harness (headless Chromium does WebGL) |
+| Download | ~20 KB of shader text |
+| **Runtime** | **a full-screen ray-march every frame.** Fine on a desktop GPU. The prototype's own README tells slow machines to render with 2-3x coarser pixels, and phones are the web build's main audience |
+| Integration | a camera mode in the sect view (2D <-> 3D), orbit/zoom input, picking domes by ray-sphere, labels projected from 3D |
+
+**Verdict: too much to finish now.** The port is small; the runtime cost on
+phones is the risk, and it needs its own design (render only when the camera
+moves, or at reduced resolution into a texture). The structure is in place:
+`src/DomeForge/domeforge_3d.{h,cpp}` has the API it will have (Create /
+SetBase / SetCamera / Render with a pixel-size escape hatch). `Create()`
+returns false and logs that it isn't built, so nothing calls into an empty
+renderer by mistake.
+
+To build it: extract the fragment shader and its `#define P_*` prelude from
+`dome-forge-3d.js`, port `setConfig`'s uniform packing, then gate it the same
+way the 2D port was gated (the same config rendered by the prototype in
+headless Chromium and by the port, diffed).
+
+## 8. The ground under the base
+
+What was there: `TerrainSiteDisturbance` levels the natural ground over the
+whole site (0.70 of the elevation swings, 0.55 of the imagery contrast), then
+works it. Its geometry is calibrated for the colony view. The sect level used
+it scaled by 0.63, and measured with `preview.sh --no-site` against the
+default, that put the effect **420-540 px from the centre of the sect view:
+outside the ring road**, with the ground under the base untouched.
+
+What it is now:
+
+- `SectLevelSite` takes the 5 km level's geometry from the base's layout
+  (dome ring 0.876 km, core 0.444 km, footprint to the ring road's outer kerb,
+  1.30 km).
+- Inside the footprint the ground is levelled much further (elevation 0.92,
+  tone 0.50) and the site's own undulation and roughness are calmed by 0.60.
+  It fades back to the site treatment over 0.30 km: no edge.
+- **Graded ground loses its relief, not its grain.** Levelling toward the mean
+  also flattens the regolith grain, and the first attempt read as a smooth
+  grey disc, which is exactly the rejected pad look. So whatever the footprint
+  levels beyond the site's own amount, the grain and undulation get back. The
+  CPU (`ApplySiteDisturbance`) and GPU (`heightCommon`) paths do the same
+  thing, and outside the footprint nothing changes.
+
+Measured with `terrain_probe` at Mare Imbrium, inside 1 km: coarse relief
+(9-px blur, standard deviation) 9.0 → 2.3 on the GPU path.
+
+![natural highland vs levelled](site-levelling-highland.png)
+
+*A rough highland site (-20, 15). Left: natural ground (`--no-site`). Right:
+levelled under the base and fading back past the ring road.*

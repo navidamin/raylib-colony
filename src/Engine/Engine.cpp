@@ -1,3 +1,4 @@
+#include "sect_art.h"
 #include "Engine.h"
 #include "region_identity.h"
 #include "site_selection_constants.h"
@@ -311,6 +312,9 @@ void Engine::HandleInput() {
 void Engine::Update() {
     float deltaTime = GetFrameTime();
     gameManager.Update(deltaTime);
+    // The sect view's base art bakes a slice per frame from the first frame,
+    // so it is ready long before the player reaches a sect (sect_art.h).
+    SectArt::Update(6.0);
 }
 
 void Engine::Draw() {

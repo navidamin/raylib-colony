@@ -12,6 +12,39 @@ static bool g_siteDisturbEnabled = true;
 void SetSiteDisturbanceEnabled(bool e) { g_siteDisturbEnabled = e; }
 bool IsSiteDisturbanceEnabled() { return g_siteDisturbEnabled; }
 
+TerrainSiteDisturbance SectLevelSite(const TerrainSiteDisturbance& base)
+{
+    // DomeForge's layout, in px at its 1254 px reference base (dome-forge-base.js
+    // DEFAULTS): ring road r 485 and 30 wide, unit orbit 340, central sprite 475
+    // with its rim at 0.363 of it, unit sprite 236 with its rim at 0.40.
+    const float kmPerPx = SECT_RING_ROAD_KM / 485.0f;
+    TerrainSiteDisturbance s = base;
+    s.ringRadiusKm = 340.0f * kmPerPx;
+    s.coreRadiusKm = 475.0f * 0.363f * kmPerPx;
+    s.domeWorkKm = 236.0f * 0.40f * kmPerPx * 1.25f;   // just past each unit's rim
+    // the footprint reaches the ring road's outer kerb and its bank
+    s.footprintRadiusKm = (485.0f + 15.0f + 6.0f) * kmPerPx;
+    // the site's own, gentler treatment carries on a little way past it
+    s.workedRadiusKm = s.footprintRadiusKm + 0.25f;
+    s.fadeKm = 0.80f;
+    return s;
+}
+
+// How much of the footprint's stronger levelling applies at (x, y): 1 inside,
+// fading to 0 across footprintFadeKm with the same smoothstep as SiteWeight.
+static float FootWeight(float x, float y, float cx, float cy, float pxPerKm,
+                        const TerrainSiteDisturbance& site)
+{
+    if (site.footprintRadiusKm <= 0.0f) return 0.0f;
+    const float inner = site.footprintRadiusKm * pxPerKm;
+    const float outer = (site.footprintRadiusKm + site.footprintFadeKm) * pxPerKm;
+    const float d = std::hypot(x - cx, y - cy);
+    if (d <= inner) return 1.0f;
+    if (d >= outer) return 0.0f;
+    const float t = 1.0f - (d - inner) / std::max(1e-3f, outer - inner);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 // Global switch for the world-anchored sub-floor, same shape and for the
 // same reason: the game's callers do not pass a tuning, so this is how an
 // instrument renders the whole game both ways without the default moving.
@@ -1424,7 +1457,8 @@ static void LevelSiteMacro(Field& macro, int res, float pxPerKm,
             float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
             if (w <= 0.0f) continue;
             size_t i = (size_t)y * res + x;
-            float k = site.toneLevelAmount * w;
+            float k = std::max(site.toneLevelAmount * w,
+                               site.footToneAmount * FootWeight((float)x, (float)y, cx, cy, pxPerKm, site));
             macro[i] = macro[i] * (1.0f - k) + mean * k;
         }
 }
@@ -1438,7 +1472,8 @@ static void LevelSiteMacro(Field& macro, int res, float pxPerKm,
 // gives it the shading and small shadows for free.
 static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
                                  const NoiseFrame& frame,
-                                 const TerrainSiteDisturbance& site)
+                                 const TerrainSiteDisturbance& site,
+                                 const Field* detail = nullptr)
 {
     const float cx = res * 0.5f;
     const float cy = res * 0.5f;
@@ -1492,8 +1527,15 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
                     float w = SiteWeight((float)x, (float)y, cx, cy, workedR, outerR);
                     if (w <= 0.0f) continue;
                     size_t i = (size_t)y * res + x;
-                    float k = site.levelAmount * w;
+                    const float siteK = site.levelAmount * w;
+                    float k = std::max(siteK,
+                                       site.footLevelAmount * FootWeight((float)x, (float)y, cx, cy, pxPerKm, site));
                     height[i] = height[i] * (1.0f - k) + mean * k;
+                    // Graded ground loses its relief, not its grain: whatever
+                    // the footprint levelled beyond the site's own amount, the
+                    // regolith grain and undulation get back. Outside the
+                    // footprint k == siteK and nothing changes.
+                    if (detail && k > siteK) height[i] += (*detail)[i] * (k - siteK);
                 }
         }
     }
@@ -1528,11 +1570,13 @@ static void ApplySiteDisturbance(Field& height, int res, float pxPerKm,
 
             if (siteW <= 0.0f && domeW <= 0.0f) continue;
 
+            // The footprint is graded ground: most of the working goes.
+            const float calm = 1.0f - site.footCalm * FootWeight((float)x, (float)y, cx, cy, pxPerKm, site);
             // Gentle undulation over the whole site.
-            height[i] += site.undulationAmp * (lumps[i] - 0.5f) * 2.0f * siteW;
+            height[i] += site.undulationAmp * (lumps[i] - 0.5f) * 2.0f * siteW * calm;
             // Random alterations, concentrated around the domes.
             height[i] += site.roughAmp * fine[i]
-                         * (0.35f * siteW + 0.65f * domeW);
+                         * (0.35f * siteW + 0.65f * domeW) * calm;
             height[i] += spotH;
         }
     }
@@ -1577,6 +1621,9 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
 
     // Height field: smoothed macro as relief proxy + grain + undulation
     Field height = macro;
+    // The grain + undulation laid on the height below, kept apart so the
+    // footprint's extra levelling can hand them back (ApplySiteDisturbance).
+    Field detail;
     // Smoothed hard by default so the imagery's own noise does not become
     // terrain; smoothed less when the picture will be shown at its own
     // resolution and can afford the detail.
@@ -1606,11 +1653,13 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
         Field undul = Fbm(res, tune.octaves,
                           std::max(2, (int)(tune.featureScale * k)),
                           0.5f, undulFrame);
+        detail.assign(height.size(), 0.0f);
         for (size_t i = 0; i < height.size(); i++)
         {
             float rough = 0.45f + 0.55f * density[i];
-            height[i] += 0.004f * amp * tune.grain * grain[i] * rough;
-            height[i] += 0.02f * amp * tune.undulation * (undul[i] - 0.5f) * rough;
+            detail[i] = 0.004f * amp * tune.grain * grain[i] * rough
+                      + 0.02f * amp * tune.undulation * (undul[i] - 0.5f) * rough;
+            height[i] += detail[i];
         }
     }
 
@@ -1623,7 +1672,8 @@ static void TextureModulate(Field& macro, int res, const NoiseFrame& frame,
                          0.010f * tune.boulderAmp);
 
     if (site && site->enabled && g_siteDisturbEnabled && pxPerKm > 0.0f)
-        ApplySiteDisturbance(height, res, pxPerKm, frame, *site);
+        ApplySiteDisturbance(height, res, pxPerKm, frame, *site,
+                             detail.empty() ? nullptr : &detail);
 
     if (outHeight && outAlbedo)
     {
@@ -1865,25 +1915,20 @@ static void GenerateChainInternal(double latDeg, double lonDeg, int res,
                                       TERRAIN_CHAIN_MAX_LEVELS);
     if (wantLevels > levelCount) wantLevels = levelCount;
 
-    // The sect view draws the settlement at 0.63x the physical size the
-    // colony view draws it (both use fixed screen fractions). The site
-    // geometry is calibrated for the colony view, so shrink it to match
-    // for the sect level — otherwise the worked patches sit outside the
-    // 5 km window entirely and the effect cannot be seen there.
-    const float SECT_SITE_SCALE = 0.63f;
+    // The site geometry is calibrated for the colony view. The sect view
+    // draws the base at its real size (SECT_RING_ROAD_KM), so the 5 km level
+    // takes its geometry from that layout. It used to take the colony's at
+    // 0.63x, which measured out 420-540 px from the centre of a 1280x720
+    // sect view: outside the ring road, leaving the ground under the base
+    // untouched.
     TerrainSiteDisturbance sectSite;
-    // The sect shrink belongs to the 5 km level, whichever index that
+    // The sect geometry belongs to the 5 km level, whichever index that
     // lands on -- an instrument's ladder may not have one at all.
     const TerrainSiteDisturbance* siteForLevel[TERRAIN_CHAIN_MAX_LEVELS] =
         {site, site, site};
     if (site)
     {
-        sectSite = *site;
-        sectSite.ringRadiusKm *= SECT_SITE_SCALE;
-        sectSite.coreRadiusKm *= SECT_SITE_SCALE;
-        sectSite.domeWorkKm *= SECT_SITE_SCALE;
-        sectSite.workedRadiusKm *= SECT_SITE_SCALE;
-        sectSite.fadeKm *= SECT_SITE_SCALE;
+        sectSite = SectLevelSite(*site);
         for (int i = 0; i < levelCount; i++)
             if (levelSpanKm[i] <= 5.0f + 1e-3f) siteForLevel[i] = &sectSite;
     }

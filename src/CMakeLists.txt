@@ -10,6 +10,7 @@ set(COLONY_CORE_SOURCES
     Engine/survey_flow.cpp
     Planet/planet.cpp
     Sect/sect.cpp
+    Sect/sect_art.cpp
     Unit/unit.cpp
     Unit/unit_ui.cpp
     ResourceManager/resource_manager.cpp
@@ -34,11 +35,23 @@ set(COLONY_CORE_SOURCES
     Prospecting/lab_engine.cpp
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
+    DomeForge/domeforge_engine.cpp
+    DomeForge/domeforge_base.cpp
+    DomeForge/domeforge_3d.cpp
     transport_types.cpp
 )
 
 # The site-selection module: region identity, verdict, controller. Shared
 # with lunar_map, which drives the same controller the game does.
+# DomeForge is per-pixel math baked once per game (src/Sect/sect_art.cpp). It
+# is ~5x slower unoptimised, which turns a second of baking into several, so it
+# is optimised in every build type. Not on MSVC: its debug builds pass /RTC1,
+# which refuses to combine with /O2.
+if(NOT MSVC)
+    set_source_files_properties(DomeForge/domeforge_engine.cpp DomeForge/domeforge_base.cpp
+        PROPERTIES COMPILE_OPTIONS "-O2")
+endif()
+
 set(SITE_SELECTION_SOURCES
     TerrainGen/lunar_dem_shared.cpp
     TerrainGen/lunar_frame.cpp
@@ -61,6 +74,7 @@ set(COLONY_INCLUDE_DIRS
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
     "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
+    "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
 )
 
 add_executable(colony_game)
@@ -308,6 +322,7 @@ target_sources(colony_viewtest PRIVATE
     Engine/survey_flow.cpp
     Planet/planet.cpp
     Sect/sect.cpp
+    Sect/sect_art.cpp
     Unit/unit.cpp
     Unit/unit_ui.cpp
     ResourceManager/resource_manager.cpp
@@ -328,6 +343,9 @@ target_sources(colony_viewtest PRIVATE
     Prospecting/lab_engine.cpp
     Prospecting/survey_progress_engine.cpp
     Prospecting/prospecting_system.cpp
+    DomeForge/domeforge_engine.cpp
+    DomeForge/domeforge_base.cpp
+    DomeForge/domeforge_3d.cpp
     transport_types.cpp
 )
 
@@ -351,6 +369,7 @@ target_include_directories(colony_viewtest PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
     "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
     "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
+    "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
 )
 
 target_link_libraries(colony_viewtest raylib tomlplusplus::tomlplusplus)
@@ -400,6 +419,7 @@ target_include_directories(lunar_map PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/TerrainGen"
     "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
+    "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
 )
 
 target_link_libraries(lunar_map raylib)
@@ -500,6 +520,7 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
     target_sources(c1_test PRIVATE
         "${CMAKE_SOURCE_DIR}/tools/c1test/c1_test.cpp"
         Sect/sect.cpp
+        Sect/sect_art.cpp
         Unit/unit.cpp
         Unit/unit_ui.cpp
         Colony/colony.cpp
@@ -522,6 +543,9 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         Prospecting/lab_engine.cpp
         Prospecting/survey_progress_engine.cpp
         Prospecting/prospecting_system.cpp
+        DomeForge/domeforge_engine.cpp
+        DomeForge/domeforge_base.cpp
+        DomeForge/domeforge_3d.cpp
         transport_types.cpp
     )
 
@@ -544,10 +568,40 @@ if(NOT "${PLATFORM}" STREQUAL "Web")
         "${CMAKE_CURRENT_SOURCE_DIR}/UnlockRegistry"
         "${CMAKE_CURRENT_SOURCE_DIR}/Prospecting"
         "${CMAKE_CURRENT_SOURCE_DIR}/SiteSelection"
+        "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge"
     )
 
     target_link_libraries(c1_test raylib tomlplusplus::tomlplusplus)
     if(NOT WIN32)
         target_link_libraries(c1_test m)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# domeforge_render: the port half of the DomeForge diff (tools/domeforge/).
+# Renders a dome sprite, the road layer, the ground or the whole base through
+# src/DomeForge/ to PNG, with the same flags as tools/domeforge/ref.js.
+# ---------------------------------------------------------------------------
+if(NOT "${PLATFORM}" STREQUAL "Web")
+    add_executable(domeforge_render)
+
+    target_sources(domeforge_render PRIVATE
+        "${CMAKE_SOURCE_DIR}/tools/domeforge/domeforge_render.cpp"
+        DomeForge/domeforge_engine.cpp
+        DomeForge/domeforge_base.cpp
+    )
+
+    set_target_properties(domeforge_render PROPERTIES
+        CXX_STANDARD 17
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tools"
+    )
+
+    target_include_directories(domeforge_render PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/DomeForge")
+
+    target_link_libraries(domeforge_render raylib)
+    if(NOT WIN32)
+        target_link_libraries(domeforge_render m)
     endif()
 endif()

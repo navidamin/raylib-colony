@@ -23,6 +23,7 @@
 #include "resource_manager.h"
 #include "time_manager.h"
 #include "terrain_synthesis.h"
+#include "sect_art.h"
 #include "lunar_globe.h"
 #include "game_constants.h"
 #include "game_enums.h"
@@ -75,6 +76,7 @@ struct PreviewOptions
     // ground dump: the game's own callers pass no tuning, so --tune cannot
     // reach them and this switch is the only way to see a real view both ways.
     bool subFloor = false;
+    bool noSite = false;      // --no-site: natural ground, no site disturbance (compare renders)
 };
 
 static void PrintUsage()
@@ -108,6 +110,7 @@ static void PrintUsage()
         << "  --tab <name>      sweep | samples | lab          (prospecting only)\n"
         << "  --state <name>    empty | swept | sampled | analyzed\n"
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
+        << "  --no-site         natural ground: no site disturbance (sect/colony compare)\n"
         << "  --energy <n>      override stored energy (tests cost gating)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
         << "  --out <path>      output PNG path                (default: preview.png)\n"
@@ -207,6 +210,10 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--subfloor")
         {
             options.subFloor = true;
+        }
+        else if (arg == "--no-site")
+        {
+            options.noSite = true;
         }
         else if (arg == "--tune" && hasNext)
         {
@@ -601,6 +608,7 @@ static int RenderGameView(const PreviewOptions& options)
 {
     SetTraceLogLevel(LOG_WARNING);
     if (options.subFloor) SetSubFloorEnabled(true);
+    if (options.noSite) SetSiteDisturbanceEnabled(false);
     InitWindow(options.width, options.height, "Colony View Preview");
 
     int status = 0;
@@ -787,6 +795,7 @@ static int RenderGameView(const PreviewOptions& options)
             }
             else if (options.view == "sect")
             {
+                SectArt::BakeAll();   // one frame: the base has to be baked before it
                 renderManager.DrawSectView(sect, timeManager);
             }
             else

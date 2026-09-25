@@ -265,6 +265,8 @@ uniform float uK;
 uniform vec4 uTune;        // grain, undulation, formRelief, -
 uniform vec4 uSite;        // cx, cy, workedR, outerR (px); outerR <= 0: none
 uniform vec4 uSiteAmp;     // toneLevel, levelAmount, undulationAmp, roughAmp
+uniform vec4 uSiteFoot;    // footprint inner, outer (px; outer <= 0: none), footLevel, footTone
+uniform float uSiteFootCalm;
 uniform vec4 uSpots[9];    // x, y, r (px), amp
 uniform int uSpotCount;
 uniform vec2 uBoulder;     // cell size (px, 0 = none), amp
@@ -316,10 +318,22 @@ float siteW(vec2 p)
     float t = 1.0 - (d - uSite.z) / max(1e-3, uSite.w - uSite.z);
     return t * t * (3.0 - 2.0 * t);
 }
+// The base's footprint: graded ground, levelled much further than the site
+// (FootWeight on the CPU). 1 inside, smoothstep to 0 across the fade.
+float footW(vec2 p)
+{
+    if (uSiteFoot.y <= 0.0) return 0.0;
+    float d = distance(p, uSite.xy);
+    if (d <= uSiteFoot.x) return 1.0;
+    if (d >= uSiteFoot.y) return 0.0;
+    float t = 1.0 - (d - uSiteFoot.x) / max(1e-3, uSiteFoot.y - uSiteFoot.x);
+    return t * t * (3.0 - 2.0 * t);
+}
+float toneLevelAt(vec2 pix, float w) { return max(uSiteAmp.x * w, uSiteFoot.w * footW(pix)); }
 float macroAt(vec2 pix) { return TEX(uMacro, rtuv(pix)).r; }
 float toneAt(vec2 pix, float w, float tone)
 {
-    return mix(macroAt(pix), tone, uSiteAmp.x * w);
+    return mix(macroAt(pix), tone, toneLevelAt(pix, w));
 }
 // The albedo proxy the sub-floor used to concentrate its relief with.
 // Still here for the shipped chain's grain and the albedo speckle, which
@@ -357,7 +371,7 @@ float roughMeasured(vec2 pix, float m)
 // within the site's fade width, so it is applied to the blurred value.
 float reliefAt(vec2 pix, float w, float tone)
 {
-    float r = mix(TEX(uRelief, rtuv(pix)).r, tone, uSiteAmp.x * w);
+    float r = mix(TEX(uRelief, rtuv(pix)).r, tone, toneLevelAt(pix, w));
     return (r - 0.5) * 0.13 * uTune.z;
 }
 // One boulder per cell, on a hashed pixel; sometimes it also lifts the
@@ -411,7 +425,15 @@ float heightCommon(vec2 pix, float tone, float hmean, float grainAmp,
     h += boulderAt(pix);
     if (w > 0.0)
     {
-        h = mix(h, hmean, uSiteAmp.y * w);
+        float fw = footW(pix);
+        float siteK = uSiteAmp.y * w;
+        float lv = max(siteK, uSiteFoot.z * fw);
+        h = mix(h, hmean, lv);
+        // Graded ground loses its relief, not its grain: what the footprint
+        // levelled beyond the site's own amount, `extra` (grain + undulation,
+        // or the world stack) gets back. As ApplySiteDisturbance on the CPU.
+        h += extra * (lv - siteK);
+        float calm = 1.0 - uSiteFootCalm * fw;   // graded ground: most of the working goes
         float lumps = fbm(world(pix), max(4.0, floor(uRes / 12.0)),
                           0.55, 3, uSeedL);
         float domeW = 0.0;
@@ -429,10 +451,10 @@ float heightCommon(vec2 pix, float tone, float hmean, float grainAmp,
                 spotH += sp.w * ww;
             }
         }
-        h += uSiteAmp.z * (lumps - 0.5) * 2.0 * w;
+        h += uSiteAmp.z * (lumps - 0.5) * 2.0 * w * calm;
         if (grainAmp > 0.0)
             h += uSiteAmp.w * grain(world(pix), uSeedF)
-                 * (0.35 * w + 0.65 * domeW) * grainAmp;
+                 * (0.35 * w + 0.65 * domeW) * grainAmp * calm;
         h += spotH;
     }
     return h;
@@ -1317,6 +1339,8 @@ struct SiteUniforms
     float amp[4] = {0, 0, 0, 0};
     int spotCount = 0;
     float spots[9 * 4] = {0};
+    float foot[4] = {0, 0, 0, 0};   // footprint inner, outer (px), footLevel, footTone
+    float footCalm = 0.0f;
 };
 
 SiteUniforms BuildSite(const TerrainSiteDisturbance* site, int res,
@@ -1333,6 +1357,14 @@ SiteUniforms BuildSite(const TerrainSiteDisturbance* site, int res,
     u.site[0] = cx; u.site[1] = cy; u.site[2] = workedR; u.site[3] = outerR;
     u.amp[0] = site->toneLevelAmount; u.amp[1] = site->levelAmount;
     u.amp[2] = site->undulationAmp; u.amp[3] = site->roughAmp;
+    if (site->footprintRadiusKm > 0.0f)
+    {
+        u.foot[0] = site->footprintRadiusKm * pxPerKm;
+        u.foot[1] = (site->footprintRadiusKm + site->footprintFadeKm) * pxPerKm;
+        u.foot[2] = site->footLevelAmount;
+        u.foot[3] = site->footToneAmount;
+        u.footCalm = site->footCalm;
+    }
     unsigned int s = seed ^ (0x9E3779B9u * (unsigned int)lvl) ^ 0x51ED270Bu;
     int n = 0;
     u.spots[n * 4 + 0] = cx; u.spots[n * 4 + 1] = cy;
@@ -1389,6 +1421,8 @@ void BindHeight(Shader sh, RenderTexture2D& macro, RenderTexture2D& relief,
     SetV4(sh, "uClast", cl);
     SetV4(sh, "uSite", su.site);
     SetV4(sh, "uSiteAmp", su.amp);
+    SetV4(sh, "uSiteFoot", su.foot);
+    SetF(sh, "uSiteFootCalm", su.footCalm);
     SetV4Array(sh, "uSpots", su.spots, 9);
     SetI(sh, "uSpotCount", su.spotCount);
     SetV2(sh, "uBoulder", boulderCell, boulderAmp);
@@ -1633,18 +1667,13 @@ static bool RunChainGPU(double latDeg, double lonDeg, int res,
     double spanDeg[TERRAIN_CHAIN_MAX_LEVELS] = {};
     for (int i = 0; i < levelCount; i++)
         spanDeg[i] = levelSpanKm[i] / MOON_KM_PER_DEG;
-    const float SECT_SITE_SCALE = 0.63f;
+    // The 5 km level takes the base's own geometry (SectLevelSite), as the CPU chain does.
     TerrainSiteDisturbance sectSite;
     const TerrainSiteDisturbance* siteFor[TERRAIN_CHAIN_MAX_LEVELS] =
         {site, site, site};
     if (site)
     {
-        sectSite = *site;
-        sectSite.ringRadiusKm *= SECT_SITE_SCALE;
-        sectSite.coreRadiusKm *= SECT_SITE_SCALE;
-        sectSite.domeWorkKm *= SECT_SITE_SCALE;
-        sectSite.workedRadiusKm *= SECT_SITE_SCALE;
-        sectSite.fadeKm *= SECT_SITE_SCALE;
+        sectSite = SectLevelSite(*site);
         for (int i = 0; i < levelCount; i++)
             if (levelSpanKm[i] <= 5.0f + 1e-3f) siteFor[i] = &sectSite;
     }

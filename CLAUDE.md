@@ -317,7 +317,11 @@ Python original.
 levelled off (relief and imagery contrast damped toward local means,
 partially — not a platform) and then worked with undulations plus
 alterations around each dome. A graded construction platform was tried
-and rejected; see SITE_SYNTHESIS.md before re-proposing one.
+and rejected; see SITE_SYNTHESIS.md before re-proposing one. At the sect
+level the geometry comes from the base's real layout (`SectLevelSite`, ring
+road `SECT_RING_ROAD_KM` = 1.25 km) and the base's footprint is levelled much
+further -- relief goes, regolith grain stays, no edge
+(`docs/design/sect-view/domeforge-study.md` §8).
 
 Design record: `prototypes/planet_visuals/SITE_SYNTHESIS.md`. The same
 chain also runs in JavaScript in
@@ -431,6 +435,7 @@ path in `unit_ui.cpp` is no longer reached.*
 - `src/ResourceManager/` - Resource generation, tracking, and orbital survey data
 - `src/TimeManager/` - Game time and production scheduling
 - `src/TerrainGen/` - Real-imagery terrain synthesis (see Terrain Generation above)
+- `src/DomeForge/` - The sect base's art: a bit-exact C++ port of the DomeForge generator (`prototypes/dome-forge/`); `src/Sect/sect_art.cpp` bakes it once per game, a slice per frame
 - `src/UnlockRegistry/` - Stub tech dependency system (header-only singleton)
 - `src/Unit/separation_node.h` - Beneficiation separation node types and processing
 - `src/InquiryManager/` - (Purpose unclear from headers, investigate if modifying)
@@ -473,6 +478,7 @@ without a display:
 | `tools/preview/preview.sh` | Render any module panel to a PNG headlessly (~5s). Real RenderManager, fixed world seed, so screenshots are faithful and reproducible. |
 | `tools/playtest/` | Interactive prospecting sandbox; also builds for Web and deploys to `/playtest/` for phone testing. |
 | `tools/sectwalk/` | Walk the Sect view by hand — open every unit and all 40 modules in sequence. The only harness that covers the whole tree. |
+| `tools/domeforge/` | `domeforge_diff.sh`: the DomeForge JS against `src/DomeForge/`, pixel for pixel. Run after any change to the port |
 | `tools/inspect/` | Dump real generated data (`colony_inspect`). Use when a value looks wrong — **before** theorising about the cause. |
 | `tools/lunarmap/` | `lunar_map`: the survey ladder on real lunar coordinates, from the orbital globe down to a 25 km site window. The only harness for the site-selection descent; `--help` lists the flags. |
 | `tools/surveycursor/` | `survey_cursor_test`: headless geometry self-test for the descent ladder. No GL, no DEM — run it after touching `survey_cursor.*`. |

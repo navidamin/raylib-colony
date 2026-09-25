@@ -5,6 +5,10 @@ add_library(colony_testlib STATIC
     # Founding lives in GameManager; it needs no window, so it tests.
     ${CMAKE_SOURCE_DIR}/src/Engine/gamemanager.cpp
     ${CMAKE_SOURCE_DIR}/src/Sect/sect.cpp
+    ${CMAKE_SOURCE_DIR}/src/Sect/sect_art.cpp
+    ${CMAKE_SOURCE_DIR}/src/DomeForge/domeforge_engine.cpp
+    ${CMAKE_SOURCE_DIR}/src/DomeForge/domeforge_base.cpp
+    ${CMAKE_SOURCE_DIR}/src/DomeForge/domeforge_3d.cpp
     ${CMAKE_SOURCE_DIR}/src/Unit/unit.cpp
     ${CMAKE_SOURCE_DIR}/src/Unit/unit_ui.cpp
     ${CMAKE_SOURCE_DIR}/src/ResourceManager/resource_manager.cpp
@@ -48,6 +52,7 @@ target_include_directories(colony_testlib PUBLIC
     ${CMAKE_SOURCE_DIR}/src/Engine
     ${CMAKE_SOURCE_DIR}/src/Planet
     ${CMAKE_SOURCE_DIR}/src/Sect
+    ${CMAKE_SOURCE_DIR}/src/DomeForge
     ${CMAKE_SOURCE_DIR}/src/Unit
     ${CMAKE_SOURCE_DIR}/src/ResourceManager
     ${CMAKE_SOURCE_DIR}/src/TimeManager
