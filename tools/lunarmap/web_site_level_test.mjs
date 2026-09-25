@@ -49,16 +49,21 @@ import { fileURLToPath } from 'node:url';
 
 const RELIEF_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/relief');
 
-const [dir, target = 'lunar_map', mode = ''] = process.argv.slice(2);
+const [dir, target = 'lunar_map', mode = '', style = ''] = process.argv.slice(2);
+// 'super': the game with ?district=super, the district drawn by the
+// synthesizer supersampled 2x instead of from real relief (relief.h).
+const superDistrict = style === 'super';
 const game = target === 'colony_game';
 if (!dir || !['lunar_map', 'colony_game'].includes(target)
     || !fs.existsSync(path.join(dir, target + '.html'))) {
   console.error('usage: web_site_level_test.mjs <dir containing lunar_map.html '
-                + 'and/or colony_game.html> [lunar_map|colony_game] [gpu]');
+                + 'and/or colony_game.html> [lunar_map|colony_game] [gpu|cpu] [super]');
   process.exit(2);
 }
-const page = target + '.html' + (mode === 'gpu' ? '?terrain=gpu' : '');
-const label = target + (mode === 'gpu' ? ' (GPU path)' : '');
+const query = [mode === 'gpu' ? 'terrain=gpu' : '', superDistrict ? 'district=super' : '']
+  .filter(Boolean).join('&');
+const page = target + '.html' + (query ? '?' + query : '');
+const label = target + (mode === 'gpu' ? ' (GPU path)' : '') + (superDistrict ? ' (district supersampled)' : '');
 
 // Playwright from wherever it is: a local install, or the global one.
 let chromium;
@@ -147,8 +152,19 @@ try {
   if (!district && !log.some(l => refused.test(l)))
     throw new Error('the district level never built its ground (no level over 100 km)');
   // The game draws the district from the moon's real relief: built first
-  // without it while the tiles arrive, then again with it.
-  if (game) {
+  // without it while the tiles arrive, then again with it. Asked for the
+  // supersampled style instead, on the GPU it builds the district at twice
+  // the size and averages it down.
+  if (game && superDistrict) {
+    if (mode === 'gpu') {
+      const sup = /TERRAIN: ([\d.]+) km window at (\d+) px, GPU, regolith on, (\d+) ms, supersampled from (\d+) px/;
+      const hit = await waitFor(sup, 120000, 'the district to be built supersampled', atGlobe);
+      const [, span, res, ms, from] = hit.match(sup);
+      console.log(`district: ${span} km window at ${res} px on the GPU, supersampled from ${from} px, ${ms} ms`);
+    }
+    if (log.some(l => /real relief/.test(l)))
+      throw new Error('asked for the supersampled district, got real relief');
+  } else if (game) {
     const relief = /TERRAIN: ([\d.]+) km window at (\d+) px, (CPU|GPU), real relief, (\d+) ms/;
     const hit = await waitFor(relief, 120000, 'the district to be drawn from real relief', atGlobe);
     const [, span, res, by, ms] = hit.match(relief);

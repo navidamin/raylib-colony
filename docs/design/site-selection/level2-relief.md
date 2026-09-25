@@ -122,7 +122,40 @@ one half. The builder takes every DTM's extent from the file itself.
   GPU, real relief, ... ms`. The browser test
   (`web_site_level_test.mjs`) requires it.
 
-## 6. Limits
+## 6. The second style: supersampled (a playtest)
+
+Relief is the default. `?district=super` in a browser
+(`COLONY_DISTRICT=super` on the desktop) draws the district as it was
+before — the synthesizer — but built on the GPU at twice the screen's width
+and averaged 2x2 down (`TerrainGpuHalve`): option 2 of the study, kept so
+the two can be played side by side. `/` links it.
+
+**Why keep it: continuity into level 3.** Level 3 is still synthesized
+from the photograph. So is the supersampled district, under the same
+light, and a descent continues it; the relief is lit by the game's sun on
+measured heights, and the photograph's own light is in level 3, so the
+same hills are shaded differently on the way down. Measured by shrinking
+level 3 to the district's pixel size and correlating it with the district
+under it (44 km window, 2026-09-25):
+
+| | Sinus Medii mare, fine / landforms | Highland at 5.3 N 1.2 W, fine / landforms |
+|---|---|---|
+| synthesis 1x (before relief) | 0.69 / 0.99 | 0.54 / 0.94 |
+| **supersampled 2x** | **0.86 / 0.99** | **0.71 / 0.95** |
+| real relief | 0.79 / 0.96 | 0.57 / 0.73 |
+
+"Landforms" is both smoothed to 1 km. On a plain every style continues;
+in the highland the relief's landforms match level 3 at 0.73 — the
+break a player sees. Making the relief style continuous would mean
+building level 3 on the relief too (its hills from the heights, the
+synthesizer's regolith on top) instead of on the photograph's shading.
+
+Cost: four times a plain window's build — held to a 1000 ms budget at the
+probe's cost and 3072 px at most; a 38 ms laptop probe builds 2560 for a
+1280 screen, about a second at each claim and drag release. The CPU path
+builds it at its budgeted size, not supersampled, and the card says so.
+
+## 7. Limits
 
 - Where DTMs are missing (a few percent of the claimable Moon) the
   ground is LOLA's, smooth; where under half a window is covered, the

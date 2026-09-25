@@ -74,8 +74,9 @@ Two checks guard the ladder: `survey_cursor_test` (run by CI's ctest as
 `level_ladder`) fails if the ladder's shape changes, and
 `tools/lunarmap/web_site_level_test.mjs` (run before every deploy) fails
 if the site level comes up without its ground — regolith included — in
-a browser at 1656×960. It walks `lunar_map`, the game, and the game with
-`?terrain=gpu`, the path a device with a real GPU takes.
+a browser at 1656×960. It walks `lunar_map`, the game, the game with
+`?terrain=gpu` (the path a device with a real GPU takes), and that again
+with `?district=super`.
 
 ---
 
@@ -417,6 +418,13 @@ from `/relief/` in the browser; a district built before its tiles arrive
 is built again when they do (`reliefPending`). The log line says
 `real relief`, and the browser test requires it. Design and the
 lighting decision: `docs/design/site-selection/level2-relief.md`.
+A second style is kept as a playtest beside it: `?district=super` in a
+browser (`COLONY_DISTRICT=super` on the desktop) draws the district with
+the synthesizer instead, built at twice the screen's width on the GPU and
+averaged 2x2 down (`TerrainGpuHalve`) — the style that continues into
+level 3, which is still synthesized from the photograph. One switch,
+`GetDistrictStyle()` (`relief.h`); every relief entry point answers "no
+tiles" under it, and the level card says which ground is on screen.
 
 **Real coordinates.** Everything is a real lat/lon: a click on the
 globe is inverted by `OrbitalPickToLatLon`, and the chain is built for

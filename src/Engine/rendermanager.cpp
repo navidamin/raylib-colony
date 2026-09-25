@@ -62,19 +62,35 @@ int BlockingCpuRes(int want)
 #endif
 }
 
-// The GPU resolution for a key: a window (spanTenths > 0) is drawn across
-// the whole screen, so it is built at the screen's width; the game's own
-// 100/25/5 chain keeps the path's resolution.
-int GpuResFor(const RenderManager::TerrainKey& key)
+// The district's window (level 2), as against the site's and the Colony
+// view's: the one whose ground has a style (relief.h).
+bool DistrictWindow(const RenderManager::TerrainKey& key)
 {
-    return (key.spanTenths > 0) ? TerrainGpuWindowRes(GetScreenWidth())
-                                : GetTerrainPathResolution();
+    return key.spanTenths > 0 && key.spanTenths / 10.0 >= RELIEF_MIN_SPAN_KM;
 }
 
 // A window the district draws from real relief (relief.h).
 bool ReliefEligible(const RenderManager::TerrainKey& key)
 {
-    return key.spanTenths > 0 && key.spanTenths / 10.0 >= RELIEF_MIN_SPAN_KM;
+    return DistrictWindow(key) && GetDistrictStyle() == DistrictStyle::RELIEF;
+}
+
+// A district window in the supersampled style: on the GPU it is built at
+// twice its size and averaged down (TerrainGpuHalve).
+bool SupersampledWindow(const RenderManager::TerrainKey& key)
+{
+    return DistrictWindow(key) && GetDistrictStyle() == DistrictStyle::SUPERSAMPLED;
+}
+
+// The GPU resolution for a key: a window (spanTenths > 0) is drawn across
+// the whole screen, so it is built at the screen's width -- a supersampled
+// one at twice that; the game's own 100/25/5 chain keeps the path's
+// resolution.
+int GpuResFor(const RenderManager::TerrainKey& key)
+{
+    if (SupersampledWindow(key)) return TerrainGpuSupersampledWindowRes(GetScreenWidth());
+    return (key.spanTenths > 0) ? TerrainGpuWindowRes(GetScreenWidth())
+                                : GetTerrainPathResolution();
 }
 
 // Built before all its relief tiles were in, so built without them.
@@ -98,6 +114,10 @@ void LogTerrainBuilt(const RenderManager::TerrainKey& key, const LunarPoint& p,
     if (key.spanTenths > 0 && relief)
         TraceLog(LOG_INFO, "TERRAIN: %.1f km window at %d px, %s, real relief, %.0f ms",
                  key.spanTenths / 10.0, res, gpu ? "GPU" : "CPU", ms);
+    else if (gpu && SupersampledWindow(key))
+        TraceLog(LOG_INFO, "TERRAIN: %.1f km window at %d px, GPU, regolith %s, %.0f ms, "
+                 "supersampled from %d px",
+                 key.spanTenths / 10.0, res / 2, regolith ? "on" : "OFF", ms, res);
     else if (key.spanTenths > 0)
         TraceLog(LOG_INFO, "TERRAIN: %.1f km window at %d px, %s, regolith %s, %.0f ms",
                  key.spanTenths / 10.0, res, gpu ? "GPU" : "CPU",
@@ -151,8 +171,10 @@ bool BuildChainGpu(const TerrainRequest& req, int res, TerrainGpuChain* chain)
         return GenerateTerrainChainGPU(req.point.latDeg, req.point.lonDeg, res, chain, &site);
     }
     TerrainChainSpans spans = TerrainChainSpansForWindow(req.key.spanTenths / 10.0);
-    return GenerateTerrainChainGPU(req.point.latDeg, req.point.lonDeg, res, chain,
-                                   nullptr, &spans);
+    if (!GenerateTerrainChainGPU(req.point.latDeg, req.point.lonDeg, res, chain,
+                                 nullptr, &spans))
+        return false;
+    return !SupersampledWindow(req.key) || TerrainGpuHalve(chain);
 }
 
 class TerrainPool

@@ -21,6 +21,7 @@
 // Run:    tools/viewtest/viewtest.sh          (headless screenshots)
 //         ./build/src/colony_viewtest         (interactive)
 
+#include "relief.h"
 #include "raylib.h"
 
 #include "rendermanager.h"
@@ -95,6 +96,22 @@ static ViewNotes NotesForView(int level, bool hasColony)
                 {"GAP",  "  (~1.3 km/px) has nothing left to resolve."},
             }};
     case 1:
+        if (GetDistrictStyle() == DistrictStyle::SUPERSAMPLED)
+            return {
+                "DISTRICT", "200 km window, 25 km cursor - supersampled",
+                {
+                    {"OK",   "The synthesizer, built at twice the screen's"},
+                    {"OK",   "  width and averaged down - the same ground the"},
+                    {"OK",   "  site level continues (?district=super)."},
+                    {"OK",   "The cursor is the next rung's window: it"},
+                    {"OK",   "  snaps to a 25 km grid; click descends."},
+                    {"OK",   "Level card: the cursor's mean slope,"},
+                    {"OK",   "  buildable fraction and relief from LOLA."},
+                    {"OK",   "DRAG moves the window over the moon; the"},
+                    {"OK",   "  ground is rebuilt there on release."},
+                    {"GAP",  "Four times the build: about a second on a"},
+                    {"GAP",  "  laptop GPU at each claim and drag release."},
+                }};
         return {
             "DISTRICT", "200 km window, 25 km cursor",
             {

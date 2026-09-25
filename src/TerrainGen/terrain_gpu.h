@@ -47,6 +47,14 @@ int GetTerrainPathResolution();
 // site level in a browser was drawn 3x magnified: visibly blurred.)
 int TerrainGpuWindowRes(int screenWidth);
 
+// The size to BUILD a supersampled window at (the SUPERSAMPLED district,
+// relief.h): twice the size it is drawn, which TerrainGpuHalve then
+// averages down. It is four times a plain window's work, so it is held to a
+// longer budget (1000 ms at the probe's cost: a 38 ms probe builds 2560 for
+// a 1280 screen) and to 3072 at most, where the chain's own targets already
+// hold about 300 MB of video memory. Always even.
+int TerrainGpuSupersampledWindowRes(int screenWidth);
+
 
 // How long one CPU chain at `res` would take here, in milliseconds.
 //
@@ -113,6 +121,14 @@ bool GenerateTerrainChainGPU(double latDeg, double lonDeg, int res,
                              const TerrainChainSpans* spans = nullptr);
 
 void UnloadTerrainGpuChain(TerrainGpuChain* chain);
+
+// Every level of a chain, averaged 2x2 down to half its size in place: a
+// supersampled window built at TerrainGpuSupersampledWindowRes becomes the
+// size it is drawn at, each pixel the mean of the four under it -- the
+// anti-aliasing the supersample is for, which drawing the big one minified
+// (four texels read of every sixteen) would not give. Main thread, GL
+// state put back, like the rest of this file.
+bool TerrainGpuHalve(TerrainGpuChain* chain);
 
 // The chain's two unlit fields on the GPU -- the same contract as
 // GenerateTerrainFields (terrain_synthesis.h), and the same fields, from

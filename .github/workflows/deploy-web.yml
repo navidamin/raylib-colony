@@ -96,6 +96,7 @@ jobs:
         node tools/lunarmap/web_site_level_test.mjs build/src lunar_map gpu
         node tools/lunarmap/web_site_level_test.mjs build/src colony_game
         node tools/lunarmap/web_site_level_test.mjs build/src colony_game gpu
+        node tools/lunarmap/web_site_level_test.mjs build/src colony_game gpu super
 
     - name: Prepare deployment directory
       run: |

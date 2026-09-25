@@ -33,6 +33,22 @@ const double RELIEF_MIN_SPAN_KM = 150.0;
 // albedo remains and all the shading is the relief's.
 const double RELIEF_ALBEDO_BLUR_KM = 2.5;
 
+// Which ground the district is drawn with, chosen once:
+// COLONY_DISTRICT=relief|super on the desktop, ?district=relief|super in a
+// browser.
+//   RELIEF (the default): the moon's measured relief, as above.
+//   SUPERSAMPLED: the terrain synthesizer -- the ground the site level is
+//     built from, so a descent continues it unbroken -- built at
+//     DISTRICT_SUPERSAMPLE times the size it is drawn and averaged down
+//     (on the GPU; the CPU path builds it at its budgeted size). Option 2 of
+//     the study, kept as a playtest beside the relief.
+// Every relief entry point below answers as if no tile existed unless the
+// style is RELIEF, so nothing else has to ask.
+enum class DistrictStyle { RELIEF, SUPERSAMPLED };
+DistrictStyle GetDistrictStyle();
+const char* DistrictStyleName();          // "real relief" | "supersampled"
+const int DISTRICT_SUPERSAMPLE = 2;
+
 // Where the tiles live. On the desktop a directory (default data/relief,
 // relative to the working directory); in the browser a URL prefix (default
 // window.COLONY_RELIEF_URL, set by the deploy, else "relief/").

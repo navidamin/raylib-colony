@@ -256,6 +256,28 @@ void main()
 )GLSL";
 
 // One separable Gaussian pass, edges clamped like the CPU's.
+// Half size, each pixel the mean of the 2x2 under it: a supersampled
+// window brought down to the size it is drawn (TerrainGpuHalve). All four
+// channels -- it runs on the finished colour, not a height.
+const char* FS_HALF = R"GLSL(
+uniform sampler2D uSrc;
+void main()
+{
+    vec2 sp = floor(fragTexCoord * uRes) * 2.0;
+    float sr = uRes * 2.0;
+    vec4 acc = vec4(0.0);
+    for (int j = 0; j < 2; j++)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            vec2 q = sp + vec2(float(i), float(j)) + 0.5;
+            acc += TEX(uSrc, vec2(q.x / sr, 1.0 - q.y / sr));
+        }
+    }
+    OUT = acc * 0.25;
+}
+)GLSL";
+
 const char* FS_BLUR = R"GLSL(
 uniform sampler2D uSrc;
 uniform vec2 uDir;
@@ -996,7 +1018,7 @@ struct Gpu
 {
     bool init = false;
     bool ok = false;
-    Shader macroSh = {}, cropSh = {}, downSh = {}, blurSh = {};
+    Shader macroSh = {}, cropSh = {}, downSh = {}, halfSh = {}, blurSh = {};
     Shader sharpenSh = {}, meansSh = {}, fusedSh = {}, rampSh = {};
     Shader fieldsSh = {}, hpackSh = {};
     int res = 0;
@@ -1191,6 +1213,7 @@ bool InitGpu()
     const char* macro[] = {COMMON, FS_MACRO};
     const char* crop[] = {COMMON, FS_CROP};
     const char* down[] = {COMMON, FS_DOWN};
+    const char* half[] = {COMMON, FS_HALF};
     const char* blur[] = {COMMON, FS_BLUR};
     const char* sharpen[] = {COMMON, FS_SHARPEN};
     const char* means[] = {COMMON, NOISE, HEIGHT, SUBFLOOR, FS_MEANS};
@@ -1201,6 +1224,7 @@ bool InitGpu()
     G.macroSh = Build(macro, 2);
     G.cropSh = Build(crop, 2);
     G.downSh = Build(down, 2);
+    G.halfSh = Build(half, 2);
     G.blurSh = Build(blur, 2);
     G.sharpenSh = Build(sharpen, 2);
     G.meansSh = Build(means, 5);
@@ -1209,6 +1233,7 @@ bool InitGpu()
     G.hpackSh = Build(hpack, 5);
     G.rampSh = Build(ramp, 2);
     G.ok = ShaderOk(G.macroSh) && ShaderOk(G.cropSh) && ShaderOk(G.downSh)
+        && ShaderOk(G.halfSh)
         && ShaderOk(G.blurSh) && ShaderOk(G.sharpenSh) && ShaderOk(G.meansSh)
         && ShaderOk(G.fusedSh) && ShaderOk(G.rampSh)
         && ShaderOk(G.fieldsSh) && ShaderOk(G.hpackSh);
@@ -1528,6 +1553,8 @@ double g_probeMs = -1.0;
 // A window chain is built once, on the way into a level, while the flight
 // hides it: it may take this long, and is built as big as that allows.
 const double WINDOW_GPU_BUDGET_MS = 400.0;
+// The same for a supersampled window, four times the work (relief.h).
+const double SUPERSAMPLE_GPU_BUDGET_MS = 1000.0;
 
 // One 512 px chain, timed to completion (the read-back is what forces
 // the GPU to finish). A discrete GPU does it in a couple of
@@ -1716,6 +1743,26 @@ int TerrainGpuWindowRes(int screenWidth)
         cap = std::clamp((int)fits / 64 * 64, 512, 2048);
     }
     return std::clamp(want, 512, cap);
+}
+
+int TerrainGpuSupersampledWindowRes(int screenWidth)
+{
+    static_assert(DISTRICT_SUPERSAMPLE == 2, "TerrainGpuHalve halves; a ratio of 2 is what it builds for");
+    const char* env = std::getenv("COLONY_TERRAIN_RES");
+    if (env)
+    {
+        int r = std::atoi(env);
+        if (r >= 256 && r <= 2048) return r * 2;
+    }
+    GetTerrainPath();                       // the probe sets g_probeMs
+    int want = (screenWidth * 2 + 127) / 128 * 128;
+    int cap = 3072;
+    if (g_probeMs > 0.0)
+    {
+        double fits = 512.0 * std::sqrt(SUPERSAMPLE_GPU_BUDGET_MS / g_probeMs);
+        cap = std::clamp((int)fits / 128 * 128, 1024, 3072);
+    }
+    return std::clamp(want, 1024, cap);
 }
 
 int GetTerrainPathResolution()
@@ -2017,6 +2064,23 @@ bool GenerateTerrainFieldsGPU(double latDeg, double lonDeg, int res,
     return true;
 }
 
+bool TerrainGpuHalve(TerrainGpuChain* chain)
+{
+    if (!chain || !InitGpu()) return false;
+    SavedGl saved = SaveGl();
+    for (int i = 0; i < chain->levels; i++)
+    {
+        RenderTexture2D& big = chain->color[i];
+        if (big.id == 0) continue;
+        RenderTexture2D half = MakeTarget(big.texture.width / 2, big.texture.height / 2, true);
+        Pass(G.halfSh, half, [&]() { SetTex(G.halfSh, "uSrc", big.texture); });
+        FreeTarget(big);
+        big = half;
+    }
+    RestoreGl(saved);
+    return true;
+}
+
 void UnloadTerrainGpuChain(TerrainGpuChain* chain)
 {
     if (!chain) return;
@@ -2040,6 +2104,7 @@ void UnloadTerrainGpu()
     if (G.ok)
     {
         UnloadShader(G.macroSh); UnloadShader(G.cropSh); UnloadShader(G.downSh);
+        UnloadShader(G.halfSh);
         UnloadShader(G.blurSh); UnloadShader(G.sharpenSh); UnloadShader(G.meansSh);
         UnloadShader(G.fusedSh); UnloadShader(G.rampSh);
     UnloadShader(G.fieldsSh); UnloadShader(G.hpackSh);

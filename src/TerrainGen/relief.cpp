@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -206,6 +208,38 @@ struct TileTable
 
 } // namespace
 
+DistrictStyle GetDistrictStyle()
+{
+    // Decided once, and the first ask can come from a worker thread (the
+    // desktop builds windows off the main one): a static's initialiser is
+    // the one place that is safe.
+    static const DistrictStyle style = []()
+    {
+        const char* v = std::getenv("COLONY_DISTRICT");
+#if RELIEF_WEB
+        // A browser has no environment: ?district= is the same switch.
+        if (!v)
+        {
+            int web = EM_ASM_INT({
+                var m = /[?&]district=(relief|super)/.exec(window.location.search);
+                return m ? (m[1] == 'super' ? 2 : 1) : 0;
+            });
+            if (web != 0) v = (web == 2) ? "super" : "relief";
+        }
+#endif
+        bool super = v && std::strcmp(v, "super") == 0;
+        TraceLog(LOG_INFO, "TERRAIN: district style: %s",
+                 super ? "supersampled" : "real relief");
+        return super ? DistrictStyle::SUPERSAMPLED : DistrictStyle::RELIEF;
+    }();
+    return style;
+}
+
+const char* DistrictStyleName()
+{
+    return GetDistrictStyle() == DistrictStyle::RELIEF ? "real relief" : "supersampled";
+}
+
 void SetReliefSource(const char* dirOrUrl)
 {
     std::lock_guard<std::recursive_mutex> hold(g_lock);
@@ -216,12 +250,14 @@ void SetReliefSource(const char* dirOrUrl)
 
 void ReliefPrefetch(double latDeg, double lonDeg, double spanKm)
 {
+    if (GetDistrictStyle() != DistrictStyle::RELIEF) return;
     std::lock_guard<std::recursive_mutex> hold(g_lock);
     ForEachTile(ExtentOf(latDeg, lonDeg, spanKm), [](int r, int c) { Request(r, c); });
 }
 
 bool ReliefWindowSettled(double latDeg, double lonDeg, double spanKm)
 {
+    if (GetDistrictStyle() != DistrictStyle::RELIEF) return true;
     std::lock_guard<std::recursive_mutex> hold(g_lock);
     bool settled = true;
     ForEachTile(ExtentOf(latDeg, lonDeg, spanKm), [&](int r, int c) {
@@ -235,6 +271,7 @@ bool ReliefWindowSettled(double latDeg, double lonDeg, double spanKm)
 
 bool ReliefWindowCovered(double latDeg, double lonDeg, double spanKm)
 {
+    if (GetDistrictStyle() != DistrictStyle::RELIEF) return false;
     std::lock_guard<std::recursive_mutex> hold(g_lock);
     int want = 0, ready = 0;
     bool settled = true;
@@ -254,6 +291,7 @@ bool ReliefWindowM(double latDeg, double lonDeg, double spanKm, int res,
                    std::vector<float>* metres)
 {
     if (!metres || res < 8 || spanKm <= 0.0) return false;
+    if (GetDistrictStyle() != DistrictStyle::RELIEF) return false;
     const LolaDem* dem = GetLunarDem();
     if (!dem || !dem->IsLoaded()) return false;
 

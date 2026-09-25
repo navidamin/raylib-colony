@@ -16,6 +16,7 @@
 #include "lunar_dem_shared.h"
 #include "lunar_globe.h"
 #include "relief.h"
+#include "terrain_gpu.h"
 #include "lunar_regions.h"
 #include "region_identity.h"
 #include "site_selection_constants.h"
@@ -492,6 +493,23 @@ void RenderManager::SurveyDrawWindowRung(const SiteSelectionController& ctl,
                         haveVerdict ? &ctl.Buildability() : nullptr,
                         haveVerdict ? &verdict : nullptr,
                         layout.levelX, levelY, layout.cardW);
+
+    // The district says which ground it is drawn with (relief.h): two
+    // styles are played side by side, and a screenshot must tell them
+    // apart. Where the relief style has too few tiles it is the
+    // synthesizer, and says so rather than claiming relief.
+    const double groundSpan = WindowTextureSpanKm(c->windowSpanKm);
+    if (groundSpan >= RELIEF_MIN_SPAN_KM)
+    {
+        bool relief = GetDistrictStyle() == DistrictStyle::RELIEF;
+        double wLat = c->windowLatDeg, wLon = c->windowLonDeg;
+        const char* ground = !relief
+            ? (TerrainChainOnGpu() ? "supersampled synthesis" : "synthesis (CPU: not supersampled)")
+            : !ReliefWindowSettled(wLat, wLon, groundSpan) ? "real relief (loading)"
+            : ReliefWindowCovered(wLat, wLon, groundSpan) ? "real relief"
+            : "synthesis (no relief here)";
+        DrawText(TextFormat("ground: %s", ground), layout.levelX + 12, levelY + 160, 13, SV_DIM);
+    }
 }
 
 // The rung's ground: the window's chain texture, widened past the rung's

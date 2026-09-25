@@ -72,6 +72,11 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
   relief" at the district. Design: `docs/design/site-selection/level2-relief.md`.
 - **Later, if wanted:** a moving sun — the relief is real, so any sun
   lights it correctly; it belongs with a day/night clock.
+- **Second style, as a playtest:** `/ladder/?district=super` draws the
+  district with the synthesizer supersampled 2x instead. It continues into
+  level 3 (still synthesized from the photograph); the relief does not —
+  over highland its landforms match level 3 at 0.73 against 0.95. Open:
+  pick one, or build level 3 on the relief too.
 
 ### The Playtest Site Says Whose Build It Is ✅ COMPLETE
 
