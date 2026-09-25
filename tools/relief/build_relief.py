@@ -124,17 +124,19 @@ def run_band(lat_top):
             except Exception:
                 time.sleep(3 + 3 * attempt)
         return None
-    with ThreadPoolExecutor(32) as ex:
-        parts = [p for p in ex.map(read, [r for _, r in sel.iterrows()]) if p is not None]
     # Every DTM onto LOLA before they are combined: its own offset and tilt
     # fitted against the base and taken off. LOLA is right at these scales
     # and a good DTM fits it with a near-zero plane; one that sat 100 m high
     # showed its frame as a rectangle wherever it had no neighbour to be
-    # outvoted by.
+    # outvoted by. Done as each arrives, and only the difference from the
+    # base kept, in half floats (0.5 m at a kilometre, against the tiles'
+    # 7 m step): holding every DTM whole until all had arrived ran a
+    # high-latitude band, where each spans degrees of longitude, out of
+    # memory.
     base = base_rows(top)
-    aligned = []
-    rms_all, dropped = [], 0
-    for r0, c0, a in parts:
+    rms_all, drops = [], []
+    def align(p):
+        r0, c0, a = p
         b = base[r0:r0 + a.shape[0], c0:c0 + a.shape[1]]
         # The outer pixels are not ground: the DTM's overviews averaged its
         # edge with the empty frame around it, which left a ring of heights
@@ -142,7 +144,7 @@ def run_band(lat_top):
         ok = ndimage.binary_erosion(np.isfinite(a), iterations=EDGE_TRIM)
         a = np.where(ok, a, np.nan)
         n = int(ok.sum())
-        if n < 64: continue
+        if n < 64: return None
         yy, xx = np.nonzero(ok)
         d = (a[ok] - b[ok]).astype(np.float64)
         if n >= 2000:
@@ -156,22 +158,28 @@ def run_band(lat_top):
         # And one more check it is the ground it claims to be: smoothed to
         # LOLA's own scale it must agree with LOLA. A misplaced or broken
         # model does not, and is dropped rather than outvoted.
-        resid = np.where(ok, a - plane - b, 0.0)
+        det = a - plane - b
+        resid = np.where(ok, det, 0.0)
         wsum = ndimage.gaussian_filter(ok.astype(np.float64), 4)
         lo = ndimage.gaussian_filter(resid, 4) / np.maximum(wsum, 1e-6)
         core = ok & (wsum > 0.5)
         rms = float(np.sqrt(np.mean(lo[core] ** 2))) if core.any() else 0.0
         rms_all.append(rms)
         if rms > LOLA_AGREE_M:
-            dropped += 1
-            continue
+            drops.append(1)
+            return None
         # Its weight fades to nothing over its last FEATHER pixels: stereo
         # DTMs are least sure at their edges, and a hard edge is where the
         # set being combined changes -- a step of a few metres, which the
         # hillshade shows as the model's outline.
-        wgt = np.clip(ndimage.distance_transform_edt(ok) / FEATHER, 0.0, 1.0).astype(np.float32)
-        aligned.append((r0, c0, (a - plane).astype(np.float32), wgt))
-    parts = aligned
+        wgt = np.clip(ndimage.distance_transform_edt(ok) / FEATHER, 0.0, 1.0)
+        return (r0, c0, det.astype(np.float16), np.round(wgt * 255).astype(np.uint8))
+    def load(r):
+        p = read(r)
+        return align(p) if p is not None else None
+    with ThreadPoolExecutor(32) as ex:
+        parts = [p for p in ex.map(load, [r for _, r in sel.iterrows()]) if p is not None]
+    dropped = len(drops)
     z = np.full((ROWS, W), np.nan, np.float32)
     for col in range(W // TILE):
         x0, x1 = col * TILE, (col + 1) * TILE
@@ -182,7 +190,7 @@ def run_band(lat_top):
             Wt = np.zeros((ROWS, TILE), np.float32)
             lo, hi = max(x0, c0), min(x1, c0 + a.shape[1])
             L[r0:r0 + a.shape[0], lo - x0:hi - x0] = a[:, lo - c0:hi - c0]
-            Wt[r0:r0 + a.shape[0], lo - x0:hi - x0] = wg[:, lo - c0:hi - c0]
+            Wt[r0:r0 + a.shape[0], lo - x0:hi - x0] = wg[:, lo - c0:hi - c0] / 255.0
             layers.append(L); weights.append(Wt)
         if not layers: continue
         Ls = np.stack(layers); Ws = np.stack(weights)
@@ -194,8 +202,8 @@ def run_band(lat_top):
         sw = w.sum(axis=0)
         mean = np.where(agree, Ls, 0.0).__mul__(w).sum(axis=0) / np.maximum(sw, 1e-6)
         z[:, x0:x1] = np.where(sw > 1e-3, mean, med)
-    ok = np.isfinite(z)
-    det = np.where(ok, z - base, 0.0)
+    ok = np.isfinite(z)                   # z is already the detail above the base
+    det = np.where(ok, z, 0.0)
     # Holes: the neighbours' detail fades out into LOLA's smooth spline --
     # never into the bilinear the detail is measured from, which is facets.
     wgt = ndimage.gaussian_filter(ok.astype(np.float64), 6, mode=('nearest', 'wrap'))

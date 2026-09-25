@@ -21,10 +21,10 @@ cp tiles/*.jpg ../../data/relief/
 ```
 
 It reads each DTM straight from the bucket (Cloud-Optimized GeoTIFF
-overviews, ~240 m), so nothing is downloaded whole. About 5 minutes a
-4° band with 32 fetches in flight; four bands side by side ran the
-whole Moon in about an hour. `done/` marks finished bands, so a stopped
-build resumes. It needs the repo's LOLA model
+overviews, ~240 m), so nothing is downloaded whole. About 5 minutes and
+3–4 GB a 4° band with 32 fetches in flight; run two or three bands side
+by side on a 16 GB machine (four ran out of memory), each process given
+its own list. `done/` marks finished bands, so a stopped build resumes. It needs the repo's LOLA model
 (`src/assets/planet/lola/ldem_16_uint.tif`): the tiles store height
 *above* its bilinear sample, and the game rebuilds the same base.
 

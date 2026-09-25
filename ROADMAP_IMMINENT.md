@@ -64,8 +64,8 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
   Tsiolkovskiy; real relief lit by the game's sun was clearly best at
   all four, the mosaic alone second, ML upscaling no gain.
 - Now the district is drawn from Kaguya stereo heights (237 m/px),
-  stored above LOLA in 4° JPEG tiles (`data/relief/`, ~RELIEF_MB MB for
-  the whole Moon), streamed a tile at a time; no synthesized detail at
+  stored above LOLA in 4° JPEG tiles (`data/relief/`, 85 MB for the
+  whole Moon, 94 % of it measured), streamed a tile at a time; no synthesized detail at
   that scale. Lit by the chain's fixed north-west sun; coloured by the
   mosaic blurred 2.5 km, so the photographed sun does not shade it twice.
 - Desktop and browser, GPU and CPU; the browser check requires "real

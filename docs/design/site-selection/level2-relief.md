@@ -59,7 +59,8 @@ Tsiolkovskiy (screenshots in the session of 2026-09-24):
 | Read at | each DTM's overview no coarser than 8x (~240 m) |
 | Grid | 128 px/deg (237 m at the equator), tiles 512 x 512 = 4 x 4°, `r128_<row>_<col>.jpg`, row 0 at 90° N, col 0 at 180° W |
 | Stored as | height **above the shipped LOLA model** in 7 m steps about 128: `code = round((z - base) / 7) + 128`, base = bilinear LOLA at the pixel centre (`LolaDem::GlobalBilinearM`) |
-| Size | FILLED_BY_BUILD |
+| Size | 3 870 tiles, 85 MB, in the repo |
+| Coverage | 93.8 % of the ground between 72° N and S measured; 92.4 % of 86° N–S; the polar bands 41–78 % |
 
 Storing the difference from LOLA rather than the height is what makes
 8 bits and a JPEG enough: the detail is a few hundred metres at most,
@@ -129,6 +130,9 @@ one half. The builder takes every DTM's extent from the file itself.
 - Seams of a few metres between DTMs remain in places; they read as
   faint straight lines under the low sun.
 - Polar caps beyond the claimable latitude are not built.
+- The tiles are JPEG (quality 85): under `lunar_map`'s harsh Lambert
+  light their 8-pixel blocks (1.9 km) show faintly as a lattice. The
+  game's softer light does not show them.
 - A playtest packed as a claude.ai Artifact (`tools/artifact/`) carries
   no tiles — an Artifact holds 64 MB — so its district falls back to
   the synthesizer, as it would anywhere the tiles are absent.
