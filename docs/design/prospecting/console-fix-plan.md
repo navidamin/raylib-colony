@@ -206,6 +206,21 @@ is a phase offset.
 **Verify.** The frame-time numbers before and after, and a visual check that
 the fog looks the same.
 
+**Done, with no change: the suspicion was wrong.** Measured with
+`tools/fogbench` (llvmpipe, one block render):
+
+| | ss 2 | ss 1 |
+|---|---|---|
+| no fog, all known | 47.4 ms | 28.1 ms |
+| fog, half known | 37.0 ms | 15.4 ms |
+| fog, nothing known | 31.0 ms | 12.2 ms |
+
+The fog makes the block cheaper: fogged rock skips its fills, meshes and bed
+boundaries. The costly case is a fully known block, which is the reference's
+renderer, lit, scattered and glowing. If the web drags, look there, or at
+supersampling, which the web already has off. Nothing is cached on a
+suspicion.
+
 ## Step 10 — roadmaps
 
 Update `ROADMAP_IMMINENT.md` (and `ROADMAP_OVERALL.md` if a phase moved) with
