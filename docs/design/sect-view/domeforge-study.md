@@ -253,9 +253,37 @@ reference picture (the JS truck has three wheels and an outlined box).
 label under the dome. raylib's default font is a pixel font, which is what
 looked broken; the label and the core's readout now use a TrueType face
 loaded at twice its drawn size with mipmaps and trilinear filtering. Three
-candidates are in `src/assets/fonts/` for the user to choose from: Exo 2
-Bold, Rajdhani SemiBold, Barlow SemiBold (`preview.sh --view sect --hover N
---label-font exo2|rajdhani|barlow`).
+faces were shown (Exo 2 Bold, Rajdhani SemiBold, Barlow SemiBold); the user
+chose **Exo 2**, the face the extraction UI already uses, and the other two
+were removed.
+
+## 6e. Hover (the user, 2026-09-25)
+
+> "add a hover animation to all domes where the lighting of the dome
+> changes and the cursor also changes to click button"
+
+**Lighting.** Each dome state (core, unit on, unit off) gets a second baked
+sprite, the same DomeForge config with the light turned up
+(`HoverConfig`): ambient +0.14, diffuse +0.07, specular +0.2, interior
+glow +0.25/+0.15, edge line +0.35, rim +0.25. Nothing is relit per frame:
+hovering cross-fades the lit sprite over the normal one with a
+smoothstep, easing in at rate 14/s (~0.1 s) and out at 9/s, per slot, so
+leaving one dome for its neighbour fades one down while the other comes up.
+The three lit variants are baked after everything else, so they never
+delay the first picture.
+
+**Cursor.** The pointing hand shows over the eight unit domes, because they
+open (double-click). The core lights up too but keeps the arrow: nothing
+opens when it is clicked yet, and a hand that leads nowhere is a lie.
+`SectArt::Update` resets the cursor every frame the Sect view does not
+claim it, so the hand never survives leaving the view.
+
+Verified live, not only in stills: `colony_viewtest --sect` (founds the
+picked site, starts in the Sect view) under Xvfb, pointer moved with
+xdotool, the cursor read back through XFixes. Mean brightness over the
+Farming dome went 119 → 130 at 50 ms → 136 settled → 119 after leaving; the
+cursor was the hand over the unit and the default over core and ground.
+Stills: `preview.sh --view sect --hover N` (0–7 units, 8 the core).
 
 ## 7. 3D view: sized, scaffolded, not built
 

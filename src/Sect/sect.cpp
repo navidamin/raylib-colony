@@ -242,6 +242,11 @@ void Sect::DrawInSectView(Vector2 position) {
     // first, spend more of this frame on it. Unbaked pieces draw as discs.
     if (!SectArt::Ready()) SectArt::Update(30.0);
 
+    // Hover: the dome under the pointer lights up (the core too) and, over a
+    // unit, the pointer becomes a hand.
+    const int hovered = SectArt::HoveredSlot(f, GetMousePosition());
+    SectArt::AnimateHover(hovered, GetFrameTime());
+
     SectArt::DrawBase(f);
     SectArt::DrawCore(f);
 
@@ -267,7 +272,6 @@ void Sect::DrawInSectView(Vector2 position) {
     }
 
     // The unit's name only on hover, under its dome.
-    const int hovered = SectArt::HoveredSlot(f, GetMousePosition());
     if (hovered >= 0 && (size_t)hovered < slots)
     {
         SectArt::DrawUnitLabel(f, hovered, units[hovered]->GetUnitType(),

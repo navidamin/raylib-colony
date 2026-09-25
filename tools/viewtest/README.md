@@ -50,6 +50,7 @@ the globe with both marked.
 | `--pick LAT,LON` | the region the scripted descent claims (default Mare Imbrium) |
 | `--aim DX,DY` | km east/north of the pick the cursor is aimed at below the globe (default 30,-20) |
 | `--nodisturb` | generate the ground with the site left untouched |
+| `--sect` | interactive: found at `--pick` first, then start in the Sect view (for hover and dome testing) |
 
 `--pick` plus `--shots` is how the pipeline gets checked against arbitrary
 locations; see the random-site sweeps in `prototypes/planet_visuals/`.

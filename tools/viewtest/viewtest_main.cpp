@@ -18,6 +18,7 @@
 // Build:  cmake --build build --target colony_viewtest
 // Run:    tools/viewtest/viewtest.sh          (headless screenshots)
 //         ./build/src/colony_viewtest         (interactive)
+//         ./build/src/colony_viewtest --sect  (found the pick, start in the Sect view)
 
 #include "raylib.h"
 
@@ -164,6 +165,7 @@ struct ViewTestContext
     double aimDyKm = -20.0;
     Camera2D camera = {0};
     bool headless = false;
+    bool startInSect = false;   // --sect: found the pick, then play from the Sect view
     bool surveyFrame = false;
     std::string shotPrefix;
 };
@@ -541,6 +543,10 @@ int main(int argc, char** argv)
             g_ctx.headless = true;
             g_ctx.shotPrefix = argv[++i];
         }
+        else if (a == "--sect")
+        {
+            g_ctx.startInSect = true;
+        }
         else if (a == "--nodisturb")
         {
             SetSiteDisturbanceEnabled(false);
@@ -610,6 +616,11 @@ int main(int argc, char** argv)
         }
         else
         {
+            if (g_ctx.startInSect && ScriptedFounding(g_ctx, g_ctx.pickLat, g_ctx.pickLon, false))
+            {
+                g_ctx.level = 3;
+                g_ctx.game->SelectDefaultUnit();
+            }
 #if defined(PLATFORM_WEB)
             emscripten_set_main_loop_arg(UpdateFrame, &g_ctx, 0, 1);
 #else

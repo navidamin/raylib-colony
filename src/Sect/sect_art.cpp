@@ -16,7 +16,7 @@ namespace
 {
     // What the set is made of, in bake order: roads first (the most visible
     // missing piece), then the core, then every unit on, then every unit off.
-    enum class Piece { ROADS, CORE, UNIT_ON, UNIT_OFF };
+    enum class Piece { ROADS, CORE, UNIT_ON, UNIT_OFF, CORE_HOVER, UNIT_ON_HOVER, UNIT_OFF_HOVER };
 
     struct Item
     {
@@ -63,6 +63,29 @@ namespace
         g_set.cpuMs = 0.0;
     }
 
+    // The same dome, lit up: brighter glass, more facets catching the light,
+    // a bright lip and a stronger far-side rim. Baked as a second sprite and
+    // cross-faded in on hover, so the change is DomeForge's own lighting.
+    DomeForgeConfig HoverConfig(const DomeForgeConfig& base)
+    {
+        DomeForgeConfig c = base;
+        c.ambient += 0.14;
+        c.diffuse += 0.07;
+        c.specInt = std::min(1.0, c.specInt + 0.2);
+        c.litAmount += 0.25;
+        c.litNear += 0.15;
+        c.edgeLine += 0.35;
+        c.rimInt += 0.25;
+        return c;
+    }
+
+    int g_hoverOverride = -1;         // a tool can force the hovered slot
+
+    // Hover animation: 0 = at rest, 1 = fully lit. Slots 0-7 are units, 8 the core.
+    float g_hoverT[SectArt::UNIT_SLOTS + 1] = {};
+    bool g_wantPointer = false;       // a clickable dome is under the pointer this frame
+    bool g_pointerShown = false;      // what SetMouseCursor was last told
+
     void StartSet(int screenW, int screenH)
     {
         UnloadSet();
@@ -77,6 +100,10 @@ namespace
         g_set.items.push_back({Piece::CORE, -1});
         for (int slot = 0; slot < SectArt::UNIT_SLOTS; slot++) g_set.items.push_back({Piece::UNIT_ON, slot});
         for (int slot = 0; slot < SectArt::UNIT_SLOTS; slot++) g_set.items.push_back({Piece::UNIT_OFF, slot});
+        // hover variants last: the view is whole without them
+        g_set.items.push_back({Piece::CORE_HOVER, -1});
+        for (int slot = 0; slot < SectArt::UNIT_SLOTS; slot++) g_set.items.push_back({Piece::UNIT_ON_HOVER, slot});
+        for (int slot = 0; slot < SectArt::UNIT_SLOTS; slot++) g_set.items.push_back({Piece::UNIT_OFF_HOVER, slot});
     }
 
     void Begin(Item& it)
@@ -103,16 +130,20 @@ namespace
             }
             it.job = DomeForgeJob::Roads(cfg, W, H, prims, lay.s, lights);
         }
-        else if (it.piece == Piece::CORE)
+        else if (it.piece == Piece::CORE || it.piece == Piece::CORE_HOVER)
         {
             const DomeForgeDome& d = lay.domes[0];
-            it.job = DomeForgeJob::Sprite(DomeForgeSpriteConfig(cfg, lay, d, DomeColour(cfg, -1, true)),
+            const DomeForgeConfig c = it.piece == Piece::CORE_HOVER ? HoverConfig(cfg) : cfg;
+            it.job = DomeForgeJob::Sprite(DomeForgeSpriteConfig(c, lay, d, DomeColour(cfg, -1, true)),
                                           DomeForgeKind::CENTRAL);
         }
         else
         {
             const DomeForgeDome& d = lay.domes[LayoutIndexForSlot(it.slot)];
-            it.job = DomeForgeJob::Sprite(DomeForgeSpriteConfig(cfg, lay, d, DomeColour(cfg, it.slot, it.piece == Piece::UNIT_ON)),
+            const bool on = it.piece == Piece::UNIT_ON || it.piece == Piece::UNIT_ON_HOVER;
+            const bool hover = it.piece == Piece::UNIT_ON_HOVER || it.piece == Piece::UNIT_OFF_HOVER;
+            const DomeForgeConfig c = hover ? HoverConfig(cfg) : cfg;
+            it.job = DomeForgeJob::Sprite(DomeForgeSpriteConfig(c, lay, d, DomeColour(cfg, it.slot, on)),
                                           DomeForgeKind::UNIT);
         }
         it.started = true;
@@ -252,6 +283,16 @@ namespace SectArt
 
     void Update(double budgetMs)
     {
+        // The pointer: AnimateHover sets the hand as the sect view draws. This
+        // runs once a frame in every view (before drawing), so once the sect
+        // view stops drawing -- the player left it -- the arrow comes back.
+        if (g_wantPointer != g_pointerShown)
+        {
+            SetMouseCursor(g_wantPointer ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
+            g_pointerShown = g_wantPointer;
+        }
+        g_wantPointer = false;
+
         if (g_set.screenW != GetScreenWidth() || g_set.screenH != GetScreenHeight())
             StartSet(GetScreenWidth(), GetScreenHeight());
         while (g_set.next < g_set.items.size() && budgetMs > 0.0)
@@ -290,11 +331,24 @@ namespace SectArt
                     (int)std::floor(f.center.y - it->tex.height * 0.5f + 0.5f), WHITE);
     }
 
+    // The lit sprite over the resting one, at the slot's animation level.
+    static void DrawHoverLayer(Piece piece, int slot, int t, Vector2 at)
+    {
+        const float k = g_hoverT[t];
+        if (k <= 0.002f) return;
+        const Item* it = Find(piece, slot);
+        if (!it) return;
+        const float e = k * k * (3.0f - 2.0f * k);   // smoothstep: eases in and out
+        DrawTexture(it->tex, (int)std::floor(at.x - it->cx + 0.5f), (int)std::floor(at.y - it->cy + 0.5f),
+                    Fade(WHITE, e));
+    }
+
     void DrawCore(const Frame& f)
     {
         const Item* it = Find(Piece::CORE, -1);
         if (it) DrawSprite(*it, f.center);
         else DrawCircleV(f.center, f.coreDomeR, Color{40, 46, 44, 255});
+        DrawHoverLayer(Piece::CORE_HOVER, -1, CORE_SLOT, f.center);
     }
 
     void DrawUnitDome(const Frame& f, int slot, bool on)
@@ -303,15 +357,33 @@ namespace SectArt
         const Item* it = Find(on ? Piece::UNIT_ON : Piece::UNIT_OFF, slot);
         if (it) DrawSprite(*it, f.unit[slot]);
         else DrawCircleV(f.unit[slot], f.unitDomeR, Color{40, 46, 44, 255});
+        DrawHoverLayer(on ? Piece::UNIT_ON_HOVER : Piece::UNIT_OFF_HOVER, slot, slot, f.unit[slot]);
+    }
+
+    void AnimateHover(int hovered, float dt)
+    {
+        // ~150 ms to light up, a little slower to settle back
+        for (int i = 0; i <= UNIT_SLOTS; i++)
+        {
+            const float target = (i == hovered) ? 1.0f : 0.0f;
+            const float rate = target > g_hoverT[i] ? 14.0f : 9.0f;
+            g_hoverT[i] += (target - g_hoverT[i]) * (1.0f - std::exp(-rate * dt));
+            if (g_hoverOverride >= 0) g_hoverT[i] = target;   // a still frame shows the end state
+        }
+        // Units open on click; the core has nothing to open, so it keeps the arrow.
+        g_wantPointer = hovered >= 0 && hovered < UNIT_SLOTS;
+        if (g_wantPointer != g_pointerShown)
+        {
+            SetMouseCursor(g_wantPointer ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
+            g_pointerShown = g_wantPointer;
+        }
     }
 
     // ---- icons ----
     namespace
     {
         std::map<std::string, Texture2D> g_icons;   // key: type + size + on
-        int g_hoverOverride = -1;
-        std::string g_labelFontKey = "exo2";
-        std::map<std::string, Font> g_fonts;         // key: face + px
+        std::map<int, Font> g_fonts;                 // Exo 2 Bold, by px
     }
 
     void DrawUnitIcon(const Frame& f, int slot, const std::string& unitType, bool on)
@@ -345,28 +417,24 @@ namespace SectArt
             const float dx = mouse.x - f.unit[i].x, dy = mouse.y - f.unit[i].y;
             if (dx * dx + dy * dy <= f.unitRimR * f.unitRimR) return i;
         }
+        const float dx = mouse.x - f.center.x, dy = mouse.y - f.center.y;
+        if (dx * dx + dy * dy <= f.coreRimR * f.coreRimR) return CORE_SLOT;
         return -1;
     }
 
     void SetHoverOverride(int slot) { g_hoverOverride = slot; }
-
-    void SetLabelFont(const std::string& key) { g_labelFontKey = key; }
 
     // The label face, loaded at twice the drawn size with mipmaps and
     // trilinear filtering, so small text stays continuous (raylib's default
     // font is a pixel font, which is what looked broken). One per face + size.
     static const Font& LabelFont(int px)
     {
-        const std::string k = g_labelFontKey + ":" + std::to_string(px);
-        auto it = g_fonts.find(k);
+        auto it = g_fonts.find(px);
         if (it != g_fonts.end()) return it->second;
-        const char* path = g_labelFontKey == "rajdhani" ? "src/assets/fonts/Rajdhani-SemiBold.ttf"
-                         : g_labelFontKey == "barlow"   ? "src/assets/fonts/Barlow-SemiBold.ttf"
-                                                        : "src/assets/fonts/Exo2-Bold.ttf";
-        Font font = LoadFontEx(path, px * 2, nullptr, 0);
+        Font font = LoadFontEx("src/assets/fonts/Exo2-Bold.ttf", px * 2, nullptr, 0);
         GenTextureMipmaps(&font.texture);
         SetTextureFilter(font.texture, TEXTURE_FILTER_TRILINEAR);
-        return g_fonts.emplace(k, font).first->second;
+        return g_fonts.emplace(px, font).first->second;
     }
 
     void DrawTextCentred(const std::string& text, Vector2 centre, int px, Color colour)

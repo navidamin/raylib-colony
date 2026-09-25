@@ -67,16 +67,21 @@ namespace SectArt
     // on first use per unit type and size, then cached.
     void DrawUnitIcon(const Frame& f, int slot, const std::string& unitType, bool on);
 
-    // Hover: the slot under `mouse` (-1 none). A tool can force one with
-    // SetHoverOverride, since a headless render has no pointer.
+    // Hover: the slot under `mouse` -- 0-7 a unit, CORE_SLOT the core, -1
+    // none. A tool can force one with SetHoverOverride, since a headless
+    // render has no pointer.
+    constexpr int CORE_SLOT = UNIT_SLOTS;
     int HoveredSlot(const Frame& f, Vector2 mouse);
     void SetHoverOverride(int slot);
 
+    // Ease each dome toward lit (hovered) or rest, and ask for the pointing
+    // hand over a unit dome (units open on click; the core has nothing to
+    // open, so it lights up but keeps the arrow). Update applies the cursor.
+    void AnimateHover(int hovered, float dt);
+
     // The unit's name in a small label under its dome, shown on hover.
     void DrawUnitLabel(const Frame& f, int slot, const std::string& name, bool on);
-    // Which typeface the label uses: "exo2" | "rajdhani" | "barlow".
-    void SetLabelFont(const std::string& key);
-    // Text in that face, centred on `centre`, with a soft shadow.
+    // Text in the label face (Exo 2 Bold), centred on `centre`, with a soft shadow.
     void DrawTextCentred(const std::string& text, Vector2 centre, int px, Color colour);
 
     void Unload();

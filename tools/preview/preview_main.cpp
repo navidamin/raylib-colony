@@ -78,7 +78,6 @@ struct PreviewOptions
     bool subFloor = false;
     bool noSite = false;      // --no-site: natural ground, no site disturbance (compare renders)
     int hover = -1;           // --hover N: sect view as if the pointer were on unit slot N
-    std::string labelFont;    // --label-font exo2|rajdhani|barlow
 };
 
 static void PrintUsage()
@@ -113,8 +112,7 @@ static void PrintUsage()
         << "  --state <name>    empty | swept | sampled | analyzed\n"
         << "  --tier <0-3>      module tier to preview         (default: 2)\n"
         << "  --no-site         natural ground: no site disturbance (sect/colony compare)\n"
-        << "  --hover <n>       sect view as if the pointer were on unit slot n (0 = top)\n"
-        << "  --label-font <f>  sect labels: exo2 | rajdhani | barlow\n"
+        << "  --hover <n>       sect view as if the pointer were on dome n (0-7 units from the top, 8 the core)\n"
         << "  --energy <n>      override stored energy (tests cost gating)\n"
         << "  --size <WxH>      output resolution              (default: 1280x720)\n"
         << "  --out <path>      output PNG path                (default: preview.png)\n"
@@ -222,10 +220,6 @@ static bool ParseArgs(int argc, char** argv, PreviewOptions& options)
         else if (arg == "--hover" && hasNext)
         {
             options.hover = std::atoi(argv[++i]);
-        }
-        else if (arg == "--label-font" && hasNext)
-        {
-            options.labelFont = argv[++i];
         }
         else if (arg == "--tune" && hasNext)
         {
@@ -809,7 +803,6 @@ static int RenderGameView(const PreviewOptions& options)
             {
                 SectArt::BakeAll();   // one frame: the base has to be baked before it
                 SectArt::SetHoverOverride(options.hover);
-                if (!options.labelFont.empty()) SectArt::SetLabelFont(options.labelFont);
                 renderManager.DrawSectView(sect, timeManager);
             }
             else
