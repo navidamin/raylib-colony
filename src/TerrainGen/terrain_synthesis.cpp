@@ -14,16 +14,19 @@ bool IsSiteDisturbanceEnabled() { return g_siteDisturbEnabled; }
 
 TerrainSiteDisturbance SectLevelSite(const TerrainSiteDisturbance& base)
 {
-    // DomeForge's layout, in px at its 1254 px reference base (dome-forge-base.js
-    // DEFAULTS): ring road r 485 and 30 wide, unit orbit 340, central sprite 475
-    // with its rim at 0.363 of it, unit sprite 236 with its rim at 0.40.
+    // The sect view's DomeForge layout (SectArt::BaseConfig), in px at its
+    // 1254 px reference base: ring road r 485, 34 wide with a 4 px bank; unit
+    // orbit 340; central sprite 420 with its rim at 0.363 of it; unit sprite
+    // 205 with its rim at 0.40; a 10 px road collar round every rim.
+    // tests/test_sect_site.cpp holds these to the art, so the ground and the
+    // base cannot drift apart again.
     const float kmPerPx = SECT_RING_ROAD_KM / 485.0f;
     TerrainSiteDisturbance s = base;
     s.ringRadiusKm = 340.0f * kmPerPx;
-    s.coreRadiusKm = 475.0f * 0.363f * kmPerPx;
-    s.domeWorkKm = 236.0f * 0.40f * kmPerPx * 1.25f;   // just past each unit's rim
+    s.coreRadiusKm = (420.0f * 0.363f + 10.0f) * kmPerPx;
+    s.domeWorkKm = (205.0f * 0.40f + 10.0f) * kmPerPx * 1.25f;   // just past each collar
     // the footprint reaches the ring road's outer kerb and its bank
-    s.footprintRadiusKm = (485.0f + 15.0f + 6.0f) * kmPerPx;
+    s.footprintRadiusKm = (485.0f + 17.0f + 4.0f) * kmPerPx;
     // the site's own, gentler treatment carries on a little way past it
     s.workedRadiusKm = s.footprintRadiusKm + 0.25f;
     s.fadeKm = 0.80f;

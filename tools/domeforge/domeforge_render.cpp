@@ -1,7 +1,8 @@
 // The port half of the DomeForge diff: renders through src/DomeForge/ with the
 // same flags tools/domeforge/ref.js takes, and writes a PNG. No window needed.
 //   domeforge_render --kind unit|central|roads|ground|base [--scale S] [--size N]
-//                    [--color #rrggbb] [--socket-start DEG] [--socket-count N] --out file.png
+//                    [--color #rrggbb] [--socket-start DEG] [--socket-count N]
+//                    [--set key=value ...] --out file.png
 #include "domeforge.h"
 #include "raylib.h"
 
@@ -29,6 +30,14 @@ int main(int argc, char** argv)
         else if (!strcmp(k, "--color")) cfg.color = DomeForgeHex(v);
         else if (!strcmp(k, "--socket-start")) socketStart = atof(v);
         else if (!strcmp(k, "--socket-count")) socketCount = atoi(v);
+        else if (!strcmp(k, "--set"))
+        {
+            // --set key=value, repeatable: any DomeForgeSetParam field (tuning; port only)
+            const std::string kv = v;
+            const size_t eq = kv.find('=');
+            if (eq == std::string::npos || !DomeForgeSetParam(cfg, kv.substr(0, eq), kv.substr(eq + 1)))
+                fprintf(stderr, "unknown --set %s\n", v);
+        }
     }
     DomeForgeShape& shape = kind == "central" ? cfg.central : cfg.unit;
     if (size > 0) shape.size = size;

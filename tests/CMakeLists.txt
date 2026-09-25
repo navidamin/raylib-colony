@@ -84,6 +84,7 @@ add_executable(colony_tests
     test_prospecting_wiring.cpp
     test_site_selection.cpp
     test_ground_truth.cpp
+    test_sect_site.cpp
     test_site_founding.cpp
 )
 

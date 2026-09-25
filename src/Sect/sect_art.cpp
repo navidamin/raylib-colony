@@ -27,6 +27,7 @@ namespace
     struct Set
     {
         float pxPerKm = 0.0f;    // what this set was baked for; 0 = nothing yet
+        int screenW = 0, screenH = 0;   // the road layer covers the whole screen
         DomeForgeConfig cfg;
         DomeForgeLayout lay;
         std::vector<Item> items;
@@ -34,14 +35,7 @@ namespace
         double cpuMs = 0.0;      // time spent baking this set, for the log line
     } g_set;
 
-    DomeForgeConfig BaseConfig()
-    {
-        DomeForgeConfig cfg = DomeForgeDefaults();
-        // The layout centre is the sect centre, which is the terrain's centre;
-        // DomeForge's offsetY only frames its own reference image.
-        cfg.offsetY = 0.0;
-        return cfg;
-    }
+    DomeForgeConfig BaseConfig() { return SectArt::BaseConfig(); }
 
     // Green = on, grey = off. A per-unit colour belongs here, keyed by slot;
     // it would also need adding to the bake list below.
@@ -61,15 +55,22 @@ namespace
         g_set.items.clear();
         g_set.next = 0;
         g_set.pxPerKm = 0.0f;
+        g_set.screenW = g_set.screenH = 0;
         g_set.cpuMs = 0.0;
     }
 
-    void StartSet(float pxPerKm)
+    void StartSet(int screenW, int screenH)
     {
         UnloadSet();
+        const float pxPerKm = SectArt::SectViewPxPerKm(screenW, screenH);
         g_set.pxPerKm = pxPerKm;
+        g_set.screenW = screenW;
+        g_set.screenH = screenH;
         g_set.cfg = BaseConfig();
         const double s = SECT_RING_ROAD_KM * pxPerKm / g_set.cfg.ringRoadR;
+        // The cardinal roads leave the base and run off the edges of the
+        // screen, as they run off the edges of the concept art.
+        g_set.cfg.spokesBeyondLen = (std::max(screenW, screenH) * 0.5 / s - g_set.cfg.ringRoadR) + 40.0;
         g_set.lay = DomeForgeMakeLayout(g_set.cfg, s * 1254.0 / g_set.cfg.baseSize);
         g_set.items.push_back({Piece::ROADS, -1});
         g_set.items.push_back({Piece::CORE, -1});
@@ -83,8 +84,23 @@ namespace
         const DomeForgeLayout& lay = g_set.lay;
         if (it.piece == Piece::ROADS)
         {
-            const int W = (int)std::floor(lay.A + 0.5);
-            it.job = DomeForgeJob::Roads(cfg, W, W, lay.prims, lay.s);
+            // The layer is screen-sized and shares the base's centre, so shift
+            // the layout (math coords in the A x A square, y up) to match.
+            const int W = g_set.screenW, H = g_set.screenH;
+            const double ox = (W - lay.A) * 0.5, oy = (H - lay.A) * 0.5;
+            std::vector<DomeForgePrim> prims = lay.prims;
+            for (DomeForgePrim& p : prims)
+            {
+                p.ax += ox; p.bx += ox; p.cx += ox;
+                p.ay += oy; p.by += oy; p.cy += oy;
+            }
+            std::vector<DomeForgeLight> lights = lay.lights;
+            for (DomeForgeLight& l : lights)
+            {
+                l.x += ox;
+                l.y += oy;
+            }
+            it.job = DomeForgeJob::Roads(cfg, W, H, prims, lay.s, lights);
         }
         else if (it.piece == Piece::CORE)
         {
@@ -129,6 +145,61 @@ namespace
 
 namespace SectArt
 {
+    DomeForgeConfig BaseConfig()
+    {
+        DomeForgeConfig cfg = DomeForgeDefaults();
+        // The layout centre is the sect centre, which is the terrain's centre;
+        // DomeForge's offsetY only frames its own reference image.
+        cfg.offsetY = 0.0;
+
+        // Tuned by eye against the concept art (prototypes/dome-forge/samples/
+        // base-compare-reference.png, left half), crop against crop at the same
+        // scale -- see "Roads like the concept" in domeforge-study.md.
+        // Proportions: smaller domes, so more road shows between them.
+        cfg.unitSize = 205.0;
+        cfg.centralSize = 420.0;
+        // Roads: smooth, darker asphalt; a thin, soft kerb instead of a bright
+        // segmented bevel; a softer bank; a faint lane line.
+        cfg.roadW = 34.0;
+        cfg.roadColor = DomeForgeHex("#5d5b57");
+        cfg.roadMottle = 0.04;
+        cfg.roadGrain = 0.025;
+        cfg.curbW = 3.0;
+        cfg.curbBevel = 0.6;
+        cfg.curbShine = 0.15;
+        cfg.curbColor = DomeForgeHex("#8f8b85");
+        cfg.curbOutline = 0.35;
+        cfg.curbShadow = 0.25;
+        cfg.curbSegDepth = 0.12;
+        cfg.bankW = 4.0;
+        cfg.bankLight = 0.15;
+        cfg.bankShadow = 0.25;
+        cfg.laneColor = DomeForgeHex("#9a8f7e");
+        cfg.laneAlpha = 0.3;
+        cfg.laneW = 1.2;
+        // Junctions flare: spokes into the ring, and into each dome's collar.
+        cfg.fillet = 34.0;
+        cfg.filletDome = 30.0;
+        // Short road stubs past the ring at the four cardinal points.
+        cfg.spokesBeyond = true;
+        cfg.roadOuterW = 26.0;
+        cfg.spokesBeyondLen = 60.0;
+        // Roads meet a collar of road round each dome, not socket loops.
+        cfg.socketOn = false;
+        cfg.domeCollar = 10.0;
+        // Lights sit on the roads: bars on the centre line, lamps round the collars.
+        cfg.roadLights = true;
+        cfg.roadLightLen = 30.0;
+        cfg.roadLightW = 2.5;
+        cfg.roadLightGlowR = 5.0;
+        cfg.roadLightGlow = 0.8;
+        cfg.ringLights = 8;
+        cfg.collarLights = 8;
+        cfg.coreCollarLights = 16;
+        cfg.collarLightSize = 3.0;
+        return cfg;
+    }
+
     float SectViewPxPerKm(int screenW, int screenH)
     {
         return (float)std::max(screenW, screenH) / 5.0f;
@@ -154,13 +225,17 @@ namespace SectArt
         f.unitDomeR = (float)(cfg.unit.domeRadius * unitSize);
         f.unitRimR = (float)((cfg.unit.domeRadius + cfg.unit.ringWidth) * unitSize);
         f.coreDomeR = (float)(cfg.central.domeRadius * coreSize);
+        f.coreRimR = (float)((cfg.central.domeRadius + cfg.central.ringWidth) * coreSize);
+        f.collar = (float)(cfg.domeCollar * s);
+        f.ringRoadR = (float)(cfg.ringRoadR * s);
+        f.ringRoadOuterR = (float)((cfg.ringRoadR + cfg.roadW * 0.5 + cfg.bankW) * s);
         return f;
     }
 
     void Update(double budgetMs)
     {
-        const float want = SectViewPxPerKm(GetScreenWidth(), GetScreenHeight());
-        if (g_set.pxPerKm != want) StartSet(want);
+        if (g_set.screenW != GetScreenWidth() || g_set.screenH != GetScreenHeight())
+            StartSet(GetScreenWidth(), GetScreenHeight());
         while (g_set.next < g_set.items.size() && budgetMs > 0.0)
         {
             Item& it = g_set.items[g_set.next];
@@ -184,7 +259,7 @@ namespace SectArt
 
     bool Ready()
     {
-        return g_set.pxPerKm == SectViewPxPerKm(GetScreenWidth(), GetScreenHeight()) &&
+        return g_set.screenW == GetScreenWidth() && g_set.screenH == GetScreenHeight() &&
                g_set.next >= g_set.items.size();
     }
 
@@ -192,7 +267,7 @@ namespace SectArt
     {
         const Item* it = Find(Piece::ROADS, -1);
         if (!it) return;
-        // The road layer is the whole base square; its centre is the sect centre.
+        // The road layer is screen-sized and centred on the sect centre.
         DrawTexture(it->tex, (int)std::floor(f.center.x - it->tex.width * 0.5f + 0.5f),
                     (int)std::floor(f.center.y - it->tex.height * 0.5f + 0.5f), WHITE);
     }

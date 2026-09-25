@@ -121,7 +121,28 @@ struct DomeForgeConfig
     DomeForgeRgb centralColor, cardinalColor, diagonalColor;
     bool spokesBeyond = false, domeRoads = true;
     bool unitSockets = true, centralSockets = true, socketsToCentre = true;
+
+    // ---- extensions: not in the JS ----
+    // Off by default, so the port still diffs bit-exact against the prototype
+    // (tools/domeforge/domeforge_diff.sh). The sect view switches them on to
+    // match the concept art (samples/base-compare-reference.png, left half):
+    // each dome sits in a collar of road that the spokes flow into, and amber
+    // light bars run on the road centre line.
+    double domeCollar = 0.0;        // px at 1254: road band around every dome rim
+    bool roadLights = false;        // light bars on the centre line
+    double roadLightLen = 20.0, roadLightW = 4.0;   // px at 1254
+    double roadLightGlowR = 7.0, roadLightGlow = 0.9;
+    int ringLights = 8;             // on the ring road, midway between spokes
+    int collarLights = 0;           // small lamps round each unit dome's collar
+    int coreCollarLights = 0;       // ... and round the core's
+    double collarLightSize = 3.0;   // px at 1254, their diameter
+    double spokesBeyondLen = 0.0;   // px at 1254 past the ring; 0 = to the base's edge (the JS)
 };
+
+// Set one config field by its JS name ("roadW", "roadColor", "laneOn", ...),
+// value as text ("34", "#4a4744", "0"). False if the key is unknown. For
+// tuning tools; the game sets fields directly.
+bool DomeForgeSetParam(DomeForgeConfig& cfg, const std::string& key, const std::string& value);
 
 DomeForgeConfig DomeForgeDefaults();
 
@@ -155,18 +176,28 @@ struct DomeForgeDome
     bool cardinal = false;
 };
 
+// A light bar on the road centre line (extension; cfg.roadLights).
+struct DomeForgeLight
+{
+    double x = 0, y = 0;        // math coords (y up), px
+    double dx = 1, dy = 0;      // unit direction along the road
+    double len = 0;             // px; 0 = cfg.roadLightLen (a bar), else a lamp this long
+};
+
 struct DomeForgeLayout
 {
     double A = 0, s = 0;        // base size in px, and px per 1254-px unit
     std::vector<DomeForgeDome> domes;   // [0] central, then 8 units from 90 deg in 45 deg steps
     std::vector<DomeForgePrim> prims;
+    std::vector<DomeForgeLight> lights;   // empty unless cfg.roadLights
 };
 
 DomeForgeLayout DomeForgeMakeLayout(const DomeForgeConfig& cfg, double scale);
 
 // The road layer alone, transparent elsewhere (kerbs, banks, lane dashes, rim shadows).
 DomeForgeImage DomeForgeRenderRoads(const DomeForgeConfig& cfg, int W, int H,
-                                    const std::vector<DomeForgePrim>& prims, double scale);
+                                    const std::vector<DomeForgePrim>& prims, double scale,
+                                    const std::vector<DomeForgeLight>& lights = {});
 
 // Cratered regolith. The game draws real terrain instead; ported so the full base diffs.
 DomeForgeImage DomeForgeRenderGround(const DomeForgeConfig& cfg, int W, int H, double scale);
@@ -192,7 +223,8 @@ class DomeForgeJob
 public:
     static DomeForgeJob Sprite(const DomeForgeConfig& cfg, DomeForgeKind kind);
     static DomeForgeJob Roads(const DomeForgeConfig& cfg, int W, int H,
-                              const std::vector<DomeForgePrim>& prims, double scale);
+                              const std::vector<DomeForgePrim>& prims, double scale,
+                              const std::vector<DomeForgeLight>& lights = {});
 
     // Renders rows until budgetMs is spent (at least one row). True when finished.
     bool Step(double budgetMs);

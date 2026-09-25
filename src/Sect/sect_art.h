@@ -19,6 +19,7 @@
 #define SECT_ART_H
 
 #include "raylib.h"
+#include "domeforge.h"
 
 namespace SectArt
 {
@@ -34,7 +35,15 @@ namespace SectArt
         float unitDomeR;                // glass radius, px
         float unitRimR;                 // outer edge of the rim, px (hit radius)
         float coreDomeR;
+        float coreRimR;                 // outer edge of the core's rim, px
+        float collar;                   // road collar round every rim, px
+        float ringRoadR;                // ring road centre line, px
+        float ringRoadOuterR;           // its outer kerb and bank, px
     };
+
+    // The DomeForge config the sect view bakes: DomeForge's defaults tuned to
+    // the concept art (proportions, roads, collars, lights).
+    DomeForgeConfig BaseConfig();
 
     // The sect view's ground scale: DrawSectTerrainBackground cover-fits the
     // square 5 km tile, so the longer screen side spans 5 km.

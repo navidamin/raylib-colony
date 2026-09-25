@@ -154,6 +154,49 @@ otherwise).
 
 ![the sect view on DomeForge](sect-view-domeforge.png)
 
+## 6b. Roads like the concept (the user, 2026-09-25)
+
+*"You see the size of roads in the first concept image. I want it like
+this."* The concept is DomeForge's own reference,
+`samples/base-compare-reference.png` (left half). Measured before tuning,
+the concept's roads are **not much wider** than DomeForge's defaults: where
+both are plain road they are 13-16 px at 627 px. What makes them read
+bigger and darker:
+
+- **the kerb is a soft edge** (luminance ~130-140) where DomeForge draws a
+  bright line (200-255) with a dark gutter beside it
+- **the asphalt is smooth** and the spokes a darker grey (L 55-75)
+- **smaller domes** (units ~82 px, core ~150 px at 627, against DomeForge's
+  95 and 165), so more road shows between them
+- **every dome sits in a collar of road** that the spokes flow into, with
+  small lamps in it; amber bars sit on the centre lines; the cardinal roads
+  run on past the ring and off the picture
+
+Most of that is DomeForge's own parameters, set in `SectArt::BaseConfig()`
+(road colour, mottle, kerb width, bevel, shine and outline, bank, fillets,
+lane, dome sizes, sockets off). The rest are **extensions in the port**,
+off by default so `domeforge_diff.sh` still matches the JS exactly:
+`domeCollar`, `roadLights` (+ `ringLights`, `collarLights`,
+`coreCollarLights`), and `spokesBeyondLen`. In the game the road layer
+covers the whole screen, so the cardinal roads leave the screen as they
+leave the concept. It was tuned crop against crop at the same scale with
+`domeforge_render --set key=value` (any field, by its JS name).
+
+![concept | tuned | DomeForge default](roads-tuning.png)
+
+*Concept | tuned | DomeForge default, all on DomeForge's own ground.*
+
+![concept vs the game](roads-concept-vs-game.png)
+
+*The same quadrant: concept (left) and the game (right).* The remaining
+difference is the ground: the concept's is dark stylised regolith, and the
+game's is the real terrain, which is lighter, so the roads read a little
+darker than the ground instead of lighter.
+
+`tests/test_sect_site.cpp` now holds the levelled site to the art's layout
+(ring road, dome ring, core, footprint), since the dome sizes moved and the
+two once drifted apart.
+
 ## 7. 3D view: sized, scaffolded, not built
 
 `dome-forge-3d.js` is one WebGL 1 fragment shader, 444 lines / 20 KB of GLSL
@@ -194,8 +237,8 @@ outside the ring road**, with the ground under the base untouched.
 What it is now:
 
 - `SectLevelSite` takes the 5 km level's geometry from the base's layout
-  (dome ring 0.876 km, core 0.444 km, footprint to the ring road's outer kerb,
-  1.30 km).
+  (dome ring 0.876 km, core and its collar 0.419 km, footprint to the ring
+  road's outer kerb, 1.30 km).
 - Inside the footprint the ground is levelled much further (elevation 0.92,
   tone 0.50) and the site's own undulation and roughness are calmed by 0.60.
   It fades back to the site treatment over 0.30 km: no edge.

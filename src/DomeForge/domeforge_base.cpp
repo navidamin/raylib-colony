@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 
 using namespace DomeForgeUtil;
 
@@ -130,7 +131,55 @@ namespace
         int seed;
         double aa, e, segSp, laneW, dash, gap, bankW, shW, scale;
         const DomeForgeConfig* cfg;
+        // extension: centre-line light bars
+        std::vector<DomeForgeLight> lights;
+        double ltLen, ltW, ltSig, ltReach;
+        DomeForgeRgb ltCol, ltCore;
     };
+
+    // Extension, not in the JS: composite the light bars over one row of the
+    // finished road layer. Same bar and halo as the engine's rim lights (a
+    // rounded rect core, a Gaussian glow), but in premultiplied alpha so a
+    // halo that spills past the kerb onto transparent ground stays amber.
+    void LightRow(const RoadCtx& c, DomeForgeImage& img, int y)
+    {
+        const int W = img.width, H = img.height;
+        const double Y = H - (y + 0.5);
+        for (const DomeForgeLight& lt : c.lights)
+        {
+            const double len = lt.len > 0 ? lt.len : c.ltLen, w = lt.len > 0 ? lt.len : c.ltW;
+            const double reach = len * 0.5 + c.ltReach;
+            if (std::fabs(Y - lt.y) > reach) continue;
+            const int x0 = std::max(0, (int)std::floor(lt.x - reach)), x1 = std::min(W - 1, (int)std::ceil(lt.x + reach));
+            for (int x = x0; x <= x1; x++)
+            {
+                const double X = x + 0.5;
+                const double u = (X - lt.x) * lt.dx + (Y - lt.y) * lt.dy;    // along the road
+                const double v = -(X - lt.x) * lt.dy + (Y - lt.y) * lt.dx;   // across it
+                const double d = RoundedRectSDF(u, v, len / 2, w / 2, w / 2);
+                const double core = 1 - Sstep(-0.5, 0.5, d);
+                const double dd = std::max(d, 0.0);
+                const double gl = std::exp(-dd * dd / (2 * c.ltSig * c.ltSig)) * c.cfg->roadLightGlow;
+                if (gl < 1e-3 && core <= 0) continue;
+                const size_t o = ((size_t)y * W + x) * 4;
+                const double A = img.rgba[o + 3] / 255.0;
+                double pr = img.rgba[o] / 255.0 * A, pg = img.rgba[o + 1] / 255.0 * A, pb = img.rgba[o + 2] / 255.0 * A;
+                pr += c.ltCol.r * gl * 0.9;
+                pg += c.ltCol.g * gl * 0.9;
+                pb += c.ltCol.b * gl * 0.9;
+                double A2 = A + gl * 0.85 * (1 - A);
+                double R = A2 > 0 ? pr / A2 : 0, G = A2 > 0 ? pg / A2 : 0, B = A2 > 0 ? pb / A2 : 0;
+                R = Lerp(R, c.ltCore.r, core);
+                G = Lerp(G, c.ltCore.g, core);
+                B = Lerp(B, c.ltCore.b, core);
+                A2 = A2 + core * (1 - A2);
+                img.rgba[o] = ToByte(Clamp(R, 0.0, 1.0) * 255);
+                img.rgba[o + 1] = ToByte(Clamp(G, 0.0, 1.0) * 255);
+                img.rgba[o + 2] = ToByte(Clamp(B, 0.0, 1.0) * 255);
+                img.rgba[o + 3] = ToByte(Clamp(A2, 0.0, 1.0) * 255);
+            }
+        }
+    }
 
     // One row of renderRoads. Port: the pixel body is the JS's; what is new is
     // the span skip in front of it. The road union is 1-Lipschitz (exact SDFs
@@ -266,7 +315,8 @@ namespace
 }
 
 DomeForgeJob DomeForgeJob::Roads(const DomeForgeConfig& cfgIn, int W, int H,
-                                 const std::vector<DomeForgePrim>& prims, double scale)
+                                 const std::vector<DomeForgePrim>& prims, double scale,
+                                 const std::vector<DomeForgeLight>& lights)
 {
     if (scale == 0) scale = 1;
     auto cfg = std::make_shared<DomeForgeConfig>(cfgIn);
@@ -294,17 +344,29 @@ DomeForgeJob DomeForgeJob::Roads(const DomeForgeConfig& cfgIn, int W, int H,
     c->gap = cfg->laneGap * scale;
     c->bankW = cfg->bankW * scale;
     c->shW = cfg->domeShadowW * scale;
+    if (cfg->roadLights) c->lights = lights;
+    c->ltLen = cfg->roadLightLen * scale;
+    c->ltW = cfg->roadLightW * scale;
+    c->ltSig = cfg->roadLightGlowR * scale * 0.45;
+    c->ltReach = cfg->roadLightGlowR * scale * 2.2;
+    c->ltCol = cfg->lightColor;
+    c->ltCore = {Lerp(c->ltCol.r, 1, 0.6), Lerp(c->ltCol.g, 1, 0.6), Lerp(c->ltCol.b, 1, 0.6)};
     DomeForgeImage img;
     img.width = W;
     img.height = H;
     img.rgba.assign((size_t)W * H * 4, 0);
-    return FromRows(std::move(img), [cfg, c](DomeForgeImage& out, int y) { RenderRoadsRow(*c, out, y); });
+    return FromRows(std::move(img), [cfg, c](DomeForgeImage& out, int y)
+    {
+        RenderRoadsRow(*c, out, y);
+        if (!c->lights.empty()) LightRow(*c, out, y);
+    });
 }
 
 DomeForgeImage DomeForgeRenderRoads(const DomeForgeConfig& cfg, int W, int H,
-                                    const std::vector<DomeForgePrim>& prims, double scale)
+                                    const std::vector<DomeForgePrim>& prims, double scale,
+                                    const std::vector<DomeForgeLight>& lights)
 {
-    DomeForgeJob job = DomeForgeJob::Roads(cfg, W, H, prims, scale);
+    DomeForgeJob job = DomeForgeJob::Roads(cfg, W, H, prims, scale, lights);
     job.Step(1e30);
     return job.TakeImage();
 }
@@ -437,8 +499,9 @@ DomeForgeLayout DomeForgeMakeLayout(const DomeForgeConfig& cfg, double scale)
             o.t = DomeForgePrim::SEG;
             o.ax = cX + ringR * ca;
             o.ay = cY + ringR * sa;
-            o.bx = cX + A * ca;
-            o.by = cY + A * sa;
+            const double reach = cfg.spokesBeyondLen > 0 ? ringR + cfg.spokesBeyondLen * s : A;   // extension: stub length
+            o.bx = cX + reach * ca;
+            o.by = cY + reach * sa;
             o.w = cfg.roadOuterW * s;
             lay.prims.push_back(o);
         }
@@ -456,8 +519,46 @@ DomeForgeLayout DomeForgeMakeLayout(const DomeForgeConfig& cfg, double scale)
         disc.t = DomeForgePrim::DISC;
         disc.cx = d.x;
         disc.cy = d.y;
-        disc.r = d.rout - 0.5 * s;
+        disc.r = d.rout - 0.5 * s + cfg.domeCollar * s;   // extension: collar (0 in the JS)
         lay.prims.push_back(disc);
+    }
+    // Extension: light bars on the centre line. One on each core->unit spoke,
+    // midway along the stretch of road that shows between the two collars,
+    // and ringLights on the ring road, midway between the spokes.
+    if (cfg.roadLights)
+    {
+        const double coreEdge = lay.domes[0].rout + cfg.domeCollar * s;
+        for (size_t k = 1; k < lay.domes.size(); k++)
+        {
+            const DomeForgeDome& d = lay.domes[k];
+            const double ca = std::cos(d.angle * DEG), sa = std::sin(d.angle * DEG);
+            const double unitEdge = orbit - (d.rout + cfg.domeCollar * s);
+            const double r = 0.5 * (coreEdge + unitEdge);
+            lay.lights.push_back({cX + r * ca, cY + r * sa, ca, sa});
+        }
+        for (int k = 0; k < cfg.ringLights; k++)
+        {
+            const double ang = (90.0 + 180.0 / std::max(1, cfg.ringLights) + k * 360.0 / std::max(1, cfg.ringLights)) * DEG;
+            lay.lights.push_back({cX + ringR * std::cos(ang), cY + ringR * std::sin(ang), -std::sin(ang), std::cos(ang)});
+        }
+    }
+    // Extension: small lamps round each dome, in the middle of its collar,
+    // spaced evenly and offset half a step from the spokes so none sits in a
+    // junction. Only with a collar to stand on.
+    if (cfg.roadLights && cfg.domeCollar > 0)
+    {
+        for (size_t k = 0; k < lay.domes.size(); k++)
+        {
+            const DomeForgeDome& d = lay.domes[k];
+            const int n = d.kind == DomeForgeKind::CENTRAL ? cfg.coreCollarLights : cfg.collarLights;
+            const double r = d.rout + 0.5 * cfg.domeCollar * s;
+            for (int i = 0; i < n; i++)
+            {
+                const double ang = (d.angle + 180.0 / n + i * 360.0 / n) * DEG;
+                lay.lights.push_back({d.x + r * std::cos(ang), d.y + r * std::sin(ang), -std::sin(ang), std::cos(ang),
+                                      cfg.collarLightSize * s});
+            }
+        }
     }
     return lay;
 }
@@ -505,7 +606,7 @@ DomeForgeImage DomeForgeRenderBase(const DomeForgeConfig& cfg, double scale)
     const DomeForgeLayout lay = DomeForgeMakeLayout(cfg, scale);
     const int W = (int)JsRound(lay.A), H = W;
     DomeForgeImage ground = DomeForgeRenderGround(cfg, W, H, scale * cfg.baseSize / 1254);
-    const DomeForgeImage roads = DomeForgeRenderRoads(cfg, W, H, lay.prims, scale * cfg.baseSize / 1254);
+    const DomeForgeImage roads = DomeForgeRenderRoads(cfg, W, H, lay.prims, scale * cfg.baseSize / 1254, lay.lights);
     DomeForgeBlit(ground, roads, 0, 0);
     for (const DomeForgeDome& d : lay.domes)
     {
@@ -516,4 +617,44 @@ DomeForgeImage DomeForgeRenderBase(const DomeForgeConfig& cfg, double scale)
         DomeForgeBlit(ground, img, (int)JsRound(d.x - img.cx), (int)JsRound(H - d.y - img.cy));
     }
     return ground;
+}
+
+bool DomeForgeSetParam(DomeForgeConfig& c, const std::string& key, const std::string& v)
+{
+    struct D { const char* k; double* p; };
+    const D doubles[] = {
+        {"roadW", &c.roadW}, {"roadOuterW", &c.roadOuterW}, {"curbW", &c.curbW}, {"fillet", &c.fillet},
+        {"filletDome", &c.filletDome}, {"roadMottle", &c.roadMottle}, {"roadGrain", &c.roadGrain},
+        {"curbSeg", &c.curbSeg}, {"curbSegDepth", &c.curbSegDepth}, {"curbBevel", &c.curbBevel},
+        {"curbShine", &c.curbShine}, {"curbShadow", &c.curbShadow}, {"curbOutline", &c.curbOutline},
+        {"bankW", &c.bankW}, {"bankLight", &c.bankLight}, {"bankShadow", &c.bankShadow},
+        {"domeShadowW", &c.domeShadowW}, {"domeShadow", &c.domeShadow}, {"laneW", &c.laneW},
+        {"laneDash", &c.laneDash}, {"laneGap", &c.laneGap}, {"laneAlpha", &c.laneAlpha},
+        {"orbit", &c.orbit}, {"ringRoadR", &c.ringRoadR}, {"centralSize", &c.centralSize},
+        {"unitSize", &c.unitSize}, {"offsetY", &c.offsetY}, {"domeCollar", &c.domeCollar},
+        {"roadLightLen", &c.roadLightLen}, {"roadLightW", &c.roadLightW},
+        {"roadLightGlowR", &c.roadLightGlowR}, {"roadLightGlow", &c.roadLightGlow},
+        {"lightGlow", &c.lightGlow}, {"lightGlowR", &c.lightGlowR}, {"lightSize", &c.lightSize},
+        {"lightAz", &c.lightAz}, {"lightEl", &c.lightEl},
+    };
+    for (const D& d : doubles)
+        if (key == d.k) { d.p[0] = std::atof(v.c_str()); return true; }
+    struct B { const char* k; bool* p; };
+    const B bools[] = {{"laneOn", &c.laneOn}, {"roadLights", &c.roadLights}, {"spokesBeyond", &c.spokesBeyond},
+                       {"domeRoads", &c.domeRoads}, {"socketOn", &c.socketOn}};
+    for (const B& b : bools)
+        if (key == b.k) { b.p[0] = v == "1" || v == "true"; return true; }
+    if (key == "ringLights") { c.ringLights = std::atoi(v.c_str()); return true; }
+    if (key == "collarLights") { c.collarLights = std::atoi(v.c_str()); return true; }
+    if (key == "coreCollarLights") { c.coreCollarLights = std::atoi(v.c_str()); return true; }
+    if (key == "collarLightSize") { c.collarLightSize = std::atof(v.c_str()); return true; }
+    if (key == "spokesBeyondLen") { c.spokesBeyondLen = std::atof(v.c_str()); return true; }
+    struct C { const char* k; DomeForgeRgb* p; };
+    const C colours[] = {{"roadColor", &c.roadColor}, {"curbColor", &c.curbColor}, {"laneColor", &c.laneColor},
+                         {"lightColor", &c.lightColor}, {"groundColor", &c.groundColor}, {"color", &c.color},
+                         {"frameColor", &c.frameColor}, {"centralColor", &c.centralColor},
+                         {"cardinalColor", &c.cardinalColor}, {"diagonalColor", &c.diagonalColor}};
+    for (const C& col : colours)
+        if (key == col.k) { *col.p = DomeForgeHex(v); return true; }
+    return false;
 }
