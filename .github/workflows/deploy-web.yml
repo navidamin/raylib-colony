@@ -9,7 +9,8 @@ on:
     # "pages", cancel-in-progress). This branch is listed while the
     # site-selection playtest at /lunarmap/ is being tried on a phone.
     # Drop it from this list again once that is done. The DomeForge sect
-    # view is listed for the same reason: /viewtest/?sect on a phone.
+    # view is listed for the same reason, at /sectview/?sect -- and adds
+    # only that directory (see "Start from the live site").
     branches: [main, master, claude/lunar-elevation-lola-dem-1dcdtj, claude/lunarmap-wiring-site-selection-b9lwaw, claude/sect-view-domeforge]
     paths:
       - 'src/**'
@@ -52,98 +53,45 @@ jobs:
     - name: Configure with CMake (Emscripten)
       run: emcmake cmake -B build -DPLATFORM=Web -DCMAKE_BUILD_TYPE=Release
 
+    # Only the view test: this branch adds one directory to the site.
     - name: Build
-      run: cmake --build build
+      run: cmake --build build --target colony_viewtest
 
-    - name: Prepare deployment directory
-      run: |
-        mkdir -p deploy
-        cp build/src/colony_game.html deploy/index.html
-        cp build/src/colony_game.js deploy/colony_game.js
-        cp build/src/colony_game.wasm deploy/colony_game.wasm
-        # .data file contains preloaded assets
-        if [ -f build/src/colony_game.data ]; then
-          cp build/src/colony_game.data deploy/colony_game.data
-        fi
-        # View-ladder playtest at /viewtest/ (annotated Orbital->Sect walk)
-        mkdir -p deploy/viewtest
-        cp build/src/colony_viewtest.html deploy/viewtest/index.html
-        cp build/src/colony_viewtest.js deploy/viewtest/colony_viewtest.js
-        cp build/src/colony_viewtest.wasm deploy/viewtest/colony_viewtest.wasm
-        if [ -f build/src/colony_viewtest.data ]; then
-          cp build/src/colony_viewtest.data deploy/viewtest/colony_viewtest.data
-        fi
-        # Real-elevation lunar map (LOLA DEM) at /lunarmap/
-        mkdir -p deploy/lunarmap
-        cp build/src/lunar_map.html deploy/lunarmap/index.html
-        cp build/src/lunar_map.js deploy/lunarmap/lunar_map.js
-        cp build/src/lunar_map.wasm deploy/lunarmap/lunar_map.wasm
-        # .data file preloads the LOLA DEM and WAC albedo
-        if [ -f build/src/lunar_map.data ]; then
-          cp build/src/lunar_map.data deploy/lunarmap/lunar_map.data
-        fi
-        # Terrain-synthesis benches at /regolith/. Plain JS -- the chain is
-        # a port of src/TerrainGen/terrain_synthesis.cpp and the imagery
-        # travels inside regolith_blocks.js -- so there is nothing to
-        # build and nothing to fetch at runtime. index.html is the zoomable
-        # descent (sect -> ground, tiles made on the way in); bench.html is
-        # the lever board with the mosaic beside the synthesis.
-        mkdir -p deploy/regolith
-        cp prototypes/planet_visuals/regolith_playtest.html deploy/regolith/index.html
-        cp prototypes/planet_visuals/regolith_craters.html  deploy/regolith/bench.html
-        cp prototypes/planet_visuals/regolith_chain.js      deploy/regolith/
-        cp prototypes/planet_visuals/regolith_blocks.js     deploy/regolith/
-        # The playtest builds its tiles in a worker, which needs a real
-        # origin -- so this is the only place the refined picture exists.
-        cp prototypes/planet_visuals/regolith_worker.js     deploy/regolith/
-        # ...and the shaders, which are where the tile is actually made
-        # on any machine with a GPU.
-        cp prototypes/planet_visuals/regolith_gpu.js        deploy/regolith/
-        # Stamp the build into the page. Without it there is no telling a
-        # stale tab from a deploy that has not landed, which cost a
-        # playtest round to work out.
-        STAMP="$(git rev-parse --short HEAD) · $(date -u '+%Y-%m-%d %H:%M') UTC"
-        sed -i "s|BUILD_STAMP|${STAMP}|" deploy/regolith/index.html
-        grep -q BUILD_STAMP deploy/regolith/index.html && { echo "stamp not applied"; exit 1; } || true
-
-    # One repo has one Pages site and every deploy replaces ALL of it. The
-    # excavation branch serves /playtest/ and /extraction/; this step pulls
-    # its latest successful Pages artifact and keeps any top-level directory
-    # this deploy does not itself provide, so a deploy from THIS branch
-    # serves the union instead of 404ing the other branch's sandboxes.
-    # The excavation branch carries the mirror of this step, naming this
-    # branch. Never fails the build: no artifact just means shipping alone.
-    - name: Overlay other branches' sandboxes
+    # Three branches share one Pages site and every deploy replaces all of
+    # it. The excavation and lola-dem branches carry each other's
+    # directories; this branch must not replace either, so it starts from
+    # the newest successful deploy of theirs -- the site as it stands --
+    # and only adds /sectview/. Their deploys do not carry /sectview/, so
+    # it lasts until the next push from either; re-run this workflow then.
+    - name: Start from the live site
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        set +e
-        for BR in claude/excavation-module-design-jhp3v1; do
-          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-web.yml \
-                   --branch "$BR" --status success --limit 1 \
-                   --json databaseId --jq '.[0].databaseId')
-          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-            echo "no successful run on $BR -- skipping"; continue
-          fi
-          rm -rf _other _other_x && mkdir -p _other _other_x
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-             -n github-pages -D _other || { echo "artifact gone on $BR"; continue; }
-          tar -xf _other/artifact.tar -C _other_x || continue
-          for d in _other_x/*/; do
-            name=$(basename "$d")
-            if [ ! -e "deploy/$name" ]; then
-              echo "carrying /$name/ from $BR"
-              cp -r "$d" "deploy/$name"
-            fi
-          done
-        done
-        rm -rf _other _other_x
-        true
-        # NOTE: this branch must NOT build or copy its own /playtest/ or
-        # /extraction/ -- the excavation branch owns those and the loop
-        # above carries its build. A copy block appended here once
-        # clobbered the carried /playtest/ with this branch's stale
-        # compile of it, silently serving the old module.
+        RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy-web.yml \
+                 --status success --limit 30 --json databaseId,headBranch \
+                 --jq '[.[] | select(.headBranch != "claude/sect-view-domeforge")][0].databaseId')
+        if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+          echo "no live site to start from -- refusing to deploy alone"; exit 1
+        fi
+        echo "starting from run $RUN_ID"
+        mkdir -p _live deploy
+        gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n github-pages -D _live
+        tar -xf _live/artifact.tar -C deploy
+        rm -rf _live
+        ls deploy
+
+    # The DomeForge sect view at /sectview/ (the view test; ?sect opens it
+    # straight in the Sect view).
+    - name: Add /sectview/
+      run: |
+        rm -rf deploy/sectview
+        mkdir -p deploy/sectview
+        cp build/src/colony_viewtest.html deploy/sectview/index.html
+        cp build/src/colony_viewtest.js   deploy/sectview/colony_viewtest.js
+        cp build/src/colony_viewtest.wasm deploy/sectview/colony_viewtest.wasm
+        if [ -f build/src/colony_viewtest.data ]; then
+          cp build/src/colony_viewtest.data deploy/sectview/colony_viewtest.data
+        fi
 
     - name: Setup Pages
       uses: actions/configure-pages@v4
