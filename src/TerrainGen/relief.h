@@ -8,7 +8,7 @@
 // height ABOVE the LOLA model the game already ships: 8-bit JPEG tiles, 4 x 4
 // degrees each, detail = round((z - base) / 7 m) + 128, where base is the
 // bilinear LOLA sample at the pixel centre (LolaDem::GlobalBilinearM). The
-// whole moon is ~100 MB, so it is streamed, never preloaded: read from disk
+// whole moon is 85 MB, so it is streamed, never preloaded: read from disk
 // on the desktop, fetched a tile at a time in the browser. Built by
 // tools/relief/build_relief.py.
 //

@@ -31,3 +31,8 @@ its own list. `done/` marks finished bands, so a stopped build resumes. It needs
 Each band prints how many DTMs it used and dropped, and the spread of
 their disagreement with LOLA. Look at a district over any rebuilt band
 before committing: a DTM that is wrong and alone shows as a rectangle.
+
+**Commit tiles apart from code.** GitHub matches a push against a
+workflow's path filters using only the first 300 changed files, so a push
+carrying thousands of tiles and a `src/` change does not start the Tests
+or macOS workflows at all (2026-09-25). Push the tiles, then the code.
