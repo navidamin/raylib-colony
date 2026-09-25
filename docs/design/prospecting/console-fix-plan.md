@@ -6,7 +6,7 @@ the fix, how it gets verified, and whether it is done. Steps are ordered by
 risk and dependency: correctness first, then the one refactor the later steps
 lean on, then player-facing gaps, then polish, then performance.
 
-Status: **in progress.**
+Status: **complete** (2026-09-25). Every step records what was done.
 
 ## Step 1 — the six failing excavation checks (`colony_test`)
 
@@ -225,6 +225,9 @@ suspicion.
 
 Update `ROADMAP_IMMINENT.md` (and `ROADMAP_OVERALL.md` if a phase moved) with
 what this plan closed, per the session procedure in CLAUDE.md.
+
+**Done.** `ROADMAP_IMMINENT.md` has a September section and a SURVEY CONSOLE
+line in its progress tree. No phase in `ROADMAP_OVERALL.md` moved.
 
 ## Not in this plan
 

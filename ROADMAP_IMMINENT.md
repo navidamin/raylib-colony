@@ -1,6 +1,6 @@
 # ROADMAP_IMMINENT.md
 
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-09-25
 **Current Sprint:** Prospecting & Extraction Unit Overhaul
 **Timeline:** Phase 1.5 - Extraction Unit Overhaul
 
@@ -34,6 +34,15 @@ PROSPECTING REWRITE ████████████████░░░░
 ├─ Phase 7: AI / default mode ❌ NOT STARTED
 └─ Phase 8: Objectives system ❌ NOT STARTED
 
+SURVEY CONSOLE (prospecting's ported UI) ████████████████░░░░ ~80%
+├─ c2d shim + Holo3D / ToolRack ports under the 2% diff gate ✅ COMPLETE
+├─ Real data: ground, knowledge model, fog, delineation ✅ COMPLETE
+├─ Drilling loop: aim, depth stretch, plan, drill, abort, cancel ✅ COMPLETE
+├─ Cutaway, reveal, core barrels and log cards ✅ COMPLETE
+├─ Display scale 1x-3x, resize-following web build ✅ COMPLETE
+├─ Fix plan (docs/design/prospecting/console-fix-plan.md) ✅ COMPLETE
+└─ Dig profile -> excavation, core comparison, sweep tool ❌ NOT STARTED (need design)
+
 PHASE 1: Core Resource System ██████░░░░░░░░░░░░░░ ~30% NEXT (1.2/1.3 partially addressed)
 PHASE 2: Transport Network █████████████████░░░ ~90% LARGELY COMPLETE
 PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░░░░  0% PLANNED
@@ -41,6 +50,55 @@ PHASE 3: Advanced Production ░░░░░░░░░░░░░░░░░
 ```
 
 ---
+
+## Recent Completions (2026-09)
+
+### Survey Console ✅ PLAYABLE
+
+Prospecting's survey console is now a Canvas 2D port rendered through the
+`src/ui/` c2d shim:
+- the Holo3D block and the ToolRack, both under the 2% visual-diff gate;
+- the drill bar and the dashboard chrome.
+
+It runs on real data (the ground, the knowledge model, the fog and the
+delineation).
+
+**The drilling loop**
+- Phases: AIM → STRETCH → PLANNED → DRILLING → COMPLETE, with the cursor
+  tags, the grab hand and a yaw-only block.
+- CANCEL (touch) and right-click undo a choice; ABORT stops a running drill.
+- A pull-out ends every hole, and the hole stays behind with rough walls.
+
+**What a finished hole shows**
+- a cutaway through the block, then a three-second reveal and the cavity
+  closing;
+- a core barrel, and a log card with the dig profile.
+
+**Around it**
+- One bed palette (`src/ui/bed_palette.h`) for the block, the drill bar,
+  the cards, the excavation dock and the C++ survey block.
+- A display scale of 1x–3x (`src/display_scale.h`), and a web build that
+  follows window resizes.
+
+**The console fix plan (10 steps, all done)**
+- stale excavation checks brought up to the 32×32 lattice;
+- overlays split into `dash_overlay.c`, placed by one rule (`DashPlace`);
+- CANCEL for touch;
+- a log that really scrolls;
+- no text under 13 design units;
+- an empty hole after the pull-out;
+- the excavation dock on the shared palette;
+- a DisplayScale audit, with sectwalk runnable at 2x;
+- the fog measured, and found not to be the web's cost.
+
+**Test harnesses:** `tools/playtest/drive.py` (a real pointer, now with
+`wheel N`), `tools/fogbench`, c2dtest (96 checks), unit tests (209 cases),
+and `colony_test` (88/88).
+
+**Next (need design first):**
+- a hole's dig profile feeding excavation;
+- comparing and sorting core cards;
+- what the surface sweep and the empty rack slots do.
 
 ## Recent Completions (2026-08-18)
 
